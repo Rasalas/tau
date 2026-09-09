@@ -19,14 +19,15 @@ interface RecentProject {
  * and the home directory when there is none.
  */
 export function resolveStartupWorkspace(
-  requested: string,
+  requested: string | undefined,
   recent: readonly RecentProject[],
   options: { exists?: (path: string) => boolean; home?: string } = {},
 ): StartupWorkspace {
   const exists = options.exists ?? existsSync;
-  if (exists(requested)) return { cwd: requested };
+  if (requested && exists(requested)) return { cwd: requested };
   const fallback = [...recent]
     .sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)
     .find((project) => project.path !== requested && exists(project.path));
-  return { cwd: fallback?.path ?? options.home ?? homedir(), missing: requested };
+  const cwd = fallback?.path ?? options.home ?? homedir();
+  return requested ? { cwd, missing: requested } : { cwd };
 }

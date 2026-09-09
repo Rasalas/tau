@@ -44,4 +44,49 @@ describe("the theme preference", () => {
     expect(nextTheme("dark")).toBe("light");
     expect(nextTheme("light")).toBe("system");
   });
+
+  it("registers user themes and injects dynamic stylesheet when selected", async () => {
+    const { registerUserTheme, applyTheme, clearUserThemes, isThemePreference } = await import("./theme");
+    clearUserThemes();
+
+    registerUserTheme({
+      id: "monokai",
+      name: "Monokai Pro",
+      css: ":root { --acid: #a6e22e; }",
+    });
+
+    expect(isThemePreference("monokai")).toBe(true);
+
+    const preferences = new PreferencesStore();
+    preferences.setTheme("monokai");
+    expect(preferences.getSnapshot().theme).toBe("monokai");
+
+    applyTheme("monokai");
+    expect(document.documentElement.dataset.theme).toBe("monokai");
+
+    const styleEl = document.getElementById("user-theme") as HTMLStyleElement | null;
+    expect(styleEl).not.toBeNull();
+    expect(styleEl?.textContent).toBe(":root { --acid: #a6e22e; }");
+
+    // Switching back to built-in theme removes the dynamic style element
+    applyTheme("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.getElementById("user-theme")).toBeNull();
+
+    clearUserThemes();
+  });
+
+  it("cycles through user themes when available", async () => {
+    const { registerUserThemes, clearUserThemes } = await import("./theme");
+    registerUserThemes([
+      { id: "dracula", name: "Dracula", css: "" },
+      { id: "nord", name: "Nord", css: "" },
+    ]);
+
+    expect(nextTheme("light")).toBe("dracula");
+    expect(nextTheme("dracula")).toBe("nord");
+    expect(nextTheme("nord")).toBe("system");
+
+    clearUserThemes();
+  });
 });

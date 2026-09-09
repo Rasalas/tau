@@ -529,6 +529,36 @@ describe("PiHost.generateThreadTitle", () => {
     expect(internals.threads.active?.threadId).toBe("live-thread");
   });
 
+  it("applies an explicit new-thread model to the created runtime", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = makeActivationThread("configured-thread", "/configured.jsonl");
+    const selectedModels: Array<{ provider: string; id: string }> = [];
+    thread.backend.capabilities.catalogWrite = {
+      setModel: async (provider: string, id: string) => { selectedModels.push({ provider, id }); },
+      setThinkingLevel: async () => undefined,
+    };
+    internals.rememberProject = async () => {};
+    internals.index.refreshShell = async () => {};
+    internals.detachBridge = () => {};
+    internals.runtimes.open = async () => thread;
+    internals.logReplacement = () => {};
+    internals.prewarm.scheduleSpare = () => {};
+    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    internals.prompt = async () => undefined;
+
+    await expect(host.newSession(
+      "start with Astra",
+      [],
+      "/repo",
+      undefined,
+      undefined,
+      { model: { provider: "openai-codex", id: "gpt-6-astra" } },
+    )).resolves.toMatchObject({ submission: { accepted: true }, sessionId: "configured-thread" });
+
+    expect(selectedModels).toEqual([{ provider: "openai-codex", id: "gpt-6-astra" }]);
+  });
+
   it("admits newSession before the lifecycle queue so a later live switch stays visible", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const internals = host as unknown as Record<string, any>;

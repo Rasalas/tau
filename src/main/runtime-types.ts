@@ -13,6 +13,7 @@ import type {
   UiToolOutputReadResult,
   UiToolRun,
   ThreadBackendKind,
+  SystemPromptInspection,
 } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
@@ -228,6 +229,10 @@ export interface ThreadNewThreadCapability {
   create(request: RuntimeNewThreadRequest): Promise<RuntimeNewThreadOutcome>;
 }
 
+export interface ThreadSystemPromptCapability {
+  inspect(): Promise<SystemPromptInspection> | SystemPromptInspection;
+}
+
 export interface ThreadBackendCapabilities {
   journal?: ThreadJournalCapability;
   tree?: ThreadTreeCapability;
@@ -242,6 +247,7 @@ export interface ThreadBackendCapabilities {
   transcriptPaging?: ThreadTranscriptPagingCapability;
   markdownExport?: ThreadMarkdownExportCapability;
   newThread?: ThreadNewThreadCapability;
+  systemPrompt?: ThreadSystemPromptCapability;
 }
 
 export type ThreadCapabilityName = keyof ThreadBackendCapabilities;
@@ -272,6 +278,7 @@ const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
   transcriptPaging: "Runtime-paged transcripts",
   markdownExport: "Markdown export",
   newThread: "Runtime-owned new threads",
+  systemPrompt: "System prompt inspection",
 };
 
 /**

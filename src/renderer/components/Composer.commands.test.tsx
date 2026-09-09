@@ -243,4 +243,28 @@ describe("Composer command menu", () => {
     expect(screen.getByRole("button", { name: "Model selection unavailable" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Reasoning controls unavailable" })).toHaveProperty("disabled", true);
   });
+
+  it("navigates prompt history with ArrowUp and ArrowDown", async () => {
+    const onSubmit = renderComposer();
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    // Send first prompt
+    fireEvent.change(textarea, { target: { value: "first prompt", selectionStart: 12 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith("first prompt", []);
+    // Allow async sendSubmission to settle and record in prompt history
+    await waitFor(() => expect(textarea.value).toBe(""));
+
+    // Type a draft
+    fireEvent.change(textarea, { target: { value: "draft in progress", selectionStart: 0, selectionEnd: 0 } });
+    textarea.setSelectionRange(0, 0);
+
+    // ArrowUp loads previous prompt
+    fireEvent.keyDown(textarea, { key: "ArrowUp" });
+    expect(textarea.value).toBe("first prompt");
+
+    // ArrowDown restores the draft in progress
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    expect(textarea.value).toBe("draft in progress");
+  });
 });

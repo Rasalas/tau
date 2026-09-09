@@ -34,6 +34,7 @@ export interface VirtualTranscriptProps {
   anchorRef?: { current: TranscriptScrollAnchor | undefined };
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
+  onFocusComposer?: () => void;
 }
 
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
@@ -81,6 +82,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   anchorRef,
   onCopyMessage,
   onForkMessage,
+  onFocusComposer,
 }: VirtualTranscriptProps) {
   const pendingActivities = useMemo<TranscriptActivity[]>(() => [
     ...activities,
@@ -208,6 +210,110 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     virtualizer,
   });
 
+  const [focusedIndex, setFocusedIndex] = useState<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    setFocusedIndex(undefined);
+  }, [sessionKey]);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    const isInput = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+    if (isInput && event.key !== "Escape") return;
+
+    if (event.key === "j" || event.key === "ArrowDown") {
+      event.preventDefault();
+      if (messages.length === 0) return;
+      setFocusedIndex((current) => {
+        const next = current === undefined
+          ? Math.max(0, virtualizer.range?.startIndex ?? 0)
+          : Math.min(messages.length - 1, current + 1);
+        virtualizer.scrollToIndex(next, { align: "auto" });
+        return next;
+      });
+      return;
+    }
+
+    if (event.key === "k" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (messages.length === 0) return;
+      setFocusedIndex((current) => {
+        const prev = current === undefined
+          ? Math.min(messages.length - 1, virtualizer.range?.endIndex ?? (messages.length - 1))
+          : Math.max(0, current - 1);
+        virtualizer.scrollToIndex(prev, { align: "auto" });
+        return prev;
+      });
+      return;
+    }
+
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      if (focusedIndex !== undefined && focusedIndex >= 0 && focusedIndex < messages.length) {
+        const msg = messages[focusedIndex];
+        const rowEl = transcriptRef.current?.querySelector<HTMLElement>(`[data-index="${focusedIndex}"]`);
+        if (rowEl && msg) {
+          const thinkingSummary = rowEl.querySelector<HTMLElement>(".message-thinking summary");
+          if (thinkingSummary) {
+            thinkingSummary.click();
+            return;
+          }
+          const toolRunButton = rowEl.querySelector<HTMLButtonElement>(".tool-run-line");
+          if (toolRunButton) {
+            toolRunButton.click();
+            return;
+          }
+          const workRowSummary = rowEl.querySelector<HTMLButtonElement>(".work-row-summary");
+          if (workRowSummary) {
+            workRowSummary.click();
+            return;
+          }
+          const activityBtn = rowEl.querySelector<HTMLButtonElement>(".activity-disclosure button");
+          if (activityBtn) {
+            activityBtn.click();
+            return;
+          }
+          const userToggle = rowEl.querySelector<HTMLButtonElement>(".user-message-toggle");
+          if (userToggle) {
+            userToggle.click();
+            return;
+          }
+          updateExpandedMessage(msg.id, !expandedMessageIds.has(msg.id));
+        }
+      }
+      return;
+    }
+
+    if (event.key === "y" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      if (focusedIndex !== undefined && focusedIndex >= 0 && focusedIndex < messages.length) {
+        const msg = messages[focusedIndex];
+        if (msg) {
+          const rowEl = transcriptRef.current?.querySelector<HTMLElement>(`[data-index="${focusedIndex}"]`);
+          const codeEl = rowEl?.querySelector(".md-code pre code") ?? rowEl?.querySelector("pre code");
+          const textToCopy = codeEl?.textContent || msg.text;
+          try {
+            void navigator.clipboard?.writeText(textToCopy);
+          } catch {
+            // Ignore clipboard errors
+          }
+          onCopyMessage?.(msg);
+        }
+      }
+      return;
+    }
+
+    if (event.key === "Escape" || event.key === "i") {
+      event.preventDefault();
+      if (onFocusComposer) {
+        onFocusComposer();
+      } else {
+        const composer = document.querySelector<HTMLElement>(".composer textarea, textarea.composer-textarea, [data-composer-input], textarea");
+        composer?.focus();
+      }
+      return;
+    }
+  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onFocusComposer, updateExpandedMessage, virtualizer]);
+
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0
     ? measuredRows
@@ -216,7 +322,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   const visibleRangeEnd = virtualizer.range?.endIndex;
 
   if (messages.length === 0 && unanchoredActivities.length > 0) {
-    return <div ref={transcriptRef} className="virtual-transcript static-activity-transcript">
+    return <div ref={transcriptRef} className="virtual-transcript static-activity-transcript" tabIndex={0} role="region" aria-label="Transcript content">
       {unanchoredActivities.map((entry) => (
         <div className="inline-transcript-activity" key={entry.id}>
           <LazyFeatureBoundary label={entry.id}>
@@ -230,9 +336,19 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   return <div
     ref={transcriptRef}
     className="virtual-transcript"
-    style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}
+    tabIndex={0}
+    role="region"
+    aria-label="Transcript content"
+    onKeyDown={handleKeyDown}
+    onFocus={(event) => {
+      if (event.target === transcriptRef.current && focusedIndex === undefined && messages.length > 0) {
+        setFocusedIndex(Math.max(0, virtualizer.range?.startIndex ?? 0));
+      }
+    }}
+    style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative", outline: "none" }}
     data-visible-start-index={visibleRangeStart}
     data-visible-end-index={visibleRangeEnd}
+    data-focused-index={focusedIndex}
   >
     {rows.map((row) => {
       const message = messages[row.index];
@@ -242,9 +358,12 @@ export const VirtualTranscript = memo(function VirtualTranscript({
         ref={virtualizer.measureElement}
         data-index={row.index}
         data-message-id={message.id}
+        data-focused={focusedIndex === row.index ? "true" : undefined}
+        onClick={() => setFocusedIndex(row.index)}
         className={[
           "virtual-transcript-row",
           activeTurnStartIndex >= 0 && row.index >= activeTurnStartIndex ? "transcript-current-row" : "",
+          focusedIndex === row.index ? "focused" : "",
         ].filter(Boolean).join(" ")}
         style={{
           position: "absolute",

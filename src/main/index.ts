@@ -40,7 +40,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
  */
 const shippedIconPath = join(app.getAppPath(), "assets/tau-icon.png");
 const appIconPath = existsSync(shippedIconPath) ? shippedIconPath : undefined;
-const defaultWorkspace = process.env.TAU_WORKSPACE || process.cwd();
+const requestedWorkspace = process.env.TAU_WORKSPACE;
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 /**
  * `TAU_HOST_URL=ws://machine:7788` turns this process into a client: the window
@@ -264,7 +264,7 @@ function watchHostStart<T>(ready: Promise<T>): Promise<T> {
  * into the fatal dialog `watchHostStart` shows for a broken runtime.
  */
 function startLocalHost(): void {
-  const startup = resolveStartupWorkspace(defaultWorkspace, projectHistory.list());
+  const startup = resolveStartupWorkspace(requestedWorkspace, projectHistory.list());
   if (startup.missing) hostLog.warn("workspace.missing", { requested: startup.missing, fallback: startup.cwd });
   host = new PiHost(startup.cwd, publish, projectHistory, safeMode, true, hostOptions);
   hostReady = watchHostStart(host.start());

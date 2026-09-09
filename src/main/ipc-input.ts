@@ -1,6 +1,7 @@
 import type {
   ClientTurnIdentity,
   ExtensionUiAnswer,
+  NewThreadConfiguration,
   PreparedPrompt,
   RuntimeCapabilities,
   ThreadBackendKind,
@@ -81,6 +82,19 @@ export function decodeUiPromptAttachments(channel: string, field: string, value:
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) fail(channel, field, "must be an array");
   return value.map((item, index) => decodeUiPromptAttachment(channel, `${field}[${index}]`, item));
+}
+
+export function decodeNewThreadConfiguration(channel: string, field: string, value: unknown): NewThreadConfiguration | undefined {
+  if (value === undefined) return undefined;
+  const item = record(channel, field, value);
+  if (item.model === undefined) return {};
+  const model = record(channel, `${field}.model`, item.model);
+  return {
+    model: {
+      provider: decodeString(channel, `${field}.model.provider`, model.provider),
+      id: decodeString(channel, `${field}.model.id`, model.id),
+    },
+  };
 }
 
 export function decodeClientTurnIdentity(channel: string, field: string, value: unknown): ClientTurnIdentity {

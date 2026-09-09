@@ -19,12 +19,13 @@ describe("Workspace Kit client encoding", () => {
     await client.unstageFile("src/a.ts");
     await client.revertFile("src/a.ts");
     await client.getFileTree("src");
-    await client.openInEditor("zed", "src/a.ts");
+    await client.openInEditor("zed", "src/a.ts", "ws1_project");
     await client.getTurnFileDiff("session", "checkpoint", "src/a.ts");
     expect(calls.map((call) => call.command)).toEqual([
       "read-file", "file-diff", "stage-file", "unstage-file", "revert-file", "file-tree", "open-in-editor", "turn-file-diff",
     ]);
     for (const call of calls) expect(call.input).toHaveProperty("relPath");
+    expect(calls.find((call) => call.command === "open-in-editor")?.input).toMatchObject({ workspace: "ws1_project" });
     // Nothing carries a path of the host's own filesystem.
     for (const call of calls) expect(JSON.stringify(call.input)).not.toContain("/src");
   });

@@ -56,8 +56,8 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
   const notify = view.setNotice;
 
   /**
-   * Applies a host action result. A project change clears the stage. Most
-   * thread changes keep unsent composer text; explicit project switches do not.
+   * Applies a host action result. A project change clears the stage. The caller
+   * decides whether unsent composer text follows the result's thread.
    */
   const applyHostResult = useCallback((result: HostActionResult, inheritDraft = true) => {
     const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
@@ -80,33 +80,10 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     return true;
   }, [newThread, storage]);
 
-  const openWorkspace = useCallback(async (workspace: string, options?: { inheritDraft?: boolean }): Promise<boolean> => {
-    const snapshot = view.getSnapshot();
-    const pending = newThread.current();
-    if (namesWorkspace(workspace, pending?.workspaceId ?? snapshot?.workspaceId, pending?.projectPath ?? snapshot?.cwd)) return true;
-    if (!requireHost("Project switching")) return false;
-    detachPendingDelivery();
-    // A draft for another project sits above the still-active host thread. If
-    // the user picks that host project again, revealing it is the whole switch.
-    if (pending && namesWorkspace(workspace, snapshot?.workspaceId, snapshot?.cwd)) {
-      discardPendingNewThread(pending);
-      setStage(EMPTY_STAGE);
-      return true;
-    }
-    try {
-      const result = await client!.openProject(workspace);
-      if (pending) discardPendingNewThread(pending);
-      applyHostResult(result, options?.inheritDraft ?? false);
-      return true;
-    } catch (error) {
-      notify(errorMessage(error));
-      return false;
-    }
-  }, [applyHostResult, client, detachPendingDelivery, discardPendingNewThread, newThread, notify, requireHost, view]);
-
-  const createThreadInProject = useCallback((project: UiProject) => {
+  const moveDraftToProject = useCallback((project: UiProject) => {
     const scope = activeDraftKey();
-    const activeScope = newThread.current() && scope ? scopes.getSnapshot(scope) : undefined;
+    const mayCarryCurrentDraft = Boolean(newThread.current()) || view.getTranscript().messages.length === 0;
+    const activeScope = mayCarryCurrentDraft && scope ? scopes.getSnapshot(scope) : undefined;
     // A submitted draft keeps delivering in the background. Its text is on its
     // way to the runtime, so there is nothing to carry into the fresh draft.
     const inFlight = detachPendingDelivery() || Boolean(activeScope?.submissionPending);
@@ -126,7 +103,41 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     newThread.begin(draft);
     closeNewThreadPicker();
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [activeDraftKey, closeNewThreadPicker, composerRef, detachPendingDelivery, newThread, scopes]);
+  }, [activeDraftKey, closeNewThreadPicker, composerRef, detachPendingDelivery, newThread, scopes, view]);
+
+  const openWorkspace = useCallback(async (workspace: string, options?: { inheritDraft?: boolean }): Promise<boolean> => {
+    const snapshot = view.getSnapshot();
+    const pending = newThread.current();
+    if (namesWorkspace(workspace, pending?.workspaceId ?? snapshot?.workspaceId, pending?.projectPath ?? snapshot?.cwd)) return true;
+    const project = threads.getProjects().find((candidate) => namesWorkspace(workspace, candidate.workspaceId, candidate.path));
+    const pendingScope = pending ? activeDraftKey() : undefined;
+    const pendingInFlight = pendingScope ? scopes.getSnapshot(pendingScope).submissionPending : false;
+    if (pending && project && !pendingInFlight) {
+      moveDraftToProject(project);
+      setStage(EMPTY_STAGE);
+      return true;
+    }
+    if (!requireHost("Project switching")) return false;
+    detachPendingDelivery();
+    // A draft for another project sits above the still-active host thread. If
+    // the user picks that host project again, revealing it is the whole switch.
+    if (pending && namesWorkspace(workspace, snapshot?.workspaceId, snapshot?.cwd)) {
+      discardPendingNewThread(pending);
+      setStage(EMPTY_STAGE);
+      return true;
+    }
+    try {
+      const result = await client!.openProject(workspace);
+      if (pending) discardPendingNewThread(pending);
+      applyHostResult(result, options?.inheritDraft ?? !pendingInFlight);
+      return true;
+    } catch (error) {
+      notify(errorMessage(error));
+      return false;
+    }
+  }, [activeDraftKey, applyHostResult, client, detachPendingDelivery, discardPendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
+
+  const createThreadInProject = moveDraftToProject;
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;

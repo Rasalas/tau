@@ -30,7 +30,7 @@ interface WorkspaceHostClient {
   getProjectDefaults(workspace?: string): Promise<unknown>;
   switchRef(ref: string): Promise<unknown>;
   listEditors(): Promise<unknown>;
-  openInEditor(editorId: string, relPath?: string): Promise<unknown>;
+  openInEditor(editorId: string, relPath?: string, workspace?: string): Promise<unknown>;
   checkpoints(sessionId: string): Promise<unknown>;
   canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<unknown>;
   getRestorePreview(sessionId: string, checkpointId: string): Promise<unknown>;
@@ -131,7 +131,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "project-defaults": return client.getProjectDefaults(field(input, "workspace"));
       case "switch-ref": return client.switchRef(field(input, "ref")!);
       case "list-editors": return client.listEditors();
-      case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "relPath"));
+      case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "relPath"), field(input, "workspace"));
       case "checkpoints": return client.checkpoints(field(input, "sessionId")!);
       case "can-restore": return client.canRestoreCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);
       case "restore-preview": return client.getRestorePreview(field(input, "sessionId")!, field(input, "checkpointId")!);

@@ -9,6 +9,7 @@ export function ThreadTitleMenu({
   settled,
   onNewThread,
   onOpenTree,
+  onOpenInstructions,
   onDuplicate,
   onTogglePin,
   onToggleSettled,
@@ -27,6 +28,8 @@ export function ThreadTitleMenu({
   onNewThread(): void;
   /** Pi's /tree and /clone for this thread. */
   onOpenTree(): void;
+  /** Inspect active system prompt and AGENTS.md instructions. */
+  onOpenInstructions?(): void;
   onDuplicate(): void;
   onTogglePin(): void;
   onToggleSettled(): void;
@@ -60,6 +63,7 @@ export function ThreadTitleMenu({
       items: [
         { id: "new", label: label ? `New thread on ${label}` : "New thread" },
         { id: "tree", label: "Thread tree…" },
+        ...(onOpenInstructions ? [{ id: "instructions", label: "Active instructions & prompt…" }] : []),
         { id: "duplicate", label: "Duplicate thread" },
         { id: "pin", label: pinned ? "Unpin thread" : "Pin thread" },
         { id: "settle", label: settled ? "Un-settle thread" : "Settle thread" },
@@ -84,6 +88,7 @@ export function ThreadTitleMenu({
   const select = (id: string) => {
     if (id === "new") onNewThread();
     if (id === "tree") onOpenTree();
+    if (id === "instructions") onOpenInstructions?.();
     if (id === "duplicate") onDuplicate();
     if (id === "pin") onTogglePin();
     if (id === "settle") onToggleSettled();

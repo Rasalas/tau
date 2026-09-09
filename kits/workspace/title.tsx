@@ -20,7 +20,6 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
   const [editorMenu, setEditorMenu] = useState(false);
   const [gitMenu, setGitMenu] = useState(false);
   const activeEditor = workspaceStore.activeEditor();
-  const editorDisabled = state.draftPending;
   const gitAction = useMemo(
     () => resolveGitQuickAction(state.changes, state.workspace, state.committing),
     [state.changes, state.committing, state.workspace],
@@ -41,8 +40,8 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
         <div className="chrome-group" aria-label="Open in editor">
           <button
             className="chrome-button split-main"
-            disabled={!activeEditor || editorDisabled}
-            title={editorDisabled ? "Unavailable until this draft becomes a thread" : activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH"}
+            disabled={!activeEditor}
+            title={activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH"}
             onClick={() => activeEditor && void workspaceStore.openInEditor(undefined, activeEditor.id)}
           >
             <EditorIcon editorId={activeEditor?.id} className="editor-icon" />
@@ -50,7 +49,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
           </button>
           <button
             className="chrome-button split-trigger"
-            disabled={state.editors.length === 0 || editorDisabled}
+            disabled={state.editors.length === 0}
             aria-label="Choose editor"
             onClick={() => setEditorMenu(true)}
           >

@@ -68,6 +68,10 @@ describe("runtime controls keybindings", () => {
       "runtime.new-session": "mod+n",
       "runtime.abort": "escape",
       "runtime.transcript-detail": "mod+shift+t",
+      "workbench.focus-composer": "mod+1",
+      "workbench.focus-transcript": "mod+2",
+      "workbench.focus-stage": "mod+3",
+      "workbench.toggle-dock": "mod+b",
     });
   });
 });
@@ -119,5 +123,36 @@ describe("runtime controls transcript detail", () => {
     run(registry, "runtime.transcript-detail", actions);
     run(registry, "runtime.transcript-detail", actions);
     expect(preferences.transcriptDetailFor("thread-a")).toBe("focused");
+  });
+});
+
+describe("runtime controls focus and dock commands", () => {
+  it("registers focus and toggle dock commands with chords", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate(runtimeControls);
+    const focusComposer = vi.fn();
+    const focusTranscript = vi.fn();
+    const focusStage = vi.fn();
+    const toggleDock = vi.fn();
+    const actions = { focusComposer, focusTranscript, focusStage, toggleDock } as unknown as WorkbenchActions;
+
+    const commands = registry.getCommands();
+    commands.find((cmd) => cmd.id === "workbench.focus-composer")?.run(actions);
+    expect(focusComposer).toHaveBeenCalledOnce();
+
+    commands.find((cmd) => cmd.id === "workbench.focus-transcript")?.run(actions);
+    expect(focusTranscript).toHaveBeenCalledOnce();
+
+    commands.find((cmd) => cmd.id === "workbench.focus-stage")?.run(actions);
+    expect(focusStage).toHaveBeenCalledOnce();
+
+    commands.find((cmd) => cmd.id === "workbench.toggle-dock")?.run(actions);
+    expect(toggleDock).toHaveBeenCalledOnce();
+
+    const bindings = registry.getKeybindings();
+    expect(bindings.find((b) => b.commandId === "workbench.focus-composer")?.keys).toBe("mod+1");
+    expect(bindings.find((b) => b.commandId === "workbench.focus-transcript")?.keys).toBe("mod+2");
+    expect(bindings.find((b) => b.commandId === "workbench.focus-stage")?.keys).toBe("mod+3");
+    expect(bindings.find((b) => b.commandId === "workbench.toggle-dock")?.keys).toBe("mod+b");
   });
 });

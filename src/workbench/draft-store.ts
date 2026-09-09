@@ -1,3 +1,4 @@
+import type { UiModel } from "../shared/contracts";
 import type { ClientStorage } from "./client-storage";
 import { STORAGE_KEYS } from "./storage-keys";
 import { createDraftKey, type DraftKey } from "./composer-scope-store";
@@ -15,6 +16,8 @@ export interface NewThreadDraft {
   workspaceId?: string;
   projectName: string;
   sessionId?: string;
+  /** Explicit composer choice for this thread; never applied to the previously active runtime. */
+  model?: UiModel;
   /** Text-only recovery state; pending attachments remain memory-only. */
   draft?: string;
 }
@@ -90,6 +93,12 @@ export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | und
       ...(typeof value.workspaceId === "string" ? { workspaceId: value.workspaceId } : {}),
       projectName: value.projectName,
       ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+      ...(value.model && typeof value.model === "object"
+        && typeof value.model.provider === "string"
+        && typeof value.model.id === "string"
+        && typeof value.model.name === "string"
+        ? { model: { provider: value.model.provider, id: value.model.id, name: value.model.name } }
+        : {}),
       ...(typeof value.draft === "string" ? { draft: value.draft } : {}),
     };
     // Migrate the single legacy persisted draft once. The generated ID is

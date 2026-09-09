@@ -67,6 +67,13 @@ function defaults(): HostClient {
     relaunchWorkbench: async () => undefined,
     installUpdate: async () => ({ installing: false }),
 
+    getConfig: async () => ({}),
+    updateConfig: async () => ({}),
+    getModelsConfig: async () => [],
+    addModelProvider: async () => [],
+    inspectSystemPrompt: async () => ({ effectivePrompt: "", appends: [], contextFiles: [] }),
+    listUserThemes: async () => [],
+
     platform: "test",
     copyText: async () => undefined,
     copyImage: async () => undefined,

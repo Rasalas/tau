@@ -4,6 +4,7 @@ import {
   hostSnapshotWithCatalog,
   threadDetailFromHostSnapshot,
   type HostActionResult,
+  type HostCatalog,
   type HostUpdate,
   type TranscriptPage,
 } from "../shared/host-protocol";
@@ -68,6 +69,7 @@ export interface WorkbenchStorePorts {
 export class WorkbenchStore {
   private cachedSnapshot?: HostSnapshot;
   private cachedIndex?: ThreadIndexSnapshot;
+  private readonly pendingCatalogs = new Map<string, HostCatalog>();
 
   constructor(private readonly ports: WorkbenchStorePorts, cached?: { snapshot?: HostSnapshot; threadIndex?: ThreadIndexSnapshot }) {
     this.cachedSnapshot = cached?.snapshot;
@@ -174,7 +176,16 @@ export class WorkbenchStore {
       // The history cache is the base a later thread detail merges onto, so it
       // has to take the catalog too; otherwise the next detail restores the
       // model the thread had before this change.
-      history.applyCatalog(update.catalog);
+      const catalogSnapshot = history.applyCatalog(update.catalog);
+      const renderedSessionId = view.getSnapshot()?.sessionId;
+      if (update.catalog.sessionId !== undefined
+        && !catalogSnapshot
+        && renderedSessionId !== update.catalog.sessionId) {
+        // Runtime creation can publish its catalog before the correlated detail
+        // has moved the transcript cache to the new session. Keep the catalog
+        // until that detail arrives rather than silently dropping its model.
+        this.pendingCatalogs.set(update.catalog.sessionId, update.catalog);
+      }
       view.setSnapshot((current) => {
         if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
         return this.remember(hostSnapshotWithCatalog(current, update.catalog));
@@ -207,6 +218,7 @@ export class WorkbenchStore {
     const { history, newThread, scopes, storage, submission, threads, turn, view } = this.ports;
     submission.notifyHostSnapshot();
     const currentSnapshot = history.getCurrentSnapshot();
+    const renderedSnapshot = view.getSnapshot();
     const shell = threads.getThread(detail.sessionId);
     const prompt = detail.messages.find((message) => message.role === "user")?.text;
     const pending = newThread.current();
@@ -226,9 +238,18 @@ export class WorkbenchStore {
       ...(currentSnapshot.sessionId === detail.sessionId ? {} : {
         supportsImageInput: false,
       }),
+      // A new-thread acknowledgement can promote the explicit draft model
+      // before its first host detail arrives. Preserve that choice as the
+      // history baseline instead of reviving the previous thread's model.
+      ...(renderedSnapshot?.sessionId === detail.sessionId && renderedSnapshot.model
+        ? { model: renderedSnapshot.model }
+        : {}),
     } : undefined;
     const application = history.applyDetail(detail, snapshotForDetail);
     if (!application) return;
+    const pendingCatalog = this.pendingCatalogs.get(detail.sessionId);
+    const catalogSnapshot = pendingCatalog ? history.applyCatalog(pendingCatalog) : undefined;
+    if (pendingCatalog) this.pendingCatalogs.delete(detail.sessionId);
     const detailForRender = application.detail;
     const currentTurnStart = turn.current();
     const pendingDraft = newThread.current();
@@ -268,7 +289,7 @@ export class WorkbenchStore {
     view.setToolAnchorId(restoredActivity?.anchorMessageId);
     view.setTurnActivity(detailForRender.turnActivityHistory ?? [], restoredActivity ? detailForRender.sessionId : undefined);
     view.setSnapshot((current) => {
-      const next = application.snapshot ?? current;
+      const next = catalogSnapshot ?? application.snapshot ?? current;
       if (!next) return current;
       return this.remember({
         ...next,

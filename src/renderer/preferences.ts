@@ -1,7 +1,9 @@
 import { getClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { isTranscriptDetail, type TranscriptDetail } from "../workbench/transcript-folding";
-import { DEFAULT_THEME, isThemePreference, type ThemePreference } from "./theme";
+import type { HostClient } from "../workbench/host-client";
+import type { TauConfig } from "../shared/contracts";
+import { DEFAULT_THEME, isThemePreference, registerUserThemes, applyTheme, type ThemePreference } from "./theme";
 
 export interface PreferencesState {
   /** How much of a turn's work the transcript shows; see `TranscriptDetail`. */
@@ -84,6 +86,46 @@ function load(): PreferencesState {
 export class PreferencesStore {
   private state: PreferencesState = load();
   private listeners = new Set<() => void>();
+  private hostClient?: HostClient;
+  private activeWorkspaceId?: string;
+
+  bindHost(client: HostClient, workspaceId?: string): void {
+    this.hostClient = client;
+    this.activeWorkspaceId = workspaceId;
+    void this.syncFromHost();
+  }
+
+  setWorkspace(workspaceId?: string): void {
+    this.activeWorkspaceId = workspaceId;
+    void this.syncFromHost();
+  }
+
+  async syncFromHost(): Promise<void> {
+    if (!this.hostClient) return;
+    try {
+      if (this.hostClient.listUserThemes) {
+        const userThemes = await this.hostClient.listUserThemes(this.activeWorkspaceId);
+        registerUserThemes(userThemes);
+      }
+      const config = await this.hostClient.getConfig(this.activeWorkspaceId);
+      this.applyConfig(config);
+      applyTheme(this.state.theme);
+    } catch {
+      // Host might be offline or without config method
+    }
+  }
+
+  applyConfig(config: TauConfig): void {
+    const patch: Partial<PreferencesState> = {};
+    if (config.theme && isThemePreference(config.theme)) patch.theme = config.theme;
+    if (config.transcriptDetail && isTranscriptDetail(config.transcriptDetail)) patch.transcriptDetail = config.transcriptDetail;
+    if (config.showCosts !== undefined) patch.showCosts = config.showCosts;
+    if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
+    if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
+    if (config.options) patch.extensionOptions = { ...this.state.extensionOptions, ...config.options };
+    if (config.values) patch.extensionValues = { ...this.state.extensionValues, ...config.values };
+    this.update(patch, false);
+  }
 
   getSnapshot = (): PreferencesState => this.state;
 
@@ -203,13 +245,24 @@ export class PreferencesStore {
     });
   }
 
-  private update(patch: Partial<PreferencesState>): void {
+  private update(patch: Partial<PreferencesState>, syncHost = true): void {
     this.state = { ...this.state, ...patch };
     try {
       const { transcriptDetailOverride: _ephemeral, ...persisted } = this.state;
       getClientStorage()?.set(STORAGE_KEYS.preferences, JSON.stringify(persisted));
     } catch {
       // Preferences are a convenience; a full or blocked store is not worth surfacing.
+    }
+    if (syncHost && this.hostClient) {
+      const hostPatch: Partial<TauConfig> = {};
+      if (patch.theme) hostPatch.theme = patch.theme;
+      if (patch.transcriptDetail) hostPatch.transcriptDetail = patch.transcriptDetail;
+      if (patch.showCosts !== undefined) hostPatch.showCosts = patch.showCosts;
+      if (patch.favouriteModels) hostPatch.favouriteModels = [...patch.favouriteModels];
+      if (patch.disabledExtensions) hostPatch.disabledExtensions = [...patch.disabledExtensions];
+      if (patch.extensionOptions) hostPatch.options = { ...patch.extensionOptions };
+      if (patch.extensionValues) hostPatch.values = { ...patch.extensionValues };
+      void this.hostClient.updateConfig(hostPatch, "global", this.activeWorkspaceId).catch(() => {});
     }
     this.listeners.forEach((listener) => listener());
   }

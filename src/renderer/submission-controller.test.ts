@@ -107,7 +107,13 @@ function harness(options: {
 const sentPrompts = (client: ReturnType<typeof createFakeHostClient>) =>
   client.calls.filter((call) => call.method === "sendPrompt");
 
-beforeEach(() => { localStorage.clear(); });
+beforeEach(() => {
+  try {
+    window.localStorage?.clear?.();
+  } catch {
+    // localStorage might not be initialized in Node 22 without storage file
+  }
+});
 
 describe("SubmissionController", () => {
   it("sends a plain prompt for the thread on screen and shows it at once", async () => {

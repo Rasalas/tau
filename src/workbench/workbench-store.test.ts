@@ -70,6 +70,35 @@ describe("WorkbenchStore", () => {
     expect(notices).toEqual(["no runtime"]);
   });
 
+  it("keeps a new thread catalog that arrives before its first accepted detail", () => {
+    const { history, store, view } = build();
+    store.applySnapshot({
+      ...snapshot,
+      model: { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+    });
+    store.applyHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "catalog",
+      catalog: {
+        sessionId: "two",
+        models: [],
+        model: { provider: "openai-codex", id: "gpt-6-astra", name: "GPT-6 Astra" },
+        thinkingLevel: "medium",
+        thinkingLevels: ["medium"],
+        allTools: [],
+        extensionCount: 0,
+      },
+    });
+    expect(history.prepareActionDetail("two")).toBe(true);
+    store.applyHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-detail",
+      detail: { sessionId: "two", messages: [], isStreaming: false, activeTools: [] },
+    });
+    expect(view.getSnapshot()?.model?.id).toBe("gpt-6-astra");
+    expect(history.getCurrentSnapshot()?.model?.id).toBe("gpt-6-astra");
+  });
+
   it("ignores an update from a protocol version it does not speak", () => {
     const { store, threads } = build();
     store.applySnapshot(snapshot);

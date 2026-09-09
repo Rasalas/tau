@@ -2,11 +2,15 @@ import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
   HostBootstrap,
+  TauConfig,
   UiImagePreview,
   WorkbenchBuildResult,
+  CustomProviderInput,
 } from "../shared/contracts.js";
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
 import type { PiHost } from "./pi-host.js";
+import { defaultHostConfigManager } from "./host-config.js";
+import { defaultUserThemeResolver } from "./user-themes.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
 import {
   decodeBoolean,
@@ -15,6 +19,7 @@ import {
   decodeExtensionUiAnswer,
   decodeHostTranscriptCursor,
   decodeNavigateOptions,
+  decodeNewThreadConfiguration,
   decodeOptionalBoolean,
   decodeOptionalString,
   decodeOptionalText,
@@ -121,6 +126,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       await optionalWorkspace("new-session", "cwd", params[2]),
       decodeStringOrClientTurnIdentity("new-session", "clientMessageIdOrRequestId", params[3]),
       decodePreparedPrompt("new-session", "prepared", params[4]),
+      decodeNewThreadConfiguration("new-session", "configuration", params[5]),
     ),
     "prepared-thread-capability": async (params) =>
       (await host()).getPreparedThreadCapability(await optionalWorkspace("prepared-thread-capability", "cwd", params[0])),
@@ -195,6 +201,22 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "install-update": async () => ({ installing: platform.installUpdate() }),
     "open-project": async (params) => (await host()).setWorkspace(await workspace("open-project", "workspace", params[0])),
     "remove-project": async (params) => (await host()).removeProject(await workspace("remove-project", "workspace", params[0])),
+    "get-config": async (params) => defaultHostConfigManager.read(await optionalWorkspace("get-config", "workspace", params[0])),
+    "update-config": async (params) => {
+      const patch = (params[0] && typeof params[0] === "object" ? params[0] : {}) as Partial<TauConfig>;
+      const scope = params[1] === "project" ? "project" : "global";
+      return defaultHostConfigManager.update(patch, scope, await optionalWorkspace("update-config", "workspace", params[2]));
+    },
+    "get-models-config": async () => (await host()).modelsConfig(),
+    "add-model-provider": async (params) => (await host()).addModelProvider(params[0] as CustomProviderInput),
+    "inspect-system-prompt": async (params) => (await host()).inspectSystemPrompt(
+      decodeOptionalString("inspect-system-prompt", "threadId", params[0]),
+      await optionalWorkspace("inspect-system-prompt", "workspace", params[1]),
+    ),
+    "list-user-themes": async (params) => {
+      const workspacePath = await optionalWorkspace("list-user-themes", "workspace", params[0]);
+      return defaultUserThemeResolver.list(workspacePath);
+    },
 
     "start-job": async (params) => {
       const method = decodeString("start-job", "method", params[0]);

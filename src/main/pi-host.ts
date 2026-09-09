@@ -19,12 +19,18 @@ import type {
   UiRuntimeBackend,
   SubmissionResult,
   UiSkillDraft,
+  NewThreadConfiguration,
   NewThreadRequestId,
   ThreadBackendKind,
   PreparedPrompt,
   ThreadTreeNavigationResult,
   UiThreadTree,
+  CustomProviderConfig,
+  CustomProviderInput,
+  SystemPromptInspection,
 } from "../shared/contracts.js";
+import { addModelProvider, loadModelsConfig } from "./models-config.js";
+import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import { HostCompletions } from "./host-completion.js";
 import {
@@ -80,6 +86,7 @@ import {
   type HostExtensionSeam,
 } from "./host-ports.js";
 import { findPiBridge } from "./pi-bridge-client.js";
+import { defaultHostConfigManager } from "./host-config.js";
 import { composerCommandsForAdapter } from "./bridge-snapshot.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
@@ -354,8 +361,10 @@ export class PiHost {
       log: (label, detail) => this.log(label, detail),
       errorMessage: (error) => this.errorMessage(error),
     });
+    const hostConfig = defaultHostConfigManager.readSync(this.cwd);
+    const prewarmEnabled = process.env.TAU_NO_PREWARM !== "1" && hostConfig.prewarm !== false && this.automaticPrewarm;
     this.prewarm = new RuntimePrewarm({
-      automatic: this.automaticPrewarm,
+      automatic: prewarmEnabled,
       safeMode: this.safeMode,
       maxLiveThreads: MAX_LIVE_THREADS,
       cwd: () => this.cwd,
@@ -1126,6 +1135,7 @@ export class PiHost {
     cwd?: string,
     clientMessageIdOrRequestId?: ClientTurnRequest,
     prepared?: PreparedPrompt,
+    configuration?: NewThreadConfiguration,
   ): Promise<HostActionResult> {
     this.workbenchReload.assertAvailable();
     // Admit the activation before waiting on the lifecycle queue. A newer live
@@ -1200,6 +1210,15 @@ export class PiHost {
       let lifecycle: "prepared" | "adopting" | "adopted" | "promoted" = "prepared";
       let visible = false;
       try {
+        // A model chosen on the start screen belongs to this prepared runtime,
+        // never to the previously active thread. Apply it before validating
+        // images because model capability determines whether they are accepted.
+        if (configuration?.model) {
+          await requireCapability(thread.backend, "catalogWrite").setModel(
+            configuration.model.provider,
+            configuration.model.id,
+          );
+        }
         // Decode and validate attachment data before promoting a prepared
         // runtime, so malformed input cannot leave an adopted blank thread.
         this.prompts.assertImageInput(thread, attachments);
@@ -1231,8 +1250,11 @@ export class PiHost {
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
         if (lifecycle === "prepared") {
-          if (isLocalPiRuntime(thread)) this.prewarm.retainSpare(thread);
-          else await this.runtimes.dispose(thread);
+          if (isLocalPiRuntime(thread) && !configuration?.model) this.prewarm.retainSpare(thread);
+          else {
+            await this.runtimes.dispose(thread);
+            if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd, true);
+          }
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
         } else if (lifecycle !== "promoted") {
           if (this.threads.has(thread.threadId)) await this.threads.release(thread.threadId);
@@ -1986,6 +2008,32 @@ export class PiHost {
     const models = await active.backend.models();
     this.modelCatalogCache.set(key, models);
     return models;
+  }
+
+  async modelsConfig(): Promise<CustomProviderConfig[]> {
+    return loadModelsConfig(this.agentDir);
+  }
+
+  async addModelProvider(input: CustomProviderInput): Promise<UiModel[]> {
+    await addModelProvider(this.agentDir, input);
+    this.modelCatalogCache.invalidate();
+    await this.publishActiveCatalog();
+    return this.ensureModels();
+  }
+
+  async inspectSystemPrompt(threadId?: string, cwd?: string): Promise<SystemPromptInspection> {
+    const thread = (threadId ? this.threadFor(threadId) : undefined) ?? this.active;
+    if (thread?.backend.capabilities.systemPrompt) {
+      return await thread.backend.capabilities.systemPrompt.inspect();
+    }
+    const targetCwd = cwd || thread?.cwd || this.cwd;
+    const overrides = discoverPromptOverrides(targetCwd, this.agentDir);
+    return {
+      effectivePrompt: overrides.customPrompt?.content ?? "(No active thread — showing project configuration)",
+      ...(overrides.customPrompt ? { basePrompt: overrides.customPrompt.content, basePromptSource: overrides.customPrompt.path } : {}),
+      appends: overrides.appendPrompts.map((p) => ({ text: p.content, source: p.path })),
+      contextFiles: overrides.contextFiles,
+    };
   }
 
   /** Prompt completion updates one shell; the global scan is a startup/recovery path. */

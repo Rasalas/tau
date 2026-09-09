@@ -1,5 +1,4 @@
 import type {
-  ClientTurnIdentity,
   NewThreadRequestId,
   PreparedPrompt,
   UiMessage,
@@ -11,12 +10,10 @@ import { chosenNewThreadRuntime } from "./new-thread-runtime";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
   backgroundNewThreadDetail,
-  createClientMessageId,
   isCurrentTranscriptSubmission,
   isSameUserMessage,
   mergeNewThreadRecoveryAttachments,
   mergeNewThreadRecoveryDraft,
-  skillPresentationForDraft,
   transcriptNavigationScope,
   transcriptNavigationScopeKey,
   type NewThreadSubmissionCompletion,
@@ -34,6 +31,15 @@ import type { HostClient } from "../workbench/host-client";
 import type { PreferencesStore } from "./preferences";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
+import {
+  buildOptimisticMessage,
+  addOptimisticMessage,
+  removeOptimisticMessage,
+  retargetOptimisticMessage,
+  retargetOptimisticByClientMessageId,
+  removeOptimisticByClientMessageId,
+} from "./submission-optimistic";
+import { shouldQueueSubmission, formatQueuedFollowUp } from "./submission-queue";
 
 /** One message leaving the composer, whatever it turns into. */
 export interface SubmissionInput {
@@ -171,8 +177,8 @@ export class SubmissionController {
     const visibleStreaming = threads.getActivity().isStreaming;
     // Enter during a run parks the message above the composer. It is prepared
     // and sent as a plain prompt once the thread settles, or steered on demand.
-    if (!pendingNewThread && snapshot && visibleStreaming && delivery !== "steer") {
-      this.ports.enqueueFollowUp(snapshot.sessionId, { text: input.text, attachments, ...(skillDraft ? { skillDraft } : {}) });
+    if (shouldQueueSubmission({ isPendingNewThread: Boolean(pendingNewThread), hasSnapshot: Boolean(snapshot), visibleStreaming, delivery })) {
+      this.ports.enqueueFollowUp(snapshot!.sessionId, formatQueuedFollowUp(input.text, attachments, skillDraft));
       return { accepted: true };
     }
     let prepared: PreparedPrompt | undefined;
@@ -197,32 +203,21 @@ export class SubmissionController {
     if (pendingNewThread && !pendingNewThread.sessionId) {
       pendingNewThread = await this.prepareNewThreadWorkspace(pendingNewThread, text);
     }
-    const optimisticText = prepared?.visibleText
-      ?? skillDraft?.visibleText
-      ?? (text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`);
-    const visiblePrompt = prepared?.visibleText ?? skillDraft?.visibleText ?? text;
-    const optimisticSkill = prepared
-      ? prepared.skill
-      : skillDraft ? skillPresentationForDraft(skillDraft) : undefined;
-    const submittedAt = Date.now();
-    const logicalTurnId = `turn-${submittedAt}-${this.turnSequence++}`;
-    const clientMessageId = createClientMessageId();
-    const optimistic: UiMessage = {
-      id: `local-${clientMessageId}`,
-      clientTurnId: logicalTurnId,
-      clientMessageId,
-      role: "user",
-      text: optimisticText,
-      ...(optimisticSkill ? { skill: optimisticSkill } : {}),
-      images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
-      timestamp: submittedAt,
-    };
     const newThreadRequestId = newThread.requestId();
-    const clientTurn: ClientTurnIdentity = {
-      clientTurnId: logicalTurnId,
+    const {
+      optimistic,
+      clientTurn,
+      logicalTurnId,
       clientMessageId,
-      ...(newThreadRequestId ? { newThreadRequestId } : {}),
-    };
+      visiblePrompt,
+    } = buildOptimisticMessage({
+      text,
+      attachments,
+      skillDraft,
+      prepared,
+      sequence: this.turnSequence++,
+      newThreadRequestId,
+    });
     const submissionScopeKey = transcriptNavigationScopeKey(snapshot, pendingNewThread);
     const submissionScope = transcriptNavigationScope(snapshot, pendingNewThread);
     const submissionIdentity: TranscriptSubmissionIdentity = {
@@ -260,14 +255,14 @@ export class SubmissionController {
     const rejectSubmission = (error: unknown): SubmitResult => {
       const currentSubmission = isCurrentSubmission();
       cancelTranscriptTurn();
-      view.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+      removeOptimisticMessage(view, optimistic.id);
       if (currentSubmission) this.ports.notify(String(error));
       return { accepted: false, message: errorMessage(error) };
     };
     const submittedDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
     const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
-      view.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
+      addOptimisticMessage(view, optimisticScope, optimistic);
       startTranscriptTurn(snapshot?.sessionId);
       try {
         if (!client) throw new Error("Steering requires the Electron host.");
@@ -311,7 +306,7 @@ export class SubmissionController {
         this.ports.onRecoveriesChanged();
       }
       startTranscriptTurn(pending.sessionId, false, true);
-      view.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
+      addOptimisticMessage(view, optimisticScope, optimistic);
       try {
         if (!client) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
@@ -333,7 +328,16 @@ export class SubmissionController {
           return { accepted: true };
         }
         // The draft's project is named by identity; its path is only for display.
-        const result = await client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared);
+        const result = pending.model
+          ? await client.newSession(
+            text,
+            attachments,
+            pending.workspaceId ?? pending.projectPath,
+            clientTurn,
+            prepared,
+            { model: { provider: pending.model.provider, id: pending.model.id } },
+          )
+          : await client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared);
         this.settleIpc(clientMessageId, recovery);
         if (recovery?.failed) {
           this.release(clientMessageId);
@@ -391,7 +395,7 @@ export class SubmissionController {
               writeNewThreadDraft(this.ports.storage, { ...pending, sessionId });
             }
           }
-          view.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== optimistic.id));
+          removeOptimisticMessage(view, optimistic.id);
           this.release(clientMessageId);
           return result.submission;
         }
@@ -409,9 +413,7 @@ export class SubmissionController {
           if (recovery) recovery.sessionId = sessionId;
           // The optimistic message moves to the real thread before the draft
           // view closes, so nothing flickers while the host confirms it.
-          view.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
-            ? { ...entry, scope: `session:${sessionId}` }
-            : entry));
+          retargetOptimisticMessage(view, optimistic.id, `session:${sessionId}`);
           const persistedPrompt = findPersistedPrompt(created);
           const currentTurn = turn.current();
           if (currentTurn?.turnId === logicalTurnId) {
@@ -446,7 +448,7 @@ export class SubmissionController {
       this.ports.preferences.unsettle(snapshot.sessionId);
     }
     startTranscriptTurn(snapshot?.sessionId);
-    view.setOptimisticMessages((current) => [...current, { scope: optimisticScope, message: optimistic }]);
+    addOptimisticMessage(view, optimisticScope, optimistic);
     if (!client) return this.deliverInPreview();
     try {
       await client.sendPrompt(text, attachments, this.hostSessionId(snapshot?.sessionId), clientTurn, prepared);
@@ -499,11 +501,11 @@ export class SubmissionController {
     recovery.sessionId = sessionId;
     recovery.promoted = true;
     scopes.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
-    view.setOptimisticMessages((current) => message
-      ? current.map((entry) => entry.message.clientMessageId === clientMessageId
-        ? { ...entry, scope: `session:${sessionId}` }
-        : entry)
-      : current.filter((entry) => entry.message.clientMessageId !== clientMessageId));
+    if (message) {
+      retargetOptimisticByClientMessageId(view, clientMessageId, `session:${sessionId}`);
+    } else {
+      removeOptimisticByClientMessageId(view, clientMessageId);
+    }
 
     const turnStart = turn.current();
     if (turnStart?.clientMessageId === clientMessageId) {
@@ -610,8 +612,7 @@ export class SubmissionController {
   private rehomeDetached(clientMessageId: string, recovery: NewThreadSubmissionRecovery, sessionId: string): void {
     recovery.sessionId = sessionId;
     this.ports.scopes.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
-    this.ports.view.setOptimisticMessages((current) => current.map((entry) => entry.message.clientMessageId === clientMessageId
-      ? { ...entry, scope: `session:${sessionId}` } : entry));
+    retargetOptimisticByClientMessageId(this.ports.view, clientMessageId, `session:${sessionId}`);
   }
 
   private release(clientMessageId: string): void {
@@ -683,9 +684,18 @@ export class SubmissionController {
     const { view, threads, scopes, storage, newThread, host } = this.ports;
     const { pending, sessionId, optimisticId, prompt, scope, requestId, result, recovery } = completion;
     if (!newThread.isCurrent(pending, scope, requestId)) return;
-    view.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId
-      ? { ...entry, scope: `session:${sessionId}` }
-      : entry));
+    retargetOptimisticMessage(view, optimisticId, `session:${sessionId}`);
+    if (pending.model) {
+      // The first detail is intentionally published before the slow catalog.
+      // Keep the explicit choice visible during that gap; the later catalog
+      // remains authoritative and may replace it if the runtime reports one.
+      view.setSnapshot((current) => current ? {
+        ...current,
+        cwd: pending.projectPath,
+        sessionId,
+        model: pending.model,
+      } : current);
+    }
     if (scope) scopes.moveScope(createDraftKey(scope), createDraftKey(draftKey(sessionId)));
     writeNewThreadDraft(storage);
     newThread.set(undefined);
@@ -713,9 +723,9 @@ export class SubmissionController {
         sessionId,
         sessionName: undefined,
         sessionTitle: "Untitled thread",
-        // The thread is new: the model and the runtime on screen belong to
-        // whichever thread was open before, and are nobody's business here.
-        model: undefined,
+        // Without an explicit draft choice, the model and runtime on screen
+        // still belong to whichever thread was open before.
+        model: pending.model,
         backendKind: undefined,
         messages: [],
         isStreaming: false,

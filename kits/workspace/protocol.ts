@@ -128,7 +128,7 @@ export interface WorkspaceHostCommands {
   "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
-  "open-in-editor": { input: { editorId: string; relPath?: string }; output: void };
+  "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string }; output: void };
   /** Every checkpoint of a thread's branch, and whether this runtime can restore one. */
   "checkpoints": { input: { sessionId: string }; output: WorkspaceCheckpointList };
   /** Ref and workspace integrity check used before showing Restore. */
@@ -170,7 +170,7 @@ export interface WorkspaceHostClient {
   getProjectDefaults(workspace?: string): Promise<ProjectDefaults>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
-  openInEditor(editorId: string, relPath?: string): Promise<void>;
+  openInEditor(editorId: string, relPath?: string, workspace?: string): Promise<void>;
   checkpoints(sessionId: string): Promise<WorkspaceCheckpointList>;
   canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
   getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
@@ -208,7 +208,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getProjectDefaults: (workspace) => call("project-defaults", { workspace }),
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
-    openInEditor: (editorId, relPath) => call("open-in-editor", { editorId, relPath }),
+    openInEditor: (editorId, relPath, workspace) => call("open-in-editor", { editorId, relPath, workspace }),
     checkpoints: (sessionId) => call("checkpoints", { sessionId }),
     canRestoreCheckpoint: (sessionId, checkpointId) => call("can-restore", { sessionId, checkpointId }),
     getRestorePreview: (sessionId, checkpointId) => call("restore-preview", { sessionId, checkpointId }),

@@ -42,6 +42,7 @@ import {
 import { errorMessage } from "../../workbench/error-message";
 import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
 import { readComposerDraft, writeComposerDraft } from "../../workbench/draft-store";
+import { PromptHistory } from "../../workbench/prompt-history";
 import { useClientStorage } from "../client-storage-context";
 
 type OpenMenu = "thinking" | "runtime" | undefined;
@@ -294,6 +295,15 @@ export function Composer({
       scopeStore.setDraft(attachmentScope, seed);
     }
   }, [attachmentScope, scopeStore, seed, value]);
+  const promptHistoryRef = useRef<PromptHistory>(new PromptHistory());
+  useEffect(() => {
+    if (!snapshot?.messages) return;
+    for (const message of snapshot.messages) {
+      if (message.role === "user" && typeof message.text === "string" && message.text.trim()) {
+        promptHistoryRef.current.record(message.text);
+      }
+    }
+  }, [snapshot?.sessionId, snapshot?.messages]);
   const updateDraft = (next: string) => {
     scopeStore.setDraft(attachmentScope, next);
     writeComposerDraft(clientStorage, draftStorageKey, next);
@@ -428,7 +438,10 @@ export function Composer({
       if (draftStorageKey !== undefined) {
         writeComposerDraft(clientStorage, submittedScope, scopeStore.getSnapshot(submittedScope).draft);
       }
-      if (result.accepted && activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
+      if (result.accepted) {
+        promptHistoryRef.current.record(submittedText);
+        if (activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
+      }
     };
     const handleSubmissionError = (error: unknown) => {
       scopeStore.setAttachmentError(
@@ -621,6 +634,9 @@ export function Composer({
           rows={1}
           value={text}
           onChange={(event) => {
+            if (promptHistoryRef.current.isNavigating) {
+              promptHistoryRef.current.resetCursor();
+            }
             updateDraft(event.target.value);
             setCaret(event.target.selectionStart);
             setCommandMenuDismissed(false);
@@ -662,6 +678,45 @@ export function Composer({
               event.preventDefault();
               setCommandMenuDismissed(true);
               return;
+            }
+            if (!trigger) {
+              const selectionStart = event.currentTarget.selectionStart;
+              const selectionEnd = event.currentTarget.selectionEnd;
+              const atTopLine = !text.slice(0, selectionStart).includes("\n");
+              if (
+                event.key === "ArrowUp" &&
+                !event.shiftKey &&
+                !event.altKey &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                (promptHistoryRef.current.isNavigating || (atTopLine && selectionStart === 0 && selectionEnd === 0))
+              ) {
+                const previous = promptHistoryRef.current.navigateBack(text);
+                if (previous !== undefined) {
+                  event.preventDefault();
+                  updateDraft(previous);
+                  setCaret(previous.length);
+                  requestAnimationFrame(() => textareaRef.current?.setSelectionRange(previous.length, previous.length));
+                  return;
+                }
+              }
+              if (
+                event.key === "ArrowDown" &&
+                !event.shiftKey &&
+                !event.altKey &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                promptHistoryRef.current.isNavigating
+              ) {
+                const next = promptHistoryRef.current.navigateForward();
+                if (next !== undefined) {
+                  event.preventDefault();
+                  updateDraft(next);
+                  setCaret(next.length);
+                  requestAnimationFrame(() => textareaRef.current?.setSelectionRange(next.length, next.length));
+                  return;
+                }
+              }
             }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();

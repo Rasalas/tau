@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
-import { ChevronDown, Folder, PanelRight, PanelRightClose, X } from "lucide-react";
+import { ChevronDown, Folder, X } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
@@ -19,6 +19,7 @@ import { ThreadSupervisor } from "./components/ThreadSupervisor";
 import type { ClientProfile } from "../workbench/client-profile";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
+import { SystemPromptModal } from "./components/SystemPromptModal";
 import { TitleBar } from "./components/TitleBar";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
@@ -263,6 +264,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // The registry still holds those contributions; only this layout leaves them out.
   const compact = layoutProfile === "compact";
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   useEffect(() => { if (!compact) setThreadSheetOpen(false); }, [compact]);
@@ -371,14 +373,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       </section>
     </div> : null}
     {threadTreeModal ? <ThreadTreeModal
-      tree={threadTreeModal.tree}
-      mode={threadTreeModal.mode}
-      busy={threadTreeModal.busy}
-      error={threadTreeModal.error}
-      onClose={closeThreadTree}
-      onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)}
-      onFork={(entryId) => void forkFromTree(entryId)}
+      tree={threadTreeModal.tree} mode={threadTreeModal.mode} busy={threadTreeModal.busy} error={threadTreeModal.error}
+      onClose={closeThreadTree} onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)} onFork={(entryId) => void forkFromTree(entryId)}
     /> : null}
+    {systemPromptOpen ? <SystemPromptModal threadId={snapshot?.sessionId} onClose={() => setSystemPromptOpen(false)} /> : null}
     <LazyFeatureBoundary label="command palette">
       <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
         <LazyCommandPalette
@@ -508,6 +506,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                   settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
                   onNewThread={openNewThreadPicker}
                   onOpenTree={() => openThreadTree("navigate")}
+                  onOpenInstructions={() => setSystemPromptOpen(true)}
                   onDuplicate={() => void duplicateThread()}
                   onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
                   onToggleSettled={settleActiveThread}
@@ -588,9 +587,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             onClick={() => dockOpen && activePanel === panel.id ? setDockOpen(false) : openPanel(panel.id)}
           ><PanelIcon Icon={panel.Icon} /></button>)}
           <span className="spacer" />
-          <button title={dockOpen ? "Collapse panel" : "Expand panel"} aria-label={dockOpen ? "Collapse panel" : "Expand panel"} onClick={() => setDockOpen(!dockOpen)}>
-            {dockOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
-          </button>
         </nav>
       </aside> : null}
     </div>

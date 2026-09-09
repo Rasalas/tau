@@ -371,12 +371,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   async openInEditor(relPath?: string, editorOverride?: string): Promise<void> {
-    if (!this.allowed("Opening an editor")) return;
     if (!hostHasLocalFiles()) { this.notify("This host's files are not on this machine."); return; }
     const editorId = editorOverride ?? this.activeEditor()?.id;
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
     if (!this.requireHost("Opening an editor")) return;
-    try { await this.host.openInEditor(editorId, relPath); }
+    try { await this.host.openInEditor(editorId, relPath, this.workspace()); }
     catch (error) { this.notify(errorMessage(error)); }
   }
 

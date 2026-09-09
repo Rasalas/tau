@@ -3,7 +3,7 @@ import { ShieldAlert } from "lucide-react";
 import { subscriptionLoginWarning } from "../../shared/subscription-login";
 import type { DesktopExtension, RegionProps, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
-import { THEME_PREFERENCES, nextTheme, type ThemePreference } from "../theme";
+import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from "../theme";
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = {
   focused: "focused",
@@ -22,7 +22,7 @@ function applyTranscriptDetail(preferences: PreferencesStore, app: WorkbenchActi
   app.notify(`Transcript: ${DETAIL_LABELS[level]}`);
 }
 
-const THEME_LABELS: Record<ThemePreference, string> = {
+const THEME_LABELS: Record<string, string> = {
   system: "follow the system",
   dark: "dark",
   light: "light",
@@ -30,7 +30,8 @@ const THEME_LABELS: Record<ThemePreference, string> = {
 
 function applyTheme(preferences: PreferencesStore, app: WorkbenchActions, theme: ThemePreference): void {
   preferences.setTheme(theme);
-  app.notify(`Theme: ${THEME_LABELS[theme]}`);
+  const label = THEME_LABELS[theme] ?? getUserTheme(theme)?.name ?? theme;
+  app.notify(`Theme: ${label}`);
 }
 
 /**
@@ -98,6 +99,10 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.fork-thread", label: "Fork thread…", group: "Thread", run: (app) => app.openThreadTree("fork") });
     plugin.registerCommand({ id: "runtime.duplicate-thread", label: "Duplicate thread", group: "Thread", run: async (app) => { await app.duplicateThread(); } });
     plugin.registerCommand({ id: "runtime.reload", label: "Apply changes and reload Tau", group: "Runtime", run: async (app) => { await app.reloadWorkbench(); } });
+    plugin.registerCommand({ id: "workbench.focus-composer", label: "Focus composer", group: "Workbench", run: (app) => app.focusComposer() });
+    plugin.registerCommand({ id: "workbench.focus-transcript", label: "Focus transcript", group: "Workbench", run: (app) => app.focusTranscript() });
+    plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", run: (app) => app.focusStage() });
+    plugin.registerCommand({ id: "workbench.toggle-dock", label: "Toggle dock", group: "Workbench", run: (app) => app.toggleDock() });
     plugin.registerSlashCommand({ name: "reload", description: "Apply source and extension changes, then reload Tau", run: async (_args, app) => (await app.reloadWorkbench()) ? undefined : "Tau reload failed." });
     plugin.registerSlashCommand({ name: "tree", description: "Move this thread to another point of its session tree", run: (_args, app) => app.openThreadTree("navigate") });
     plugin.registerSlashCommand({ name: "fork", description: "Start a new thread from an earlier message", run: (_args, app) => app.openThreadTree("fork") });
@@ -106,5 +111,9 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
     plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });
+    plugin.registerKeybinding({ keys: "mod+1", commandId: "workbench.focus-composer" });
+    plugin.registerKeybinding({ keys: "mod+2", commandId: "workbench.focus-transcript" });
+    plugin.registerKeybinding({ keys: "mod+3", commandId: "workbench.focus-stage" });
+    plugin.registerKeybinding({ keys: "mod+b", commandId: "workbench.toggle-dock" });
   },
 };

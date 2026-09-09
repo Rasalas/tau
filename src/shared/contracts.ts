@@ -346,6 +346,11 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
 }
 
 /** Capability of the runtime prepared for a not-yet-created thread. */
+export interface NewThreadConfiguration {
+  /** An explicit per-thread choice; omitted means use the runtime default. */
+  model?: Pick<UiModel, "provider" | "id">;
+}
+
 export interface PreparedThreadCapability {
   cwd: string;
   generation: number;
@@ -587,6 +592,70 @@ export interface ThreadTreeNavigationResult extends HostActionResult {
   cancelled: boolean;
   /** The user message at the target, offered as the next draft the way Pi's /tree does. */
   draftText?: string;
+}
+
+export interface UserTheme {
+  id: string;
+  name: string;
+  css: string;
+  base?: "dark" | "light" | "system";
+  sourcePath?: string;
+}
+
+export interface TauConfig {
+  theme?: "system" | "dark" | "light" | string;
+  transcriptDetail?: "focused" | "detailed" | "everything";
+  showCosts?: boolean;
+  favouriteModels?: string[];
+  disabledExtensions?: string[];
+  prewarm?: boolean;
+  options?: Record<string, boolean>;
+  values?: Record<string, string>;
+}
+
+export interface CustomModelDefinition {
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+export interface CustomProviderConfig {
+  providerId: string;
+  name?: string;
+  baseUrl?: string;
+  api?: string;
+  hasApiKey?: boolean;
+  models: CustomModelDefinition[];
+}
+
+export interface CustomProviderInput {
+  providerId: string;
+  name?: string;
+  baseUrl?: string;
+  api?: string;
+  apiKey?: string;
+  models: CustomModelDefinition[];
+}
+
+export interface SystemPromptInspection {
+  /** The effective, full system prompt as sent to the model. */
+  effectivePrompt: string;
+  /** Base system prompt (custom or default). */
+  basePrompt?: string;
+  /** File path where the base prompt originated from, if any. */
+  basePromptSource?: string;
+  /** Prompts appended to the base prompt. */
+  appends: Array<{
+    text: string;
+    source?: string;
+  }>;
+  /** Project instructions / context files (e.g. AGENTS.md). */
+  contextFiles: Array<{
+    path: string;
+    content: string;
+  }>;
 }
 
 export interface TauDesktopApi {

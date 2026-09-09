@@ -180,16 +180,6 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
           </div>
         </div>
       )}
-      {model.runningElsewhere > 0 && model.jumpTo ? (
-        <footer className="agents-elsewhere">
-          <span>{model.runningElsewhere} agent{model.runningElsewhere === 1 ? "" : "s"} in other threads</span>
-          <button
-            type="button"
-            disabled={!model.jumpTo.path}
-            onClick={() => { if (model.jumpTo?.path) actions.openThread(model.jumpTo.threadId); }}
-          >Go to {model.jumpTo.title}</button>
-        </footer>
-      ) : null}
     </section>
   );
 }

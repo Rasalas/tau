@@ -16,6 +16,18 @@ describe("composer drafts", () => {
     expect(readNewThreadDraft(storage)).toEqual({ ...pending, draft: "new thread text" });
   });
 
+  it("persists an explicit model choice with the unstarted thread", () => {
+    const storage = createMemoryStorage();
+    const pending = {
+      ...createNewThreadDraft({ projectPath: "/repos/tau", projectName: "tau" }),
+      model: { provider: "openai-codex", id: "gpt-6-astra", name: "GPT-6 Astra" },
+    };
+
+    writeNewThreadDraft(storage, pending);
+
+    expect(readNewThreadDraft(storage)?.model).toEqual(pending.model);
+  });
+
   it("gives every draft instance its own scope, including the same project", () => {
     const first = createNewThreadDraft({ projectPath: "/repos/tau", projectName: "tau" });
     const second = createNewThreadDraft({ projectPath: "/repos/tau", projectName: "tau" });

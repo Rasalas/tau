@@ -60,10 +60,13 @@ describe("Workspace Kit title actions", () => {
     expect(openInEditor).toHaveBeenCalledWith(undefined, "zed");
   });
 
-  it("disables editor actions while a draft is pending", () => {
-    setup(workspace(), true);
-    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "Choose editor" }).hasAttribute("disabled")).toBe(true);
+  it("keeps editor actions available for a draft whose project is known", () => {
+    const { openInEditor } = setup(workspace(), true);
+    const open = screen.getByRole("button", { name: "Open" });
+    expect(open.hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Choose editor" }).hasAttribute("disabled")).toBe(false);
+    fireEvent.click(open);
+    expect(openInEditor).toHaveBeenCalledWith(undefined, "code");
   });
 
   it("offers no editor action when the host's files are not on this machine", () => {

@@ -36,6 +36,9 @@ export interface WorkbenchActions {
   /** Pi's /clone: a new thread continuing from the active thread's current point. */
   duplicateThread(): Promise<boolean>;
   focusComposer(seed?: string): void;
+  focusTranscript(): void;
+  focusStage(): void;
+  toggleDock(): void;
   notify(message: string): void;
   /** Opens the list of project sources extensions registered. */
   openProjectSources(): void;

@@ -537,6 +537,11 @@ button > svg { pointer-events: none; }
 }
 .virtual-transcript { width: 100%; flex: none; }
 .virtual-transcript-row { padding-bottom: 22px; box-sizing: border-box; }
+.virtual-transcript-row.focused {
+  outline: 1px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
 .transcript-current-row { padding-bottom: 22px; box-sizing: border-box; }
 .inline-transcript-activity { margin-top: 20px; }
 .transcript-jump {
@@ -1475,6 +1480,14 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .model-search { height: 50px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
 .model-search:focus-within { border-bottom-color: var(--acid); }
 .model-search > svg { color: var(--faint); flex: none; }
+.model-search > .model-provider-add {
+  width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px dashed var(--line-control); border-radius: 7px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.model-search > .model-provider-add:hover {
+  background: var(--hover-strong); color: var(--ink); border-color: var(--line-float);
+}
 
 .model-list { flex: 1; min-width: 0; overflow: auto; padding: 8px; }
 .model-row {

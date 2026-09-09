@@ -5,6 +5,7 @@ import type {
   HostExtensionSummary,
   PreparedPrompt,
   PreparedThreadCapability,
+  NewThreadConfiguration,
   ShellActionResult,
   ThreadTreeNavigationResult,
   UiImagePreview,
@@ -18,6 +19,12 @@ import type {
   HostEvent,
   ClientTurnIdentity,
   ThreadBackendKind,
+  TauConfig,
+  CustomProviderConfig,
+  CustomProviderInput,
+  UiModel,
+  SystemPromptInspection,
+  UserTheme,
 } from "../shared/contracts";
 import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 import type { HostBootstrap } from "../shared/contracts";
@@ -33,7 +40,7 @@ import type { HostConnection, HostConnectionState } from "./host-connection";
 export interface HostClient {
   // Thread lifecycle and navigation: create, resume, switch, and manage projects.
   bootstrap(): Promise<HostBootstrap>;
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<NewThreadResult>;
+  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt, configuration?: NewThreadConfiguration): Promise<NewThreadResult>;
   getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
   forkThread(entryId: string, expectedSessionId?: string): Promise<HostActionResult>;
   threadTree(sessionId?: string): Promise<UiThreadTree>;
@@ -84,6 +91,14 @@ export interface HostClient {
   /** Restarts into a downloaded update. */
   installUpdate(): Promise<{ installing: boolean }>;
 
+  // Host configuration as code.
+  getConfig(workspaceId?: string): Promise<TauConfig>;
+  updateConfig(patch: Partial<TauConfig>, scope?: "global" | "project", workspaceId?: string): Promise<TauConfig>;
+  getModelsConfig(): Promise<CustomProviderConfig[]>;
+  addModelProvider(input: CustomProviderInput): Promise<UiModel[]>;
+  inspectSystemPrompt(threadId?: string, workspaceId?: string): Promise<SystemPromptInspection>;
+  listUserThemes(workspaceId?: string): Promise<UserTheme[]>;
+
   // Clipboard, window chrome, and the host event stream.
   readonly platform: string;
   copyText(text: string): Promise<void>;
@@ -110,8 +125,8 @@ export function createHostClient(connection: HostConnection): HostClient {
       void connection.refreshJobMethods();
       return bootstrap;
     },
-    newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared) =>
-      call<NewThreadResult>("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared]),
+    newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration) =>
+      call<NewThreadResult>("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration]),
     getPreparedThreadCapability: (cwd) => call<PreparedThreadCapability>("prepared-thread-capability", [cwd]),
     forkThread: (entryId, expectedSessionId) => call<HostActionResult>("fork-thread", [entryId, expectedSessionId]),
     threadTree: (sessionId) => call<UiThreadTree>("thread-tree", [sessionId]),
@@ -165,6 +180,12 @@ export function createHostClient(connection: HostConnection): HostClient {
       : call<WorkbenchBuildResult>("rebuild-workbench"),
     relaunchWorkbench: () => call<void>("relaunch-workbench"),
     installUpdate: () => call<{ installing: boolean }>("install-update"),
+    getConfig: (workspaceId) => call<TauConfig>("get-config", [workspaceId]),
+    updateConfig: (patch, scope, workspaceId) => call<TauConfig>("update-config", [patch, scope, workspaceId]),
+    getModelsConfig: () => call<CustomProviderConfig[]>("get-models-config"),
+    addModelProvider: (input) => call<UiModel[]>("add-model-provider", [input]),
+    inspectSystemPrompt: (threadId, workspaceId) => call<SystemPromptInspection>("inspect-system-prompt", [threadId, workspaceId]),
+    listUserThemes: (workspaceId) => call<UserTheme[]>("list-user-themes", [workspaceId]),
 
     platform: connection.platform,
     copyText: (text) => call<void>("copy-text", [text]),

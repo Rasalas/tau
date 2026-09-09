@@ -4,7 +4,8 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewThreadRequestId, type ClientTurnIdentity, type HostEvent } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
-import { getClientStorage, setClientStorage } from "../workbench/client-storage";
+import { createMemoryStorage, getClientStorage, setClientStorage } from "../workbench/client-storage";
+import { writeNewThreadDraft } from "../workbench/draft-store";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
@@ -244,6 +245,7 @@ describe("App render isolation", () => {
     const dockProbe: DesktopExtension = { id: "test.dock", name: "Dock probe", activate: (plugin) => { plugin.registerPanel({ id: "probe", label: "Probe", order: 1, Component: () => <div>probe</div> }); } };
     const view = renderApp(undefined, { extensions: [dockProbe] });
     const shell = view.container.querySelector(".app-shell") as HTMLElement;
+    fireEvent.click(await screen.findByRole("button", { name: "Probe" }));
     const resizer = await screen.findByRole("separator", { name: "Resize right sidebar" });
 
     expect(shell.style.getPropertyValue("--dock-width")).toBe("320px");
@@ -556,11 +558,6 @@ describe("App render isolation", () => {
 
     renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
-    const firstDialog = await screen.findByRole("dialog", { name: "Search projects" });
-    fireEvent.click(within(firstDialog).getByRole("option", { name: /project/u }));
-    await waitFor(() => expect(getPreparedThreadCapability).toHaveBeenCalledWith("/project"));
-
     const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "carry this draft" } });
     const attachment = new File([new Uint8Array([137, 80, 78, 71])], "carry.png", { type: "image/png" });
@@ -568,8 +565,8 @@ describe("App render isolation", () => {
     await screen.findByRole("button", { name: "Preview carry.png" });
 
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
-    const secondDialog = await screen.findByRole("dialog", { name: "Search projects" });
-    fireEvent.click(within(secondDialog).getByRole("option", { name: /other/u }));
+    const dialog = await screen.findByRole("dialog", { name: "Search projects" });
+    fireEvent.click(within(dialog).getByRole("option", { name: /other/u }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy());
     expect(composer.value).toBe("carry this draft");
     expect(screen.getByRole("button", { name: "Preview carry.png" })).toBeTruthy();
@@ -582,6 +579,73 @@ describe("App render isolation", () => {
       expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
       undefined,
     ));
+  });
+
+  it("keeps a model selected for an unstarted thread on that thread", async () => {
+    let clientMessageId: string | undefined;
+    const newSession = vi.fn(async (...args: unknown[]) => {
+      clientMessageId = (args[3] as ClientTurnIdentity).clientMessageId;
+      return { version: 1 as const, updates: [] as never[], sessionId: "created", submission: { accepted: true as const } };
+    });
+    const setModel = vi.fn(async () => ({ version: 1 as const, updates: [] as never[] }));
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: { sessionId: "previous", messages: [], isStreaming: false, activeTools: [] },
+        catalog: {
+          sessionId: "previous",
+          models: [
+            { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+            { provider: "openai-codex", id: "gpt-6-astra", name: "GPT-6 Astra" },
+          ],
+          model: { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+          thinkingLevel: "medium",
+          thinkingLevels: ["medium"],
+          allTools: [],
+          extensionCount: 0,
+        },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+      setModel,
+      newSession,
+    });
+
+    const storage = createMemoryStorage();
+    writeNewThreadDraft(storage, { kind: "draft", draftId: "model-draft", projectPath: "/project", projectName: "project" });
+    renderApp(client, { storage });
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    fireEvent.click(screen.getByRole("button", { name: /Select model: GPT-5.6 Sol/u }));
+    const modelPicker = await screen.findByRole("dialog", { name: "Select model" });
+    fireEvent.click(within(modelPicker).getByText("GPT-6 Astra").closest("button")!);
+
+    expect(await screen.findByRole("button", { name: /Select model: GPT-6 Astra/u })).toBeTruthy();
+    expect(setModel).not.toHaveBeenCalled();
+
+    const composer = screen.getByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(composer, { target: { value: "keep this model" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(newSession).toHaveBeenCalledWith(
+      "keep this model",
+      [],
+      "/project",
+      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
+      undefined,
+      { model: { provider: "openai-codex", id: "gpt-6-astra" } },
+    ));
+    client.emit({
+      type: "new-thread-delivery-settled",
+      sessionId: "created",
+      clientMessageId: clientMessageId!,
+      accepted: true,
+    });
+    expect(await screen.findByRole("button", { name: /Select model: GPT-6 Astra/u })).toBeTruthy();
   });
 
   it("keeps an in-flight history load when a same-thread action returns detail", async () => {

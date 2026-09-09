@@ -8,6 +8,7 @@ import { testDomRect } from "./test-dom-geometry";
 import { TranscriptViewport } from "./TranscriptViewport";
 import { VirtualTranscript } from "./VirtualTranscript";
 import type { TranscriptActivity } from "./transcript-activity";
+import type { TranscriptDetail } from "../../workbench/transcript-folding";
 
 afterEach(async () => {
   cleanup();
@@ -16,12 +17,15 @@ afterEach(async () => {
   await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
 });
 
-function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities }: {
+function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities, detail, onCopyMessage, onFocusComposer }: {
   messages: UiMessage[];
   sessionKey?: string;
   activity?: ReactNode;
   activityAfterMessageId?: string;
   activities?: TranscriptActivity[];
+  detail?: TranscriptDetail;
+  onCopyMessage?: (message: UiMessage) => void;
+  onFocusComposer?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const allActivities: TranscriptActivity[] = [
@@ -40,6 +44,9 @@ function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMess
       isStreaming={false}
       sessionKey={sessionKey}
       activities={allActivities}
+      detail={detail}
+      onCopyMessage={onCopyMessage}
+      onFocusComposer={onFocusComposer}
     />
   </div>;
 }
@@ -509,5 +516,94 @@ describe("virtual transcript", () => {
     expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeLessThan(40);
     expect(view.container.querySelectorAll(".inline-transcript-activity").length).toBeLessThan(40);
     view.unmount();
+  });
+
+  describe("keyboard navigation", () => {
+    it("navigates rows with j/k and ArrowDown/ArrowUp", async () => {
+      const messages: UiMessage[] = [
+        { id: "msg-0", role: "user", text: "First message", timestamp: 1 },
+        { id: "msg-1", role: "assistant", text: "Second message", timestamp: 2 },
+        { id: "msg-2", role: "user", text: "Third message", timestamp: 3 },
+      ];
+      const view = render(<Fixture messages={messages} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+      expect(transcript).not.toBeNull();
+      expect(transcript.tabIndex).toBe(0);
+
+      // Press 'j' -> moves focus to index 0
+      fireEvent.keyDown(transcript, { key: "j" });
+      expect(transcript.dataset.focusedIndex).toBe("0");
+      const rows = view.container.querySelectorAll(".virtual-transcript-row");
+      expect(rows[0].classList.contains("focused")).toBe(true);
+
+      // Press ArrowDown -> moves to index 1
+      fireEvent.keyDown(transcript, { key: "ArrowDown" });
+      expect(transcript.dataset.focusedIndex).toBe("1");
+      expect(rows[1].classList.contains("focused")).toBe(true);
+
+      // Press 'k' -> moves back to index 0
+      fireEvent.keyDown(transcript, { key: "k" });
+      expect(transcript.dataset.focusedIndex).toBe("0");
+
+      // Press ArrowUp at 0 -> stays at index 0
+      fireEvent.keyDown(transcript, { key: "ArrowUp" });
+      expect(transcript.dataset.focusedIndex).toBe("0");
+      view.unmount();
+    });
+
+    it("toggles folds and thinking blocks with Space and Enter", async () => {
+      const messages: UiMessage[] = [
+        { id: "msg-0", role: "assistant", text: "Here is answer", thinking: "Deep thought", timestamp: 1 },
+      ];
+      const view = render(<Fixture messages={messages} detail="detailed" />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+
+      fireEvent.keyDown(transcript, { key: "j" });
+      expect(transcript.dataset.focusedIndex).toBe("0");
+
+      const thinking = view.container.querySelector("details.message-thinking") as HTMLDetailsElement;
+      expect(thinking).not.toBeNull();
+      const initialOpen = thinking.open;
+
+      fireEvent.keyDown(transcript, { key: " " });
+      expect(thinking.open).toBe(!initialOpen);
+      view.unmount();
+    });
+
+    it("copies focused row text or code with y", async () => {
+      const messages: UiMessage[] = [
+        { id: "msg-0", role: "assistant", text: "Some code answer\n```js\nconsole.log(123);\n```", timestamp: 1 },
+      ];
+      const onCopyMessage = vi.fn();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
+
+      const view = render(<Fixture messages={messages} onCopyMessage={onCopyMessage} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+
+      fireEvent.keyDown(transcript, { key: "j" });
+      fireEvent.keyDown(transcript, { key: "y" });
+
+      expect(onCopyMessage).toHaveBeenCalledWith(messages[0]);
+      expect(writeText).toHaveBeenCalled();
+      view.unmount();
+    });
+
+    it("returns focus to composer on Escape or i", async () => {
+      const messages: UiMessage[] = [
+        { id: "msg-0", role: "user", text: "Hello", timestamp: 1 },
+      ];
+      const onFocusComposer = vi.fn();
+      const view = render(<Fixture messages={messages} onFocusComposer={onFocusComposer} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+
+      fireEvent.keyDown(transcript, { key: "j" });
+      fireEvent.keyDown(transcript, { key: "Escape" });
+      expect(onFocusComposer).toHaveBeenCalledTimes(1);
+
+      fireEvent.keyDown(transcript, { key: "i" });
+      expect(onFocusComposer).toHaveBeenCalledTimes(2);
+      view.unmount();
+    });
   });
 });

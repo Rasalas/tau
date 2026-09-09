@@ -94,3 +94,50 @@ describe("subscription login acknowledgements", () => {
     expect(new PreferencesStore().getSnapshot().acknowledgedSubscriptionLogins).toEqual(["anthropic"]);
   });
 });
+
+describe("host configuration sync", () => {
+  it("synchronizes preferences from host config", async () => {
+    const fakeClient = {
+      getConfig: async () => ({ theme: "light" as const, showCosts: false, transcriptDetail: "everything" as const }),
+      updateConfig: async () => ({}),
+    } as unknown as import("../workbench/host-client").HostClient;
+
+    preferences.bindHost(fakeClient);
+    await preferences.syncFromHost();
+
+    expect(preferences.getSnapshot().theme).toBe("light");
+    expect(preferences.getSnapshot().showCosts).toBe(false);
+    expect(preferences.getSnapshot().transcriptDetail).toBe("everything");
+  });
+
+  it("sends updates to host config when preferences change", async () => {
+    let sentPatch: unknown;
+    const fakeClient = {
+      getConfig: async () => ({}),
+      updateConfig: async (patch: unknown) => { sentPatch = patch; return {}; },
+    } as unknown as import("../workbench/host-client").HostClient;
+
+    preferences.bindHost(fakeClient);
+    preferences.setTheme("dark");
+
+    expect(sentPatch).toEqual({ theme: "dark" });
+  });
+
+  it("syncs user themes from host and registers them", async () => {
+    const store = new PreferencesStore();
+    const fakeClient = {
+      getConfig: async () => ({ theme: "nordic" }),
+      listUserThemes: async () => [
+        { id: "nordic", name: "Nordic", css: ":root { --acid: #88c0d0; }" },
+      ],
+    } as unknown as import("../workbench/host-client").HostClient;
+
+    store.bindHost(fakeClient);
+    await store.syncFromHost();
+
+    const { getUserTheme, allAvailableThemes } = await import("./theme");
+    expect(getUserTheme("nordic")?.name).toBe("Nordic");
+    expect(allAvailableThemes()).toContain("nordic");
+    expect(store.getSnapshot().theme).toBe("nordic");
+  });
+});

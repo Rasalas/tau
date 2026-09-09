@@ -7,6 +7,7 @@ import {
   decodeExtensionUiAnswer,
   decodeHostTranscriptCursor,
   decodeNavigateOptions,
+  decodeNewThreadConfiguration,
   decodeOptionalBoolean,
   decodeOptionalString,
   decodePreparedPrompt,
@@ -96,6 +97,16 @@ describe("ipc-input decoders", () => {
     });
     it("rejects the wrong kind", () => {
       expect(() => decodeUiPromptAttachments(CHANNEL, "field", [{ ...validAttachment, kind: "file" }])).toThrow('must be "image"');
+    });
+  });
+
+  describe("decodeNewThreadConfiguration", () => {
+    it("accepts an explicit model and rejects incomplete identities", () => {
+      expect(decodeNewThreadConfiguration(CHANNEL, "field", {
+        model: { provider: "openai-codex", id: "gpt-6-astra" },
+      })).toEqual({ model: { provider: "openai-codex", id: "gpt-6-astra" } });
+      expect(decodeNewThreadConfiguration(CHANNEL, "field", undefined)).toBeUndefined();
+      expect(() => decodeNewThreadConfiguration(CHANNEL, "field", { model: { provider: "openai-codex" } })).toThrow();
     });
   });
 

@@ -25,19 +25,22 @@ afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefine
  * alone does not draw.
  */
 describe("Workspace Kit in the workbench", () => {
-  it("toggles the right sidebar from its active rail icon", async () => {
+  it("starts with the right sidebar closed and opens it from the rail", async () => {
     const view = renderApp(undefined, { extensions: [workspaceExtension] });
     const shell = view.container.querySelector(".app-shell") as HTMLElement;
     const filesButton = await screen.findByRole("button", { name: "Files" });
-    await waitFor(() => expect(filesButton.getAttribute("aria-pressed")).toBe("true"));
-
-    fireEvent.click(filesButton);
+    await waitFor(() => expect(filesButton.getAttribute("aria-pressed")).toBe("false"));
     expect(shell.classList.contains("dock-closed")).toBe(true);
-    expect(filesButton.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getAllByRole("button", { name: "Show panel" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Expand panel" })).toBeNull();
 
     fireEvent.click(filesButton);
     expect(shell.classList.contains("dock-closed")).toBe(false);
     expect(filesButton.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(filesButton);
+    expect(shell.classList.contains("dock-closed")).toBe(true);
+    expect(filesButton.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("does not load a hidden Files panel", async () => {
@@ -59,17 +62,14 @@ describe("Workspace Kit in the workbench", () => {
     });
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    // Files is the dock's default tab, so it loads once its code-split panel
-    // mounts. Collapsing the dock is what makes the panel hidden; before that,
-    // whether the chunk has resolved yet is only a question of host speed.
     const filesButton = await screen.findByRole("button", { name: "Files" });
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Files" })).toBeTruthy());
-    fireEvent.click(filesButton);
-    expect(screen.queryByRole("heading", { name: "Files" })).toBeNull();
-
-    getFileTree.mockClear();
     await waitFor(() => expect(filesButton.getAttribute("aria-pressed")).toBe("false"));
+    expect(screen.queryByRole("heading", { name: "Files" })).toBeNull();
     expect(getFileTree).not.toHaveBeenCalled();
+
+    fireEvent.click(filesButton);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Files" })).toBeTruthy());
+    expect(getFileTree).toHaveBeenCalled();
   });
 
   it("keeps the virtual thread canvas from shrinking inside the scroll rail", async () => {
@@ -77,6 +77,67 @@ describe("Workspace Kit in the workbench", () => {
     const navigation = await screen.findByRole("navigation", { name: "Threads" });
     const canvas = navigation.firstElementChild as HTMLElement;
     expect(canvas.style.flexShrink).toBe("0");
+  });
+
+  it("reveals recent thread history in batches of twenty", async () => {
+    const sessions = Array.from({ length: 45 }, (_, index) => ({
+      id: `thread-${index}`,
+      path: `/sessions/thread-${index}.jsonl`,
+      title: `Thread ${index}`,
+      modifiedAt: 100 - index,
+      projectPath: "/project",
+      projectName: "project",
+      messageCount: 1,
+    }));
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions },
+        detail: { sessionId: "thread-0", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "thread-0", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub(),
+    });
+    renderApp(client, { extensions: [workspaceExtension] });
+
+    const more = await screen.findByRole("button", { name: "Show more threads (25)" });
+    fireEvent.click(more);
+    expect(screen.getByRole("button", { name: "Show more threads (5)" })).toBeTruthy();
+  });
+
+  it("keeps settled history closed and reveals it in batches of twenty", async () => {
+    const sessions = Array.from({ length: 45 }, (_, index) => ({
+      id: `settled-${index}`,
+      path: `/sessions/settled-${index}.jsonl`,
+      title: `Settled thread ${index}`,
+      modifiedAt: 100 - index,
+      projectPath: "/project",
+      projectName: "project",
+      messageCount: 1,
+    }));
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions },
+        detail: { sessionId: "settled-0", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "settled-0", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub(),
+    });
+    renderApp(client, {
+      extensions: [workspaceExtension],
+      seed: ({ preferences }) => sessions.forEach((session) => preferences.toggleSettled(session.id)),
+    });
+
+    const toggle = await screen.findByRole("button", { name: /SETTLED · 45/u });
+    expect(screen.queryByText("Settled thread 20")).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByText("Settled thread 19")).toBeTruthy();
+    expect(screen.queryByText("Settled thread 20")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show more settled threads (25)" }));
+    expect(screen.getByText("Settled thread 20")).toBeTruthy();
   });
 
   it("switches to an existing thread while a new-thread message is still being delivered", async () => {
@@ -369,7 +430,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getByRole("button", { name: "main" })).toBeTruthy();
   });
 
-  it("discards an unsubmitted draft when switching projects from the sidebar", async () => {
+  it("keeps an unsubmitted draft when changing its project from the sidebar", async () => {
     const openProject = vi.fn(async () => ({
       version: 1 as const,
       updates: [
@@ -415,10 +476,11 @@ describe("Workspace Kit in the workbench", () => {
     const switcher = await screen.findByRole("dialog", { name: "Switch project" });
     fireEvent.click(within(switcher).getByRole("option", { name: /other/u }));
 
-    await waitFor(() => expect(openProject).toHaveBeenCalledWith("/other"));
-    await waitFor(() => expect(composer.value).toBe(""));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy());
+    expect(openProject).not.toHaveBeenCalled();
+    expect(composer.value).toBe("discard this draft");
     expect(screen.queryByText(/Project switching is unavailable/u)).toBeNull();
-    expect(getClientStorage()?.get("tau.active-new-thread.v1")).toBeNull();
+    expect(JSON.parse(getClientStorage()?.get("tau.active-new-thread.v1") ?? "{}")).toMatchObject({ projectPath: "/other", draft: "discard this draft" });
   });
 
   it("keeps a new-thread draft and attachments when host preflight rejects", async () => {
@@ -898,8 +960,8 @@ describe("Workspace Kit in the workbench", () => {
 
     await waitFor(() => expect(newSession).toHaveBeenCalled());
     if (!clientMessageId) throw new Error("newSession did not receive a client message id");
-    // Session allocation alone leaves the draft in flight.
-    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(true);
+    // The draft already names its project, so opening that folder stays available while allocation settles.
+    expect(screen.getByRole("button", { name: "Open" }).hasAttribute("disabled")).toBe(false);
 
     // The host reports the missing user turn from prompt(), then commits the
     // detached delivery. Both arrive in that order over one channel.

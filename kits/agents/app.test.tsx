@@ -120,6 +120,21 @@ describe("the Agents panel", () => {
     expect(panel.querySelector(".agent-total-cost")!.textContent).toBe("–");
   });
 
+  it("does not advertise agents running in other threads in the panel footer", async () => {
+    const sessions = [
+      session("unrelated", "Unrelated thread", 4),
+      session("parent", "Parent thread", 3),
+      session("alpha", "Alpha reply", 2),
+      session("beta", "Beta reply", 1),
+    ];
+    renderApp(appWith(state, sessions, "unrelated"), { extensions: [workspaceExtension, agentsExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    await screen.findByRole("heading", { name: "Agents" });
+    expect(screen.queryByText(/agents? in other threads/u)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Go to Parent thread/u })).toBeNull();
+  });
+
   it("opens the agent's chat as a stage tab and leaves the active thread alone", async () => {
     const switchSession = vi.fn(async () => ({ version: 1 as const, updates: [] }));
     const client = appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent");

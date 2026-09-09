@@ -8,6 +8,7 @@ import type {
   UiThreadTree,
   UiThreadTreeNode,
   UiThreadUsage,
+  SystemPromptInspection,
 } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
@@ -134,6 +135,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       },
       reload: { reload: () => this.session.reload() },
       events: { subscribe: (listener) => this.subscribe(listener) },
+      systemPrompt: { inspect: () => this.inspectSystemPrompt() },
     };
   }
 
@@ -180,6 +182,26 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   async transcript(): Promise<UiMessage[]> { return this.options.mapMessages(this.session.messages); }
+
+  private inspectSystemPrompt(): SystemPromptInspection {
+    const loader = this.session.resourceLoader;
+    const basePrompt = loader.getSystemPrompt();
+    const basePromptSource = loader.getSystemPromptSource()?.path;
+    const appendTexts = loader.getAppendSystemPrompt();
+    const appendSources = loader.getAppendSystemPromptSources();
+    const appends = appendTexts.map((text, index) => ({
+      text,
+      source: appendSources[index]?.path,
+    }));
+    const contextFiles = loader.getAgentsFiles().agentsFiles;
+    return {
+      effectivePrompt: this.session.systemPrompt,
+      ...(basePrompt ? { basePrompt } : {}),
+      ...(basePromptSource ? { basePromptSource } : {}),
+      appends,
+      contextFiles,
+    };
+  }
 
   private resourceCommands(): UiComposerCommand[] {
     const loader = this.session.resourceLoader;

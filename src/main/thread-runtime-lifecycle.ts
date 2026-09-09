@@ -33,6 +33,7 @@ import type { ThreadBinding } from "./thread-binding.js";
 import type { ThreadProjection } from "./thread-projection.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
+import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
 
@@ -92,13 +93,19 @@ export class ThreadRuntimeLifecycle {
 
   /** What a runtime's resources depend on; a changed answer is a new catalog. */
   fingerprint(cwd: string, settingsManager?: SettingsManager): string {
+    const promptOverrides = discoverPromptOverrides(cwd, this.port.agentDir);
     return runtimeResourceFingerprint({
       cwd,
       settings: settingsManager
         ? { global: settingsManager.getGlobalSettings(), project: settingsManager.getProjectSettings(), safeMode: this.port.safeMode }
         : { safeMode: this.port.safeMode },
       extensions: { enabled: !this.port.safeMode, hostExtensions: this.port.runtimeExtensionNames() },
-      providerState: { agentDir: this.port.agentDir },
+      providerState: {
+        agentDir: this.port.agentDir,
+        promptCustom: promptOverrides.customPrompt?.path,
+        promptAppends: promptOverrides.appendPrompts.map((p) => p.path),
+        contextFiles: promptOverrides.contextFiles.map((c) => c.path),
+      },
     });
   }
 
@@ -129,6 +136,7 @@ export class ThreadRuntimeLifecycle {
     const resourcesStartedAt = performance.now();
     const resourceKey = this.fingerprint(cwd, settingsManager);
     const cachedResources = this.resourceCache.get(resourceKey);
+    const promptOverrides = discoverPromptOverrides(cwd, agentDir);
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
@@ -139,6 +147,18 @@ export class ThreadRuntimeLifecycle {
         noExtensions: this.port.safeMode,
         // Host extensions add theirs through the services facade; none in safe mode.
         extensionFactories: this.port.runtimeExtensions(settingsManager, { sessionId: sessionManager.getSessionId(), cwd }),
+        ...(cachedResources ? {} : {
+          systemPromptOverride: (base) => promptOverrides.customPrompt?.content ?? base,
+          appendSystemPromptOverride: (base) => [
+            ...base,
+            ...promptOverrides.appendPrompts.map((p) => p.content),
+          ],
+          agentsFilesOverride: (base) => {
+            const existingPaths = new Set(base.agentsFiles.map((file) => file.path));
+            const additions = promptOverrides.contextFiles.filter((file) => !existingPaths.has(file.path));
+            return { agentsFiles: [...base.agentsFiles, ...additions] };
+          },
+        }),
       },
     });
     if (!cachedResources) this.resourceCache.set(resourceKey, captureResourceDiscovery(services.resourceLoader));

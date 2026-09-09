@@ -8,6 +8,17 @@ const recent = [
 ];
 
 describe("resolveStartupWorkspace", () => {
+  it("starts in the home directory when no workspace was requested and history is empty", () => {
+    expect(resolveStartupWorkspace(undefined, [], { exists: () => true, home: "/Users/me" }))
+      .toEqual({ cwd: "/Users/me" });
+  });
+
+  it("starts in the most recent existing project when no workspace was requested", () => {
+    const exists = (path: string) => path === "/projects/old" || path === "/projects/newer";
+    expect(resolveStartupWorkspace(undefined, recent, { exists, home: "/Users/me" }))
+      .toEqual({ cwd: "/projects/newer" });
+  });
+
   it("keeps a workspace that exists", () => {
     const result = resolveStartupWorkspace("/work", recent, { exists: () => true });
     expect(result).toEqual({ cwd: "/work" });

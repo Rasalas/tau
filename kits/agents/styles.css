@@ -58,11 +58,6 @@
 }
 .agents-empty > p { margin: 0; font-size: 12.5px; color: var(--muted-2); }
 .agents-empty > small { max-width: 30ch; font-size: 11px; line-height: 1.5; }
-.agents-elsewhere {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 6px 10px; border-top: 1px solid var(--line); font: 10px var(--mono); color: var(--faint);
-}
-.agents-elsewhere > button { background: none; border: none; color: var(--ink-3); cursor: pointer; font: inherit; }
 .agent-parent-link {
   display: inline-flex; align-items: center; gap: 5px;
   background: none; border: none; padding: 0; cursor: pointer;

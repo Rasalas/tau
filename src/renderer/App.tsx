@@ -166,7 +166,7 @@ export default function App() {
   // taking or releasing one has to reach the render.
   const [, setDeliveryVersion] = useState(0);
   const newThreadDeliveryPending = Boolean(pendingNewThread);
-  const [dockOpen, setDockOpen] = useState(true);
+  const [dockOpen, setDockOpen] = useState(false);
   /** The version the host downloaded; the toast that offers the restart reads it. */
   const [updateReady, setUpdateReady] = useState<string>();
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -348,10 +348,12 @@ export default function App() {
   // only trustworthy workspace identity while it is on screen. In
   // particular, do not expose the last real thread's worktree in the chrome.
   const workspaceCwd = safeMode ? undefined : (pendingNewThread?.projectPath ?? snapshot?.cwd);
+  const activeWorkspaceId = pendingNewThread?.workspaceId ?? snapshot?.workspaceId;
   useEffect(() => {
-    if (!workspaceCwd || !client) return;
-    void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
-  }, [client, runtimeExtensions, workspaceCwd]);
+    if (!client) return;
+    if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
+    preferences.setWorkspace(activeWorkspaceId);
+  }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
   const syncDesktopExtensions = useCallback(() => {
     void runtimeExtensions.resync().catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, setNotice]);
@@ -377,6 +379,7 @@ export default function App() {
   useEffect(() => {
     let unsubscribe = () => {};
     if (client) {
+      preferences.bindHost(client, activeWorkspaceId);
       unsubscribe = client.onHostEvent(handleHostEvent);
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
@@ -483,6 +486,9 @@ export default function App() {
     openThreadTree,
     duplicateThread,
     focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
+    focusTranscript: () => { (document.querySelector<HTMLElement>(".virtual-transcript") ?? transcriptRef.current ?? (document.querySelector(".transcript-viewport") as HTMLElement | null))?.focus(); },
+    focusStage: () => { (document.querySelector(".stage-body, .stage, .stage-container") as HTMLElement | null)?.focus(); },
+    toggleDock: () => { setDockOpen((open) => !open); },
     notify: setNotice,
     openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
     applyHostResult,
@@ -505,9 +511,8 @@ export default function App() {
     holdComposer: () => { setComposerHolds((count) => count + 1); return () => setComposerHolds((count) => Math.max(0, count - 1)); },
     composerDraft: () => activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey).draft : "",
   }), [
-    applyHostResult, client, openPanel, openThread,
-    activeDraftKey, openWorkspace, reloadWorkbench, settleActiveThread, snapshot, switchSession,
-    openThreadTree, duplicateThread,
+    applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
+    reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
   ]);
 
   // Extension commands outlive the render that produced them, so they reach
@@ -586,6 +591,7 @@ export default function App() {
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
+    ...(pendingNewThread.model ? { model: pendingNewThread.model } : {}),
     supportsImageInput: pendingNewThread.sessionId
       ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true
       : preparedThreadCapability?.cwd === pendingNewThread.projectPath
@@ -663,15 +669,27 @@ export default function App() {
     visibleTranscriptTurnStart,
   ]);
 
+  const setComposerModel = useCallback(async (provider: string, id: string) => {
+    const pending = currentPendingNewThread();
+    if (!pending || pending.sessionId) {
+      await threadCommands.setModel(provider, id);
+      return;
+    }
+    const selected = viewStore.getSnapshot()?.models.find((model) => model.provider === provider && model.id === id);
+    const next = { ...pending, model: { provider, id, name: selected?.name ?? id } };
+    writeNewThreadDraft(clientStorage, next);
+    setPendingNewThread(next);
+  }, [clientStorage, currentPendingNewThread, setPendingNewThread, threadCommands, viewStore]);
+
   const composer = useMemo<WorkbenchComposer>(() => ({
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
     submit: submitPrompt, abort: abortThread,
-    cancelQueued, steerQueued, reorderQueue, setModel: threadCommands.setModel, setThinking: threadCommands.setThinking,
+    cancelQueued, steerQueued, reorderQueue, setModel: setComposerModel, setThinking: threadCommands.setThinking,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
-    conversationPrompts, queue, reorderQueue, steerQueued, submitPrompt,
+    conversationPrompts, queue, reorderQueue, setComposerModel, steerQueued, submitPrompt,
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({

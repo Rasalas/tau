@@ -19,6 +19,7 @@ import { useWorkspaceStore } from "./store-context.js";
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 
 const ROW_STRIDE = 94;
+const THREAD_PAGE_SIZE = 20;
 
 type NavigationRow =
   | { kind: "group"; id: string; label: string; count: number }
@@ -353,8 +354,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const threads = navigationSnapshot.threads;
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  const [settledOpen, setSettledOpen] = useState(true);
-  const [settledLimit, setSettledLimit] = useState(40);
+  const [threadLimit, setThreadLimit] = useState(THREAD_PAGE_SIZE);
+  const [settledOpen, setSettledOpen] = useState(false);
+  const [settledLimit, setSettledLimit] = useState(THREAD_PAGE_SIZE);
   const [navigationIndex, setNavigationIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLElement>(null);
@@ -394,9 +396,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const settledIds = new Set(settings.settledThreadIds);
   const activeThreads = matching.filter((session) => !settledIds.has(session.id) || !showSettledShelf);
   const settledThreads = showSettledShelf ? matching.filter((session) => settledIds.has(session.id)) : [];
+  const visibleActive = activeThreads.slice(0, threadLimit);
 
   const navigationRows: NavigationRow[] = groupByProject
-    ? [...activeThreads.reduce((groups, session) => {
+    ? [...visibleActive.reduce((groups, session) => {
         const group = groups.get(session.projectName);
         if (group) group.push(session);
         else groups.set(session.projectName, [session]);
@@ -405,7 +408,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         { kind: "group" as const, id: `group:${project}`, label: project, count: sessions.length },
         ...sessions.map((session) => ({ kind: "thread" as const, id: session.id, session })),
       ])
-    : activeThreads.map((session) => ({ kind: "thread" as const, id: session.id, session }));
+    : visibleActive.map((session) => ({ kind: "thread" as const, id: session.id, session }));
   const rowVirtualizer = useVirtualizer({
     count: navigationRows.length,
     getScrollElement: () => listRef.current,
@@ -511,6 +514,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           })}
         </div>
 
+        {visibleActive.length < activeThreads.length ? (
+          <button className="settled-show-more" onClick={() => setThreadLimit((limit) => Math.min(activeThreads.length, limit + THREAD_PAGE_SIZE))}>
+            Show more threads ({activeThreads.length - visibleActive.length})
+          </button>
+        ) : null}
+
         {matching.length === 0 ? (
           <p className="sidebar-empty">{threadQuery ? "No threads found" : "No recent threads"}</p>
         ) : null}
@@ -523,7 +532,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             </button>
             {settledOpen ? visibleSettled.map((session) => renderRow(session, "settled")) : null}
             {settledOpen && visibleSettled.length < settledThreads.length ? (
-              <button className="settled-show-more" onClick={() => setSettledLimit((limit) => Math.min(settledThreads.length, limit + 40))}>
+              <button className="settled-show-more" onClick={() => setSettledLimit((limit) => Math.min(settledThreads.length, limit + THREAD_PAGE_SIZE))}>
                 Show more settled threads ({settledThreads.length - visibleSettled.length})
               </button>
             ) : null}

@@ -430,7 +430,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       context.registerCommand("list-editors", () => workspaceGit.listEditors());
       context.registerCommand("open-in-editor", async (input) => {
-        const project = cwd();
+        const project = await services.knownWorkspacePath(workspaceOf(input));
         const editorId = requiredString(input, "editorId");
         const path = optionalRelativePath(input);
         if (path) await workspaceGit.assertWorkspacePath(project, path);

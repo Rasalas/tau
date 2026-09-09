@@ -4,11 +4,13 @@ import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel }
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extension-permissions";
 import { TRANSCRIPT_DETAIL_LEVELS } from "../../workbench/transcript-folding";
-import { THEME_PREFERENCES } from "../theme";
+import { allAvailableThemes, getUserTheme } from "../theme";
 import { usePreferences } from "../renderer-services-context";
 import { effectiveNewThreadRuntime } from "../new-thread-runtime";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "./ModelPicker";
+import { AddModelProviderModal } from "./AddModelProviderModal";
+import { SystemPromptModal } from "./SystemPromptModal";
 import { PackageProvenance } from "./PackageProvenance";
 import { PanelIcon } from "./PanelIcon";
 import { ProviderIconStack } from "./ProviderIconStack";
@@ -23,6 +25,7 @@ function DefaultsPage({
   onSetThinking(level: string): void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
   const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
@@ -33,16 +36,27 @@ function DefaultsPage({
       <p className="lede">Seed for new threads — override any of these per thread in the composer.</p>
 
       <div className="settings-label">MODEL</div>
-      <button className="settings-field" onClick={() => setPickerOpen(true)}>
-        {snapshot?.model
-          ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" />
-          : <Sparkles size={14} className="accent" />}
-        <span>
-          <strong>{snapshot?.model?.name ?? "No model selected"}</strong>
-          <small>{snapshot?.model?.provider ?? "pi"} · via ~/.pi/agent{snapshot?.model?.login === "subscription" ? " · subscription login" : ""}</small>
-        </span>
-        <b><ChevronDown size={13} /></b>
-      </button>
+      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <button className="settings-field" style={{ flex: 1 }} onClick={() => setPickerOpen(true)}>
+          {snapshot?.model
+            ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" />
+            : <Sparkles size={14} className="accent" />}
+          <span>
+            <strong>{snapshot?.model?.name ?? "No model selected"}</strong>
+            <small>{snapshot?.model?.provider ?? "pi"} · via ~/.pi/agent{snapshot?.model?.login === "subscription" ? " · subscription login" : ""}</small>
+          </span>
+          <b><ChevronDown size={13} /></b>
+        </button>
+        <button
+          className="settings-field"
+          style={{ width: "auto", padding: "0 12px", justifyContent: "center" }}
+          onClick={() => setAddProviderOpen(true)}
+          title="Add custom model provider"
+          aria-label="Add custom model provider"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
       {pickerOpen ? (
         <ModelPicker
           models={snapshot?.models ?? []}
@@ -50,6 +64,11 @@ function DefaultsPage({
           onSelect={(model) => onSetModel(model.provider, model.id)}
           onClose={() => setPickerOpen(false)}
           runtime={snapshot?.backendKind}
+        />
+      ) : null}
+      {addProviderOpen ? (
+        <AddModelProviderModal
+          onClose={() => setAddProviderOpen(false)}
         />
       ) : null}
 
@@ -104,19 +123,18 @@ function DefaultsPage({
 
       <div className="settings-label">APPEARANCE</div>
       <div className="segmented">
-        {THEME_PREFERENCES.map((preference) => (
+        {allAvailableThemes().map((preference) => (
           <button
             key={preference}
             className={preference === theme ? "active" : ""}
             onClick={() => preferences.setTheme(preference)}
           >
-            {preference}
+            {getUserTheme(preference)?.name ?? preference}
           </button>
         ))}
       </div>
       <p className="settings-note">
-        System follows this machine's light or dark setting. A theme package installed with
-        <code> /install </code> recolours whichever of the two is showing.
+        System follows this machine's light or dark setting. Custom themes can be added as <code>.css</code> or <code>.json</code> files in <code>~/.tau/themes/</code>.
       </p>
 
       <div className="settings-label">COSTS</div>
@@ -425,6 +443,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   const ids = [...new Set([...desktop.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)])].sort();
   const packages = inspection?.packages ?? [];
   const hostStatus = (half: HostExtensionSummary | undefined) => !half ? "—" : half.error ? `failed: ${half.error}` : half.active ? `active${half.commands.length ? ` · ${half.commands.length} commands` : ""}` : "off";
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
 
   return (
     <div className="settings-page inspector-page">
@@ -437,6 +456,26 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
         <span>Pi <b>{inspection?.versions.pi ?? "…"}</b></span>
         <span>Extension API <b>{inspection?.versions.api ?? "…"}</b></span>
       </div>
+
+      <div className="settings-label">ACTIVE INSTRUCTIONS & SYSTEM PROMPT</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "var(--sunken)", borderRadius: "8px", marginBottom: "16px" }}>
+        <div>
+          <strong style={{ fontSize: "12.5px" }}>Live System Prompt & Persona</strong>
+          <p style={{ margin: "2px 0 0", fontSize: "11px", color: "var(--muted)" }}>
+            Inspect active instructions, appended rules, and loaded AGENTS.md context.
+          </p>
+        </div>
+        <button
+          className="chrome-button"
+          onClick={() => setSystemPromptOpen(true)}
+          style={{ fontSize: "12px", padding: "5px 10px" }}
+        >
+          View System Prompt…
+        </button>
+      </div>
+      {systemPromptOpen ? (
+        <SystemPromptModal onClose={() => setSystemPromptOpen(false)} />
+      ) : null}
 
       <div className="settings-label">LOADED</div>
       <table className="inspector-table" aria-label="Loaded extensions">

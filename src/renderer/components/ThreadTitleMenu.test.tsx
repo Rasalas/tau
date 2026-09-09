@@ -70,4 +70,13 @@ describe("ThreadTitleMenu", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Improve title menu" }));
   });
+
+  it("dispatches onOpenInstructions when clicked", () => {
+    const handlers = { ...props(), onOpenInstructions: vi.fn() };
+    render(<ThreadTitleMenu {...handlers} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Improve title menu" }));
+    fireEvent.click(screen.getByText("Active instructions & prompt…"));
+    expect(handlers.onOpenInstructions).toHaveBeenCalledOnce();
+  });
 });
