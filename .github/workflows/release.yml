@@ -18,7 +18,24 @@ permissions:
   contents: write
 
 jobs:
+  # Same gates as ci.yml, so a tag that points at a red commit stops here
+  # instead of shipping a broken build. Cheap enough to run on every release.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npx vitest run
+
   build:
+    needs: verify
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60

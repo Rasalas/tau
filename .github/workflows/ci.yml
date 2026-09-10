@@ -24,3 +24,23 @@ jobs:
       - run: npm run typecheck
       - run: npx vitest run
       - run: npm run build
+
+  # End-to-end pairing and package-install paths — the seams with the thinnest
+  # unit coverage. `smoke:attached` needs a real Pi TUI plus paid model auth,
+  # so it stays out of CI and remains a local check.
+  smoke:
+    needs: fast
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Smoke — remote host
+        run: npm run smoke:remote-host
+      - name: Smoke — extension install
+        run: npm run smoke:extension-install

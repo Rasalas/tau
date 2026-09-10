@@ -11,3 +11,10 @@ release/
 coverage/
 *.tsbuildinfo
 reports/*.jsonl
+# Generated per-build performance snapshots. The committed baselines below
+# stay tracked as regression references; everything else is a rerun artifact
+# (`performance.yml` uploads them for trend reading).
+reports/*.json
+!reports/renderer-2026*.json
+!reports/renderer-baseline-*.json
+!reports/renderer-transcript-baseline-*.json
