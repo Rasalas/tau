@@ -3,6 +3,8 @@ import {
   decodeBoolean,
   decodeClientTurnIdentity,
   decodeCommandName,
+  decodeConfigPatch,
+  decodeCustomProviderInput,
   decodeExtensionId,
   decodeExtensionUiAnswer,
   decodeHostTranscriptCursor,
@@ -265,5 +267,101 @@ describe("decodeText", () => {
   });
   it("rejects non-strings", () => {
     expect(() => decodeText("tau:prompt", "text", 1)).toThrow("tau:prompt: text must be a string");
+  });
+});
+
+describe("decodeCustomProviderInput", () => {
+  const CH = "add-model-provider";
+  const validInput = { providerId: "my-provider", models: [{ id: "my-model" }] };
+
+  it("accepts a valid minimal payload", () => {
+    const result = decodeCustomProviderInput(CH, "input", validInput);
+    expect(result.providerId).toBe("my-provider");
+    expect(result.models).toHaveLength(1);
+    expect(result.models[0].id).toBe("my-model");
+  });
+
+  it("accepts a full payload with optional fields", () => {
+    const result = decodeCustomProviderInput(CH, "input", {
+      providerId: "p",
+      name: "Provider",
+      baseUrl: "https://api.example.com",
+      api: "openai",
+      apiKey: "sk-x",
+      models: [{ id: "m1", name: "Model 1", reasoning: true, contextWindow: 128000, maxTokens: 4096 }],
+    });
+    expect(result.baseUrl).toBe("https://api.example.com");
+    expect(result.models[0].reasoning).toBe(true);
+    expect(result.models[0].contextWindow).toBe(128000);
+  });
+
+  it("rejects null — produces a clean message, not a TypeError", () => {
+    expect(() => decodeCustomProviderInput(CH, "input", null))
+      .toThrow("add-model-provider: input must be an object");
+  });
+
+  it("rejects a string payload", () => {
+    expect(() => decodeCustomProviderInput(CH, "input", "x"))
+      .toThrow("add-model-provider: input must be an object");
+  });
+
+  it("rejects an array payload", () => {
+    expect(() => decodeCustomProviderInput(CH, "input", []))
+      .toThrow("add-model-provider: input must be an object");
+  });
+
+  it("rejects a missing providerId", () => {
+    expect(() => decodeCustomProviderInput(CH, "input", { models: [{ id: "m" }] }))
+      .toThrow("add-model-provider: input.providerId must be a non-empty string");
+  });
+
+  it("rejects an empty models array", () => {
+    expect(() => decodeCustomProviderInput(CH, "input", { providerId: "p", models: [] }))
+      .toThrow("add-model-provider: input.models must be a non-empty array");
+  });
+
+  it("rejects a model without an id", () => {
+    expect(() => decodeCustomProviderInput(CH, "input", { providerId: "p", models: [{ name: "no-id" }] }))
+      .toThrow("add-model-provider: input.models[0].id must be a non-empty string");
+  });
+});
+
+describe("decodeConfigPatch", () => {
+  const CH = "update-config";
+
+  it("accepts a valid partial patch", () => {
+    const result = decodeConfigPatch(CH, "patch", { theme: "dark", showCosts: true });
+    expect(result.theme).toBe("dark");
+    expect(result.showCosts).toBe(true);
+  });
+
+  it("silently drops unknown keys", () => {
+    const result = decodeConfigPatch(CH, "patch", { theme: "dark", unknownKey: "value" });
+    expect(result.theme).toBe("dark");
+    expect("unknownKey" in result).toBe(false);
+  });
+
+  it("rejects non-objects", () => {
+    expect(() => decodeConfigPatch(CH, "patch", null)).toThrow("update-config: patch must be an object");
+    expect(() => decodeConfigPatch(CH, "patch", "x")).toThrow();
+  });
+
+  it("rejects wrong type for a known field (showCosts must be boolean)", () => {
+    expect(() => decodeConfigPatch(CH, "patch", { showCosts: "yes" }))
+      .toThrow("update-config: patch.showCosts must be a boolean");
+  });
+
+  it("rejects invalid transcriptDetail value", () => {
+    expect(() => decodeConfigPatch(CH, "patch", { transcriptDetail: "all" }))
+      .toThrow('must be "focused", "detailed" or "everything"');
+  });
+
+  it("accepts an empty patch", () => {
+    expect(decodeConfigPatch(CH, "patch", {})).toEqual({});
+  });
+
+  it("decodes the models sub-object", () => {
+    const result = decodeConfigPatch(CH, "patch", { models: { default: "anthropic/claude-3" } });
+    expect(result.models?.default).toBe("anthropic/claude-3");
   });
 });

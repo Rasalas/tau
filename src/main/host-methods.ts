@@ -2,10 +2,8 @@ import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
   HostBootstrap,
-  TauConfig,
   UiImagePreview,
   WorkbenchBuildResult,
-  CustomProviderInput,
 } from "../shared/contracts.js";
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
 import type { PiHost } from "./pi-host.js";
@@ -15,6 +13,8 @@ import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jo
 import {
   decodeBoolean,
   decodeCommandName,
+  decodeConfigPatch,
+  decodeCustomProviderInput,
   decodeExtensionId,
   decodeExtensionUiAnswer,
   decodeHostTranscriptCursor,
@@ -203,12 +203,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "remove-project": async (params) => (await host()).removeProject(await workspace("remove-project", "workspace", params[0])),
     "get-config": async (params) => defaultHostConfigManager.read(await optionalWorkspace("get-config", "workspace", params[0])),
     "update-config": async (params) => {
-      const patch = (params[0] && typeof params[0] === "object" ? params[0] : {}) as Partial<TauConfig>;
+      const patch = decodeConfigPatch("update-config", "patch", params[0]);
       const scope = params[1] === "project" ? "project" : "global";
       return defaultHostConfigManager.update(patch, scope, await optionalWorkspace("update-config", "workspace", params[2]));
     },
     "get-models-config": async () => (await host()).modelsConfig(),
-    "add-model-provider": async (params) => (await host()).addModelProvider(params[0] as CustomProviderInput),
+    "add-model-provider": async (params) => (await host()).addModelProvider(decodeCustomProviderInput("add-model-provider", "input", params[0])),
     "inspect-system-prompt": async (params) => (await host()).inspectSystemPrompt(
       decodeOptionalString("inspect-system-prompt", "threadId", params[0]),
       await optionalWorkspace("inspect-system-prompt", "workspace", params[1]),

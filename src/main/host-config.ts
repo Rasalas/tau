@@ -117,9 +117,54 @@ export class HostConfigManager {
   async update(patch: Partial<TauConfig>, scope: "global" | "project" = "global", cwd?: string): Promise<TauConfig> {
     const targetPath = scope === "project" && cwd ? this.projectPathResolver(cwd) : this.globalPath;
     const existing = (await readJson<TauConfig>(targetPath)) ?? {};
-    const updated = this.merge(existing, patch);
+    const updated = this.merge(existing, this.sanitizePatch(patch));
     await writeJson(targetPath, updated);
     return this.read(cwd);
+  }
+
+  /**
+   * Strips any key not present in TauConfig and silently drops values with wrong primitive
+   * types for known fields. This is a defence-in-depth layer — the IPC decoder (`decodeConfigPatch`
+   * in `ipc-input.ts`) validates and rejects bad payloads before they reach here; this ensures
+   * callers that bypass the IPC path (e.g. in tests or internal code) cannot write unrecognised
+   * keys to `~/.tau/config.json`.
+   */
+  private sanitizePatch(patch: Partial<TauConfig>): Partial<TauConfig> {
+    const KNOWN_KEYS = new Set<keyof TauConfig>([
+      "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
+      "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
+      "density", "temperature", "maxTokens", "models",
+    ]);
+    const result: Partial<TauConfig> = {};
+    for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
+      if (!KNOWN_KEYS.has(key)) continue; // drop unknown keys
+      // Basic per-field type guard to prevent wrong-typed values reaching the persisted file.
+      // Strict type enforcement happens at the IPC boundary; here we silently skip.
+      switch (key) {
+        case "theme": case "transcriptDetail": case "fontFamily": case "density":
+          if (typeof val === "string") result[key] = val as never;
+          break;
+        case "showCosts": case "prewarm":
+          if (typeof val === "boolean") result[key] = val as never;
+          break;
+        case "fontSize": case "temperature": case "maxTokens":
+          if (typeof val === "number" && Number.isFinite(val)) result[key] = val as never;
+          break;
+        case "favouriteModels": case "disabledExtensions":
+          if (Array.isArray(val) && (val as unknown[]).every((m) => typeof m === "string")) result[key] = val as never;
+          break;
+        case "options":
+          if (val && typeof val === "object" && !Array.isArray(val)) result.options = val as Record<string, boolean>;
+          break;
+        case "values": case "keybindings":
+          if (val && typeof val === "object" && !Array.isArray(val)) result[key] = val as never;
+          break;
+        case "models":
+          if (val && typeof val === "object" && !Array.isArray(val)) result.models = val as TauConfig["models"];
+          break;
+      }
+    }
+    return result;
   }
 
   private merge(base: TauConfig, override: Partial<TauConfig>): TauConfig {

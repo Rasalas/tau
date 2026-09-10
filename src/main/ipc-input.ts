@@ -1,9 +1,12 @@
 import type {
   ClientTurnIdentity,
+  CustomProviderInput,
   ExtensionUiAnswer,
   NewThreadConfiguration,
   PreparedPrompt,
   RuntimeCapabilities,
+  TauConfig,
+  TauModelPreset,
   ThreadBackendKind,
   UiPromptAttachment,
   UiSkillDraft,
@@ -221,6 +224,103 @@ export function decodeCommandName(channel: string, value: unknown): string {
   const command = decodeString(channel, "command", value);
   if (!COMMAND_NAME.test(command)) fail(channel, "command", "must be a plain lowercase identifier");
   return command;
+}
+
+/**
+ * Decodes the payload for the `add-model-provider` IPC method.
+ * Checks object shape before it reaches `validateProviderInput` and `addModelProvider`,
+ * so a null/string/array payload produces a clean fail() message instead of a TypeError.
+ */
+export function decodeCustomProviderInput(channel: string, field: string, value: unknown): CustomProviderInput {
+  const item = record(channel, field, value);
+  const rawModels = item.models;
+  if (!Array.isArray(rawModels) || rawModels.length === 0)
+    fail(channel, `${field}.models`, "must be a non-empty array");
+  return {
+    providerId: decodeString(channel, `${field}.providerId`, item.providerId),
+    ...(item.name !== undefined ? { name: decodeString(channel, `${field}.name`, item.name) } : {}),
+    ...(item.baseUrl !== undefined ? { baseUrl: decodeString(channel, `${field}.baseUrl`, item.baseUrl) } : {}),
+    ...(item.api !== undefined ? { api: decodeString(channel, `${field}.api`, item.api) } : {}),
+    ...(item.apiKey !== undefined ? { apiKey: decodeString(channel, `${field}.apiKey`, item.apiKey) } : {}),
+    models: (rawModels as unknown[]).map((m, i) => {
+      const md = record(channel, `${field}.models[${i}]`, m);
+      return {
+        id: decodeString(channel, `${field}.models[${i}].id`, md.id),
+        ...(md.name !== undefined ? { name: decodeString(channel, `${field}.models[${i}].name`, md.name) } : {}),
+        ...(md.reasoning !== undefined ? { reasoning: decodeBoolean(channel, `${field}.models[${i}].reasoning`, md.reasoning) } : {}),
+        ...(md.contextWindow !== undefined ? { contextWindow: decodeNumber(channel, `${field}.models[${i}].contextWindow`, md.contextWindow) } : {}),
+        ...(md.maxTokens !== undefined ? { maxTokens: decodeNumber(channel, `${field}.models[${i}].maxTokens`, md.maxTokens) } : {}),
+      };
+    }),
+  };
+}
+
+const TRANSCRIPT_DETAIL_VALUES = new Set(["focused", "detailed", "everything"]);
+const DENSITY_VALUES = new Set(["compact", "default", "relaxed"]);
+
+/**
+ * Decodes the patch payload for `update-config`. Accepts only known TauConfig top-level keys
+ * with their expected types; unknown keys are silently dropped. This re-establishes the
+ * decode-every-argument invariant for a method that previously used a raw `as` cast.
+ */
+export function decodeConfigPatch(channel: string, field: string, value: unknown): Partial<TauConfig> {
+  const item = record(channel, field, value);
+  const result: Partial<TauConfig> = {};
+  if (item.theme !== undefined) result.theme = decodeString(channel, `${field}.theme`, item.theme);
+  if (item.transcriptDetail !== undefined) {
+    const td = decodeString(channel, `${field}.transcriptDetail`, item.transcriptDetail);
+    if (!TRANSCRIPT_DETAIL_VALUES.has(td)) fail(channel, `${field}.transcriptDetail`, 'must be "focused", "detailed" or "everything"');
+    result.transcriptDetail = td as TauConfig["transcriptDetail"];
+  }
+  if (item.showCosts !== undefined) result.showCosts = decodeBoolean(channel, `${field}.showCosts`, item.showCosts);
+  if (item.prewarm !== undefined) result.prewarm = decodeBoolean(channel, `${field}.prewarm`, item.prewarm);
+  if (item.fontFamily !== undefined) result.fontFamily = decodeString(channel, `${field}.fontFamily`, item.fontFamily);
+  if (item.fontSize !== undefined) result.fontSize = decodeNumber(channel, `${field}.fontSize`, item.fontSize);
+  if (item.density !== undefined) {
+    const d = decodeString(channel, `${field}.density`, item.density);
+    if (!DENSITY_VALUES.has(d)) fail(channel, `${field}.density`, 'must be "compact", "default" or "relaxed"');
+    result.density = d as TauConfig["density"];
+  }
+  if (item.temperature !== undefined) result.temperature = decodeNumber(channel, `${field}.temperature`, item.temperature);
+  if (item.maxTokens !== undefined) result.maxTokens = decodeNumber(channel, `${field}.maxTokens`, item.maxTokens);
+  if (item.favouriteModels !== undefined) {
+    if (!Array.isArray(item.favouriteModels) || (item.favouriteModels as unknown[]).some((m) => typeof m !== "string"))
+      fail(channel, `${field}.favouriteModels`, "must be an array of strings");
+    result.favouriteModels = item.favouriteModels as string[];
+  }
+  if (item.disabledExtensions !== undefined) {
+    if (!Array.isArray(item.disabledExtensions) || (item.disabledExtensions as unknown[]).some((m) => typeof m !== "string"))
+      fail(channel, `${field}.disabledExtensions`, "must be an array of strings");
+    result.disabledExtensions = item.disabledExtensions as string[];
+  }
+  if (item.options !== undefined) {
+    const opts = record(channel, `${field}.options`, item.options);
+    if (Object.values(opts).some((v) => typeof v !== "boolean")) fail(channel, `${field}.options`, "must be a Record<string, boolean>");
+    result.options = opts as Record<string, boolean>;
+  }
+  if (item.values !== undefined) {
+    const vals = record(channel, `${field}.values`, item.values);
+    if (Object.values(vals).some((v) => typeof v !== "string")) fail(channel, `${field}.values`, "must be a Record<string, string>");
+    result.values = vals as Record<string, string>;
+  }
+  if (item.keybindings !== undefined) {
+    const kb = record(channel, `${field}.keybindings`, item.keybindings);
+    if (Object.values(kb).some((v) => typeof v !== "string")) fail(channel, `${field}.keybindings`, "must be a Record<string, string>");
+    result.keybindings = kb as Record<string, string>;
+  }
+  if (item.models !== undefined) {
+    const m = record(channel, `${field}.models`, item.models);
+    result.models = {
+      ...(m.default !== undefined ? { default: decodeString(channel, `${field}.models.default`, m.default) } : {}),
+      ...(m.thinkingLevel !== undefined ? { thinkingLevel: decodeString(channel, `${field}.models.thinkingLevel`, m.thinkingLevel) } : {}),
+      // Presets are user-authored complex objects; structural typing ensures correctness from the renderer.
+      // A basic object-shape check is sufficient here — deep preset validation is not in scope.
+      ...(m.presets !== undefined && m.presets && typeof m.presets === "object" && !Array.isArray(m.presets)
+        ? { presets: m.presets as Record<string, TauModelPreset> }
+        : {}),
+    };
+  }
+  return result;
 }
 
 // `input` for a host extension command is intentionally left as `unknown`:

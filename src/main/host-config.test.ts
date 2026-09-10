@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -118,6 +118,27 @@ describe("HostConfigManager", () => {
     expect(merged.models?.thinkingLevel).toBe("high");
     expect(merged.models?.presets?.fast).toEqual({ model: "google/gemini-2.5-flash", temperature: 0.1 });
     expect(merged.models?.presets?.deep).toEqual({ model: "anthropic/claude-3-7-sonnet", thinking: "high" });
+  });
+
+  describe("sanitizePatch (defence-in-depth against unknown keys)", () => {
+    it("does not write unknown keys to the config file (Tau #06)", async () => {
+      await manager.update({ theme: "dark", unknownKey: "should-not-appear" } as never, "global");
+      const raw = JSON.parse(await readFile(globalPath, "utf8"));
+      expect(raw.theme).toBe("dark");
+      expect(raw.unknownKey).toBeUndefined();
+    });
+
+    it("does not write a wrong-typed known field to the config file (Tau #06)", async () => {
+      // Start with a valid value so we can verify it is unchanged.
+      await manager.update({ theme: "light" }, "global");
+      // Now pass a wrong type for `showCosts`; it must be silently dropped.
+      await manager.update({ showCosts: "yes" } as never, "global");
+      const raw = JSON.parse(await readFile(globalPath, "utf8"));
+      expect(raw.showCosts).toBeUndefined();
+      // The valid field must survive the second update.
+      expect(raw.theme).toBe("light");
+    });
+
   });
 
   it("inherits configuration from Pi CLI settings when tau config is absent", async () => {
