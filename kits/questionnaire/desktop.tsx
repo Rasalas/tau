@@ -156,17 +156,24 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
         title={title}
         pending={pending}
         message={message}
-        header={total > 1 ? (
-          <nav className="extension-pager" aria-label="Questions">
-            <button type="button" aria-label="Previous question" disabled={page === 0} onClick={() => setPage(page - 1)}>
-              <ChevronLeft size={13} />
-            </button>
-            <span>{page + 1}/{total}</span>
-            <button type="button" aria-label="Next question" disabled={page >= total - 1} onClick={() => setPage(page + 1)}>
-              <ChevronRight size={13} />
-            </button>
-          </nav>
-        ) : null}
+        header={<>
+          <span className="questionnaire-mode-badge">
+            {viewing?.multiSelect
+              ? (onCurrent && picked.length > 0 ? `Multiple choice · ${picked.length} selected` : "Multiple choice")
+              : "Single choice"}
+          </span>
+          {total > 1 ? (
+            <nav className="extension-pager" aria-label="Questions">
+              <button type="button" aria-label="Previous question" disabled={page === 0} onClick={() => setPage(page - 1)}>
+                <ChevronLeft size={13} />
+              </button>
+              <span>{page + 1}/{total}</span>
+              <button type="button" aria-label="Next question" disabled={page >= total - 1} onClick={() => setPage(page + 1)}>
+                <ChevronRight size={13} />
+              </button>
+            </nav>
+          ) : null}
+        </>}
         hint={!onCurrent && page < current
           ? (pick ? `answered: ${choiceSummary(pick)}` : "answered")
           : !onCurrent

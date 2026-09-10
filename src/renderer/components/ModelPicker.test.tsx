@@ -14,10 +14,25 @@ const models: UiModel[] = [
   { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
 ];
 
-function renderPicker(options: { runtime?: string; preferences?: PreferencesStore; onSelect?: (model: UiModel) => void } = {}) {
+function renderPicker(options: {
+  runtime?: string;
+  preferences?: PreferencesStore;
+  onSelect?: (model: UiModel) => void;
+  runtimeBackends?: { kind: string; label: string }[];
+  onSelectRuntime?: (kind: string) => void;
+  modelsAvailable?: boolean;
+} = {}) {
   const onSelect = options.onSelect ?? vi.fn();
   render(<TestProviders preferences={options.preferences}>
-    <ModelPicker models={models} onSelect={onSelect} onClose={() => {}} runtime={options.runtime} />
+    <ModelPicker
+      models={models}
+      onSelect={onSelect}
+      onClose={() => {}}
+      runtime={options.runtime}
+      runtimeBackends={options.runtimeBackends}
+      onSelectRuntime={options.onSelectRuntime}
+      modelsAvailable={options.modelsAvailable}
+    />
   </TestProviders>);
   return onSelect;
 }
@@ -25,7 +40,22 @@ function renderPicker(options: { runtime?: string; preferences?: PreferencesStor
 afterEach(cleanup);
 
 describe("ModelPicker", () => {
-  it("shows the provider mark with the selected harness behind it", () => {
+  it("selects the runtime for a new thread in the picker", () => {
+    const onSelectRuntime = vi.fn();
+    renderPicker({
+      runtime: "claude-code",
+      runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "Claude Code" }],
+      onSelectRuntime,
+      modelsAvailable: false,
+    });
+
+    expect(screen.getByRole("group", { name: "Runtime for new thread" })).toBeTruthy();
+    expect(screen.getByText("Start the thread to load Claude Code's models.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    expect(onSelectRuntime).toHaveBeenCalledWith("pi");
+  });
+
+  it("shows the provider mark paired with the selected runtime", () => {
     renderPicker({ runtime: "claude-code" });
     const rail = screen.getByRole("navigation", { name: "Providers" });
     expect(rail.querySelectorAll("button")).toHaveLength(2);

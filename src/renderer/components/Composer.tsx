@@ -20,7 +20,7 @@ import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
 import { SubscriptionLoginPrompt } from "./SubscriptionLoginPrompt";
-import { ProviderIconStack, hasProviderMark } from "./ProviderIconStack";
+import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
 import { LazyFeatureBoundary } from "./LazyFeature";
@@ -43,8 +43,7 @@ import { readComposerDraft, writeComposerDraft } from "../../workbench/draft-sto
 import { PromptHistory } from "../../workbench/prompt-history";
 import { useClientStorage } from "../client-storage-context";
 
-type OpenMenu = "thinking" | "runtime" | undefined;
-const RUNTIME_ITEM = "runtime:";
+type OpenMenu = "thinking" | undefined;
 
 /** The runtime pick for a thread that does not exist yet. */
 export interface ComposerRuntimeChoice {
@@ -389,13 +388,14 @@ export function Composer({
   // not this thread's, and the thread it will become does not exist yet.
   const draftOnOtherRuntime = runtimeChoice !== undefined && snapshot?.backendKind !== undefined && runtimeChoice.kind !== snapshot.backendKind;
   const modelSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.models.length ?? 0) > 0;
+  const modelPickerAvailable = modelSelectionAvailable || runtimeChoice !== undefined;
   useEffect(() => {
     const onOpen = () => {
-      if (modelSelectionAvailable) setModelPickerOpen(true);
+      if (modelPickerAvailable) setModelPickerOpen(true);
     };
     window.addEventListener("tau:open-model-picker", onOpen);
     return () => window.removeEventListener("tau:open-model-picker", onOpen);
-  }, [modelSelectionAvailable]);
+  }, [modelPickerAvailable]);
   const thinkingSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
@@ -469,7 +469,10 @@ export function Composer({
       return;
     }
     if (answerable && prompt) {
-      if (!text.trim()) return;
+      if (!text.trim()) {
+        if (promptSubmit && !promptSubmit.disabled) promptSubmit.submit();
+        return;
+      }
       onAnswerPrompt?.(text, true);
       updateDraft("");
       return;
@@ -773,56 +776,27 @@ export function Composer({
 
         <div className="composer-toolbar">
           <div className="composer-chips">
-          {runtimeChoice ? (
-            <span className="menu-anchor composer-runtime-menu-anchor">
-              <button
-                className="runtime-chip"
-                title="The runtime this new thread will run on"
-                aria-label={`Runtime: ${runtimeLabel}`}
-                onClick={() => setMenu(menu === "runtime" ? undefined : "runtime")}
-              >
-                {hasProviderMark(runtimeChoice.kind) ? <ProviderIconStack modelProvider={runtimeChoice.kind} className="chip-icon" /> : null}
-                {runtimeLabel}
-                <ChevronDown size={12} className="chev" />
-              </button>
-              {menu === "runtime" ? (
-                <Menu
-                  placement="above"
-                  sections={[{
-                    heading: "RUNTIME",
-                    items: runtimeChoice.backends.map((backend) => ({
-                      id: `${RUNTIME_ITEM}${backend.kind}`,
-                      label: backend.label,
-                      selected: backend.kind === runtimeChoice.kind,
-                    })),
-                  }]}
-                  onSelect={(id) => {
-                    if (id.startsWith(RUNTIME_ITEM)) runtimeChoice.onSelect(id.slice(RUNTIME_ITEM.length));
-                  }}
-                  onClose={() => setMenu(undefined)}
-                />
-              ) : null}
-            </span>
-          ) : null}
           <button
             className="runtime-chip"
-            disabled={!modelSelectionAvailable}
+            disabled={!modelPickerAvailable}
             title={modelSelectionAvailable
-              ? "Select model"
-              : draftOnOtherRuntime ? `This thread starts on ${runtimeLabel}'s own model; pick another once it exists.`
+              ? runtimeChoice ? "Select runtime and model" : "Select model"
+              : draftOnOtherRuntime ? `Change runtime or start with ${runtimeLabel}'s default model.`
                 : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime."}
             aria-label={modelSelectionAvailable
-              ? `Select model: ${snapshot?.model?.name ?? "current model"}`
-              : "Model selection unavailable"}
-            onClick={() => { if (modelSelectionAvailable) setModelPickerOpen(true); }}
+              ? `${runtimeChoice ? "Select runtime and model" : "Select model"}: ${snapshot?.model?.name ?? "current model"}`
+              : runtimeChoice ? `Select runtime and model: ${runtimeLabel}` : "Model selection unavailable"}
+            onClick={() => { if (modelPickerAvailable) setModelPickerOpen(true); }}
           >
             {snapshot?.model && !draftOnOtherRuntime
-              ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" />
-              : <Sparkles size={13} className="accent" />}
+              ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={runtimeChoice?.kind ?? snapshot.backendKind} className="chip-icon" />
+              : runtimeChoice
+                ? <ProviderIconStack runtimeProvider={runtimeChoice.kind} className="chip-icon" />
+                : <Sparkles size={13} className="accent" />}
             {draftOnOtherRuntime
               ? "default model"
               : snapshot?.model?.name ?? (runtimeOwnsModel ? "runtime model" : "select model")}
-            {modelSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
+            {modelPickerAvailable ? <ChevronDown size={12} className="chev" /> : null}
           </button>
 
           <span className="menu-anchor composer-runtime-menu-anchor">
@@ -906,21 +880,24 @@ export function Composer({
             <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />
           ) : null}
 
-          {answerable && prompt ? (
-            <button
-              className="prompt-submit-button"
-              title="Send answer"
-              aria-label="Send answer"
-              disabled={held || (text.trim().length === 0 && (promptSubmit?.disabled ?? true))}
-              onClick={() => {
-                if (text.trim()) submitCurrent();
-                else promptSubmit?.submit();
-              }}
-            >
-              {text.trim() ? "Send answer" : promptSubmit?.label ?? "Send answer"}
-              <ArrowUp size={15} />
-            </button>
-          ) : null}
+          {answerable && prompt ? (() => {
+            const submitLabel = text.trim() ? "Send answer" : promptSubmit?.label ?? "Send answer";
+            return (
+              <button
+                className="prompt-submit-button"
+                title={submitLabel}
+                aria-label={submitLabel}
+                disabled={held || (text.trim().length === 0 && (promptSubmit?.disabled ?? true))}
+                onClick={() => {
+                  if (text.trim()) submitCurrent();
+                  else promptSubmit?.submit();
+                }}
+              >
+                {submitLabel}
+                <ArrowUp size={15} />
+              </button>
+            );
+          })() : null}
           {streaming ? (
             <button className="send-button stop" title="Stop the run" aria-label="Stop the run" onClick={onAbort}><i /></button>
           ) : !answerable ? (
@@ -956,6 +933,9 @@ export function Composer({
           onSelect={chooseModel}
           onClose={() => setModelPickerOpen(false)}
           runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
+          runtimeBackends={runtimeChoice?.backends}
+          onSelectRuntime={runtimeChoice?.onSelect}
+          modelsAvailable={!draftOnOtherRuntime}
         />
       ) : null}
       {subscriptionAsk ? (

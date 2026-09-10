@@ -23,6 +23,7 @@ export interface ScrollSurface {
 }
 
 const TAIL_SLACK_PX = 32;
+const START_SLACK_PX = 32;
 const INTENT_TIMEOUT_MS = 120;
 const ANCHOR_TOLERANCE_PX = 0.5;
 const SEEK_ATTEMPT_LIMIT = 8;
@@ -40,6 +41,16 @@ export function maxScrollTop(node: ScrollSurface): number {
 
 export function hasScrollOverflow(node: ScrollSurface): boolean {
   return node.scrollHeight > node.clientHeight + 1;
+}
+
+/** Whether the reader has reached the last scrollable pixel of a transcript. */
+export function nearTranscriptTail(node: ScrollSurface): boolean {
+  return node.scrollHeight - node.scrollTop - node.clientHeight < TAIL_SLACK_PX;
+}
+
+/** Whether the reader is still at the first scrollable pixel of a transcript. */
+export function nearTranscriptStart(node: ScrollSurface): boolean {
+  return node.scrollTop <= START_SLACK_PX;
 }
 
 export function setScrollTopClamped(node: ScrollSurface, target: number): void {
@@ -396,7 +407,7 @@ export class TranscriptScrollController {
   }
 
   private nearTail(node: HTMLDivElement): boolean {
-    return node.scrollHeight - node.scrollTop - node.clientHeight < TAIL_SLACK_PX;
+    return nearTranscriptTail(node);
   }
 
   private onScroll = (): void => {

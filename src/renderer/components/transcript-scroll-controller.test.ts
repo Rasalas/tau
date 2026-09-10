@@ -4,6 +4,8 @@ import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptNavigationState } from "../../workbench/transcript-navigation";
 import {
   FrameLoop,
+  nearTranscriptStart,
+  nearTranscriptTail,
   ScrollIntentTracker,
   TranscriptScrollController,
   transcriptScrollMode,
@@ -87,6 +89,29 @@ describe("transcript scroll mode", () => {
     expect(transcriptScrollMode(state({ anchorPending: true }))).toBe("anchored");
     expect(transcriptScrollMode(state({ anchorLocked: true }))).toBe("anchored");
     expect(transcriptScrollMode(state({ following: false }))).toBe("free");
+  });
+});
+
+describe("transcript scroll ends", () => {
+  const surface = (scrollTop: number, scrollHeight = 1_000, clientHeight = 200) => ({
+    scrollTop,
+    scrollHeight,
+    clientHeight,
+  });
+
+  it("counts the last pixels of a transcript as its tail", () => {
+    // The maximum here is 800, so the tail is the last 31px of scroll.
+    expect(nearTranscriptTail(surface(768))).toBe(false);
+    expect(nearTranscriptTail(surface(769))).toBe(true);
+    expect(nearTranscriptTail(surface(800))).toBe(true);
+    // Content that cannot scroll is at both ends at once.
+    expect(nearTranscriptTail(surface(0, 150, 200))).toBe(true);
+  });
+
+  it("counts the first pixels of a transcript as its start", () => {
+    expect(nearTranscriptStart(surface(0))).toBe(true);
+    expect(nearTranscriptStart(surface(32))).toBe(true);
+    expect(nearTranscriptStart(surface(33))).toBe(false);
   });
 });
 

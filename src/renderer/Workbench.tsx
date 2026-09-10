@@ -32,6 +32,7 @@ import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { SubscriptionLoginIndicator } from "./settings/runtime-controls";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
@@ -498,6 +499,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             {!showStartScreen ? <>
               <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
               <header className="conversation-header">
+                <SubscriptionLoginIndicator snapshot={snapshot} />
                 <ThreadTitleMenu
                   title={conversationSnapshot?.sessionTitle || "Untitled thread"}
                   label={snapshot?.projectLabel}

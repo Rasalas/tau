@@ -21,11 +21,6 @@ export function providerLabel(value: string): string {
   return providerIdentity(value)?.label ?? value;
 }
 
-/** Whether this provider has a mark of its own; a letter beside its name would only repeat it. */
-export function hasProviderMark(value: string | undefined): boolean {
-  return providerIdentity(value)?.source !== undefined;
-}
-
 function providerIdentity(value: string | undefined): ProviderIdentity | undefined {
   if (!value) return undefined;
   const key = value.toLocaleLowerCase().replace(/[_.\s]/gu, "-");
@@ -57,7 +52,7 @@ function ProviderIcon({ identity, layer }: { identity: ProviderIdentity; layer: 
 export function ProviderIconStack({ modelProvider, runtimeProvider = "pi", className }: { modelProvider?: string; runtimeProvider?: string; className?: string }) {
   const model = providerIdentity(modelProvider);
   const runtime = providerIdentity(runtimeProvider);
-  // The runtime's logo sits behind the model provider's unless both identify the same program.
+  // Keep the runtime and model provider as a pair unless both identify the same program.
   const distinctRuntime = model && runtime && (runtime.family !== model.family || runtime.label !== model.label) ? runtime : undefined;
   if (!model && !runtime) return null;
   const label = model && distinctRuntime

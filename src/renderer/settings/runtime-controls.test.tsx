@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
-import { SubscriptionLoginStatus } from "./runtime-controls";
+import { SubscriptionLoginIndicator } from "./runtime-controls";
 
 const base = {
   cwd: "/p", sessionId: "s", sessionTitle: "t", models: [], thinkingLevel: "off", thinkingLevels: [],
@@ -11,13 +11,25 @@ const base = {
 
 afterEach(cleanup);
 
-describe("SubscriptionLoginStatus", () => {
+describe("SubscriptionLoginIndicator", () => {
   it("shows only while the active model rides on a subscription login", () => {
-    const actions = {} as never;
-    render(<SubscriptionLoginStatus snapshot={{ ...base, model: { provider: "anthropic", id: "m", name: "M" } }} actions={actions} />);
-    expect(screen.queryByText("Subscription login")).toBeNull();
-    cleanup();
-    render(<SubscriptionLoginStatus snapshot={{ ...base, model: { provider: "anthropic", id: "m", name: "M", login: "subscription" } }} actions={actions} />);
-    expect(screen.getByText("Subscription login").closest("span")?.getAttribute("title")).toMatch(/without notice/u);
+    const { rerender } = render(<SubscriptionLoginIndicator snapshot={{ ...base, model: { provider: "anthropic", id: "m", name: "M" } }} />);
+    expect(screen.queryByRole("button", { name: "Subscription login warning" })).toBeNull();
+
+    rerender(<SubscriptionLoginIndicator snapshot={{ ...base, model: { provider: "anthropic", id: "m", name: "M", login: "subscription" } }} />);
+    expect(screen.getByRole("button", { name: "Subscription login warning" })).toBeTruthy();
+  });
+
+  it("opens a detailed popover on hover and keyboard focus", () => {
+    render(<SubscriptionLoginIndicator snapshot={{ ...base, model: { provider: "anthropic", id: "m", name: "M", login: "subscription" } }} />);
+    const button = screen.getByRole("button", { name: "Subscription login warning" });
+
+    fireEvent.mouseEnter(button.parentElement!);
+    expect(screen.getByRole("tooltip").textContent).toMatch(/account may be restricted or banned/u);
+    fireEvent.mouseLeave(button.parentElement!);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.focus(button);
+    expect(screen.getByRole("tooltip")).toBeTruthy();
   });
 });

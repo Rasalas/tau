@@ -279,8 +279,10 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
     // Only the card is drawn from the announcement: the capture that emits it
     // still holds the turn, so nothing about restoring it is answerable yet.
     if (event?.type === "turn-checkpoint") {
+      // The card drawn from this announcement is the turn's summary. The live
+      // dock already hid itself when the turn settled and must stay hidden, so
+      // the same changes are never drawn twice.
       store.announce(event.checkpoint);
-      workspaceStore.checkpointRecorded(event.sessionId);
     }
     // The capture briefly waits for the workspace lease before Pi starts; say so in place of the spinner.
     else if (event?.type === "turn-checkpoint-status") {

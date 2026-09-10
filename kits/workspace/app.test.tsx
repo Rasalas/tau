@@ -1259,7 +1259,7 @@ describe("the turn changes dock", () => {
           projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
           sessions: [{ id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 }],
         },
-        detail: { sessionId: "session", messages: [{ id: "user", role: "user" as const, text: "Change the files", timestamp: 1 }], isStreaming: false, activeTools: [] },
+        detail: { sessionId: "session", messages: [{ id: "user", role: "user" as const, text: "Change the files", timestamp: 1 }], isStreaming: true, activeTools: [] },
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
@@ -1277,5 +1277,51 @@ describe("the turn changes dock", () => {
     const dock = view.container.querySelector(".conversation-files-dock");
     expect(dock?.textContent).toContain("App.tsx");
     expect(view.container.querySelector(".transcript")?.contains(dock)).toBe(false);
+  });
+
+  it("hands the dock over to the checkpoint card instead of drawing both", async () => {
+    const storage = createMemoryStorage();
+    storage.set("tau.workspace.turn-baseline.v1", JSON.stringify({ session: { files: [], added: 0, removed: 0 } }));
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
+          sessions: [{ id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 }],
+        },
+        detail: { sessionId: "session", messages: [{ id: "user", role: "user" as const, text: "Change the files", timestamp: 1 }], isStreaming: true, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({ getChanges: async () => ({
+        files: [{ path: "src/App.tsx", name: "App.tsx", directory: "src", status: "modified", added: 4, removed: 1 }],
+        added: 4,
+        removed: 1,
+      }) }),
+    });
+    setHostClient(client);
+
+    const view = renderApp(client, { storage, extensions: [workspaceExtension] });
+    await screen.findByText("1 changed file");
+    expect(view.container.querySelector(".conversation-files-dock")).not.toBeNull();
+
+    // The turn ends and its immutable checkpoint lands as a transcript card: the
+    // dock was the live preview for exactly that turn, so it must not reappear.
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
+    expect(view.container.querySelector(".conversation-files-dock")).toBeNull();
+    act(() => client.emit({
+      type: "extension-event",
+      extensionId: "tau.workspace",
+      name: "checkpoint",
+      payload: { type: "turn-checkpoint", sessionId: "session", checkpoint: {
+        id: "turn-1", turnId: "turn-1", sessionId: "session", anchorMessageId: "user",
+        beforeSnapshotId: "before", afterSnapshotId: "after", startedAt: 1, endedAt: 3,
+        files: [{ path: "src/App.tsx", name: "App.tsx", directory: "src", status: "modified" as const, added: 4, removed: 1 }],
+        fileCount: 1, added: 4, removed: 1, branch: "main",
+      } },
+    }));
+
+    expect(await screen.findByText(/Turn changes/u)).toBeTruthy();
+    expect(view.container.querySelector(".conversation-files-dock")).toBeNull();
   });
 });

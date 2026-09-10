@@ -61,8 +61,10 @@ describe("Questionnaire Kit", () => {
       </PromptSubmitContext.Provider>,
     );
 
+    expect(screen.getByText("Multiple choice")).toBeTruthy();
     expect(screen.getByText("S").closest("button")?.classList.contains("mode-checkbox")).toBe(true);
     fireEvent.click(screen.getByText("S"));
+    expect(screen.getByText("Multiple choice · 1 selected")).toBeTruthy();
     expect(action?.label).toBe("Send 1");
     expect(action?.disabled).toBe(false);
     action?.submit();

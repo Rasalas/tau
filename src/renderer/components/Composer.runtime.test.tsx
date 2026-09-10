@@ -44,15 +44,15 @@ function renderComposer(runtimeChoice?: ComposerRuntimeChoice) {
 
 afterEach(cleanup);
 
-describe("composer runtime chip", () => {
+describe("composer runtime choice", () => {
   it("is absent for a thread that already exists", () => {
     renderComposer();
-    expect(screen.queryByLabelText(/^Runtime:/u)).toBeNull();
+    expect(screen.queryByRole("group", { name: "Runtime for new thread" })).toBeNull();
   });
 
-  it("carries a runtime's own mark on the chip when it has one", () => {
+  it("carries the selected runtime's mark on the model chip", () => {
     renderComposer({ kind: "claude-code", backends: [{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "Claude Code" }], onSelect: () => {} });
-    const chip = screen.getByLabelText("Runtime: Claude Code");
+    const chip = screen.getByLabelText("Select runtime and model: Claude Code");
     expect(chip.querySelector(".provider-icon-stack .provider-mark")).toBeTruthy();
   });
 
@@ -76,21 +76,20 @@ describe("composer runtime chip", () => {
         runtimeChoice={{ kind: "acme", backends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme Agent" }], onSelect: () => {} }}
       />
     </TestProviders>);
-    const chip = screen.getByLabelText("Model selection unavailable");
-    expect(chip.textContent).toBe("default model");
-    expect(chip.getAttribute("title")).toMatch(/starts on Acme Agent's own model/u);
+    const chip = screen.getByLabelText("Select runtime and model: Acme Agent");
+    expect(chip.textContent).toContain("default model");
+    expect(chip.getAttribute("title")).toMatch(/start with Acme Agent's default model/u);
     expect(screen.queryByText("Claude Opus 5")).toBeNull();
     // The visible thread's reasoning level is not this draft's either.
     expect(screen.getByLabelText("Reasoning controls unavailable").textContent).toBe("—");
   });
 
-  it("names the runtime of the next thread and offers the others", () => {
+  it("offers runtime choices inside the model picker", () => {
     const onSelect = vi.fn();
     renderComposer({ kind: "acme", backends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme Agent" }], onSelect });
-    // A runtime with a mark of its own carries it; one without shows its name alone, never a letter box.
-    expect(screen.getByLabelText("Runtime: Acme Agent").querySelector(".provider-icon-stack")).toBeNull();
-    fireEvent.click(screen.getByLabelText("Runtime: Acme Agent"));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Pi/u }));
+    expect(screen.queryByLabelText(/^Runtime:/u)).toBeNull();
+    fireEvent.click(screen.getByLabelText("Select runtime and model: Acme Agent"));
+    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
     expect(onSelect).toHaveBeenCalledWith("pi");
   });
 });

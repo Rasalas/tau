@@ -26,13 +26,18 @@ export function WorkspaceFollower({ actions }: RegionProps) {
   return null;
 }
 
-/** The files a running turn touched, shown under the transcript until a checkpoint replaces it. */
+/**
+ * The files the running turn touched, shown under the transcript as its live
+ * preview. A finished turn belongs to its checkpoint card in the transcript,
+ * so the dock is bound to the turn actually running and nothing else: an idle
+ * thread must not draw a stale baseline diff next to the card that replaces it.
+ */
 export function TurnChangesDock() {
   const workspaceStore = useWorkspaceStore();
   const state = useWorkspaceKit();
-  const { tools } = useWorkbench();
+  const { tools, snapshot } = useWorkbench();
   const turnChanges = useMemo(() => workspaceStore.turnChanges(tools), [state.changes, state.turnBaseline, tools, workspaceStore]);
-  if (state.draftPending || state.turnSettled || turnChanges.files.length === 0) return null;
+  if (state.draftPending || state.turnSettled || !snapshot?.isStreaming || turnChanges.files.length === 0) return null;
   return (
     <div className="conversation-files-dock">
       <ChangedFiles changes={turnChanges} onOpenDiff={(path) => workspaceStore.openReview(path)} />

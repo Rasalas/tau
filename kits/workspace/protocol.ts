@@ -248,7 +248,7 @@ export interface WorkspaceKitState {
   commitFocusToken: number;
   /** Changes at the start of the running turn, so the dock can show what the turn touched. */
   turnBaseline?: UiWorkspaceChanges;
-  /** The turn ended without a checkpoint replacing the dock. */
+  /** The turn is over; the dock yields to the transcript's checkpoint card. */
   turnSettled: boolean;
   review?: { path?: string; primaryPush: boolean };
   /** An extension offers to name new worktrees. */

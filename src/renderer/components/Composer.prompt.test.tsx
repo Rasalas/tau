@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { TestProviders } from "../test-support/test-providers";
+import { WorkbenchShellContext } from "../workbench-context";
 import { Composer } from "./Composer";
+import { usePromptSubmit } from "./ExtensionPrompt";
 
 const snapshot: HostSnapshot = {
   cwd: "/project",
@@ -56,5 +58,56 @@ describe("prompt controls in the composer", () => {
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
     expect(onAnswerPrompt).toHaveBeenCalledWith("Continue", true);
+  });
+
+  it("submits registered prompt actions from the composer button and on Enter", () => {
+    const onSubmit = vi.fn();
+    function CustomPrompt() {
+      usePromptSubmit("Send 2", false, onSubmit);
+      return <div>Custom prompt</div>;
+    }
+
+    render(
+      <TestProviders>
+        <WorkbenchShellContext.Provider
+          value={{
+            snapshot,
+            registry: {
+              getPromptRenderer: () => ({ id: "custom", match: () => true, Component: CustomPrompt }),
+              getSlashCommands: () => [],
+              getComposerControls: () => [],
+              subscribe: () => () => {},
+              getVersion: () => 1,
+            } as never,
+          }}
+        >
+          <Composer
+            scopeStore={new ComposerScopeStore()}
+            snapshot={snapshot}
+            prompt={{ id: "custom-prompt", sessionId: "session", kind: "input", title: "Pick?" }}
+            queue={[]}
+            contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+            textareaRef={createRef<HTMLTextAreaElement>()}
+            onSubmit={vi.fn(async () => ({ accepted: true as const }))}
+            onAbort={() => {}}
+            onCancelQueued={() => {}}
+            onSteerQueued={() => {}}
+            onReorderQueue={() => {}}
+            onSetModel={() => {}}
+            onSetThinking={() => {}}
+            onCompactContext={() => {}}
+          />
+        </WorkbenchShellContext.Provider>
+      </TestProviders>,
+    );
+
+    const send = screen.getByRole("button", { name: "Send 2" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+    fireEvent.click(send);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    const textarea = screen.getByPlaceholderText(/Answer yourself/u);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
   });
 });

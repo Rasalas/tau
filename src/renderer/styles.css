@@ -288,11 +288,12 @@ button > svg { pointer-events: none; }
   border-top-color: transparent; animation: spin .9s linear infinite;
 }
 .provider-icon-stack {
-  position: relative; width: 18px; height: 18px; flex: none; margin-left: auto;
+  width: 18px; height: 18px; flex: none; margin-left: auto;
+  display: inline-flex; align-items: center;
 }
-.provider-icon-stack.stacked { width: 28px; }
+.provider-icon-stack.stacked { width: 43px; gap: 3px; }
 .provider-icon {
-  position: absolute; top: 0; width: 18px; height: 18px; display: grid; place-items: center;
+  width: 18px; height: 18px; flex: none; display: grid; place-items: center;
   color: var(--ink-3); font: 650 9px var(--mono);
   filter: drop-shadow(0 1px 2px var(--shadow-soft));
 }
@@ -305,9 +306,9 @@ button > svg { pointer-events: none; }
 .provider-icon-fallback {
   width: 17px; height: 17px; border: 1px solid var(--line-control); border-radius: 5px;
 }
-.provider-icon-runtime { left: 0; opacity: .58; transform: scale(.88); transform-origin: left center; }
-.provider-icon-model { left: 0; z-index: 1; }
-.provider-icon-stack.stacked .provider-icon-model { left: 10px; }
+.provider-icon-stack.stacked .provider-icon-runtime {
+  width: 22px; padding-right: 4px; border-right: 1px solid var(--line-control); opacity: .66;
+}
 .provider-family-ki-connect .provider-mark { width: 18px; height: 18px; }
 .thread-settle {
   position: absolute; top: 7px; right: 7px;
@@ -437,6 +438,28 @@ button > svg { pointer-events: none; }
   flex: none; display: flex; align-items: center; gap: 12px;
   height: 52px; padding: 0 24px; border-bottom: 1px solid var(--line);
 }
+.subscription-login-indicator {
+  position: relative; flex: none; display: inline-flex; align-items: center; margin-right: -4px;
+}
+.subscription-login-indicator > button {
+  width: 30px; height: 30px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 8px; background: transparent; color: var(--removed); cursor: help;
+}
+.subscription-login-indicator > button:hover,
+.subscription-login-indicator > button:focus-visible { background: var(--raised); outline: none; }
+.subscription-login-popover {
+  position: absolute; z-index: 60; top: calc(100% + 7px); left: 0; width: min(380px, calc(100vw - 48px));
+  display: flex; flex-direction: column; gap: 7px; padding: 12px 14px;
+  border: 1px solid var(--line-float); border-radius: 10px; background: var(--float);
+  color: var(--ink-2); box-shadow: var(--elevation-2); font-size: 12px; line-height: 1.5;
+  animation: fade-up .12s ease;
+}
+.subscription-login-popover::before {
+  content: ""; position: absolute; top: -4px; left: 10px; width: 7px; height: 7px;
+  border-top: 1px solid var(--line-float); border-left: 1px solid var(--line-float);
+  background: var(--float); transform: rotate(45deg);
+}
+.subscription-login-popover > strong { color: var(--ink); font-size: 12.5px; line-height: 1.3; }
 .thread-title-control { min-width: 0; }
 .thread-title-trigger {
   min-width: 0; max-width: min(560px, 48vw); display: flex; align-items: center; gap: 6px;
@@ -1326,13 +1349,14 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 }
 
 /* Choices read as a list, like every other list in the workbench. */
-.extension-prompt-options { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; }
+.extension-prompt-options { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
 .extension-option {
   display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
-  border: 0; border-radius: 7px; background: transparent;
+  border: 1px solid transparent; border-radius: 8px; background: transparent;
   padding: 7px 10px; cursor: pointer; color: var(--ink-2);
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
-.extension-option:hover { background: var(--raised); }
+.extension-option:hover { background: var(--raised); border-color: var(--line-control); }
 .extension-option-indicator {
   width: 15px; height: 18px; flex: none; display: grid; place-items: center;
   color: var(--faint);
@@ -1357,10 +1381,13 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 }
 .extension-option.chosen > i,
 .extension-option.chosen .extension-option-indicator { color: var(--acid-text); }
-.extension-option.chosen { background: var(--raised); }
+.extension-option.chosen {
+  background: var(--raised);
+  border-color: var(--acid-line);
+}
 .extension-option.chosen strong { color: var(--ink); }
 .extension-option.read { cursor: default; }
-.extension-option.read:hover { background: transparent; }
+.extension-option.read:hover { background: transparent; border-color: transparent; }
 .extension-option.read:hover > i { color: var(--faint); }
 .extension-option.read:hover strong { color: var(--ink-2); }
 
@@ -1494,14 +1521,15 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .model-picker-body { flex: 1; min-height: 0; display: flex; }
 .model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
-/* The rail: one icon per provider, the runtime's logo behind it when they differ. */
+/* The rail pairs each provider with the runtime that runs it. */
 .model-rail {
-  width: 56px; flex: none; overflow: auto;
+  width: 64px; flex: none; overflow: auto;
   border-right: 1px solid var(--line); padding: 10px 0;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
+.model-picker.with-runtime-picker .model-rail { padding-top: 112px; }
 .model-rail > button {
-  position: relative; width: 40px; height: 40px; display: grid; place-items: center;
+  position: relative; width: 48px; height: 40px; display: grid; place-items: center;
   border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .model-rail > button:hover { background: var(--hover-strong); color: var(--ink-2); }
@@ -1523,6 +1551,24 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .model-search > .model-provider-add:hover {
   background: var(--hover-strong); color: var(--ink); border-color: var(--line-float);
 }
+.model-runtime-picker {
+  flex: none; display: flex; align-items: center; gap: 12px; min-height: 52px;
+  padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--inset);
+}
+.model-runtime-picker > span {
+  flex: none; color: var(--faint); font: 600 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase;
+}
+.model-runtime-picker > div { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-x: auto; }
+.model-runtime-picker button {
+  height: 34px; flex: none; display: inline-flex; align-items: center; gap: 7px;
+  padding: 0 10px; border: 1px solid var(--line-control); border-radius: 8px;
+  background: transparent; color: var(--muted); font: 600 11px var(--sans); cursor: pointer;
+}
+.model-runtime-picker button:hover { border-color: var(--line-float); background: var(--raised); color: var(--ink-2); }
+.model-runtime-picker button.active {
+  border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text);
+}
+.model-runtime-picker .runtime-option-icon { margin-left: 0; }
 
 .model-list { flex: 1; min-width: 0; overflow: auto; padding: 8px; }
 .model-row {
@@ -1546,7 +1592,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
   font: 11.5px var(--sans); color: var(--faint);
 }
 .model-sub .sub-icon { margin-left: 0; transform: scale(.78); transform-origin: left center; }
-.model-sub .sub-icon.stacked { margin-right: -6px; }
+.model-sub .sub-icon.stacked { margin-right: -2px; }
 .model-id { font: 10px var(--mono); opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-row > em {
   flex: none; font: 10px var(--mono); font-style: normal; color: var(--acid-text);
@@ -1597,8 +1643,6 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .subscription-login-prompt > footer > button:hover { background: var(--raised); color: var(--ink-2); }
 .subscription-login-prompt > footer > button.primary { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); }
 .subscription-login-prompt > footer > button.primary:hover { background: var(--acid-chip); }
-.status-item-warning { display: inline-flex; align-items: center; gap: 4px; color: var(--removed); }
-
 /* ------------------------------------------------------------- settings */
 
 .modal-scrim {

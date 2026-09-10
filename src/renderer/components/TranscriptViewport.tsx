@@ -11,7 +11,7 @@ import {
   type TranscriptTurnStart,
 } from "../../workbench/transcript-navigation";
 import { useTranscriptNavigation } from "./transcript-navigation-dom";
-import { contentTop, FrameLoop } from "./transcript-scroll-controller";
+import { contentTop, FrameLoop, nearTranscriptStart, nearTranscriptTail } from "./transcript-scroll-controller";
 import {
   buildTranscriptTurnNavigation,
   shouldShowTranscriptTurnNavigation,
@@ -74,13 +74,30 @@ function virtualizerVisibleRange(node: HTMLDivElement): TranscriptVisibleRange |
     : undefined;
 }
 
+/** How the caller resolves the ends of the rail, which the DOM alone cannot say. */
+export interface VisibleTranscriptTurnOptions {
+  /** Virtualizer-measured row range, used when no user row is mounted. */
+  visibleRange?: TranscriptVisibleRange;
+  /** The transcript has reached its end. */
+  atTail?: boolean;
+  /** The transcript still sits at its start. */
+  atStart?: boolean;
+}
+
 /** Resolve the user prompt whose row currently leads the readable viewport. */
 export function visibleTranscriptTurnId(
   node: HTMLDivElement,
   entries: readonly TranscriptTurnNavigationEntry[],
-  visibleRange?: TranscriptVisibleRange,
+  options: VisibleTranscriptTurnOptions = {},
 ): string | undefined {
   if (entries.length === 0) return undefined;
+
+  // The ends of the scroll own the ends of the rail. A short final turn keeps
+  // its prompt below the lead line, so without a tail clamp the marker stops a
+  // turn short of the bottom and the rail advertises scroll that is not there.
+  // A transcript that fits its viewport is read from the top, so start wins.
+  if (options.atStart) return entries[0]!.messageId;
+  if (options.atTail) return entries[entries.length - 1]!.messageId;
 
   const lead = node.scrollTop + Math.min(VISIBLE_TURN_LEAD, Math.max(0, node.clientHeight * 0.35));
   const elementsByMessageId = new Map<string, HTMLElement>();
@@ -99,7 +116,7 @@ export function visibleTranscriptTurnId(
   // If the current user row is outside the DOM, use the virtualizer's real
   // measured viewport range. Do not infer a row from total scroll height:
   // assistant/tool rows are variable-height and make that estimate wrong.
-  const measuredRange = visibleRange ?? virtualizerVisibleRange(node);
+  const measuredRange = options.visibleRange ?? virtualizerVisibleRange(node);
   if (!measuredRange) return undefined;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index]!;
@@ -216,7 +233,10 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     const node = scrollRef.current;
     const update = () => {
       const next = node
-        ? visibleTranscriptTurnId(node, turnEntriesRef.current)
+        ? visibleTranscriptTurnId(node, turnEntriesRef.current, {
+            atStart: nearTranscriptStart(node),
+            atTail: nearTranscriptTail(node),
+          })
         : turnEntriesRef.current.at(-1)?.messageId;
       if (next === undefined) return;
       setVisibleTurnMessageId((current) => current === next ? current : next);

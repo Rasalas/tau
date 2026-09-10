@@ -279,11 +279,6 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     void this.refreshChanges();
   }
 
-  checkpointRecorded(sessionId: string): void {
-    if (sessionId !== this.sessionId) return;
-    this.update({ turnSettled: false });
-  }
-
   toolFinished(tool: UiToolRun): void {
     const command = typeof tool.args.command === "string" ? tool.args.command : "";
     if (tool.name === "edit" || tool.name === "write" || /\bgit\b/u.test(command)) void this.refreshChanges();

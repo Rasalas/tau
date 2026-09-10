@@ -212,6 +212,22 @@ describe("TranscriptViewport turn navigation", () => {
     ).toBe(`${transcriptTurnNavigationTopPercent(4, 8)}%`));
   });
 
+  it("keeps the last turn active once the transcript cannot scroll any further", async () => {
+    const view = render(<Fixture messages={userMessages(8)} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_440));
+
+    // The fixture holds 8 * 180px of content inside a 400px viewport, so 1_040
+    // is the last position a browser would allow. A short final turn keeps its
+    // prompt under the lead line, which used to leave the marker one turn high.
+    fireEvent.wheel(transcript, { deltaY: -100 });
+    actScroll(transcript, 1_040);
+    expect(
+      view.getByRole("navigation", { name: "Transcript turns" })
+        .querySelector<HTMLElement>(".transcript-turn-navigation-current")?.style.top,
+    ).toBe("100%");
+  });
+
   it("uses measured row geometry and virtual range for variable-height turns", () => {
     const node = document.createElement("div") as HTMLDivElement;
     Object.defineProperties(node, {
@@ -244,7 +260,39 @@ describe("TranscriptViewport turn navigation", () => {
     expect(visibleTranscriptTurnId(node, entries)).toBe("user-1");
 
     node.replaceChildren(node.querySelector<HTMLElement>('[data-message-id="assistant-1"]')!);
-    expect(visibleTranscriptTurnId(node, entries, { startIndex: 1, endIndex: 1 })).toBe("user-1");
+    expect(visibleTranscriptTurnId(node, entries, { visibleRange: { startIndex: 1, endIndex: 1 } }))
+      .toBe("user-1");
+  });
+
+  it("pins the active turn to the ends of the rail at the ends of the scroll", () => {
+    const node = document.createElement("div") as HTMLDivElement;
+    Object.defineProperties(node, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 2_000 },
+    });
+    const messages: UiMessage[] = [
+      { id: "user-1", role: "user", text: "First prompt", timestamp: 1 },
+      { id: "user-2", role: "user", text: "Second prompt", timestamp: 2 },
+    ];
+    const row = (id: string, top: string) => {
+      const element = document.createElement("div");
+      element.dataset.messageId = id;
+      element.style.transform = `translateY(${top}px)`;
+      node.append(element);
+    };
+    row("user-1", "0");
+    row("user-2", "2100");
+    const entries = buildTranscriptTurnNavigation(messages);
+
+    // The lead line sits at 2_096, so the last prompt is still ahead of it.
+    expect(visibleTranscriptTurnId(node, entries)).toBe("user-1");
+    expect(visibleTranscriptTurnId(node, entries, { atTail: true })).toBe("user-2");
+
+    // The same applies at the top once a second prompt starts almost on screen.
+    node.scrollTop = 0;
+    node.querySelector<HTMLElement>('[data-message-id="user-2"]')!.style.transform = "translateY(60px)";
+    expect(visibleTranscriptTurnId(node, entries, { atTail: false })).toBe("user-2");
+    expect(visibleTranscriptTurnId(node, entries, { atStart: true })).toBe("user-1");
   });
 
   it("keeps navigation outside the transcript and composer flow", async () => {

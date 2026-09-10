@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronRight, Plus, Search, Star } from "lucide-react";
-import type { UiModel } from "../../shared/contracts";
+import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import { SUBSCRIPTION_LOGIN_NOTE } from "../../shared/subscription-login";
 import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
@@ -43,13 +43,21 @@ export function ModelPicker({
   onSelect,
   onClose,
   runtime,
+  runtimeBackends,
+  onSelectRuntime,
+  modelsAvailable = true,
 }: {
   models: readonly UiModel[];
   activeKey?: string;
   onSelect(model: UiModel): void;
   onClose(): void;
-  /** The runtime the picked model runs on; its logo sits behind the provider's icon when they differ. */
+  /** The runtime the picked model runs on; its logo is paired with the provider's when they differ. */
   runtime?: string;
+  /** Offered while choosing the runtime and model for a thread that does not exist yet. */
+  runtimeBackends?: readonly UiRuntimeBackend[];
+  onSelectRuntime?(kind: ThreadBackendKind): void;
+  /** False when the visible catalog belongs to a different runtime. */
+  modelsAvailable?: boolean;
 }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -61,7 +69,7 @@ export function ModelPicker({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const entries = useMemo<Entry[]>(
-    () => models.map((model) => {
+    () => (modelsAvailable ? models : []).map((model) => {
       const key = modelKey(model);
       const position = settings.favouriteModels.indexOf(key);
       return {
@@ -72,7 +80,7 @@ export function ModelPicker({
         presentation: modelPresentation(model),
       };
     }),
-    [models, settings.favouriteModels],
+    [models, modelsAvailable, settings.favouriteModels],
   );
 
   const providers = useMemo(() => {
@@ -182,7 +190,7 @@ export function ModelPicker({
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
       <section
-        className="model-picker"
+        className={`model-picker ${(runtimeBackends?.length ?? 0) > 1 ? "with-runtime-picker" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Select model"
@@ -216,6 +224,7 @@ export function ModelPicker({
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search models…"
                 aria-label="Search models"
+                disabled={!modelsAvailable}
               />
               <kbd>esc</kbd>
               <button
@@ -228,12 +237,34 @@ export function ModelPicker({
               </button>
             </div>
 
+            {(runtimeBackends?.length ?? 0) > 1 ? (
+              <div className="model-runtime-picker" role="group" aria-label="Runtime for new thread">
+                <span>Run with</span>
+                <div>
+                  {runtimeBackends?.map((backend) => (
+                    <button
+                      key={backend.kind}
+                      className={backend.kind === runtime ? "active" : ""}
+                      aria-label={backend.label}
+                      aria-pressed={backend.kind === runtime}
+                      onClick={() => onSelectRuntime?.(backend.kind)}
+                    >
+                      <ProviderIconStack runtimeProvider={backend.kind} className="runtime-option-icon" />
+                      {backend.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <VirtualList
               items={rows}
               itemHeight={ROW_HEIGHT}
               className="model-list"
               scrollToIndex={cursor}
-              empty={<p className="palette-empty">{needle ? `No model matches “${query}”.` : "No models from this provider."}</p>}
+              empty={<p className="palette-empty">{!modelsAvailable
+                ? `Start the thread to load ${runtimeBackends?.find((backend) => backend.kind === runtime)?.label ?? "this runtime"}'s models.`
+                : needle ? `No model matches “${query}”.` : "No models from this provider."}</p>}
               renderItem={(row, index) => row.kind === "legacy"
                 ? <div key={row.key} className={`model-row model-legacy ${index === cursor ? "selected" : ""}`} onMouseMove={() => setCursor(index)}>
                   <button className="model-choose" aria-expanded={row.expanded} onClick={() => toggleLegacy(row.provider)}>
@@ -277,7 +308,7 @@ export function ModelPicker({
           <span>⌥↵ favourite</span>
           <span>⌘1–9 favourite n</span>
           <span className="spacer" />
-          <span>{models.length} models · {providers.filter((name) => name !== FAVOURITES).length} providers</span>
+          <span>{entries.length} models · {providers.filter((name) => name !== FAVOURITES).length} providers</span>
         </footer>
       </section>
       {addProviderOpen ? (
