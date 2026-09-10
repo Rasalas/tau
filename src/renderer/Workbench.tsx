@@ -10,6 +10,7 @@ import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { QueuedFollowUp } from "../workbench/follow-up-queue";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
+import { NoticeToast } from "./components/NoticeToast";
 import { PanelIcon } from "./components/PanelIcon";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { ProjectSourcesModal } from "./components/ProjectSources";
@@ -31,7 +32,6 @@ import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
-import { publishStageBand } from "./reserved-region";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
@@ -316,13 +316,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     return () => observer.disconnect();
   }, [centerRef, setCenterCompact]);
 
-  // Toasts float over this column instead of the window, so they never land on
-  // the dock — where the host may be drawing a native view no z-index outranks.
-  useEffect(() => {
-    const element = centerRef.current;
-    return element ? publishStageBand(element) : undefined;
-  }, [centerRef]);
-
   const centerClassName = [
     "workbench-center",
     stage.tabs.length > 0 ? "stage-open" : "",
@@ -413,10 +406,14 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         />
       </Suspense>
     </LazyFeatureBoundary> : null}
-    {notice ? <button className="toast" data-level={noticeLevel} onClick={() => setNotice(undefined)}>
-      <b>{noticeLevel === "info" ? "NOTICE" : noticeLevel.toUpperCase()}</b><span>{notice}</span><i>×</i>
-    </button> : null}
   </>;
+
+  // The notice is a corner note in the shell's bottom-left, not an overlay: it
+  // lives inside the shell so it reads the rail's own geometry, and next to the
+  // overlays in the full-screen path, where there is no shell to sit in.
+  const noticeToast = notice
+    ? <NoticeToast level={noticeLevel} message={notice} onDismiss={() => setNotice(undefined)} />
+    : null;
 
   const activeOverlay = registry.getOverlay(activeOverlayId);
   const providers = (content: React.ReactNode) => <ThreadStoreContext.Provider value={threadStore}>
@@ -439,6 +436,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       </Suspense>
     </LazyFeatureBoundary>
     {overlays}
+    {noticeToast}
   </>);
 
   return providers(<>
@@ -590,6 +588,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <span className="spacer" />
         </nav>
       </aside> : null}
+      {noticeToast}
     </div>
     {overlays}
   </>);

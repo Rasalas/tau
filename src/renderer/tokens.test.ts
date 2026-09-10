@@ -15,8 +15,6 @@ const RUNTIME_PROPERTIES = [
   "--project-hue",
   "--used",
   "--keep-clear-x",
-  "--stage-left",
-  "--stage-right",
   "--composer-inset",
   "--font-family-override",
   "--font-size-override",

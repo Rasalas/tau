@@ -2299,29 +2299,60 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 @keyframes reload-field { 50% { transform: scale(1.08); opacity: .32; } }
 
 /*
- * Centred on the workbench's centre column, not the window: the dock is where
- * the host draws its native preview view, and a toast that reached it would
- * simply be invisible. `--stage-*` is published by Workbench from that column.
+ * A toast is a corner note: pinned to the window's bottom-left, over the tail
+ * of the thread rail. That corner holds the settled shelf and the rail's own
+ * scrollback, and a notice may cover those. While the rail is on screen the
+ * note stays inside that column and stops above the rail's footer row (46 px:
+ * 8 px of padding around the settings gear's 30 px button, the one way into
+ * Settings), so it reaches neither the gear nor the composer next door.
+ *
+ * Its width is the corner's, never a band's: an error arrives as one long
+ * unbreakable string, and a note sized by whatever space happened to be left
+ * would push its own text out of its box.
  */
+.app-shell {
+  /* Without a rail the corner is free, and a note there is short-lived. */
+  --toast-bottom: 12px;
+  --toast-max-width: 420px;
+}
+.app-shell:not(.no-sidebar) {
+  --toast-bottom: 58px;
+  --toast-max-width: calc(var(--sidebar-width) - 24px);
+}
 .toast {
-  position: fixed; bottom: 22px; z-index: 90;
-  left: var(--stage-left, 0px); right: var(--stage-right, 0px);
-  margin-inline: auto; width: max-content;
-  max-width: calc(100vw - var(--stage-left, 0px) - var(--stage-right, 0px) - 24px);
-  display: flex; align-items: center; gap: 10px;
+  position: fixed; left: 12px; bottom: var(--toast-bottom, 12px); z-index: 90;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 24px), var(--toast-max-width, 420px));
+  display: flex; align-items: flex-start; gap: 10px;
   border: 1px solid var(--line-float); border-radius: 9px;
   background: var(--float); color: var(--ink-2); box-shadow: var(--elevation-2);
-  padding: 10px 14px; cursor: pointer; animation: toast-enter .16s ease;
+  padding: 10px 12px; text-align: left; animation: toast-enter .16s ease;
+  /* A pathological message scrolls inside the note instead of growing tall
+     enough to bury the rail; the copy button stays at the top, where it is
+     reached. */
+  max-height: calc(100vh - var(--toast-bottom, 12px) - 12px);
+  overflow: auto;
 }
 @keyframes toast-enter {
   from { opacity: 0; transform: translateY(7px) scale(.985); }
   to { opacity: 1; transform: none; }
 }
-.toast b { font: 500 10px var(--mono); color: var(--working); letter-spacing: .1em; }
+/* The level keeps the first line's optical centre; the message may run long. */
+.toast b { font: 500 10px var(--mono); color: var(--working); letter-spacing: .1em; padding-top: 1px; }
 .toast[data-level="warning"] b { color: var(--warn); }
 .toast[data-level="error"] b { color: var(--danger); }
-.toast span { font-size: 12px; max-width: 460px; }
-.toast i { color: var(--faint); font-style: normal; }
+/* `anywhere` because a copied error is often a bare URL or a JSON blob with no
+   space to break at; without it the text escapes the box it was sized for. */
+.toast span { min-width: 0; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.toast-copy, .toast-dismiss {
+  flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: transparent;
+  color: var(--faint); cursor: pointer;
+}
+.toast-copy { padding: 3px; }
+.toast-dismiss { padding: 1px 4px; font-size: 13px; line-height: 1; }
+.toast-copy:hover, .toast-dismiss:hover { background: var(--chip-hover); color: var(--ink-2); }
+.toast-copy.copied { color: var(--ready); }
 .update-toast { cursor: default; }
 .update-toast button {
   border: 1px solid var(--line-float); border-radius: 6px; background: transparent;

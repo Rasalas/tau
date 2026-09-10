@@ -82,27 +82,3 @@ export function useKeepClear(ref: RefObject<HTMLElement | null>, active = true):
     };
   }, [active, ref]);
 }
-
-/**
- * Publishes the workbench's centre column as `--stage-left` / `--stage-right`,
- * the band a fixed float may centre itself on. The window's own centre is the
- * wrong anchor: it drifts into the dock, which is exactly the reserved side.
- */
-export function publishStageBand(element: Element, root: HTMLElement = document.documentElement): () => void {
-  const style = root.style;
-  const publish = (): void => {
-    const rect = element.getBoundingClientRect();
-    style.setProperty("--stage-left", `${Math.round(rect.left)}px`);
-    style.setProperty("--stage-right", `${Math.round(window.innerWidth - rect.right)}px`);
-  };
-  publish();
-  const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(publish);
-  observer?.observe(element);
-  window.addEventListener("resize", publish);
-  return () => {
-    observer?.disconnect();
-    window.removeEventListener("resize", publish);
-    style.removeProperty("--stage-left");
-    style.removeProperty("--stage-right");
-  };
-}

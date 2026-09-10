@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testDomRect } from "./components/test-dom-geometry";
 import {
   keepClearShift,
-  publishStageBand,
   reserveRegion,
   reservedRegion,
   subscribeReservedRegion,
@@ -106,46 +105,5 @@ describe("useKeepClear", () => {
     const view = render(<Float open={false} />);
 
     expect(view.getByTestId("float").classList.contains("keeps-clear")).toBe(false);
-  });
-});
-
-describe("publishStageBand", () => {
-  it("centres fixed floats on the column instead of the window", () => {
-    vi.stubGlobal("innerWidth", 1440);
-    const column = document.createElement("div");
-    document.body.append(column);
-    vi.spyOn(column, "getBoundingClientRect")
-      .mockReturnValue(testDomRect({ left: 282, top: 46, right: 1074, width: 792, height: 800 }));
-
-    const stop = publishStageBand(column);
-    const root = document.documentElement.style;
-    expect(root.getPropertyValue("--stage-left")).toBe("282px");
-    // 1440 - 1074: the dock and its rail, where the preview view is drawn.
-    expect(root.getPropertyValue("--stage-right")).toBe("366px");
-
-    stop();
-    expect(root.getPropertyValue("--stage-left")).toBe("");
-    expect(root.getPropertyValue("--stage-right")).toBe("");
-    column.remove();
-  });
-
-  it("follows the column when the dock is resized", () => {
-    vi.stubGlobal("innerWidth", 1440);
-    const observers: Array<() => void> = [];
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(callback: () => void) { observers.push(callback); }
-      observe(): void {}
-      disconnect(): void {}
-    });
-    const column = document.createElement("div");
-    const rect = vi.spyOn(column, "getBoundingClientRect")
-      .mockReturnValue(testDomRect({ left: 282, right: 1074, width: 792 }));
-
-    const stop = publishStageBand(column);
-    rect.mockReturnValue(testDomRect({ left: 282, right: 1174, width: 892 }));
-    observers.forEach((callback) => callback());
-
-    expect(document.documentElement.style.getPropertyValue("--stage-right")).toBe("266px");
-    stop();
   });
 });

@@ -277,7 +277,8 @@ signatures), the `ThreadLineage` type (what `context.setThreadLineage`
 takes), `reserveRegion` / `reservedRegion` with the `ReservedRegion` type — the
 placement seam of [ADR 0012](adr/0012-preview-browser.md): a package whose host
 half draws a native view over its panel publishes that rectangle with
-`reserveRegion`, and the workbench's own floats (menus, popovers, toasts) slide
+`reserveRegion`, and the workbench's own floats — menus, popovers; a toast is
+pinned to the window's bottom-left corner and never reaches the dock — slide
 out of it rather than disappear behind it; `reserveRegion(undefined)` gives the
 window back, and nothing is reserved until a package asks for it — and `Menu`
 with its `MenuItem` and `MenuSection` types, the popover list a composer chip
@@ -1016,4 +1017,4 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 `--project-hue` is not a token: the thread row sets it per project, and
 `--project-tint` and `--project-ink` say how deep that hue reads. The same goes
 for the handful of layout variables a component sets on itself
-(`--stage-left`, `--keep-clear-x`, `--composer-inset`, `--used`).
+(`--keep-clear-x`, `--composer-inset`, `--used`).
