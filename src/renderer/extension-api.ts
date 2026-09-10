@@ -15,7 +15,8 @@ export { errorMessage } from "../workbench/error-message";
 // over its panel publishes that rectangle, and core's own floats keep clear of it.
 export { reserveRegion, reservedRegion, type ReservedRegion } from "./reserved-region";
 export type { MenuItem, MenuSection } from "./components/Menu";
-export { ExtensionPromptFrame, OptionRow } from "./components/ExtensionPrompt";
+export { ExtensionPromptFrame, OptionRow, PromptSubmitContext, usePromptSubmit } from "./components/ExtensionPrompt";
+export type { PromptSubmitAction } from "./components/ExtensionPrompt";
 export {
   choiceOptions,
   freeTextOption,

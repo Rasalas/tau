@@ -7,6 +7,14 @@ import { EMPTY_PI_UI_STATE, PI_UI_EVENT, PI_UI_HOST_EXTENSION_ID, type PiUiThrea
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/gu;
 export const stripAnsi = (text: string): string => text.replace(ANSI, "");
 
+const PI_UI_PROTOCOL_WIDGET_KEYS = new Set(["subagent-async", "subagent-inspect"]);
+const PI_UI_PROTOCOL_LINE = /^PI_SUBAGENT_(?:ASYNC|INSPECT)_JSON:/;
+
+function isProtocolWidget(widget: PiUiThreadState["widgets"][number]): boolean {
+  return PI_UI_PROTOCOL_WIDGET_KEYS.has(widget.key)
+    || widget.lines.some((line) => PI_UI_PROTOCOL_LINE.test(stripAnsi(line)));
+}
+
 function isThreadState(value: unknown): value is PiUiThreadState {
   const state = value as Partial<PiUiThreadState> | null;
   return Boolean(state && typeof state.sessionId === "string" && Array.isArray(state.statuses) && Array.isArray(state.widgets));
@@ -52,7 +60,7 @@ export function createPiUiComponents(store: PiUiStore) {
   function widgets(placement: PiUiWidgetPlacement) {
     return function PiWidgets({ snapshot }: RegionProps) {
       const state = usePiUiThread(store, snapshot?.sessionId);
-      const shown = state.widgets.filter((widget) => widget.placement === placement);
+      const shown = state.widgets.filter((widget) => widget.placement === placement && !isProtocolWidget(widget));
       if (shown.length === 0) return null;
       return (
         <>

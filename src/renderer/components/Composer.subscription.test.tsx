@@ -9,25 +9,27 @@ import { TestProviders } from "../test-support/test-providers";
 import { PreferencesStore } from "../preferences";
 
 const subscribed: UiModel = { provider: "anthropic", id: "opus", name: "Opus", login: "subscription" };
+const codexSubscription: UiModel = { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", login: "subscription" };
 const keyed: UiModel = { provider: "opencode-go", id: "kimi", name: "Kimi" };
 
-function snapshotWith(model: UiModel): HostSnapshot {
+function snapshotWith(model: UiModel, backendKind = model === subscribed ? "claude-code" : "pi"): HostSnapshot {
   return {
     cwd: "/project", sessionId: "session", sessionTitle: "Thread",
-    model, models: [subscribed, keyed],
+    backendKind,
+    model, models: [subscribed, codexSubscription, keyed],
     thinkingLevel: "medium", thinkingLevels: ["medium"],
     messages: [], isStreaming: false, activeTools: [], allTools: [], extensionCount: 0,
   };
 }
 
-function renderComposer(model: UiModel, preferences = new PreferencesStore()) {
+function renderComposer(model: UiModel, preferences = new PreferencesStore(), backendKind?: string) {
   const onSubmit = vi.fn(async () => ({ accepted: true as const }));
   const onSetModel = vi.fn();
   const scopeStore = new ComposerScopeStore();
   render(<TestProviders preferences={preferences}>
     <Composer
       scopeStore={scopeStore}
-      snapshot={snapshotWith(model)}
+      snapshot={snapshotWith(model, backendKind)}
       queue={[]}
       contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       textareaRef={createRef<HTMLTextAreaElement>()}
@@ -62,6 +64,14 @@ describe("subscription login warning in the composer", () => {
     expect(screen.queryByRole("dialog", { name: "Subscription login through Pi" })).toBeNull();
   });
 
+  it("does not warn for an OpenAI Codex subscription", () => {
+    const { onSubmit } = renderComposer(codexSubscription);
+    fireEvent.change(screen.getByPlaceholderText(/Direct the agent/u), { target: { value: "hello" } });
+    fireEvent.click(screen.getByLabelText("Send"));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "Subscription login through Pi" })).toBeNull();
+  });
+
   it("asks nothing for an API-key model or once the provider was acknowledged", () => {
     const preferences = new PreferencesStore();
     preferences.acknowledgeSubscriptionLogin("anthropic");
@@ -77,7 +87,7 @@ describe("subscription login warning in the composer", () => {
   });
 
   it("asks when such a model is picked, and declining reopens the picker", () => {
-    const { onSetModel } = renderComposer(keyed);
+    const { onSetModel } = renderComposer(keyed, new PreferencesStore(), "claude-code");
     const pickOpus = () => {
       const input = screen.getByRole("textbox", { name: "Search models" });
       fireEvent.change(input, { target: { value: "Opus" } });

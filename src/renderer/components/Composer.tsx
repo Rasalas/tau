@@ -22,7 +22,7 @@ import { ModelPicker, modelKey } from "./ModelPicker";
 import { SubscriptionLoginPrompt } from "./SubscriptionLoginPrompt";
 import { ProviderIconStack, hasProviderMark } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
-import { ExtensionPrompt } from "./ExtensionPrompt";
+import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
 import {
@@ -368,8 +368,12 @@ export function Composer({
   const preferences = usePreferences();
   // A model behind a subscription login is used only after its warning was read once (per provider).
   const [subscriptionAsk, setSubscriptionAsk] = useState<{ model?: UiModel; resubmit?: "followUp" | "steer" | "prompt" }>();
+  const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
+  const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
   const needsSubscriptionAck = (model: UiModel | undefined): boolean =>
-    model?.login === "subscription" && !preferences.hasAcknowledgedSubscriptionLogin(model.provider);
+    model?.login === "subscription"
+    && (snapshot?.backendKind === "antigravity" || snapshot?.backendKind === "claude-code")
+    && !preferences.hasAcknowledgedSubscriptionLogin(model.provider);
   const chooseModel = (model: UiModel) => {
     if (needsSubscriptionAck(model)) setSubscriptionAsk({ model });
     else onSetModel(model.provider, model.id);
@@ -607,12 +611,14 @@ export function Composer({
             registry={registry}
             onNotify={onNotify}
           >
-            <Renderer
-              prompt={prompt}
-              pending={promptsPending}
-              onAnswer={(answer, typed) => { onAnswerPrompt?.(answer, typed); updateDraft(""); }}
-              onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
-            />
+            <PromptSubmitContext.Provider value={registerPromptSubmit}>
+              <Renderer
+                prompt={prompt}
+                pending={promptsPending}
+                onAnswer={(answer, typed) => { onAnswerPrompt?.(answer, typed); updateDraft(""); }}
+                onCancel={() => { onCancelPrompt?.(); updateDraft(""); }}
+              />
+            </PromptSubmitContext.Provider>
           </LazyFeatureBoundary>
         );
       })() : null}
@@ -900,9 +906,24 @@ export function Composer({
             <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />
           ) : null}
 
+          {answerable && prompt ? (
+            <button
+              className="prompt-submit-button"
+              title="Send answer"
+              aria-label="Send answer"
+              disabled={held || (text.trim().length === 0 && (promptSubmit?.disabled ?? true))}
+              onClick={() => {
+                if (text.trim()) submitCurrent();
+                else promptSubmit?.submit();
+              }}
+            >
+              {text.trim() ? "Send answer" : promptSubmit?.label ?? "Send answer"}
+              <ArrowUp size={15} />
+            </button>
+          ) : null}
           {streaming ? (
-            <button className="send-button stop" title="Stop the run" onClick={onAbort}><i /></button>
-          ) : (
+            <button className="send-button stop" title="Stop the run" aria-label="Stop the run" onClick={onAbort}><i /></button>
+          ) : !answerable ? (
             <button
               className="send-button"
               title="Send"
@@ -913,7 +934,7 @@ export function Composer({
             >
               <ArrowUp size={16} />
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 

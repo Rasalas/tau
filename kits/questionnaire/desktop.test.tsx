@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionUiPrompt } from "tau";
+import { PromptSubmitContext, type ExtensionUiPrompt, type PromptSubmitAction } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { createQuestionnaireExtension, QuestionnaireStore } from "./desktop.js";
 import { QUESTIONNAIRE_EXTRA, type UiQuestionnaireQuestion } from "./protocol.js";
@@ -44,6 +44,29 @@ describe("Questionnaire Kit", () => {
     expect(registry.interceptPrompt(ask(1, "input"))).toEqual({ value: "1,2" });
     expect(store.choice("s1", 1)).toEqual({ labels: ["S", "M"], answered: true });
     expect(registry.interceptPrompt(ask(1, "input"))).toBeUndefined();
+  });
+
+  it("registers multi-select submission for the composer and marks choice modes", () => {
+    const store = new QuestionnaireStore();
+    const { registry } = createKitHarness();
+    registry.activate(createQuestionnaireExtension(store));
+    const prompt = ask(1, "input");
+    const renderer = registry.getPromptRenderer(prompt)!;
+    const onAnswer = vi.fn();
+    let action: PromptSubmitAction | undefined;
+
+    render(
+      <PromptSubmitContext.Provider value={(next) => { action = next; }}>
+        <renderer.Component prompt={prompt} pending={0} onAnswer={onAnswer} onCancel={() => {}} />
+      </PromptSubmitContext.Provider>,
+    );
+
+    expect(screen.getByText("S").closest("button")?.classList.contains("mode-checkbox")).toBe(true);
+    fireEvent.click(screen.getByText("S"));
+    expect(action?.label).toBe("Send 1");
+    expect(action?.disabled).toBe(false);
+    action?.submit();
+    expect(onAnswer).toHaveBeenCalledWith("1");
   });
 
   it("keeps typed free text as the page summary and leaves prompts without a questionnaire to core", () => {

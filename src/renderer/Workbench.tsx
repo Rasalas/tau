@@ -351,6 +351,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     snapshot={snapshot}
     conversationSnapshot={conversationSnapshot}
     pendingNewThread={pendingNewThread}
+    showStartScreen={showStartScreen}
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
   />;
@@ -644,12 +645,13 @@ function ConversationTranscript({ view, thread }: { view: ThreadViewStore; threa
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, activeDraftKey, onNotify }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, showStartScreen, activeDraftKey, onNotify }: {
   view: ThreadViewStore;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
   conversationSnapshot?: HostSnapshot;
   pendingNewThread: boolean;
+  showStartScreen: boolean;
   activeDraftKey?: string;
   onNotify?(message: string): void;
 }) {
@@ -678,7 +680,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     queue={queue}
     contextUsage={snapshot?.contextUsage}
     contextBreakdown={contextBreakdown}
-    threadUsage={showCosts ? snapshot?.usage : undefined}
+    threadUsage={showCosts && !showStartScreen ? snapshot?.usage : undefined}
     textareaRef={textareaRef}
     attachmentRef={attachmentRef}
     onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}

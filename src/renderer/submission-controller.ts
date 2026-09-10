@@ -6,7 +6,7 @@ import type {
   UiSkillDraft,
 } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
-import { chosenNewThreadRuntime } from "./new-thread-runtime";
+import { chosenNewThreadRuntime, effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
   backgroundNewThreadDetail,
@@ -328,14 +328,19 @@ export class SubmissionController {
           return { accepted: true };
         }
         // The draft's project is named by identity; its path is only for display.
-        const result = pending.model
+        // An unchanged model chip is still a choice. Carry the shown Pi model
+        // into the new runtime instead of silently falling back to host defaults.
+        const backend = effectiveNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
+        const inheritedModel = (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
+        const requestedModel = backend === "pi" ? pending.model ?? inheritedModel : undefined;
+        const result = requestedModel
           ? await client.newSession(
             text,
             attachments,
             pending.workspaceId ?? pending.projectPath,
             clientTurn,
             prepared,
-            { model: { provider: pending.model.provider, id: pending.model.id } },
+            { model: { provider: requestedModel.provider, id: requestedModel.id } },
           )
           : await client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared);
         this.settleIpc(clientMessageId, recovery);

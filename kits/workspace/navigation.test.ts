@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "tau";
-import { navigationRowKey, visibleThreads } from "./navigation.js";
+import { findProjectForSession, navigationRowKey, visibleThreads } from "./navigation.js";
 
 function session(id: string): UiSession {
   return {
@@ -42,5 +42,28 @@ describe("threads an agent spawned", () => {
   it("hides a spawned thread the index named even when no extension published lineage", () => {
     const threads = [spawned("parent"), spawned("alpha", "parent"), spawned("beta", "parent")];
     expect(visibleThreads(threads, {}).map((entry) => entry.id)).toEqual(["parent"]);
+  });
+});
+
+describe("findProjectForSession", () => {
+  const projects = [
+    { name: "tau", path: "/repos/tau", lastOpenedAt: 2, icon: "data:image/svg+xml;tau" },
+    { name: "satchel", path: "/repos/satchel", lastOpenedAt: 1, icon: "data:image/svg+xml;satchel" },
+  ];
+
+  it("finds project by exact path", () => {
+    expect(findProjectForSession(projects, { projectPath: "/repos/tau", projectName: "tau" })?.icon).toBe("data:image/svg+xml;tau");
+  });
+
+  it("finds project for a worktree by projectName when path differs", () => {
+    expect(findProjectForSession(projects, { projectPath: "/worktrees/tau-feat", projectName: "tau" })?.icon).toBe("data:image/svg+xml;tau");
+  });
+
+  it("finds project for a worktree by subpath", () => {
+    expect(findProjectForSession(projects, { projectPath: "/repos/tau/sub-worktree" })?.icon).toBe("data:image/svg+xml;tau");
+  });
+
+  it("returns undefined when no project matches", () => {
+    expect(findProjectForSession(projects, { projectPath: "/other/unknown", projectName: "unknown" })).toBeUndefined();
   });
 });

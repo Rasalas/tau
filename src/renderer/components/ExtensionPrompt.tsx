@@ -1,7 +1,31 @@
-import { CircleHelp } from "lucide-react";
-import type { ReactNode } from "react";
+import { Circle, CircleDot, CircleHelp, Square, SquareCheck } from "lucide-react";
+import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
 import type { ExtensionUiPrompt } from "../../shared/contracts";
 import { choiceOptions, freeTextOption, splitInputTitle, splitOption, splitPromptTitle } from "../../shared/extension-prompt-options";
+
+export interface PromptSubmitAction {
+  label: string;
+  disabled: boolean;
+  submit(): void;
+}
+
+export const PromptSubmitContext = createContext<(action: PromptSubmitAction | undefined) => void>(() => {});
+
+/** Lets a prompt renderer put its commit action in the composer's action row. */
+export function usePromptSubmit(label: string | undefined, disabled: boolean, submit: (() => void) | undefined): void {
+  const register = useContext(PromptSubmitContext);
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  const available = submit !== undefined;
+  useEffect(() => {
+    if (!label || !available) {
+      register(undefined);
+      return;
+    }
+    register({ label, disabled, submit: () => submitRef.current?.() });
+    return () => register(undefined);
+  }, [available, disabled, label, register]);
+}
 
 export function OptionRow({
   index,
@@ -10,23 +34,32 @@ export function OptionRow({
   preview,
   chosen,
   readOnly,
+  mode,
   onPick,
 }: {
   index?: string;
   label: string;
   detail?: string;
-  /** Markdown the model attached to compare this option — a mockup, a snippet. */
+  /** Markdown the model attached to compare this option. */
   preview?: string;
   chosen?: boolean;
   readOnly?: boolean;
+  mode?: "radio" | "checkbox";
   onPick?(): void;
 }) {
+  const indicator = mode === "radio"
+    ? (chosen ? <CircleDot size={15} /> : <Circle size={15} />)
+    : mode === "checkbox"
+      ? (chosen ? <SquareCheck size={15} /> : <Square size={15} />)
+      : null;
   return (
     <button
-      className={`extension-option${chosen ? " chosen" : ""}${readOnly ? " read" : ""}`}
+      className={`extension-option${mode ? ` mode-${mode}` : ""}${chosen ? " chosen" : ""}${readOnly ? " read" : ""}`}
       disabled={readOnly}
+      aria-pressed={mode ? Boolean(chosen) : undefined}
       onClick={onPick}
     >
+      {indicator ? <span className="extension-option-indicator" aria-hidden="true">{indicator}</span> : null}
       {index ? <i>{index}</i> : <i className="bullet">›</i>}
       <span>
         <strong>{label}</strong>
@@ -122,14 +155,14 @@ export function ExtensionPrompt({
         <div className="extension-prompt-options">
           {prompt.kind === "confirm" ? (
             <>
-              <OptionRow label="Yes" onPick={() => onAnswer(true)} />
-              <OptionRow label="No" onPick={() => onAnswer(false)} />
+              <OptionRow label="Yes" mode="radio" onPick={() => onAnswer(true)} />
+              <OptionRow label="No" mode="radio" onPick={() => onAnswer(false)} />
             </>
           ) : (
             currentChoices.map((option) => {
               const { index, label, detail } = splitOption(option);
               const preview = folded.previews.find((entry) => String(entry.index) === index)?.text;
-              return <OptionRow key={option} index={index} label={label} detail={detail} preview={preview} onPick={() => onAnswer(option)} />;
+              return <OptionRow key={option} index={index} label={label} detail={detail} preview={preview} mode="radio" onPick={() => onAnswer(option)} />;
             })
           )}
         </div>

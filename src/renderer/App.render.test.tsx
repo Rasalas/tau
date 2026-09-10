@@ -265,7 +265,13 @@ describe("App render isolation", () => {
       bootstrap: async () => ({
         version: 1,
         threadIndex: { projects: [], sessions: [] },
-        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        detail: {
+          sessionId: "session",
+          messages: [],
+          isStreaming: false,
+          activeTools: [],
+          usage: { inputTokens: 1_000, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100, costUsd: 0.05, turns: 1 },
+        },
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
       }),
@@ -284,6 +290,7 @@ describe("App render isolation", () => {
     expect(screen.queryByText("NEW THREAD")).toBeNull();
     expect(screen.getByRole("button", { name: "Change project, current project project" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Untitled thread" })).toBeNull();
+    expect(screen.queryByLabelText(/^Thread cost/u)).toBeNull();
 
     const composer = screen.getByPlaceholderText(/Direct the agent/u);
     fireEvent.change(composer, { target: { value: "Build the first screen" } });

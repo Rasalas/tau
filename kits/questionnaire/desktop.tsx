@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   ExtensionPromptFrame,
   OptionRow,
@@ -9,6 +9,7 @@ import {
   splitInputTitle,
   splitOption,
   splitPromptTitle,
+  usePromptSubmit,
   type DesktopExtension,
   type ExtensionUiAnswer,
   type ExtensionUiPrompt,
@@ -141,6 +142,14 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
     const message = onCurrent ? (prompt.message ?? (input && !multi ? input.detail : undefined)) : undefined;
     const pick = choices[key(prompt.sessionId, page)];
     const preselect = (index: number, labels: string[]) => store.set(prompt.sessionId, index, { labels, answered: false });
+    const submitPicked = useCallback(() => {
+      if (multi && asked && picked.length > 0) onAnswer(multiSelectValue(asked, picked));
+    }, [asked, multi, onAnswer, picked]);
+    usePromptSubmit(
+      onCurrent && multi ? `Send${picked.length > 0 ? ` ${picked.length}` : ""}` : undefined,
+      picked.length === 0,
+      submitPicked,
+    );
 
     return (
       <ExtensionPromptFrame
@@ -169,14 +178,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
               : hasChoices
                 ? (acceptsFreeText ? "or type your own answer below" : "or answer below")
                 : "answer below"}
-        footer={<>
-          {onCurrent && multi && asked ? (
-            <button className="primary" disabled={picked.length === 0} onClick={() => onAnswer(multiSelectValue(asked, picked))}>
-              Send{picked.length > 0 ? ` ${picked.length}` : ""}
-            </button>
-          ) : null}
-          <button onClick={onCancel}>Skip</button>
-        </>}
+        footer={<button onClick={onCancel}>Skip</button>}
       >
         {onCurrent && hasChoices ? (
           <div className="extension-prompt-options">
@@ -187,6 +189,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
                   index={String(at + 1)}
                   label={option.label}
                   detail={option.description}
+                  mode="checkbox"
                   chosen={picked.includes(option.label)}
                   onPick={() => setPicked((value) => toggled(value, option.label))}
                 />
@@ -195,7 +198,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
               currentChoices.map((option) => {
                 const { index, label, detail } = splitOption(option);
                 const preview = folded.previews.find((entry) => String(entry.index) === index)?.text;
-                return <OptionRow key={option} index={index} label={label} detail={detail} preview={preview} onPick={() => onAnswer(option)} />;
+                return <OptionRow key={option} index={index} label={label} detail={detail} preview={preview} mode="radio" onPick={() => onAnswer(option)} />;
               })
             )}
           </div>
@@ -208,6 +211,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
                 index={String(at + 1)}
                 label={option.label}
                 detail={option.description}
+                mode={viewing.multiSelect ? "checkbox" : "radio"}
                 chosen={pick?.labels.includes(option.label)}
                 readOnly={page < current}
                 onPick={page > current

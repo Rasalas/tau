@@ -54,4 +54,26 @@ describe("Pi UI extension", () => {
     expect(invoke).toHaveBeenCalledWith("tau.pi-ui", "state", { sessionId: "s2" });
     expect(stripAnsi("\u001b[1mbold\u001b[22m [x] kept")).toBe("bold [x] kept");
   });
+
+  it("does not render subagent protocol widgets", async () => {
+    const invoke = vi.fn(async () => ({
+      sessionId: "s1",
+      statuses: [],
+      widgets: [
+        { key: "subagent-async", lines: ['PI_SUBAGENT_ASYNC_JSON:{"state":"running"}'], placement: "aboveEditor" },
+        { key: "renamed-protocol-widget", lines: ['PI_SUBAGENT_INSPECT_JSON:{"requestId":"r1"}'], placement: "aboveEditor" },
+        { key: "todo", lines: ["[ ] visible"], placement: "aboveEditor" },
+      ],
+    }));
+    const { registry } = createKitHarness(invoke);
+    registry.activate(createPiUiExtension(new PiUiStore()));
+    await flush();
+
+    const above = registry.getRegions("composer-above").find((region) => region.id === "pi-ui.widgets-above")!;
+    const view = render(<above.Component snapshot={snapshot("s1")} actions={actions} />);
+
+    expect(view.container.querySelector('[data-widget="subagent-async"]')).toBeNull();
+    expect(view.container.querySelector('[data-widget="renamed-protocol-widget"]')).toBeNull();
+    expect(view.container.querySelector('[data-widget="todo"]')?.textContent).toBe("[ ] visible");
+  });
 });

@@ -25,4 +25,19 @@ describe("ProjectSwitcherPopover", () => {
     fireEvent.click(screen.getByText("satchel"));
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ path: "/repos/satchel" }));
   });
+
+  it("marks project as current when activePath is a worktree or subpath", () => {
+    render(<ProjectSwitcherPopover
+      activePath="/repos/tau/nested-worktree"
+      open
+      projects={[
+        { name: "tau", path: "/repos/tau", lastOpenedAt: 2 },
+        { name: "satchel", path: "/repos/satchel", lastOpenedAt: 1 },
+      ]}
+      onClose={() => {}}
+      onSelect={() => {}}
+    />);
+
+    expect(screen.getByText("current")).toBeTruthy();
+  });
 });

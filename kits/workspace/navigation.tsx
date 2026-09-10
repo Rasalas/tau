@@ -164,6 +164,40 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
   );
 }
 
+export function findProjectForSession(
+  projects: readonly UiProject[],
+  session: Pick<UiSession, "projectPath"> & Partial<Pick<UiSession, "projectName" | "workspaceId">>,
+): UiProject | undefined {
+  if (!projects.length) return undefined;
+  const byPath = projects.find((project) => project.path === session.projectPath);
+  if (byPath) return byPath;
+
+  if (session.workspaceId) {
+    const byWorkspace = projects.find((project) => project.workspaceId === session.workspaceId);
+    if (byWorkspace) return byWorkspace;
+  }
+
+  const bySubpath = projects.find((project) => {
+    const prefix = project.path.endsWith("/") ? project.path : `${project.path}/`;
+    return session.projectPath.startsWith(prefix);
+  });
+  if (bySubpath) return bySubpath;
+
+  if (session.projectName) {
+    const byName = projects.filter((project) => project.name === session.projectName);
+    if (byName.length === 1) return byName[0];
+    if (byName.length > 1) {
+      const bySharedDir = byName.find((project) => {
+        const parentDir = project.path.slice(0, project.path.lastIndexOf("/"));
+        return Boolean(parentDir && session.projectPath.startsWith(parentDir));
+      });
+      return bySharedDir ?? byName[0];
+    }
+  }
+
+  return undefined;
+}
+
 export function ProjectSwitcherPopover({
   activePath,
   open,
@@ -181,12 +215,17 @@ export function ProjectSwitcherPopover({
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const matches = useMemo(() => projects.filter((project) => fuzzyMatch(`${project.name} ${project.path}`, query.trim())), [projects, query]);
+  const currentProject = useMemo(
+    () => findProjectForSession(projects, { projectPath: activePath ?? "" }),
+    [projects, activePath],
+  );
+  const currentPath = currentProject?.path ?? activePath;
   useEffect(() => {
     if (!open) return;
     setQuery("");
-    setSelected(Math.max(0, projects.findIndex((project) => project.path === activePath)));
+    setSelected(Math.max(0, projects.findIndex((project) => project.path === currentPath)));
     window.setTimeout(() => inputRef.current?.focus(), 0);
-  }, [activePath, open, projects]);
+  }, [currentPath, open, projects]);
   if (!open) return null;
   const activate = () => { const project = matches[selected]; if (project) onSelect(project); };
 
@@ -227,7 +266,7 @@ export function ProjectSwitcherPopover({
             {project.icon ? <img src={project.icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}
           </i>
           <span>{project.name}</span>
-          {project.path === activePath ? <small>current</small> : null}
+          {project.path === currentPath ? <small>current</small> : null}
           <Settings size={14} aria-hidden="true" />
         </button>}
       />
@@ -240,6 +279,13 @@ function ProjectScope({ actions }: SidebarContributionProps) {
   const threadStore = useThreadStore();
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const activeThread = snapshot?.sessionId ? threadStore.getThread(snapshot.sessionId) : undefined;
+  const activeProject = findProjectForSession(projects, {
+    projectPath: snapshot?.cwd ?? "",
+    projectName: activeThread?.projectName,
+    workspaceId: snapshot?.workspaceId,
+  });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -269,7 +315,7 @@ function ProjectScope({ actions }: SidebarContributionProps) {
         </button>
       </div>
       <ProjectSwitcherPopover
-        activePath={snapshot?.cwd}
+        activePath={activeProject?.path ?? snapshot?.cwd}
         open={searchOpen}
         projects={projects}
         onClose={() => setSearchOpen(false)}
@@ -325,7 +371,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
     <ThreadRow
       session={session}
       showCost={showCosts}
-      projectIcon={projects.find((project) => project.path === session.projectPath)?.icon}
+      projectIcon={findProjectForSession(projects, session)?.icon}
       active={active}
       age={sessionAge(session.modifiedAt)}
       activity={activity}

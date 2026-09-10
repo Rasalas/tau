@@ -146,7 +146,9 @@ export function ProjectPicker({
                 });
               }}
             >
-              <i>{projectInitial(project.name)}</i>
+              <i className={project.icon ? "has-image" : ""}>
+                {project.icon ? <img src={project.icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}
+              </i>
               <span>
                 <strong>{project.name}</strong>
                 <small>{compactPath(projectPath(project))}</small>

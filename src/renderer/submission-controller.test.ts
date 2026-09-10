@@ -229,6 +229,23 @@ describe("SubmissionController", () => {
     expect(event.snapshot?.backendKind).toBeUndefined();
   });
 
+  it("uses the model shown on a fresh draft when no explicit draft model was chosen", async () => {
+    const deepseek = { provider: "opencode-go", id: "deepseek-flash", name: "DeepSeek V4.1 Flash" };
+    const { submission, client } = harness({
+      pending: DRAFT,
+      snapshot: { ...SESSION_SNAPSHOT, backendKind: "pi", model: deepseek, models: [deepseek] },
+      client: {
+        newSession: async () => ({ version: 1, submission: { accepted: true }, sessionId: "created", updates: [] }),
+      },
+    });
+
+    await submission.submit({ text: "first message" });
+
+    expect(client.calls.find((call) => call.method === "newSession")?.args[5]).toEqual({
+      model: { provider: "opencode-go", id: "deepseek-flash" },
+    });
+  });
+
   it("sends a new thread's first prompt to the workspace a gate named, and stays put when none does", async () => {
     const prepared: string[] = [];
     const prepareNewThread = vi.fn(async (event: { prompt: string; preparing(message: string): void }) => {

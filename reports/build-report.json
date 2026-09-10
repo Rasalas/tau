@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-10T06:41:10.386Z",
-  "buildTimeMs": 4338,
+  "generatedAt": "2026-09-10T10:36:36.830Z",
+  "buildTimeMs": 6545,
   "sourcemaps": false,
   "initial": {
     "javascript": {
-      "bytes": 737014,
-      "gzipBytes": 224854,
+      "bytes": 746361,
+      "gzipBytes": 227776,
       "files": 1
     },
     "css": {
-      "bytes": 123081,
-      "gzipBytes": 22165,
+      "bytes": 123890,
+      "gzipBytes": 22258,
       "files": 1
     },
     "sourcemaps": {
@@ -22,8 +22,8 @@
   },
   "lazy": {
     "javascript": {
-      "bytes": 1065961,
-      "gzipBytes": 220739,
+      "bytes": 1065649,
+      "gzipBytes": 219424,
       "files": 24
     },
     "css": {
@@ -43,133 +43,133 @@
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 3162,
-      "gzipBytes": 1565
+      "gzipBytes": 1573
     },
     {
-      "file": "assets/CommandPalette-H0tc93kP.js",
+      "file": "assets/CommandPalette-D0YacEx8.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 2509,
-      "gzipBytes": 1224
+      "gzipBytes": 1222
     },
     {
       "file": "assets/css-AVCICof-.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 13455,
-      "gzipBytes": 4395
+      "gzipBytes": 4384
     },
     {
       "file": "assets/diff-BLTryEFx.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 583,
-      "gzipBytes": 311
+      "gzipBytes": 312
     },
     {
-      "file": "assets/DiffView-ZuWJph7u.js",
+      "file": "assets/DiffView-CbHfHpBp.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 9153,
-      "gzipBytes": 3701
+      "gzipBytes": 3692
     },
     {
       "file": "assets/go-4VmnRw3R.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1449,
-      "gzipBytes": 699
+      "gzipBytes": 708
     },
     {
-      "file": "assets/index-B_4gLPIV.js",
+      "file": "assets/index-DYOlEO1N.js",
       "kind": "javascript",
       "phase": "initial",
-      "bytes": 737014,
-      "gzipBytes": 224854
+      "bytes": 746361,
+      "gzipBytes": 227776
     },
     {
-      "file": "assets/index-D7Ezd8Ia.css",
+      "file": "assets/index-NSqM99qW.css",
       "kind": "css",
       "phase": "initial",
-      "bytes": 123081,
-      "gzipBytes": 22165
+      "bytes": 123890,
+      "gzipBytes": 22258
     },
     {
       "file": "assets/javascript-DUNaicwC.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 6504,
-      "gzipBytes": 2610
+      "gzipBytes": 2626
     },
     {
       "file": "assets/json-DdsocbVI.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 595,
-      "gzipBytes": 419
+      "gzipBytes": 420
     },
     {
-      "file": "assets/lucide-react-C1cta8GQ.js",
+      "file": "assets/lucide-react-Bx0CIF96.js",
       "kind": "javascript",
       "phase": "lazy",
-      "bytes": 939509,
-      "gzipBytes": 173796
+      "bytes": 939197,
+      "gzipBytes": 172395
     },
     {
       "file": "assets/markdown-fzgiUVUV.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 2096,
-      "gzipBytes": 889
+      "gzipBytes": 895
     },
     {
-      "file": "assets/message-square-plus-DSWqjLSZ.js",
+      "file": "assets/message-square-plus-Kd8mTyub.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 779,
-      "gzipBytes": 401
+      "gzipBytes": 402
     },
     {
-      "file": "assets/panel-right-open-C-FYx8Uc.js",
+      "file": "assets/panel-right-open-CC-9xi-I.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1815,
-      "gzipBytes": 639
+      "gzipBytes": 644
     },
     {
       "file": "assets/python-CXf-_D6G.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 3533,
-      "gzipBytes": 1487
+      "gzipBytes": 1505
     },
     {
-      "file": "assets/RendererBenchmark-CoUTkWyE.js",
+      "file": "assets/RendererBenchmark-BfQi1hnt.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 9390,
-      "gzipBytes": 3415
+      "gzipBytes": 3409
     },
     {
-      "file": "assets/ReviewMode-BaumyyHM.js",
+      "file": "assets/ReviewMode-Bz9wswE_.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 18041,
-      "gzipBytes": 6239
+      "gzipBytes": 6252
     },
     {
       "file": "assets/rust-DsMvwcVK.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 2935,
-      "gzipBytes": 1426
+      "gzipBytes": 1436
     },
     {
-      "file": "assets/SettingsModal-CyiiFvph.js",
+      "file": "assets/SettingsModal-BSK_Z1lc.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 21507,
-      "gzipBytes": 6240
+      "gzipBytes": 6221
     },
     {
       "file": "assets/shell-DYhVHYSm.js",
@@ -179,46 +179,46 @@
       "gzipBytes": 208
     },
     {
-      "file": "assets/sliders-vertical-Dq3ZYcp2.js",
+      "file": "assets/sliders-vertical-DaBlnxP7.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1593,
-      "gzipBytes": 566
+      "gzipBytes": 565
     },
     {
       "file": "assets/sql-BC88IN-V.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 6492,
-      "gzipBytes": 2410
+      "gzipBytes": 2423
     },
     {
-      "file": "assets/Stage-C8lHgawP.js",
+      "file": "assets/Stage-Dwd_eRGT.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 9129,
-      "gzipBytes": 3454
+      "gzipBytes": 3455
     },
     {
       "file": "assets/typescript-5pldp2kO.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 7777,
-      "gzipBytes": 3062
+      "gzipBytes": 3079
     },
     {
       "file": "assets/xml-FcirFJJ2.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1872,
-      "gzipBytes": 756
+      "gzipBytes": 766
     },
     {
       "file": "assets/yaml-drsDnIKT.js",
       "kind": "javascript",
       "phase": "lazy",
       "bytes": 1854,
-      "gzipBytes": 827
+      "gzipBytes": 832
     }
   ],
   "overlayComposition": {

@@ -37,4 +37,17 @@ describe("ProjectPicker large catalogs", () => {
     fireEvent.keyDown(window, { key: "Delete", shiftKey: true });
     expect(onRemove).toHaveBeenLastCalledWith(projects[1]);
   });
+
+  it("renders project icon image when available, falling back to initial", () => {
+    const iconProjects = [
+      { path: "/projects/with-icon", name: "IconProject", lastOpenedAt: 2, icon: "data:image/svg+xml;base64,abc" },
+      { path: "/projects/no-icon", name: "TextProject", lastOpenedAt: 1 },
+    ];
+    const { container } = render(<ProjectPicker open projects={iconProjects} onBrowse={() => {}} onClose={() => {}} onRemove={() => {}} onSelect={() => {}} />);
+
+    const img = container.querySelector(".project-picker-results img");
+    expect(img).toBeTruthy();
+    expect(img?.getAttribute("src")).toBe("data:image/svg+xml;base64,abc");
+    expect(screen.getByText("T")).toBeTruthy();
+  });
 });
