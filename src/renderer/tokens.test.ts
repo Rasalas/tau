@@ -35,7 +35,7 @@ const AA_ACCENT = [
 const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "stale", "folder"];
 /** Ink that sits on a fill rather than on a surface. */
 const ON_FILL: ReadonlyArray<[string, string]> = [
-  ["acid-ink", "acid"], ["acid-ink", "acid-strong"], ["provider-ink", "provider-bg"],
+  ["acid-ink", "acid"], ["acid-ink", "acid-strong"],
   ["diff-add-mark-ink", "diff-add-mark"], ["diff-del-mark-ink", "diff-del-mark"],
   ["diff-add-ink", "diff-add-bg"], ["diff-del-ink", "diff-del-bg"], ["acid-text", "acid-chip"],
 ];
@@ -113,9 +113,9 @@ describe("the token contract", () => {
   it("gives every colour token a value in both schemes", async () => {
     const tokens = await readTokens();
     const single = [...tokens].filter(([, value]) => /^#|^hsl\(/u.test(value) && !value.startsWith("light-dark("));
-    // A brand tint and the mark on the stop button are the same in both schemes
-    // on purpose; anything else with one value is a token that was not themed.
-    expect(single.map(([name]) => name).sort()).toEqual(["--provider-claude", "--provider-google", "--stop-ink"]);
+    // The mark on the stop button is the same in both schemes on purpose;
+    // anything else with one value is a token that was not themed.
+    expect(single.map(([name]) => name).sort()).toEqual(["--stop-ink"]);
   });
 
   it("defines every token the stylesheets ask for", async () => {

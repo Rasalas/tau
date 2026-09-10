@@ -53,7 +53,7 @@ describe("composer runtime chip", () => {
   it("carries a runtime's own mark on the chip when it has one", () => {
     renderComposer({ kind: "claude-code", backends: [{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "Claude Code" }], onSelect: () => {} });
     const chip = screen.getByLabelText("Runtime: Claude Code");
-    expect(chip.querySelector(".provider-icon-stack img")).toBeTruthy();
+    expect(chip.querySelector(".provider-icon-stack .provider-mark")).toBeTruthy();
   });
 
   it("offers no model of the visible thread to a draft bound for another runtime", () => {

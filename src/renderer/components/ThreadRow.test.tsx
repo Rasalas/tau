@@ -79,8 +79,8 @@ describe("ThreadRow project mark", () => {
     const stack = getByLabelText("Google Gemini via OpenCode");
     expect(stack.classList).toContain("stacked");
     expect(container.querySelectorAll(".provider-icon")).toHaveLength(2);
-    expect(container.querySelector(".provider-icon-runtime img")).toBeTruthy();
-    expect(container.querySelector(".provider-icon-model img")).toBeTruthy();
+    expect(container.querySelector(".provider-icon-runtime .provider-mark")).toBeTruthy();
+    expect(container.querySelector(".provider-icon-model .provider-mark")).toBeTruthy();
   });
 
   it("does not replace WORKING with the active tool name", () => {

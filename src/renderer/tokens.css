@@ -129,13 +129,6 @@
   --project-tint: light-dark(hsl(var(--project-hue) 46% 88%), hsl(var(--project-hue) 34% 15%)); /* a project's mark */
   --project-ink: light-dark(hsl(var(--project-hue) 55% 27%), hsl(var(--project-hue) 70% 66%)); /* its letters */
 
-  /* Provider marks are brand chips: the tile flips with the theme, the two
-     family tints do not. */
-  --provider-bg: light-dark(#2a2924, #f3f1e9);       /* the tile behind a provider glyph */
-  --provider-ink: light-dark(#f3f1e9, #171713);      /* the glyph itself */
-  --provider-google: #f8faff;                        /* brand tint, the same in both schemes */
-  --provider-claude: #f3e8df;                        /* brand tint, the same in both schemes */
-
   /* The reload curtain: a full-screen boundary of its own. */
   --reload-core: light-dark(#e5f0c8, #25320f);       /* the centre of the reload curtain */
   --reload-halo: light-dark(#f3f5e6, #171a10);       /* its falloff */

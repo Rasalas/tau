@@ -25,15 +25,15 @@ function renderPicker(options: { runtime?: string; preferences?: PreferencesStor
 afterEach(cleanup);
 
 describe("ModelPicker", () => {
-  it("shows one icon per provider on the rail, the runtime's logo behind it unless the runtime is Pi", () => {
+  it("shows the provider mark with the selected harness behind it", () => {
     renderPicker({ runtime: "claude-code" });
     const rail = screen.getByRole("navigation", { name: "Providers" });
     expect(rail.querySelectorAll("button")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Claude (4)" }).querySelector(".provider-icon-runtime")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "OpenAI (1)" }).querySelector(".provider-icon-runtime")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Anthropic (4)" }).querySelector(".provider-family-claude-code")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "OpenAI (1)" }).querySelector(".provider-family-claude-code")).toBeTruthy();
     cleanup();
     renderPicker({ runtime: "pi" });
-    expect(document.querySelector(".provider-icon-runtime")).toBeNull();
+    expect(document.querySelector(".provider-family-pi")).toBeTruthy();
   });
 
   it("folds a provider's legacy models behind one row and badges the newest", () => {
