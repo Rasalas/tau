@@ -105,5 +105,21 @@ export function useNewThreadController(storage: ClientStorage) {
     markAwaitingPromotion,
     promoteFromHostReport,
     promoteFromUserMessage,
+    setModel: useCallback(async (
+      provider: string,
+      id: string,
+      fallbackSetModel?: (p: string, id: string) => Promise<unknown>,
+      resolveName?: (p: string, id: string) => string | undefined,
+    ) => {
+      const pending = pendingRef.current;
+      if (!pending || pending.sessionId) {
+        if (fallbackSetModel) await fallbackSetModel(provider, id);
+        return;
+      }
+      const name = resolveName?.(provider, id) ?? id;
+      const next = { ...pending, model: { provider, id, name } };
+      writeNewThreadDraft(storage, next);
+      setPendingNewThread(next);
+    }, [setPendingNewThread, storage]),
   };
 }

@@ -85,6 +85,7 @@ export class HostConfigManager {
       ...override,
       options: { ...(base.options ?? {}), ...(override.options ?? {}) },
       values: { ...(base.values ?? {}), ...(override.values ?? {}) },
+      keybindings: { ...(base.keybindings ?? {}), ...(override.keybindings ?? {}) },
       favouriteModels: override.favouriteModels ?? base.favouriteModels,
       disabledExtensions: override.disabledExtensions ?? base.disabledExtensions,
     };

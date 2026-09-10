@@ -11,7 +11,16 @@ const KITS = fileURLToPath(new URL("../../kits", import.meta.url));
 const RAW_COLOUR = /#[0-9a-fA-F]{3,8}\b|(?<!\/\* )\brgba?\(|\bhsla?\((?!var\()/gu;
 
 /** Custom properties the client sets on an element at runtime, not tokens a theme owns. */
-const RUNTIME_PROPERTIES = ["--project-hue", "--used", "--keep-clear-x", "--stage-left", "--stage-right", "--composer-inset"];
+const RUNTIME_PROPERTIES = [
+  "--project-hue",
+  "--used",
+  "--keep-clear-x",
+  "--stage-left",
+  "--stage-right",
+  "--composer-inset",
+  "--font-family-override",
+  "--font-size-override",
+];
 
 /** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */
 const TEXT_SURFACES = ["shell", "stage", "chrome", "field", "overlay"];

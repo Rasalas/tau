@@ -140,4 +140,29 @@ describe("host configuration sync", () => {
     expect(allAvailableThemes()).toContain("nordic");
     expect(store.getSnapshot().theme).toBe("nordic");
   });
+
+  it("syncs keybindings, typography, density, and agent params from host config", async () => {
+    const store = new PreferencesStore();
+    const fakeClient = {
+      getConfig: async () => ({
+        keybindings: { "workbench.focus-composer": "ctrl+1" },
+        fontFamily: "JetBrains Mono",
+        fontSize: 15,
+        density: "compact" as const,
+        temperature: 0.5,
+        maxTokens: 2048,
+      }),
+    } as unknown as import("../workbench/host-client").HostClient;
+
+    store.bindHost(fakeClient);
+    await store.syncFromHost();
+
+    const snapshot = store.getSnapshot();
+    expect(snapshot.keybindings).toEqual({ "workbench.focus-composer": "ctrl+1" });
+    expect(snapshot.fontFamily).toBe("JetBrains Mono");
+    expect(snapshot.fontSize).toBe(15);
+    expect(snapshot.density).toBe("compact");
+    expect(snapshot.temperature).toBe(0.5);
+    expect(snapshot.maxTokens).toBe(2048);
+  });
 });

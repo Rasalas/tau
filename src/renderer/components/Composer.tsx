@@ -33,11 +33,9 @@ import {
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
 import {
   ComposerScopeStore,
-  allocateAttachmentId,
   createDraftKey,
   type ComposerScope,
   type ComposerScopeReference,
-  type PendingAttachment,
 } from "../../workbench/composer-scope-store";
 import { errorMessage } from "../../workbench/error-message";
 import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
@@ -79,79 +77,27 @@ export interface ComposerAttachmentHandle {
   addFiles(files: FileList | readonly File[]): Promise<void>;
 }
 
-type ComposerTrigger = { kind: "/" | "$"; query: string; start: number; end: number };
-interface SelectedSkill {
-  name: string;
-  invocation: string;
-  command: string;
-  start: number;
-  end: number;
-}
+import {
+  type ComposerTrigger,
+  type SelectedSkill,
+  skillName,
+  composerTrigger,
+  normalizeSkillInvocation,
+  selectedSkillDraft,
+  ComposerAutocompleteMenu,
+} from "./ComposerAutocomplete";
+import {
+  readImage,
+  ComposerAttachmentsList,
+} from "./ComposerAttachments";
 
-function skillName(command: UiComposerCommand): string {
-  return command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name;
-}
-
-/** Editor-only autocomplete trigger; submitted text is never classified or rewritten here. */
-export function composerTrigger(text: string, caret: number): ComposerTrigger | undefined {
-  const before = text.slice(0, caret);
-  const match = /^\s*([/$])([^\s]*)$/u.exec(before);
-  if (!match) return undefined;
-  const start = before.lastIndexOf(match[1]);
-  return { kind: match[1] as "/" | "$", query: match[2], start, end: caret };
-}
-
-/** Legacy helper retained for extension consumers; submission itself keeps
- * user text unchanged and uses selected skill metadata instead. */
-export function normalizeSkillInvocation(text: string, commands: readonly UiComposerCommand[]): string {
-  const match = /^(\s*)([$/])([^\s]+)(?=\s|$)/u.exec(text);
-  if (!match) return text;
-  const requested = match[3];
-  const skill = commands.find((command) => command.source === "skill" && skillName(command) === requested);
-  if (!skill) return text;
-  if (match[2] === "/" && commands.some((command) => command.source !== "skill" && command.name === requested)) return text;
-  return `${match[1]}/skill:${requested}${text.slice(match[0].length)}`;
-}
-
-/** Turns an editor selection into typed metadata without parsing runtime text. */
-export function selectedSkillDraft(text: string, selection?: SelectedSkill): UiSkillDraft | undefined {
-  if (!selection || text.slice(selection.start, selection.end) !== selection.invocation) return undefined;
-  if (text.slice(0, selection.start).trim()) return undefined;
-  const suffix = text.slice(selection.end);
-  return {
-    source: "skill",
-    name: selection.name,
-    // The autocomplete separator is not part of the user's instruction. Only
-    // that one separator is removed; all remaining whitespace is meaningful.
-    visibleText: /^[ \t]/u.test(suffix) ? suffix.slice(1) : suffix,
-    command: selection.command,
-  };
-}
-
-function readImage(file: File): Promise<PendingAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`${file.name} could not be read.`));
-    reader.onload = () => {
-      const previewUrl = typeof reader.result === "string" ? reader.result : "";
-      const separator = previewUrl.indexOf(",");
-      if (separator < 0) {
-        reject(new Error(`${file.name} could not be decoded.`));
-        return;
-      }
-      resolve({
-        id: allocateAttachmentId(),
-        kind: "image",
-        name: file.name,
-        mimeType: file.type,
-        data: previewUrl.slice(separator + 1),
-        size: file.size,
-        previewUrl,
-      });
-    };
-    reader.readAsDataURL(file);
-  });
-}
+export {
+  type ComposerTrigger,
+  type SelectedSkill,
+  composerTrigger,
+  normalizeSkillInvocation,
+  selectedSkillDraft,
+};
 
 export function Composer({
   snapshot,
@@ -277,6 +223,39 @@ export function Composer({
       .slice(0, 10)
       .map((entry) => entry.command);
   }, [commands, trigger]);
+
+  const shellContext = useContext(WorkbenchShellContext);
+  const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
+  useEffect(() => {
+    if (trigger?.kind !== "@") return;
+    const documentSource = shellContext?.registry.getDocumentSource();
+    if (!documentSource) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        if (documentSource.listFiles) {
+          const list = await documentSource.listFiles();
+          if (!cancelled && list) setWorkspaceFiles(list);
+        } else {
+          const files = documentSource.getState().changes.files.map((f) => f.path);
+          if (!cancelled) setWorkspaceFiles(files);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [shellContext, trigger?.kind]);
+
+  const fileMatches = useMemo(() => {
+    if (trigger?.kind !== "@") return [];
+    const query = trigger.query.toLowerCase();
+    return workspaceFiles
+      .filter((path) => !query || path.toLowerCase().includes(query))
+      .slice(0, 15);
+  }, [trigger, workspaceFiles]);
+
   useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -309,6 +288,40 @@ export function Composer({
     writeComposerDraft(clientStorage, draftStorageKey, next);
     onChange?.(next);
     setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
+  };
+
+  const selectCommand = (command: UiComposerCommand) => {
+    if (!trigger) return;
+    const name = command.source === "skill" ? skillName(command) : command.name;
+    const invocation = `${trigger.kind}${name}`;
+    const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
+    const nextCaret = trigger.start + invocation.length + 1;
+    updateDraft(next);
+    if (command.source === "skill" && command.skillCommand) {
+      setSelectedSkill({ name, invocation, command: command.skillCommand, start: trigger.start, end: trigger.start + invocation.length });
+    } else {
+      setSelectedSkill(undefined);
+    }
+    setCaret(nextCaret);
+    setCommandMenuDismissed(true);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const selectFile = (filePath: string) => {
+    if (!trigger) return;
+    const invocation = `@${filePath}`;
+    const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
+    const nextCaret = trigger.start + invocation.length + 1;
+    updateDraft(next);
+    setCaret(nextCaret);
+    setCommandMenuDismissed(true);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const preferences = usePreferences();
@@ -569,70 +582,23 @@ export function Composer({
           void addFiles(event.clipboardData.files);
         }}
       >
-        {attachments.length > 0 ? (
-          <div className="composer-attachments" aria-label="Attached files">
-            {attachments.map((attachment) => (
-              <div className="composer-attachment" key={attachment.id}>
-                <button
-                  className="attachment-preview-button"
-                  aria-label={`Preview ${attachment.name}`}
-                  onClick={() => setPreviewId(attachment.id)}
-                >
-                  <img src={attachment.previewUrl} alt="" />
-                </button>
-                <button
-                  className="attachment-remove"
-                  aria-label={`Remove ${attachment.name}`}
-                  onClick={() => {
-                    scopeStore.removeAttachment(attachmentScope, attachment.id);
-                  }}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
+        <ComposerAttachmentsList
+          attachments={attachments}
+          onPreview={(id) => setPreviewId(id)}
+          onRemove={(id) => {
+            scopeStore.removeAttachment(attachmentScope, id);
+          }}
+        />
         {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
         {trigger ? (
-          <div className="composer-command-menu" role="listbox" aria-label={trigger.kind === "$" ? "Skills" : "Commands"}>
-            {commandMatches.length > 0 ? commandMatches.map((command, index) => {
-              const name = command.source === "skill" ? skillName(command) : command.name;
-              const invocation = `${trigger.kind}${name}`;
-              const choose = () => {
-                const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
-                const nextCaret = trigger.start + invocation.length + 1;
-                updateDraft(next);
-                if (command.source === "skill" && command.skillCommand) {
-                  setSelectedSkill({ name, invocation, command: command.skillCommand, start: trigger.start, end: trigger.start + invocation.length });
-                } else {
-                  setSelectedSkill(undefined);
-                }
-                setCaret(nextCaret);
-                setCommandMenuDismissed(true);
-                requestAnimationFrame(() => {
-                  textareaRef.current?.focus();
-                  textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
-                });
-              };
-              return <button
-                type="button"
-                role="option"
-                aria-selected={index === commandCursor}
-                className={index === commandCursor ? "selected" : ""}
-                key={`${command.source}:${command.name}`}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={choose}
-              >
-                <span className="composer-command-mark">{trigger.kind}</span>
-                <span className="composer-command-copy">
-                  <strong>{name}{command.argumentHint ? <i>{command.argumentHint}</i> : null}</strong>
-                  <small>{command.description || (command.source === "skill" ? "Load this skill for the next turn" : "Run this command")}</small>
-                </span>
-                <span className={`composer-command-source ${command.source}`}>{command.source}</span>
-              </button>;
-            }) : <div className="composer-command-empty">No {trigger.kind === "$" ? "skill" : "command"} matches “{trigger.query}”.</div>}
-          </div>
+          <ComposerAutocompleteMenu
+            trigger={trigger}
+            cursor={commandCursor}
+            commandMatches={commandMatches}
+            fileMatches={fileMatches}
+            onSelectCommand={selectCommand}
+            onSelectFile={selectFile}
+          />
         ) : null}
         <textarea
           ref={textareaRef}
@@ -649,33 +615,27 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
-            if (trigger && commandMatches.length > 0) {
+            const totalMatches = trigger?.kind === "@" ? fileMatches.length : commandMatches.length;
+            if (trigger && totalMatches > 0) {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
-                setCommandCursor((current) => (current + 1) % commandMatches.length);
+                setCommandCursor((current) => (current + 1) % totalMatches);
                 return;
               }
               if (event.key === "ArrowUp") {
                 event.preventDefault();
-                setCommandCursor((current) => (current - 1 + commandMatches.length) % commandMatches.length);
+                setCommandCursor((current) => (current - 1 + totalMatches) % totalMatches);
                 return;
               }
               if (event.key === "Enter" || event.key === "Tab") {
                 event.preventDefault();
-                const command = commandMatches[commandCursor];
-                const name = command.source === "skill" ? skillName(command) : command.name;
-                const invocation = `${trigger.kind}${name}`;
-                const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
-                const nextCaret = trigger.start + invocation.length + 1;
-                updateDraft(next);
-                if (command.source === "skill" && command.skillCommand) {
-                  setSelectedSkill({ name, invocation, command: command.skillCommand, start: trigger.start, end: trigger.start + invocation.length });
+                if (trigger.kind === "@") {
+                  const file = fileMatches[commandCursor];
+                  if (file) selectFile(file);
                 } else {
-                  setSelectedSkill(undefined);
+                  const command = commandMatches[commandCursor];
+                  if (command) selectCommand(command);
                 }
-                setCaret(nextCaret);
-                setCommandMenuDismissed(true);
-                requestAnimationFrame(() => textareaRef.current?.setSelectionRange(nextCaret, nextCaret));
                 return;
               }
             }

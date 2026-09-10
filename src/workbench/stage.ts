@@ -109,3 +109,12 @@ export function setFileView(state: StageState, id: string, view: StageView): Sta
   if (!state.tabs.some((tab) => tab.id === id && tab.kind === "file")) return state;
   return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.kind === "file" ? { ...tab, view } : tab) };
 }
+
+export function cycleTab(state: StageState, direction: 1 | -1): StageState {
+  if (state.tabs.length <= 1) return state;
+  const currentIndex = state.tabs.findIndex((tab) => tab.id === state.activeId);
+  const nextIndex = currentIndex < 0
+    ? 0
+    : (currentIndex + direction + state.tabs.length) % state.tabs.length;
+  return { ...state, activeId: state.tabs[nextIndex]?.id };
+}

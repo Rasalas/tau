@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeTab, closeTab, EMPTY_STAGE, fileTabId, openFileTab, openThreadTab, pinTab, setFileView, threadTabId } from "./stage";
+import { activeTab, closeTab, cycleTab, EMPTY_STAGE, fileTabId, openFileTab, openThreadTab, pinTab, setFileView, threadTabId } from "./stage";
 
 const A = "/repo/src/a.ts";
 const B = "/repo/src/b.ts";
@@ -98,6 +98,29 @@ describe("thread tabs", () => {
   it("leaves a thread tab alone when a file view is requested for it", () => {
     const state = openThreadTab(EMPTY_STAGE, CHILD, { pin: true });
     expect(setFileView(state, threadTabId(CHILD), "diff")).toEqual(state);
+  });
+
+  it("cycles through tabs forward and backward wrapping around", () => {
+    let state = openFileTab(EMPTY_STAGE, A, { pin: true });
+    state = openFileTab(state, B, { pin: true });
+    state = openFileTab(state, C, { pin: true });
+    expect(state.activeId).toBe(fileTabId(C));
+
+    // Next from C wraps to A
+    state = cycleTab(state, 1);
+    expect(state.activeId).toBe(fileTabId(A));
+
+    // Next from A goes to B
+    state = cycleTab(state, 1);
+    expect(state.activeId).toBe(fileTabId(B));
+
+    // Prev from B goes to A
+    state = cycleTab(state, -1);
+    expect(state.activeId).toBe(fileTabId(A));
+
+    // Prev from A wraps to C
+    state = cycleTab(state, -1);
+    expect(state.activeId).toBe(fileTabId(C));
   });
 });
 

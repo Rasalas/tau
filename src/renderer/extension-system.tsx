@@ -62,6 +62,10 @@ export interface WorkbenchActions {
   composerDraft(): string;
   /** Applies a host action result the way core actions do, refreshing what it touched. */
   applyHostResult(result: HostActionResult): void;
+  /** Closes the stage tab currently on screen. */
+  closeActiveStageTab?(): void;
+  /** Moves forward or backward through stage tabs. */
+  cycleStageTab?(direction: 1 | -1): void;
   /** Puts text on the user's clipboard. */
   copyText(text: string): Promise<void>;
   /** Opens a URL outside the workbench, in whatever the client calls a browser. */
@@ -348,6 +352,7 @@ export interface DocumentSourceContribution extends ProfileScoped {
   openInEditor(relPath: string): void;
   getState(): { changes: UiWorkspaceChanges; editor?: UiEditor };
   subscribe(listener: () => void): () => void;
+  listFiles?(): Promise<string[]> | string[];
 }
 
 export interface ToolPresentation {
@@ -580,12 +585,18 @@ export class ExtensionRegistry {
   // `services` defaults to a private store so the many tests that build a
   // registry without a workbench keep working; real activation passes the
   // renderer's shared instance explicitly.
+  private overrideDisposers: Array<() => void> = [];
+
   constructor(
     private readonly hostBridge: HostExtensionBridge = noHostBridge,
     services?: { preferences: PreferencesStore; profile?: ClientProfile },
   ) {
     this.services = services ?? { preferences: new PreferencesStore() };
     this.profile = services?.profile ?? "desktop";
+    this.services.preferences.subscribe(() => {
+      this.applyKeybindingOverrides(this.services.preferences.getSnapshot().keybindings);
+    });
+    this.applyKeybindingOverrides(this.services.preferences.getSnapshot().keybindings);
   }
 
   getProfile(): ClientProfile {
@@ -1107,6 +1118,41 @@ export class ExtensionRegistry {
   /** A default chord of a command someone replaced: still registered, no longer live. */
   private isShadowed(binding: ResolvedKeybinding): boolean {
     return !binding.replaces && this.shadowedCommands.has(binding.commandId);
+  }
+
+  /** Applies user keymap overrides from config.json, replacing default chords. */
+  applyKeybindingOverrides(overrides?: Record<string, string>): void {
+    this.overrideDisposers.forEach((dispose) => dispose());
+    this.overrideDisposers = [];
+    if (!overrides) return;
+    const owner: ContributionOwner = { extensionId: "user-config", extensionName: "User Config" };
+    for (const [commandId, rawKeys] of Object.entries(overrides)) {
+      if (!rawKeys || typeof rawKeys !== "string") continue;
+      try {
+        const chord = parseKeyChord(rawKeys);
+        const id = normalizeKeyChord(rawKeys);
+        if (!chord || !id) continue;
+        const resolved: ResolvedKeybinding = {
+          keys: id,
+          commandId,
+          replaces: commandId,
+          chord,
+          label: formatKeyChord(chord),
+          ...owner,
+        };
+        const dropShadow = this.shadowCommand(commandId);
+        const existing = this.keybindings.get(id);
+        this.keybindings.set(id, resolved);
+        this.overrideDisposers.push(() => {
+          dropShadow();
+          if (existing) this.keybindings.set(id, existing);
+          else this.keybindings.delete(id);
+        });
+      } catch (err) {
+        console.warn(`User keybinding override ${commandId} = ${rawKeys} is invalid:`, err);
+      }
+    }
+    this.changed();
   }
 
   /** The chords that are live: a replaced default is not one of them. */

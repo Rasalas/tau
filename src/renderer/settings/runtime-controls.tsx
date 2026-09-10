@@ -103,6 +103,9 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "workbench.focus-transcript", label: "Focus transcript", group: "Workbench", run: (app) => app.focusTranscript() });
     plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", run: (app) => app.focusStage() });
     plugin.registerCommand({ id: "workbench.toggle-dock", label: "Toggle dock", group: "Workbench", run: (app) => app.toggleDock() });
+    plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", run: (app) => app.closeActiveStageTab?.() });
+    plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", run: (app) => app.cycleStageTab?.(1) });
+    plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", run: (app) => app.cycleStageTab?.(-1) });
     plugin.registerSlashCommand({ name: "reload", description: "Apply source and extension changes, then reload Tau", run: async (_args, app) => (await app.reloadWorkbench()) ? undefined : "Tau reload failed." });
     plugin.registerSlashCommand({ name: "tree", description: "Move this thread to another point of its session tree", run: (_args, app) => app.openThreadTree("navigate") });
     plugin.registerSlashCommand({ name: "fork", description: "Start a new thread from an earlier message", run: (_args, app) => app.openThreadTree("fork") });
@@ -115,5 +118,8 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+2", commandId: "workbench.focus-transcript" });
     plugin.registerKeybinding({ keys: "mod+3", commandId: "workbench.focus-stage" });
     plugin.registerKeybinding({ keys: "mod+b", commandId: "workbench.toggle-dock" });
+    plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
+    plugin.registerKeybinding({ keys: "mod+shift+]", commandId: "workbench.next-stage-tab" });
+    plugin.registerKeybinding({ keys: "mod+shift+[", commandId: "workbench.prev-stage-tab" });
   },
 };

@@ -89,4 +89,21 @@ describe("the theme preference", () => {
 
     clearUserThemes();
   });
+
+  it("applies typography and density overrides to documentElement", () => {
+    const preferences = new PreferencesStore();
+    const stop = followThemePreference(preferences);
+
+    preferences.applyConfig({
+      fontFamily: "Fira Code, monospace",
+      fontSize: 14,
+      density: "compact",
+    });
+
+    expect(document.documentElement.dataset.density).toBe("compact");
+    expect(document.documentElement.style.getPropertyValue("--font-family-override")).toBe("Fira Code, monospace");
+    expect(document.documentElement.style.getPropertyValue("--font-size-override")).toBe("14px");
+
+    stop();
+  });
 });

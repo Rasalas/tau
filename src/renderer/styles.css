@@ -2,7 +2,7 @@
    `tokens.css`, which `index.html` links before this file. What is left here is
    what the page itself is: the sans stack, the ink and the window's own back. */
 :root {
-  font-family: var(--sans);
+  font-family: var(--font-family-override, var(--sans));
   color: var(--ink);
   background: var(--shell);
   font-synthesis: none;
@@ -10,7 +10,14 @@
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-body { font-size: 13px; }
+body { font-size: var(--font-size-override, 13px); }
+
+:root[data-density="compact"] {
+  --density-scale: 0.9;
+}
+:root[data-density="relaxed"] {
+  --density-scale: 1.1;
+}
 button, input, textarea, select { font: inherit; }
 button { color: inherit; }
 ::selection { background: var(--acid); color: var(--acid-ink); }

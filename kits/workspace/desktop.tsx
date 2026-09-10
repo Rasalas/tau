@@ -2,6 +2,7 @@ import { Files, GitCompare } from "lucide-react";
 import {
   errorMessage,
   type DesktopExtension,
+  type FileNode,
   type UiEditor,
   type UiWorkspaceChanges,
 } from "tau";
@@ -89,6 +90,30 @@ export const workspaceExtension: DesktopExtension = {
       openInEditor: (relPath) => void store.openInEditor(relPath),
       getState: documents,
       subscribe: store.subscribe,
+      listFiles: async () => {
+        const files: string[] = [];
+        const state = store.getSnapshot();
+        const walk = (nodes: readonly FileNode[]) => {
+          for (const node of nodes) {
+            if (node.kind === "file") files.push(node.path);
+            if (node.children) walk(node.children);
+          }
+        };
+        if (state.fileTree.length > 0) {
+          walk(state.fileTree);
+        } else {
+          try {
+            const tree = await host.getFileTree();
+            if (tree) walk(tree);
+          } catch {
+            // ignore
+          }
+        }
+        for (const file of state.changes.files) {
+          if (!files.includes(file.path)) files.push(file.path);
+        }
+        return files;
+      },
     });
     context.events.on("user-message", (event) => store.turnStarted(event.sessionId));
     context.events.on("agent-status", (event) => { if (!event.running) store.turnSettled(event.sessionId); });

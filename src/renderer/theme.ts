@@ -76,12 +76,42 @@ export function applyTheme(
 }
 
 /**
+ * Applies typography and density styling overrides to the root element.
+ */
+export function applyAppearance(
+  state: { fontFamily?: string; fontSize?: number; density?: string },
+  root: HTMLElement = document.documentElement,
+): void {
+  if (state.density) {
+    root.dataset.density = state.density;
+  } else {
+    delete root.dataset.density;
+  }
+
+  if (state.fontFamily) {
+    root.style.setProperty("--font-family-override", state.fontFamily);
+  } else {
+    root.style.removeProperty("--font-family-override");
+  }
+
+  if (state.fontSize) {
+    root.style.setProperty("--font-size-override", `${state.fontSize}px`);
+  } else {
+    root.style.removeProperty("--font-size-override");
+  }
+}
+
+/**
  * Keeps <html> in step with the stored preference. Called before the first
  * render, so a window whose preference differs from the OS never paints the
  * other theme first.
  */
 export function followThemePreference(preferences: PreferencesStore, root?: HTMLElement): () => void {
-  const write = () => { applyTheme(preferences.getSnapshot().theme, root); };
+  const write = () => {
+    const snapshot = preferences.getSnapshot();
+    applyTheme(snapshot.theme, root);
+    applyAppearance(snapshot, root);
+  };
   write();
   return preferences.subscribe(write);
 }

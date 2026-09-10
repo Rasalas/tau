@@ -527,7 +527,7 @@ describe("Workspace Kit in the workbench", () => {
     rejectNewSession(new Error("prompt rejected"));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("prompt rejected"));
     expect(screen.getByText("Error: prompt rejected")).toBeTruthy();
-    expect(composer.value).toBe("newer draft");
+    expect(composer.value).toBe("submitted text\n\nnewer draft");
     expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));

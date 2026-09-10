@@ -611,6 +611,12 @@ export interface TauConfig {
   prewarm?: boolean;
   options?: Record<string, boolean>;
   values?: Record<string, string>;
+  keybindings?: Record<string, string>;
+  fontFamily?: string;
+  fontSize?: number;
+  density?: "compact" | "default" | "relaxed";
+  temperature?: number;
+  maxTokens?: number;
 }
 
 export interface CustomModelDefinition {

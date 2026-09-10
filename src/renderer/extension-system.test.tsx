@@ -381,4 +381,32 @@ describe("client profiles", () => {
     registry.deactivate("one");
     expect(registry.getUnrenderedContributions()).toEqual([]);
   });
+
+  it("applies user keybinding overrides and shadows default chords", () => {
+    const preferences = new PreferencesStore();
+    const registry = new ExtensionRegistry(undefined, { preferences });
+    registry.activate({
+      id: "test",
+      name: "Test",
+      activate(ctx) {
+        ctx.registerCommand({ id: "test.action", label: "Test Action", group: "test", run: () => {} });
+        ctx.registerKeybinding({ keys: "mod+1", commandId: "test.action" });
+      },
+    });
+
+    expect(registry.keybindingLabel("test.action")).toContain("1");
+    const initialBinding = registry.getKeybindings().find((b) => b.commandId === "test.action");
+    expect(initialBinding?.keys).toBe("mod+1");
+
+    // Apply config override via preferences
+    preferences.applyConfig({
+      keybindings: {
+        "test.action": "mod+shift+x",
+      },
+    });
+
+    const updatedBinding = registry.getKeybindings().find((b) => b.commandId === "test.action");
+    expect(updatedBinding?.keys).toBe("mod+shift+x");
+    expect(registry.getKeybindings().filter((b) => b.commandId === "test.action")).toHaveLength(1);
+  });
 });

@@ -34,6 +34,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import { discoverPromptOverrides } from "./system-prompt-resolver.js";
+import { defaultHostConfigManager } from "./host-config.js";
 
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
 
@@ -127,6 +128,17 @@ export class ThreadRuntimeLifecycle {
 
     const settingsStartedAt = performance.now();
     const settingsManager = SettingsManager.create(cwd, agentDir);
+    try {
+      const config = defaultHostConfigManager.readSync(cwd);
+      if (config.temperature !== undefined || config.maxTokens !== undefined) {
+        settingsManager.applyOverrides({
+          ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
+          ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
+        } as unknown as Parameters<typeof settingsManager.applyOverrides>[0]);
+      }
+    } catch {
+      // ignore
+    }
     this.port.logRuntimePhase("settings", settingsStartedAt, reason, cwd);
 
     const modelsStartedAt = performance.now();

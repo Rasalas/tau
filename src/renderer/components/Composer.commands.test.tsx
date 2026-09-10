@@ -6,6 +6,8 @@ import type { HostSnapshot } from "../../shared/contracts";
 import { Composer } from "./Composer";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
+import { ExtensionRegistry } from "../extension-system";
+import { WorkbenchShellContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
 
 const queued = (id: string, text: string): QueuedFollowUp => ({ id, text, attachments: [] });
@@ -266,5 +268,59 @@ describe("Composer command menu", () => {
     // ArrowDown restores the draft in progress
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
     expect(textarea.value).toBe("draft in progress");
+  });
+
+  it("offers @file autocomplete and inserts selected file into the composer", async () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({
+      id: "test-docs",
+      name: "Test Docs",
+      activate(context) {
+        context.registerDocumentSource({
+          id: "test-docs",
+          loadFile: async (path: string) => ({ path, name: "a", size: 0, kind: "text" as const, text: "" }),
+          loadDiff: async (path: string) => ({ path, added: 0, removed: 0, hunks: [] }),
+          openInEditor: () => undefined,
+          getState: () => ({ changes: { files: [], added: 0, removed: 0 } }),
+          subscribe: () => () => undefined,
+          listFiles: async () => ["src/index.ts", "src/utils.ts", "README.md"],
+        });
+      },
+    });
+
+    const onSubmit = vi.fn(async () => ({ accepted: true as const }));
+    const scopeStore = new ComposerScopeStore();
+    render(
+      <TestProviders>
+        <WorkbenchShellContext.Provider value={{ registry, snapshot }}>
+          <Composer
+            scopeStore={scopeStore}
+            snapshot={snapshot}
+            queue={[]}
+            contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+            textareaRef={createRef<HTMLTextAreaElement>()}
+            onSubmit={onSubmit}
+            onAbort={() => {}}
+            onCancelQueued={() => {}}
+            onSteerQueued={() => {}}
+            onReorderQueue={() => {}}
+            onSetModel={() => {}}
+            onSetThinking={() => {}}
+            onCompactContext={() => {}}
+          />
+        </WorkbenchShellContext.Provider>
+      </TestProviders>
+    );
+
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "@ut", selectionStart: 3 } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("listbox", { name: "Files" })).toBeTruthy();
+    });
+
+    expect(screen.getByRole("option", { name: /src\/utils\.ts/u })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("@src/utils.ts ");
   });
 });

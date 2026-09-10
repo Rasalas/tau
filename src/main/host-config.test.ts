@@ -64,4 +64,31 @@ describe("HostConfigManager", () => {
     expect(syncConfig.theme).toBe("dark");
     expect(syncConfig.prewarm).toBe(false);
   });
+
+  it("merges keybindings and dotfile parameters properly", async () => {
+    await manager.update({
+      keybindings: { "workbench.focus-composer": "mod+1" },
+      fontFamily: "Monaco",
+      fontSize: 13,
+      density: "compact",
+      temperature: 0.7,
+      maxTokens: 4096,
+    }, "global");
+
+    await manager.update({
+      keybindings: { "workbench.focus-stage": "mod+3" },
+      temperature: 0.2,
+    }, "project", projectDir);
+
+    const merged = await manager.read(projectDir);
+    expect(merged.keybindings).toEqual({
+      "workbench.focus-composer": "mod+1",
+      "workbench.focus-stage": "mod+3",
+    });
+    expect(merged.fontFamily).toBe("Monaco");
+    expect(merged.fontSize).toBe(13);
+    expect(merged.density).toBe("compact");
+    expect(merged.temperature).toBe(0.2);
+    expect(merged.maxTokens).toBe(4096);
+  });
 });

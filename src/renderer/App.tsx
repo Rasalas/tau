@@ -27,7 +27,7 @@ import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activateTab as activateStageTab, activeTab as activeStageTab, closeTab as closeStageTab, openFileTab, openThreadTab, pinTab as pinStageTab, setFileView, stageTabPath, type StageView } from "../workbench/stage";
+import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { ThreadStore } from "../workbench/thread-store";
 import { ThreadViewStore } from "../workbench/thread-view-store";
@@ -319,7 +319,8 @@ export default function App() {
   }));
   const { abort: abortThread, duplicateThread, requireHost, settleActiveThread } = threadCommands;
   const {
-    stage, setStage, applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread,
+    stage, setStage, activateStage, closeStage, pinStage, setStageView, closeActiveStageTab, cycleStageTab,
+    applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread,
   } = useThreadNavigation({
     ...(client ? { client } : {}),
     storage: clientStorage,
@@ -359,21 +360,15 @@ export default function App() {
   }, [runtimeExtensions, setNotice]);
 
   const hostEventTargets = useMemo<HostEventTargets>(() => ({
-    client,
-    registry,
-    threadStore,
-    view: viewStore,
-    submission,
-    preferences,
-    viewerHidden: () => document.hidden,
-    currentDraftKey,
+    client, registry, threadStore, view: viewStore, submission, preferences,
+    viewerHidden: () => document.hidden, currentDraftKey,
     transcriptTurnStart: () => transcriptTurnStartRef.current,
-    setTranscriptTurnStart,
-    applyHostUpdate,
-    applyThreadIndex,
-    syncDesktopExtensions,
-    setUpdateReady,
-  }), [applyHostUpdate, applyThreadIndex, client, currentDraftKey, preferences, registry, setTranscriptTurnStart, submission, syncDesktopExtensions, threadStore, viewStore]);
+    setTranscriptTurnStart, applyHostUpdate, applyThreadIndex,
+    syncDesktopExtensions, setUpdateReady, setNotice,
+  }), [
+    client, currentDraftKey, preferences, registry, setNotice,
+    submission, syncDesktopExtensions, threadStore, viewStore,
+  ]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
   useEffect(() => {
@@ -440,10 +435,6 @@ export default function App() {
   const closeProjectSources = useCallback(() => setProjectSourcesOpen(false), []);
   const openNewThreadPicker = useCallback(() => setNewThreadOpen(true), []);
   const closeOverlay = useCallback(() => setActiveOverlayId(undefined), []);
-  const activateStage = useCallback((id: string) => setStage((current) => activateStageTab(current, id)), []);
-  const closeStage = useCallback((id: string) => setStage((current) => closeStageTab(current, id)), []);
-  const pinStage = useCallback((id: string) => setStage((current) => pinStageTab(current, id)), []);
-  const setStageView = useCallback((id: string, view: StageView) => setStage((current) => setFileView(current, id, view)), []);
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => {
     setStage((current) => openFileTab(current, path, options));
     setChatFocused(false);
@@ -492,6 +483,8 @@ export default function App() {
     notify: setNotice,
     openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
     applyHostResult,
+    closeActiveStageTab,
+    cycleStageTab,
     copyText: async (text: string) => { await platform.clipboard.writeText(text); },
     openExternal: (url: string) => platform.openExternal(url),
     openOverlay: (id) => setActiveOverlayId(id),
@@ -513,6 +506,7 @@ export default function App() {
   }), [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
+    closeActiveStageTab, cycleStageTab,
   ]);
 
   // Extension commands outlive the render that produced them, so they reach
@@ -660,32 +654,26 @@ export default function App() {
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
-    activeDraftKey, applyTranscriptPage, closeThreadTree, conversationActivityTools,
-    conversationSnapshot, threadCommands, copyMessage, duplicateThread, forkFromTree,
-    liveSnapshot, liveStatusLabel, navigateThreadTree, openThreadTree,
-    pendingNewThread, runStartedAt, settleActiveThread, showStartScreen,
-    startProjectName, startProjectPath, threadDropController, threadTreeModal, titleCommands,
-    transcriptActivities, transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart,
-    visibleTranscriptTurnStart,
+    activeDraftKey, applyTranscriptPage, closeThreadTree, conversationActivityTools, conversationSnapshot,
+    threadCommands, copyMessage, duplicateThread, forkFromTree, liveSnapshot, liveStatusLabel, navigateThreadTree,
+    openThreadTree, pendingNewThread, runStartedAt, settleActiveThread, showStartScreen, startProjectName,
+    startProjectPath, threadDropController, threadTreeModal, titleCommands, transcriptActivities,
+    transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart, visibleTranscriptTurnStart,
   ]);
 
-  const setComposerModel = useCallback(async (provider: string, id: string) => {
-    const pending = currentPendingNewThread();
-    if (!pending || pending.sessionId) {
-      await threadCommands.setModel(provider, id);
-      return;
-    }
-    const selected = viewStore.getSnapshot()?.models.find((model) => model.provider === provider && model.id === id);
-    const next = { ...pending, model: { provider, id, name: selected?.name ?? id } };
-    writeNewThreadDraft(clientStorage, next);
-    setPendingNewThread(next);
-  }, [clientStorage, currentPendingNewThread, setPendingNewThread, threadCommands, viewStore]);
+  const setComposerModel = useCallback(
+    (provider: string, id: string) => newThreadController.setModel(
+      provider, id, threadCommands.setModel,
+      (p, mid) => viewStore.getSnapshot()?.models.find((m) => m.provider === p && m.id === mid)?.name,
+    ),
+    [newThreadController, threadCommands, viewStore],
+  );
 
   const composer = useMemo<WorkbenchComposer>(() => ({
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
-    submit: submitPrompt, abort: abortThread,
-    cancelQueued, steerQueued, reorderQueue, setModel: setComposerModel, setThinking: threadCommands.setThinking,
+    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue,
+    setModel: setComposerModel, setThinking: threadCommands.setThinking,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,

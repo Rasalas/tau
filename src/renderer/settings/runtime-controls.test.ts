@@ -72,6 +72,9 @@ describe("runtime controls keybindings", () => {
       "workbench.focus-transcript": "mod+2",
       "workbench.focus-stage": "mod+3",
       "workbench.toggle-dock": "mod+b",
+      "workbench.close-stage-tab": "mod+w",
+      "workbench.next-stage-tab": "mod+shift+]",
+      "workbench.prev-stage-tab": "mod+shift+[",
     });
   });
 });
@@ -134,7 +137,9 @@ describe("runtime controls focus and dock commands", () => {
     const focusTranscript = vi.fn();
     const focusStage = vi.fn();
     const toggleDock = vi.fn();
-    const actions = { focusComposer, focusTranscript, focusStage, toggleDock } as unknown as WorkbenchActions;
+    const closeActiveStageTab = vi.fn();
+    const cycleStageTab = vi.fn();
+    const actions = { focusComposer, focusTranscript, focusStage, toggleDock, closeActiveStageTab, cycleStageTab } as unknown as WorkbenchActions;
 
     const commands = registry.getCommands();
     commands.find((cmd) => cmd.id === "workbench.focus-composer")?.run(actions);
@@ -149,10 +154,22 @@ describe("runtime controls focus and dock commands", () => {
     commands.find((cmd) => cmd.id === "workbench.toggle-dock")?.run(actions);
     expect(toggleDock).toHaveBeenCalledOnce();
 
+    commands.find((cmd) => cmd.id === "workbench.close-stage-tab")?.run(actions);
+    expect(closeActiveStageTab).toHaveBeenCalledOnce();
+
+    commands.find((cmd) => cmd.id === "workbench.next-stage-tab")?.run(actions);
+    expect(cycleStageTab).toHaveBeenCalledWith(1);
+
+    commands.find((cmd) => cmd.id === "workbench.prev-stage-tab")?.run(actions);
+    expect(cycleStageTab).toHaveBeenCalledWith(-1);
+
     const bindings = registry.getKeybindings();
     expect(bindings.find((b) => b.commandId === "workbench.focus-composer")?.keys).toBe("mod+1");
     expect(bindings.find((b) => b.commandId === "workbench.focus-transcript")?.keys).toBe("mod+2");
     expect(bindings.find((b) => b.commandId === "workbench.focus-stage")?.keys).toBe("mod+3");
     expect(bindings.find((b) => b.commandId === "workbench.toggle-dock")?.keys).toBe("mod+b");
+    expect(bindings.find((b) => b.commandId === "workbench.close-stage-tab")?.keys).toBe("mod+w");
+    expect(bindings.find((b) => b.commandId === "workbench.next-stage-tab")?.keys).toBe("mod+shift+]");
+    expect(bindings.find((b) => b.commandId === "workbench.prev-stage-tab")?.keys).toBe("mod+shift+[");
   });
 });

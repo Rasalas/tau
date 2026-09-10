@@ -198,6 +198,8 @@ export function fileDiffRows(path: string, diff: UiFileDiff | undefined, options
 export interface DiffStreamHandle {
   /** Aligns the first row of a file with the top of the viewport. */
   scrollToPath(path: string): void;
+  /** Scrolls to next or previous hunk. */
+  scrollToHunk(direction: 1 | -1): void;
 }
 
 export interface DiffStreamProps {
@@ -246,12 +248,35 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
 
+  const hunkRowIndices = useMemo(() => {
+    const indices: number[] = [];
+    rows.forEach((row, index) => {
+      if (row.kind === "hunk" || row.kind === "gap") {
+        indices.push(index);
+      } else if (row.kind === "line" && (indices.length === 0 || rows[index - 1]?.kind === "file")) {
+        indices.push(index);
+      }
+    });
+    return indices;
+  }, [rows]);
+
   useImperativeHandle(ref, () => ({
     scrollToPath(path: string) {
       const index = rows.findIndex((row) => row.path === path);
       if (index >= 0) virtualizer.scrollToIndex(index, { align: "start" });
     },
-  }), [rows, virtualizer]);
+    scrollToHunk(direction: 1 | -1) {
+      if (hunkRowIndices.length === 0) return;
+      const current = virtualizer.range?.startIndex ?? 0;
+      if (direction === 1) {
+        const next = hunkRowIndices.find((i) => i > current);
+        if (next !== undefined) virtualizer.scrollToIndex(next, { align: "start" });
+      } else {
+        const prev = [...hunkRowIndices].reverse().find((i) => i < current);
+        if (prev !== undefined) virtualizer.scrollToIndex(prev, { align: "start" });
+      }
+    },
+  }), [hunkRowIndices, rows, virtualizer]);
 
   const rangeStart = virtualizer.range?.startIndex;
   const visiblePath = rangeStart === undefined ? undefined : rows[rangeStart]?.path;
@@ -337,6 +362,8 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onAnno
   annotationCounts?: ReadonlyMap<number, number>;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<DiffStreamHandle>(null);
+  const pendingPrefixRef = useRef<string | null>(null);
   const filePath = path ?? diff?.path ?? "";
   const collapsible = Boolean(onExpandContext);
   const languages = useMemo(() => {
@@ -350,11 +377,43 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onAnno
   const annotationCount = useCallback((_path: string, line: number) => annotationCounts?.get(line) ?? 0, [annotationCounts]);
   const annotate = useCallback((_path: string, line: number) => onAnnotate?.(line), [onAnnotate]);
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) return;
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+
+    if (event.key === "]" || event.key === "[") {
+      pendingPrefixRef.current = event.key;
+      setTimeout(() => {
+        if (pendingPrefixRef.current === event.key) pendingPrefixRef.current = null;
+      }, 600);
+      return;
+    }
+
+    if (event.key === "c" && pendingPrefixRef.current) {
+      event.preventDefault();
+      const prefix = pendingPrefixRef.current;
+      pendingPrefixRef.current = null;
+      streamRef.current?.scrollToHunk(prefix === "]" ? 1 : -1);
+      return;
+    }
+
+    pendingPrefixRef.current = null;
+
+    if (event.key === "n") {
+      event.preventDefault();
+      streamRef.current?.scrollToHunk(1);
+    } else if (event.key === "p") {
+      event.preventDefault();
+      streamRef.current?.scrollToHunk(-1);
+    }
+  };
+
   if (!diff) return <div className="diff-empty">Loading diff…</div>;
   if (diff.hunks.length === 0 && diff.note) return <div className="diff-empty">{diff.note}</div>;
   if (diff.hunks.length === 0) return <div className="diff-empty">No changes in this file.</div>;
-  return <div className="diff-scroll" ref={scrollRef}>
+  return <div className="diff-scroll" ref={scrollRef} tabIndex={0} onKeyDown={handleKeyDown}>
     <DiffStream
+      ref={streamRef}
       rows={rows}
       mode={mode}
       scrollRef={scrollRef}

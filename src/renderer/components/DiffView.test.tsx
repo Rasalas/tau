@@ -113,4 +113,27 @@ describe("DiffView", () => {
     expect(container.textContent).not.toContain("const line0 = 0;");
     expect(container.querySelectorAll(".diff-stream-row").length).toBeLessThan(40);
   });
+
+  it("navigates through hunks on keyboard shortcuts n/p and ]c/[c", async () => {
+    stubDiffLayout();
+    const multiHunkDiff: UiFileDiff = {
+      path: "src/multihunk.ts",
+      added: 2,
+      removed: 0,
+      hunks: [
+        { header: "@@ -10 +10 @@", lines: [{ kind: "added", newLine: 10, text: "const a = 1;" }] },
+        { header: "@@ -50 +50 @@", lines: [{ kind: "added", newLine: 50, text: "const b = 2;" }] },
+      ],
+    };
+    const { container } = render(<DiffView path="src/multihunk.ts" mode="unified" diff={multiHunkDiff} />);
+    const scroll = container.querySelector<HTMLElement>(".diff-scroll")!;
+    expect(scroll.tabIndex).toBe(0);
+
+    fireEvent.keyDown(scroll, { key: "n" });
+    fireEvent.keyDown(scroll, { key: "]" });
+    fireEvent.keyDown(scroll, { key: "c" });
+    fireEvent.keyDown(scroll, { key: "p" });
+    fireEvent.keyDown(scroll, { key: "[" });
+    fireEvent.keyDown(scroll, { key: "c" });
+  });
 });
