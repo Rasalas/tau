@@ -121,4 +121,13 @@ describe("useWorkbenchActions", () => {
     release();
     expect(setComposerHolds).toHaveBeenCalledTimes(2);
   });
+
+  it("delegates executeCommand to options.executeCommand", async () => {
+    const executeCommand = vi.fn().mockResolvedValue(undefined);
+    const options = createMockOptions({ executeCommand });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+
+    await result.current.executeCommand?.("workspace.open-prompt-editor");
+    expect(executeCommand).toHaveBeenCalledWith("workspace.open-prompt-editor");
+  });
 });

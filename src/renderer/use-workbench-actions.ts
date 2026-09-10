@@ -49,6 +49,7 @@ export interface UseWorkbenchActionsOptions {
   setComposerHolds: Dispatch<SetStateAction<number>>;
   setComposerModel: (provider: string, id: string) => Promise<void> | void;
   openInstructions?: () => void;
+  executeCommand?: (id: string) => Promise<void> | void;
 }
 
 export function useWorkbenchActions(options: UseWorkbenchActionsOptions): WorkbenchActions {
@@ -139,6 +140,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     },
     composerDraft: () => activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "",
     openInstructions: options.openInstructions ?? (() => { window.dispatchEvent(new CustomEvent("tau:open-instructions")); }),
+    executeCommand: options.executeCommand,
     copyChat: () => options.threadCommands.copyThreadValue("chat"),
   }), [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,

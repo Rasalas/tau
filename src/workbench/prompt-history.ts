@@ -1,3 +1,31 @@
+import type { ClientStorage } from "./client-storage";
+
+export const PROMPT_HISTORY_STORAGE_KEY = "tau.prompt-history";
+
+export function loadStoredPromptHistory(storage?: ClientStorage, maxEntries = 100): string[] {
+  if (!storage) return [];
+  try {
+    const raw = storage.get(PROMPT_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const valid = parsed.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
+    return valid.slice(-maxEntries);
+  } catch {
+    return [];
+  }
+}
+
+export function saveStoredPromptHistory(storage: ClientStorage | undefined, entries: readonly string[], maxEntries = 100): void {
+  if (!storage) return;
+  try {
+    const slice = entries.slice(-maxEntries);
+    storage.set(PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(slice));
+  } catch {
+    // Ignore storage quota or serialization errors
+  }
+}
+
 export interface PromptHistoryOptions {
   maxEntries?: number;
   initialEntries?: readonly string[];

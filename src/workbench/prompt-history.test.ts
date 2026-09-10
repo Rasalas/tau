@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PromptHistory } from "./prompt-history";
+import { PromptHistory, loadStoredPromptHistory, saveStoredPromptHistory } from "./prompt-history";
+import { createMemoryStorage } from "./client-storage";
 
 describe("PromptHistory", () => {
   it("records prompts and deduplicates consecutive entries", () => {
@@ -50,5 +51,21 @@ describe("PromptHistory", () => {
     expect(history.isNavigating).toBe(true);
     history.record("two");
     expect(history.isNavigating).toBe(false);
+  });
+
+  it("loads and saves persistent prompt history to ClientStorage", () => {
+    const storage = createMemoryStorage();
+    expect(loadStoredPromptHistory(storage)).toEqual([]);
+
+    saveStoredPromptHistory(storage, ["first", "second"]);
+    expect(loadStoredPromptHistory(storage)).toEqual(["first", "second"]);
+
+    // Truncates to maxEntries
+    saveStoredPromptHistory(storage, ["a", "b", "c"], 2);
+    expect(loadStoredPromptHistory(storage, 2)).toEqual(["b", "c"]);
+
+    // Handles corrupt JSON gracefully
+    storage.set("tau.prompt-history", "not valid json");
+    expect(loadStoredPromptHistory(storage)).toEqual([]);
   });
 });

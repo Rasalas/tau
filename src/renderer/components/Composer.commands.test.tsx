@@ -39,6 +39,7 @@ function renderComposer(
   streaming = false,
   snapshotOverride: HostSnapshot = snapshot,
   queueHandlers: { queue?: QueuedFollowUp[]; onSteerQueued?: (id: string) => void; onReorderQueue?: (id: string, toIndex: number) => void; onCancelQueued?: (id: string) => void } = {},
+  handlers: { onRunShellAction?: (command: string) => Promise<unknown>; onOpenPromptEditor?: () => void; onNotify?: (msg: string) => void } = {},
 ) {
   const scopeStore = new ComposerScopeStore();
   render(<TestProviders>
@@ -56,6 +57,9 @@ function renderComposer(
       onSetModel={() => {}}
       onSetThinking={() => {}}
       onCompactContext={() => {}}
+      onRunShellAction={handlers.onRunShellAction}
+      onOpenPromptEditor={handlers.onOpenPromptEditor}
+      onNotify={handlers.onNotify}
     />
   </TestProviders>);
   return onSubmit;
@@ -371,5 +375,36 @@ describe("Composer command menu", () => {
     expect(screen.getByRole("option", { name: /high/u })).toBeTruthy();
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("/thinking high ");
+  });
+
+  it("executes direct shell action when prompt starts with ! and skips onSubmit", async () => {
+    const onSubmit = vi.fn(async () => ({ accepted: true as const }));
+    const onRunShellAction = vi.fn(async () => ({ output: "file1.txt\nfile2.txt", exitCode: 0 }));
+    const onNotify = vi.fn();
+
+    renderComposer(onSubmit, false, snapshot, {}, { onRunShellAction, onNotify });
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "!ls -la", selectionStart: 7 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onRunShellAction).toHaveBeenCalledWith("ls -la");
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onNotify).toHaveBeenCalledWith("file1.txt\nfile2.txt");
+    });
+    expect(textarea.value).toBe("");
+  });
+
+  it("triggers onOpenPromptEditor when external editor button is clicked", () => {
+    const onOpenPromptEditor = vi.fn();
+    renderComposer(undefined, false, snapshot, {}, { onOpenPromptEditor });
+
+    const editorBtn = screen.getByRole("button", { name: "Edit prompt in external editor" });
+    fireEvent.click(editorBtn);
+
+    expect(onOpenPromptEditor).toHaveBeenCalled();
   });
 });

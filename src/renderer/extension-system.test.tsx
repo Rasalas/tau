@@ -409,4 +409,25 @@ describe("client profiles", () => {
     expect(updatedBinding?.keys).toBe("mod+shift+x");
     expect(registry.getKeybindings().filter((b) => b.commandId === "test.action")).toHaveLength(1);
   });
+
+  it("finds and executes registered commands by ID", async () => {
+    const registry = new ExtensionRegistry();
+    const run = vi.fn();
+    registry.activate({
+      id: "test",
+      name: "Test",
+      activate(ctx) {
+        ctx.registerCommand({ id: "workspace.custom", label: "Custom", group: "test", run });
+      },
+    });
+
+    expect(registry.getCommand("workspace.custom")?.label).toBe("Custom");
+    expect(registry.getCommand("unknown.id")).toBeUndefined();
+
+    const mockActions = { notify: vi.fn() } as any;
+    await registry.executeCommand("workspace.custom", mockActions);
+    expect(run).toHaveBeenCalledWith(mockActions);
+
+    await expect(registry.executeCommand("unknown.id", mockActions)).rejects.toThrow("Command \"unknown.id\" is not registered.");
+  });
 });

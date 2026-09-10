@@ -473,6 +473,10 @@ export default function App() {
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, closeActiveStageTab, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel,
+    executeCommand: (id) => {
+      if (!actionsRef.current) throw new Error("Actions are not ready yet.");
+      return registry.executeCommand(id, actionsRef.current);
+    },
   });
 
   // Extension commands outlive the render that produced them, so they reach

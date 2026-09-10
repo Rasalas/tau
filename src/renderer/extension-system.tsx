@@ -83,6 +83,8 @@ export interface WorkbenchActions {
   setThinkingLevel?(level: string): Promise<void>;
   /** Opens the active instructions and system prompt modal. */
   openInstructions?(): void;
+  /** Executes a command registered with `registerCommand`. */
+  executeCommand?(id: string): Promise<void> | void;
   /** Copies the active thread's conversation as Markdown. */
   copyChat?(): Promise<void>;
 }
@@ -1194,6 +1196,18 @@ export class ExtensionRegistry {
       return command ? { command, binding, modified: isModified(binding.chord) } : undefined;
     }
     return undefined;
+  }
+
+  /** Finds a registered command by its ID, if any. */
+  getCommand(id: string): Owned<CommandContribution> | undefined {
+    return this.commands.get(id);
+  }
+
+  /** Executes a command registered with `registerCommand`. */
+  async executeCommand(id: string, actions: WorkbenchActions): Promise<void> {
+    const command = this.commands.get(id);
+    if (!command) throw new Error(`Command "${id}" is not registered.`);
+    await command.run(actions);
   }
 
   getSlashCommands(): Array<Owned<SlashCommandContribution>> {

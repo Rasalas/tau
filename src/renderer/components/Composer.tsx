@@ -40,8 +40,28 @@ import {
 import { errorMessage } from "../../workbench/error-message";
 import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
 import { readComposerDraft, writeComposerDraft } from "../../workbench/draft-store";
-import { PromptHistory } from "../../workbench/prompt-history";
+import { PromptHistory, loadStoredPromptHistory, saveStoredPromptHistory } from "../../workbench/prompt-history";
+import { handleComposerReadlineKey } from "./useComposerReadline";
 import { useClientStorage } from "../client-storage-context";
+import {
+  type ComposerTrigger,
+  type SelectedSkill,
+  type ComposerArgMatch,
+  skillName,
+  composerTrigger,
+  normalizeSkillInvocation,
+  selectedSkillDraft,
+  ComposerAutocompleteMenu,
+} from "./ComposerAutocomplete";
+import { readImage, ComposerAttachmentsList } from "./ComposerAttachments";
+
+export {
+  type ComposerTrigger,
+  type SelectedSkill,
+  composerTrigger,
+  normalizeSkillInvocation,
+  selectedSkillDraft,
+};
 
 type OpenMenu = "thinking" | undefined;
 
@@ -76,29 +96,6 @@ export interface ComposerAttachmentHandle {
   addFiles(files: FileList | readonly File[]): Promise<void>;
 }
 
-import {
-  type ComposerTrigger,
-  type SelectedSkill,
-  type ComposerArgMatch,
-  skillName,
-  composerTrigger,
-  normalizeSkillInvocation,
-  selectedSkillDraft,
-  ComposerAutocompleteMenu,
-} from "./ComposerAutocomplete";
-import {
-  readImage,
-  ComposerAttachmentsList,
-} from "./ComposerAttachments";
-
-export {
-  type ComposerTrigger,
-  type SelectedSkill,
-  composerTrigger,
-  normalizeSkillInvocation,
-  selectedSkillDraft,
-};
-
 export function Composer({
   snapshot,
   scopeStore,
@@ -127,6 +124,8 @@ export function Composer({
   onCompactContext,
   held = false,
   onNotify,
+  onOpenPromptEditor,
+  onRunShellAction,
 }: {
   snapshot?: HostSnapshot;
   scopeStore: ComposerScopeStore;
@@ -160,6 +159,10 @@ export function Composer({
   /** An extension is changing the workspace; submitting would target the wrong thread. */
   held?: boolean;
   onNotify?(message: string): void;
+  /** Opens the current draft in an external editor via workspace extension. */
+  onOpenPromptEditor?(): void;
+  /** Direct shell execution for `! <command>` inputs. */
+  onRunShellAction?(command: string): Promise<unknown>;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const clientStorage = useClientStorage();
@@ -303,15 +306,26 @@ export function Composer({
       scopeStore.setDraft(attachmentScope, seed);
     }
   }, [attachmentScope, scopeStore, seed, value]);
-  const promptHistoryRef = useRef<PromptHistory>(new PromptHistory());
+  const promptHistoryRef = useRef<PromptHistory>(null!);
+  if (!promptHistoryRef.current) {
+    promptHistoryRef.current = new PromptHistory({
+      initialEntries: loadStoredPromptHistory(clientStorage),
+    });
+  }
+  const recordPrompt = useCallback((promptText: string) => {
+    if (!promptHistoryRef.current) return;
+    promptHistoryRef.current.record(promptText);
+    saveStoredPromptHistory(clientStorage, promptHistoryRef.current.getEntries());
+  }, [clientStorage]);
+
   useEffect(() => {
     if (!snapshot?.messages) return;
     for (const message of snapshot.messages) {
       if (message.role === "user" && typeof message.text === "string" && message.text.trim()) {
-        promptHistoryRef.current.record(message.text);
+        recordPrompt(message.text);
       }
     }
-  }, [snapshot?.sessionId, snapshot?.messages]);
+  }, [snapshot?.sessionId, snapshot?.messages, recordPrompt]);
   const updateDraft = (next: string) => {
     scopeStore.setDraft(attachmentScope, next);
     writeComposerDraft(clientStorage, draftStorageKey, next);
@@ -479,6 +493,27 @@ export function Composer({
       updateDraft("");
       return;
     }
+    const trimmedInput = text.trim();
+    if (trimmedInput.startsWith("!") && onRunShellAction) {
+      const shellCmd = trimmedInput.slice(1).trim();
+      if (shellCmd.length > 0) {
+        updateDraft("");
+        recordPrompt(trimmedInput);
+        void onRunShellAction(shellCmd).then((result) => {
+          if (result && typeof result === "object" && "output" in result) {
+            const out = (result as { output?: string; exitCode?: number }).output?.trim();
+            if (out) {
+              onNotify?.(out);
+            } else if ((result as { exitCode?: number }).exitCode !== undefined) {
+              onNotify?.(`Command exited with code ${(result as { exitCode?: number }).exitCode}`);
+            }
+          }
+        }).catch((error) => {
+          onNotify?.(errorMessage(error));
+        });
+        return;
+      }
+    }
     const submittedScope = attachmentScope;
     const submission = scopeStore.beginSubmission(submittedScope);
     if ("busy" in submission) return;
@@ -514,7 +549,7 @@ export function Composer({
         writeComposerDraft(clientStorage, submittedScope, scopeStore.getSnapshot(submittedScope).draft);
       }
       if (result.accepted) {
-        promptHistoryRef.current.record(submittedText);
+        recordPrompt(submittedText);
         if (activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
       }
     };
@@ -718,108 +753,18 @@ export function Composer({
               return;
             }
             if (!trigger) {
-              const selectionStart = event.currentTarget.selectionStart;
-              const selectionEnd = event.currentTarget.selectionEnd;
-              const atTopLine = !text.slice(0, selectionStart).includes("\n");
               if (
-                event.key === "ArrowUp" &&
-                !event.shiftKey &&
-                !event.altKey &&
-                !event.metaKey &&
-                !event.ctrlKey &&
-                (promptHistoryRef.current.isNavigating || (atTopLine && selectionStart === 0 && selectionEnd === 0))
+                promptHistoryRef.current &&
+                handleComposerReadlineKey(event, {
+                  textareaRef,
+                  text,
+                  updateDraft,
+                  setCaret,
+                  promptHistory: promptHistoryRef.current,
+                  onOpenPromptEditor,
+                  onToggleExpanded: () => setIsExpanded((prev) => !prev),
+                })
               ) {
-                const previous = promptHistoryRef.current.navigateBack(text);
-                if (previous !== undefined) {
-                  event.preventDefault();
-                  updateDraft(previous);
-                  setCaret(previous.length);
-                  requestAnimationFrame(() => textareaRef.current?.setSelectionRange(previous.length, previous.length));
-                  return;
-                }
-              }
-              if (
-                event.key === "ArrowDown" &&
-                !event.shiftKey &&
-                !event.altKey &&
-                !event.metaKey &&
-                !event.ctrlKey &&
-                promptHistoryRef.current.isNavigating
-              ) {
-                const next = promptHistoryRef.current.navigateForward();
-                if (next !== undefined) {
-                  event.preventDefault();
-                  updateDraft(next);
-                  setCaret(next.length);
-                  requestAnimationFrame(() => textareaRef.current?.setSelectionRange(next.length, next.length));
-                  return;
-                }
-              }
-              // Readline / Emacs line editing shortcuts
-              if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
-                const el = textareaRef.current;
-                if (el) {
-                  const pos = el.selectionStart ?? 0;
-                  if (event.key === "a") {
-                    event.preventDefault();
-                    const startOfLine = text.lastIndexOf("\n", pos - 1) + 1;
-                    el.setSelectionRange(startOfLine, startOfLine);
-                    setCaret(startOfLine);
-                    return;
-                  }
-                  if (event.key === "e") {
-                    event.preventDefault();
-                    let endOfLine = text.indexOf("\n", pos);
-                    if (endOfLine === -1) endOfLine = text.length;
-                    el.setSelectionRange(endOfLine, endOfLine);
-                    setCaret(endOfLine);
-                    return;
-                  }
-                  if (event.key === "k") {
-                    event.preventDefault();
-                    let endOfLine = text.indexOf("\n", pos);
-                    if (endOfLine === -1) endOfLine = text.length;
-                    else if (endOfLine === pos) endOfLine = pos + 1;
-                    const nextText = text.slice(0, pos) + text.slice(endOfLine);
-                    updateDraft(nextText);
-                    setCaret(pos);
-                    requestAnimationFrame(() => el.setSelectionRange(pos, pos));
-                    return;
-                  }
-                  if (event.key === "u") {
-                    event.preventDefault();
-                    const startOfLine = text.lastIndexOf("\n", pos - 1) + 1;
-                    const nextText = text.slice(0, startOfLine) + text.slice(pos);
-                    updateDraft(nextText);
-                    setCaret(startOfLine);
-                    requestAnimationFrame(() => el.setSelectionRange(startOfLine, startOfLine));
-                    return;
-                  }
-                  if (event.key === "w") {
-                    event.preventDefault();
-                    const before = text.slice(0, pos);
-                    const match = before.match(/(\s*\S+)\s*$/);
-                    const deleteLen = match ? match[0].length : 0;
-                    const newPos = Math.max(0, pos - deleteLen);
-                    const nextText = text.slice(0, newPos) + text.slice(pos);
-                    updateDraft(nextText);
-                    setCaret(newPos);
-                    requestAnimationFrame(() => el.setSelectionRange(newPos, newPos));
-                    return;
-                  }
-                }
-              }
-              // External editor shortcut (Mod+E or Ctrl+O)
-              if ((event.key === "o" && event.ctrlKey && !event.metaKey && !event.altKey) ||
-                  (event.key.toLowerCase() === "e" && (event.metaKey || event.ctrlKey) && !event.shiftKey)) {
-                event.preventDefault();
-                window.dispatchEvent(new CustomEvent("tau:open-prompt-editor"));
-                return;
-              }
-              // Expand/collapse composer shortcut (Mod+Shift+E)
-              if (event.key.toLowerCase() === "e" && (event.metaKey || event.ctrlKey) && event.shiftKey) {
-                event.preventDefault();
-                setIsExpanded((prev) => !prev);
                 return;
               }
             }
@@ -941,7 +886,7 @@ export function Composer({
             type="button"
             title="Edit prompt in external editor (⌘E / Ctrl+O)"
             aria-label="Edit prompt in external editor"
-            onClick={() => window.dispatchEvent(new CustomEvent("tau:open-prompt-editor"))}
+            onClick={() => onOpenPromptEditor?.()}
           >
             <SquarePen size={16} />
           </button>

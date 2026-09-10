@@ -353,6 +353,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     showStartScreen={showStartScreen}
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
+    actions={actions}
   />;
 
   const overlays = <>
@@ -651,7 +652,7 @@ function ConversationTranscript({ view, thread }: { view: ThreadViewStore; threa
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, showStartScreen, activeDraftKey, onNotify }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, showStartScreen, activeDraftKey, onNotify, actions }: {
   view: ThreadViewStore;
   composer: WorkbenchComposer;
   snapshot?: HostSnapshot;
@@ -660,6 +661,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   showStartScreen: boolean;
   activeDraftKey?: string;
   onNotify?(message: string): void;
+  actions?: WorkbenchActions;
 }) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
   const tools = useSyncExternalStore(view.subscribeToTools, view.getToolView).tools;
@@ -710,5 +712,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onCompactContext={() => void compactContext()}
     held={holds > 0}
     onNotify={onNotify}
+    onOpenPromptEditor={() => void actions?.executeCommand?.("workspace.open-prompt-editor")}
+    onRunShellAction={(cmd) => actions ? actions.runShellAction(cmd, false) : Promise.reject(new Error("Actions unavailable"))}
   />;
 }

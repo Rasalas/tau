@@ -215,10 +215,6 @@ export const workspaceExtension: DesktopExtension = {
         actions.notify(errorMessage(error));
       }
     };
-    const onPromptEditorEvent = () => { void openPromptInEditor(); };
-    if (typeof window !== "undefined") {
-      window.addEventListener("tau:open-prompt-editor", onPromptEditorEvent);
-    }
 
     context.registerCommand({
       id: "workspace.open-prompt-editor",
@@ -242,12 +238,6 @@ export const workspaceExtension: DesktopExtension = {
       run: (_args, app) => { app.openPanel(WORKSPACE_FILES_PANEL); return undefined; },
     });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
-
-    return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("tau:open-prompt-editor", onPromptEditorEvent);
-      }
-    };
   },
 };
 
