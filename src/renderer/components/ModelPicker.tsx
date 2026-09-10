@@ -146,6 +146,19 @@ export function ModelPicker({
       if (target) { event.preventDefault(); choose(target); }
       return;
     }
+    if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && (!needle || event.altKey)) {
+      if (providers.length > 1) {
+        event.preventDefault();
+        if (needle) setQuery("");
+        setProvider((curr) => {
+          const idx = curr ? providers.indexOf(curr) : 0;
+          const delta = event.key === "ArrowRight" ? 1 : -1;
+          const nextIdx = (idx + delta + providers.length) % providers.length;
+          return providers[nextIdx];
+        });
+      }
+      return;
+    }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setCursor((value) => (rows.length ? (value + 1) % rows.length : 0));

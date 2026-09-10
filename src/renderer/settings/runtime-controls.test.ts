@@ -48,17 +48,20 @@ describe("runtime controls theme commands", () => {
 });
 
 describe("runtime controls slash commands", () => {
-  it("offers slash commands and handles compact, model, and thinking", async () => {
+  it("offers slash commands and handles compact, model, thinking, new, and help", async () => {
     const registry = new ExtensionRegistry();
     registry.activate(runtimeControls);
     expect(registry.getSlashCommands().map((command) => command.name)).toEqual([
-      "reload", "tree", "fork", "clone", "compact", "model", "thinking",
+      "reload", "tree", "fork", "clone", "compact", "model", "thinking", "new", "help",
     ]);
     const reloadWorkbench = vi.fn(async () => false);
     const compactContext = vi.fn(async () => {});
     const openModelPicker = vi.fn();
     const openSettings = vi.fn();
     const setThinkingLevel = vi.fn(async () => {});
+    const setModel = vi.fn(async () => true);
+    const newSession = vi.fn();
+    const openCommandPalette = vi.fn();
     const notify = vi.fn();
     const actions = {
       reloadWorkbench,
@@ -66,6 +69,9 @@ describe("runtime controls slash commands", () => {
       openModelPicker,
       openSettings,
       setThinkingLevel,
+      setModel,
+      newSession,
+      openCommandPalette,
       notify,
     } as unknown as WorkbenchActions;
 
@@ -78,12 +84,22 @@ describe("runtime controls slash commands", () => {
     await registry.findSlashCommand("/model")!.command.run("", actions);
     expect(openModelPicker).toHaveBeenCalled();
 
+    await registry.findSlashCommand("/model")!.command.run("gpt-5", actions);
+    expect(setModel).toHaveBeenCalledWith("gpt-5");
+    expect(notify).toHaveBeenCalledWith("Model switched to gpt-5.");
+
     await registry.findSlashCommand("/thinking")!.command.run("high", actions);
     expect(setThinkingLevel).toHaveBeenCalledWith("high");
     expect(notify).toHaveBeenCalledWith("Thinking level set to high.");
 
     await registry.findSlashCommand("/thinking")!.command.run("", actions);
     expect(openSettings).toHaveBeenCalledWith("defaults");
+
+    await registry.findSlashCommand("/new")!.command.run("", actions);
+    expect(newSession).toHaveBeenCalled();
+
+    await registry.findSlashCommand("/help")!.command.run("", actions);
+    expect(openCommandPalette).toHaveBeenCalled();
   });
 });
 

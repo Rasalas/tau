@@ -23,6 +23,8 @@ import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
 import { PlatformProvider, setPlatform } from "./platform-context";
 import { useAppOverlays } from "./use-app-overlays";
+import { useAppKeybindings } from "./use-app-keybindings";
+import { useWorkbenchActions } from "./use-workbench-actions";
 import { useClientEnvironment } from "./client-environment";
 import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
@@ -456,53 +458,22 @@ export default function App() {
 
   const { reloadWorkbench, reloadUi } = useWorkbenchReload({ client, requireHost, addEvent, setNotice });
 
-  const actions: WorkbenchActions = useMemo(() => ({
-    openPanel,
-    openCommandPalette: openPalette,
-    openSettings: (page) => setSettingsPage(page ?? "defaults"),
-    newSession: openNewThreadPicker,
-    switchSession,
-    settleActiveThread,
-    // Escape is bound to this; only a visibly running thread has anything to stop.
-    abort: () => { if (isVisibleThreadRunning()) void client?.abort(threadStore.getSnapshot().activeThreadId || undefined); },
-    reloadWorkbench,
-    openThreadTree,
-    duplicateThread,
-    focusComposer: (seed) => { if (seed !== undefined) setComposerSeed(seed); composerRef.current?.focus(); },
-    focusTranscript: () => { (document.querySelector<HTMLElement>(".virtual-transcript") ?? transcriptRef.current ?? (document.querySelector(".transcript-viewport") as HTMLElement | null))?.focus(); },
-    focusStage: () => { (document.querySelector(".stage-body, .stage, .stage-container") as HTMLElement | null)?.focus(); },
-    toggleDock: () => { setDockOpen((open) => !open); },
-    notify: setNotice,
-    openProjectSources,
-    applyHostResult,
-    closeActiveStageTab,
-    cycleStageTab,
-    copyText: async (text: string) => { await platform.clipboard.writeText(text); },
-    openExternal: (url: string) => platform.openExternal(url),
-    openOverlay,
-    closeOverlay,
-    compactContext: threadCommands.compactContext,
-    openModelPicker: () => { window.dispatchEvent(new CustomEvent("tau:open-model-picker")); },
-    setThinkingLevel: (level: string) => threadCommands.setThinking(level as any),
-    openWorkspace,
-    activeThread: () => ({
-      sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
-      cwd: workspaceCwd,
-      workspaceId: pendingNewThread?.workspaceId ?? snapshot?.workspaceId,
-      model: snapshot?.model,
-      ...(snapshot?.backendKind ? { backendKind: snapshot.backendKind } : {}),
-      draftPending: newThreadDeliveryPending,
-    }),
-    openFile,
-    openThread,
-    runShellAction: threadCommands.runShellAction,
-    holdComposer: () => { setComposerHolds((count) => count + 1); return () => setComposerHolds((count) => Math.max(0, count - 1)); },
-    composerDraft: () => activeDraftKey ? composerScopeStore.getSnapshot(activeDraftKey).draft : "",
-  }), [
-    applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
-    reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    closeActiveStageTab, cycleStageTab,
-  ]);
+  const setComposerModel = useCallback(
+    (provider: string, id: string) => newThreadController.setModel(
+      provider, id, threadCommands.setModel,
+      (p, mid) => viewStore.getSnapshot()?.models.find((m) => m.provider === p && m.id === mid)?.name,
+    ),
+    [newThreadController, threadCommands, viewStore],
+  );
+  const actions = useWorkbenchActions({
+    client, platform, threadStore, viewStore, composerScopeStore, threadCommands,
+    snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
+    composerRef, transcriptRef, openPanel, openPalette, setSettingsPage, openNewThreadPicker,
+    switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
+    duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
+    applyHostResult, closeActiveStageTab, cycleStageTab, openOverlay, closeOverlay,
+    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel,
+  });
 
   // Extension commands outlive the render that produced them, so they reach
   // this render's actions through a ref written after the commit.
@@ -511,21 +482,7 @@ export default function App() {
     clientRef.current = client;
   }, [actions, client]);
 
-  // Extensions own every chord; core only dispatches. A handler that already
-  // claimed the key (the composer's menu, a dialog) keeps it, and bare keys
-  // such as Escape stay with an open modal.
-  useEffect(() => {
-    const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      const match = registry.matchKeybinding(event);
-      if (!match) return;
-      if (!match.modified && document.querySelector('[aria-modal="true"]')) return;
-      event.preventDefault();
-      Promise.resolve(match.command.run(actions)).catch((error) => setNotice(`${match.command.id}: ${errorMessage(error)}`));
-    };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
-  }, [actions, registry]);
+  useAppKeybindings(registry, actions, setNotice);
 
   useEffect(() => {
     const sessionId = snapshot?.sessionId;
@@ -649,14 +606,6 @@ export default function App() {
     startProjectPath, threadDropController, threadTreeModal, titleCommands, transcriptActivities,
     transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart, visibleTranscriptTurnStart,
   ]);
-
-  const setComposerModel = useCallback(
-    (provider: string, id: string) => newThreadController.setModel(
-      provider, id, threadCommands.setModel,
-      (p, mid) => viewStore.getSnapshot()?.models.find((m) => m.provider === p && m.id === mid)?.name,
-    ),
-    [newThreadController, threadCommands, viewStore],
-  );
 
   const composer = useMemo<WorkbenchComposer>(() => ({
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,

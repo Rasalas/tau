@@ -71,4 +71,23 @@ describe("ModelPicker", () => {
     expect(screen.getAllByText("subscription login")).toHaveLength(1);
     expect(screen.getByText(/asks once before the first use/u)).toBeTruthy();
   });
+
+  it("switches providers via ArrowLeft and ArrowRight", () => {
+    renderPicker();
+    const searchInput = screen.getByRole("textbox", { name: "Search models" });
+
+    // Initially on anthropic:
+    expect(screen.getByText("Claude Fable 5.1")).toBeTruthy();
+    expect(screen.queryByText("GPT-5.6 Sol")).toBeNull();
+
+    // ArrowRight switches to openai-codex
+    fireEvent.keyDown(searchInput, { key: "ArrowRight" });
+    expect(screen.getByText("GPT-5.6 Sol")).toBeTruthy();
+    expect(screen.queryByText("Claude Fable 5.1")).toBeNull();
+
+    // ArrowLeft switches back to anthropic
+    fireEvent.keyDown(searchInput, { key: "ArrowLeft" });
+    expect(screen.getByText("Claude Fable 5.1")).toBeTruthy();
+  });
 });
+

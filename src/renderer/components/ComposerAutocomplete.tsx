@@ -1,11 +1,19 @@
 import type { ReactNode } from "react";
 import type { UiComposerCommand, UiSkillDraft } from "../../shared/contracts";
 
+export interface ComposerArgMatch {
+  id: string;
+  label: string;
+  description?: string;
+  hint?: string;
+}
+
 export interface ComposerTrigger {
-  kind: "/" | "$" | "@";
+  kind: "/" | "$" | "@" | "arg";
   query: string;
   start: number;
   end: number;
+  command?: string;
 }
 
 export interface SelectedSkill {
@@ -28,6 +36,12 @@ export function composerTrigger(text: string, caret: number): ComposerTrigger | 
   if (atMatch) {
     const start = before.lastIndexOf("@");
     return { kind: "@", query: atMatch[2] ?? "", start, end: caret };
+  }
+  // Match /command <arg> at start of prompt
+  const argMatch = /^\s*\/([a-zA-Z0-9_-]+)\s+([^\s]*)$/u.exec(before);
+  if (argMatch) {
+    const start = before.lastIndexOf(argMatch[2] ?? "");
+    return { kind: "arg", command: argMatch[1], query: argMatch[2] ?? "", start, end: caret };
   }
   // Match /command or $skill at start of prompt
   const match = /^\s*([/$])([^\s]*)$/u.exec(before);
@@ -66,8 +80,10 @@ export interface ComposerAutocompleteMenuProps {
   cursor: number;
   commandMatches: readonly UiComposerCommand[];
   fileMatches: readonly string[];
+  argMatches?: readonly ComposerArgMatch[];
   onSelectCommand(command: UiComposerCommand): void;
   onSelectFile(file: string): void;
+  onSelectArg?(arg: ComposerArgMatch): void;
 }
 
 export function ComposerAutocompleteMenu({
@@ -75,8 +91,10 @@ export function ComposerAutocompleteMenu({
   cursor,
   commandMatches,
   fileMatches,
+  argMatches = [],
   onSelectCommand,
   onSelectFile,
+  onSelectArg,
 }: ComposerAutocompleteMenuProps): ReactNode {
   if (trigger.kind === "@") {
     return (
@@ -98,6 +116,31 @@ export function ComposerAutocompleteMenu({
             <span className="composer-command-source file">file</span>
           </button>
         )) : <div className="composer-command-empty">No file matches “{trigger.query}”.</div>}
+      </div>
+    );
+  }
+
+  if (trigger.kind === "arg") {
+    return (
+      <div className="composer-command-menu" role="listbox" aria-label={`${trigger.command} arguments`}>
+        {argMatches.length > 0 ? argMatches.map((arg, index) => (
+          <button
+            type="button"
+            role="option"
+            aria-selected={index === cursor}
+            className={index === cursor ? "selected" : ""}
+            key={arg.id}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelectArg?.(arg)}
+          >
+            <span className="composer-command-mark">/</span>
+            <span className="composer-command-copy">
+              <strong>{arg.label}{arg.hint ? <i>{arg.hint}</i> : null}</strong>
+              {arg.description ? <small>{arg.description}</small> : null}
+            </span>
+            <span className="composer-command-source">{trigger.command}</span>
+          </button>
+        )) : <div className="composer-command-empty">No arguments match “{trigger.query}”.</div>}
       </div>
     );
   }

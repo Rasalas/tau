@@ -338,19 +338,38 @@ describe("Composer command menu", () => {
     });
   });
 
-  it("blurs textarea and focuses transcript on Escape when not streaming", () => {
-    const transcriptEl = document.createElement("div");
-    transcriptEl.className = "virtual-transcript";
-    transcriptEl.tabIndex = 0;
-    document.body.appendChild(transcriptEl);
+  it("autocompletes /model arguments from snapshot models", async () => {
+    const snapshotWithModels: HostSnapshot = {
+      ...snapshot,
+      models: [
+        { provider: "anthropic", id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet" },
+        { provider: "openai", id: "gpt-5", name: "GPT-5" },
+      ],
+    };
+    renderComposer(undefined, false, snapshotWithModels);
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
 
+    fireEvent.change(textarea, { target: { value: "/model cl", selectionStart: 9 } });
+    await waitFor(() => {
+      expect(screen.getByRole("listbox", { name: "model arguments" })).toBeTruthy();
+    });
+
+    expect(screen.getByRole("option", { name: /anthropic\/claude-3-7-sonnet/u })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("/model anthropic/claude-3-7-sonnet ");
+  });
+
+  it("autocompletes /thinking arguments with valid levels", async () => {
     renderComposer();
     const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
-    textarea.focus();
 
-    fireEvent.keyDown(textarea, { key: "Escape" });
-    expect(document.activeElement).toBe(transcriptEl);
+    fireEvent.change(textarea, { target: { value: "/thinking h", selectionStart: 11 } });
+    await waitFor(() => {
+      expect(screen.getByRole("listbox", { name: "thinking arguments" })).toBeTruthy();
+    });
 
-    document.body.removeChild(transcriptEl);
+    expect(screen.getByRole("option", { name: /high/u })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("/thinking high ");
   });
 });

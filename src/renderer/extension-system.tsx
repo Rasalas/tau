@@ -77,6 +77,8 @@ export interface WorkbenchActions {
   compactContext?(): Promise<void>;
   /** Opens the model picker modal for selecting a model. */
   openModelPicker?(): void;
+  /** Sets the model for the active thread or pending new thread. Accepts (provider, id) or query string. */
+  setModel?(provider: string, id?: string): Promise<boolean> | void;
   /** Sets the thinking level for the active thread. */
   setThinkingLevel?(level: string): Promise<void>;
 }

@@ -80,6 +80,7 @@ export interface ComposerAttachmentHandle {
 import {
   type ComposerTrigger,
   type SelectedSkill,
+  type ComposerArgMatch,
   skillName,
   composerTrigger,
   normalizeSkillInvocation,
@@ -256,6 +257,33 @@ export function Composer({
       .slice(0, 15);
   }, [trigger, workspaceFiles]);
 
+  const argMatches = useMemo<ComposerArgMatch[]>(() => {
+    if (trigger?.kind !== "arg") return [];
+    const query = trigger.query.toLowerCase();
+    if (trigger.command === "model") {
+      const models = snapshot?.models ?? [];
+      return models
+        .filter((m) => !query || m.id.toLowerCase().includes(query) || m.name.toLowerCase().includes(query) || m.provider.toLowerCase().includes(query))
+        .slice(0, 10)
+        .map((m) => ({
+          id: `${m.provider}/${m.id}`,
+          label: `${m.provider}/${m.id}`,
+          description: m.name !== m.id ? m.name : undefined,
+        }));
+    }
+    if (trigger.command === "thinking") {
+      const levels = ["none", "low", "medium", "high", "max"];
+      return levels
+        .filter((l) => !query || l.startsWith(query))
+        .map((l) => ({
+          id: l,
+          label: l,
+          description: THINKING_LABELS[l] ?? l,
+        }));
+    }
+    return [];
+  }, [snapshot?.models, trigger]);
+
   useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -315,6 +343,19 @@ export function Composer({
     const invocation = `@${filePath}`;
     const next = `${text.slice(0, trigger.start)}${invocation} ${text.slice(trigger.end)}`;
     const nextCaret = trigger.start + invocation.length + 1;
+    updateDraft(next);
+    setCaret(nextCaret);
+    setCommandMenuDismissed(true);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const selectArg = (arg: ComposerArgMatch) => {
+    if (!trigger || trigger.kind !== "arg") return;
+    const next = `${text.slice(0, trigger.start)}${arg.id} ${text.slice(trigger.end)}`;
+    const nextCaret = trigger.start + arg.id.length + 1;
     updateDraft(next);
     setCaret(nextCaret);
     setCommandMenuDismissed(true);
@@ -603,8 +644,10 @@ export function Composer({
             cursor={commandCursor}
             commandMatches={commandMatches}
             fileMatches={fileMatches}
+            argMatches={argMatches}
             onSelectCommand={selectCommand}
             onSelectFile={selectFile}
+            onSelectArg={selectArg}
           />
         ) : null}
         <textarea
@@ -622,7 +665,11 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
-            const totalMatches = trigger?.kind === "@" ? fileMatches.length : commandMatches.length;
+            const totalMatches = trigger?.kind === "@"
+              ? fileMatches.length
+              : trigger?.kind === "arg"
+                ? argMatches.length
+                : commandMatches.length;
             if (trigger && totalMatches > 0) {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
@@ -639,6 +686,9 @@ export function Composer({
                 if (trigger.kind === "@") {
                   const file = fileMatches[commandCursor];
                   if (file) selectFile(file);
+                } else if (trigger.kind === "arg") {
+                  const arg = argMatches[commandCursor];
+                  if (arg) selectArg(arg);
                 } else {
                   const command = commandMatches[commandCursor];
                   if (command) selectCommand(command);

@@ -645,5 +645,34 @@ describe("virtual transcript", () => {
       expect(onFork).toHaveBeenCalledWith(messages[0]);
       view.unmount();
     });
+
+    it("jumps to top and bottom of transcript with g/G and Home/End", async () => {
+      const messages: UiMessage[] = [
+        { id: "m0", role: "user", text: "Zero", timestamp: 1 },
+        { id: "m1", role: "assistant", text: "One", timestamp: 2 },
+        { id: "m2", role: "user", text: "Two", timestamp: 3 },
+        { id: "m3", role: "assistant", text: "Three", timestamp: 4 },
+      ];
+      const view = render(<Fixture messages={messages} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+
+      // Jump to bottom with G
+      fireEvent.keyDown(transcript, { key: "G" });
+      expect(transcript.dataset.focusedIndex).toBe("3");
+
+      // Jump to top with g
+      fireEvent.keyDown(transcript, { key: "g" });
+      expect(transcript.dataset.focusedIndex).toBe("0");
+
+      // Jump to bottom with End
+      fireEvent.keyDown(transcript, { key: "End" });
+      expect(transcript.dataset.focusedIndex).toBe("3");
+
+      // Jump to top with Home
+      fireEvent.keyDown(transcript, { key: "Home" });
+      expect(transcript.dataset.focusedIndex).toBe("0");
+
+      view.unmount();
+    });
   });
 });

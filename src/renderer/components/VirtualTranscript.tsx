@@ -246,6 +246,23 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       return;
     }
 
+    if ((event.key === "g" || event.key === "Home") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      if (messages.length === 0) return;
+      setFocusedIndex(0);
+      virtualizer.scrollToIndex(0, { align: "auto" });
+      return;
+    }
+
+    if ((event.key === "G" || event.key === "End") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      if (messages.length === 0) return;
+      const targetIndex = messages.length - 1;
+      setFocusedIndex(targetIndex);
+      virtualizer.scrollToIndex(targetIndex, { align: "auto" });
+      return;
+    }
+
     if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
       if (focusedIndex !== undefined && focusedIndex >= 0 && focusedIndex < messages.length) {

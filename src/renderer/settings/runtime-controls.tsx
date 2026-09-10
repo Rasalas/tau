@@ -135,7 +135,17 @@ export const runtimeControls: DesktopExtension = {
       name: "model",
       description: "Open the model picker or select a model",
       argumentHint: "[query]",
-      run: (_args, app) => {
+      run: async (args, app) => {
+        const query = args.trim();
+        if (query && app.setModel) {
+          const success = await app.setModel(query);
+          if (success) {
+            app.notify(`Model switched to ${query}.`);
+            return undefined;
+          }
+          app.notify(`No model matches “${query}”.`);
+          return undefined;
+        }
         if (app.openModelPicker) app.openModelPicker();
         else app.openSettings("defaults");
         return undefined;
@@ -155,7 +165,27 @@ export const runtimeControls: DesktopExtension = {
             return undefined;
           }
         }
+        if (level && !valid.includes(level)) {
+          app.notify(`Invalid thinking level: “${level}”. Valid: none, low, medium, high, max.`);
+          return undefined;
+        }
         app.openSettings("defaults");
+        return undefined;
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "new",
+      description: "Start a new thread",
+      run: (_args, app) => {
+        app.newSession();
+        return undefined;
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "help",
+      description: "Open command palette and list shortcuts",
+      run: (_args, app) => {
+        app.openCommandPalette();
         return undefined;
       },
     });

@@ -17,6 +17,7 @@ describe("HostConfigManager", () => {
     manager = new HostConfigManager({
       globalFilePath: globalPath,
       projectFilePath: (cwd) => join(cwd, ".tau", "config.json"),
+      piAgentDir: join(tempDir, "pi"),
     });
   });
 
@@ -118,4 +119,54 @@ describe("HostConfigManager", () => {
     expect(merged.models?.presets?.fast).toEqual({ model: "google/gemini-2.5-flash", temperature: 0.1 });
     expect(merged.models?.presets?.deep).toEqual({ model: "anthropic/claude-3-7-sonnet", thinking: "high" });
   });
+
+  it("inherits configuration from Pi CLI settings when tau config is absent", async () => {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const piDir = join(tempDir, "pi");
+    await mkdir(piDir, { recursive: true });
+    await writeFile(
+      join(piDir, "settings.json"),
+      JSON.stringify({
+        defaultProvider: "anthropic",
+        defaultModel: "claude-sonnet-4",
+        defaultThinkingLevel: "low",
+        theme: "nord",
+        temperature: 0.7,
+      }),
+      "utf8",
+    );
+
+    const config = await manager.read();
+    expect(config.models?.default).toBe("anthropic/claude-sonnet-4");
+    expect(config.models?.thinkingLevel).toBe("low");
+    expect(config.theme).toBe("nord");
+    expect(config.temperature).toBe(0.7);
+
+    const syncConfig = manager.readSync();
+    expect(syncConfig.models?.default).toBe("anthropic/claude-sonnet-4");
+    expect(syncConfig.theme).toBe("nord");
+
+    // Project Pi settings override global Pi settings
+    const projectPiDir = join(projectDir, ".pi");
+    await mkdir(projectPiDir, { recursive: true });
+    await writeFile(
+      join(projectPiDir, "settings.json"),
+      JSON.stringify({
+        defaultModel: "custom-local",
+        defaultThinkingLevel: "high",
+      }),
+      "utf8",
+    );
+
+    const projectMerged = await manager.read(projectDir);
+    expect(projectMerged.models?.default).toBe("custom-local");
+    expect(projectMerged.models?.thinkingLevel).toBe("high");
+    expect(projectMerged.theme).toBe("nord"); // inherited from global Pi
+
+    // Tau project config overrides Pi settings
+    await manager.update({ theme: "tau-dark" }, "project", projectDir);
+    const tauOverride = await manager.read(projectDir);
+    expect(tauOverride.theme).toBe("tau-dark");
+  });
 });
+
