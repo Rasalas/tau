@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
-import { type PersistedJsonLogger, readPersistedJson, writePersistedJson } from "./persisted-json.js";
+import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 import type { SessionFileStamp } from "./session-usage.js";
 
 /**
@@ -63,7 +63,10 @@ export function parentThreadIdFromEntries(entries: Iterable<unknown>): string | 
  * line after it; `deep` keeps reading, which is what finds a child written
  * before the link moved to the front of the file.
  */
-export async function readSessionParent(path: string, options: { deep?: boolean } = {}): Promise<string | undefined> {
+export async function readSessionParent(
+  path: string,
+  options: { deep?: boolean; logger?: PersistedJsonLogger } = {},
+): Promise<string | undefined> {
   const stream = createReadStream(path, { encoding: "utf8" });
   try {
     const lines = createInterface({ input: stream, crlfDelay: Infinity });
@@ -77,7 +80,13 @@ export async function readSessionParent(path: string, options: { deep?: boolean 
       }
       if (!options.deep) return undefined;
     }
-  } catch {
+  } catch (error) {
+    // A missing file is expected (the thread may not exist yet); other errors
+    // mean the lineage scan is incomplete — log them so they are not silent.
+    const code = (error as { code?: string }).code;
+    if (code !== "ENOENT" && code !== "ENOTDIR") {
+      options.logger?.warn("session-lineage.read.failed", `${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return undefined;
   } finally {
     stream.destroy();
@@ -166,7 +175,7 @@ export class SessionLineageIndex {
     const read = async (index: number): Promise<void> => {
       const file = pending[index];
       if (!file || this.disposed) return;
-      const parentThreadId = await readSessionParent(file.path, { deep });
+      const parentThreadId = await readSessionParent(file.path, { deep, ...(this.options.logger ? { logger: this.options.logger } : {}) });
       if (file.stamp) {
         this.entries.set(file.path, { path: file.path, ...file.stamp, ...(parentThreadId ? { parentThreadId } : {}) });
         this.markDirty();

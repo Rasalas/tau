@@ -55,6 +55,18 @@ describe("tau-ext bundle scheme", () => {
     expect(store.publish("", "x")).toMatch(/^tau-ext:\/\/bundles\/extension\//u);
   });
 
+  it("stops serving a bundle after the extension is removed, and leaves other extensions alone", () => {
+    const store = new DesktopBundleStore();
+    const urlA = store.publish("acme.pkg", "module A");
+    const urlB = store.publish("other.pkg", "module B");
+
+    store.remove("acme.pkg");
+
+    expect(store.respond(urlA).status).toBe(404);
+    // The other extension's bundle is unaffected.
+    expect(store.respond(urlB).status).toBe(200);
+  });
+
   it("lets the page load scripts from tau-ext and no longer from blob URLs", () => {
     const html = readFileSync(fileURLToPath(new URL("../../index.html", import.meta.url)), "utf8");
     const csp = /content="([^"]+)"/u.exec(html.split("Content-Security-Policy")[1] ?? "")?.[1] ?? "";

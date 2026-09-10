@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import type { UiThreadUsage } from "../shared/contracts.js";
-import { type PersistedJsonLogger, readPersistedJson, writePersistedJson } from "./persisted-json.js";
+import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
 /** Identity of a session file's contents, cheap enough to take on every scan. */
 export interface SessionFileStamp {
@@ -80,21 +80,34 @@ export function hasThreadUsage(usage: UiThreadUsage | undefined): usage is UiThr
 /**
  * Streams a session file and sums its usage. Only lines that mention a usage
  * record are parsed; a session's bulk is tool output, and parsing that back
- * costs more than reading the file. Undefined means the file could not be read,
- * not that the thread is free.
+ * costs more than reading the file.
+ *
+ * Returns `undefined` when the file could not be read (not that the thread is
+ * free). When the file is readable but individual lines are corrupt, they are
+ * counted in `skipped` so the caller can decide whether to log or surface it.
  */
-export async function readSessionUsage(path: string): Promise<UiThreadUsage | undefined> {
+export async function readSessionUsage(
+  path: string,
+  options?: { logger?: PersistedJsonLogger },
+): Promise<{ usage: UiThreadUsage; skipped: number } | undefined> {
   const entries: unknown[] = [];
+  let skipped = 0;
   try {
     const lines = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
     for await (const line of lines) {
       if (!line.includes("\"usage\"")) continue;
-      try { entries.push(JSON.parse(line)); } catch { continue; }
+      try { entries.push(JSON.parse(line)); } catch { skipped += 1; continue; }
     }
-  } catch {
+  } catch (error) {
+    // A missing file is expected (thread has no recorded usage yet); any other
+    // failure means the data may be partial — worth logging so it isn’t silent.
+    const code = (error as { code?: string }).code;
+    if (code !== "ENOENT" && code !== "ENOTDIR") {
+      options?.logger?.warn("session-usage.read.failed", `${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return undefined;
   }
-  return sessionUsageFromEntries(entries);
+  return { usage: sessionUsageFromEntries(entries), skipped };
 }
 
 export async function readSessionFileStamp(path: string): Promise<SessionFileStamp | undefined> {
@@ -254,14 +267,17 @@ export class SessionUsageIndex {
       if (next.done || this.disposed) return;
       const [sessionPath, stamp] = next.value;
       this.queue.delete(sessionPath);
-      const usage = await readSessionUsage(sessionPath);
+      const result = await readSessionUsage(sessionPath, this.options.logger ? { logger: this.options.logger } : undefined);
       if (this.disposed) return;
       // A file that changed under the read keeps its old stamp out of the cache.
       const current = await readSessionFileStamp(sessionPath);
-      if (!usage || !current || current.size !== stamp.size || current.mtimeMs !== stamp.mtimeMs) continue;
-      this.entries.set(sessionPath, { path: sessionPath, ...stamp, usage });
+      if (!result || !current || current.size !== stamp.size || current.mtimeMs !== stamp.mtimeMs) continue;
+      if (result.skipped > 0) {
+        this.options.logger?.warn("session-usage.skipped-lines", `${sessionPath}: ${result.skipped} unparseable line(s) skipped`);
+      }
+      this.entries.set(sessionPath, { path: sessionPath, ...stamp, usage: result.usage });
       this.markDirty();
-      this.options.onResolved?.(sessionPath, usage);
+      this.options.onResolved?.(sessionPath, result.usage);
     }
   }
 

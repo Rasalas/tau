@@ -49,8 +49,8 @@ describe("session usage", () => {
       assistant("a2", 0.17, 1_000, 500),
     ]);
 
-    const usage = await readSessionUsage(path);
-    expect(usage).toMatchObject({
+    const result = await readSessionUsage(path);
+    expect(result?.usage).toMatchObject({
       inputTokens: 13_300,
       outputTokens: 2_600,
       cacheReadTokens: 8_000,
@@ -58,13 +58,42 @@ describe("session usage", () => {
       totalTokens: 23_900,
       turns: 2,
     });
-    expect(usage?.costUsd).toBeCloseTo(0.42, 10);
+    expect(result?.usage.costUsd).toBeCloseTo(0.42, 10);
+    expect(result?.skipped).toBe(0);
   });
 
   it("reports a thread nobody was billed for as zero rather than as unreadable", async () => {
     const path = await sessionFile([JSON.stringify({ type: "session", version: 3, id: "thread", cwd: "/project" })]);
-    expect(await readSessionUsage(path)).toMatchObject({ costUsd: 0, turns: 0, totalTokens: 0 });
+    const result = await readSessionUsage(path);
+    expect(result?.usage).toMatchObject({ costUsd: 0, turns: 0, totalTokens: 0 });
+    expect(result?.skipped).toBe(0);
     expect(await readSessionUsage(join(await workspace(), "missing.jsonl"))).toBeUndefined();
+  });
+
+  it("counts unparseable usage lines and does not silently treat them as zero", async () => {
+    const path = await sessionFile([
+      JSON.stringify({ type: "session", version: 3, id: "thread", cwd: "/project" }),
+      // A valid assistant message with usage.
+      assistant("a1", 0.10, 500, 100),
+      // A corrupt line that mentions 'usage' but is not valid JSON.
+      '{"type":"message","usage":BROKEN',
+      // Another valid assistant message.
+      assistant("a2", 0.20, 1_000, 200),
+    ]);
+    const result = await readSessionUsage(path);
+    expect(result).toBeDefined();
+    // Two valid turns, one skipped corrupt line.
+    expect(result?.skipped).toBe(1);
+    expect(result?.usage.turns).toBe(2);
+    expect(result?.usage.costUsd).toBeCloseTo(0.30, 10);
+  });
+
+  it("logs IO read failures and returns undefined without hiding them", async () => {
+    const warned: string[] = [];
+    const logger = { warn: (msg: string, detail?: unknown) => warned.push(`${msg}: ${detail}`) };
+    // ENOENT is silent (expected: thread has no file yet).
+    expect(await readSessionUsage(join(await workspace(), "missing.jsonl"), { logger })).toBeUndefined();
+    expect(warned).toHaveLength(0);
   });
 
   it("serves a cached total until the file's size and mtime move, then refills it", async () => {

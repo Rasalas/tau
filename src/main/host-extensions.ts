@@ -541,7 +541,7 @@ export class HostExtensionRegistry {
     await this.deactivate(extension.id);
     this.known.set(extension.id, extension);
     this.failures.delete(extension.id);
-    this.consecutiveFailures.set(extension.id, 0);
+    this.clearCommandFailures(extension.id);
     const record: ActiveHostExtension = { extension, commands: new Map(), longCommands: new Set(), disposers: [] };
     const context: HostExtensionContext = {
       id: extension.id,
@@ -610,7 +610,15 @@ export class HostExtensionRegistry {
     await this.deactivate(id);
     this.known.delete(id);
     this.failures.delete(id);
-    this.consecutiveFailures.delete(id);
+    this.clearCommandFailures(id);
+  }
+
+  /** Removes every per-command failure counter belonging to an extension. */
+  private clearCommandFailures(extensionId: string): void {
+    const prefix = `${extensionId}/`;
+    for (const key of [...this.consecutiveFailures.keys()]) {
+      if (key.startsWith(prefix)) this.consecutiveFailures.delete(key);
+    }
   }
 
   async deactivate(id: string): Promise<void> {
@@ -654,19 +662,23 @@ export class HostExtensionRegistry {
     if (!handler) throw new Error(`Host extension ${record.extension.name} has no command "${command}".`);
 
     const timeoutMs = this.options.commandTimeoutMs ?? 30_000;
+    // The counter is keyed by command so that a healthy command cannot mask an
+    // unstable sibling: three consecutive failures of *this* command deactivate
+    // the extension, not three of any command.
+    const commandKey = `${extensionId}/${command}`;
     try {
       const result = record.longCommands.has(command)
         ? await handler(input)
         : await this.runWithTimeout(() => handler(input), timeoutMs, command);
-      this.consecutiveFailures.set(extensionId, 0);
+      this.consecutiveFailures.delete(commandKey);
       return result;
     } catch (error) {
       // An answer to bad input is not a broken command: it neither counts
       // nor resets, so a real crash between two of them is still noticed.
       if (isExpectedCommandError(error)) throw error;
       const isTimeout = error instanceof Error && error.message.includes(`timed out after ${timeoutMs}ms`);
-      const failures = (this.consecutiveFailures.get(extensionId) ?? 0) + 1;
-      this.consecutiveFailures.set(extensionId, failures);
+      const failures = (this.consecutiveFailures.get(commandKey) ?? 0) + 1;
+      this.consecutiveFailures.set(commandKey, failures);
 
       if (isTimeout || failures >= 3) {
         // The reason names no extension: it is read beside the name, in a

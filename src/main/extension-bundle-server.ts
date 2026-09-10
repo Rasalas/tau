@@ -30,6 +30,17 @@ export class DesktopBundleStore {
     return `${TAU_EXT_SCHEME}://bundles/${id}/${hash}.${kind}`;
   }
 
+  /**
+   * Drops every bundle belonging to one extension so the `tau-ext:` scheme
+   * returns 404 for it rather than serving a deactivated package's code.
+   */
+  remove(extensionId: string): void {
+    const prefix = `${safeId(extensionId)}/`;
+    for (const key of this.bundles.keys()) {
+      if (key.startsWith(prefix)) this.bundles.delete(key);
+    }
+  }
+
   /** Everything a previous sync published; a reload replaces the whole set. */
   clear(): void {
     this.bundles.clear();

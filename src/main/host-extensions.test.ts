@@ -199,14 +199,18 @@ describe("HostExtensionRegistry", () => {
     const s = services();
     const events: GlobalHostEvent[] = [];
     const r = new HostExtensionRegistry(s, (event) => events.push(event), { commandTimeoutMs: 50 });
+    // A promise that only resolves when the test explicitly releases it, so no
+    // real timer lingers in the background after the command times out.
+    let releaseHang!: () => void;
     await r.activate({
       id: "slow.kit",
       name: "Slow Kit",
       activate: (ctx) => {
-        ctx.registerCommand("hang", () => new Promise((resolve) => setTimeout(resolve, 200)));
+        ctx.registerCommand("hang", () => new Promise<void>((resolve) => { releaseHang = resolve; }));
       },
     });
     await expect(r.invoke("slow.kit", "hang")).rejects.toThrow("timed out after 50ms");
+    releaseHang(); // let the dangling promise settle cleanly
     expect(r.isActive("slow.kit")).toBe(false);
     expect(r.summaries().find((e) => e.id === "slow.kit")?.error).toBe('command "hang" timed out after 50ms');
     expect(s.logs.some((line) => line.includes("host-extension.failed") && line.includes("timed out"))).toBe(true);
@@ -297,5 +301,28 @@ describe("HostExtensionRegistry", () => {
     await r.activate({ id: "broken.kit", name: "Broken Kit", activate: (ctx) => { ctx.fail("heap out of memory"); } });
     expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([]);
     expect(r.summaries().find((entry) => entry.id === "broken.kit")?.error).toBe("heap out of memory");
+  });
+
+  it("counts failures per command so a successful command does not reset a sibling's counter", async () => {
+    const { registry: r, events } = registry();
+    await r.activate({
+      id: "mixed.kit",
+      name: "Mixed Kit",
+      activate: (ctx) => {
+        ctx.registerCommand("reliable", () => "ok");
+        ctx.registerCommand("fragile", () => { throw new Error("boom"); });
+      },
+    });
+
+    // Two failures of `fragile`
+    await expect(r.invoke("mixed.kit", "fragile")).rejects.toThrow("boom");
+    await expect(r.invoke("mixed.kit", "fragile")).rejects.toThrow("boom");
+    // A successful call on the sibling must not reset `fragile`'s counter.
+    await expect(r.invoke("mixed.kit", "reliable")).resolves.toBe("ok");
+    expect(r.isActive("mixed.kit")).toBe(true);
+    // Third failure of `fragile` — must deactivate now.
+    await expect(r.invoke("mixed.kit", "fragile")).rejects.toThrow("boom");
+    expect(r.isActive("mixed.kit")).toBe(false);
+    expect(events.filter((e) => e.type === "extension-deactivated")).toHaveLength(1);
   });
 });

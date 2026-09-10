@@ -60,11 +60,30 @@ describe("the web client a listening host serves", () => {
     expect((await pair(code)).status).toBe(403);
   });
 
-  it("refuses an invented or expired code", async () => {
+  it("refuses an invented pairing code", async () => {
     expect((await pair("not-a-code")).status).toBe(403);
-    const code = web.issueCode();
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    expect((await pair(code)).status).toBe(403);
+  });
+
+  it("refuses a code once the TTL has elapsed", async () => {
+    // Use the `now` injection so the test is deterministic and has no real sleep.
+    let fakeNow = Date.now();
+    const timedWeb = createWebClientServer({ dir: root, token: "s3cret-token", codeTtlMs: 50, now: () => fakeNow });
+    await new Promise<void>((resolve) => timedWeb.server.listen(0, "127.0.0.1", () => resolve()));
+    const timedAddress = timedWeb.server.address();
+    const timedOrigin = `http://127.0.0.1:${typeof timedAddress === "object" && timedAddress ? timedAddress.port : 0}`;
+    const timedPair = (code: string) => fetch(`${timedOrigin}/pair`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    try {
+      const code = timedWeb.issueCode();
+      // Advance the clock past the TTL before attempting to redeem.
+      fakeNow += 100;
+      expect((await timedPair(code)).status).toBe(403);
+    } finally {
+      await new Promise<void>((resolve) => timedWeb.server.close(() => resolve()));
+    }
   });
 
   it("never answers a pairing code to a GET", async () => {

@@ -30,7 +30,9 @@ afterEach(() => {
 
 // @tanstack/virtual-core resets its scrolling flag on a 150 ms timer it does
 // not cancel on unmount; if the file's jsdom is torn down first, that timer
-// throws "window is not defined". Let it lapse before the environment goes.
+// throws "window is not defined". 200 ms (50 ms of slack over the 150 ms timer)
+// lets it lapse before the environment goes. Removing the sleep would require
+// the upstream library to cancel the timer on unmount, which it does not.
 afterAll(async () => {
   if (typeof document === "undefined") return;
   await new Promise((resolve) => setTimeout(resolve, 200));

@@ -149,6 +149,9 @@ const primaryInstance = installSingleInstance(app, () => mainWindow);
 function publish(event: HostEvent): void {
   // Mirrored to the log file so nothing is lost once the window is gone.
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
+  // Drop a deactivated extension's bundle so tau-ext: returns 404 for it rather
+  // than serving code the user switched off until the next full reload.
+  if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId);
   broadcast(event);
 }
 
