@@ -302,6 +302,40 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       return;
     }
 
+    if ((event.key === "n" || event.key === "p") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      if (messages.length === 0) return;
+      const forward = event.key === "n";
+      setFocusedIndex((current) => {
+        const start = current ?? (forward ? 0 : messages.length - 1);
+        let targetIndex = -1;
+        if (forward) {
+          for (let i = start + 1; i < messages.length; i++) {
+            if (messages[i]?.role === "user") { targetIndex = i; break; }
+          }
+        } else {
+          for (let i = start - 1; i >= 0; i--) {
+            if (messages[i]?.role === "user") { targetIndex = i; break; }
+          }
+        }
+        if (targetIndex >= 0) {
+          virtualizer.scrollToIndex(targetIndex, { align: "auto" });
+          return targetIndex;
+        }
+        return current;
+      });
+      return;
+    }
+
+    if (event.key === "f" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      if (focusedIndex !== undefined && focusedIndex >= 0 && focusedIndex < messages.length) {
+        const msg = messages[focusedIndex];
+        if (msg) onForkMessage?.(msg);
+      }
+      return;
+    }
+
     if (event.key === "Escape" || event.key === "i") {
       event.preventDefault();
       if (onFocusComposer) {
@@ -312,7 +346,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       }
       return;
     }
-  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onFocusComposer, updateExpandedMessage, virtualizer]);
+  }, [expandedMessageIds, focusedIndex, messages, onCopyMessage, onForkMessage, onFocusComposer, updateExpandedMessage, virtualizer]);
 
   const measuredRows = virtualizer.getVirtualItems();
   const rows = measuredRows.length > 0

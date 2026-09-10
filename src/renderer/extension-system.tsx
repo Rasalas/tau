@@ -73,6 +73,12 @@ export interface WorkbenchActions {
   /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
   openOverlay(id: string): void;
   closeOverlay(): void;
+  /** Manually compact the active thread's context window. */
+  compactContext?(): Promise<void>;
+  /** Opens the model picker modal for selecting a model. */
+  openModelPicker?(): void;
+  /** Sets the thinking level for the active thread. */
+  setThinkingLevel?(level: string): Promise<void>;
 }
 
 /** Stamped onto every contribution so the UI can say which extension supplied it. */

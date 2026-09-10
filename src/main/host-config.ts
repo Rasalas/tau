@@ -88,6 +88,11 @@ export class HostConfigManager {
       keybindings: { ...(base.keybindings ?? {}), ...(override.keybindings ?? {}) },
       favouriteModels: override.favouriteModels ?? base.favouriteModels,
       disabledExtensions: override.disabledExtensions ?? base.disabledExtensions,
+      models: override.models || base.models ? {
+        ...(base.models ?? {}),
+        ...(override.models ?? {}),
+        presets: { ...(base.models?.presets ?? {}), ...(override.models?.presets ?? {}) },
+      } : undefined,
     };
   }
 }

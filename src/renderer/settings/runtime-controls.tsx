@@ -58,8 +58,19 @@ export const runtimeControls: DesktopExtension = {
   activate(plugin) {
     plugin.registerStatusItem({ id: "runtime.subscription-login", align: "left", order: 45, profiles: ["desktop", "web", "compact"], Component: SubscriptionLoginStatus });
     plugin.registerCommand({ id: "runtime.settings", label: "Open Settings panel", group: "Runtime", run: (app) => app.openSettings() });
-    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", run: (app) => app.openSettings("defaults") });
+    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });
+    plugin.registerCommand({
+      id: "runtime.compact",
+      label: "Compact context",
+      group: "Thread",
+      run: async (app) => {
+        if (app.compactContext) {
+          await app.compactContext();
+          app.notify("Context compacted.");
+        }
+      },
+    });
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", run: (app) => app.newSession() });
     for (const level of TRANSCRIPT_DETAIL_LEVELS) {
       plugin.registerCommand({
@@ -110,10 +121,49 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerSlashCommand({ name: "tree", description: "Move this thread to another point of its session tree", run: (_args, app) => app.openThreadTree("navigate") });
     plugin.registerSlashCommand({ name: "fork", description: "Start a new thread from an earlier message", run: (_args, app) => app.openThreadTree("fork") });
     plugin.registerSlashCommand({ name: "clone", description: "Duplicate this thread into a new one", run: async (_args, app) => (await app.duplicateThread()) ? undefined : "The thread could not be duplicated." });
+    plugin.registerSlashCommand({
+      name: "compact",
+      description: "Compact the current thread's context window",
+      run: async (_args, app) => {
+        if (!app.compactContext) return "Context compaction is not available.";
+        await app.compactContext();
+        app.notify("Context compacted.");
+        return undefined;
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "model",
+      description: "Open the model picker or select a model",
+      argumentHint: "[query]",
+      run: (_args, app) => {
+        if (app.openModelPicker) app.openModelPicker();
+        else app.openSettings("defaults");
+        return undefined;
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "thinking",
+      description: "Set thinking level (none, low, medium, high, max)",
+      argumentHint: "[level]",
+      run: async (args, app) => {
+        const level = args.trim().toLowerCase();
+        const valid = ["none", "low", "medium", "high", "max"];
+        if (level && valid.includes(level)) {
+          if (app.setThinkingLevel) {
+            await app.setThinkingLevel(level);
+            app.notify(`Thinking level set to ${level}.`);
+            return undefined;
+          }
+        }
+        app.openSettings("defaults");
+        return undefined;
+      },
+    });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
     plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });
+    plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
     plugin.registerKeybinding({ keys: "mod+1", commandId: "workbench.focus-composer" });
     plugin.registerKeybinding({ keys: "mod+2", commandId: "workbench.focus-transcript" });
     plugin.registerKeybinding({ keys: "mod+3", commandId: "workbench.focus-stage" });

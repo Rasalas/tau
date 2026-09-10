@@ -48,13 +48,42 @@ describe("runtime controls theme commands", () => {
 });
 
 describe("runtime controls slash commands", () => {
-  it("offers one reload command and reports a failure", async () => {
+  it("offers slash commands and handles compact, model, and thinking", async () => {
     const registry = new ExtensionRegistry();
     registry.activate(runtimeControls);
-    expect(registry.getSlashCommands().map((command) => command.name)).toEqual(["reload", "tree", "fork", "clone"]);
+    expect(registry.getSlashCommands().map((command) => command.name)).toEqual([
+      "reload", "tree", "fork", "clone", "compact", "model", "thinking",
+    ]);
     const reloadWorkbench = vi.fn(async () => false);
-    const actions = { reloadWorkbench } as unknown as WorkbenchActions;
+    const compactContext = vi.fn(async () => {});
+    const openModelPicker = vi.fn();
+    const openSettings = vi.fn();
+    const setThinkingLevel = vi.fn(async () => {});
+    const notify = vi.fn();
+    const actions = {
+      reloadWorkbench,
+      compactContext,
+      openModelPicker,
+      openSettings,
+      setThinkingLevel,
+      notify,
+    } as unknown as WorkbenchActions;
+
     await expect(registry.findSlashCommand("/reload")!.command.run("", actions)).resolves.toBe("Tau reload failed.");
+
+    await registry.findSlashCommand("/compact")!.command.run("", actions);
+    expect(compactContext).toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith("Context compacted.");
+
+    await registry.findSlashCommand("/model")!.command.run("", actions);
+    expect(openModelPicker).toHaveBeenCalled();
+
+    await registry.findSlashCommand("/thinking")!.command.run("high", actions);
+    expect(setThinkingLevel).toHaveBeenCalledWith("high");
+    expect(notify).toHaveBeenCalledWith("Thinking level set to high.");
+
+    await registry.findSlashCommand("/thinking")!.command.run("", actions);
+    expect(openSettings).toHaveBeenCalledWith("defaults");
   });
 });
 
@@ -68,6 +97,7 @@ describe("runtime controls keybindings", () => {
       "runtime.new-session": "mod+n",
       "runtime.abort": "escape",
       "runtime.transcript-detail": "mod+shift+t",
+      "runtime.model": "mod+shift+m",
       "workbench.focus-composer": "mod+1",
       "workbench.focus-transcript": "mod+2",
       "workbench.focus-stage": "mod+3",

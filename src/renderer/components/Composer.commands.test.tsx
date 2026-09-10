@@ -323,4 +323,34 @@ describe("Composer command menu", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("@src/utils.ts ");
   });
+
+  it("opens model picker when tau:open-model-picker event is dispatched", async () => {
+    const snapshotWithModels: HostSnapshot = {
+      ...snapshot,
+      models: [{ provider: "anthropic", id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet" }],
+      model: { provider: "anthropic", id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet" },
+    };
+    renderComposer(undefined, false, snapshotWithModels);
+
+    window.dispatchEvent(new CustomEvent("tau:open-model-picker"));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /model/iu })).toBeTruthy();
+    });
+  });
+
+  it("blurs textarea and focuses transcript on Escape when not streaming", () => {
+    const transcriptEl = document.createElement("div");
+    transcriptEl.className = "virtual-transcript";
+    transcriptEl.tabIndex = 0;
+    document.body.appendChild(transcriptEl);
+
+    renderComposer();
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    textarea.focus();
+
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(document.activeElement).toBe(transcriptEl);
+
+    document.body.removeChild(transcriptEl);
+  });
 });

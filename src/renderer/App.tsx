@@ -22,6 +22,7 @@ import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
 import { PlatformProvider, setPlatform } from "./platform-context";
+import { useAppOverlays } from "./use-app-overlays";
 import { useClientEnvironment } from "./client-environment";
 import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
@@ -135,10 +136,13 @@ export default function App() {
   const transcriptUserRevision = useSyncExternalStore(viewStore.subscribeToUserMessages, viewStore.getUserRevision);
   const [activePanel, setActivePanel] = useState("");
   const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [newThreadOpen, setNewThreadOpen] = useState(false);
-  const [projectSourcesOpen, setProjectSourcesOpen] = useState(false);
-  const [activeOverlayId, setActiveOverlayId] = useState<string>();
+  const {
+    paletteOpen, openPalette, closePalette,
+    newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
+    projectSourcesOpen, openProjectSources, closeProjectSources,
+    activeOverlayId, openOverlay, closeOverlay,
+    settingsPage, setSettingsPage,
+  } = useAppOverlays();
   const newThreadController = useNewThreadController(clientStorage);
   const {
     pendingNewThread,
@@ -153,7 +157,6 @@ export default function App() {
     current: currentPendingNewThread,
   } = newThreadController;
   const [transcriptTurnStart, setTranscriptTurnStartState] = useState<TranscriptTurnStart>();
-  const [settingsPage, setSettingsPage] = useState<string>();
   // Below this many pixels the centre cannot hold chat and stage side by side;
   // the chat then joins the stage's tab strip instead of losing the thread list.
   const [centerCompact, setCenterCompact] = useState(false);
@@ -182,7 +185,6 @@ export default function App() {
     [currentPendingNewThread, viewStore],
   );
   const currentSessionId = useCallback(() => viewStore.getSnapshot()?.sessionId, [viewStore]);
-  const closeNewThreadPicker = useCallback(() => setNewThreadOpen(false), []);
   // Every member is stable for the session, so the actions built on it are too.
   const newThreadPorts = useMemo(
     () => ({ current: currentPendingNewThread, set: setPendingNewThread, begin: beginNewThread, invalidate: invalidateNewThread }),
@@ -431,18 +433,8 @@ export default function App() {
     setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
     setDockOpen(true);
   }, []);
-  const closePalette = useCallback(() => setPaletteOpen(false), []);
-  const closeProjectSources = useCallback(() => setProjectSourcesOpen(false), []);
-  const openNewThreadPicker = useCallback(() => setNewThreadOpen(true), []);
-  const closeOverlay = useCallback(() => setActiveOverlayId(undefined), []);
-  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => {
-    setStage((current) => openFileTab(current, path, options));
-    setChatFocused(false);
-  }, []);
-  const openThread = useCallback((sessionId: string, options?: { pin?: boolean }) => {
-    setStage((current) => openThreadTab(current, sessionId, options));
-    setChatFocused(false);
-  }, []);
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
+  const openThread = useCallback((sessionId: string, options?: { pin?: boolean }) => { setStage((current) => openThreadTab(current, sessionId, options)); setChatFocused(false); }, []);
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));
   }, [threadStore, uiPrompts]);
@@ -466,9 +458,9 @@ export default function App() {
 
   const actions: WorkbenchActions = useMemo(() => ({
     openPanel,
-    openCommandPalette: () => setPaletteOpen(true),
+    openCommandPalette: openPalette,
     openSettings: (page) => setSettingsPage(page ?? "defaults"),
-    newSession: () => setNewThreadOpen(true),
+    newSession: openNewThreadPicker,
     switchSession,
     settleActiveThread,
     // Escape is bound to this; only a visibly running thread has anything to stop.
@@ -481,14 +473,17 @@ export default function App() {
     focusStage: () => { (document.querySelector(".stage-body, .stage, .stage-container") as HTMLElement | null)?.focus(); },
     toggleDock: () => { setDockOpen((open) => !open); },
     notify: setNotice,
-    openProjectSources: () => { setNewThreadOpen(false); setProjectSourcesOpen(true); },
+    openProjectSources,
     applyHostResult,
     closeActiveStageTab,
     cycleStageTab,
     copyText: async (text: string) => { await platform.clipboard.writeText(text); },
     openExternal: (url: string) => platform.openExternal(url),
-    openOverlay: (id) => setActiveOverlayId(id),
-    closeOverlay: () => setActiveOverlayId(undefined),
+    openOverlay,
+    closeOverlay,
+    compactContext: threadCommands.compactContext,
+    openModelPicker: () => { window.dispatchEvent(new CustomEvent("tau:open-model-picker")); },
+    setThinkingLevel: (level: string) => threadCommands.setThinking(level as any),
     openWorkspace,
     activeThread: () => ({
       sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
@@ -619,15 +614,9 @@ export default function App() {
     recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, abortSessionId: snapshot?.sessionId,
     abort: abortThread,
   });
-  const showStartScreen = conversation.isEmpty
-    && !conversationSnapshot?.isStreaming
-    && conversationActivityTools.length === 0
-    && conversationPrompts.length === 0;
+  const showStartScreen = conversation.isEmpty && !conversationSnapshot?.isStreaming && conversationActivityTools.length === 0 && conversationPrompts.length === 0;
   const startProjectPath = conversationSnapshot?.cwd ?? "";
-  const startProjectName = pendingNewThread?.projectName
-    ?? projects.find((project) => project.path === startProjectPath)?.name
-    ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1)
-    ?? startProjectPath;
+  const startProjectName = pendingNewThread?.projectName ?? projects.find((project) => project.path === startProjectPath)?.name ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? startProjectPath;
   const layout = useMemo<WorkbenchLayout>(() => ({
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,

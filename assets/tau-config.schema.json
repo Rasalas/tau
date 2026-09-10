@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TauConfig",
+  "description": "Configuration-as-code schema for Tau (~/.tau/config.json and .tau/config.json)",
+  "type": "object",
+  "properties": {
+    "theme": {
+      "description": "Active UI theme or 'system' to follow OS light/dark preference",
+      "type": "string",
+      "default": "system"
+    },
+    "transcriptDetail": {
+      "description": "Level of tool activity and reasoning detail in the transcript",
+      "type": "string",
+      "enum": ["focused", "detailed", "everything"],
+      "default": "focused"
+    },
+    "density": {
+      "description": "Visual density of workbench spacing and fonts",
+      "type": "string",
+      "enum": ["compact", "default", "relaxed"],
+      "default": "default"
+    },
+    "fontFamily": {
+      "description": "Custom font family for the workbench interface",
+      "type": "string"
+    },
+    "fontSize": {
+      "description": "Base font size in pixels",
+      "type": "number",
+      "minimum": 10,
+      "maximum": 24
+    },
+    "showCosts": {
+      "description": "Whether to display token usage and dollar costs in the composer and threads",
+      "type": "boolean",
+      "default": true
+    },
+    "favouriteModels": {
+      "description": "List of model IDs pinned as favourites (bound to Cmd+1-9 in model picker)",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "models": {
+      "description": "Model configuration, defaults, and sampling presets",
+      "type": "object",
+      "properties": {
+        "default": {
+          "description": "Default model ID for new threads",
+          "type": "string"
+        },
+        "thinkingLevel": {
+          "description": "Default thinking / reasoning effort level",
+          "type": "string",
+          "enum": ["none", "low", "medium", "high", "max"]
+        },
+        "presets": {
+          "description": "Named model sampling presets (e.g. fast, deep)",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "model": { "type": "string" },
+              "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+              "thinking": { "type": "string" },
+              "maxTokens": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["model"]
+          }
+        }
+      }
+    },
+    "temperature": {
+      "description": "Global default sampling temperature",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "maxTokens": {
+      "description": "Global default maximum tokens to generate",
+      "type": "integer",
+      "minimum": 1
+    },
+    "keybindings": {
+      "description": "Custom keybinding overrides mapping chord strings to command IDs",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "disabledExtensions": {
+      "description": "Extension IDs disabled across the workbench",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "options": {
+      "description": "Boolean extension and kit options",
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "values": {
+      "description": "String extension and kit option values",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

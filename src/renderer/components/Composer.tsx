@@ -344,6 +344,13 @@ export function Composer({
   // not this thread's, and the thread it will become does not exist yet.
   const draftOnOtherRuntime = runtimeChoice !== undefined && snapshot?.backendKind !== undefined && runtimeChoice.kind !== snapshot.backendKind;
   const modelSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.models.length ?? 0) > 0;
+  useEffect(() => {
+    const onOpen = () => {
+      if (modelSelectionAvailable) setModelPickerOpen(true);
+    };
+    window.addEventListener("tau:open-model-picker", onOpen);
+    return () => window.removeEventListener("tau:open-model-picker", onOpen);
+  }, [modelSelectionAvailable]);
   const thinkingSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
@@ -642,6 +649,11 @@ export function Composer({
             if (trigger && event.key === "Escape") {
               event.preventDefault();
               setCommandMenuDismissed(true);
+              return;
+            }
+            if (!trigger && event.key === "Escape" && !snapshot?.isStreaming) {
+              textareaRef.current?.blur();
+              (document.querySelector<HTMLElement>(".virtual-transcript") ?? document.querySelector<HTMLElement>(".transcript-viewport"))?.focus();
               return;
             }
             if (!trigger) {

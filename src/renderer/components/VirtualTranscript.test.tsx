@@ -17,7 +17,7 @@ afterEach(async () => {
   await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
 });
 
-function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities, detail, onCopyMessage, onFocusComposer }: {
+function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities, detail, onCopyMessage, onForkMessage, onFocusComposer }: {
   messages: UiMessage[];
   sessionKey?: string;
   activity?: ReactNode;
@@ -25,6 +25,7 @@ function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMess
   activities?: TranscriptActivity[];
   detail?: TranscriptDetail;
   onCopyMessage?: (message: UiMessage) => void;
+  onForkMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -46,6 +47,7 @@ function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMess
       activities={allActivities}
       detail={detail}
       onCopyMessage={onCopyMessage}
+      onForkMessage={onForkMessage}
       onFocusComposer={onFocusComposer}
     />
   </div>;
@@ -603,6 +605,44 @@ describe("virtual transcript", () => {
 
       fireEvent.keyDown(transcript, { key: "i" });
       expect(onFocusComposer).toHaveBeenCalledTimes(2);
+      view.unmount();
+    });
+
+    it("jumps between user turns with n and p", async () => {
+      const messages: UiMessage[] = [
+        { id: "u1", role: "user", text: "Turn 1", timestamp: 1 },
+        { id: "a1", role: "assistant", text: "Answer 1", timestamp: 2 },
+        { id: "u2", role: "user", text: "Turn 2", timestamp: 3 },
+        { id: "a2", role: "assistant", text: "Answer 2", timestamp: 4 },
+      ];
+      const view = render(<Fixture messages={messages} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+
+      // Start at 0
+      fireEvent.keyDown(transcript, { key: "j" });
+      expect(transcript.dataset.focusedIndex).toBe("0");
+
+      // Jump to next user turn (index 2)
+      fireEvent.keyDown(transcript, { key: "n" });
+      expect(transcript.dataset.focusedIndex).toBe("2");
+
+      // Jump back to previous user turn (index 0)
+      fireEvent.keyDown(transcript, { key: "p" });
+      expect(transcript.dataset.focusedIndex).toBe("0");
+      view.unmount();
+    });
+
+    it("triggers fork on focused message with f", async () => {
+      const messages: UiMessage[] = [
+        { id: "u1", role: "user", text: "Turn 1", timestamp: 1 },
+      ];
+      const onFork = vi.fn();
+      const view = render(<Fixture messages={messages} onForkMessage={onFork} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+
+      fireEvent.keyDown(transcript, { key: "j" });
+      fireEvent.keyDown(transcript, { key: "f" });
+      expect(onFork).toHaveBeenCalledWith(messages[0]);
       view.unmount();
     });
   });

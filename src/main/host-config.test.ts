@@ -91,4 +91,31 @@ describe("HostConfigManager", () => {
     expect(merged.temperature).toBe(0.2);
     expect(merged.maxTokens).toBe(4096);
   });
+
+  it("merges models and model presets properly", async () => {
+    await manager.update({
+      models: {
+        default: "anthropic/claude-3-7-sonnet",
+        thinkingLevel: "medium",
+        presets: {
+          fast: { model: "google/gemini-2.5-flash", temperature: 0.1 },
+        },
+      },
+    }, "global");
+
+    await manager.update({
+      models: {
+        thinkingLevel: "high",
+        presets: {
+          deep: { model: "anthropic/claude-3-7-sonnet", thinking: "high" },
+        },
+      },
+    }, "project", projectDir);
+
+    const merged = await manager.read(projectDir);
+    expect(merged.models?.default).toBe("anthropic/claude-3-7-sonnet");
+    expect(merged.models?.thinkingLevel).toBe("high");
+    expect(merged.models?.presets?.fast).toEqual({ model: "google/gemini-2.5-flash", temperature: 0.1 });
+    expect(merged.models?.presets?.deep).toEqual({ model: "anthropic/claude-3-7-sonnet", thinking: "high" });
+  });
 });
