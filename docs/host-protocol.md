@@ -134,8 +134,10 @@ client, a path.
 
 A file inside a workspace travels as `relPath`, a POSIX path relative to the
 workspace root, beside the `workspace` id of the project it belongs to. The
-host refuses an absolute path or a `..` segment before it resolves anything,
-and `assertWorkspacePath` remains the lock behind that. Folder browsing
+host refuses an absolute path or a `..` segment before it resolves anything;
+`isWorkspaceRelativePath` (`src/shared/workspace-identity.ts`) is the guard
+core uses, and Workspace Kit's `assertWorkspacePath` throws when it fails.
+Folder browsing
 (`list-directories`, `pick-folder`, `clone`, `create-worktree`) is a host-side
 operation and still deals in host paths, but it answers with a
 `workspaceId`/`displayPath` pair for anything the client keeps.

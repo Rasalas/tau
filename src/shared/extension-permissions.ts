@@ -16,6 +16,11 @@ export const PERMISSION_WORKSPACE_WRITE = "workspace:write" as const;
 export const PERMISSION_WORKSPACE_SWITCH = "workspace:switch" as const;
 export const PERMISSION_SESSIONS = "sessions" as const;
 export const PERMISSION_RUNTIME_EXTEND = "runtime:extend" as const;
+/**
+ * Host-side subprocess bookkeeping: `noteSubprocess` and `findCommand`.
+ * Does **not** gate `child_process` — a package can spawn processes without
+ * this grant; with it, the host knows about them.
+ */
 export const PERMISSION_PROCESS = "process" as const;
 /**
  * Outbound network access. Enforced inside the worker a package is isolated in
@@ -28,8 +33,12 @@ export const PERMISSION_NETWORK = "network" as const;
 /** Install, update and remove other extension packages. Tau's own Packages kit holds it. */
 export const PERMISSION_PACKAGES = "packages" as const;
 
-/** The one line Settings shows a package that runs in-process without `network`. */
-export const NETWORK_ADVISORY_NOTE = "network access is enforced only for isolated packages";
+/**
+ * The one line Settings shows a package that runs in-process without `network`.
+ * Even for isolated packages the guardrail has gaps (`await import()`, nested
+ * workers), so the phrasing avoids promising enforcement.
+ */
+export const NETWORK_ADVISORY_NOTE = "network access is advisory for in-process packages";
 
 /**
  * Where a package's host half runs. `worker` is the default for packages: a

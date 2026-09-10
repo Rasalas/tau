@@ -468,8 +468,8 @@ A package's `permissions` array draws from a fixed list
 | `workspace:switch` | open or pick another project. |
 | `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — and read a workspace's skill catalog (`skills`). |
-| `process` | spawn child processes and look up commands on the host's PATH. |
-| `network` | open a socket: `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the `http`/`https`/`net`/`tls`/`dgram`/`http2`/`dns` builtins. |
+| `process` | call `noteSubprocess` and `findCommand` — the host-side bookkeeping for processes. It does **not** gate `child_process`: a package can spawn processes without this grant; with it, the host knows about them. |
+| `network` | request network access. For an isolated (worker) package the grant blocks `fetch`, `require("http")` and friends — but the block is a guardrail, not a boundary: `await import("node:https")` and a nested `worker_threads` worker bypass it. For an `in-process` package the grant is advisory and carries no enforcement at all. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
@@ -724,21 +724,29 @@ worker has to be approved again even if its permission list did not change.
 
 ### The network, in a worker
 
-A worker that was not granted `network` has no way out. Before the package's
+A worker that was not granted `network` meets a guardrail. Before the package's
 bundle is loaded, `host-extension-worker.ts` replaces whichever of `fetch`,
 `WebSocket`, `EventSource` and `XMLHttpRequest` this Node defines on the worker
-global, and refuses `require`/`import` of `http`, `https`, `net`, `tls`,
-`dgram`, `http2` and `dns` — under any `node:` prefix and any submodule, so
-`node:dns/promises` is the same door as `dns`. Both throw
-`Extension <id> lacks permission network` and log `host-extension.denied`, so
-Signals and the Inspector show a denied socket exactly like a denied service
-member. A bundled `ws` or `undici` needs `net`/`tls`, so it hits the same wall.
-`child_process` is *not* on that list: spawning stays governed by `process`.
+global, and hooks `Module._load` to refuse `require` of `http`, `https`, `net`,
+`tls`, `dgram`, `http2` and `dns` — under any `node:` prefix and any submodule.
+Both throw `Extension <id> lacks permission network` and log
+`host-extension.denied`. A bundled `ws` or `undici` needs `net`/`tls`, so it
+hits the same wall.
+
+**This is a guardrail, not an OS-level boundary.** The `Module._load` hook does
+not cover dynamic `import()`: `await import("node:https")` bypasses it and
+returns a live module. A nested `worker_threads` worker also runs outside the
+interception. Both paths are known and documented; the isolation the worker
+provides is crash containment and heap caps, not a sandbox against hostile
+code.
+
+`child_process` is not on the blocklist: the `process` grant gates the host's
+bookkeeping API (`noteSubprocess`, `findCommand`), not the spawn itself.
 
 An `in-process` package is a different story. It runs with everything the host
-process can reach, so `network` there is advisory and the approval box says so:
-"network access is enforced only for isolated packages". If you want the
-permission to mean something, stay in the worker.
+process can reach, so `network` there is purely advisory — and even in a worker
+the guardrail above has documented gaps. If you rely on blocking network access,
+read the gaps and decide whether they matter for your case.
 
 Electron works the same way round. An `in-process` host half may
 `import { BrowserWindow } from "electron"` — the host bundler keeps `electron`

@@ -33,10 +33,17 @@ const send = (message: WorkerToHostMessage): void => { port.postMessage(message)
 const granted = new Set(boot.permissions);
 
 /**
- * Node builtins that open a socket. `network` is the only permission the main
- * side cannot enforce for itself — nothing crosses the port when a package
- * dials out — so the worker closes these doors before the bundle is loaded.
- * `child_process` is deliberately absent: it stays governed by `process`.
+ * Node builtins that open a socket. The `Module._load` hook below refuses
+ * these when the grant is missing, and the global shims above refuse the
+ * browser-style APIs.
+ *
+ * This is a guardrail, not an OS boundary:
+ * - `await import("node:https")` bypasses `Module._load` (dynamic import uses
+ *   a different code path in Node 22).
+ * - A nested `worker_threads` worker runs outside this hook entirely.
+ *
+ * `child_process` is absent because `process` gates the host's bookkeeping
+ * (`noteSubprocess`, `findCommand`), not the spawn itself.
  */
 const NETWORK_MODULES = new Set(["http", "https", "net", "tls", "dgram", "http2", "dns"]);
 
@@ -56,8 +63,11 @@ function moduleName(request: string): string {
 }
 
 // Electron's API only exists in the main process, and reaching it from here
-// would be the hole the isolation is meant to close. `Module._load` is the one
-// interception point Electron's Node (22.14) has; `module.registerHooks` needs 22.15.
+// would be the hole the isolation is meant to close. We hook `Module._load`
+// because that is what Electron's Node (22.14) gives us; `module.registerHooks`
+// needs 22.15. Note that this hook does not cover `import()` (dynamic import),
+// so `await import("electron")` would still fail (Electron itself refuses) but
+// `await import("node:https")` does succeed even without the grant.
 /* eslint-disable no-underscore-dangle */
 const loader = Module as unknown as { _load(request: string, parent: unknown, isMain: boolean): unknown };
 const load = loader._load.bind(loader);

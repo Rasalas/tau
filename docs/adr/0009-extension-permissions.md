@@ -62,6 +62,10 @@ Everything is asynchronous where the in-process facade is not, `exclusive(work)`
 
 **Two doors, both shut before the bundle loads.** Without `network`, `host-extension-worker.ts` replaces whichever of `fetch`, `WebSocket`, `EventSource` and `XMLHttpRequest` this Node defines on the worker global, and extends the existing `Module._load` hook to refuse `http`, `https`, `net`, `tls`, `dgram`, `http2` and `dns` — under any `node:` prefix and any submodule, so `node:dns/promises` is the same door as `dns`. Both throw `Extension <id> lacks permission network` and log `host-extension.denied` through the port, so the Inspector and Signals show a denied socket exactly like a denied service member. `child_process` is not on the list: spawning stays governed by `process`. A bundled `ws` or `undici` needs `net`/`tls` and hits the same wall.
 
+**2026-09-10: the guardrails are not boundaries.** The `Module._load` hook does not cover `import()` (dynamic import uses a different code path in Node 22). `await import("node:https")` bypasses the hook and returns a live module. A nested `worker_threads` worker likewise runs outside the interception. `worker_threads` is not in `NETWORK_MODULES` because blocking it would also block the isolation mechanism itself. The grants remain useful as a statement of intent and as a UI guardrail, but they do not stop hostile code. [ADR 0018](0018-sandboxed-host-extensions.md) collects the options for a true boundary.
+
+The `process` grant gates `noteSubprocess` and `findCommand`, not `child_process`. A package without the grant can still spawn processes; it just cannot tell the host about them. The documentation was updated to match.
+
 **In-process is where it stops.** A package granted `in-process` runs with everything the host process can reach; there is no interception point that would hold there, and adding one would be theatre. `in-process` is itself the grant, and for such a package `network` is advisory — Settings says so in the approval box. Bundled kits keep the full facade as before.
 
 ## Consequences
@@ -70,5 +74,5 @@ Everything is asynchronous where the in-process facade is not, `exclusive(work)`
 - A desktop package cannot reach raw IPC: `window.tau` is defined away at bundle time and `globalThis.__tauShared.tau` is the only bridge.
 - A host package can no longer freeze the workbench with a synchronous loop, exhaust the host's heap, or crash it by exiting. It still reads files through Node directly and can still lie in its manifest: the worker bounds the blast radius, it is not an OS sandbox.
 - An isolated package pays a round trip per service call and cannot hold a live host object, which is why a kit that needs one declares `in-process` — and asks the user for it.
-- A worker package that did not ask for `network` cannot open a socket, and the user sees the attempt. A package that asked for `in-process` can, which is one more reason to read that line in the approval box.
+- A worker package that did not ask for `network` meets a guardrail that blocks `fetch` and `require("http")`, but not `await import("node:http")` or a nested worker. A package that asked for `in-process` bypasses all of it, which is one more reason to read that line in the approval box.
 - The CSP no longer allows arbitrary blob scripts, so an injection that can build a string can no longer turn it into a module.
