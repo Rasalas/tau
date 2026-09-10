@@ -104,6 +104,14 @@ a hello, closes the connection. The token is unencrypted on the wire, so a
 listener refuses a non-loopback address unless `TAU_HOST_INSECURE=1` says
 otherwise; across machines the port is forwarded over SSH.
 
+The token is the connection's whole trust boundary, and it is not scoped: a
+client that holds it may call every method in the table, including the ones that
+open a workspace. A client that still speaks paths rather than a `workspaceId`
+has that path accepted as given, so a token holder can point the host at any
+directory its process can read. Treat the token as "may use this host", not as
+"may read these threads": keep it on loopback or behind an SSH tunnel, and set
+`TAU_HOST_INSECURE=1` only for a network that is trusted for its own reasons.
+
 A window can be a client only. `TAU_HOST_URL=ws://machine:port` makes the
 Electron main process open the window without starting a `PiHost`, reach the
 host over the socket (the renderer takes the URL as `?host=`, the token from
