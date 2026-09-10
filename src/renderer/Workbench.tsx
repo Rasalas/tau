@@ -266,6 +266,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const compact = layoutProfile === "compact";
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  useEffect(() => {
+    const handleOpen = () => setSystemPromptOpen(true);
+    window.addEventListener("tau:open-instructions", handleOpen);
+    return () => window.removeEventListener("tau:open-instructions", handleOpen);
+  }, []);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   useEffect(() => { if (!compact) setThreadSheetOpen(false); }, [compact]);

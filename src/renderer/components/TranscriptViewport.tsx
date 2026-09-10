@@ -4,6 +4,7 @@ import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptActivity } from "./transcript-activity";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { TranscriptTurnNavigation } from "./TranscriptTurnNavigation";
+import { TranscriptSearch } from "./TranscriptSearch";
 import {
   clientIdentityKey,
   resolveTurnMessage,
@@ -278,6 +279,106 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     if (node && node.scrollTop < HISTORY_REACH_START_PX) onReachStartRef.current?.();
   }), [navigation.subscribeScroll, scrollRef]);
 
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (searchOpen) return;
+    const node = scrollRef.current;
+    if (!node) return;
+
+    if (event.key === "/" || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f")) {
+      event.preventDefault();
+      setSearchOpen(true);
+      return;
+    }
+
+    if (event.key === "Escape" || event.key === "i" || (event.key === "Enter" && !event.shiftKey)) {
+      event.preventDefault();
+      onFocusComposer?.();
+      return;
+    }
+
+    const scrollByAmount = (delta: number) => {
+      if (typeof node.scrollBy === "function") {
+        node.scrollBy({ top: delta, behavior: "smooth" });
+      } else {
+        node.scrollTop += delta;
+      }
+    };
+    const scrollToAmount = (target: number) => {
+      if (typeof node.scrollTo === "function") {
+        node.scrollTo({ top: target, behavior: "smooth" });
+      } else {
+        node.scrollTop = target;
+      }
+    };
+
+    if (event.key === "j" || (event.key === "ArrowDown" && !event.ctrlKey && !event.metaKey)) {
+      event.preventDefault();
+      scrollByAmount(60);
+      return;
+    }
+
+    if (event.key === "k" || (event.key === "ArrowUp" && !event.ctrlKey && !event.metaKey)) {
+      event.preventDefault();
+      scrollByAmount(-60);
+      return;
+    }
+
+    if (event.key === "PageDown" || (event.ctrlKey && event.key === "d") || (!event.ctrlKey && !event.metaKey && event.key === "d")) {
+      event.preventDefault();
+      scrollByAmount(node.clientHeight * 0.7);
+      return;
+    }
+
+    if (event.key === "PageUp" || (event.ctrlKey && event.key === "u") || (!event.ctrlKey && !event.metaKey && event.key === "u")) {
+      event.preventDefault();
+      scrollByAmount(-node.clientHeight * 0.7);
+      return;
+    }
+
+    if (event.key === "g" || event.key === "Home") {
+      event.preventDefault();
+      scrollToAmount(0);
+      return;
+    }
+
+    if (event.key === "G" || event.key === "End") {
+      event.preventDefault();
+      scrollToAmount(node.scrollHeight);
+      return;
+    }
+
+    if (event.key === "[") {
+      event.preventDefault();
+      if (turnEntries.length > 0) {
+        const currentIndex = turnEntries.findIndex((e) => e.messageId === visibleTurnMessageId);
+        const prevIndex = currentIndex > 0 ? currentIndex - 1 : 0;
+        selectTurn(turnEntries[prevIndex]!.messageId);
+      }
+      return;
+    }
+
+    if (event.key === "]") {
+      event.preventDefault();
+      if (turnEntries.length > 0) {
+        const currentIndex = turnEntries.findIndex((e) => e.messageId === visibleTurnMessageId);
+        const nextIndex = currentIndex !== -1 && currentIndex < turnEntries.length - 1 ? currentIndex + 1 : turnEntries.length - 1;
+        selectTurn(turnEntries[nextIndex]!.messageId);
+      }
+      return;
+    }
+
+    if (event.key === "c" && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+      if (lastAssistant && onCopyMessage) {
+        onCopyMessage(lastAssistant);
+      }
+      return;
+    }
+  };
+
   return <div className={`transcript-viewport${showTurnNavigation ? " with-turn-navigation" : ""}`}>
     {showTurnNavigation ? (
       <TranscriptTurnNavigation
@@ -287,6 +388,16 @@ export const TranscriptViewport = memo(function TranscriptViewport({
         onSelect={selectTurn}
       />
     ) : null}
+    {searchOpen ? (
+      <TranscriptSearch
+        messages={messages}
+        onJump={navigation.jumpToMessage}
+        onClose={() => {
+          setSearchOpen(false);
+          scrollRef.current?.focus();
+        }}
+      />
+    ) : null}
     <div
       className="transcript"
       ref={scrollRef}
@@ -294,6 +405,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       tabIndex={0}
       role="log"
       aria-label="Thread transcript"
+      onKeyDown={handleKeyDown}
     >
       <div className="transcript-inner">
         <VirtualTranscript

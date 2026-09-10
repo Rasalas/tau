@@ -182,6 +182,72 @@ export const workspaceExtension: DesktopExtension = {
       }),
       { profiles: ["desktop", "web", "compact"] },
     );
+
+    let lastAppActions: import("tau").WorkbenchActions | undefined;
+    const openPromptInEditor = async (app?: import("tau").WorkbenchActions) => {
+      const actions = app ?? lastAppActions;
+      if (!actions) return;
+      lastAppActions = actions;
+      const draft = actions.composerDraft();
+      try {
+        const result = (await context.host.invoke("edit-prompt-external", {
+          text: draft,
+          editorId: store.activeEditor()?.id,
+        })) as { path?: string; editor?: string };
+        if (!result?.path) return;
+        actions.notify(`Opened draft in ${result.editor ?? "editor"}. Updating on save…`);
+        let lastText = draft;
+        let checks = 0;
+        const interval = setInterval(async () => {
+          checks++;
+          if (checks > 180) { clearInterval(interval); return; }
+          try {
+            const read = (await context.host.invoke("read-prompt-external", { path: result.path })) as { text?: string };
+            if (read?.text !== undefined && read.text !== lastText) {
+              lastText = read.text;
+              actions.focusComposer(read.text);
+            }
+          } catch {
+            clearInterval(interval);
+          }
+        }, 1000);
+      } catch (error) {
+        actions.notify(errorMessage(error));
+      }
+    };
+    const onPromptEditorEvent = () => { void openPromptInEditor(); };
+    if (typeof window !== "undefined") {
+      window.addEventListener("tau:open-prompt-editor", onPromptEditorEvent);
+    }
+
+    context.registerCommand({
+      id: "workspace.open-prompt-editor",
+      label: "Edit prompt in external editor",
+      group: "Thread",
+      run: (app) => { lastAppActions = app; void openPromptInEditor(app); },
+    });
+    context.registerSlashCommand({
+      name: "editor",
+      description: "Open the current prompt draft in your external editor",
+      run: (_args, app) => { lastAppActions = app; void openPromptInEditor(app); return undefined; },
+    });
+    context.registerSlashCommand({
+      name: "diff",
+      description: "Inspect Git changes in stage",
+      run: (_args, app) => { app.openPanel(WORKSPACE_CHANGES_PANEL); return undefined; },
+    });
+    context.registerSlashCommand({
+      name: "files",
+      description: "Open file index in stage",
+      run: (_args, app) => { app.openPanel(WORKSPACE_FILES_PANEL); return undefined; },
+    });
+    context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
+
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("tau:open-prompt-editor", onPromptEditorEvent);
+      }
+    };
   },
 };
 

@@ -556,6 +556,123 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   );
 }
 
+function KeybindingsPage({ registry }: { registry: ExtensionRegistry }) {
+  const [filter, setFilter] = useState("");
+  const [showAllCommands, setShowAllCommands] = useState(false);
+
+  const keybindings = registry.getKeybindings();
+  const commands = registry.getCommands();
+  const conflicts = registry.getKeybindingConflicts();
+
+  const query = filter.trim().toLowerCase();
+
+  const filteredBindings = useMemo(() => {
+    if (!query) return keybindings;
+    return keybindings.filter((b) => {
+      const cmd = commands.find((c) => c.id === b.commandId);
+      const label = cmd?.label?.toLowerCase() ?? "";
+      return (
+        label.includes(query) ||
+        b.commandId.toLowerCase().includes(query) ||
+        b.keys.toLowerCase().includes(query) ||
+        b.label.toLowerCase().includes(query) ||
+        b.extensionName.toLowerCase().includes(query)
+      );
+    });
+  }, [keybindings, commands, query]);
+
+  const filteredCommands = useMemo(() => {
+    if (!query) return commands;
+    return commands.filter((c) =>
+      c.label.toLowerCase().includes(query) ||
+      c.id.toLowerCase().includes(query) ||
+      c.group.toLowerCase().includes(query)
+    );
+  }, [commands, query]);
+
+  return (
+    <div className="settings-page">
+      <h3>Keybindings</h3>
+      <p className="lede">Chords bound to workbench commands and Pi actions; configure custom chords in <code>~/.pi/agent/keybindings.json</code>.</p>
+
+      <div style={{ margin: "14px 0 10px 0" }}>
+        <input
+          type="search"
+          className="settings-search-input"
+          placeholder="Filter keybindings or commands…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+
+      <div className="settings-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: "460px" }}>
+        <span>ACTIVE KEYBINDINGS ({filteredBindings.length})</span>
+        <button
+          className="ghost"
+          style={{ fontSize: "11px", padding: "2px 6px", cursor: "pointer" }}
+          onClick={() => setShowAllCommands((v) => !v)}
+        >
+          {showAllCommands ? "Hide all command IDs" : "Show all command IDs"}
+        </button>
+      </div>
+
+      <div className="keybinding-list">
+        {filteredBindings.map((binding) => (
+          <div className="keybinding-row" key={binding.keys}>
+            <span>
+              <strong>{commands.find((command) => command.id === binding.commandId)?.label ?? binding.commandId}</strong>
+              <small style={{ display: "block", opacity: 0.7, fontSize: "10.5px" }}>{binding.commandId} · {binding.extensionName.toLowerCase()}</small>
+            </span>
+            <kbd>{binding.label}</kbd>
+          </div>
+        ))}
+        {filteredBindings.length === 0 ? (
+          <div className="keybinding-row"><span>No keybindings match &ldquo;{filter}&rdquo;.</span></div>
+        ) : null}
+      </div>
+
+      {conflicts.map((conflict) => (
+        <div className="settings-note" key={`${conflict.keys}:${conflict.commandId}`}>
+          {conflict.keys} from {conflict.extensionId} ({conflict.commandId}) was ignored: {conflict.boundTo.extensionId} bound it to {conflict.boundTo.commandId} first.
+        </div>
+      ))}
+
+      {showAllCommands ? (
+        <>
+          <div className="settings-label" style={{ marginTop: "24px", maxWidth: "460px" }}>
+            ALL REGISTERED COMMANDS ({filteredCommands.length})
+          </div>
+          <p className="settings-note">Use any of these command IDs in <code>~/.pi/agent/keybindings.json</code> to bind custom chords.</p>
+          <div className="keybinding-list">
+            {filteredCommands.map((command) => {
+              const bound = keybindings.filter((b) => b.commandId === command.id);
+              return (
+                <div className="keybinding-row" key={command.id}>
+                  <span>
+                    <strong>{command.label}</strong>
+                    <small style={{ display: "block", opacity: 0.7, fontSize: "10.5px" }}><code>{command.id}</code> ({command.group})</small>
+                  </span>
+                  <div>
+                    {bound.length > 0 ? (
+                      bound.map((b) => <kbd key={b.keys} style={{ marginLeft: "4px" }}>{b.label}</kbd>)
+                    ) : (
+                      <span style={{ fontSize: "11px", opacity: 0.5 }}>Unbound</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+
+      <div className="settings-note" style={{ marginTop: "18px" }}>
+        Pi&apos;s <code>~/.pi/agent/keybindings.json</code> rebinds any command ID (e.g. <code>runtime.abort</code>, <code>workspace.open-prompt-editor</code>, <code>workbench.toggle-dock</code>) or Pi action (<code>app.session.new</code>, <code>app.interrupt</code>, <code>app.model.select</code>, <code>app.thinking.toggle</code>, <code>app.session.tree</code>, <code>app.session.fork</code>, <code>app.editor.open</code>); run <code>/reload</code> after editing it.
+      </div>
+    </div>
+  );
+}
+
 export function SettingsModal({
   page,
   snapshot,
@@ -669,26 +786,7 @@ export function SettingsModal({
               onSetThinking={onSetThinking}
             />
           ) : page === "keybindings" ? (
-            <div className="settings-page">
-              <h3>Keybindings</h3>
-              <p className="lede">Chords extensions bound to their commands; the first binding of a chord wins.</p>
-              <div className="keybinding-list">
-                {registry.getKeybindings().map((binding) => (
-                  <div className="keybinding-row" key={binding.keys}>
-                    <span>{registry.getCommands().find((command) => command.id === binding.commandId)?.label ?? binding.commandId}</span>
-                    <small>{binding.extensionName.toLowerCase()}</small>
-                    <kbd>{binding.label}</kbd>
-                  </div>
-                ))}
-                {registry.getKeybindings().length === 0 ? <div className="keybinding-row"><span>No extension binds a key.</span></div> : null}
-              </div>
-              {registry.getKeybindingConflicts().map((conflict) => (
-                <div className="settings-note" key={`${conflict.keys}:${conflict.commandId}`}>
-                  {conflict.keys} from {conflict.extensionId} ({conflict.commandId}) was ignored: {conflict.boundTo.extensionId} bound it to {conflict.boundTo.commandId} first.
-                </div>
-              ))}
-              <div className="settings-note">Pi's <code>~/.pi/agent/keybindings.json</code> rebinds the runtime commands (app.session.new, app.interrupt, app.model.select, app.thinking.toggle) and the shortcuts Pi extensions register; run /reload after editing it.</div>
-            </div>
+            <KeybindingsPage registry={registry} />
           ) : contributed ? (
             <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
           ) : page === "inspector" ? (

@@ -24,6 +24,7 @@ export const reviewExtension: DesktopExtension = {
       const disposers = [
         plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store) }),
         plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => store.openReview() }),
+        plugin.registerSlashCommand({ name: "review", description: "Open the full Git review overlay", run: () => { store.openReview(); return undefined; } }),
         plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" }),
         registerCommitMessages(plugin, store),
       ];

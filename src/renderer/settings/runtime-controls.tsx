@@ -206,6 +206,65 @@ export const runtimeControls: DesktopExtension = {
       },
     });
     plugin.registerSlashCommand({
+      name: "clear",
+      description: "Clear conversation and start a new thread",
+      run: (_args, app) => {
+        app.newSession();
+        return undefined;
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "system",
+      description: "Inspect active system prompt and AGENTS.md instructions",
+      run: (_args, app) => {
+        app.openInstructions?.();
+        return undefined;
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "instructions",
+      description: "Inspect active system prompt and AGENTS.md instructions",
+      run: (_args, app) => {
+        app.openInstructions?.();
+        return undefined;
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "copy",
+      description: "Copy chat as Markdown to clipboard",
+      run: async (_args, app) => {
+        if (app.copyChat) {
+          await app.copyChat();
+          app.notify("Chat copied as Markdown.");
+          return undefined;
+        }
+        return "Copy chat is not available.";
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "export",
+      description: "Export current chat as Markdown to clipboard",
+      run: async (_args, app) => {
+        if (app.copyChat) {
+          await app.copyChat();
+          app.notify("Exported chat to clipboard as Markdown.");
+          return undefined;
+        }
+        return "Export is not available.";
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "session",
+      description: "Display session details, runtime, and model info",
+      run: (_args, app) => {
+        const thread = app.activeThread();
+        if (!thread) return "No active session.";
+        const modelStr = thread.model ? `${thread.model.provider}/${thread.model.id}` : "default";
+        app.notify(`Session: ${thread.sessionId ?? "new"} · Backend: ${thread.backendKind ?? "pi"} · Model: ${modelStr}`);
+        return undefined;
+      },
+    });
+    plugin.registerSlashCommand({
       name: "help",
       description: "Open command palette and list shortcuts",
       run: (_args, app) => {
@@ -213,6 +272,24 @@ export const runtimeControls: DesktopExtension = {
         return undefined;
       },
     });
+    plugin.registerCommand({
+      id: "runtime.instructions",
+      label: "Inspect active system prompt & instructions",
+      group: "Thread",
+      run: (app) => app.openInstructions?.(),
+    });
+    plugin.registerCommand({
+      id: "runtime.copy-chat",
+      label: "Copy chat as Markdown",
+      group: "Thread",
+      run: async (app) => {
+        if (app.copyChat) {
+          await app.copyChat();
+          app.notify("Chat copied as Markdown.");
+        }
+      },
+    });
+    plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });

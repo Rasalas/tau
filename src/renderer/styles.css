@@ -498,6 +498,28 @@ button > svg { pointer-events: none; }
   position: absolute; z-index: 4; inset: 0; pointer-events: none;
 }
 .transcript-overlay .transcript-jump { pointer-events: auto; }
+.transcript-search-bar {
+  position: absolute; top: 12px; right: 24px; z-index: 10;
+  display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+  background: var(--float); border: 1px solid var(--line-strong);
+  border-radius: 8px; box-shadow: 0 4px 16px var(--shadow);
+  pointer-events: auto;
+}
+.transcript-search-bar input {
+  border: none; outline: none; background: transparent; color: var(--ink);
+  font: 12.5px var(--sans); width: 180px; padding: 2px 4px;
+}
+.transcript-search-bar .search-count {
+  font: 11px var(--mono); color: var(--muted); min-width: 48px; text-align: center;
+}
+.transcript-search-bar button {
+  display: grid; place-items: center; width: 22px; height: 22px;
+  border: none; border-radius: 4px; background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.transcript-search-bar button:hover {
+  background: var(--raised); color: var(--ink);
+}
 .transcript:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .transcript-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; }
 .transcript-history-control {
@@ -1112,11 +1134,14 @@ button > svg { pointer-events: none; }
 .runtime-chip:hover { background: var(--raised); color: var(--ink); }
 .runtime-chip { font-family: var(--sans); font-size: 12.5px; }
 .composer-toolbar .spacer { flex: 1; }
-.attach-button {
+.attach-button,
+.composer-action-btn {
   width: 32px; height: 32px; flex: none; display: grid; place-items: center;
   border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer;
 }
-.attach-button:hover { background: var(--raised); color: var(--ink); }
+.attach-button:hover,
+.composer-action-btn:hover { background: var(--raised); color: var(--ink); }
+.composer-action-btn.active { color: var(--acid-text); background: var(--raised); }
 .attachment-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .attachment-lightbox {
   position: fixed; inset: 0; z-index: 92; display: grid; place-items: center; padding: 52px;
@@ -1813,6 +1838,24 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .chip {
   font: 10px var(--mono); color: var(--muted);
   border: 1px solid var(--line-control); border-radius: 5px; padding: 2px 7px;
+}
+.settings-search-input {
+  width: 100%;
+  max-width: 460px;
+  box-sizing: border-box;
+  padding: 8px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--line-control);
+  background: var(--sunken);
+  color: var(--ink);
+  font: 12px var(--sans);
+  outline: none;
+}
+.settings-search-input:focus {
+  border-color: var(--line-field);
+}
+.settings-search-input::placeholder {
+  color: var(--faint);
 }
 .keybinding-list { display: flex; flex-direction: column; gap: 2px; max-width: 460px; margin-top: 14px; }
 .keybinding-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }

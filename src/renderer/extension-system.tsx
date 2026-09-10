@@ -81,6 +81,10 @@ export interface WorkbenchActions {
   setModel?(provider: string, id?: string): Promise<boolean> | void;
   /** Sets the thinking level for the active thread. */
   setThinkingLevel?(level: string): Promise<void>;
+  /** Opens the active instructions and system prompt modal. */
+  openInstructions?(): void;
+  /** Copies the active thread's conversation as Markdown. */
+  copyChat?(): Promise<void>;
 }
 
 /** Stamped onto every contribution so the UI can say which extension supplied it. */

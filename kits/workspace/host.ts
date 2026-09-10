@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   assertAllowedCloneSource,
@@ -437,6 +437,24 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = optionalRelativePath(input);
         if (path) await workspaceGit.assertWorkspacePath(project, path);
         await workspaceGit.openInEditor(project, editorId, path);
+      });
+      context.registerCommand("edit-prompt-external", async (input) => {
+        const text = optionalString(input, "text") ?? "";
+        const editorId = optionalString(input, "editorId");
+        const promptFile = join(tmpdir(), `tau-prompt-${Date.now()}.md`);
+        await writeFile(promptFile, text, "utf8");
+        const available = await workspaceGit.listEditors();
+        const chosen = editorId && available.some((e) => e.id === editorId) ? editorId : (available[0]?.id || "code");
+        await workspaceGit.openInEditor(dirname(promptFile), chosen, basename(promptFile));
+        return { path: promptFile, editor: chosen };
+      });
+      context.registerCommand("read-prompt-external", async (input) => {
+        const path = requiredString(input, "path");
+        try {
+          return { text: await readFile(path, "utf8") };
+        } catch {
+          return { text: undefined };
+        }
       });
       return () => { for (const dispose of disposers.reverse()) dispose(); };
     },

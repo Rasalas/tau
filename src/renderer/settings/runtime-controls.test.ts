@@ -52,7 +52,8 @@ describe("runtime controls slash commands", () => {
     const registry = new ExtensionRegistry();
     registry.activate(runtimeControls);
     expect(registry.getSlashCommands().map((command) => command.name)).toEqual([
-      "reload", "tree", "fork", "clone", "compact", "model", "thinking", "new", "help",
+      "reload", "tree", "fork", "clone", "compact", "model", "thinking", "new",
+      "clear", "system", "instructions", "copy", "export", "session", "help",
     ]);
     const reloadWorkbench = vi.fn(async () => false);
     const compactContext = vi.fn(async () => {});
@@ -63,6 +64,8 @@ describe("runtime controls slash commands", () => {
     const newSession = vi.fn();
     const openCommandPalette = vi.fn();
     const notify = vi.fn();
+    const openInstructions = vi.fn();
+    const copyChat = vi.fn(async () => {});
     const actions = {
       reloadWorkbench,
       compactContext,
@@ -73,6 +76,8 @@ describe("runtime controls slash commands", () => {
       newSession,
       openCommandPalette,
       notify,
+      openInstructions,
+      copyChat,
     } as unknown as WorkbenchActions;
 
     await expect(registry.findSlashCommand("/reload")!.command.run("", actions)).resolves.toBe("Tau reload failed.");
@@ -98,6 +103,15 @@ describe("runtime controls slash commands", () => {
     await registry.findSlashCommand("/new")!.command.run("", actions);
     expect(newSession).toHaveBeenCalled();
 
+    await registry.findSlashCommand("/system")!.command.run("", actions);
+    expect(openInstructions).toHaveBeenCalled();
+
+    await registry.findSlashCommand("/copy")!.command.run("", actions);
+    expect(copyChat).toHaveBeenCalled();
+
+    await registry.findSlashCommand("/clear")!.command.run("", actions);
+    expect(newSession).toHaveBeenCalledTimes(2);
+
     await registry.findSlashCommand("/help")!.command.run("", actions);
     expect(openCommandPalette).toHaveBeenCalled();
   });
@@ -114,6 +128,7 @@ describe("runtime controls keybindings", () => {
       "runtime.abort": "escape",
       "runtime.transcript-detail": "mod+shift+t",
       "runtime.model": "mod+shift+m",
+      "runtime.instructions": "mod+i",
       "workbench.focus-composer": "mod+1",
       "workbench.focus-transcript": "mod+2",
       "workbench.focus-stage": "mod+3",

@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, X } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, GripVertical, Maximize2, Minimize2, Paperclip, Sparkles, SquarePen, X } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -176,6 +176,7 @@ export function Composer({
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<SelectedSkill>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const text = value ?? activeScopeSnapshot.draft;
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -186,9 +187,10 @@ export function Composer({
       textarea.style.height = "";
       return;
     }
-    textarea.style.height = `${Math.min(contentHeight, MAX_COMPOSER_HEIGHT)}px`;
-    textarea.style.overflowY = contentHeight > MAX_COMPOSER_HEIGHT ? "auto" : "hidden";
-  }, [text, textareaRef]);
+    const currentMaxHeight = isExpanded ? 520 : MAX_COMPOSER_HEIGHT;
+    textarea.style.height = `${Math.min(contentHeight, currentMaxHeight)}px`;
+    textarea.style.overflowY = contentHeight > currentMaxHeight ? "auto" : "hidden";
+  }, [isExpanded, text, textareaRef]);
   // Extensions contribute slash commands and the rest of the toolbar; outside
   // the workbench shell (tests, previews) there are none.
   const registry = useContext(WorkbenchShellContext)?.registry;
@@ -753,6 +755,73 @@ export function Composer({
                   return;
                 }
               }
+              // Readline / Emacs line editing shortcuts
+              if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+                const el = textareaRef.current;
+                if (el) {
+                  const pos = el.selectionStart ?? 0;
+                  if (event.key === "a") {
+                    event.preventDefault();
+                    const startOfLine = text.lastIndexOf("\n", pos - 1) + 1;
+                    el.setSelectionRange(startOfLine, startOfLine);
+                    setCaret(startOfLine);
+                    return;
+                  }
+                  if (event.key === "e") {
+                    event.preventDefault();
+                    let endOfLine = text.indexOf("\n", pos);
+                    if (endOfLine === -1) endOfLine = text.length;
+                    el.setSelectionRange(endOfLine, endOfLine);
+                    setCaret(endOfLine);
+                    return;
+                  }
+                  if (event.key === "k") {
+                    event.preventDefault();
+                    let endOfLine = text.indexOf("\n", pos);
+                    if (endOfLine === -1) endOfLine = text.length;
+                    else if (endOfLine === pos) endOfLine = pos + 1;
+                    const nextText = text.slice(0, pos) + text.slice(endOfLine);
+                    updateDraft(nextText);
+                    setCaret(pos);
+                    requestAnimationFrame(() => el.setSelectionRange(pos, pos));
+                    return;
+                  }
+                  if (event.key === "u") {
+                    event.preventDefault();
+                    const startOfLine = text.lastIndexOf("\n", pos - 1) + 1;
+                    const nextText = text.slice(0, startOfLine) + text.slice(pos);
+                    updateDraft(nextText);
+                    setCaret(startOfLine);
+                    requestAnimationFrame(() => el.setSelectionRange(startOfLine, startOfLine));
+                    return;
+                  }
+                  if (event.key === "w") {
+                    event.preventDefault();
+                    const before = text.slice(0, pos);
+                    const match = before.match(/(\s*\S+)\s*$/);
+                    const deleteLen = match ? match[0].length : 0;
+                    const newPos = Math.max(0, pos - deleteLen);
+                    const nextText = text.slice(0, newPos) + text.slice(pos);
+                    updateDraft(nextText);
+                    setCaret(newPos);
+                    requestAnimationFrame(() => el.setSelectionRange(newPos, newPos));
+                    return;
+                  }
+                }
+              }
+              // External editor shortcut (Mod+E or Ctrl+O)
+              if ((event.key === "o" && event.ctrlKey && !event.metaKey && !event.altKey) ||
+                  (event.key.toLowerCase() === "e" && (event.metaKey || event.ctrlKey) && !event.shiftKey)) {
+                event.preventDefault();
+                window.dispatchEvent(new CustomEvent("tau:open-prompt-editor"));
+                return;
+              }
+              // Expand/collapse composer shortcut (Mod+Shift+E)
+              if (event.key.toLowerCase() === "e" && (event.metaKey || event.ctrlKey) && event.shiftKey) {
+                event.preventDefault();
+                setIsExpanded((prev) => !prev);
+                return;
+              }
             }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
@@ -856,6 +925,26 @@ export function Composer({
 
           </div>
           <span className="spacer" />
+
+          <button
+            className={`composer-action-btn${isExpanded ? " active" : ""}`}
+            type="button"
+            title={isExpanded ? "Collapse composer (⇧⌘E)" : "Expand composer (⇧⌘E)"}
+            aria-label={isExpanded ? "Collapse composer" : "Expand composer"}
+            onClick={() => setIsExpanded((prev) => !prev)}
+          >
+            {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+
+          <button
+            className="composer-action-btn"
+            type="button"
+            title="Edit prompt in external editor (⌘E / Ctrl+O)"
+            aria-label="Edit prompt in external editor"
+            onClick={() => window.dispatchEvent(new CustomEvent("tau:open-prompt-editor"))}
+          >
+            <SquarePen size={16} />
+          </button>
 
           <button className="attach-button" type="button" title={supportsImageInput ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE} aria-label="Attach files" disabled={!supportsImageInput} onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={17} />

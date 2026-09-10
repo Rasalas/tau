@@ -48,6 +48,7 @@ export interface UseWorkbenchActionsOptions {
   openThread: WorkbenchActions["openThread"];
   setComposerHolds: Dispatch<SetStateAction<number>>;
   setComposerModel: (provider: string, id: string) => Promise<void> | void;
+  openInstructions?: () => void;
 }
 
 export function useWorkbenchActions(options: UseWorkbenchActionsOptions): WorkbenchActions {
@@ -137,6 +138,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       return () => options.setComposerHolds((count) => Math.max(0, count - 1));
     },
     composerDraft: () => activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "",
+    openInstructions: options.openInstructions ?? (() => { window.dispatchEvent(new CustomEvent("tau:open-instructions")); }),
+    copyChat: () => options.threadCommands.copyThreadValue("chat"),
   }), [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,

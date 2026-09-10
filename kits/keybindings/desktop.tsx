@@ -15,6 +15,14 @@ const PI_KEYBINDINGS: ReadonlyArray<{ commandId: string; piAction: string }> = [
   { commandId: "runtime.model", piAction: "app.model.select" },
   // Pi's thinking toggle is Tau's transcript detail: the level that shows reasoning.
   { commandId: "runtime.transcript-detail", piAction: "app.thinking.toggle" },
+  { commandId: "runtime.thread-tree", piAction: "app.session.tree" },
+  { commandId: "runtime.fork-thread", piAction: "app.session.fork" },
+  { commandId: "runtime.instructions", piAction: "app.instructions.view" },
+  { commandId: "runtime.instructions", piAction: "app.system.prompt" },
+  { commandId: "runtime.command-palette", piAction: "app.palette.open" },
+  { commandId: "runtime.command-palette", piAction: "app.command.palette" },
+  { commandId: "workspace.open-prompt-editor", piAction: "app.editor.open" },
+  { commandId: "runtime.copy-chat", piAction: "app.chat.copy" },
 ];
 
 // No host, or a host without this kit's entry (safe mode): core's chords stay.
@@ -27,11 +35,18 @@ function bindPiKeys(plugin: DesktopExtensionContext, isDisposed: () => boolean):
   void plugin.host.invoke("pi-keybindings").then((state) => {
     if (isDisposed()) return;
     const bindings = (state as PiKeybindingsState).bindings;
-    for (const entry of PI_KEYBINDINGS) {
-      const keys = bindings[entry.piAction];
+    const actionToCommand = new Map<string, string>(
+      PI_KEYBINDINGS.map((entry) => [entry.piAction, entry.commandId])
+    );
+    for (const [action, keys] of Object.entries(bindings)) {
       if (!keys?.length) continue;
+      const commandId = actionToCommand.get(action) ?? action;
       for (const chord of keys) {
-        try { plugin.registerKeybinding({ keys: chord, commandId: entry.commandId, replaces: entry.commandId }); } catch (error) { console.warn(`keybindings.json: ${entry.piAction} = ${chord} is not a chord Tau understands`, error); }
+        try {
+          plugin.registerKeybinding({ keys: chord, commandId, replaces: commandId });
+        } catch (error) {
+          console.warn(`keybindings.json: ${action} = ${chord} is not a chord Tau understands`, error);
+        }
       }
     }
   }).catch(ignoreHostUnavailable);
