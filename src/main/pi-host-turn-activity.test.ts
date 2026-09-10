@@ -14,6 +14,7 @@ import { loadBundledKitHostHalves } from "./bundled-kits.js";
 import { readBootstrapCache, writeBootstrapCache } from "../workbench/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../workbench/transcript-history-page-state.js";
 import { TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
+import { adoptThread, setActiveThread, setSessionIndex, attachRuntimeWithBridge, activateHostExtensions, mockActivationCoordination, mockInternalMethods, getActiveThreadId, rawInternals } from "./test-support/host-harness.js";
 
 describe("cleanThreadTitle", () => {
   it("removes Markdown and title-model framing", () => {
@@ -46,7 +47,7 @@ describe("workspace metadata scope", () => {
       },
     };
     const host = new PiHost("/known", () => undefined, history as never, false, false, { hostExtensions: [paths] });
-    await (host as unknown as { activateHostExtensions(): Promise<void> }).activateHostExtensions();
+    await activateHostExtensions(host);
     await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/known/../known" })).resolves.toBe("/known");
     await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/not-a-project" })).rejects.toThrow("known Tau project");
   });
@@ -104,8 +105,7 @@ function piPromptThread(session: {
 }
 
 async function adoptPiPromptThread(host: PiHost, session: Parameters<typeof piPromptThread>[0]): Promise<void> {
-  const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
-  await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: piPromptThread(session), isolation: "in-process" });
+  await adoptThread(host, { threadId: "session", cwd: "/repo", runtime: piPromptThread(session) });
 }
 
 /** Minimal current ThreadRuntime owner used by activation-race tests. */
@@ -245,8 +245,7 @@ describe("PiHost deliberate tool-output reads", () => {
       { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
       { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
     ]);
-    const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
-    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime: thread });
 
     await expect(host.readToolOutput("session", "call")).resolves.toEqual({
       toolCallId: "call",
@@ -270,8 +269,7 @@ describe("PiHost deliberate tool-output reads", () => {
       { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
       { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
     ]);
-    const internals = host as unknown as { threads: { adopt(record: unknown): Promise<void> } };
-    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime: thread });
 
     await expect(host.readToolOutput("session", "call")).resolves.toMatchObject({
       toolCallId: "call",
@@ -295,12 +293,10 @@ describe("PiHost deliberate tool-output reads", () => {
         ...(end < output.length ? { nextOffset: end } : {}),
       };
     });
-    const internals = host as unknown as {
-      attached: { session: { client?: object; snapshot?: PiBridgeSnapshot; command: typeof bridgeCommand } };
-    };
-    internals.attached.session.client = {};
-    internals.attached.session.snapshot = { sessionId: "session" } as PiBridgeSnapshot;
-    internals.attached.session.command = bridgeCommand;
+    attachRuntimeWithBridge(host, {
+      snapshot: { sessionId: "session" } as PiBridgeSnapshot,
+      command: bridgeCommand as (...args: unknown[]) => unknown,
+    });
 
     await expect(host.readToolOutput("session", "call")).resolves.toMatchObject({
       toolCallId: "call",
@@ -323,7 +319,7 @@ async function titleHost(emit: (event: unknown) => void = () => undefined, creat
     hostExtensions: threadTitlesKit,
     ...(createModelRuntime ? { createModelRuntime } : {}),
   });
-  await (host as unknown as { activateHostExtensions(): Promise<void> }).activateHostExtensions();
+  await activateHostExtensions(host);
   return host;
 }
 
@@ -335,13 +331,9 @@ describe("PiHost.generateThreadTitle", () => {
       state: () => ({ streaming: false, idle: true, hasMessages: false, activeTools: [], supportsImageInput: false, extensionCount: 0 }),
       transcript: async () => [],
     });
-    const internals = host as unknown as {
-      threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
-      index: { sessions: Array<Record<string, unknown>> };
-    };
-    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
-    internals.threads.setActive("session");
-    internals.index.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 0 }];
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime: thread });
+    setActiveThread(host, "session");
+    setSessionIndex(host, [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 0 }]);
 
     await expect(host.invokeHostExtension("tau.thread-titles", "generate", { provider: "provider", modelId: "model", force: false, sessionId: "session" }))
       .resolves.toBeUndefined();
@@ -414,13 +406,9 @@ describe("PiHost.generateThreadTitle", () => {
     const published: unknown[] = [];
     // Titles complete on the host's model runtime, whatever runtime owns the thread.
     const host = await titleHost((event) => published.push(event), async () => session.modelRuntime as never);
-    const internals = host as unknown as {
-      threads: { adopt(record: unknown): Promise<void>; setActive(sessionId: string): void };
-      index: { sessions: Array<Record<string, unknown>> };
-    };
-    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
-    internals.threads.setActive("session");
-    internals.index.sessions = [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 1 }];
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime: thread });
+    setActiveThread(host, "session");
+    setSessionIndex(host, [{ id: "session", path: "/session.jsonl", title: "Untitled thread", modifiedAt: 1, projectPath: "/repo", projectName: "repo", messageCount: 1 }]);
 
     const generated = host.invokeHostExtension("tau.thread-titles", "generate", {
       provider: "provider", modelId: "model", force: false, sessionId: "session", prompt: "Fix automatic titles",
@@ -442,74 +430,69 @@ describe("PiHost.generateThreadTitle", () => {
 
   it("does not let a stale new-thread activation replace a newer live switch", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
-    const internals = host as unknown as {
-      beginActivation(): number;
-      activateThread(thread: unknown, touch: boolean, epoch: number): Promise<boolean>;
-      threads: { adopt(record: unknown): Promise<void>; active?: { runtime: unknown; threadId: string }; setActive(threadId: string): void };
-      rememberProject(cwd: string): Promise<void>;
-      index: { refreshShell(thread: unknown, touch: boolean): Promise<void> };
-      prewarm: { scheduleThreads(): void; scheduleSpare(cwd: string): void };
-    };
     const makeThread = (threadId: string) => makeActivationThread(threadId);
     const staleThread = makeThread("new-thread");
     const liveThread = makeThread("live-thread");
-    await internals.threads.adopt({ threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
-    await internals.threads.adopt({ threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+    await adoptThread(host, { threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread });
+    await adoptThread(host, { threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread });
 
     let releaseStale!: () => void;
     let staleEntered!: () => void;
     const staleStarted = new Promise<void>((resolve) => { staleEntered = resolve; });
     const staleGate = new Promise<void>((resolve) => { releaseStale = resolve; });
+    
+    const coord = mockActivationCoordination(host);
+    const internals = rawInternals(host);
     internals.rememberProject = async () => {
       if (internals.threads.active?.runtime === staleThread) {
         staleEntered();
         await staleGate;
       }
     };
-    internals.index.refreshShell = async () => {};
-    internals.prewarm.scheduleThreads = () => {};
-    internals.prewarm.scheduleSpare = () => {};
 
-    const staleEpoch = internals.beginActivation();
-    const staleActivation = internals.activateThread(staleThread, true, staleEpoch);
+    const staleEpoch = coord.beginActivation();
+    const staleActivation = coord.activateThread(staleThread, true, staleEpoch);
     await staleStarted;
-    const liveEpoch = internals.beginActivation();
-    await expect(internals.activateThread(liveThread, false, liveEpoch)).resolves.toBe(true);
+    const liveEpoch = coord.beginActivation();
+    await expect(coord.activateThread(liveThread, false, liveEpoch)).resolves.toBe(true);
     releaseStale();
 
     await expect(staleActivation).resolves.toBe(false);
-    expect(internals.threads.active?.threadId).toBe("live-thread");
+    expect(getActiveThreadId(host)).toBe("live-thread");
   });
 
   it("keeps a superseded newSession alive in the background when a newer live switch wins", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
-    const internals = host as unknown as Record<string, any>;
     const staleThread = makeActivationThread("new-thread", "/new.jsonl");
     const liveThread = makeActivationThread("live-thread", "/live.jsonl");
-    await internals.threads.adopt({ threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
-    await internals.threads.adopt({ threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+    await adoptThread(host, { threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread });
+    await adoptThread(host, { threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread });
 
     let releaseStale!: () => void;
     let staleEntered!: () => void;
     const staleStarted = new Promise<void>((resolve) => { staleEntered = resolve; });
     const staleGate = new Promise<void>((resolve) => { releaseStale = resolve; });
-    internals.rememberProject = async () => {
-      if (internals.threads.active?.runtime === staleThread) {
-        staleEntered();
-        await staleGate;
-      }
-    };
-    internals.index.refreshShell = async () => {};
-    internals.detachBridge = () => {};
-    internals.takeSpareThread = async () => undefined;
-    internals.runtimes.open = async () => staleThread;
-    internals.logReplacement = () => {};
-    internals.prewarm.scheduleSpare = () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
+    
     const released: string[] = [];
-    internals.threads.release = async (threadId: string) => { released.push(threadId); };
     const prompts: string[] = [];
-    internals.prompt = async (text: string) => { prompts.push(text); };
+    const internals = rawInternals(host);
+    mockInternalMethods(host, {
+      rememberProject: async () => {
+        if (internals.threads.active?.runtime === staleThread) {
+          staleEntered();
+          await staleGate;
+        }
+      },
+      refreshShell: async () => {},
+      detachBridge: () => {},
+      takeSpareThread: async () => undefined,
+      openRuntime: async () => staleThread,
+      logReplacement: () => {},
+      activeUpdates: async () => ({ version: 1, updates: [] }),
+      release: async (threadId: string) => { released.push(threadId); },
+      prompt: async (text: string) => { prompts.push(text); },
+    });
+    internals.prewarm.scheduleSpare = () => {};
 
     const staleNewSession = host.newSession("stale prompt", [], "/repo");
     await staleStarted;
@@ -526,26 +509,27 @@ describe("PiHost.generateThreadTitle", () => {
     });
     await vi.waitFor(() => expect(prompts).toEqual(["stale prompt"]));
     expect(released).toEqual([]);
-    expect(internals.threads.active?.threadId).toBe("live-thread");
+    expect(getActiveThreadId(host)).toBe("live-thread");
   });
 
   it("applies an explicit new-thread model to the created runtime", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
-    const internals = host as unknown as Record<string, any>;
     const thread = makeActivationThread("configured-thread", "/configured.jsonl");
     const selectedModels: Array<{ provider: string; id: string }> = [];
     thread.backend.capabilities.catalogWrite = {
       setModel: async (provider: string, id: string) => { selectedModels.push({ provider, id }); },
       setThinkingLevel: async () => undefined,
     };
-    internals.rememberProject = async () => {};
-    internals.index.refreshShell = async () => {};
-    internals.detachBridge = () => {};
-    internals.runtimes.open = async () => thread;
-    internals.logReplacement = () => {};
-    internals.prewarm.scheduleSpare = () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
-    internals.prompt = async () => undefined;
+    mockInternalMethods(host, {
+      rememberProject: async () => {},
+      refreshShell: async () => {},
+      detachBridge: () => {},
+      openRuntime: async () => thread,
+      logReplacement: () => {},
+      activeUpdates: async () => ({ version: 1, updates: [] }),
+      prompt: async () => undefined,
+    });
+    rawInternals(host).prewarm.scheduleSpare = () => {};
 
     await expect(host.newSession(
       "start with Astra",
@@ -561,26 +545,28 @@ describe("PiHost.generateThreadTitle", () => {
 
   it("admits newSession before the lifecycle queue so a later live switch stays visible", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
-    const internals = host as unknown as Record<string, any>;
     const staleThread = makeActivationThread("queued-new-thread", "/queued-new.jsonl");
     const liveThread = makeActivationThread("warm-live-thread", "/warm-live.jsonl");
-    await internals.threads.adopt({ threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread, isolation: "in-process" });
-    await internals.threads.adopt({ threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread, isolation: "in-process" });
+    await adoptThread(host, { threadId: staleThread.threadId, cwd: staleThread.cwd, runtime: staleThread });
+    await adoptThread(host, { threadId: liveThread.threadId, cwd: liveThread.cwd, runtime: liveThread });
 
     let releaseLifecycle!: () => void;
     // Occupy the queue the way a slow lifecycle operation would.
-    void internals.lifecycle.run("test-block", () => new Promise<void>((resolve) => { releaseLifecycle = resolve; }));
-    internals.rememberProject = async () => {};
-    internals.index.refreshShell = async () => {};
-    internals.detachBridge = () => {};
-    internals.takeSpareThread = async () => undefined;
-    internals.runtimes.open = async () => staleThread;
-    internals.logReplacement = () => {};
-    internals.prewarm.scheduleSpare = () => {};
-    internals.activeUpdates = async () => ({ version: 1, updates: [] });
-    internals.threads.release = async () => {};
+    const internals = rawInternals(host);
+    void (internals.lifecycle as any).run("test-block", () => new Promise<void>((resolve) => { releaseLifecycle = resolve; }));
     const prompts: string[] = [];
-    internals.prompt = async (text: string) => { prompts.push(text); };
+    mockInternalMethods(host, {
+      rememberProject: async () => {},
+      refreshShell: async () => {},
+      detachBridge: () => {},
+      takeSpareThread: async () => undefined,
+      openRuntime: async () => staleThread,
+      logReplacement: () => {},
+      activeUpdates: async () => ({ version: 1, updates: [] }),
+      release: async () => {},
+      prompt: async (text: string) => { prompts.push(text); },
+    });
+    internals.prewarm.scheduleSpare = () => {};
 
     const queuedNewSession = host.newSession("sent in the background", [], "/repo");
     await expect(host.switchSession("/warm-live.jsonl")).resolves.toEqual({ version: 1, updates: [] });
@@ -593,7 +579,7 @@ describe("PiHost.generateThreadTitle", () => {
       sessionId: "queued-new-thread",
     });
     await vi.waitFor(() => expect(prompts).toEqual(["sent in the background"]));
-    expect(internals.threads.active?.threadId).toBe("warm-live-thread");
+    expect(getActiveThreadId(host)).toBe("warm-live-thread");
   });
 
   it("accepts a new-thread submission after activation without holding the composer for prompt preflight", async () => {

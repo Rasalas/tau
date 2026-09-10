@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -40,16 +40,146 @@ const HOST_RULES = new Set(["checkpoint", "git", "editor", "tier", "access", "cl
  * Modules that used to sit in core. They live in `kits/workspace/` now, so a
  * reappearing import would be a copy: `kits-boundary.test.ts` forbids the path,
  * this forbids the name.
+ * (Redundant with CORE_MODULE_ALLOWLIST below, but kept for clarity.)
  */
 const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-kit-checkpoints", "pi-turn-checkpoint-extension", "turn-checkpoint-codec"];
+
+/**
+ * The module specifiers the core may import, one line per resolved file.
+ * This is the deliberate act the boundary wants: a new module under `src/main`
+ * is a new entry here, and a module that was moved out and renamed back in is
+ * not. `test-support` is excluded from the walk, so harnesses are free.
+ */
+const CORE_MODULE_ALLOWLIST = new Set<string>([
+  "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
+  "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
+  "./bundled-kits.js",   "./client-message-tracker.js",   "./client-turn-ledger.js",
+  "./clone-source.js",   "./dangling-tool-calls.js",   "./desktop-extensions.js",
+  "./extension-bundle-server.js",   "./extension-grants.js",   "./extension-installer.js",
+  "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
+  "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
+  "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
+  "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
+  "./host-extensions.js",   "./host-jobs.js",   "./host-lifecycle.js",
+  "./host-listen.js",   "./host-local-files.js",   "./host-log.js",
+  "./host-messages.js",   "./host-methods.js",   "./host-ports.js",
+  "./host-push-log.js",   "./host-text.js",   "./host-token.js",
+  "./host-transcript.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
+  "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
+  "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
+  "./model-login.js",   "./models-config.js",   "./packaged-app.js",
+  "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
+  "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
+  "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",
+  "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",
+  "./prompt-attachments.js",   "./prompt-preparation.js",   "./resource-discovery-cache.js",
+  "./runtime-adapters.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
+  "./runtime-types.js",   "./session-entries.js",   "./session-events.js",
+  "./session-lineage.js",   "./session-model-provider.js",   "./session-usage.js",
+  "./shell-environment.js",   "./single-instance.js",   "./skill-invocation.js",
+  "./startup-workspace.js",   "./system-prompt-resolver.js",   "./tau-runtime-owner.js",
+  "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
+  "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
+  "./thread-runtimes.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
+  "./turn-delivery.js",   "./user-themes.js",   "./workbench-build.js",
+  "./workbench-reload-coordinator.js",   "./workspace-identity.js",
+]);
+
+const CORE_ALLOWED_PACKAGES = new Set([
+  "@earendil-works/pi-coding-agent",
+  "electron",
+  "electron-updater",
+  "esbuild",
+  "ws",
+]);
+
+/**
+ * Whether a specifier may appear in a core module.
+ *
+ * A relative specifier inside `src/main` is checked against the allowlist, so a
+ * renamed module reads as a violation rather than as a normal import - that is
+ * the whole difference from matching forbidden words.
+ */
+function isAllowedCoreImport(specifier: string): boolean {
+  if (specifier.startsWith("node:")) return true;
+  if (CORE_ALLOWED_PACKAGES.has(specifier)) return true;
+  // The shared layer is the contract core is allowed to depend on.
+  if (specifier.startsWith("../shared/")) return true;
+  if (specifier.startsWith("./")) return CORE_MODULE_ALLOWLIST.has(specifier);
+  return false;
+}
+
+const IMPORT_PATTERN = /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s*["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu;
+
+function extractImportSpecifiers(source: string): string[] {
+  const found: string[] = [];
+  for (const match of source.matchAll(IMPORT_PATTERN)) {
+    found.push(match[1] ?? match[2]);
+  }
+  return found;
+}
+
+function coreSourceFiles(): string[] {
+  const found: string[] = [];
+  const walk = (directory: string): void => {
+    for (const name of readdirSync(directory).sort()) {
+      // Exclude test-support from core module checking
+      if (name.startsWith(".") || name === "test-support") continue;
+      const path = join(directory, name);
+      if (statSync(path).isDirectory()) {
+        walk(path);
+      } else if (/\.[cm]?[jt]sx?$/u.test(name) && !name.includes(".test.")) {
+        found.push(path);
+      }
+    }
+  };
+  walk("src/main");
+  return found;
+}
 
 describe("core boundary", () => {
   it("src/main/pi-host.ts names no moved feature and imports no feature module", () => {
     const source = readFileSync("src/main/pi-host.ts", "utf8");
     const offenders = words(source).filter((word) => FORBIDDEN.some((rule) => HOST_RULES.has(rule.label) && rule.test.test(word)));
     expect(offenders).toEqual([]);
+    // Redundant with allowlist check below, but kept for clarity.
     const imports = HOST_FORBIDDEN_IMPORTS.filter((name) => source.includes(`./${name}.js`) || source.includes(`/${name}.js`));
     expect(imports).toEqual([]);
+  });
+
+  it("core modules import only allowed dependencies", () => {
+    const violations: string[] = [];
+    for (const file of coreSourceFiles()) {
+      const source = readFileSync(file, "utf8");
+      const specifiers = extractImportSpecifiers(source);
+      for (const specifier of specifiers) {
+        if (!isAllowedCoreImport(specifier)) {
+          violations.push(`${file}: imports "${specifier}" (not in allowlist)`);
+        }
+      }
+    }
+    if (violations.length > 0) {
+      const message = [
+        "Core modules import forbidden dependencies.",
+        "If adding a new core file, add its specifier to CORE_MODULE_ALLOWLIST deliberately.",
+        "Violations:",
+        ...violations,
+      ].join("\n  ");
+      expect.fail(message);
+    }
+    expect(violations).toEqual([]);
+  });
+
+  // The counter-proof ticket 19 asked for, kept as a test instead of a one-off
+  // edit: a module that was moved out and renamed back in must read as a
+  // violation without any forbidden word being involved.
+  it("rejects a relative module that is not in the allowlist", () => {
+    expect(isAllowedCoreImport("./pi-host.js")).toBe(true);
+    expect(isAllowedCoreImport("./vcs-bridge.js")).toBe(false);
+    expect(isAllowedCoreImport("./git-coordinator.js")).toBe(false);
+    // A new third-party dependency is a decision too.
+    expect(isAllowedCoreImport("lodash")).toBe(false);
+    expect(isAllowedCoreImport("@earendil-works/pi-coding-agent")).toBe(true);
   });
 
   it("src/ has no extensions directory: a kit lives under kits/", () => {
