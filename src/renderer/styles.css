@@ -551,7 +551,16 @@ button > svg { pointer-events: none; }
 }
 .virtual-transcript { width: 100%; flex: none; }
 .virtual-transcript-row { padding-bottom: 22px; box-sizing: border-box; }
-.virtual-transcript-row.focused {
+/*
+ * The ring marks the keyboard cursor: `j`/`k` move it, Enter opens the row and
+ * `y` copies it. A click moves that cursor too, so a message can be picked with
+ * the pointer and then acted on with a key — but drawing a ring around whatever
+ * the pointer happened to touch (a message being selected, say) reads as a
+ * selection nobody made. `:focus-visible` is the browser's own answer to which
+ * one it was: a pointer-made focus never matches it, a click that is then
+ * followed by a key press does, and blur takes the ring away by itself.
+ */
+.virtual-transcript:focus-visible .virtual-transcript-row.focused {
   outline: 1px solid var(--focus);
   outline-offset: -2px;
   border-radius: 8px;

@@ -1,4 +1,4 @@
-import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import { HostCommandError, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
@@ -52,18 +52,23 @@ export function createReviewHostExtension(): HostExtension {
           removed: typeof file.removed === "number" ? file.removed : 0,
         })).filter((file) => file.path) : [];
         const diffs = Array.isArray(fields.diffs) ? fields.diffs.map(record).map((diff) => ({ path: text(diff.path), patch: text(diff.patch) })).filter((diff) => diff.path) : [];
-        if (files.length === 0) throw new Error("There are no changes to describe.");
-        if (services.runtimeOwner() === "pi") throw new Error("Write the commit message yourself while Pi is attached to the runtime.");
+        if (files.length === 0) throw new HostCommandError("There are no changes to describe.");
+        if (services.runtimeOwner() === "pi") throw new HostCommandError("Write the commit message yourself while Pi is attached to the runtime.");
         const thread = services.thread();
-        if (!thread) throw new Error("Pi runtime is not ready");
+        if (!thread) throw new HostCommandError("Pi runtime is not ready");
         services.log("commit-message.started", `${provider && modelId ? `${provider}/${modelId}` : "default model"} · ${style}`);
-        const answer = await services.complete({
-          system: SYSTEM_PROMPTS[style],
-          prompt: buildCommitPrompt({ branch: text(fields.branch), files, diffs }),
-          maxTokens: 220,
-        }, provider && modelId ? { provider, id: modelId } : undefined);
+        let answer: string;
+        try {
+          answer = await services.complete({
+            system: SYSTEM_PROMPTS[style],
+            prompt: buildCommitPrompt({ branch: text(fields.branch), files, diffs }),
+            maxTokens: 220,
+          }, provider && modelId ? { provider, id: modelId } : undefined);
+        } catch (error) {
+          throw new HostCommandError(error instanceof Error ? error.message : String(error));
+        }
         const message = cleanCommitMessage(answer);
-        if (!message) throw new Error("The model returned an empty commit message.");
+        if (!message) throw new HostCommandError("The model returned an empty commit message.");
         services.log("commit-message.suggested", message.split(/\r?\n/u)[0]);
         return { message };
       });

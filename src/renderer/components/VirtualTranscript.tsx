@@ -410,6 +410,10 @@ export const VirtualTranscript = memo(function VirtualTranscript({
         data-index={row.index}
         data-message-id={message.id}
         data-focused={focusedIndex === row.index ? "true" : undefined}
+        // Selecting text in a message ends in a click on its row. The cursor
+        // follows so `y`/Enter act on the message the pointer is on — the ring
+        // that marks it is the keyboard's, and `.focused` alone does not paint
+        // it (see the rule in styles.css).
         onClick={() => setFocusedIndex(row.index)}
         className={[
           "virtual-transcript-row",

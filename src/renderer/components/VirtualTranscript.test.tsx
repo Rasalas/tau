@@ -608,6 +608,28 @@ describe("virtual transcript", () => {
       view.unmount();
     });
 
+    it("moves the cursor to a clicked message", async () => {
+      const messages: UiMessage[] = [
+        { id: "msg-0", role: "user", text: "First message", timestamp: 1 },
+        { id: "msg-1", role: "assistant", text: "Second message", timestamp: 2 },
+      ];
+      const view = render(<Fixture messages={messages} />);
+      const transcript = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+      const rows = view.container.querySelectorAll(".virtual-transcript-row");
+
+      // Selecting text in a message ends in a click on its row: the cursor goes
+      // there so `y` copies that message, and the keyboard picks it up from
+      // there. Whether the ring is drawn is the stylesheet's `:focus-visible`
+      // rule, not this component's.
+      fireEvent.click(rows[1]);
+      expect(transcript.dataset.focusedIndex).toBe("1");
+
+      fireEvent.keyDown(transcript, { key: "j" });
+      expect(transcript.dataset.focusedIndex).toBe("1");
+      expect(rows[1].classList.contains("focused")).toBe(true);
+      view.unmount();
+    });
+
     it("jumps between user turns with n and p", async () => {
       const messages: UiMessage[] = [
         { id: "u1", role: "user", text: "Turn 1", timestamp: 1 },

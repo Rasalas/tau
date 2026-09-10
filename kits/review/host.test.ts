@@ -26,6 +26,23 @@ describe("Review Kit host extension", () => {
     expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai", id: "gpt-luna" });
   });
 
+  it("stays active when commit-message generation repeatedly fails", async () => {
+    const complete = vi.fn(async () => { throw new Error("Model credentials are unavailable."); });
+    const registry = await registryWith(thread(), complete);
+    const input = {
+      branch: "feat/review",
+      files: [{ path: "src/review.tsx", added: 20, removed: 4 }],
+      diffs: [{ path: "src/review.tsx", patch: "-old\n+new" }],
+    };
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(registry.invoke(REVIEW_HOST_EXTENSION_ID, "suggest-commit-message", input))
+        .rejects.toThrow("Model credentials are unavailable.");
+    }
+
+    expect(registry.isActive(REVIEW_HOST_EXTENSION_ID)).toBe(true);
+  });
+
   it("builds a bounded diff prompt and cleans fenced answers", () => {
     expect(buildCommitPrompt({ branch: "main", files: [{ path: "a.ts", added: 1, removed: 1 }], diffs: [{ path: "a.ts", patch: "-a\n+b" }] })).toContain("--- a.ts\n-a\n+b");
     expect(cleanCommitMessage("  ```\nfix: use semicolon\n```  ")).toBe("fix: use semicolon");
