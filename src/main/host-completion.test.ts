@@ -87,4 +87,21 @@ describe("HostCompletions", () => {
     await expect(completions.complete({ system: "s", prompt: "p" }, model)).rejects.toThrow("out of credit");
     expect(onCreate).toHaveBeenCalledTimes(1);
   });
+
+  it("attaches required session and client headers for OpenCode completions", async () => {
+    const completeSimple = answer("opencode completion");
+    const opencodeModel = { provider: "opencode-go", id: "kimi-k2.7-code" };
+    const completions = makeCompletions({ runtime: runtime(completeSimple, [opencodeModel]) });
+    await expect(completions.complete({ system: "s", prompt: "p" }, opencodeModel)).resolves.toBe("opencode completion");
+    const [, , options] = completeSimple.mock.calls[0] as unknown as [
+      unknown,
+      unknown,
+      { sessionId: string; headers?: Record<string, string> },
+    ];
+    expect(options.sessionId).toBeTruthy();
+    expect(options.headers).toEqual({
+      "x-opencode-session": options.sessionId,
+      "x-opencode-client": "pi",
+    });
+  });
 });

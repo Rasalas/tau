@@ -71,6 +71,7 @@ function treeNodeOf(entry: SessionTreeEntry, label: string | undefined): Omit<Ui
   return undefined;
 }
 
+import { modelAttribution } from "./model-attribution.js";
 import { modelLogin, type ProviderLoginSource } from "./model-login.js";
 
 function modelOf(model: { provider: string; id: string; name?: string } | undefined, runtime?: ProviderLoginSource): UiModel | undefined {
@@ -330,13 +331,20 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   private async complete(provider: string, modelId: string, request: CompletionRequest): Promise<string> {
     const model = this.session.modelRuntime.getModel(provider, modelId);
     if (!model) throw new Error(`Unknown model: ${provider}/${modelId}`);
+    const attribution = modelAttribution(model, this.threadId);
     const response = await this.session.modelRuntime.completeSimple(
       model,
       {
         systemPrompt: request.system,
         messages: [{ role: "user", content: [{ type: "text", text: request.prompt }], timestamp: Date.now() }],
       },
-      { maxTokens: request.maxTokens ?? 48, cacheRetention: "none", timeoutMs: 30_000 },
+      {
+        maxTokens: request.maxTokens ?? 48,
+        cacheRetention: "none",
+        timeoutMs: 30_000,
+        sessionId: attribution.sessionId,
+        ...(attribution.headers ? { headers: attribution.headers } : {}),
+      },
     );
     if (response.stopReason === "error" || response.stopReason === "aborted") {
       throw new Error(response.errorMessage || "The model did not complete.");
