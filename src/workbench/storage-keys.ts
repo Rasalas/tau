@@ -3,7 +3,8 @@
  * version suffix when a key's shape changes incompatibly.
  */
 export const STORAGE_KEYS = {
-  preferences: "tau.preferences",
+  preferences: "tau.preferences.v1",
+  preferencesLegacy: "tau.preferences",
   bootstrapCache: "tau.bootstrap-cache.v7",
   bootstrapCacheLegacy: ["tau.bootstrap-cache.v6", "tau.bootstrap-cache.v4", "tau.bootstrap-cache.v3"] as const,
   composerDrafts: "tau.composer-drafts.v1",

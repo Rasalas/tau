@@ -55,7 +55,19 @@ function stringList(value: unknown): string[] {
 
 function load(): PreferencesState {
   try {
-    const raw = JSON.parse(getClientStorage()?.get(STORAGE_KEYS.preferences) ?? "{}") as Record<string, unknown>;
+    const storage = getClientStorage();
+    let rawJson = storage?.get(STORAGE_KEYS.preferences);
+    // Migrate from unversioned key if present
+    if (!rawJson) {
+      const legacy = storage?.get(STORAGE_KEYS.preferencesLegacy);
+      if (legacy) {
+        rawJson = legacy;
+        // Write to new key and clean up old one
+        storage?.set(STORAGE_KEYS.preferences, legacy);
+        storage?.remove(STORAGE_KEYS.preferencesLegacy);
+      }
+    }
+    const raw = JSON.parse(rawJson ?? "{}") as Record<string, unknown>;
     const options: Record<string, boolean> = {};
     for (const [key, value] of Object.entries(raw.extensionOptions ?? {})) {
       if (typeof value === "boolean") options[key] = value;

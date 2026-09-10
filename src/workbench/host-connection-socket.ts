@@ -9,6 +9,8 @@ import { createHostClient, type HostClient } from "./host-client";
 
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
+const REQUEST_TIMEOUT_MS = 30_000;
+const OUTBOX_LIMIT = 100;
 /** `host-transport-socket.ts` closes with this when the hello carried the wrong token. */
 const UNAUTHORIZED = 4401;
 
@@ -23,6 +25,7 @@ export interface SocketTransportOptions {
 interface Pending {
   resolve(response: HostResponse): void;
   reject(error: Error): void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -45,11 +48,17 @@ export function createSocketHostTransport(url: string, token?: string, options?:
   const send = (frame: unknown): void => {
     const text = JSON.stringify(frame);
     if (socket?.readyState === WebSocket.OPEN) socket.send(text);
-    else outbox.push(text);
+    else {
+      if (outbox.length >= OUTBOX_LIMIT) outbox.shift();
+      outbox.push(text);
+    }
   };
 
   const failPending = (message: string): void => {
-    for (const request of pending.values()) request.reject(new Error(message));
+    for (const request of pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(new Error(message));
+    }
     pending.clear();
   };
 
@@ -76,17 +85,46 @@ export function createSocketHostTransport(url: string, token?: string, options?:
       delayMs = Math.min(delayMs * 2, RECONNECT_MAX_MS);
     };
     socket.onmessage = (event: MessageEvent<string>) => {
-      const frame = decodeHostServerFrame(JSON.parse(event.data) as unknown);
-      if (!frame) return;
+      let parsed: unknown;
+      let id: string | undefined;
+      try {
+        parsed = JSON.parse(event.data);
+        // Try to extract id even if the frame is malformed
+        if (parsed && typeof parsed === "object" && "id" in parsed && typeof parsed.id === "string") {
+          id = parsed.id;
+        } else if (parsed && typeof parsed === "object" && "response" in parsed) {
+          const resp = parsed.response as { id?: string };
+          if (typeof resp?.id === "string") id = resp.id;
+        }
+      } catch (error) {
+        // Malformed JSON: cannot extract id, log and drop
+        console.error("Host sent invalid JSON:", error);
+        return;
+      }
+      const frame = decodeHostServerFrame(parsed);
+      if (!frame) {
+        // Valid JSON but undecodable frame shape
+        if (id) {
+          const request = pending.get(id);
+          if (request) {
+            pending.delete(id);
+            clearTimeout(request.timer);
+            request.reject(new Error(`${HOST_ERROR.invalidResponse}: undecodable frame`));
+          }
+        }
+        console.error("Host sent undecodable frame:", parsed);
+        return;
+      }
       if (frame.type === "push") {
         for (const listener of pushListeners) listener(frame.push);
         return;
       }
-      const id = frame.type === "response" ? frame.response.id : frame.id;
-      const request = pending.get(id);
+      const frameId = frame.type === "response" ? frame.response.id : frame.id;
+      const request = pending.get(frameId);
       if (!request) return;
-      pending.delete(id);
-      request.resolve(frame.type === "response" ? frame.response : { id, result: frame.reply });
+      pending.delete(frameId);
+      clearTimeout(request.timer);
+      request.resolve(frame.type === "response" ? frame.response : { id: frameId, result: frame.reply });
     };
   };
   connect();
@@ -96,7 +134,14 @@ export function createSocketHostTransport(url: string, token?: string, options?:
     request: (method, params) => new Promise<HostResponse>((resolve, reject) => {
       counter += 1;
       const id = `c${counter}`;
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        const request = pending.get(id);
+        if (request) {
+          pending.delete(id);
+          request.reject(new Error(`${HOST_ERROR.timeout}: request timed out after ${REQUEST_TIMEOUT_MS}ms`));
+        }
+      }, REQUEST_TIMEOUT_MS);
+      pending.set(id, { resolve, reject, timer });
       // Hello carries the token and is answered before any method runs.
       if (method === "hello") {
         const hello = (params[0] ?? {}) as Record<string, unknown>;

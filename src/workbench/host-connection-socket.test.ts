@@ -36,7 +36,12 @@ class FakeSocket {
   }
 
   deliver(frame: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(frame) } as unknown as MessageEvent<string>);
+    this.deliverRaw(JSON.stringify(frame));
+  }
+
+  /** A frame that is not even JSON, for the paths that must survive one. */
+  deliverRaw(text: string): void {
+    this.onmessage?.({ data: text } as unknown as MessageEvent<string>);
   }
 
   frames(): Array<Record<string, unknown>> {
@@ -140,5 +145,78 @@ describe("socket host client", () => {
     second.deliver({ type: "response", response: { id: (request!.request as { id: string }).id, result: [] } });
     await vi.advanceTimersByTimeAsync(0);
     expect(await pending).toEqual([]);
+  });
+
+  it("ignores a frame that is not JSON at all and keeps serving the connection", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const { connection } = createSocketHostClient("ws://host.test:7788");
+    const socket = FakeSocket.opened[0]!;
+    socket.accept();
+    await settle();
+
+    const pending = connection.request<string[]>("host-extensions");
+    const request = socket.frames().find((frame) => frame.type === "request")!;
+    // Malformed JSON carries no id, so nothing can be rejected: the handler must
+    // swallow it rather than throw out of the socket's message callback.
+    socket.deliverRaw("{ this is not json");
+
+    socket.deliver({ type: "response", response: { id: (request.request as { id: string }).id, result: ["kept"] } });
+    expect(await pending).toEqual(["kept"]);
+  });
+
+  it("rejects the request behind an undecodable frame instead of leaving it pending", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const { connection } = createSocketHostClient("ws://host.test:7788");
+    const socket = FakeSocket.opened[0]!;
+    socket.accept();
+    await settle();
+
+    const pending = connection.request("host-extensions").then(
+      () => "resolved",
+      (error: Error) => error.message,
+    );
+    const request = socket.frames().find((frame) => frame.type === "request")!;
+    // Valid JSON, unusable shape, and it names the request it belongs to.
+    socket.deliver({ type: "nonsense", id: (request.request as { id: string }).id });
+
+    expect(await pending).toMatch(/^invalid-response:/u);
+  });
+
+  it("rejects a request the host never answers once the deadline passes", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    vi.useFakeTimers();
+    const { connection } = createSocketHostClient("ws://host.test:7788");
+    const socket = FakeSocket.opened[0]!;
+    socket.accept();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const pending = connection.request("host-extensions").catch((error: unknown) => (error as Error).message);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await pending).toMatch(/^timeout:/u);
+  });
+
+  it("does not let the outbox grow past its limit while the host is unreachable", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const { connection } = createSocketHostClient("ws://host.test:7788");
+    const first = FakeSocket.opened[0]!;
+    first.accept();
+    await settle();
+
+    vi.useFakeTimers();
+    first.drop();
+    for (let index = 0; index < 120; index += 1) void connection.request("host-extensions").catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(500);
+    const second = FakeSocket.opened[1]!;
+    second.accept();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const requests = second.frames().filter((frame) => frame.type === "request");
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.length).toBeLessThanOrEqual(100);
+
+    // Drain the outstanding deadlines so the suite's fake-timer guard stays happy.
+    connection.close();
+    await vi.advanceTimersByTimeAsync(0);
   });
 });

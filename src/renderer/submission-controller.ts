@@ -444,6 +444,8 @@ export class SubmissionController {
         // view stays until that report arrives.
         return { accepted: true };
       } catch (error) {
+        // A correlated user message may have promoted the draft before the call failed.
+        if (recovery?.promoted) return { accepted: true };
         this.release(clientMessageId);
         return rejectSubmission(error);
       }

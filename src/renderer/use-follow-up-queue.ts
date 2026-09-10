@@ -77,17 +77,25 @@ export function useFollowUpQueue({ client, store, sessionId, isRunning, runningT
       const delivery = threadId === sessionId
         ? submit(next.text, next.attachments, undefined, next.skillDraft)
         : deliverInBackground(client, threadId, next, preferences);
-      void delivery.then((result) => {
-        if (result.accepted) {
-          // Release even if the host never reports a run for this prompt.
-          window.setTimeout(() => flushingRef.current.delete(threadId), 5000);
-          return;
-        }
-        flushingRef.current.delete(threadId);
-        store.unshift(threadId, next);
-        store.pause(threadId);
-        setNotice(result.message, "error");
-      });
+      void delivery
+        .then((result) => {
+          if (result.accepted) {
+            // Release even if the host never reports a run for this prompt.
+            window.setTimeout(() => flushingRef.current.delete(threadId), 5000);
+            return;
+          }
+          // Failed delivery: restore item and pause the thread
+          flushingRef.current.delete(threadId);
+          store.unshift(threadId, next);
+          store.pause(threadId);
+          setNotice(result.message, "error");
+        })
+        .catch(() => {
+          // Delivery threw instead of returning rejected result
+          flushingRef.current.delete(threadId);
+          store.unshift(threadId, next);
+          store.pause(threadId);
+        });
     }
   }, [client, preferences, runningThreadIds, sessionId, setNotice, store, submit, version]);
 

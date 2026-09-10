@@ -81,6 +81,8 @@ export const HOST_ERROR = {
   /** The method exists in the protocol but not in this host. */
   unsupported: "unsupported",
   failed: "failed",
+  timeout: "timeout",
+  invalidResponse: "invalid-response",
 } as const;
 
 /** Capability names a host may announce in its hello reply. */
