@@ -1522,8 +1522,14 @@ export class PiHost {
       : clientIdentityForRequest(clientMessageIdOrPreflight);
     const clientMessageId = identity?.clientMessageId;
     const thread = await this.awaitThread(sessionId);
+    // Freeze the epoch after resolving the thread. A concurrent switch changes
+    // it, and the prompt must not land on a thread that was superseded.
+    const promptEpoch = this.activationEpoch;
     // The switch that opened this thread may still be binding its extensions.
     await this.binding.settle(thread);
+    if (!this.isCurrentActivation(promptEpoch)) {
+      throw new Error("The active thread changed while the prompt was being prepared. Retry after the switch completes.");
+    }
     if (!thread.backend.capabilities.journal) {
       // The composer waits for admission, not for the whole turn: a streamed
       // runtime reports it as soon as the message is on its way, and this call

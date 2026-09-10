@@ -164,6 +164,16 @@ describe("ThreadRuntimeLifecycle", () => {
     expect(lifecycle.isOpening("/a.jsonl")).toBe(false);
   });
 
+  it("refuses to open a thread with a different backend than persisted (ADR 0005)", async () => {
+    const provider = { lookup: async () => ({ threadId: "thread", cwd: "/repo" }), open: async () => externalBackend("thread") };
+    const { lifecycle } = makeLifecycle(
+      { indexedSession: () => ({ id: "thread", backendKind: "existing-backend" }) as never },
+      { "existing-backend": provider, "requested-backend": provider },
+    );
+    await expect(lifecycle.openForPath("/a.jsonl", "resume", false, "requested-backend" as never))
+      .rejects.toThrow(/belongs to backend existing-backend.*refusing to open it as requested-backend/u);
+  });
+
   it("refuses a path whose backend no longer knows the thread", async () => {
     const provider = { lookup: async () => undefined };
     const { lifecycle } = makeLifecycle({ indexedSession: () => ({ id: "thread", backendKind: "test" }) as never }, { test: provider });

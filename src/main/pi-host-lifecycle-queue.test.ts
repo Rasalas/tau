@@ -68,6 +68,32 @@ describe("PiHost lifecycle queue", () => {
     expect(order).toEqual(["hook", "exclusive"]);
   });
 
+  it("rejects a prompt when the activation epoch changes during binding", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false);
+    const internals = host as unknown as Record<string, any>;
+    const thread = idleThread("session");
+    await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    internals.threads.setActive("session");
+
+    // Make binding.settle wait until we bump the epoch.
+    let releaseSettle!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseSettle = resolve; });
+    internals.binding = { settle: async () => gate, installHooks: () => undefined };
+
+    const promptResult = host.prompt("hello").then(
+      () => "resolved",
+      (error: unknown) => `rejected: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    // Give prompt() time to reach binding.settle before we bump.
+    await Promise.resolve();
+    // Simulate a concurrent switch: bump the activation epoch.
+    internals.activationEpoch += 1;
+    releaseSettle();
+    // The gate-resolved microtask must settle promptResult.
+    await Promise.resolve();
+    expect(await promptResult).toMatch(/active thread changed/iu);
+  });
+
   it("still serialises two independent lifecycle operations", async () => {
     const host = new PiHost("/repo", () => undefined, {} as never, false, false);
     const internals = host as unknown as Record<string, any>;

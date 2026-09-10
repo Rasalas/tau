@@ -308,7 +308,13 @@ export class ThreadRuntimeLifecycle {
       pending = (async () => {
         const external = externalThreadFromPath(path);
         const indexedSession = this.port.indexedSession(path);
-        const owner = backendKind ?? indexedSession?.backendKind ?? external?.kind ?? "pi";
+        const persistedKind = indexedSession?.backendKind ?? external?.kind;
+        if (backendKind && persistedKind && backendKind !== persistedKind) {
+          throw new Error(
+            `Thread belongs to backend ${persistedKind}, refusing to open it as ${backendKind} (ADR 0005).`,
+          );
+        }
+        const owner = backendKind ?? persistedKind ?? "pi";
         if (owner !== "pi") {
           if (this.port.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
           const threadId = external?.threadId ?? indexedSession?.id;
