@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { gitExecutable } from "tau/host-extension";
 import { TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
@@ -94,11 +94,97 @@ export function latestCheckpointSnapshotRef(entries: readonly unknown[]): string
   return undefined;
 }
 
+/**
+ * Resolves the parent directory where worktrees live for a repository.
+ * Defaults to `<repo>-worktrees` beside the repository.
+ * If configured (e.g. `~/.tau/worktrees` or `/path/to/worktrees`), worktrees
+ * are nested by repository name (or by `{project}` placeholder) to prevent cross-repo collisions.
+ */
+export function resolveWorktreeParent(mainRoot: string, configured?: string): string {
+  const trimmed = configured?.trim();
+  if (!trimmed || trimmed === "beside") {
+    return join(dirname(mainRoot), `${basename(mainRoot)}-worktrees`);
+  }
+  const repoName = basename(mainRoot);
+  let expanded = trimmed;
+  if (expanded === "~") {
+    expanded = homedir();
+  } else if (expanded.startsWith("~/") || expanded.startsWith("~\\")) {
+    expanded = join(homedir(), expanded.slice(2));
+  } else if (!isAbsolute(expanded)) {
+    expanded = resolve(mainRoot, expanded);
+  }
+  if (expanded.includes("{project}")) {
+    return resolve(expanded.replaceAll("{project}", repoName));
+  }
+  if (basename(expanded) === repoName) {
+    return resolve(expanded);
+  }
+  return resolve(join(expanded, repoName));
+}
+
+/**
+ * Reads the configured worktree directory for a repository.
+ * Checks `.tau/project.json` in the workspace/mainRoot, then `TAU_WORKTREES_DIR` env var,
+ * and finally global `~/.tau/project.json` or `~/.tau/config.json`.
+ */
+export async function readWorktreeConfig(mainRoot: string, cwd?: string): Promise<string | undefined> {
+  const candidates = [
+    ...(cwd && cwd !== mainRoot ? [join(cwd, ".tau", "project.json")] : []),
+    join(mainRoot, ".tau", "project.json"),
+    join(mainRoot, ".tau", "config.json"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const raw = JSON.parse(await readFile(candidate, "utf8")) as Record<string, unknown>;
+      if (typeof raw.worktreeDirectory === "string" && raw.worktreeDirectory.trim()) {
+        return raw.worktreeDirectory.trim();
+      }
+      const options = raw.options as Record<string, unknown> | undefined;
+      if (typeof options?.["worktree-directory"] === "string" && (options["worktree-directory"] as string).trim()) {
+        return (options["worktree-directory"] as string).trim();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (process.env.TAU_WORKTREES_DIR?.trim()) {
+    return process.env.TAU_WORKTREES_DIR.trim();
+  }
+
+  const globalCandidates = [
+    join(homedir(), ".tau", "project.json"),
+    join(homedir(), ".tau", "config.json"),
+  ];
+  for (const candidate of globalCandidates) {
+    try {
+      const raw = JSON.parse(await readFile(candidate, "utf8")) as Record<string, unknown>;
+      if (typeof raw.worktreeDirectory === "string" && raw.worktreeDirectory.trim()) {
+        return raw.worktreeDirectory.trim();
+      }
+      const options = raw.options as Record<string, unknown> | undefined;
+      if (typeof options?.["worktree-directory"] === "string" && (options["worktree-directory"] as string).trim()) {
+        return (options["worktree-directory"] as string).trim();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return undefined;
+}
+
 /** Where linked worktrees live for a repository, from any of its checkouts. */
-export async function worktreeParentOf(cwd: string, runGit: AgentGitRunner = runAgentGit): Promise<string> {
+export async function worktreeParentOf(
+  cwd: string,
+  runGit: AgentGitRunner = runAgentGit,
+  configured?: string,
+): Promise<string> {
   const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
   const mainRoot = commonDir ? dirname(resolve(cwd, commonDir)) : cwd;
-  return join(dirname(mainRoot), `${basename(mainRoot)}-worktrees`);
+  const config = configured ?? await readWorktreeConfig(mainRoot, cwd);
+  return resolveWorktreeParent(mainRoot, config);
 }
 
 export function agentBranchName(agentId: string): string {
@@ -134,6 +220,7 @@ export async function createAgentWorktree(options: {
   /** `refs/tau/checkpoints/…/after` of the parent's last turn, when it has one. */
   snapshotRef?: string;
   runGit?: AgentGitRunner;
+  worktreeParent?: string;
 }): Promise<AgentWorktree> {
   const runGit = options.runGit ?? runAgentGit;
   const { parentCwd } = options;
@@ -147,7 +234,7 @@ export async function createAgentWorktree(options: {
     ? (await runGit(parentCwd, ["commit-tree", tree, "-p", head, "-m", `tau: state of ${basename(parentCwd)} for a spawned thread`])).trim()
     : head;
   const branch = agentBranchName(options.agentId);
-  const parent = await worktreeParentOf(parentCwd, runGit);
+  const parent = options.worktreeParent ?? await worktreeParentOf(parentCwd, runGit);
   const path = join(parent, branch.replace(/[^a-z0-9._-]+/giu, "-"));
   await mkdir(parent, { recursive: true });
   await runGit(parentCwd, ["worktree", "add", "-b", branch, path, baseCommit]);

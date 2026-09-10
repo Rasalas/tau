@@ -224,13 +224,19 @@ describe("WorkspaceBar", () => {
     expect(onRemoveWorktree).toHaveBeenCalledWith(linked);
   });
 
-  it("closes the picker on a click outside of the bar", async () => {
-    setup(workspace());
+  it("formats ~/.tau/worktrees paths cleanly in the create option", async () => {
+    setup(workspace({
+      worktreeParent: "/Users/dev/.tau/worktrees/tau",
+      hasRemote: true,
+    }), {
+      base: { ref: "origin/main", commit: "a".repeat(40), shortCommit: "aaaaaaa", fromOrigin: true },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Current checkout" }));
-    await screen.findByRole("searchbox", { name: "Search worktrees" });
-    fireEvent.pointerDown(document.body);
-    expect(screen.queryByRole("searchbox", { name: "Search worktrees" })).toBeNull();
+    const search = await screen.findByRole("searchbox", { name: "Search worktrees" });
+
+    fireEvent.change(search, { target: { value: "feat/custom" } });
+    const options = screen.getAllByRole("option");
+    expect(options[0].textContent).toContain("Create worktree “feat/custom”");
+    expect(options[0].textContent).toContain("~/.tau/worktrees/tau/feat-custom");
   });
-
-
 });

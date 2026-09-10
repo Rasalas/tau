@@ -51,6 +51,11 @@ export interface ProjectDefaults {
   workspaceMode?: WorkspaceMode;
   /** Shell command run in a new worktree, with TAU_PROJECT_ROOT and TAU_WORKTREE_PATH. */
   runOnWorktreeCreate?: string;
+  /**
+   * Directory where worktrees are placed: "beside" (default: <repo>-worktrees beside
+   * the repository) or a directory path (e.g. "~/.tau/worktrees" or an absolute path).
+   */
+  worktreeDirectory?: string;
 }
 
 /** Per-thread workspace choice, made before the first turn and locked after it. */

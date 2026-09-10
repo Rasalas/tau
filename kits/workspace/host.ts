@@ -55,9 +55,11 @@ export async function readProjectDefaults(project: string): Promise<ProjectDefau
     const raw = JSON.parse(await readFile(join(project, ".tau", "project.json"), "utf8")) as Record<string, unknown>;
     const mode = raw.workspaceMode;
     const setup = raw.runOnWorktreeCreate;
+    const worktreeDirectory = raw.worktreeDirectory;
     return {
       ...(mode === "current" || mode === "worktree" ? { workspaceMode: mode } : {}),
       ...(typeof setup === "string" && setup.trim() ? { runOnWorktreeCreate: setup.trim() } : {}),
+      ...(typeof worktreeDirectory === "string" && worktreeDirectory.trim() ? { worktreeDirectory: worktreeDirectory.trim() } : {}),
     };
   } catch {
     return {};

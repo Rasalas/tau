@@ -34,7 +34,12 @@ import {
 } from "./turn-checkpoint-codec.js";
 import type { TurnRestoreTransaction } from "./turn-checkpoint-types.js";
 import { normalizeDiffLoadOptions } from "./turn-checkpoint-diff.js";
-import { branchBaseConfigKey, readBranchBase } from "./agent-worktrees.js";
+import {
+  branchBaseConfigKey,
+  readBranchBase,
+  readWorktreeConfig,
+  resolveWorktreeParent,
+} from "./agent-worktrees.js";
 import { listLiveWorkspaceLeaseSessions } from "./workspace-checkpoint-lease.js";
 
 const execFileAsync = promisify(execFile);
@@ -969,6 +974,7 @@ export interface ProjectScanOptions {
   onGitCommand?: () => void;
   signal?: AbortSignal;
   throwOnError?: boolean;
+  worktreeParent?: string;
 }
 
 export function emptyProjectGitState(cwd: string): ProjectGitState {
@@ -980,7 +986,7 @@ export function emptyProjectGitState(cwd: string): ProjectGitState {
       isDirty: false,
       worktrees: [],
       refs: [],
-      worktreeParent: worktreeParentFor(cwd),
+      worktreeParent: resolveWorktreeParent(cwd),
     },
   };
 }
@@ -1997,6 +2003,8 @@ export async function readProjectGitState(
     }));
     const currentRef = refMetadata.find((ref) => ref.name === branch);
     const mainRoot = worktrees.find((tree) => tree.isMain)?.path ?? workspaceRoot;
+    const configuredParent = options.worktreeParent ?? await readWorktreeConfig(mainRoot, workspaceRoot);
+    const worktreeParent = resolveWorktreeParent(mainRoot, configuredParent);
     const workspace: WorkspaceInfo = {
       root: workspaceRoot,
       isRepo: true,
@@ -2008,7 +2016,7 @@ export async function readProjectGitState(
       hasRemote: remoteOut.trim().length > 0,
       worktrees,
       refs,
-      worktreeParent: worktreeParentFor(mainRoot),
+      worktreeParent,
     };
     return { changes, workspace, branch };
   } catch (error) {
@@ -2418,9 +2426,9 @@ export async function openInEditor(cwd: string, editorId: string, path?: string)
   await execFileAsync(editorId, [path ? join(cwd, path) : cwd], { cwd });
 }
 
-/** Where added worktrees live: beside the repository, never inside it. */
-function worktreeParentFor(mainRoot: string): string {
-  return join(dirname(mainRoot), `${basename(mainRoot)}-worktrees`);
+/** Where added worktrees live: beside the repository by default, or configured location. */
+export function worktreeParentFor(mainRoot: string, configured?: string): string {
+  return resolveWorktreeParent(mainRoot, configured);
 }
 
 export function worktreeSlug(branch: string): string {
@@ -2604,7 +2612,13 @@ export async function resolveWorktreeBase(
  * with. `getBranchChanges` resolves a base of its own when nothing is recorded.
  * The key itself lives in `agent-worktrees.ts`, the leaf both sides share.
  */
-export { branchBaseConfigKey, readBranchBase } from "./agent-worktrees.js";
+export {
+  branchBaseConfigKey,
+  readBranchBase,
+  readWorktreeConfig,
+  resolveWorktreeParent,
+  worktreeParentOf,
+} from "./agent-worktrees.js";
 
 /**
  * Whether `cwd` is a linked worktree rather than a repository's main checkout.

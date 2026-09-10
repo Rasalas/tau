@@ -14,6 +14,26 @@ function pathName(path: string): string {
   return path.replace(/[\\/]+$/u, "").split(/[\\/]/u).at(-1) ?? path;
 }
 
+function parentDirectory(path: string): string {
+  const parts = path.replace(/[\\/]+$/u, "").split(/[\\/]/u);
+  parts.pop();
+  return parts.join("/");
+}
+
+function worktreeDisplayPath(worktreeParent: string | undefined, root: string | undefined, branch: string): string {
+  const slug = worktreeSlug(branch) || "…";
+  if (!worktreeParent) return `../${slug}`;
+  if (root && parentDirectory(worktreeParent) === parentDirectory(root)) {
+    return `../${pathName(worktreeParent)}/${slug}`;
+  }
+  const normalized = worktreeParent.replaceAll("\\", "/");
+  const dotTauMatch = /(?:^|\/)(\.tau\/worktrees\/[^/]+)$/u.exec(normalized);
+  if (dotTauMatch) {
+    return `~/${dotTauMatch[1]}/${slug}`;
+  }
+  return `${worktreeParent}/${slug}`;
+}
+
 function fuzzyMatch(value: string, query: string): boolean {
   let at = 0;
   const haystack = value.toLocaleLowerCase();
@@ -258,7 +278,7 @@ export function WorkspaceBar({
                       <Plus size={13} />
                       <span className="menu-label">
                         <em>Create worktree “{item.branch}”</em>
-                        <small>with exactly this name · from {baseLabel} · ../{pathName(info?.worktreeParent ?? "")}/{worktreeSlug(item.branch) || "…"}</small>
+                        <small>with exactly this name · from {baseLabel} · {worktreeDisplayPath(info?.worktreeParent, info?.root, item.branch)}</small>
                       </span>
                     </button>;
                   }
