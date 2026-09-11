@@ -9,9 +9,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Jobs run on the repo-level self-hosted runners (labels tau-linux / tau-macos).
+# Pull requests from forks fall back to GitHub-hosted runners: untrusted code
+# must not execute on the private host.
 jobs:
   fast:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tau-linux' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +33,7 @@ jobs:
   # so it stays out of CI and remains a local check.
   smoke:
     needs: fast
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tau-linux' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

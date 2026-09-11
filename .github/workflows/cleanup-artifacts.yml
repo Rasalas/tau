@@ -1,0 +1,27 @@
+name: Cleanup artifacts
+
+# Artifacts count against the account's storage quota. Anything older than
+# two days has served its purpose; release files live in the GitHub release.
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: tau-linux
+    steps:
+      - name: Delete artifacts older than two days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cutoff=$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh api --paginate "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            --jq ".artifacts[] | select(.expired == false and .created_at < \"$cutoff\") | .id" |
+          while read -r id; do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" >/dev/null
+            echo "deleted artifact $id"
+          done

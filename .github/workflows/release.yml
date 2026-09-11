@@ -21,7 +21,7 @@ jobs:
   # Same gates as ci.yml, so a tag that points at a red commit stops here
   # instead of shipping a broken build. Cheap enough to run on every release.
   verify:
-    runs-on: ubuntu-latest
+    runs-on: tau-linux
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +47,8 @@ jobs:
           # write a single latest-mac.yml; two jobs would overwrite each other's
           # and leave one architecture without updates.
           - name: macOS (arm64 and x64)
-            runner: macos-14
+            # Self-hosted Mac mini; avoids the 10x macOS minute rate.
+            runner: tau-macos
             platform: --mac --arm64 --x64
             artifact: macos
           - name: Linux x64
@@ -91,6 +92,9 @@ jobs:
         with:
           name: tau-${{ matrix.artifact }}
           if-no-files-found: error
+          # Consumed by the release job in this run; published files live in
+          # the GitHub release. Long retention filled the account's storage.
+          retention-days: 1
           path: |
             release/*.dmg
             release/*.zip
@@ -117,11 +121,12 @@ jobs:
           name: tau-${{ matrix.artifact }}-diagnostics
           if-no-files-found: ignore
           path: diagnostics
+          retention-days: 7
 
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
-    runs-on: ubuntu-latest
+    runs-on: tau-linux
     timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v4
