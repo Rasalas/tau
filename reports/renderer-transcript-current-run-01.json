@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-31T21:42:48.899Z",
+  "startConditions": {
+    "build": "npm run build",
+    "mode": "production renderer",
+    "viewport": "1440x900",
+    "throttle": "none",
+    "warmupRuns": 2,
+    "sampleRuns": 5
+  },
+  "scenarios": [
+    {
+      "id": "markdown-code-stream-150kb",
+      "fixture": {
+        "id": "markdown-code-stream-150kb",
+        "kind": "markdown",
+        "bytes": 153600,
+        "language": "typescript"
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.699999999999932,
+        "p95": 17.59999999999991,
+        "maximum": 17.700000000000045
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 3.5999999046325684,
+        "p95": 5.600000023841858,
+        "maximum": 9.400000095367432
+      },
+      "commits": 66,
+      "domNodes": 38,
+      "heapBytes": {
+        "median": 13967232,
+        "p95": 14230296,
+        "maximum": 14230296
+      }
+    },
+    {
+      "id": "markdown-plain-stream-150kb",
+      "fixture": {
+        "id": "markdown-plain-stream-150kb",
+        "kind": "markdown",
+        "bytes": 153600
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.300000000000182,
+        "maximum": 17.80000000000001
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 4.5,
+        "p95": 7.200000047683716,
+        "maximum": 12.799999952316284
+      },
+      "commits": 72,
+      "domNodes": 1718,
+      "heapBytes": {
+        "median": 21225103,
+        "p95": 24161610,
+        "maximum": 24161610
+      }
+    },
+    {
+      "id": "tool-output-1mb",
+      "fixture": {
+        "id": "tool-output-1mb",
+        "kind": "tool",
+        "bytes": 1048576
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.699999999999932,
+        "p95": 17.5,
+        "maximum": 17.700000000000045
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 1,
+        "p95": 2.600000023841858,
+        "maximum": 11.899999976158142
+      },
+      "commits": 62,
+      "domNodes": 29,
+      "heapBytes": {
+        "median": 19942579,
+        "p95": 19975323,
+        "maximum": 19975323
+      }
+    },
+    {
+      "id": "transcript-1000-turns",
+      "fixture": {
+        "id": "transcript-1000-turns",
+        "kind": "transcript",
+        "turns": 1000
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.5,
+        "maximum": 17.599999999999994
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 21.700000047683716,
+        "p95": 23,
+        "maximum": 23
+      },
+      "commits": 1,
+      "domNodes": 106,
+      "heapBytes": {
+        "median": 9808181,
+        "p95": 9826313,
+        "maximum": 9826313
+      }
+    },
+    {
+      "id": "transcript-legacy-comparison-1000-turns",
+      "fixture": {
+        "id": "transcript-legacy-comparison-1000-turns",
+        "kind": "transcript",
+        "turns": 1000,
+        "anchorTurn": 8,
+        "activities": 128,
+        "component": "VirtualTranscript"
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.5,
+        "maximum": 17.599999999999994
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 23.399999976158142,
+        "p95": 23.5,
+        "maximum": 23.5
+      },
+      "commits": 1,
+      "domNodes": 108,
+      "heapBytes": {
+        "median": 9509557,
+        "p95": 9514945,
+        "maximum": 9514945
+      }
+    },
+    {
+      "id": "transcript-viewport-anchored-1000-turns",
+      "fixture": {
+        "id": "transcript-viewport-anchored-1000-turns",
+        "kind": "transcript",
+        "turns": 1000,
+        "anchorTurn": 8,
+        "activities": 128
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.600000000000023,
+        "maximum": 17.600000000000023
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 23.100000023841858,
+        "p95": 36.60000002384186,
+        "maximum": 36.60000002384186
+      },
+      "commits": 1,
+      "domNodes": 139,
+      "heapBytes": {
+        "median": 9815160,
+        "p95": 9853657,
+        "maximum": 9853657
+      }
+    },
+    {
+      "id": "transcript-viewport-streaming-1000-turns",
+      "fixture": {
+        "id": "transcript-viewport-streaming-1000-turns",
+        "kind": "transcript",
+        "turns": 1000,
+        "anchorTurn": 8,
+        "activities": 128,
+        "streamingDeltas": 36
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.699999999999932,
+        "p95": 17.5,
+        "maximum": 34.19999999999999
+      },
+      "longTasksMs": {
+        "count": 1,
+        "median": 88,
+        "p95": 88,
+        "maximum": 88
+      },
+      "commitDurationsMs": {
+        "median": 0.6000000238418579,
+        "p95": 1.7999999523162842,
+        "maximum": 73.20000004768372
+      },
+      "commits": 36,
+      "domNodes": 139,
+      "heapBytes": {
+        "median": 9784347,
+        "p95": 9889392,
+        "maximum": 9889392
+      }
+    },
+    {
+      "id": "diff-2mb",
+      "fixture": {
+        "id": "diff-2mb",
+        "kind": "diff",
+        "bytes": 2097152
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.599999999999994,
+        "maximum": 17.600000000000023
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 3.8000000715255737,
+        "p95": 7.200000047683716,
+        "maximum": 7.200000047683716
+      },
+      "commits": 1,
+      "domNodes": 168,
+      "heapBytes": {
+        "median": 9209141,
+        "p95": 9253813,
+        "maximum": 9253813
+      }
+    },
+    {
+      "id": "thread-shells-10000",
+      "fixture": {
+        "id": "thread-shells-10000",
+        "kind": "list",
+        "items": 10000
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.400000000000006,
+        "maximum": 17.700000000000045
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 1.3000000715255737,
+        "p95": 2.0999999046325684,
+        "maximum": 3.100000023841858
+      },
+      "commits": 5,
+      "domNodes": 38,
+      "heapBytes": {
+        "median": 8743727,
+        "p95": 8785619,
+        "maximum": 8785619
+      }
+    },
+    {
+      "id": "workspace-files-10000",
+      "fixture": {
+        "id": "workspace-files-10000",
+        "kind": "list",
+        "items": 10000
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.599999999999994,
+        "maximum": 17.700000000000017
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 1.5,
+        "p95": 2.0999999046325684,
+        "maximum": 3.200000047683716
+      },
+      "commits": 5,
+      "domNodes": 38,
+      "heapBytes": {
+        "median": 8717803,
+        "p95": 8760212,
+        "maximum": 8760212
+      }
+    },
+    {
+      "id": "picker-catalog-10000",
+      "fixture": {
+        "id": "picker-catalog-10000",
+        "kind": "list",
+        "items": 10000
+      },
+      "sampleRuns": 5,
+      "longTaskObserverSupported": true,
+      "frameIntervalsMs": {
+        "median": 16.69999999999999,
+        "p95": 17.5,
+        "maximum": 17.599999999999994
+      },
+      "longTasksMs": {
+        "count": 0,
+        "median": 0,
+        "p95": 0,
+        "maximum": 0
+      },
+      "commitDurationsMs": {
+        "median": 1.1999999284744263,
+        "p95": 1.899999976158142,
+        "maximum": 2.100000023841858
+      },
+      "commits": 5,
+      "domNodes": 38,
+      "heapBytes": {
+        "median": 8754330,
+        "p95": 8815109,
+        "maximum": 8815109
+      }
+    }
+  ]
+}
