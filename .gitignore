@@ -20,4 +20,4 @@ reports/*.json
 !reports/renderer-transcript-baseline-*.json
 # The performance report test reads these as checked-in inputs.
 !reports/renderer-report.json
-!reports/renderer-transcript-current-run-01.json
+!reports/renderer-transcript-current-run-0[1-3].json
