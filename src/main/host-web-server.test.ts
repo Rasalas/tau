@@ -9,7 +9,9 @@ mkdirSync(join(root, "assets"), { recursive: true });
 writeFileSync(join(root, "index.html"), "<!doctype html><title>Tau</title>");
 writeFileSync(join(root, "assets", "main.js"), "export const ok = 1;\n");
 
-const web = createWebClientServer({ dir: root, token: "s3cret-token", codeTtlMs: 50 });
+// The shared server keeps the default TTL: a 50 ms window expired under CI load
+// before the redeem request arrived. The TTL test below runs its own server.
+const web = createWebClientServer({ dir: root, token: "s3cret-token" });
 let origin = "";
 
 beforeAll(async () => {
