@@ -189,6 +189,11 @@ export interface UiEditor {
   name: string;
 }
 
+export interface UiTerminal {
+  id: string;
+  name: string;
+}
+
 export interface CommitResult {
   changes: UiWorkspaceChanges;
   pushed: boolean;

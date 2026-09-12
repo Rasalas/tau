@@ -10,6 +10,7 @@ import {
   type HostActionResult,
   type PreferencesStore,
   type UiEditor,
+  type UiTerminal,
   type UiFileDiff,
   type UiToolRun,
   type UiWorkspaceChanges,
@@ -37,6 +38,7 @@ const INITIAL: WorkspaceKitState = {
   changes: NO_CHANGES,
   workspaceBusy: false,
   editors: [],
+  terminals: [],
   fileTree: [],
   committing: false,
   pushPrimary: false,
@@ -221,6 +223,28 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   chooseEditor(id: string): void { this.preferences.setValue(WORKSPACE_KIT_ID, "editor", id); }
+
+  /** Terminals run on the host's machine; a client elsewhere is offered none. */
+  async loadTerminals(): Promise<void> {
+    if (!hostAvailable()) return;
+    if (!hostHasLocalFiles()) { this.update({ terminals: [] }); return; }
+    try { this.update({ terminals: await this.host.listTerminals() }); } catch { this.update({ terminals: [] }); }
+  }
+
+  activeTerminal(): UiTerminal | undefined {
+    const preferred = this.preferences.value(WORKSPACE_KIT_ID, "terminal");
+    return this.state.terminals.find((terminal) => terminal.id === preferred) ?? this.state.terminals[0];
+  }
+
+  chooseTerminal(id: string): void { this.preferences.setValue(WORKSPACE_KIT_ID, "terminal", id); }
+
+  async openTerminal(terminalOverride?: string): Promise<void> {
+    if (!hostHasLocalFiles()) { this.notify("This host's files are not on this machine."); return; }
+    const terminalId = terminalOverride ?? this.activeTerminal()?.id;
+    if (!this.requireHost("Opening a terminal")) return;
+    try { await this.host.openTerminal(terminalId, this.workspace()); }
+    catch (error) { this.notify(errorMessage(error)); }
+  }
 
   async refreshChanges(): Promise<void> {
     if (!hostAvailable()) return;

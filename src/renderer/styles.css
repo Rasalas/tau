@@ -750,7 +750,7 @@ button > svg { pointer-events: none; }
 .activity-disclosure > pre {
   margin: 6px 0 0 26px; padding: 10px 12px; max-height: 240px; overflow: auto;
   border-left: 2px solid var(--line-strong); background: var(--chrome);
-  color: var(--muted); font: 11px/1.55 var(--mono); white-space: pre-wrap; word-break: break-word;
+  color: var(--muted); font: 11px/1.35 var(--mono); white-space: pre-wrap; word-break: break-word;
 }
 
 
@@ -816,7 +816,7 @@ button > svg { pointer-events: none; }
 .md-code-head > button.copied { color: var(--ready); }
 .md-code-head > button.failed { color: var(--removed); }
 .md-code pre { margin: 0; padding: 11px 13px; overflow-x: auto; }
-.md-code code { font: 12px/1.65 var(--mono); color: var(--ink-code); white-space: pre; }
+.md-code code { font: 12px/1.4 var(--mono); color: var(--ink-code); white-space: pre; }
 
 /* highlight.js tokens, on the workbench palette */
 .hljs-comment, .hljs-quote { color: var(--faint); font-style: italic; }
@@ -938,7 +938,7 @@ button > svg { pointer-events: none; }
 .tool-run-state.running { color: var(--acid-text); }
 .tool-output {
   margin: 0 13px 11px 39px; padding: 9px 11px; background: var(--code-bg);
-  border-radius: 7px; font: 11px/1.6 var(--mono); color: var(--muted);
+  border-radius: 7px; font: 11.5px/1.35 var(--mono); color: var(--muted);
   max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 .tool-run.running .tool-output { max-height: 104px; }
@@ -1402,7 +1402,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .extension-option-preview {
   margin: 4px 0 2px; padding: 7px 9px; max-height: 180px; overflow: auto;
   background: var(--code-bg); border-radius: 6px;
-  font: 11px/1.55 var(--mono); color: var(--muted); white-space: pre-wrap;
+  font: 11px/1.35 var(--mono); color: var(--muted); white-space: pre-wrap;
 }
 .extension-option.chosen > i,
 .extension-option.chosen .extension-option-indicator { color: var(--acid-text); }
@@ -1462,7 +1462,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .approval > header > small { font: 10px var(--mono); color: var(--faint); }
 .approval > pre {
   margin: 0; padding: 14px 16px; max-height: 220px; overflow: auto;
-  font: 12px/1.65 var(--mono); color: var(--ink-2);
+  font: 12px/1.4 var(--mono); color: var(--ink-2);
   white-space: pre-wrap; word-break: break-word;
 }
 .approval > footer {

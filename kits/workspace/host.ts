@@ -438,6 +438,12 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (path) await workspaceGit.assertWorkspacePath(project, path);
         await workspaceGit.openInEditor(project, editorId, path);
       });
+      context.registerCommand("list-terminals", () => workspaceGit.listTerminals());
+      context.registerCommand("open-terminal", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const terminalId = optionalString(input, "terminalId");
+        await workspaceGit.openTerminal(project, terminalId);
+      });
       context.registerCommand("edit-prompt-external", async (input) => {
         const text = optionalString(input, "text") ?? "";
         const editorId = optionalString(input, "editorId");

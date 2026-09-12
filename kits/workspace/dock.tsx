@@ -22,7 +22,7 @@ export function WorkspaceFollower({ actions }: RegionProps) {
   useEffect(() => {
     workspaceStore.follow({ cwd, workspaceId, sessionId, draftPending });
   }, [cwd, workspaceId, sessionId, draftPending, workspaceStore]);
-  useEffect(() => { void workspaceStore.loadEditors(); }, [workspaceStore]);
+  useEffect(() => { void workspaceStore.loadEditors(); void workspaceStore.loadTerminals(); }, [workspaceStore]);
   return null;
 }
 

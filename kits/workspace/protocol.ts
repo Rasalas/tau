@@ -7,6 +7,7 @@ import type {
   FileNode,
   HostActionResult,
   UiEditor,
+  UiTerminal,
   UiFileContent,
   UiFileDiff,
   UiWorktreeStatus,
@@ -134,6 +135,8 @@ export interface WorkspaceHostCommands {
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
   "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string }; output: void };
+  "list-terminals": { input: undefined; output: UiTerminal[] };
+  "open-terminal": { input: { terminalId?: string; workspace?: string }; output: void };
   /** Every checkpoint of a thread's branch, and whether this runtime can restore one. */
   "checkpoints": { input: { sessionId: string }; output: WorkspaceCheckpointList };
   /** Ref and workspace integrity check used before showing Restore. */
@@ -176,6 +179,8 @@ export interface WorkspaceHostClient {
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string): Promise<void>;
+  listTerminals(): Promise<UiTerminal[]>;
+  openTerminal(terminalId?: string, workspace?: string): Promise<void>;
   checkpoints(sessionId: string): Promise<WorkspaceCheckpointList>;
   canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
   getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
@@ -214,6 +219,8 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace) => call("open-in-editor", { editorId, relPath, workspace }),
+    listTerminals: () => call("list-terminals", undefined),
+    openTerminal: (terminalId, workspace) => call("open-terminal", { terminalId, workspace }),
     checkpoints: (sessionId) => call("checkpoints", { sessionId }),
     canRestoreCheckpoint: (sessionId, checkpointId) => call("can-restore", { sessionId, checkpointId }),
     getRestorePreview: (sessionId, checkpointId) => call("restore-preview", { sessionId, checkpointId }),
@@ -242,6 +249,7 @@ export interface WorkspaceKitState {
   workspace?: WorkspaceInfo;
   workspaceBusy: boolean;
   editors: UiEditor[];
+  terminals: UiTerminal[];
   fileTree: FileNode[];
   committing: boolean;
   pushPrimary: boolean;
@@ -297,6 +305,8 @@ export interface WorkspaceStoreApi {
   /** Commits the selected changes and reports whether the host accepted them. */
   commit(message: string, push: boolean): Promise<boolean>;
   openInEditor(relPath?: string, editorOverride?: string): Promise<void>;
+  activeTerminal(): UiTerminal | undefined;
+  openTerminal(terminalOverride?: string): Promise<void>;
   suggestCommitMessage(changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]): Promise<string | undefined>;
   /** An extension offers to name new worktrees; the picker shows the offer only while one is registered. */
   registerWorktreeNamer(namer: WorktreeNamer): () => void;

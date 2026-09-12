@@ -30,8 +30,17 @@ function setup(info = workspace(), draftPending = false, localFiles = true) {
   const preferences = new PreferencesStore();
   const workspaceStore = new WorkspaceStore(preferences, createWorkspaceHostClient(async () => undefined));
   const TitleActions = withWorkspaceStore(workspaceStore, WorkspaceTitleActions);
-  workspaceStore.update({ cwd: "/project", draftPending, changes: dirty, workspace: info, committing: false, editors: [{ id: "code", name: "VS Code" }, { id: "zed", name: "Zed" }] });
+  workspaceStore.update({
+    cwd: "/project",
+    draftPending,
+    changes: dirty,
+    workspace: info,
+    committing: false,
+    editors: [{ id: "code", name: "VS Code" }, { id: "zed", name: "Zed" }],
+    terminals: [{ id: "ghostty", name: "Ghostty" }, { id: "terminal", name: "Terminal" }],
+  });
   const openInEditor = vi.spyOn(workspaceStore, "openInEditor").mockResolvedValue(undefined);
+  const openTerminal = vi.spyOn(workspaceStore, "openTerminal").mockResolvedValue(undefined);
   const openReview = vi.spyOn(workspaceStore, "openReview").mockImplementation(() => undefined);
   const pull = vi.spyOn(workspaceStore, "pull").mockResolvedValue(undefined);
   const runShellAction = vi.spyOn(workspaceStore, "runShellAction").mockResolvedValue(undefined);
@@ -45,7 +54,7 @@ function setup(info = workspace(), draftPending = false, localFiles = true) {
       </ClientStorageProvider>
     </HostClientProvider>,
   );
-  return { openInEditor, openReview, pull, runShellAction };
+  return { openInEditor, openTerminal, openReview, pull, runShellAction };
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -73,8 +82,19 @@ describe("Workspace Kit title actions", () => {
     setup(workspace(), false, false);
     expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Choose editor" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open in terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose terminal" })).toBeNull();
     // The Git actions of the same bar stay: they do not touch this machine.
     expect(screen.getByRole("button", { name: "Commit" })).toBeTruthy();
+  });
+
+  it("opens the preferred terminal and opens a selected terminal from the split menu", () => {
+    const { openTerminal } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Open in terminal" }));
+    expect(openTerminal).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose terminal" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Terminal" }));
+    expect(openTerminal).toHaveBeenCalledWith("terminal");
   });
 
   it("chooses commit versus commit and push from upstream state", () => {

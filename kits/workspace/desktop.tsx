@@ -161,6 +161,16 @@ export const workspaceExtension: DesktopExtension = {
         await store.openInEditor();
       },
     });
+    context.registerCommand({
+      id: "workspace.open-terminal",
+      label: "Open in external terminal",
+      group: "Project",
+      run: async (app) => {
+        const activeTerminal = store.activeTerminal();
+        if (activeTerminal) app.notify(`Opening in ${activeTerminal.name}…`);
+        await store.openTerminal();
+      },
+    });
     context.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", run: (app) => app.settleActiveThread() });
     // The branch is the kit's fact; the title menu only lends the slot.
     context.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], run: async (app) => {
@@ -170,6 +180,7 @@ export const workspaceExtension: DesktopExtension = {
     } });
     context.registerKeybinding({ keys: "mod+p", commandId: "workspace.open-project" });
     context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
+    context.registerKeybinding({ keys: "mod+j", commandId: "workspace.open-terminal" });
     context.registerKeybinding({ keys: "mod+shift+s", commandId: "workspace.settle" });
     context.registerToolRenderer(
       "workspace.read-renderer",
@@ -256,6 +267,28 @@ export const workspaceExtension: DesktopExtension = {
         if (!activeEditor) return "No supported editor found on PATH.";
         app.notify(`Opening in ${activeEditor.name}…`);
         void store.openInEditor();
+        return undefined;
+      },
+    });
+    context.registerSlashCommand({
+      name: "terminal",
+      description: "Open current project in external terminal (Ghostty, iTerm, Warp, Terminal)",
+      run: (_args, app) => {
+        const activeTerminal = store.activeTerminal();
+        if (!activeTerminal) return "No supported terminal found.";
+        app.notify(`Opening in ${activeTerminal.name}…`);
+        void store.openTerminal();
+        return undefined;
+      },
+    });
+    context.registerSlashCommand({
+      name: "term",
+      description: "Open current project in external terminal (Ghostty, iTerm, Warp, Terminal)",
+      run: (_args, app) => {
+        const activeTerminal = store.activeTerminal();
+        if (!activeTerminal) return "No supported terminal found.";
+        app.notify(`Opening in ${activeTerminal.name}…`);
+        void store.openTerminal();
         return undefined;
       },
     });

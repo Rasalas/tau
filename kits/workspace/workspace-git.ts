@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { findExecutable, gitExecutable } from "tau/host-extension";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -13,6 +14,7 @@ import type {
   UiDiffHunk,
   UiDiffLine,
   UiEditor,
+  UiTerminal,
   UiFileDiff,
   PullResult,
   PushResult,
@@ -815,6 +817,16 @@ const KNOWN_EDITORS: ReadonlyArray<UiEditor> = [
   { id: "subl", name: "Sublime Text" },
   { id: "idea", name: "IntelliJ IDEA" },
   { id: "nvim", name: "Neovim" },
+];
+
+/** Terminals we know how to launch. */
+export const KNOWN_TERMINALS: ReadonlyArray<UiTerminal> = [
+  { id: "ghostty", name: "Ghostty" },
+  { id: "iterm", name: "iTerm" },
+  { id: "warp", name: "Warp" },
+  { id: "kitty", name: "Kitty" },
+  { id: "alacritty", name: "Alacritty" },
+  { id: "terminal", name: "Terminal" },
 ];
 
 export type GitRunner = (cwd: string, args: string[], maxBuffer?: number, signal?: AbortSignal) => Promise<string>;
@@ -2424,6 +2436,46 @@ export async function openInEditor(cwd: string, editorId: string, path?: string)
     throw new Error(`Unknown editor: ${editorId}`);
   }
   await execFileAsync(editorId, [path ? join(cwd, path) : cwd], { cwd });
+}
+
+export async function listTerminals(): Promise<UiTerminal[]> {
+  if (process.platform === "darwin") {
+    const apps: Record<string, string> = {
+      ghostty: "/Applications/Ghostty.app",
+      iterm: "/Applications/iTerm.app",
+      warp: "/Applications/Warp.app",
+      kitty: "/Applications/kitty.app",
+      alacritty: "/Applications/Alacritty.app",
+      terminal: "/System/Applications/Utilities/Terminal.app",
+    };
+    return KNOWN_TERMINALS.filter((term) => findExecutable(term.id) !== undefined || (apps[term.id] && existsSync(apps[term.id])));
+  }
+  return KNOWN_TERMINALS.filter((term) => findExecutable(term.id) !== undefined);
+}
+
+export async function openTerminal(cwd: string, terminalId?: string): Promise<void> {
+  const available = await listTerminals();
+  const chosen = terminalId ? KNOWN_TERMINALS.find((t) => t.id === terminalId) : available[0];
+  const target = chosen?.id ?? (process.platform === "darwin" ? "terminal" : "xterm");
+
+  if (process.platform === "darwin") {
+    const appNames: Record<string, string> = {
+      ghostty: "Ghostty",
+      iterm: "iTerm",
+      warp: "Warp",
+      kitty: "kitty",
+      alacritty: "Alacritty",
+      terminal: "Terminal",
+    };
+    const appName = appNames[target] ?? "Terminal";
+    await execFileAsync("open", ["-a", appName, cwd], { cwd });
+  } else if (process.platform === "win32") {
+    await execFileAsync("wt.exe", ["-d", cwd], { cwd }).catch(() =>
+      execFileAsync("cmd.exe", ["/c", "start"], { cwd })
+    );
+  } else {
+    await execFileAsync(target, [], { cwd });
+  }
 }
 
 /** Where added worktrees live: beside the repository by default, or configured location. */
