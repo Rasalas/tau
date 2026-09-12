@@ -49,10 +49,11 @@ export function usePiUiThread(store: PiUiStore, sessionId: string | undefined): 
 export function createPiUiComponents(store: PiUiStore) {
   function PiStatusItems({ snapshot }: RegionProps) {
     const state = usePiUiThread(store, snapshot?.sessionId);
-    if (state.statuses.length === 0 && state.working === undefined) return null;
+    if (state.statuses.length === 0 && state.working === undefined && !state.footer?.length) return null;
     return (
       <>
         {state.working !== undefined && snapshot?.isStreaming ? <span className="pi-ui-working" title="Working message from a Pi extension">{stripAnsi(state.working)}</span> : null}
+        {state.footer?.map((line, i) => <span className="pi-ui-status pi-ui-footer" key={`footer-${i}`}>{stripAnsi(line)}</span>)}
         {state.statuses.map((status) => <span className="pi-ui-status" key={status.key} title={status.key}>{stripAnsi(status.text)}</span>)}
       </>
     );
@@ -88,7 +89,14 @@ export function createPiUiExtension(store = new PiUiStore()): DesktopExtension {
       plugin.registerStatusItem({ id: "pi-ui.status", align: "right", order: 50, profiles: ["desktop", "web", "compact"], Component: PiStatusItems });
       plugin.registerRegion({ id: "pi-ui.widgets-above", placement: "composer-above", order: 50, profiles: ["desktop", "web", "compact"], Component: PiWidgetsAbove });
       plugin.registerRegion({ id: "pi-ui.widgets-below", placement: "composer-below", order: 50, profiles: ["desktop", "web", "compact"], Component: PiWidgetsBelow });
-      plugin.host.onEvent(PI_UI_EVENT, (payload) => { if (isThreadState(payload)) store.set(payload); });
+      plugin.host.onEvent(PI_UI_EVENT, (payload) => {
+        if (isThreadState(payload)) {
+          store.set(payload);
+          if (payload.editorAction && typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("tau:composer-editor-action", { detail: payload.editorAction }));
+          }
+        }
+      });
       // A reloaded renderer missed earlier drawings; ask the host for the thread's state.
       const read = (sessionId?: string) => plugin.host.invoke("state", sessionId ? { sessionId } : undefined)
         .then((value) => { if (isThreadState(value)) store.set(value); })

@@ -167,6 +167,13 @@ export function ExtensionPrompt({
           )}
         </div>
       ) : null}
+      {prompt.kind === "custom" && prompt.lines && prompt.lines.length > 0 ? (
+        <div className="extension-prompt-custom">
+          <pre style={{ margin: "8px 0", padding: "8px", background: "var(--code-bg)", borderRadius: "var(--radius-sm)", overflowX: "auto", fontFamily: "var(--font-mono)", fontSize: "12px", lineHeight: "1.4" }}>
+            {prompt.lines.join("\n")}
+          </pre>
+        </div>
+      ) : null}
     </ExtensionPromptFrame>
   );
 }

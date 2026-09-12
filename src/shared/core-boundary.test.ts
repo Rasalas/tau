@@ -23,6 +23,8 @@ const KNOWN_DEBT: Record<string, Record<string, string>> = {
   "src/shared/contracts.ts": {
     // Pi's own dialog kinds; `editor` is ctx.ui.editor, not an external editor.
     editor: "Pi dialog kind",
+    // External editor ($EDITOR / Ctrl+G) prompt launch result
+    ExternalEditorResult: "External editor prompt response contract",
     // Provenance metadata on ExtensionPackageSummary and DesktopExtensionBundle.
     commit: "Extension package provenance commit hash",
   },
@@ -58,11 +60,11 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./extension-bundle-server.js",   "./extension-grants.js",   "./extension-installer.js",
   "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
-  "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
+  "./external-editor.js",   "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
   "./host-extensions.js",   "./host-jobs.js",   "./host-lifecycle.js",
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",
-  "./host-messages.js",   "./host-methods.js",   "./host-ports.js",
+  "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
   "./host-push-log.js",   "./host-text.js",   "./host-token.js",
   "./host-transcript.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",

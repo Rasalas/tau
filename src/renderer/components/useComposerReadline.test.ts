@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { PromptHistory } from "../../workbench/prompt-history";
-import { handleComposerReadlineKey } from "./useComposerReadline";
+import { handleComposerReadlineKey, ComposerKillRing } from "./useComposerReadline";
 
 function createMockTextarea(text: string, selectionStart: number, selectionEnd = selectionStart) {
   const element = {
@@ -191,5 +191,128 @@ describe("useComposerReadline", () => {
 
     expect(handledO).toBe(true);
     expect(onOpenPromptEditor).toHaveBeenCalledTimes(2);
+  });
+
+  it("handles Kill Ring: Ctrl+K, Alt+D, Ctrl+Y (yank) and Alt+Y (yank-pop)", () => {
+    const promptHistory = new PromptHistory();
+    const killRing = new ComposerKillRing();
+    const textareaRef = createMockTextarea("first second third", 0);
+    let draft = "first second third";
+    const updateDraft = vi.fn((next: string) => { draft = next; });
+    const setCaret = vi.fn();
+
+    // 1. Alt+D kills "first "
+    (textareaRef.current as any).selectionStart = 0;
+    const altD = createKeyboardEvent("d", { alt: true });
+    handleComposerReadlineKey(altD, {
+      textareaRef,
+      text: draft,
+      updateDraft,
+      setCaret,
+      promptHistory,
+      killRing,
+    });
+    expect(killRing.peek()).toBe("first");
+
+    // 2. Kill "second" with Alt+D
+    (textareaRef.current as any).selectionStart = 1; // space before second
+    const altD2 = createKeyboardEvent("d", { alt: true });
+    handleComposerReadlineKey(altD2, {
+      textareaRef,
+      text: draft,
+      updateDraft,
+      setCaret,
+      promptHistory,
+      killRing,
+    });
+
+    // 3. Ctrl+Y yanks the last killed word
+    (textareaRef.current as any).selectionStart = 0;
+    const ctrlY = createKeyboardEvent("y", { ctrl: true });
+    const handledY = handleComposerReadlineKey(ctrlY, {
+      textareaRef,
+      text: draft,
+      updateDraft,
+      setCaret,
+      promptHistory,
+      killRing,
+    });
+    expect(handledY).toBe(true);
+
+    // 4. Alt+Y cycles to earlier kill
+    (textareaRef.current as any).selectionStart = killRing.lastYankLength;
+    const altY = createKeyboardEvent("y", { alt: true });
+    const handledAltY = handleComposerReadlineKey(altY, {
+      textareaRef,
+      text: draft,
+      updateDraft,
+      setCaret,
+      promptHistory,
+      killRing,
+    });
+    expect(handledAltY).toBe(true);
+  });
+
+  it("handles word navigation with Alt+B and Alt+F", () => {
+    const promptHistory = new PromptHistory();
+    const textareaRef = createMockTextarea("hello world test", 11);
+    const updateDraft = vi.fn();
+    const setCaret = vi.fn();
+
+    const altB = createKeyboardEvent("b", { alt: true });
+    (altB.currentTarget as any).selectionStart = 11;
+    const handledB = handleComposerReadlineKey(altB, {
+      textareaRef,
+      text: "hello world test",
+      updateDraft,
+      setCaret,
+      promptHistory,
+    });
+    expect(handledB).toBe(true);
+    expect(setCaret).toHaveBeenCalledWith(6);
+
+    const altF = createKeyboardEvent("f", { alt: true });
+    (altF.currentTarget as any).selectionStart = 6;
+    const handledF = handleComposerReadlineKey(altF, {
+      textareaRef,
+      text: "hello world test",
+      updateDraft,
+      setCaret,
+      promptHistory,
+    });
+    expect(handledF).toBe(true);
+    expect(setCaret).toHaveBeenCalledWith(11);
+  });
+
+  it("handles dequeue with Alt+Up or Alt+Q", () => {
+    const promptHistory = new PromptHistory();
+    const textareaRef = createMockTextarea("hello", 5);
+    const updateDraft = vi.fn();
+    const setCaret = vi.fn();
+    const onDequeue = vi.fn();
+
+    const altUp = createKeyboardEvent("ArrowUp", { alt: true });
+    const handledUp = handleComposerReadlineKey(altUp, {
+      textareaRef,
+      text: "hello",
+      updateDraft,
+      setCaret,
+      promptHistory,
+      onDequeue,
+    });
+    expect(handledUp).toBe(true);
+    expect(onDequeue).toHaveBeenCalledTimes(1);
+
+    const altQ = createKeyboardEvent("q", { alt: true });
+    const handledQ = handleComposerReadlineKey(altQ, {
+      textareaRef,
+      text: "hello",
+      updateDraft,
+      setCaret,
+      promptHistory,
+      onDequeue,
+    });
+    expect(handledQ).toBe(true);
+    expect(onDequeue).toHaveBeenCalledTimes(2);
   });
 });

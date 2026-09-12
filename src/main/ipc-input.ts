@@ -183,13 +183,14 @@ export function decodeExtensionUiAnswer(channel: string, field: string, value: u
     return { cancelled: true };
   }
   if ("confirmed" in item) return { confirmed: decodeBoolean(channel, `${field}.confirmed`, item.confirmed) };
+  if ("customResult" in item) return { customResult: item.customResult };
   if ("value" in item) {
     return {
       value: decodeString(channel, `${field}.value`, item.value),
       ...(item.typed !== undefined ? { typed: decodeBoolean(channel, `${field}.typed`, item.typed) } : {}),
     };
   }
-  fail(channel, field, 'must have "cancelled", "confirmed" or "value"');
+  fail(channel, field, 'must have "cancelled", "confirmed", "customResult" or "value"');
 }
 
 const WORKBENCH_RELOAD_MODES = new Set<string>(["inspect", "wait", "abort"]);
@@ -319,6 +320,58 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
         ? { presets: m.presets as Record<string, TauModelPreset> }
         : {}),
     };
+  }
+  if (item.compaction !== undefined) {
+    const c = record(channel, `${field}.compaction`, item.compaction);
+    result.compaction = {
+      ...(c.enabled !== undefined ? { enabled: decodeBoolean(channel, `${field}.compaction.enabled`, c.enabled) } : {}),
+      ...(c.reserveTokens !== undefined ? { reserveTokens: decodeNumber(channel, `${field}.compaction.reserveTokens`, c.reserveTokens) } : {}),
+      ...(c.keepRecentTokens !== undefined ? { keepRecentTokens: decodeNumber(channel, `${field}.compaction.keepRecentTokens`, c.keepRecentTokens) } : {}),
+    };
+  }
+  if (item.retry !== undefined) {
+    const r = record(channel, `${field}.retry`, item.retry);
+    const provider = r.provider !== undefined ? record(channel, `${field}.retry.provider`, r.provider) : undefined;
+    result.retry = {
+      ...(r.enabled !== undefined ? { enabled: decodeBoolean(channel, `${field}.retry.enabled`, r.enabled) } : {}),
+      ...(r.maxRetries !== undefined ? { maxRetries: decodeNumber(channel, `${field}.retry.maxRetries`, r.maxRetries) } : {}),
+      ...(r.baseDelayMs !== undefined ? { baseDelayMs: decodeNumber(channel, `${field}.retry.baseDelayMs`, r.baseDelayMs) } : {}),
+      ...(provider ? {
+        provider: {
+          ...(provider.timeoutMs !== undefined ? { timeoutMs: decodeNumber(channel, `${field}.retry.provider.timeoutMs`, provider.timeoutMs) } : {}),
+          ...(provider.maxRetries !== undefined ? { maxRetries: decodeNumber(channel, `${field}.retry.provider.maxRetries`, provider.maxRetries) } : {}),
+          ...(provider.maxRetryDelayMs !== undefined ? { maxRetryDelayMs: decodeNumber(channel, `${field}.retry.provider.maxRetryDelayMs`, provider.maxRetryDelayMs) } : {}),
+        },
+      } : {}),
+    };
+  }
+  if (item.steeringMode !== undefined) {
+    const sm = decodeString(channel, `${field}.steeringMode`, item.steeringMode);
+    if (sm !== "all" && sm !== "one-at-a-time") fail(channel, `${field}.steeringMode`, 'must be "all" or "one-at-a-time"');
+    result.steeringMode = sm as TauConfig["steeringMode"];
+  }
+  if (item.followUpMode !== undefined) {
+    const fm = decodeString(channel, `${field}.followUpMode`, item.followUpMode);
+    if (fm !== "all" && fm !== "one-at-a-time") fail(channel, `${field}.followUpMode`, 'must be "all" or "one-at-a-time"');
+    result.followUpMode = fm as TauConfig["followUpMode"];
+  }
+  if (item.defaultTools !== undefined) {
+    if (!Array.isArray(item.defaultTools) || (item.defaultTools as unknown[]).some((t) => typeof t !== "string"))
+      fail(channel, `${field}.defaultTools`, "must be an array of strings");
+    result.defaultTools = item.defaultTools as string[];
+  }
+  if (item.shellPath !== undefined) result.shellPath = decodeString(channel, `${field}.shellPath`, item.shellPath);
+  if (item.shellCommandPrefix !== undefined) result.shellCommandPrefix = decodeString(channel, `${field}.shellCommandPrefix`, item.shellCommandPrefix);
+  if (item.npmCommand !== undefined) {
+    if (!Array.isArray(item.npmCommand) || (item.npmCommand as unknown[]).some((a) => typeof a !== "string"))
+      fail(channel, `${field}.npmCommand`, "must be an array of strings");
+    result.npmCommand = item.npmCommand as string[];
+  }
+  if (item.quietStartup !== undefined) result.quietStartup = decodeBoolean(channel, `${field}.quietStartup`, item.quietStartup);
+  if (item.defaultProjectTrust !== undefined) {
+    const dpt = decodeString(channel, `${field}.defaultProjectTrust`, item.defaultProjectTrust);
+    if (dpt !== "ask" && dpt !== "always" && dpt !== "never") fail(channel, `${field}.defaultProjectTrust`, 'must be "ask", "always" or "never"');
+    result.defaultProjectTrust = dpt as TauConfig["defaultProjectTrust"];
   }
   return result;
 }

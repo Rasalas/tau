@@ -60,6 +60,10 @@ export interface WorkbenchActions {
   holdComposer(): () => void;
   /** What the user has typed into the visible composer and not sent yet. */
   composerDraft(): string;
+  /** Sets what is typed into the visible composer. */
+  setComposerDraft?(text: string): void;
+  /** Opens the current prompt draft in the external editor ($VISUAL/$EDITOR). */
+  openPromptEditor?(): Promise<void>;
   /** Applies a host action result the way core actions do, refreshing what it touched. */
   applyHostResult(result: HostActionResult): void;
   /** Closes the stage tab currently on screen. */
@@ -87,6 +91,12 @@ export interface WorkbenchActions {
   executeCommand?(id: string): Promise<void> | void;
   /** Copies the active thread's conversation as Markdown. */
   copyChat?(): Promise<void>;
+  /** Renames the active thread / session. */
+  renameThread?(title: string): Promise<boolean>;
+  /** Cycles to the next or previous model. */
+  cycleModel?(direction?: 1 | -1): Promise<boolean>;
+  /** Cycles to the next thinking level. */
+  cycleThinking?(): Promise<void>;
 }
 
 /** Stamped onto every contribution so the UI can say which extension supplied it. */

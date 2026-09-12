@@ -153,6 +153,16 @@ describe("HostConfigManager", () => {
         defaultThinkingLevel: "low",
         theme: "nord",
         temperature: 0.7,
+        compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
+        retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 },
+        steeringMode: "one-at-a-time",
+        followUpMode: "all",
+        defaultTools: ["bash", "edit", "write"],
+        shellPath: "/bin/zsh",
+        shellCommandPrefix: "source ~/.zshrc",
+        npmCommand: ["mise", "exec", "--", "npm"],
+        quietStartup: true,
+        defaultProjectTrust: "always",
       }),
       "utf8",
     );
@@ -162,10 +172,21 @@ describe("HostConfigManager", () => {
     expect(config.models?.thinkingLevel).toBe("low");
     expect(config.theme).toBe("nord");
     expect(config.temperature).toBe(0.7);
+    expect(config.compaction).toEqual({ enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 });
+    expect(config.retry).toEqual({ enabled: true, maxRetries: 3, baseDelayMs: 2000 });
+    expect(config.steeringMode).toBe("one-at-a-time");
+    expect(config.followUpMode).toBe("all");
+    expect(config.defaultTools).toEqual(["bash", "edit", "write"]);
+    expect(config.shellPath).toBe("/bin/zsh");
+    expect(config.shellCommandPrefix).toBe("source ~/.zshrc");
+    expect(config.npmCommand).toEqual(["mise", "exec", "--", "npm"]);
+    expect(config.quietStartup).toBe(true);
+    expect(config.defaultProjectTrust).toBe("always");
 
     const syncConfig = manager.readSync();
     expect(syncConfig.models?.default).toBe("anthropic/claude-sonnet-4");
     expect(syncConfig.theme).toBe("nord");
+    expect(syncConfig.compaction?.reserveTokens).toBe(16384);
 
     // Project Pi settings override global Pi settings
     const projectPiDir = join(projectDir, ".pi");
@@ -175,6 +196,7 @@ describe("HostConfigManager", () => {
       JSON.stringify({
         defaultModel: "custom-local",
         defaultThinkingLevel: "high",
+        compaction: { reserveTokens: 8192 },
       }),
       "utf8",
     );
@@ -183,6 +205,7 @@ describe("HostConfigManager", () => {
     expect(projectMerged.models?.default).toBe("custom-local");
     expect(projectMerged.models?.thinkingLevel).toBe("high");
     expect(projectMerged.theme).toBe("nord"); // inherited from global Pi
+    expect(projectMerged.compaction?.reserveTokens).toBe(8192);
 
     // Tau project config overrides Pi settings
     await manager.update({ theme: "tau-dark" }, "project", projectDir);

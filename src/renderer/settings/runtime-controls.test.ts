@@ -54,6 +54,7 @@ describe("runtime controls slash commands", () => {
     expect(registry.getSlashCommands().map((command) => command.name)).toEqual([
       "reload", "tree", "fork", "clone", "compact", "model", "thinking", "new",
       "clear", "system", "instructions", "copy", "export", "session", "help",
+      "name", "hotkeys",
     ]);
     const reloadWorkbench = vi.fn(async () => false);
     const compactContext = vi.fn(async () => {});
@@ -66,6 +67,7 @@ describe("runtime controls slash commands", () => {
     const notify = vi.fn();
     const openInstructions = vi.fn();
     const copyChat = vi.fn(async () => {});
+    const renameThread = vi.fn(async () => true);
     const actions = {
       reloadWorkbench,
       compactContext,
@@ -78,6 +80,7 @@ describe("runtime controls slash commands", () => {
       notify,
       openInstructions,
       copyChat,
+      renameThread,
     } as unknown as WorkbenchActions;
 
     await expect(registry.findSlashCommand("/reload")!.command.run("", actions)).resolves.toBe("Tau reload failed.");
@@ -114,6 +117,13 @@ describe("runtime controls slash commands", () => {
 
     await registry.findSlashCommand("/help")!.command.run("", actions);
     expect(openCommandPalette).toHaveBeenCalled();
+
+    await registry.findSlashCommand("/name")!.command.run("my thread", actions);
+    expect(renameThread).toHaveBeenCalledWith("my thread");
+    expect(notify).toHaveBeenCalledWith("Thread renamed to “my thread”.");
+
+    await registry.findSlashCommand("/hotkeys")!.command.run("", actions);
+    expect(openSettings).toHaveBeenCalledWith("keybindings");
   });
 });
 
@@ -123,19 +133,23 @@ describe("runtime controls keybindings", () => {
     registry.activate(runtimeControls);
     const keys = Object.fromEntries(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys]));
     expect(keys).toEqual({
-      "runtime.command-palette": "mod+k",
-      "runtime.new-session": "mod+n",
       "runtime.abort": "escape",
-      "runtime.transcript-detail": "mod+shift+t",
-      "runtime.model": "mod+shift+m",
+      "runtime.command-palette": "mod+k",
+      "runtime.cycle-model": "ctrl+p",
+      "runtime.cycle-thinking": "shift+tab",
       "runtime.instructions": "mod+i",
-      "workbench.focus-composer": "mod+1",
-      "workbench.focus-transcript": "mod+2",
-      "workbench.focus-stage": "mod+3",
-      "workbench.toggle-dock": "mod+b",
+      "runtime.model": "mod+shift+m",
+      "runtime.new-session": "mod+n",
+      "runtime.rename-thread": "ctrl+r",
+      "runtime.transcript-detail": "mod+shift+t",
       "workbench.close-stage-tab": "mod+w",
+      "workbench.focus-composer": "mod+1",
+      "workbench.focus-stage": "mod+3",
+      "workbench.focus-transcript": "mod+2",
       "workbench.next-stage-tab": "mod+shift+]",
       "workbench.prev-stage-tab": "mod+shift+[",
+      "workbench.toggle-dock": "mod+b",
+      "runtime.open-prompt-editor": "ctrl+g",
     });
   });
 });

@@ -25,6 +25,16 @@ interface PiRawSettings {
   defaultThinkingLevel?: string;
   theme?: string;
   temperature?: number;
+  compaction?: TauConfig["compaction"];
+  retry?: TauConfig["retry"];
+  steeringMode?: TauConfig["steeringMode"];
+  followUpMode?: TauConfig["followUpMode"];
+  defaultTools?: string[];
+  shellPath?: string;
+  shellCommandPrefix?: string;
+  npmCommand?: string[];
+  quietStartup?: boolean;
+  defaultProjectTrust?: TauConfig["defaultProjectTrust"];
 }
 
 function piSettingsToTauConfig(pi?: PiRawSettings): Partial<TauConfig> {
@@ -43,6 +53,36 @@ function piSettingsToTauConfig(pi?: PiRawSettings): Partial<TauConfig> {
   }
   if (typeof pi.temperature === "number") {
     config.temperature = pi.temperature;
+  }
+  if (pi.compaction && typeof pi.compaction === "object") {
+    config.compaction = pi.compaction;
+  }
+  if (pi.retry && typeof pi.retry === "object") {
+    config.retry = pi.retry;
+  }
+  if (pi.steeringMode) {
+    config.steeringMode = pi.steeringMode;
+  }
+  if (pi.followUpMode) {
+    config.followUpMode = pi.followUpMode;
+  }
+  if (Array.isArray(pi.defaultTools)) {
+    config.defaultTools = pi.defaultTools;
+  }
+  if (typeof pi.shellPath === "string") {
+    config.shellPath = pi.shellPath;
+  }
+  if (typeof pi.shellCommandPrefix === "string") {
+    config.shellCommandPrefix = pi.shellCommandPrefix;
+  }
+  if (Array.isArray(pi.npmCommand)) {
+    config.npmCommand = pi.npmCommand;
+  }
+  if (typeof pi.quietStartup === "boolean") {
+    config.quietStartup = pi.quietStartup;
+  }
+  if (pi.defaultProjectTrust) {
+    config.defaultProjectTrust = pi.defaultProjectTrust;
   }
   return config;
 }
@@ -133,7 +173,9 @@ export class HostConfigManager {
     const KNOWN_KEYS = new Set<keyof TauConfig>([
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
-      "density", "temperature", "maxTokens", "models",
+      "density", "temperature", "maxTokens", "models", "compaction", "retry",
+      "steeringMode", "followUpMode", "defaultTools", "shellPath",
+      "shellCommandPrefix", "npmCommand", "quietStartup", "defaultProjectTrust",
     ]);
     const result: Partial<TauConfig> = {};
     for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
@@ -142,15 +184,17 @@ export class HostConfigManager {
       // Strict type enforcement happens at the IPC boundary; here we silently skip.
       switch (key) {
         case "theme": case "transcriptDetail": case "fontFamily": case "density":
+        case "steeringMode": case "followUpMode": case "shellPath": case "shellCommandPrefix":
+        case "defaultProjectTrust":
           if (typeof val === "string") result[key] = val as never;
           break;
-        case "showCosts": case "prewarm":
+        case "showCosts": case "prewarm": case "quietStartup":
           if (typeof val === "boolean") result[key] = val as never;
           break;
         case "fontSize": case "temperature": case "maxTokens":
           if (typeof val === "number" && Number.isFinite(val)) result[key] = val as never;
           break;
-        case "favouriteModels": case "disabledExtensions":
+        case "favouriteModels": case "disabledExtensions": case "defaultTools": case "npmCommand":
           if (Array.isArray(val) && (val as unknown[]).every((m) => typeof m === "string")) result[key] = val as never;
           break;
         case "options":
@@ -161,6 +205,12 @@ export class HostConfigManager {
           break;
         case "models":
           if (val && typeof val === "object" && !Array.isArray(val)) result.models = val as TauConfig["models"];
+          break;
+        case "compaction":
+          if (val && typeof val === "object" && !Array.isArray(val)) result.compaction = val as TauConfig["compaction"];
+          break;
+        case "retry":
+          if (val && typeof val === "object" && !Array.isArray(val)) result.retry = val as TauConfig["retry"];
           break;
       }
     }
@@ -192,6 +242,21 @@ export class HostConfigManager {
         ...(base.models ?? {}),
         ...(override.models ?? {}),
         presets: { ...(base.models?.presets ?? {}), ...(override.models?.presets ?? {}) },
+      };
+    }
+    if (override.compaction || base.compaction) {
+      result.compaction = { ...(base.compaction ?? {}), ...(override.compaction ?? {}) };
+    }
+    if (override.retry || base.retry) {
+      result.retry = {
+        ...(base.retry ?? {}),
+        ...(override.retry ?? {}),
+        ...(base.retry?.provider || override.retry?.provider ? {
+          provider: {
+            ...(base.retry?.provider ?? {}),
+            ...(override.retry?.provider ?? {}),
+          },
+        } : {}),
       };
     }
     return result;

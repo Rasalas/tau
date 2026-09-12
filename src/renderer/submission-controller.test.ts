@@ -61,7 +61,10 @@ function harness(options: {
     applyHostResult: vi.fn(),
     prepareThreadDetail: vi.fn(() => true),
   };
-  const actions = { notify: vi.fn() } as unknown as WorkbenchActions;
+  const actions = {
+    notify: vi.fn(),
+    runShellAction: vi.fn(async () => ({ output: "output", exitCode: 0, cancelled: false, truncated: false })),
+  } as unknown as WorkbenchActions;
   const ports: SubmissionControllerPorts = {
     client: () => client,
     view,
@@ -101,7 +104,7 @@ function harness(options: {
   };
   const submission = new SubmissionController(ports);
   submission.notifyHostSnapshot();
-  return { submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks };
+  return { submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks, actions };
 }
 
 const sentPrompts = (client: ReturnType<typeof createFakeHostClient>) =>
@@ -345,5 +348,19 @@ describe("SubmissionController", () => {
     await submission.submit({ text: "", attachments: [attachment] });
     expect(view.getOptimisticMessages()[0].message.text).toBe("Attached shot.png");
     expect(sentPrompts(client)[0].args[1]).toEqual([attachment]);
+  });
+
+  it("executes shell commands starting with ! and !!", async () => {
+    const { submission, actions } = harness();
+
+    // 1. !cmd runs with context included (includeInContext = true)
+    const resultContext = await submission.submit({ text: "!git status" });
+    expect(resultContext).toEqual({ accepted: true });
+    expect(actions.runShellAction).toHaveBeenCalledWith("git status", true);
+
+    // 2. !!cmd runs excluded from context (includeInContext = false)
+    const resultSilent = await submission.submit({ text: "!!echo silent" });
+    expect(resultSilent).toEqual({ accepted: true });
+    expect(actions.runShellAction).toHaveBeenCalledWith("echo silent", false);
   });
 });

@@ -1,6 +1,6 @@
-import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, Brain, ChevronDown, GripVertical, Maximize2, Minimize2, Paperclip, Sparkles, SquarePen, X } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, GripVertical, Maximize2, Minimize2, Paperclip, Sparkles, SquarePen, Terminal, X } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -25,23 +25,17 @@ import { usePreferences } from "../renderer-services-context";
 import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
-import {
-  attachmentPolicyMessage,
-  MAX_ATTACHMENTS,
-  selectAttachmentCandidates,
-} from "../../shared/prompt-attachment-limits";
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
 import {
   ComposerScopeStore,
   createDraftKey,
-  type ComposerScope,
-  type ComposerScopeReference,
 } from "../../workbench/composer-scope-store";
 import { errorMessage } from "../../workbench/error-message";
 import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
 import { readComposerDraft, writeComposerDraft } from "../../workbench/draft-store";
 import { PromptHistory, loadStoredPromptHistory, saveStoredPromptHistory } from "../../workbench/prompt-history";
 import { handleComposerReadlineKey } from "./useComposerReadline";
+import { useComposerAttachments, type ComposerAttachmentHandle } from "./useComposerAttachments";
 import { useClientStorage } from "../client-storage-context";
 import {
   type ComposerTrigger,
@@ -53,7 +47,7 @@ import {
   selectedSkillDraft,
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
-import { readImage, ComposerAttachmentsList } from "./ComposerAttachments";
+import { ComposerAttachmentsList } from "./ComposerAttachments";
 
 export {
   type ComposerTrigger,
@@ -92,9 +86,7 @@ const THINKING_LABELS: Record<string, string> = {
 
 export type SubmitResult = SubmissionResult;
 
-export interface ComposerAttachmentHandle {
-  addFiles(files: FileList | readonly File[]): Promise<void>;
-}
+export type { ComposerAttachmentHandle } from "./useComposerAttachments";
 
 export function Composer({
   snapshot,
@@ -170,10 +162,8 @@ export function Composer({
   const subscribeToScope = useCallback((listener: () => void) => scopeStore.subscribe(attachmentScope, listener), [attachmentScope, scopeStore]);
   const readScope = useCallback(() => scopeStore.getSnapshot(attachmentScope), [attachmentScope, scopeStore]);
   const activeScopeSnapshot = useSyncExternalStore(subscribeToScope, readScope, readScope);
-  const activeAttachmentScopeRef = useRef<ComposerScope>(attachmentScope);
   const attachments = activeScopeSnapshot.attachments;
   const attachmentError = activeScopeSnapshot.error;
-  const [previewId, setPreviewId] = useState<number>();
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
@@ -412,61 +402,30 @@ export function Composer({
     window.addEventListener("tau:open-model-picker", onOpen);
     return () => window.removeEventListener("tau:open-model-picker", onOpen);
   }, [modelPickerAvailable]);
+
+  useEffect(() => {
+    const onEditorAction = (event: Event) => {
+      const detail = (event as CustomEvent<{ type: "set" | "paste"; text: string }>).detail;
+      if (!detail) return;
+      if (detail.type === "set") {
+        updateDraft(detail.text);
+      } else if (detail.type === "paste") {
+        updateDraft(text ? (text.endsWith("\n") ? text + detail.text : text + "\n" + detail.text) : detail.text);
+      }
+    };
+    window.addEventListener("tau:composer-editor-action", onEditorAction);
+    return () => window.removeEventListener("tau:composer-editor-action", onEditorAction);
+  }, [text, updateDraft]);
   const thinkingSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
-  const preview = attachments.find((attachment) => attachment.id === previewId);
-
-  useEffect(() => {
-    const previousScope = activeAttachmentScopeRef.current;
-    if (previousScope === attachmentScope) return;
-    activeAttachmentScopeRef.current = attachmentScope;
-    setPreviewId(undefined);
-  }, [attachmentScope]);
-
-  const processFiles = useCallback(async (
-    files: FileList | readonly File[],
-    scopeRef: ComposerScopeReference,
-    capability: boolean,
-    generation: number,
-  ) => {
-    const incoming = Array.from(files);
-    if (incoming.length === 0) return;
-    const state = scopeStore.getSnapshot(scopeRef.scope);
-    if (!capability) {
-      scopeStore.setAttachmentError(scopeRef.scope, IMAGE_INPUT_UNAVAILABLE_MESSAGE, generation);
-      return;
-    }
-    const policy = selectAttachmentCandidates(
-      incoming.map((file) => ({ item: file, name: file.name, mimeType: file.type, size: file.size })),
-      state.attachments,
-    );
-    const validCandidates = policy.accepted.map((candidate) => candidate.item);
-    const firstError = policy.rejected[0] ? attachmentPolicyMessage(policy.rejected[0]) : undefined;
-    const results = await Promise.allSettled(validCandidates.map(readImage));
-    const accepted = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-    const rejection = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    const error = firstError ?? (rejection ? errorMessage(rejection.reason) : undefined);
-    scopeStore.setAttachmentError(scopeRef.scope, error, generation);
-    if (accepted.length > 0) {
-      scopeStore.addAttachments(scopeRef.scope, accepted, MAX_ATTACHMENTS);
-    }
-  }, [scopeStore]);
-  const addFiles = useCallback((files: FileList | readonly File[]) => {
-    // DataTransfer.files is a live FileList and may be emptied once the drop
-    // event returns. Snapshot it before entering the asynchronous queue.
-    const fileSnapshot = Array.from(files);
-    const scopeRef = scopeStore.createScopeReference(attachmentScope);
-    const state = scopeStore.getSnapshot(attachmentScope);
-    const previous = state.attachmentProcessing;
-    let generation = 0;
-    const operation = previous
-      .then(() => processFiles(fileSnapshot, scopeRef, supportsImageInput, generation))
-      .finally(() => scopeStore.releaseScopeReference(scopeRef));
-    generation = scopeStore.setAttachmentProcessing(attachmentScope, operation);
-    return operation;
-  }, [attachmentScope, processFiles, scopeStore, supportsImageInput]);
-  useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
+  const { preview, setPreviewId, clearPreviewForScope, addFiles, removeAttachment } = useComposerAttachments({
+    scopeStore,
+    scope: attachmentScope,
+    attachments,
+    supportsImageInput,
+    attachmentRef,
+  });
 
   // An editor prompt arrives with text to edit; seed the field once.
   const seededPromptRef = useRef<string | undefined>(undefined);
@@ -550,7 +509,7 @@ export function Composer({
       }
       if (result.accepted) {
         recordPrompt(submittedText);
-        if (activeAttachmentScopeRef.current === submittedScope) setPreviewId(undefined);
+        clearPreviewForScope(submittedScope);
       }
     };
     const handleSubmissionError = (error: unknown) => {
@@ -566,6 +525,18 @@ export function Composer({
       void sendSubmission(submission).catch(handleSubmissionError);
     }
   };
+
+  const handleDequeue = useCallback(() => {
+    if (queue.length === 0) return;
+    const head = queue[0];
+    onCancelQueued(head.id);
+    const restored = head.text ? (text ? (text.endsWith("\n") ? text + head.text : text + "\n" + head.text) : head.text) : text;
+    updateDraft(restored);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(restored.length, restored.length);
+    }, 0);
+  }, [queue, onCancelQueued, updateDraft, text, textareaRef]);
 
   return (
     <footer className="composer-zone">
@@ -679,9 +650,7 @@ export function Composer({
         <ComposerAttachmentsList
           attachments={attachments}
           onPreview={(id) => setPreviewId(id)}
-          onRemove={(id) => {
-            scopeStore.removeAttachment(attachmentScope, id);
-          }}
+          onRemove={(id) => removeAttachment(id)}
         />
         {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
         {trigger ? (
@@ -763,6 +732,7 @@ export function Composer({
                   promptHistory: promptHistoryRef.current,
                   onOpenPromptEditor,
                   onToggleExpanded: () => setIsExpanded((prev) => !prev),
+                  onDequeue: handleDequeue,
                 })
               ) {
                 return;
@@ -776,20 +746,31 @@ export function Composer({
                 onSteerQueued(queue[0].id);
                 return;
               }
-              submitCurrent(streaming ? (now ? "steer" : "followUp") : undefined);
+              const delivery = streaming ? (now ? "steer" : "followUp") : undefined;
+              submitCurrent(delivery);
             }
           }}
           placeholder={
             answerable && prompt
               ? prompt.placeholder ?? "Answer yourself — ↵ sends it back to the extension"
-              : streaming
-                ? "Queue after this turn — ↵ queues, ⌘↵ steers now"
-                : "Direct the agent — $ skills, / commands, @ files, ⇧↵ newline"
+              : text.trimStart().startsWith("!")
+                ? text.trimStart().startsWith("!!")
+                  ? "Silent shell mode — runs command without LLM context"
+                  : "Shell mode — runs command and shares output with agent"
+                : streaming
+                  ? "Queue after this turn — ↵ queues, ⌘↵ steers now, ⌥↑ dequeues"
+                  : "Direct the agent — $ skills, / commands, @ files, ⇧↵ newline"
           }
         />
 
         <div className="composer-toolbar">
           <div className="composer-chips">
+          {text.trimStart().startsWith("!") ? (
+            <span className="runtime-chip shell-mode-chip" title="Shell command mode">
+              <Terminal size={12} className="chip-icon" />
+              {text.trimStart().startsWith("!!") ? "Silent Shell" : "Shell"}
+            </span>
+          ) : null}
           <button
             className="runtime-chip"
             disabled={!modelPickerAvailable}

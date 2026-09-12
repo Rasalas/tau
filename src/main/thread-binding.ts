@@ -69,6 +69,11 @@ export class ThreadBinding {
         setStatus: (key, text) => this.port.presentUi("setStatus", thread.threadId, key, text),
         setWidget: (key, lines, placement) => this.port.presentUi("setWidget", thread.threadId, key, lines, placement),
         setWorkingMessage: (message) => this.port.presentUi("setWorkingMessage", thread.threadId, message),
+        setFooter: (lines) => this.port.presentUi("setFooter", thread.threadId, lines),
+        setHeader: (lines) => this.port.presentUi("setHeader", thread.threadId, lines),
+        setEditorText: (text) => this.port.presentUi("setEditorText", thread.threadId, text),
+        pasteToEditor: (text) => this.port.presentUi("pasteToEditor", thread.threadId, text),
+        setToolsExpanded: (expanded) => this.port.presentUi("setToolsExpanded", thread.threadId, expanded),
       },
       onError: (error) => this.port.fail(error, thread.threadId, thread),
     });

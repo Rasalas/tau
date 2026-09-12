@@ -233,7 +233,7 @@ export interface UiContextUsage {
   percent: number;
 }
 
-export type ExtensionUiPromptKind = "select" | "confirm" | "input" | "editor";
+export type ExtensionUiPromptKind = "select" | "confirm" | "input" | "editor" | "custom";
 
 /**
  * A blocking question an extension asked through Pi's UI context. It belongs to
@@ -252,6 +252,8 @@ export interface ExtensionUiPrompt {
   placeholder?: string;
   /** editor only. */
   prefill?: string;
+  /** custom only: pre-rendered lines or component output. */
+  lines?: string[];
   /** Wall-clock deadline when the extension passed a timeout. */
   expiresAt?: number;
   /** The question is answered outside Tau — Pi owns the runtime and asks in its terminal. */
@@ -264,7 +266,8 @@ export type ExtensionUiAnswer =
   | { cancelled: true }
   /** `typed` marks free text entered for a select, as opposed to a clicked choice. */
   | { value: string; typed?: boolean }
-  | { confirmed: boolean };
+  | { confirmed: boolean }
+  | { customResult?: unknown };
 
 export interface ShellActionResult {
   output: string;
@@ -615,6 +618,23 @@ export interface TauConfigModels {
   presets?: Record<string, TauModelPreset>;
 }
 
+export interface TauCompactionConfig {
+  enabled?: boolean;
+  reserveTokens?: number;
+  keepRecentTokens?: number;
+}
+
+export interface TauRetryConfig {
+  enabled?: boolean;
+  maxRetries?: number;
+  baseDelayMs?: number;
+  provider?: {
+    timeoutMs?: number;
+    maxRetries?: number;
+    maxRetryDelayMs?: number;
+  };
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
   transcriptDetail?: "focused" | "detailed" | "everything";
@@ -631,6 +651,16 @@ export interface TauConfig {
   temperature?: number;
   maxTokens?: number;
   models?: TauConfigModels;
+  compaction?: TauCompactionConfig;
+  retry?: TauRetryConfig;
+  steeringMode?: "all" | "one-at-a-time";
+  followUpMode?: "all" | "one-at-a-time";
+  defaultTools?: string[];
+  shellPath?: string;
+  shellCommandPrefix?: string;
+  npmCommand?: string[];
+  quietStartup?: boolean;
+  defaultProjectTrust?: "ask" | "always" | "never";
 }
 
 export interface CustomModelDefinition {
@@ -648,6 +678,11 @@ export interface CustomProviderConfig {
   api?: string;
   hasApiKey?: boolean;
   models: CustomModelDefinition[];
+}
+
+export interface ExternalEditorResult {
+  text: string;
+  modified: boolean;
 }
 
 export interface CustomProviderInput {

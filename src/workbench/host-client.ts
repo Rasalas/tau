@@ -25,6 +25,7 @@ import type {
   UiModel,
   SystemPromptInspection,
   UserTheme,
+  ExternalEditorResult,
 } from "../shared/contracts";
 import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 import type { HostBootstrap } from "../shared/contracts";
@@ -98,6 +99,7 @@ export interface HostClient {
   addModelProvider(input: CustomProviderInput): Promise<UiModel[]>;
   inspectSystemPrompt(threadId?: string, workspaceId?: string): Promise<SystemPromptInspection>;
   listUserThemes(workspaceId?: string): Promise<UserTheme[]>;
+  openExternalEditor(text?: string): Promise<ExternalEditorResult>;
 
   // Clipboard, window chrome, and the host event stream.
   readonly platform: string;
@@ -186,6 +188,7 @@ export function createHostClient(connection: HostConnection): HostClient {
     addModelProvider: (input) => call<UiModel[]>("add-model-provider", [input]),
     inspectSystemPrompt: (threadId, workspaceId) => call<SystemPromptInspection>("inspect-system-prompt", [threadId, workspaceId]),
     listUserThemes: (workspaceId) => call<UserTheme[]>("list-user-themes", [workspaceId]),
+    openExternalEditor: (text) => call<ExternalEditorResult>("open-external-editor", [text]),
 
     platform: connection.platform,
     copyText: (text) => call<void>("copy-text", [text]),

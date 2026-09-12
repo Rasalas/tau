@@ -9,6 +9,7 @@ import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
 import type { PiHost } from "./pi-host.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
+import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
 import {
   decodeBoolean,
@@ -216,6 +217,10 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "list-user-themes": async (params) => {
       const workspacePath = await optionalWorkspace("list-user-themes", "workspace", params[0]);
       return defaultUserThemeResolver.list(workspacePath);
+    },
+    "open-external-editor": async (params) => {
+      const text = decodeOptionalText("open-external-editor", "text", params[0]) ?? "";
+      return openExternalEditor({ initialText: text });
     },
 
     "start-job": async (params) => {

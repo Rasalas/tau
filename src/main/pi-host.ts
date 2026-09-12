@@ -36,7 +36,6 @@ import { HostCompletions } from "./host-completion.js";
 import {
   HOST_PROTOCOL_VERSION,
   catalogFromSnapshot,
-  detailFromSnapshot,
   type HostActionResult,
   type HostUpdate,
   type NewThreadResult,
@@ -48,6 +47,7 @@ import { formatChatTranscript } from "../shared/chat-transcript.js";
 import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
+import { HostPublication } from "./host-publication.js";
 import { RuntimeResourceCache } from "./runtime-resource-cache.js";
 import { ExtensionPackageActivator } from "./extension-package-activation.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
@@ -92,7 +92,7 @@ import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { LifecycleQueue } from "./lifecycle-queue.js";
 import { requireCapability } from "./runtime-types.js";
-import { localTranscriptCursorPolicy, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
+import { localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
 import { PersistedThreadTranscript } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
@@ -203,7 +203,8 @@ export class PiHost {
   });
   /** Monotonic ownership epoch; stale lifecycle work may not publish or activate. */
   private activationEpoch = 0;
-  private readonly detailStore = new ThreadDetailStore(5);
+  private readonly publication: HostPublication;
+  get detailStore(): ThreadDetailStore { return this.publication.detailStore; }
   private projectLabel?: string;
   /** What extensions know about projects: name, label, nesting, all cached. */
   private readonly projects = new ProjectFactsCache({
@@ -274,6 +275,12 @@ export class PiHost {
       ...(options.sessionUsageCachePath ? { usageCachePath: options.sessionUsageCachePath } : {}),
       ...(options.sessionLineageCachePath ? { lineageCachePath: options.sessionLineageCachePath } : {}),
       ...(this.logger ? { logger: this.logger } : {}),
+    });
+    this.publication = new HostPublication({
+      index: this.index,
+      workspaces: this.workspaces,
+      metrics: this.lifecycleMetrics,
+      emitUpdate: (update) => this.emitUpdate(update),
     });
     const port = this.hostPort();
     this.seam = createHostExtensionSeam(port);
@@ -936,17 +943,11 @@ export class PiHost {
   getBackgroundLifecycleMeasurements() { return this.backgroundLifecycle.map((item) => ({ ...item })); }
 
   private detailForSnapshot(snapshot: HostSnapshot, requestId?: NewThreadRequestId): ThreadDetail {
-    // A fresh runtime snapshot is authoritative; only the renderer uses the
-    // cached record for optimistic selection between host confirmations.
-    const detail = detailFromSnapshot(snapshot, undefined, localTranscriptCursorPolicy);
-    this.detailStore.set(detail);
-    return requestId ? { ...detail, requestId } : detail;
+    return this.publication.detailForSnapshot(snapshot, requestId);
   }
 
   private actionResult(updates: HostUpdate[]): HostActionResult {
-    const result = { version: HOST_PROTOCOL_VERSION, updates } satisfies HostActionResult;
-    this.lifecycleMetrics.recordIpc(result);
-    return result;
+    return this.publication.actionResult(updates);
   }
 
   private newThreadResult(
@@ -955,12 +956,7 @@ export class PiHost {
     requestId?: NewThreadRequestId,
     sessionId?: string,
   ): NewThreadResult {
-    return {
-      ...this.actionResult(updates),
-      submission,
-      ...(requestId ? { requestId } : {}),
-      ...(sessionId ? { sessionId } : {}),
-    };
+    return this.publication.newThreadResult(updates, submission, requestId, sessionId);
   }
 
   /** Publishes a thread the runtime created and now owns; one identity and publication path. */
@@ -971,13 +967,7 @@ export class PiHost {
   }
 
   private lifecycleUpdates(snapshot: HostSnapshot, requestId?: NewThreadRequestId): HostUpdate[] {
-    const shell = this.index.byId(snapshot.sessionId);
-    return [
-      ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
-      { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
-      { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) },
-      { version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(snapshot.cwd, snapshot.projectLabel) },
-    ];
+    return this.publication.lifecycleUpdates(snapshot, requestId);
   }
 
   private async activeUpdates(activationEpoch?: number): Promise<HostActionResult> {
@@ -1000,13 +990,7 @@ export class PiHost {
       if (!this.isCurrentActivation(activationEpoch)) return;
       const snapshot = this.snapshotSync([]);
       if (!this.isCurrentActivation(activationEpoch)) return;
-      const shell = this.index.byId(snapshot.sessionId);
-      const initialUpdates: HostUpdate[] = [
-        ...(shell ? [{ version: HOST_PROTOCOL_VERSION, type: "thread-shell" as const, update: { sessionId: shell.id, shell } }] : []),
-        { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot, requestId) },
-        { version: HOST_PROTOCOL_VERSION, type: "project", project: this.projectMetadata(snapshot.cwd, snapshot.projectLabel) },
-      ];
-      for (const update of initialUpdates) this.emitUpdate(update);
+      this.publication.publishInitialSessionUpdates(snapshot, requestId);
     } catch (error) {
       // A runtime may expose its first detail only after its own startup
       // bookkeeping. Keep the asynchronous catalog path alive; it can still
@@ -2068,7 +2052,7 @@ export class PiHost {
 
   /** Identity and display of one workspace, as every published shape carries it. */
   private projectMetadata(cwd: string, label?: string): ProjectMetadata {
-    return { cwd, ...this.workspaces.ref(cwd), ...(label === undefined ? {} : { label }) };
+    return this.publication.projectMetadata(cwd, label);
   }
 
   /** The workspace a client named, by id or — for a client that still sends paths — by path. */

@@ -46,6 +46,7 @@ function defaults(): HostClient {
     readToolOutput: async () => undefined,
     copyThreadMarkdown: async () => undefined,
     readImagePreview: async () => undefined,
+    openExternalEditor: async (text: string) => ({ text, modified: false }),
 
     setModel: async () => ({ version: 1, updates: [] }),
     setThinkingLevel: async () => ({ version: 1, updates: [] }),

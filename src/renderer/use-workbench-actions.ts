@@ -139,9 +139,58 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       return () => options.setComposerHolds((count) => Math.max(0, count - 1));
     },
     composerDraft: () => activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "",
+    setComposerDraft: (text: string) => {
+      if (activeDraftKey) {
+        options.composerScopeStore.setDraft(activeDraftKey, text);
+      }
+      options.setComposerSeed(text);
+    },
+    openPromptEditor: async () => {
+      if (!client) return;
+      try {
+        const current = activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "";
+        const result = await client.openExternalEditor(current);
+        if (result?.modified) {
+          if (activeDraftKey) {
+            options.composerScopeStore.setDraft(activeDraftKey, result.text);
+          }
+          options.setComposerSeed(result.text);
+          options.setNotice("Draft updated from external editor.");
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        options.setNotice(msg);
+      }
+    },
     openInstructions: options.openInstructions ?? (() => { window.dispatchEvent(new CustomEvent("tau:open-instructions")); }),
     executeCommand: options.executeCommand,
     copyChat: () => options.threadCommands.copyThreadValue("chat"),
+    renameThread: options.threadCommands.renameThread,
+    cycleModel: async (direction: 1 | -1 = 1) => {
+      const snap = options.viewStore.getSnapshot();
+      const models = snap?.models ?? [];
+      if (models.length === 0) return false;
+      const current = snap?.model;
+      const currentIndex = current ? models.findIndex((m) => m.provider === current.provider && m.id === current.id) : -1;
+      const nextIndex = (currentIndex + direction + models.length) % models.length;
+      const next = models[nextIndex];
+      if (next) {
+        await setComposerModelRef.current(next.provider, next.id);
+        return true;
+      }
+      return false;
+    },
+    cycleThinking: async () => {
+      const snap = options.viewStore.getSnapshot();
+      const levels = snap?.thinkingLevels ?? ["off", "minimal", "low", "medium", "high", "max"];
+      const current = snap?.thinkingLevel ?? "off";
+      const currentIndex = levels.indexOf(current);
+      const nextIndex = (currentIndex + 1) % levels.length;
+      const next = levels[nextIndex];
+      if (next) {
+        await options.threadCommands.setThinking(next as any);
+      }
+    },
   }), [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,

@@ -17,7 +17,14 @@ describe("Keybindings desktop extension", () => {
 
   it("replaces core's chord for a rebound Pi action and binds Pi extension shortcuts", async () => {
     const invoke = vi.fn(async (_extensionId: string, command: string, input?: unknown) => {
-      if (command === "pi-keybindings") return { bindings: { "app.session.new": ["ctrl+n"], "app.model.select": ["ctrl+l"] } };
+      if (command === "pi-keybindings") return {
+        bindings: {
+          "app.session.new": ["ctrl+n"],
+          "app.model.select": ["ctrl+l"],
+          "app.model.cycleForward": ["alt+m"],
+          "app.session.rename": ["ctrl+r"],
+        },
+      };
       if (command === "shortcuts") return { sessionId: "s1", shortcuts: [{ keys: "ctrl+shift+p", description: "Pick a persona", source: "persona.ts" }] };
       if (command === "run-shortcut") return input;
       throw new Error(`unexpected ${command}`);
@@ -27,16 +34,19 @@ describe("Keybindings desktop extension", () => {
     registry.activateCore({ id: "tau.runtime-settings", name: "Runtime Controls", activate(context) {
       context.registerKeybinding({ keys: "ctrl+shift+n", commandId: "runtime.new-session" });
       context.registerKeybinding({ keys: "ctrl+shift+m", commandId: "runtime.model" });
+      context.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model" });
+      context.registerKeybinding({ keys: "mod+r", commandId: "runtime.rename-thread" });
       context.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
     } });
     registry.activate(keybindingsExtension);
     await flush();
     const keys = Object.fromEntries(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys]));
     expect(keys).toEqual({
-      // The two the user rebound answer to their key alone; the one they did
-      // not mention keeps Tau's default.
+      // The rebound ones answer to their key alone; the one not mentioned keeps default.
       "runtime.new-session": "ctrl+n",
       "runtime.model": "ctrl+l",
+      "runtime.cycle-model": "alt+m",
+      "runtime.rename-thread": "ctrl+r",
       "runtime.abort": "escape",
       "pi.shortcut.ctrl+shift+p": "ctrl+shift+p",
     });
@@ -46,6 +56,8 @@ describe("Keybindings desktop extension", () => {
     expect(Object.fromEntries(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys]))).toEqual({
       "runtime.new-session": "ctrl+shift+n",
       "runtime.model": "ctrl+shift+m",
+      "runtime.cycle-model": "ctrl+p",
+      "runtime.rename-thread": "mod+r",
       "runtime.abort": "escape",
     });
     registry.activate(keybindingsExtension);

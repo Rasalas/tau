@@ -21,6 +21,10 @@ export interface PiUiThreadState {
   statuses: Array<{ key: string; text: string }>;
   widgets: PiUiWidget[];
   working?: string;
+  footer?: string[];
+  header?: string[];
+  editorAction?: { type: "set" | "paste"; text: string; actionId: string };
+  toolsExpanded?: boolean;
 }
 
 export const EMPTY_PI_UI_STATE = (sessionId: string): PiUiThreadState => ({ sessionId, statuses: [], widgets: [] });

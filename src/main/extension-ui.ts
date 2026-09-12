@@ -1,5 +1,6 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { ExtensionUiAnswer, ExtensionUiPrompt, ExtensionUiPromptKind } from "../shared/contracts.js";
+import { defaultUserThemeResolver } from "./user-themes.js";
 
 export interface ExtensionUiBridge {
   /** The thread the prompt belongs to; only that thread is blocked by it. */
@@ -13,6 +14,18 @@ export interface ExtensionUiBridge {
   setStatus?(key: string, text: string | undefined): boolean;
   setWidget?(key: string, lines: string[] | undefined, placement: "aboveEditor" | "belowEditor"): boolean;
   setWorkingMessage?(message: string | undefined): boolean;
+  setFooter?(lines: string[] | undefined): boolean;
+  setHeader?(lines: string[] | undefined): boolean;
+  setEditorText?(text: string): boolean;
+  pasteToEditor?(text: string): boolean;
+  getEditorText?(): string;
+  setToolsExpanded?(expanded: boolean): boolean;
+  getToolsExpanded?(): boolean;
+  addAutocompleteProvider?(provider: (prefix: string) => Promise<unknown[]>): () => void;
+  theme?: Record<string, unknown>;
+  getAllThemes?(): string[];
+  getTheme?(): Record<string, unknown> | undefined;
+  setTheme?(name: string): { ok: boolean };
 }
 
 interface DialogOptions {
@@ -82,9 +95,59 @@ export function createExtensionUiContext(bridge: ExtensionUiBridge): ExtensionUI
 
     // Terminal-only surfaces. Tau has no TUI to draw into, so these are reported
     // once each and otherwise inert; the documented return values are preserved.
-    custom: async <T,>(): Promise<T> => {
-      unsupported("ui.custom");
-      return undefined as T;
+    custom: async <T,>(
+      factory: (
+        tui: { requestRender: () => void; terminal?: { columns: number; rows: number } },
+        theme: unknown,
+        keybindings: unknown,
+        done: (result: T) => void,
+      ) => { render(width: number): string[]; handleInput?(data: string): void; invalidate?(): void },
+      options?: DialogOptions,
+    ): Promise<T> => {
+      let resolved = false;
+      let resolveResult: (val: T) => void;
+      const promise = new Promise<T>((res) => {
+        resolveResult = res;
+      });
+
+      const done = (result: T) => {
+        if (!resolved) {
+          resolved = true;
+          resolveResult(result);
+        }
+      };
+
+      const tui = {
+        requestRender: () => {},
+        terminal: { columns: 80, rows: 24 },
+      };
+
+      try {
+        const theme = bridge.getTheme?.() ?? bridge.theme ?? defaultUserThemeResolver.getActiveThemeObject();
+        const component = typeof factory === "function" ? factory(tui, theme, {}, done) : undefined;
+        const initialLines = typeof component?.render === "function" ? component.render(80) : [];
+        const result = await ask<T>(
+          "custom" as ExtensionUiPromptKind,
+          {
+            title: "Custom Dialog",
+            lines: initialLines,
+          },
+          options,
+          (answer) => {
+            if ("customResult" in answer) return answer.customResult as T;
+            if ("value" in answer) return answer.value as unknown as T;
+            return undefined as T;
+          },
+          undefined as T,
+        );
+        if (!resolved) {
+          done(result);
+        }
+      } catch {
+        done(undefined as T);
+      }
+
+      return promise;
     },
     onTerminalInput: () => { unsupported("ui.onTerminalInput"); return () => {}; },
     // Text widgets, statuses and the working message go to whoever presents
@@ -94,28 +157,48 @@ export function createExtensionUiContext(bridge: ExtensionUiBridge): ExtensionUI
       const lines = Array.isArray(content) ? content.map(String) : undefined;
       if (!bridge.setWidget?.(key, lines, options?.placement ?? "aboveEditor")) unsupported("ui.setWidget");
     },
-    setFooter: () => unsupported("ui.setFooter"),
-    setHeader: () => unsupported("ui.setHeader"),
+    setFooter: (content: unknown) => {
+      if (typeof content === "function") { unsupported("ui.setFooter(component)"); return; }
+      const lines = Array.isArray(content) ? content.map(String) : undefined;
+      if (!bridge.setFooter?.(lines)) unsupported("ui.setFooter");
+    },
+    setHeader: (content: unknown) => {
+      if (typeof content === "function") { unsupported("ui.setHeader(component)"); return; }
+      const lines = Array.isArray(content) ? content.map(String) : undefined;
+      if (!bridge.setHeader?.(lines)) unsupported("ui.setHeader");
+    },
     setStatus: (key: string, text: string | undefined) => { if (!bridge.setStatus?.(key, text)) unsupported("ui.setStatus"); },
     setWorkingMessage: (message?: string) => { if (!bridge.setWorkingMessage?.(message)) unsupported("ui.setWorkingMessage"); },
     setWorkingVisible: () => unsupported("ui.setWorkingVisible"),
     setWorkingIndicator: () => unsupported("ui.setWorkingIndicator"),
     setHiddenThinkingLabel: () => unsupported("ui.setHiddenThinkingLabel"),
-    pasteToEditor: () => unsupported("ui.pasteToEditor"),
-    setEditorText: () => unsupported("ui.setEditorText"),
-    getEditorText: () => { unsupported("ui.getEditorText"); return ""; },
-    addAutocompleteProvider: () => unsupported("ui.addAutocompleteProvider"),
+    pasteToEditor: (text: string) => { if (!bridge.pasteToEditor?.(text)) unsupported("ui.pasteToEditor"); },
+    setEditorText: (text: string) => { if (!bridge.setEditorText?.(text)) unsupported("ui.setEditorText"); },
+    getEditorText: () => {
+      const text = bridge.getEditorText?.();
+      if (text === undefined) {
+        unsupported("ui.getEditorText");
+        return "";
+      }
+      return text;
+    },
+    addAutocompleteProvider: (provider: any) => {
+      if (bridge.addAutocompleteProvider) return bridge.addAutocompleteProvider(provider);
+      return () => {};
+    },
     setEditorComponent: () => unsupported("ui.setEditorComponent"),
     getEditorComponent: () => { unsupported("ui.getEditorComponent"); return undefined; },
-    getToolsExpanded: () => false,
-    setToolsExpanded: () => unsupported("ui.setToolsExpanded"),
+    getToolsExpanded: () => bridge.getToolsExpanded?.() ?? false,
+    setToolsExpanded: (expanded: boolean) => { if (!bridge.setToolsExpanded?.(expanded)) unsupported("ui.setToolsExpanded"); },
 
-    // Terminal theming has no counterpart in the workbench. An empty theme object
-    // keeps property reads from throwing inside extensions written for the TUI.
-    theme: {},
-    getAllThemes: () => { unsupported("ui.getAllThemes"); return []; },
-    getTheme: () => { unsupported("ui.getTheme"); return undefined; },
-    setTheme: () => { unsupported("ui.setTheme"); return { ok: false }; },
+    theme: bridge.theme ?? defaultUserThemeResolver.getActiveThemeObject(),
+    getAllThemes: () => bridge.getAllThemes?.() ?? [defaultUserThemeResolver.getActiveTheme()],
+    getTheme: () => bridge.getTheme?.() ?? defaultUserThemeResolver.getActiveThemeObject(),
+    setTheme: (name: string) => {
+      if (bridge.setTheme) return bridge.setTheme(name);
+      defaultUserThemeResolver.setActiveTheme(name);
+      return { ok: true };
+    },
     // The remaining members are typed against pi-tui components that cannot exist
     // outside a terminal, so the shape is asserted rather than structurally matched.
   } as unknown as ExtensionUIContext;

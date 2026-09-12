@@ -13,16 +13,24 @@ const PI_KEYBINDINGS: ReadonlyArray<{ commandId: string; piAction: string }> = [
   { commandId: "runtime.new-session", piAction: "app.session.new" },
   { commandId: "runtime.abort", piAction: "app.interrupt" },
   { commandId: "runtime.model", piAction: "app.model.select" },
+  { commandId: "runtime.cycle-model", piAction: "app.model.cycleForward" },
+  { commandId: "runtime.cycle-model-backward", piAction: "app.model.cycleBackward" },
+  { commandId: "runtime.cycle-thinking", piAction: "app.thinking.cycle" },
   // Pi's thinking toggle is Tau's transcript detail: the level that shows reasoning.
   { commandId: "runtime.transcript-detail", piAction: "app.thinking.toggle" },
   { commandId: "runtime.thread-tree", piAction: "app.session.tree" },
   { commandId: "runtime.fork-thread", piAction: "app.session.fork" },
+  { commandId: "runtime.rename-thread", piAction: "app.session.rename" },
   { commandId: "runtime.instructions", piAction: "app.instructions.view" },
   { commandId: "runtime.instructions", piAction: "app.system.prompt" },
   { commandId: "runtime.command-palette", piAction: "app.palette.open" },
   { commandId: "runtime.command-palette", piAction: "app.command.palette" },
   { commandId: "workspace.open-prompt-editor", piAction: "app.editor.open" },
+  { commandId: "workspace.open-prompt-editor", piAction: "app.editor.external" },
   { commandId: "runtime.copy-chat", piAction: "app.chat.copy" },
+  { commandId: "runtime.copy-chat", piAction: "app.message.copy" },
+  { commandId: "workbench.focus-transcript", piAction: "tui.altScreen.top" },
+  { commandId: "workbench.focus-composer", piAction: "tui.altScreen.bottom" },
 ];
 
 // No host, or a host without this kit's entry (safe mode): core's chords stay.

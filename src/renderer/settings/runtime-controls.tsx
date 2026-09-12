@@ -289,12 +289,94 @@ export const runtimeControls: DesktopExtension = {
         }
       },
     });
+    plugin.registerCommand({
+      id: "runtime.rename-thread",
+      label: "Rename thread",
+      group: "Thread",
+      run: async (app) => {
+        const currentTitle = app.activeThread()?.sessionId ?? "";
+        const next = window.prompt("New thread title:", currentTitle);
+        if (next && next.trim() && app.renameThread) {
+          await app.renameThread(next.trim());
+          app.notify(`Thread renamed to “${next.trim()}”.`);
+        }
+      },
+    });
+    plugin.registerCommand({
+      id: "runtime.cycle-model",
+      label: "Cycle model forward",
+      group: "Runtime",
+      run: async (app) => {
+        if (app.cycleModel) {
+          await app.cycleModel(1);
+        }
+      },
+    });
+    plugin.registerCommand({
+      id: "runtime.cycle-model-backward",
+      label: "Cycle model backward",
+      group: "Runtime",
+      run: async (app) => {
+        if (app.cycleModel) {
+          await app.cycleModel(-1);
+        }
+      },
+    });
+    plugin.registerCommand({
+      id: "runtime.cycle-thinking",
+      label: "Cycle thinking level",
+      group: "Thread",
+      run: async (app) => {
+        if (app.cycleThinking) {
+          await app.cycleThinking();
+        }
+      },
+    });
+    plugin.registerCommand({
+      id: "runtime.open-prompt-editor",
+      label: "Open prompt in external editor",
+      group: "Composer",
+      run: async (app) => {
+        if (app.openPromptEditor) {
+          await app.openPromptEditor();
+        }
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "name",
+      description: "Rename the current thread / session",
+      argumentHint: "<title>",
+      run: async (args, app) => {
+        const title = args.trim();
+        if (!title) return "Usage: /name <title>";
+        if (app.renameThread) {
+          const ok = await app.renameThread(title);
+          if (ok) {
+            app.notify(`Thread renamed to “${title}”.`);
+            return undefined;
+          }
+        }
+        return "Could not rename thread.";
+      },
+    });
+    plugin.registerSlashCommand({
+      name: "hotkeys",
+      description: "View keyboard shortcuts and keybindings",
+      run: (_args, app) => {
+        app.openSettings("keybindings");
+        return undefined;
+      },
+    });
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
     plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });
     plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
+    plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model" });
+    plugin.registerKeybinding({ keys: "shift+tab", commandId: "runtime.cycle-thinking" });
+    plugin.registerKeybinding({ keys: "ctrl+r", commandId: "runtime.rename-thread" });
+    plugin.registerKeybinding({ keys: "ctrl+g", commandId: "runtime.open-prompt-editor" });
     plugin.registerKeybinding({ keys: "mod+1", commandId: "workbench.focus-composer" });
     plugin.registerKeybinding({ keys: "mod+2", commandId: "workbench.focus-transcript" });
     plugin.registerKeybinding({ keys: "mod+3", commandId: "workbench.focus-stage" });

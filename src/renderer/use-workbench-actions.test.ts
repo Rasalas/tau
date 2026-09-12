@@ -14,7 +14,7 @@ function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}):
     platform: { clipboard: { writeText: vi.fn() }, openExternal: vi.fn() } as any,
     threadStore: { getSnapshot: () => ({ activeThreadId: "thread-1" }) } as any,
     viewStore: { getSnapshot: () => ({ models }) } as any,
-    composerScopeStore: { getSnapshot: vi.fn().mockReturnValue({ draft: "test draft" }) } as any,
+    composerScopeStore: { getSnapshot: vi.fn().mockReturnValue({ draft: "test draft" }), setDraft: vi.fn() } as any,
     threadCommands: {
       compactContext: vi.fn(),
       setThinking: vi.fn(),
@@ -127,7 +127,22 @@ describe("useWorkbenchActions", () => {
     const options = createMockOptions({ executeCommand });
     const { result } = renderHook(() => useWorkbenchActions(options));
 
-    await result.current.executeCommand?.("workspace.open-prompt-editor");
-    expect(executeCommand).toHaveBeenCalledWith("workspace.open-prompt-editor");
+    await result.current.executeCommand?.("runtime.open-prompt-editor");
+    expect(executeCommand).toHaveBeenCalledWith("runtime.open-prompt-editor");
+  });
+
+  it("opens prompt editor and updates draft when modified", async () => {
+    const openExternalEditor = vi.fn().mockResolvedValue({ text: "edited prompt", modified: true });
+    const client = { openExternalEditor } as any;
+    const setComposerSeed = vi.fn();
+    const setNotice = vi.fn();
+    const options = createMockOptions({ client, setComposerSeed, setNotice });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+
+    await result.current.openPromptEditor?.();
+
+    expect(openExternalEditor).toHaveBeenCalled();
+    expect(setComposerSeed).toHaveBeenCalledWith("edited prompt");
+    expect(setNotice).toHaveBeenCalledWith("Draft updated from external editor.");
   });
 });

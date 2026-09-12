@@ -306,6 +306,11 @@ export interface HostUiPresenter {
   setStatus?(sessionId: string, key: string, text: string | undefined): void;
   setWidget?(sessionId: string, key: string, lines: string[] | undefined, placement: PiUiWidgetPlacement): void;
   setWorkingMessage?(sessionId: string, message: string | undefined): void;
+  setFooter?(sessionId: string, lines: string[] | undefined): void;
+  setHeader?(sessionId: string, lines: string[] | undefined): void;
+  setEditorText?(sessionId: string, text: string): void;
+  pasteToEditor?(sessionId: string, text: string): void;
+  setToolsExpanded?(sessionId: string, expanded: boolean): void;
   /** The thread's runtime went away; forget what it drew. */
   clear?(sessionId: string): void;
 }

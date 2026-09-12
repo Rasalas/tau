@@ -407,4 +407,49 @@ describe("Composer command menu", () => {
 
     expect(onOpenPromptEditor).toHaveBeenCalled();
   });
+
+  it("displays shell chip and updates placeholder when input starts with ! or !!", () => {
+    renderComposer();
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "!git status", selectionStart: 11 } });
+    expect(screen.getByText("Shell")).toBeTruthy();
+    expect(screen.getByPlaceholderText(/Shell mode — runs command and shares output/u)).toBeTruthy();
+
+    fireEvent.change(textarea, { target: { value: "!!git status", selectionStart: 12 } });
+    expect(screen.getByText("Silent Shell")).toBeTruthy();
+    expect(screen.getByPlaceholderText(/Silent shell mode — runs command without LLM context/u)).toBeTruthy();
+  });
+
+  it("restores queued message into editor when Alt+Up or Alt+Q is pressed", () => {
+    const onCancelQueued = vi.fn();
+    renderComposer(undefined, false, snapshot, {
+      queue: [queued("q1", "queued prompt text")],
+      onCancelQueued,
+    });
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
+    expect(onCancelQueued).toHaveBeenCalledWith("q1");
+    expect(textarea.value).toBe("queued prompt text");
+  });
+
+  it("updates editor text when tau:composer-editor-action event is received", async () => {
+    renderComposer();
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    window.dispatchEvent(new CustomEvent("tau:composer-editor-action", {
+      detail: { type: "set", text: "text from extension" },
+    }));
+    await waitFor(() => {
+      expect(textarea.value).toBe("text from extension");
+    });
+
+    window.dispatchEvent(new CustomEvent("tau:composer-editor-action", {
+      detail: { type: "paste", text: "more text" },
+    }));
+    await waitFor(() => {
+      expect(textarea.value).toBe("text from extension\nmore text");
+    });
+  });
 });

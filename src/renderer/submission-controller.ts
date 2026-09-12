@@ -171,6 +171,26 @@ export class SubmissionController {
         return { accepted: false, message: errorMessage(error) };
       }
     }
+    // Shell command execution: !cmd feeds output to LLM context, !!cmd runs silently
+    if (commandText.startsWith("!") && attachments.length === 0 && !skillDraft) {
+      const isExcluded = commandText.startsWith("!!");
+      const shellCmd = isExcluded ? commandText.slice(2).trim() : commandText.slice(1).trim();
+      if (shellCmd) {
+        const actions = this.ports.actions();
+        if (!actions) return { accepted: false, message: "The workbench is not ready yet." };
+        try {
+          const result = await actions.runShellAction(shellCmd, !isExcluded);
+          if (result.cancelled) {
+            this.ports.notify("Shell command cancelled.");
+          } else if (result.exitCode !== undefined && result.exitCode !== 0) {
+            this.ports.notify(`Shell command exited with code ${result.exitCode}`);
+          }
+          return { accepted: true };
+        } catch (error) {
+          return { accepted: false, message: errorMessage(error) };
+        }
+      }
+    }
     const client = getClient();
     let pendingNewThread = newThread.current();
     const snapshot = view.getSnapshot();

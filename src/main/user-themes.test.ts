@@ -74,4 +74,43 @@ describe("UserThemeResolver", () => {
     expect(themes[0].id).toBe("shared");
     expect(themes[0].css).toBe(":root { --acid: red; }");
   });
+
+  it("parses native Pi theme JSON files and translates to Tau CSS tokens", async () => {
+    const piTheme = JSON.stringify({
+      name: "gruvbox-dark",
+      vars: {
+        text: "#ebdbb2",
+        gray: "#928374",
+        dimGray: "#665c54",
+        accent: "#8ec07c",
+        blue: "#458588",
+        green: "#b8bb26",
+        red: "#fb4934",
+        yellow: "#fabd2f",
+      },
+      colors: {
+        accent: "accent",
+        text: "text",
+        muted: "gray",
+        dim: "dimGray",
+        border: "blue",
+        success: "green",
+        error: "red",
+        warning: "yellow",
+      },
+    });
+    await writeFile(join(globalThemesDir, "gruvbox.json"), piTheme, "utf8");
+
+    const themes = await resolver.list();
+    expect(themes).toHaveLength(1);
+    expect(themes[0].id).toBe("gruvbox");
+    expect(themes[0].name).toBe("gruvbox-dark");
+    expect(themes[0].css).toContain("--ink-1: #ebdbb2;");
+    expect(themes[0].css).toContain("--ink-2: #928374;");
+    expect(themes[0].css).toContain("--accent: #8ec07c;");
+    expect(themes[0].css).toContain("--line: #458588;");
+    expect(themes[0].css).toContain("--green: #b8bb26;");
+    expect(themes[0].css).toContain("--red: #fb4934;");
+    expect(themes[0].css).toContain("--amber: #fabd2f;");
+  });
 });

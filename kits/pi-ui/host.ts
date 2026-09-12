@@ -20,7 +20,8 @@ export function createPiUiHostExtension(): HostExtension {
       const threads = new Map<string, PiUiThreadState>();
       const stateOf = (sessionId: string) => threads.get(sessionId) ?? EMPTY_PI_UI_STATE(sessionId);
       const publish = (state: PiUiThreadState) => {
-        if (state.statuses.length === 0 && state.widgets.length === 0 && state.working === undefined) threads.delete(state.sessionId);
+        const isEmpty = state.statuses.length === 0 && state.widgets.length === 0 && state.working === undefined && state.footer === undefined && state.header === undefined && state.editorAction === undefined && state.toolsExpanded === undefined;
+        if (isEmpty) threads.delete(state.sessionId);
         else threads.set(state.sessionId, state);
         context.emit(PI_UI_EVENT, state);
       };
@@ -38,6 +39,26 @@ export function createPiUiHostExtension(): HostExtension {
         setWorkingMessage: (sessionId, message) => {
           const { working: _previous, ...state } = stateOf(sessionId);
           publish(message === undefined ? state : { ...state, working: message });
+        },
+        setFooter: (sessionId, lines) => {
+          const state = stateOf(sessionId);
+          publish({ ...state, footer: lines });
+        },
+        setHeader: (sessionId, lines) => {
+          const state = stateOf(sessionId);
+          publish({ ...state, header: lines });
+        },
+        setEditorText: (sessionId, text) => {
+          const state = stateOf(sessionId);
+          publish({ ...state, editorAction: { type: "set", text, actionId: `${Date.now()}-${Math.random()}` } });
+        },
+        pasteToEditor: (sessionId, text) => {
+          const state = stateOf(sessionId);
+          publish({ ...state, editorAction: { type: "paste", text, actionId: `${Date.now()}-${Math.random()}` } });
+        },
+        setToolsExpanded: (sessionId, expanded) => {
+          const state = stateOf(sessionId);
+          publish({ ...state, toolsExpanded: expanded });
         },
         clear: (sessionId) => {
           if (threads.has(sessionId)) publish(EMPTY_PI_UI_STATE(sessionId));

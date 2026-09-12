@@ -38,4 +38,26 @@ describe("Pi UI host half", () => {
     presenter!.clear!("s1");
     expect(events).toHaveLength(6);
   });
+
+  it("handles footer, header, editorAction, and toolsExpanded", async () => {
+    const { services, presenters } = harness();
+    const registry = await activateHostKit(createPiUiHostExtension(), services);
+    const [presenter] = presenters;
+    presenter!.setFooter!("s1", ["Line 1", "Line 2"]);
+    presenter!.setHeader!("s1", ["Header 1"]);
+    presenter!.setToolsExpanded!("s1", true);
+    presenter!.setEditorText!("s1", "new prompt text");
+
+    const state = await registry.invoke("tau.pi-ui", "state") as any;
+    expect(state.footer).toEqual(["Line 1", "Line 2"]);
+    expect(state.header).toEqual(["Header 1"]);
+    expect(state.toolsExpanded).toBe(true);
+    expect(state.editorAction?.type).toBe("set");
+    expect(state.editorAction?.text).toBe("new prompt text");
+
+    presenter!.pasteToEditor!("s1", " appended");
+    const updatedState = await registry.invoke("tau.pi-ui", "state") as any;
+    expect(updatedState.editorAction?.type).toBe("paste");
+    expect(updatedState.editorAction?.text).toBe(" appended");
+  });
 });

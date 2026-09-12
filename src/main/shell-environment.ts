@@ -19,6 +19,8 @@ export const LOGIN_SHELL_ENV_NAMES = [
   "HOMEBREW_REPOSITORY",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
+  "EDITOR",
+  "VISUAL",
 ] as const;
 
 const LOCALE_NAMES = ["LANG", "LC_ALL", "LC_CTYPE"] as const;
