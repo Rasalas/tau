@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectBuildReport } from "./build-report.mjs";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -14,13 +15,15 @@ const run = (script, args) => execFileSync(process.execPath, [join(nodeModules, 
 });
 
 const started = performance.now();
-run("typescript/bin/tsc", ["-p", "tsconfig.electron.json"]);
+const managedSource = existsSync(join(ROOT, ".tau-source.json"));
+run("typescript/bin/tsc", ["-p", "tsconfig.electron.json", ...(managedSource ? ["--noCheck"] : [])]);
 run("../scripts/build-preload.mjs", []);
 run("../scripts/build-host-worker.mjs", []);
-// The kits ship prebuilt: the installed app has no `kits/` and no toolchain.
+// The runtime loads prebuilt kits; an installed app keeps editable sources and build tools outside its archive.
 run("../scripts/build-kits.mjs", []);
 run("../scripts/verify-sandboxed-preload.mjs", ["dist-electron/preload/bundle.cjs"]);
 run("vite/bin/vite.js", ["build"]);
+run("../scripts/prepare-customization-source.mjs", []);
 const buildTimeMs = Math.round(performance.now() - started);
 const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs });
 await mkdir(join(ROOT, "reports"), { recursive: true });

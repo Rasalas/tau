@@ -115,6 +115,7 @@ async function main(): Promise<void> {
         return { ...result, bundles: [...kits.bundles, ...result.bundles], errors: [...kits.errors, ...result.errors] };
       },
       rebuildWorkbench: unsupported("Rebuilding the workbench"),
+      workbenchSource: unsupported("Opening Tau source"),
       relaunchWorkbench: unsupported("Relaunching the workbench"),
       installUpdate: unsupported("Installing an update"),
     },

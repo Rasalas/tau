@@ -398,12 +398,13 @@ describe("Composer command menu", () => {
     expect(textarea.value).toBe("");
   });
 
-  it("triggers onOpenPromptEditor when external editor button is clicked", () => {
+  it("keeps editor actions off the toolbar and opens the external editor with its shortcut", () => {
     const onOpenPromptEditor = vi.fn();
     renderComposer(undefined, false, snapshot, {}, { onOpenPromptEditor });
 
-    const editorBtn = screen.getByRole("button", { name: "Edit prompt in external editor" });
-    fireEvent.click(editorBtn);
+    expect(screen.queryByRole("button", { name: "Expand composer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit prompt in external editor" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "e", metaKey: true });
 
     expect(onOpenPromptEditor).toHaveBeenCalled();
   });

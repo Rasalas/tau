@@ -9,6 +9,7 @@ import type { ComposerScopeStore, DraftKey } from "../workbench/composer-scope-s
 import type { ThreadCommands } from "../workbench/thread-commands";
 import type { NewThreadDraft } from "../workbench/draft-store";
 import type { WorkbenchActions } from "./extension-system";
+import { errorMessage } from "../workbench/error-message";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -76,6 +77,16 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       }
     },
     reloadWorkbench,
+    openWorkbenchSource: async () => {
+      if (!client) return false;
+      try {
+        const source = await client.workbenchSource();
+        return source.path ? openWorkspace(source.path) : false;
+      } catch (error) {
+        options.setNotice(errorMessage(error));
+        return false;
+      }
+    },
     openThreadTree,
     duplicateThread,
     focusComposer: (seed) => {

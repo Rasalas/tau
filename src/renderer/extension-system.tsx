@@ -31,6 +31,8 @@ export interface WorkbenchActions {
   abort(): void;
   /** Builds Tau, reloads Pi resources and desktop extensions, then restarts the app when required. */
   reloadWorkbench(): Promise<boolean>;
+  /** Creates and opens the editable source tree used by an installed Tau. */
+  openWorkbenchSource(): Promise<boolean>;
   /** Pi's /tree and /fork: the session tree of the active thread, to move in or fork from. */
   openThreadTree(mode?: "navigate" | "fork"): void;
   /** Pi's /clone: a new thread continuing from the active thread's current point. */

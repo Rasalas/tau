@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, Brain, ChevronDown, GripVertical, Maximize2, Minimize2, Paperclip, Sparkles, SquarePen, Terminal, X } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, Terminal, X } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -852,25 +852,11 @@ export function Composer({
           </div>
           <span className="spacer" />
 
-          <button
-            className={`composer-action-btn${isExpanded ? " active" : ""}`}
-            type="button"
-            title={isExpanded ? "Collapse composer (⇧⌘E)" : "Expand composer (⇧⌘E)"}
-            aria-label={isExpanded ? "Collapse composer" : "Expand composer"}
-            onClick={() => setIsExpanded((prev) => !prev)}
-          >
-            {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
+          {threadUsage ? <ThreadCost usage={threadUsage} /> : null}
 
-          <button
-            className="composer-action-btn"
-            type="button"
-            title="Edit prompt in external editor (⌘E / Ctrl+G)"
-            aria-label="Edit prompt in external editor"
-            onClick={() => onOpenPromptEditor?.()}
-          >
-            <SquarePen size={16} />
-          </button>
+          {contextUsage ? (
+            <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />
+          ) : null}
 
           <button className="attach-button" type="button" title={supportsImageInput ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE} aria-label="Attach files" disabled={!supportsImageInput} onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={17} />
@@ -888,12 +874,6 @@ export function Composer({
               event.target.value = "";
             }}
           />
-
-          {threadUsage ? <ThreadCost usage={threadUsage} /> : null}
-
-          {contextUsage ? (
-            <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />
-          ) : null}
 
           {answerable && prompt ? (() => {
             const submitLabel = text.trim() ? "Send answer" : promptSubmit?.label ?? "Send answer";

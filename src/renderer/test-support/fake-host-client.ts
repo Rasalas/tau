@@ -65,6 +65,7 @@ function defaults(): HostClient {
     prepareWorkbenchReload: async () => ({ ready: true, runningThreads: 0 }),
     releaseWorkbenchReload: async () => undefined,
     rebuildWorkbench: async () => ({ ok: true, durationMs: 0, mainChanged: false, output: "" }),
+    workbenchSource: async () => ({}),
     relaunchWorkbench: async () => undefined,
     installUpdate: async () => ({ installing: false }),
 

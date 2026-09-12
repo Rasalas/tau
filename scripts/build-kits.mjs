@@ -3,7 +3,7 @@
 // esbuild options the package loaders use at runtime — the bundlers themselves
 // are imported from the compiled main modules, so there is one implementation.
 //
-// The shipped app has no `kits/` and no toolchain: it reads `dist-kits/`.
+// The shipped runtime reads `dist-kits/`; its managed customization copy rebuilds these sources separately.
 //
 // `kits/package.json` names the distribution (`@tau/kits`) and its `files` list
 // is the shape of `dist-kits/`; writing a file it does not cover fails the build.

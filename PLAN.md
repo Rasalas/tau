@@ -140,8 +140,9 @@ The two artifacts are core (`src/`), which `npm run start:safe` runs alone, and
 `@tau/kits` (`kits/`, built into `dist-kits/` by `scripts/build-kits.mjs`).
 The distribution has a name, a version of its own and an `engines.api` pinned to
 the `EXTENSION_API_VERSION` its kits declare; `dist-kits/manifest.json` carries
-all three into the installed app, which has no `kits/` and no toolchain and so
-reads kits only from there. Settings → Packages lists them as bundled under that
+all three into the installed runtime, which reads kits only from there. The
+installer also carries a separate source-and-toolchain seed for the managed,
+user-editable Tau source tree; runtime loading still never reads that seed directly. Settings → Packages lists them as bundled under that
 version, above the packages a source installed.
 
 Completion check: the packaged app runs every kit out of its own archive, and

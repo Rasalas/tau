@@ -45,7 +45,8 @@ export interface HostMethodPlatform {
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
   loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
-  rebuildWorkbench(context: HostMethodContext): Promise<WorkbenchBuildResult>;
+  rebuildWorkbench(context: HostMethodContext, activeWorkspace: string): Promise<WorkbenchBuildResult>;
+  workbenchSource(): Promise<string | undefined>;
   relaunchWorkbench(): void;
   /** Restarts into the downloaded update; false when none is waiting. */
   installUpdate(): boolean;
@@ -197,7 +198,8 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       await workspace("desktop-extensions", "cwd", params[0]),
       decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
     ),
-    "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context),
+    "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context, (await host()).activeWorkspacePath()),
+    "workbench-source": async () => ({ path: await platform.workbenchSource() }),
     "relaunch-workbench": async () => platform.relaunchWorkbench(),
     "install-update": async () => ({ installing: platform.installUpdate() }),
     "open-project": async (params) => (await host()).setWorkspace(await workspace("open-project", "workspace", params[0])),
@@ -267,6 +269,7 @@ export function createUnsupportedHostMethods(reason: string): HostMethodTable {
       inspectExtensions: refuse,
       loadDesktopExtensions: refuse,
       rebuildWorkbench: refuse,
+      workbenchSource: refuse,
       relaunchWorkbench: refuse,
       installUpdate: refuse,
     },

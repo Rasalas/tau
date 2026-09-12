@@ -68,9 +68,10 @@ files:
 
 # Files a real path on disk must reach, so an archive entry will not do.
 asarUnpack:
-  # The host compiles every extension with esbuild, which spawns its own native
-  # binary; a process cannot be spawned from inside the archive.
-  - "node_modules/@esbuild/**"
+  # A managed source overlay links against the installed dependency tree while
+  # it builds. Keeping packages on the real filesystem makes that link usable
+  # by Node, TypeScript and Vite outside Electron's asar-aware process.
+  - "node_modules/**"
   # `new Worker(file)` reads the entry before Electron's archive support is
   # installed in the worker, and the headless host is started as a plain script.
   - "dist-electron/main/**"
@@ -80,6 +81,24 @@ asarUnpack:
   # Computer use launches a driver app of its own.
   - "node_modules/@amaster.ai/pi-computer-use/bin/**"
   - "**/*.node"
+
+# A clean installation carries the editable inputs for its version. Tau copies
+# these into userData on first use; the signed application remains untouched.
+extraResources:
+  - from: "dist-source"
+    to: "tau-source"
+  # TypeScript needs Electron's declarations, but the overlay runs on the
+  # installed Electron and must not carry a second Electron binary.
+  - from: "node_modules/electron"
+    to: "tau-source-vendor/electron"
+    filter:
+      - "package.json"
+      - "electron.d.ts"
+  # electron-builder prunes declaration files from dependencies. TypeScript's
+  # standard library declarations are executable build inputs, so keep its
+  # complete package beside the source seed.
+  - from: "node_modules/typescript"
+    to: "tau-source-vendor/typescript"
 
 mac:
   # Architectures come from the command line (`--arm64 --x64`); without one the

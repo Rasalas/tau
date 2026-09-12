@@ -832,6 +832,10 @@ export class PiHost {
     });
   }
 
+  activeWorkspacePath(): string {
+    return this.cwd;
+  }
+
   async bootstrap(): Promise<HostBootstrap> {
     // The project list is withheld while a checkout is unclassified. Bootstrap
     // is the one publication the client cannot miss, so settle it here.

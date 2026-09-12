@@ -19,11 +19,20 @@ import { useWorkspaceStore } from "./store-context.js";
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 
 const ROW_STRIDE = 94;
-const THREAD_PAGE_SIZE = 20;
+const THREAD_PAGE_SIZE = 25;
 
 type NavigationRow =
   | { kind: "group"; id: string; label: string; count: number }
   | { kind: "thread"; id: string; session: UiSession };
+
+function ShowMoreThreadRow({ remaining, onClick }: { remaining: number; onClick(): void }) {
+  const count = Math.min(THREAD_PAGE_SIZE, remaining);
+  return (
+    <article className="thread-row compact thread-pagination-row">
+      <button className="thread-main" onClick={onClick}>+ show {count} more</button>
+    </article>
+  );
+}
 
 /**
  * Threads an agent spawned are never in the rail — not in the settled shelf,
@@ -401,7 +410,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [threadLimit, setThreadLimit] = useState(THREAD_PAGE_SIZE);
-  const [settledOpen, setSettledOpen] = useState(false);
+  const [settledOpen, setSettledOpen] = useState(true);
   const [settledLimit, setSettledLimit] = useState(THREAD_PAGE_SIZE);
   const [navigationIndex, setNavigationIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -561,9 +570,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         </div>
 
         {visibleActive.length < activeThreads.length ? (
-          <button className="settled-show-more" onClick={() => setThreadLimit((limit) => Math.min(activeThreads.length, limit + THREAD_PAGE_SIZE))}>
-            Show more threads ({activeThreads.length - visibleActive.length})
-          </button>
+          <ShowMoreThreadRow
+            remaining={activeThreads.length - visibleActive.length}
+            onClick={() => setThreadLimit((limit) => Math.min(activeThreads.length, limit + THREAD_PAGE_SIZE))}
+          />
         ) : null}
 
         {matching.length === 0 ? (
@@ -572,15 +582,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
         {settledThreads.length > 0 ? (
           <section className="settled-shelf">
-            <button className="settled-shelf-toggle" onClick={() => setSettledOpen((open) => !open)}>
+            <button
+              className="settled-shelf-toggle"
+              aria-expanded={settledOpen}
+              onClick={() => setSettledOpen((open) => !open)}
+            >
               SETTLED · {settledThreads.length}<i />
               <b>{settledOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</b>
             </button>
             {settledOpen ? visibleSettled.map((session) => renderRow(session, "settled")) : null}
             {settledOpen && visibleSettled.length < settledThreads.length ? (
-              <button className="settled-show-more" onClick={() => setSettledLimit((limit) => Math.min(settledThreads.length, limit + THREAD_PAGE_SIZE))}>
-                Show more settled threads ({settledThreads.length - visibleSettled.length})
-              </button>
+              <ShowMoreThreadRow
+                remaining={settledThreads.length - visibleSettled.length}
+                onClick={() => setSettledLimit((limit) => Math.min(settledThreads.length, limit + THREAD_PAGE_SIZE))}
+              />
             ) : null}
           </section>
         ) : null}

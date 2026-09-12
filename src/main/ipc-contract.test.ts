@@ -31,6 +31,7 @@ function tableMethods(): Set<string> {
       inspectExtensions: unavailable,
       loadDesktopExtensions: unavailable,
       rebuildWorkbench: unavailable,
+      workbenchSource: unavailable,
       relaunchWorkbench: unavailable,
       installUpdate: unavailable,
     },

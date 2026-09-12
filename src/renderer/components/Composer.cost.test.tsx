@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot, UiThreadUsage } from "../../shared/contracts";
+import type { HostSnapshot, UiContextUsage, UiThreadUsage } from "../../shared/contracts";
 import { Composer } from "./Composer";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { TestProviders } from "../test-support/test-providers";
@@ -19,6 +19,7 @@ const snapshot: HostSnapshot = {
   activeTools: [],
   allTools: [],
   extensionCount: 0,
+  supportsImageInput: true,
 };
 
 const usage: UiThreadUsage = {
@@ -31,12 +32,13 @@ const usage: UiThreadUsage = {
   turns: 3,
 };
 
-function renderComposer(threadUsage?: UiThreadUsage) {
+function renderComposer(threadUsage?: UiThreadUsage, contextUsage?: UiContextUsage) {
   render(<TestProviders>
     <Composer
       scopeStore={new ComposerScopeStore()}
       snapshot={snapshot}
       queue={[]}
+      contextUsage={contextUsage}
       contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       threadUsage={threadUsage}
       textareaRef={createRef<HTMLTextAreaElement>()}
@@ -72,5 +74,15 @@ describe("composer thread cost", () => {
   it("shows tokens instead of a zero price for a model without pricing", () => {
     renderComposer({ ...usage, costUsd: 0 });
     expect(screen.getByLabelText("Thread cost 22.4k tok")).toBeTruthy();
+  });
+
+  it("places cost and context before attachments", () => {
+    renderComposer(usage, { tokens: 10_000, contextWindow: 100_000, percent: 10 });
+    const cost = screen.getByLabelText("Thread cost $0.42");
+    const context = screen.getByLabelText("Context 10 percent used");
+    const attachment = screen.getByRole("button", { name: "Attach files" });
+
+    expect(cost.compareDocumentPosition(context) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(context.compareDocumentPosition(attachment) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

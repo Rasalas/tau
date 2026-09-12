@@ -69,7 +69,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-transcript.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
-  "./model-attribution.js",   "./model-login.js",   "./models-config.js",   "./packaged-app.js",
+  "./managed-workbench-source.js",   "./model-attribution.js",   "./model-login.js",   "./models-config.js",   "./packaged-app.js",
   "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
   "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",
@@ -84,7 +84,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./user-themes.js",   "./workbench-build.js",
-  "./workbench-reload-coordinator.js",   "./workspace-identity.js",
+  "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
+  "./workspace-identity.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

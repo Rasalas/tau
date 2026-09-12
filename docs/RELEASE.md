@@ -184,9 +184,10 @@ computer use that only another platform would use.
 **The kits ship as their own artifact.** `dist-kits/` is `@tau/kits`, every kit
 under `kits/` compiled by `scripts/build-kits.mjs`, with `dist-kits/manifest.json`
 naming the set and its version. `npm run build` writes it and the default
-`**/*` carries it into the archive; `kits/` — the sources — is excluded, and an
-installed Tau has neither them nor a toolchain, so `dist-kits/` is the only
-place it ever reads a kit from. Its version lives in `kits/package.json`, moves
+`**/*` carries it into the archive; `kits/` is excluded from that runtime
+archive, so `dist-kits/` is the only place the installed runtime reads a kit
+from. A second copy of the sources and build dependencies ships outside the
+archive as the seed for Tau's versioned, user-editable source tree. Its version lives in `kits/package.json`, moves
 with the set rather than with the app, and heads the bundled list in
 Settings → Packages. A release with a stale `dist-kits/` fails loudly: each
 manifest's `engines.api` is checked against the running

@@ -11,6 +11,8 @@ import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } from "./extension-bundle-server.js";
 import { rebuildWorkbench } from "./workbench-build.js";
+import { WorkbenchReloader } from "./workbench-reloader.js";
+import { ManagedWorkbenchSource } from "./managed-workbench-source.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
@@ -31,6 +33,8 @@ import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
+/** The packaged launcher sets this when it hands execution to a built checkout. */
+const workbenchRoot = process.env.TAU_WORKBENCH_ROOT || app.getAppPath();
 /**
  * The icon a checkout runs with, or nothing. `assets/` is electron-builder's
  * `buildResources` and stays out of the archive, so an installed Tau has no
@@ -38,7 +42,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
  * one from a path that is not there throws, which used to take the window with
  * it: `app.dock.setIcon` runs in the same `whenReady` callback that creates it.
  */
-const shippedIconPath = join(app.getAppPath(), "assets/tau-icon.png");
+const shippedIconPath = join(workbenchRoot, "assets/tau-icon.png");
 const appIconPath = existsSync(shippedIconPath) ? shippedIconPath : undefined;
 const requestedWorkspace = process.env.TAU_WORKSPACE;
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
@@ -79,7 +83,7 @@ const extensionVersions: ExtensionHostVersions = { tau: app.getVersion(), pi: PI
 const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(app.getPath("userData"), "host-id")));
 /** Where the kits Tau ships are read from and where their compiled halves are cached. */
 const kitOptions = {
-  appPath: app.getAppPath(),
+  appPath: workbenchRoot,
   cacheDir: join(app.getPath("userData"), "host-extensions"),
   versions: extensionVersions,
 };
@@ -141,6 +145,22 @@ let shutdownStarted = false;
 let shutdownComplete = false;
 /** One build at a time; a second request joins the running one. */
 let rebuild: Promise<WorkbenchBuildResult> | undefined;
+const managedWorkbenchSource = app.isPackaged ? new ManagedWorkbenchSource({
+  userData: app.getPath("userData"),
+  version: app.getVersion(),
+  seedDirectory: join(process.resourcesPath, "tau-source"),
+  installedModulesDirectory: join(process.resourcesPath, "app.asar.unpacked", "node_modules"),
+  electronTypesDirectory: join(process.resourcesPath, "tau-source-vendor", "electron"),
+  typescriptDirectory: join(process.resourcesPath, "tau-source-vendor", "typescript"),
+}) : undefined;
+const workbenchReloader = new WorkbenchReloader({
+  packaged: app.isPackaged,
+  appPath: workbenchRoot,
+  userData: app.getPath("userData"),
+  app,
+  managedSource: managedWorkbenchSource,
+  rebuild: rebuildWorkbench,
+});
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
 
@@ -328,14 +348,9 @@ function createLocalHostMethods(): HostMethodTable {
           skipped: result.skipped,
         };
       },
-      rebuildWorkbench: (context) => {
-        // An installed Tau carries no sources and no toolchain. Reporting
-        // success lets the reload it is part of go on and pick up extensions.
-        if (app.isPackaged) {
-          return Promise.resolve({ ok: true, durationMs: 0, mainChanged: false, output: "An installed Tau has no sources to rebuild." });
-        }
+      rebuildWorkbench: async (context, activeWorkspace) => {
         if (rebuild) return rebuild;
-        rebuild = rebuildWorkbench(app.getAppPath(), {
+        rebuild = workbenchReloader.rebuild(activeWorkspace, {
           onOutput: (line) => {
             context.progress(line);
             publish({ type: "event-log", label: "workbench.build", detail: line, timestamp: Date.now() });
@@ -343,10 +358,8 @@ function createLocalHostMethods(): HostMethodTable {
         }).finally(() => { rebuild = undefined; });
         return rebuild;
       },
-      relaunchWorkbench: () => {
-        app.relaunch();
-        app.quit();
-      },
+      workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
+      relaunchWorkbench: () => workbenchReloader.relaunch(),
       installUpdate: () => updates?.install() ?? false,
     },
   });

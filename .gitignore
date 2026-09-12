@@ -3,6 +3,7 @@ dist/
 dist-electron/
 dist-web/
 dist-kits/
+dist-source/
 .DS_Store
 *.log
 .scratch/*

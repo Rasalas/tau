@@ -52,11 +52,12 @@ describe("runtime controls slash commands", () => {
     const registry = new ExtensionRegistry();
     registry.activate(runtimeControls);
     expect(registry.getSlashCommands().map((command) => command.name)).toEqual([
-      "reload", "tree", "fork", "clone", "compact", "model", "thinking", "new",
+      "reload", "source", "tree", "fork", "clone", "compact", "model", "thinking", "new",
       "clear", "system", "instructions", "copy", "export", "session", "help",
       "name", "hotkeys",
     ]);
     const reloadWorkbench = vi.fn(async () => false);
+    const openWorkbenchSource = vi.fn(async () => true);
     const compactContext = vi.fn(async () => {});
     const openModelPicker = vi.fn();
     const openSettings = vi.fn();
@@ -70,6 +71,7 @@ describe("runtime controls slash commands", () => {
     const renameThread = vi.fn(async () => true);
     const actions = {
       reloadWorkbench,
+      openWorkbenchSource,
       compactContext,
       openModelPicker,
       openSettings,
@@ -84,6 +86,8 @@ describe("runtime controls slash commands", () => {
     } as unknown as WorkbenchActions;
 
     await expect(registry.findSlashCommand("/reload")!.command.run("", actions)).resolves.toBe("Tau reload failed.");
+    await expect(registry.findSlashCommand("/source")!.command.run("", actions)).resolves.toBeUndefined();
+    expect(openWorkbenchSource).toHaveBeenCalled();
 
     await registry.findSlashCommand("/compact")!.command.run("", actions);
     expect(compactContext).toHaveBeenCalled();

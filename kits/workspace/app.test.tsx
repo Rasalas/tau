@@ -79,8 +79,8 @@ describe("Workspace Kit in the workbench", () => {
     expect(canvas.style.flexShrink).toBe("0");
   });
 
-  it("reveals recent thread history in batches of twenty", async () => {
-    const sessions = Array.from({ length: 45 }, (_, index) => ({
+  it("reveals recent thread history in batches of twenty-five", async () => {
+    const sessions = Array.from({ length: 71 }, (_, index) => ({
       id: `thread-${index}`,
       path: `/sessions/thread-${index}.jsonl`,
       title: `Thread ${index}`,
@@ -101,13 +101,13 @@ describe("Workspace Kit in the workbench", () => {
     });
     renderApp(client, { extensions: [workspaceExtension] });
 
-    const more = await screen.findByRole("button", { name: "Show more threads (25)" });
+    const more = await screen.findByRole("button", { name: "+ show 25 more" });
     fireEvent.click(more);
-    expect(screen.getByRole("button", { name: "Show more threads (5)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "+ show 21 more" })).toBeTruthy();
   });
 
-  it("keeps settled history closed and reveals it in batches of twenty", async () => {
-    const sessions = Array.from({ length: 45 }, (_, index) => ({
+  it("opens settled history by default and reveals it in batches of twenty-five", async () => {
+    const sessions = Array.from({ length: 71 }, (_, index) => ({
       id: `settled-${index}`,
       path: `/sessions/settled-${index}.jsonl`,
       title: `Settled thread ${index}`,
@@ -131,13 +131,12 @@ describe("Workspace Kit in the workbench", () => {
       seed: ({ preferences }) => sessions.forEach((session) => preferences.toggleSettled(session.id)),
     });
 
-    const toggle = await screen.findByRole("button", { name: /SETTLED · 45/u });
-    expect(screen.queryByText("Settled thread 20")).toBeNull();
-    fireEvent.click(toggle);
-    expect(screen.getByText("Settled thread 19")).toBeTruthy();
-    expect(screen.queryByText("Settled thread 20")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Show more settled threads (25)" }));
-    expect(screen.getByText("Settled thread 20")).toBeTruthy();
+    const toggle = await screen.findByRole("button", { name: /SETTLED · 71/u });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Settled thread 24")).toBeTruthy();
+    expect(screen.queryByText("Settled thread 25")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "+ show 25 more" }));
+    expect(screen.getByText("Settled thread 25")).toBeTruthy();
   });
 
   it("switches to an existing thread while a new-thread message is still being delivered", async () => {

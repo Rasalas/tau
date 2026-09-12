@@ -1134,14 +1134,11 @@ button > svg { pointer-events: none; }
 .runtime-chip:hover { background: var(--raised); color: var(--ink); }
 .runtime-chip { font-family: var(--sans); font-size: 12.5px; }
 .composer-toolbar .spacer { flex: 1; }
-.attach-button,
-.composer-action-btn {
+.attach-button {
   width: 32px; height: 32px; flex: none; display: grid; place-items: center;
   border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer;
 }
-.attach-button:hover,
-.composer-action-btn:hover { background: var(--raised); color: var(--ink); }
-.composer-action-btn.active { color: var(--acid-text); background: var(--raised); }
+.attach-button:hover { background: var(--raised); color: var(--ink); }
 .attachment-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .attachment-lightbox {
   position: fixed; inset: 0; z-index: 92; display: grid; place-items: center; padding: 52px;

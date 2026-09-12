@@ -380,7 +380,11 @@
 
 .changed-files-list { max-height: 360px; overflow: auto; }
 
-.settled-show-more { margin: 6px 8px; padding: 6px; border: 1px solid var(--line-control); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.thread-pagination-row { opacity: 1; }
+.thread-pagination-row .thread-main {
+  color: var(--faint); font: 500 11px var(--mono); text-transform: lowercase;
+}
+.thread-pagination-row:hover .thread-main { color: var(--ink-3); }
 
 .folder-browser { min-height: 420px; display: flex; flex-direction: column; }
 .folder-browser-path {

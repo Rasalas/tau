@@ -88,6 +88,7 @@ export interface HostClient {
   prepareWorkbenchReload(mode: WorkbenchReloadMode): Promise<WorkbenchReloadPreparation>;
   releaseWorkbenchReload(): Promise<void>;
   rebuildWorkbench(): Promise<WorkbenchBuildResult>;
+  workbenchSource(): Promise<{ path?: string }>;
   relaunchWorkbench(): Promise<void>;
   /** Restarts into a downloaded update. */
   installUpdate(): Promise<{ installing: boolean }>;
@@ -180,6 +181,7 @@ export function createHostClient(connection: HostConnection): HostClient {
     rebuildWorkbench: () => connection.isJobMethod("rebuild-workbench")
       ? connection.runJob<WorkbenchBuildResult>("rebuild-workbench")
       : call<WorkbenchBuildResult>("rebuild-workbench"),
+    workbenchSource: () => call<{ path?: string }>("workbench-source"),
     relaunchWorkbench: () => call<void>("relaunch-workbench"),
     installUpdate: () => call<{ installing: boolean }>("install-update"),
     getConfig: (workspaceId) => call<TauConfig>("get-config", [workspaceId]),
