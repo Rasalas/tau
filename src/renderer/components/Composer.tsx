@@ -865,7 +865,7 @@ export function Composer({
           <button
             className="composer-action-btn"
             type="button"
-            title="Edit prompt in external editor (⌘E / Ctrl+O)"
+            title="Edit prompt in external editor (⌘E / Ctrl+G)"
             aria-label="Edit prompt in external editor"
             onClick={() => onOpenPromptEditor?.()}
           >

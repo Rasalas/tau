@@ -305,9 +305,9 @@ export function handleComposerReadlineKey(
     }
   }
 
-  // External editor shortcut (Mod+E or Ctrl+O)
+  // External prompt editor shortcut (Mod+E or Ctrl+G)
   if (
-    (event.key === "o" && event.ctrlKey && !event.metaKey && !event.altKey) ||
+    (event.key.toLowerCase() === "g" && event.ctrlKey && !event.metaKey && !event.altKey) ||
     (event.key.toLowerCase() === "e" && (event.metaKey || event.ctrlKey) && !event.shiftKey)
   ) {
     if (onOpenPromptEditor) {

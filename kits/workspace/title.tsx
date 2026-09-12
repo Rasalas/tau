@@ -41,7 +41,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
           <button
             className="chrome-button split-main"
             disabled={!activeEditor}
-            title={activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH"}
+            title={activeEditor ? `Open in ${activeEditor.name} (${typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform) ? "⌘O" : "Ctrl+O"})` : "No supported editor found on PATH"}
             onClick={() => activeEditor && void workspaceStore.openInEditor(undefined, activeEditor.id)}
           >
             <EditorIcon editorId={activeEditor?.id} className="editor-icon" />

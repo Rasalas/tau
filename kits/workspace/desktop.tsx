@@ -151,6 +151,16 @@ export const workspaceExtension: DesktopExtension = {
         app.notify(errorMessage(error));
       }
     } });
+    context.registerCommand({
+      id: "workspace.open-in-editor",
+      label: "Open in external editor",
+      group: "Project",
+      run: async (app) => {
+        const activeEditor = store.activeEditor();
+        if (activeEditor) app.notify(`Opening in ${activeEditor.name}…`);
+        await store.openInEditor();
+      },
+    });
     context.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", run: (app) => app.settleActiveThread() });
     // The branch is the kit's fact; the title menu only lends the slot.
     context.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], run: async (app) => {
@@ -159,6 +169,7 @@ export const workspaceExtension: DesktopExtension = {
       try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error)); }
     } });
     context.registerKeybinding({ keys: "mod+p", commandId: "workspace.open-project" });
+    context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
     context.registerKeybinding({ keys: "mod+shift+s", commandId: "workspace.settle" });
     context.registerToolRenderer(
       "workspace.read-renderer",
@@ -236,6 +247,17 @@ export const workspaceExtension: DesktopExtension = {
       name: "files",
       description: "Open file index in stage",
       run: (_args, app) => { app.openPanel(WORKSPACE_FILES_PANEL); return undefined; },
+    });
+    context.registerSlashCommand({
+      name: "code",
+      description: "Open current project in external editor (VS Code, Cursor, Zed)",
+      run: (_args, app) => {
+        const activeEditor = store.activeEditor();
+        if (!activeEditor) return "No supported editor found on PATH.";
+        app.notify(`Opening in ${activeEditor.name}…`);
+        void store.openInEditor();
+        return undefined;
+      },
     });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
   },

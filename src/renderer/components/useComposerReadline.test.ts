@@ -159,7 +159,7 @@ describe("useComposerReadline", () => {
     expect(setCaret).toHaveBeenCalledWith(5);
   });
 
-  it("handles external editor shortcut (Mod+E / Ctrl+O)", () => {
+  it("handles external editor shortcut (Mod+E / Ctrl+G)", () => {
     const promptHistory = new PromptHistory();
     const textareaRef = createMockTextarea("hello", 5);
     const updateDraft = vi.fn();
@@ -179,6 +179,19 @@ describe("useComposerReadline", () => {
     expect(handledE).toBe(true);
     expect(onOpenPromptEditor).toHaveBeenCalled();
 
+    const ctrlG = createKeyboardEvent("g", { ctrl: true });
+    const handledG = handleComposerReadlineKey(ctrlG, {
+      textareaRef,
+      text: "hello",
+      updateDraft,
+      setCaret,
+      promptHistory,
+      onOpenPromptEditor,
+    });
+
+    expect(handledG).toBe(true);
+    expect(onOpenPromptEditor).toHaveBeenCalledTimes(2);
+
     const ctrlO = createKeyboardEvent("o", { ctrl: true });
     const handledO = handleComposerReadlineKey(ctrlO, {
       textareaRef,
@@ -189,7 +202,7 @@ describe("useComposerReadline", () => {
       onOpenPromptEditor,
     });
 
-    expect(handledO).toBe(true);
+    expect(handledO).toBe(false);
     expect(onOpenPromptEditor).toHaveBeenCalledTimes(2);
   });
 
