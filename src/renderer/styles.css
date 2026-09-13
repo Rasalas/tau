@@ -692,6 +692,13 @@ button > svg { pointer-events: none; }
 .skill-chip > svg { color: var(--acid-text); }
 .skill-chip > strong { overflow: hidden; text-overflow: ellipsis; font: 600 12px var(--mono); }
 .skill-chip > span { color: var(--muted); font: 600 9px var(--sans); letter-spacing: .08em; text-transform: uppercase; }
+.file-context-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  margin: 0 4px 0 0; padding: 2px 7px; border: 1px solid var(--line-control);
+  border-radius: 6px; background: var(--sunken); color: var(--ink-2);
+  vertical-align: middle; line-height: 1.2; white-space: nowrap; font: 500 11px var(--mono);
+}
+.file-context-chip > svg { color: var(--faint); }
 .message-user-meta {
   min-height: 22px; display: flex; align-items: center; justify-content: flex-end; gap: 4px;
   opacity: 0; transition: opacity 100ms ease;
@@ -732,6 +739,15 @@ button > svg { pointer-events: none; }
   font-size: 14px; line-height: 1.75; color: var(--ink-prose);
   letter-spacing: -.002em; word-break: break-word;
 }
+.message-shell.assistant.excluded-from-context { opacity: 0.88; }
+.message-shell.assistant.excluded-from-context:hover { opacity: 1; }
+.message-context-badge {
+  display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  padding: 2px 7px; border: 1px dashed var(--line-control); border-radius: 6px;
+  background: var(--sunken); color: var(--muted); font: 500 11px var(--mono);
+  user-select: none; line-height: 1.2;
+}
+.message-context-badge > svg { color: var(--faint); }
 .notice-message {
   align-self: center; font: 11px var(--mono); color: var(--faint);
   border: 1px dashed var(--line-strong); border-radius: 8px; padding: 6px 12px;

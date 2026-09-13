@@ -713,6 +713,6 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     held={holds > 0}
     onNotify={onNotify}
     onOpenPromptEditor={() => void actions?.executeCommand?.("workspace.open-prompt-editor")}
-    onRunShellAction={(cmd) => actions ? actions.runShellAction(cmd, false) : Promise.reject(new Error("Actions unavailable"))}
+    onRunShellAction={(cmd, includeInContext = true) => actions ? actions.runShellAction(cmd, includeInContext) : Promise.reject(new Error("Actions unavailable"))}
   />;
 }

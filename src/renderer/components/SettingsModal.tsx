@@ -27,7 +27,7 @@ function DefaultsPage({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, density, fontSize, fontFamily } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
@@ -136,6 +136,56 @@ function DefaultsPage({
       <p className="settings-note">
         System follows this machine's light or dark setting. Custom themes can be added as <code>.css</code> or <code>.json</code> files in <code>~/.tau/themes/</code>.
       </p>
+
+      <div className="settings-label">DENSITY</div>
+      <div className="segmented">
+        {(["compact", "default", "relaxed"] as const).map((d) => (
+          <button
+            key={d}
+            className={(density ?? "default") === d ? "active" : ""}
+            onClick={() => preferences.setDensity(d === "default" ? undefined : d)}
+          >
+            {d}
+          </button>
+        ))}
+      </div>
+      <p className="settings-note">Scale padding and spacing across the workbench.</p>
+
+      <div className="settings-label">FONT SIZE</div>
+      <div className="segmented">
+        {[11, 12, 13, 14, 15].map((size) => (
+          <button
+            key={size}
+            className={(fontSize ?? 13) === size ? "active" : ""}
+            onClick={() => preferences.setFontSize(size === 13 ? undefined : size)}
+          >
+            {size === 13 ? "13px (default)" : `${size}px`}
+          </button>
+        ))}
+      </div>
+
+      <div className="settings-label">FONT FAMILY</div>
+      <div style={{ display: "flex", gap: "8px", alignItems: "center", maxWidth: "420px" }}>
+        <input
+          type="text"
+          className="settings-search-input"
+          style={{ flex: 1 }}
+          placeholder="System sans (default) — e.g. 'JetBrains Mono', monospace"
+          value={fontFamily ?? ""}
+          onChange={(e) => preferences.setFontFamily(e.target.value.trim() ? e.target.value : undefined)}
+        />
+        {fontFamily ? (
+          <button
+            className="ghost"
+            style={{ fontSize: "11px", padding: "4px 8px", cursor: "pointer", whiteSpace: "nowrap" }}
+            onClick={() => preferences.setFontFamily(undefined)}
+            title="Reset to default font"
+          >
+            Reset
+          </button>
+        ) : null}
+      </div>
+      <p className="settings-note">Override the interface font family.</p>
 
       <div className="settings-label">COSTS</div>
       <div className="settings-toggle-row">

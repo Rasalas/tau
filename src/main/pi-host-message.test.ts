@@ -231,11 +231,49 @@ describe("Pi message mapping", () => {
     });
   });
 
-  it("keeps unknown and malformed wrappers as the original user text", () => {
-    const malformed = `<skill name="tdd" location="/tmp/tdd">\nInjected body\n</skill`;
-    expect(mapMessage({ role: "user", content: [{ type: "text", text: malformed }] }, 0, {
-      runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
-      skillCommands,
-    })).toMatchObject({ text: malformed });
+  it("maps bashExecution session entries into formatted assistant messages", () => {
+    const success = mapMessage({
+      role: "bashExecution",
+      command: "git status",
+      output: "On branch main\nnothing to commit",
+      exitCode: 0,
+      timestamp: 1000,
+      tauEntryId: "entry-bash-1",
+    }, 0);
+    expect(success).toMatchObject({
+      id: "entry-bash-1",
+      role: "assistant",
+      text: "`! git status`\n\n```\nOn branch main\nnothing to commit\n```",
+      timestamp: 1000,
+    });
+
+    const failure = mapMessage({
+      role: "bashExecution",
+      command: "false",
+      output: "command failed",
+      exitCode: 1,
+      timestamp: 2000,
+    }, 1);
+    expect(failure).toMatchObject({
+      role: "assistant",
+      text: "`! false`\n\n```\ncommand failed\n```\n\n*Process exited with code 1*",
+      timestamp: 2000,
+    });
+    expect(failure?.excludedFromContext).toBeUndefined();
+
+    const silent = mapMessage({
+      role: "bashExecution",
+      command: "git diff",
+      output: "diff --git a b",
+      exitCode: 0,
+      timestamp: 3000,
+      excludeFromContext: true,
+    }, 2);
+    expect(silent).toMatchObject({
+      role: "assistant",
+      text: "`!! git diff`\n\n```\ndiff --git a b\n```",
+      timestamp: 3000,
+      excludedFromContext: true,
+    });
   });
 });

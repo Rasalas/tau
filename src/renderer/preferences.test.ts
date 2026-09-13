@@ -165,4 +165,21 @@ describe("host configuration sync", () => {
     expect(snapshot.temperature).toBe(0.5);
     expect(snapshot.maxTokens).toBe(2048);
   });
+
+  it("updates and persists density, fontSize, and fontFamily", () => {
+    preferences.setDensity("relaxed");
+    preferences.setFontSize(14);
+    preferences.setFontFamily("Fira Code");
+
+    const snapshot = preferences.getSnapshot();
+    expect(snapshot.density).toBe("relaxed");
+    expect(snapshot.fontSize).toBe(14);
+    expect(snapshot.fontFamily).toBe("Fira Code");
+
+    const reloaded = new PreferencesStore().getSnapshot();
+    expect(reloaded.density).toBe("relaxed");
+    expect(reloaded.fontSize).toBe(14);
+    expect(reloaded.fontFamily).toBe("Fira Code");
+  });
 });
+

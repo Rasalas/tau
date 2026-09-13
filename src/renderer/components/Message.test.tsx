@@ -282,4 +282,32 @@ describe("Message skill invocations", () => {
     expect(fencedView.container.querySelector(".skill-chip")).toBeNull();
     expect(fencedView.container.textContent).toContain("Injected skill content");
   });
+
+  it("strips <file> blocks from visible text and renders file-context-chip", () => {
+    const textWithFile = "Please review this:\n\n<file name=\"src/main.ts\">\nconsole.log('hello');\n</file>";
+    const view = render(<Message
+      message={{ id: "file-ctx", role: "user", text: textWithFile, timestamp: 0 }}
+    />);
+    const chip = view.container.querySelector(".file-context-chip");
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent).toBe("src/main.ts");
+    expect(view.container.textContent).toContain("Please review this:");
+    expect(view.container.textContent).not.toContain("console.log('hello')");
+  });
+
+  it("renders excluded-from-context badge for silent shell execution", () => {
+    const view = render(<Message
+      message={{
+        id: "bash-silent",
+        role: "assistant",
+        text: "`!! git status`\n\n```\nOn branch main\n```",
+        timestamp: 0,
+        excludedFromContext: true,
+      }}
+    />);
+    const badge = view.container.querySelector(".message-context-badge");
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toContain("Not in model context");
+    expect(view.container.querySelector(".message-shell")?.className).toContain("excluded-from-context");
+  });
 });

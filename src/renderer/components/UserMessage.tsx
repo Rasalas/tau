@@ -1,10 +1,10 @@
-import { Sparkles } from "lucide-react";
+import { FileText, Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { Markdown } from "./Markdown";
 import { MessageActions } from "./MessageActions";
 import { MessageImages, PersistedMessageImages } from "./MessageImages";
-import { copyableMessage, localImagePaths, visibleUserMessageText } from "./MessageText";
+import { copyableMessage, embeddedFileContexts, localImagePaths, visibleUserMessageText } from "./MessageText";
 import { isLongMessage } from "./message-grapheme";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
@@ -38,9 +38,10 @@ export function UserMessage({
   expanded: controlledExpanded,
 }: UserMessageProps) {
   const visibleText = visibleUserMessageText(message.text);
+  const attachedFiles = embeddedFileContexts(message.text);
   const hasLocalImages = localImagePaths(message.text).length > 0;
   const persistedImages = message.images ?? [];
-  const hasMessageContent = Boolean(visibleText || message.skill);
+  const hasMessageContent = Boolean(visibleText || message.skill || attachedFiles.length > 0);
   const long = isLongMessage(visibleText);
   const [localExpanded, setLocalExpanded] = useState(false);
   const expanded = controlledExpanded ?? localExpanded;
@@ -65,10 +66,16 @@ export function UserMessage({
               data-collapsed={long && !expanded ? "true" : "false"}
             >
               {message.skill ? <SkillChip name={message.skill.name} /> : null}
+              {attachedFiles.map((file) => (
+                <span className="file-context-chip" key={file} title={`Included file context: ${file}`}>
+                  <FileText size={11} strokeWidth={2} />
+                  <span>{file}</span>
+                </span>
+              ))}
               {visibleText
                 ? long && !expanded
                   ? <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
-                  : <Markdown inlineStart={Boolean(message.skill)}>{visibleText}</Markdown>
+                  : <Markdown inlineStart={Boolean(message.skill || attachedFiles.length > 0)}>{visibleText}</Markdown>
                 : null}
             </div>
           </div>

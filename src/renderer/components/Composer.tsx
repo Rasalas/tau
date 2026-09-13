@@ -37,6 +37,7 @@ import { PromptHistory, loadStoredPromptHistory, saveStoredPromptHistory } from 
 import { handleComposerReadlineKey } from "./useComposerReadline";
 import { useComposerAttachments, type ComposerAttachmentHandle } from "./useComposerAttachments";
 import { useClientStorage } from "../client-storage-context";
+import { expandFileMentions } from "../file-mention-expander.js";
 import {
   type ComposerTrigger,
   type SelectedSkill,
@@ -154,7 +155,7 @@ export function Composer({
   /** Opens the current draft in an external editor via workspace extension. */
   onOpenPromptEditor?(): void;
   /** Direct shell execution for `! <command>` inputs. */
-  onRunShellAction?(command: string): Promise<unknown>;
+  onRunShellAction?(command: string, includeInContext?: boolean): Promise<unknown>;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const clientStorage = useClientStorage();
@@ -454,20 +455,12 @@ export function Composer({
     }
     const trimmedInput = text.trim();
     if (trimmedInput.startsWith("!") && onRunShellAction) {
-      const shellCmd = trimmedInput.slice(1).trim();
+      const isExcluded = trimmedInput.startsWith("!!");
+      const shellCmd = isExcluded ? trimmedInput.slice(2).trim() : trimmedInput.slice(1).trim();
       if (shellCmd.length > 0) {
         updateDraft("");
         recordPrompt(trimmedInput);
-        void onRunShellAction(shellCmd).then((result) => {
-          if (result && typeof result === "object" && "output" in result) {
-            const out = (result as { output?: string; exitCode?: number }).output?.trim();
-            if (out) {
-              onNotify?.(out);
-            } else if ((result as { exitCode?: number }).exitCode !== undefined) {
-              onNotify?.(`Command exited with code ${(result as { exitCode?: number }).exitCode}`);
-            }
-          }
-        }).catch((error) => {
+        void onRunShellAction(shellCmd, !isExcluded).catch((error) => {
           onNotify?.(errorMessage(error));
         });
         return;
@@ -485,6 +478,18 @@ export function Composer({
       // the host/runtime adapter resolves provider syntax at the boundary.
       const submittedText = handle.text;
       const skillDraft = selectedSkillDraft(submittedText, selectedSkill);
+      let promptToSend = submittedText;
+      let attachmentsToSend = [...handle.attachments];
+      if (!skillDraft && promptToSend.includes("@")) {
+        const documentSource = shellContext?.registry.getDocumentSource();
+        if (documentSource) {
+          const expanded = await expandFileMentions(promptToSend, documentSource);
+          promptToSend = expanded.text;
+          if (expanded.attachments.length > 0) {
+            attachmentsToSend = [...attachmentsToSend, ...expanded.attachments];
+          }
+        }
+      }
       // beginSubmission clears the live editor before the host round trip. Keep
       // the persisted copy in step so a reload cannot resurrect a sent prompt.
       if (draftStorageKey !== undefined) {
@@ -493,10 +498,10 @@ export function Composer({
       let result: SubmitResult;
       try {
         result = skillDraft
-          ? await onSubmit(submittedText, [...handle.attachments], delivery, skillDraft)
+          ? await onSubmit(promptToSend, attachmentsToSend, delivery, skillDraft)
           : delivery
-            ? await onSubmit(submittedText, [...handle.attachments], delivery)
-            : await onSubmit(submittedText, [...handle.attachments]);
+            ? await onSubmit(promptToSend, attachmentsToSend, delivery)
+            : await onSubmit(promptToSend, attachmentsToSend);
       } catch (error) {
         result = { accepted: false, message: errorMessage(error) };
       }

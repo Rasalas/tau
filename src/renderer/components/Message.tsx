@@ -1,4 +1,4 @@
-import { Bot, ChevronRight } from "lucide-react";
+import { Bot, ChevronRight, EyeOff } from "lucide-react";
 import { memo, useState } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
@@ -85,8 +85,14 @@ export const Message = memo(function Message({
   if (!message.text && !thinking) return null;
 
   return (
-    <div className="message-shell assistant">
+    <div className={`message-shell assistant${message.excludedFromContext ? " excluded-from-context" : ""}`}>
       <article className="message assistant">
+        {message.excludedFromContext ? (
+          <div className="message-context-badge" title="Executed locally; excluded from model context">
+            <EyeOff size={12} strokeWidth={1.7} />
+            <span>Not in model context</span>
+          </div>
+        ) : null}
         {thinking ? <ThinkingDisclosure thinking={thinking} streaming={streaming && !message.text} /> : null}
         {message.text ? (
           <div className="message-text">

@@ -163,6 +163,38 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
     };
   }
 
+  if (value.role === "bashExecution") {
+    const raw = value as {
+      command?: string;
+      output?: string;
+      exitCode?: number;
+      cancelled?: boolean;
+      excludeFromContext?: boolean;
+    };
+    const command = raw.command?.trim() ?? "";
+    const output = raw.output?.trimEnd() ?? "";
+    const exitCode = raw.exitCode;
+    const isError = exitCode !== undefined && exitCode !== 0;
+    const isCancelled = raw.cancelled;
+    const isExcluded = raw.excludeFromContext === true;
+    const prefix = isExcluded ? "!!" : "!";
+    const codeFence = output ? `\`\`\`\n${output}\n\`\`\`` : "```\n(no output)\n```";
+    const parts = [
+      `\`${prefix} ${command}\``,
+      codeFence,
+      isCancelled ? "*Process was cancelled*" : isError ? `*Process exited with code ${exitCode}*` : "",
+    ].filter(Boolean);
+    return {
+      id: value.tauEntryId ?? `bash-${value.timestamp ?? index}-${index}`,
+      sourceEntryId: value.tauEntryId,
+      ...clientIdentity,
+      role: "assistant",
+      text: parts.join("\n\n"),
+      timestamp: value.timestamp ?? Date.now(),
+      ...(isExcluded ? { excludedFromContext: true } : {}),
+    };
+  }
+
   return undefined;
 }
 

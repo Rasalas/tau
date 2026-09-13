@@ -389,12 +389,29 @@ describe("Composer command menu", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
 
     await waitFor(() => {
-      expect(onRunShellAction).toHaveBeenCalledWith("ls -la");
+      expect(onRunShellAction).toHaveBeenCalledWith("ls -la", true);
     });
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(onNotify).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("");
+  });
+
+  it("executes silent shell action when prompt starts with !! and skips redundant toast", async () => {
+    const onSubmit = vi.fn(async () => ({ accepted: true as const }));
+    const onRunShellAction = vi.fn(async () => ({ output: "silent.txt", exitCode: 0 }));
+    const onNotify = vi.fn();
+
+    renderComposer(onSubmit, false, snapshot, {}, { onRunShellAction, onNotify });
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "!!ls -la", selectionStart: 8 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
     await waitFor(() => {
-      expect(onNotify).toHaveBeenCalledWith("file1.txt\nfile2.txt");
+      expect(onRunShellAction).toHaveBeenCalledWith("ls -la", false);
     });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onNotify).not.toHaveBeenCalled();
     expect(textarea.value).toBe("");
   });
 
@@ -452,5 +469,65 @@ describe("Composer command menu", () => {
     await waitFor(() => {
       expect(textarea.value).toBe("text from extension\nmore text");
     });
+  });
+
+  it("expands @file mentions when submitted", async () => {
+    const onSubmit = vi.fn(async () => ({ accepted: true as const }));
+    const documentSource = {
+      id: "workspace.documents",
+      loadFile: vi.fn(async (path: string) => ({
+        path,
+        name: "test.ts",
+        size: 20,
+        kind: "text" as const,
+        text: "const a = 1;",
+      })),
+      loadDiff: vi.fn(),
+      openInEditor: vi.fn(),
+      getState: () => ({ changes: { files: [] } }),
+      subscribe: () => () => {},
+    };
+    const registry = new ExtensionRegistry();
+    registry.activate({
+      id: "test.doc-source",
+      name: "Doc Source",
+      activate(context) {
+        context.registerDocumentSource(documentSource as any);
+      },
+    });
+
+    const scopeStore = new ComposerScopeStore();
+    render(
+      <TestProviders>
+        <WorkbenchShellContext.Provider value={{ registry, snapshot }}>
+          <Composer
+            scopeStore={scopeStore}
+            snapshot={snapshot}
+            queue={[]}
+            contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+            textareaRef={createRef<HTMLTextAreaElement>()}
+            onSubmit={onSubmit}
+            onAbort={() => {}}
+            onCancelQueued={() => {}}
+            onSteerQueued={() => {}}
+            onReorderQueue={() => {}}
+            onSetModel={() => {}}
+            onSetThinking={() => {}}
+            onCompactContext={() => {}}
+          />
+        </WorkbenchShellContext.Provider>
+      </TestProviders>,
+    );
+
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "inspect @test.ts", selectionStart: 16 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalled();
+    });
+    const calledText = (onSubmit.mock.calls as unknown as [string, ...unknown[]][])[0][0];
+    expect(calledText).toContain("inspect @test.ts");
+    expect(calledText).toContain('<file name="test.ts">\nconst a = 1;\n</file>');
   });
 });

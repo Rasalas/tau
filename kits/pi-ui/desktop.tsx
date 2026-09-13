@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { HostUnavailableError, type DesktopExtension, type RegionProps } from "tau";
 import { EMPTY_PI_UI_STATE, PI_UI_EVENT, PI_UI_HOST_EXTENSION_ID, type PiUiThreadState, type PiUiWidgetPlacement } from "./protocol.js";
+import { renderAnsi } from "./ansi.js";
 
 // Pi themes colour widget lines with ANSI sequences; the workbench shows plain text.
 // oxlint-disable-next-line eslint/no-control-regex -- ESC (\u001b) is the ANSI escape-sequence marker this strips.
@@ -52,9 +53,9 @@ export function createPiUiComponents(store: PiUiStore) {
     if (state.statuses.length === 0 && state.working === undefined && !state.footer?.length) return null;
     return (
       <>
-        {state.working !== undefined && snapshot?.isStreaming ? <span className="pi-ui-working" title="Working message from a Pi extension">{stripAnsi(state.working)}</span> : null}
-        {state.footer?.map((line, i) => <span className="pi-ui-status pi-ui-footer" key={`footer-${i}`}>{stripAnsi(line)}</span>)}
-        {state.statuses.map((status) => <span className="pi-ui-status" key={status.key} title={status.key}>{stripAnsi(status.text)}</span>)}
+        {state.working !== undefined && snapshot?.isStreaming ? <span className="pi-ui-working" title="Working message from a Pi extension">{renderAnsi(state.working)}</span> : null}
+        {state.footer?.map((line, i) => <span className="pi-ui-status pi-ui-footer" key={`footer-${i}`}>{renderAnsi(line)}</span>)}
+        {state.statuses.map((status) => <span className="pi-ui-status" key={status.key} title={status.key}>{renderAnsi(status.text)}</span>)}
       </>
     );
   }
@@ -66,7 +67,14 @@ export function createPiUiComponents(store: PiUiStore) {
       return (
         <>
           {shown.map((widget) => (
-            <pre className="pi-ui-widget" key={widget.key} data-widget={widget.key}>{widget.lines.map(stripAnsi).join("\n")}</pre>
+            <pre className="pi-ui-widget" key={widget.key} data-widget={widget.key}>
+              {widget.lines.map((line, i) => (
+                <span key={i}>
+                  {renderAnsi(line)}
+                  {i < widget.lines.length - 1 ? "\n" : null}
+                </span>
+              ))}
+            </pre>
           ))}
         </>
       );

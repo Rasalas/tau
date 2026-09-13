@@ -11,3 +11,36 @@
   font: 12px/1.45 var(--mono, ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; color: var(--ink); opacity: 0.85;
 }
 .region-composer-below .pi-ui-widget { margin: 6px 0 0; }
+
+.ansi-bold { font-weight: bold; }
+.ansi-dim { opacity: 0.6; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
+
+.ansi-black { color: var(--ink-3); }
+.ansi-red { color: var(--fail); }
+.ansi-green { color: var(--ready); }
+.ansi-yellow { color: var(--warn); }
+.ansi-blue { color: var(--info); }
+.ansi-magenta { color: var(--syntax-fn); }
+.ansi-cyan { color: var(--cyan); }
+.ansi-white { color: var(--ink); }
+
+.ansi-bright-black { color: var(--muted); }
+.ansi-bright-red { color: var(--danger); }
+.ansi-bright-green { color: var(--acid-text); }
+.ansi-bright-yellow { color: var(--warn); }
+.ansi-bright-blue { color: var(--info-ink); }
+.ansi-bright-magenta { color: var(--syntax-fn); }
+.ansi-bright-cyan { color: var(--cyan); }
+.ansi-bright-white { color: var(--ink); }
+
+.ansi-bg-black { background-color: var(--sunken); }
+.ansi-bg-red { background-color: var(--danger-bg); }
+.ansi-bg-green { background-color: var(--diff-add-bg); }
+.ansi-bg-yellow { background-color: var(--warn-chip); }
+.ansi-bg-blue { background-color: var(--inset); }
+.ansi-bg-magenta { background-color: var(--chip); }
+.ansi-bg-cyan { background-color: var(--chip); }
+.ansi-bg-white { background-color: var(--stage); }
+

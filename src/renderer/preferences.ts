@@ -190,6 +190,18 @@ export class PreferencesStore {
     this.update({ theme });
   }
 
+  setDensity(density: "compact" | "default" | "relaxed" | undefined): void {
+    this.update({ density });
+  }
+
+  setFontSize(fontSize: number | undefined): void {
+    this.update({ fontSize });
+  }
+
+  setFontFamily(fontFamily: string | undefined): void {
+    this.update({ fontFamily });
+  }
+
   setEditor(editorId: string): void {
     this.update({ editorId });
   }

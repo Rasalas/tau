@@ -1650,7 +1650,15 @@ export class PiHost {
     const shell = requireCapability(thread.backend, "shellAction", "Run project actions in Pi instead.");
     if (shell.isRunning()) throw new Error("Another project action is already running.");
     const result = await shell.run(shellCommand, includeInContext);
-    if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
+    if (this.threads.get(thread.threadId)?.runtime === thread) {
+      await this.index.refreshShell(thread, true);
+      const snapshot = await this.snapshot();
+      this.emitUpdate({
+        version: HOST_PROTOCOL_VERSION,
+        type: "thread-detail",
+        detail: this.detailForSnapshot(snapshot),
+      });
+    }
     this.log("action.shell", `${result.exitCode ?? "cancelled"} · ${shellCommand}`);
     return {
       output: boundedToolOutput(result.output),

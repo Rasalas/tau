@@ -70,6 +70,8 @@ export interface UiMessage {
   thinking?: string;
   images?: readonly UiMessageImage[];
   timestamp: number;
+  /** True when the entry was executed locally and excluded from model context (e.g. !! command). */
+  excludedFromContext?: boolean;
 }
 
 /** Bounded image payload selected in the desktop composer. Data is raw base64. */
