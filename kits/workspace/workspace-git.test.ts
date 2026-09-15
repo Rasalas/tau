@@ -78,7 +78,7 @@ describe("selective workspace changes", () => {
       await revertFile(cwd, "new.txt");
       await expect(readFile(join(cwd, "new.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally { await rm(cwd, { recursive: true, force: true }); }
-  }, 30_000);
+  }, 90_000);
 
   it("compares committed branch changes from the merge base", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-branch-changes-"));
@@ -102,7 +102,7 @@ describe("selective workspace changes", () => {
       const diff = await getFileDiff(cwd, "branch.txt", { scope: "branch", baseRef: "main" });
       expect(diff.hunks.flatMap((hunk) => hunk.lines)).toContainEqual(expect.objectContaining({ kind: "added", text: "branch" }));
     } finally { await rm(cwd, { recursive: true, force: true }); }
-  }, 30_000);
+  }, 90_000);
 
   it("commits only the staged selection when the index is not empty", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-selective-commit-"));
@@ -123,7 +123,7 @@ describe("selective workspace changes", () => {
       expect(execFileSync("git", ["show", "--pretty=format:", "--name-only", "HEAD"], { cwd, encoding: "utf8" }).trim()).toBe("a.txt");
       expect((await readProjectGitState(cwd)).changes.files).toEqual([expect.objectContaining({ path: "b.txt", staged: false })]);
     } finally { await rm(cwd, { recursive: true, force: true }); }
-  }, 30_000);
+  }, 90_000);
 });
 
 describe("large diff bounds", () => {
@@ -195,6 +195,15 @@ describe("large diff bounds", () => {
   });
 });
 
+/**
+ * Every test here spawns real `git` processes several times over — a snapshot is
+ * an `add`/`commit`/`write-tree` triple — and the vitest pool runs four files at
+ * once. Isolated the suite needs about a minute; under the full suite's own load
+ * the same tests have taken four times that, which is what the 90 s budget below
+ * is for. A shorter one turns ordinary load into a red CI run. The per-test
+ * numbers are deliberately uniform: they say "this suite is expensive", not
+ * "this one test is expensive".
+ */
 describe("immutable turn snapshots", () => {
   it("restores a verified Git checkpoint and can replay the backup", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-restore-snapshots-"));
@@ -234,7 +243,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("rolls back a failed Git restore before reporting the error", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-restore-rollback-"));
@@ -271,7 +280,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("previews the live workspace delta against the selected checkpoint", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-restore-preview-"));
@@ -303,7 +312,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("restores a complete plain-folder checkpoint and rejects partial history", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-folder-restore-"));
@@ -335,7 +344,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("preserves executable file modes and marks symlink snapshots incomplete", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-folder-metadata-"));
@@ -386,7 +395,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   // ~36 Git processes, two of them worktree add/remove; 30 s is not enough headroom under full-suite load.
   it("does not sweep refs published by a live linked-worktree writer", { timeout: 60_000 }, async () => {
@@ -454,7 +463,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("roots rollback refs from pending restore transactions", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-restore-gc-"));
@@ -502,7 +511,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("revalidates linked-worktree writers that start during ref enumeration", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-snapshot-race-root-"));
@@ -566,7 +575,7 @@ describe("immutable turn snapshots", () => {
         rm(cwd, { recursive: true, force: true }),
       ]);
     }
-  }, 30_000);
+  }, 90_000);
 
   it("diffs the complete before/after trees and excludes a pre-existing dirty base", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-snapshot-"));
@@ -634,7 +643,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("keeps every changed file in the summary while opening one file lazily", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-many-snapshots-"));
@@ -656,7 +665,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   // ~110 Git processes for four clone/cleanup rounds; 30 s is not enough headroom under full-suite load.
   it("clones immutable refs into a fork namespace and removes incomplete copies", { timeout: 60_000 }, async () => {
@@ -827,7 +836,7 @@ describe("immutable turn snapshots", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 });
 
 describe("worktree cleanup suggestions", () => {
