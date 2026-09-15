@@ -163,8 +163,8 @@ function DefaultsPage({
         />
         {fontFamily ? (
           <button
-            className="ghost"
-            style={{ fontSize: "11px", padding: "4px 8px", cursor: "pointer", whiteSpace: "nowrap" }}
+            className="text-button"
+            style={{ whiteSpace: "nowrap" }}
             onClick={() => preferences.setFontFamily(undefined)}
             title="Reset to default font"
           >
