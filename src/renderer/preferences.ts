@@ -31,7 +31,6 @@ export interface PreferencesState {
   keybindings?: Readonly<Record<string, string>>;
   fontFamily?: string;
   fontSize?: number;
-  density?: "compact" | "default" | "relaxed";
   temperature?: number;
   maxTokens?: number;
   vimMode?: boolean;
@@ -100,7 +99,6 @@ function load(): PreferencesState {
       keybindings: raw.keybindings && typeof raw.keybindings === "object" ? raw.keybindings as Record<string, string> : undefined,
       fontFamily: typeof raw.fontFamily === "string" ? raw.fontFamily : undefined,
       fontSize: typeof raw.fontSize === "number" ? raw.fontSize : undefined,
-      density: raw.density === "compact" || raw.density === "relaxed" || raw.density === "default" ? raw.density : undefined,
       temperature: typeof raw.temperature === "number" ? raw.temperature : undefined,
       maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
       vimMode: typeof raw.vimMode === "boolean" ? raw.vimMode : false,
@@ -154,7 +152,6 @@ export class PreferencesStore {
     if (config.keybindings) patch.keybindings = { ...(this.state.keybindings ?? {}), ...config.keybindings };
     if (config.fontFamily !== undefined) patch.fontFamily = config.fontFamily;
     if (config.fontSize !== undefined) patch.fontSize = config.fontSize;
-    if (config.density !== undefined) patch.density = config.density;
     if (config.temperature !== undefined) patch.temperature = config.temperature;
     if (config.maxTokens !== undefined) patch.maxTokens = config.maxTokens;
     if (config.vimMode !== undefined) patch.vimMode = config.vimMode;
@@ -192,10 +189,6 @@ export class PreferencesStore {
 
   setTheme(theme: ThemePreference): void {
     this.update({ theme });
-  }
-
-  setDensity(density: "compact" | "default" | "relaxed" | undefined): void {
-    this.update({ density });
   }
 
   setFontSize(fontSize: number | undefined): void {
@@ -323,7 +316,6 @@ export class PreferencesStore {
       if (patch.keybindings) hostPatch.keybindings = { ...patch.keybindings };
       if (patch.fontFamily !== undefined) hostPatch.fontFamily = patch.fontFamily;
       if (patch.fontSize !== undefined) hostPatch.fontSize = patch.fontSize;
-      if (patch.density !== undefined) hostPatch.density = patch.density;
       if (patch.temperature !== undefined) hostPatch.temperature = patch.temperature;
       if (patch.maxTokens !== undefined) hostPatch.maxTokens = patch.maxTokens;
       if (patch.vimMode !== undefined) hostPatch.vimMode = patch.vimMode;

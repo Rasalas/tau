@@ -208,3 +208,11 @@ Current stores:
 | `<userData>/projects.json` | `src/main/project-history.ts` | 2 |
 | `<userData>/host-id` | `src/main/workspace-identity.ts` | plain text |
 | `<agentDir>/tau/claude-runtime-sessions.json` | `kits/claude-code/session-store.ts` | 1 |
+
+Two configuration files are not stores of this kind, because Pi owns one of
+them and both are edited by hand as often as by Tau:
+
+| File | Written by | Holds |
+| --- | --- | --- |
+| `~/.tau/config.json`, `<project>/.tau/config.json` | `HostConfigManager.update` | the keys Tau applies itself: theme, transcript detail, costs, favourites, disabled extensions, keybindings, typography, sampling, vim mode, prewarm, and the per-extension `options` / `values` records |
+| `~/.pi/agent/settings.json`, `<project>/.pi/settings.json` | `HostConfigManager.update` and the Pi CLI | the keys Pi applies itself: startup model and thinking level, compaction, retry, steering and follow-up modes, built-in tools, shell path and command prefix, npm command, quiet startup, project trust. Pi's file wins for these, and an `update-config` patch carrying one is written there rather than to Tau's own file ([CORE.md](CORE.md)) |

@@ -9,7 +9,27 @@ export interface HostConfigPaths {
   globalFilePath?: string;
   projectFilePath?: (cwd: string) => string;
   piAgentDir?: string;
+  /** Pi's own global settings file; defaults to `<piAgentDir>/settings.json`. */
+  piGlobalFilePath?: string;
+  /** Pi's own project settings file; defaults to `<cwd>/.pi/settings.json`. */
+  piProjectFilePath?: (cwd: string) => string;
 }
+
+/**
+ * The settings Pi reads from its own `settings.json` and applies itself.
+ *
+ * Tau mirrors them so a client can read what the user configured, but it never
+ * stores them in `~/.tau/config.json`: a value written there would be accepted,
+ * persisted and never applied. `HostConfigManager.update` routes these keys to
+ * Pi's file, which both Pi and Tau read.
+ */
+const PI_OWNED_CONFIG_KEYS = [
+  "models", "compaction", "retry", "steeringMode", "followUpMode",
+  "defaultTools", "shellPath", "shellCommandPrefix", "npmCommand",
+  "quietStartup", "defaultProjectTrust",
+] as const satisfies readonly (keyof TauConfig)[];
+
+const PI_OWNED = new Set<string>(PI_OWNED_CONFIG_KEYS);
 
 export function defaultGlobalConfigPath(home = homedir()): string {
   return process.env.TAU_CONFIG_FILE || join(home, ".tau", "config.json");
@@ -17,6 +37,10 @@ export function defaultGlobalConfigPath(home = homedir()): string {
 
 export function defaultProjectConfigPath(cwd: string): string {
   return join(cwd, ".tau", "config.json");
+}
+
+export function defaultPiProjectSettingsPath(cwd: string): string {
+  return join(cwd, ".pi", "settings.json");
 }
 
 interface PiRawSettings {
@@ -87,6 +111,37 @@ function piSettingsToTauConfig(pi?: PiRawSettings): Partial<TauConfig> {
   return config;
 }
 
+/**
+ * The reverse of `piSettingsToTauConfig`, for the keys Pi owns. A Tau patch is
+ * spelled in Tau's vocabulary (`models.default` is `"provider/modelId"`); Pi's
+ * file wants `defaultProvider` and `defaultModel` apart.
+ */
+function tauConfigToPiSettings(patch: Partial<TauConfig>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const model = patch.models?.default;
+  if (model) {
+    const slash = model.indexOf("/");
+    if (slash > 0) {
+      out.defaultProvider = model.slice(0, slash);
+      out.defaultModel = model.slice(slash + 1);
+    } else {
+      out.defaultModel = model;
+    }
+  }
+  if (patch.models?.thinkingLevel !== undefined) out.defaultThinkingLevel = patch.models.thinkingLevel;
+  if (patch.compaction !== undefined) out.compaction = patch.compaction;
+  if (patch.retry !== undefined) out.retry = patch.retry;
+  if (patch.steeringMode !== undefined) out.steeringMode = patch.steeringMode;
+  if (patch.followUpMode !== undefined) out.followUpMode = patch.followUpMode;
+  if (patch.defaultTools !== undefined) out.defaultTools = patch.defaultTools;
+  if (patch.shellPath !== undefined) out.shellPath = patch.shellPath;
+  if (patch.shellCommandPrefix !== undefined) out.shellCommandPrefix = patch.shellCommandPrefix;
+  if (patch.npmCommand !== undefined) out.npmCommand = patch.npmCommand;
+  if (patch.quietStartup !== undefined) out.quietStartup = patch.quietStartup;
+  if (patch.defaultProjectTrust !== undefined) out.defaultProjectTrust = patch.defaultProjectTrust;
+  return out;
+}
+
 async function readJson<T>(path: string): Promise<T | undefined> {
   try {
     if (!existsSync(path)) return undefined;
@@ -121,45 +176,84 @@ export class HostConfigManager {
   private readonly globalPath: string;
   private readonly projectPathResolver: (cwd: string) => string;
   private readonly piAgentDir: string;
+  private readonly piGlobalPath: string;
+  private readonly piProjectPathResolver: (cwd: string) => string;
 
   constructor(paths: HostConfigPaths = {}) {
     this.globalPath = paths.globalFilePath ?? defaultGlobalConfigPath();
     this.projectPathResolver = paths.projectFilePath ?? defaultProjectConfigPath;
     this.piAgentDir = paths.piAgentDir ?? getAgentDir();
+    this.piGlobalPath = paths.piGlobalFilePath ?? join(this.piAgentDir, "settings.json");
+    this.piProjectPathResolver = paths.piProjectFilePath ?? defaultPiProjectSettingsPath;
   }
 
   async read(cwd?: string): Promise<TauConfig> {
-    const globalPi = await readJson<PiRawSettings>(join(this.piAgentDir, "settings.json"));
-    const projectPi = cwd ? await readJson<PiRawSettings>(join(cwd, ".pi", "settings.json")) : undefined;
+    const globalPi = await readJson<PiRawSettings>(this.piGlobalPath);
+    const projectPi = cwd ? await readJson<PiRawSettings>(this.piProjectPathResolver(cwd)) : undefined;
     const piBase = this.merge(piSettingsToTauConfig(globalPi), piSettingsToTauConfig(projectPi));
 
     const globalConfig = (await readJson<TauConfig>(this.globalPath)) ?? {};
     const base = this.merge(piBase, globalConfig);
-    if (!cwd) return base;
+    if (!cwd) return this.piWins(base, piBase);
     const projectPath = this.projectPathResolver(cwd);
     const projectConfig = (await readJson<TauConfig>(projectPath)) ?? {};
-    return this.merge(base, projectConfig);
+    return this.piWins(this.merge(base, projectConfig), piBase);
   }
 
   readSync(cwd?: string): TauConfig {
-    const globalPi = readJsonSync<PiRawSettings>(join(this.piAgentDir, "settings.json"));
-    const projectPi = cwd ? readJsonSync<PiRawSettings>(join(cwd, ".pi", "settings.json")) : undefined;
+    const globalPi = readJsonSync<PiRawSettings>(this.piGlobalPath);
+    const projectPi = cwd ? readJsonSync<PiRawSettings>(this.piProjectPathResolver(cwd)) : undefined;
     const piBase = this.merge(piSettingsToTauConfig(globalPi), piSettingsToTauConfig(projectPi));
 
     const globalConfig = readJsonSync<TauConfig>(this.globalPath) ?? {};
     const base = this.merge(piBase, globalConfig);
-    if (!cwd) return base;
+    if (!cwd) return this.piWins(base, piBase);
     const projectPath = this.projectPathResolver(cwd);
     const projectConfig = readJsonSync<TauConfig>(projectPath) ?? {};
-    return this.merge(base, projectConfig);
+    return this.piWins(this.merge(base, projectConfig), piBase);
+  }
+
+  /**
+   * Pi's own file decides for the keys Pi owns. `~/.tau/config.json` may still
+   * hold one from a hand edit made before Tau stopped accepting them; letting it
+   * win would show a value neither Pi nor Tau applies.
+   */
+  private piWins(config: TauConfig, piBase: TauConfig): TauConfig {
+    const result = { ...config };
+    for (const key of PI_OWNED_CONFIG_KEYS) {
+      if (piBase[key] !== undefined) (result as Record<string, unknown>)[key] = piBase[key];
+      else delete (result as Record<string, unknown>)[key];
+    }
+    return result;
   }
 
   async update(patch: Partial<TauConfig>, scope: "global" | "project" = "global", cwd?: string): Promise<TauConfig> {
-    const targetPath = scope === "project" && cwd ? this.projectPathResolver(cwd) : this.globalPath;
-    const existing = (await readJson<TauConfig>(targetPath)) ?? {};
-    const updated = this.merge(existing, this.sanitizePatch(patch));
-    await writeJson(targetPath, updated);
+    const tauPatch: Partial<TauConfig> = {};
+    const piPatch: Partial<TauConfig> = {};
+    for (const [key, value] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
+      if (value === undefined) continue;
+      if (PI_OWNED.has(key)) (piPatch as Record<string, unknown>)[key] = value;
+      else (tauPatch as Record<string, unknown>)[key] = value;
+    }
+
+    if (Object.keys(tauPatch).length > 0) {
+      const targetPath = scope === "project" && cwd ? this.projectPathResolver(cwd) : this.globalPath;
+      const existing = (await readJson<TauConfig>(targetPath)) ?? {};
+      await writeJson(targetPath, this.merge(existing, this.sanitizePatch(tauPatch)));
+    }
+    if (Object.keys(piPatch).length > 0) await this.writePiSettings(piPatch, scope, cwd);
     return this.read(cwd);
+  }
+
+  /**
+   * Writes the keys Pi owns into Pi's own settings file, merging into whatever
+   * is already there so unrelated Pi settings and unknown keys survive. A
+   * project write lands in `<cwd>/.pi/settings.json`, exactly where Pi looks.
+   */
+  private async writePiSettings(piPatch: Partial<TauConfig>, scope: "global" | "project", cwd?: string): Promise<void> {
+    const targetPath = scope === "project" && cwd ? this.piProjectPathResolver(cwd) : this.piGlobalPath;
+    const existing = (await readJson<Record<string, unknown>>(targetPath)) ?? {};
+    await writeJson(targetPath, { ...existing, ...tauConfigToPiSettings(piPatch) });
   }
 
   /**
@@ -173,9 +267,7 @@ export class HostConfigManager {
     const KNOWN_KEYS = new Set<keyof TauConfig>([
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
-      "density", "temperature", "maxTokens", "models", "compaction", "retry",
-      "steeringMode", "followUpMode", "defaultTools", "shellPath",
-      "shellCommandPrefix", "npmCommand", "quietStartup", "defaultProjectTrust",
+      "temperature", "maxTokens",
       "vimMode",
     ]);
     const result: Partial<TauConfig> = {};
@@ -183,8 +275,9 @@ export class HostConfigManager {
       if (!KNOWN_KEYS.has(key)) continue; // drop unknown keys
       // Basic per-field type guard to prevent wrong-typed values reaching the persisted file.
       // Strict type enforcement happens at the IPC boundary; here we silently skip.
+      // Pi-owned keys never arrive here — `update` routes them to Pi's own file.
       switch (key) {
-        case "theme": case "transcriptDetail": case "fontFamily": case "density":
+        case "theme": case "transcriptDetail": case "fontFamily":
         case "steeringMode": case "followUpMode": case "shellPath": case "shellCommandPrefix":
         case "defaultProjectTrust":
           if (typeof val === "string") result[key] = val as never;
@@ -195,7 +288,7 @@ export class HostConfigManager {
         case "fontSize": case "temperature": case "maxTokens":
           if (typeof val === "number" && Number.isFinite(val)) result[key] = val as never;
           break;
-        case "favouriteModels": case "disabledExtensions": case "defaultTools": case "npmCommand":
+        case "favouriteModels": case "disabledExtensions":
           if (Array.isArray(val) && (val as unknown[]).every((m) => typeof m === "string")) result[key] = val as never;
           break;
         case "options":
@@ -203,15 +296,6 @@ export class HostConfigManager {
           break;
         case "values": case "keybindings":
           if (val && typeof val === "object" && !Array.isArray(val)) result[key] = val as never;
-          break;
-        case "models":
-          if (val && typeof val === "object" && !Array.isArray(val)) result.models = val as TauConfig["models"];
-          break;
-        case "compaction":
-          if (val && typeof val === "object" && !Array.isArray(val)) result.compaction = val as TauConfig["compaction"];
-          break;
-        case "retry":
-          if (val && typeof val === "object" && !Array.isArray(val)) result.retry = val as TauConfig["retry"];
           break;
       }
     }
@@ -242,7 +326,6 @@ export class HostConfigManager {
       result.models = {
         ...(base.models ?? {}),
         ...(override.models ?? {}),
-        presets: { ...(base.models?.presets ?? {}), ...(override.models?.presets ?? {}) },
       };
     }
     if (override.compaction || base.compaction) {

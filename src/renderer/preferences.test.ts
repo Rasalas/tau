@@ -141,14 +141,13 @@ describe("host configuration sync", () => {
     expect(store.getSnapshot().theme).toBe("nordic");
   });
 
-  it("syncs keybindings, typography, density, and agent params from host config", async () => {
+  it("syncs keybindings, typography, and agent params from host config", async () => {
     const store = new PreferencesStore();
     const fakeClient = {
       getConfig: async () => ({
         keybindings: { "workbench.focus-composer": "ctrl+1" },
         fontFamily: "JetBrains Mono",
         fontSize: 15,
-        density: "compact" as const,
         temperature: 0.5,
         maxTokens: 2048,
       }),
@@ -161,23 +160,19 @@ describe("host configuration sync", () => {
     expect(snapshot.keybindings).toEqual({ "workbench.focus-composer": "ctrl+1" });
     expect(snapshot.fontFamily).toBe("JetBrains Mono");
     expect(snapshot.fontSize).toBe(15);
-    expect(snapshot.density).toBe("compact");
     expect(snapshot.temperature).toBe(0.5);
     expect(snapshot.maxTokens).toBe(2048);
   });
 
-  it("updates and persists density, fontSize, and fontFamily", () => {
-    preferences.setDensity("relaxed");
+  it("updates and persists fontSize and fontFamily", () => {
     preferences.setFontSize(14);
     preferences.setFontFamily("Fira Code");
 
     const snapshot = preferences.getSnapshot();
-    expect(snapshot.density).toBe("relaxed");
     expect(snapshot.fontSize).toBe(14);
     expect(snapshot.fontFamily).toBe("Fira Code");
 
     const reloaded = new PreferencesStore().getSnapshot();
-    expect(reloaded.density).toBe("relaxed");
     expect(reloaded.fontSize).toBe(14);
     expect(reloaded.fontFamily).toBe("Fira Code");
   });

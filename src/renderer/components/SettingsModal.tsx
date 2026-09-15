@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Command, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
+import { ChevronDown, Command, Cpu, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extension-permissions";
@@ -14,6 +14,7 @@ import { SystemPromptModal } from "./SystemPromptModal";
 import { PackageProvenance } from "./PackageProvenance";
 import { PanelIcon } from "./PanelIcon";
 import { ProviderIconStack } from "./ProviderIconStack";
+import { PiSettingsPage } from "./PiSettingsPage";
 
 function DefaultsPage({
   snapshot,
@@ -27,7 +28,7 @@ function DefaultsPage({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, density, fontSize, fontFamily, vimMode, temperature, maxTokens } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, temperature, maxTokens } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
@@ -136,20 +137,6 @@ function DefaultsPage({
       <p className="settings-note">
         System follows this machine's light or dark setting. Custom themes can be added as <code>.css</code> or <code>.json</code> files in <code>~/.tau/themes/</code>.
       </p>
-
-      <div className="settings-label">DENSITY</div>
-      <div className="segmented">
-        {(["compact", "default", "relaxed"] as const).map((d) => (
-          <button
-            key={d}
-            className={(density ?? "default") === d ? "active" : ""}
-            onClick={() => preferences.setDensity(d === "default" ? undefined : d)}
-          >
-            {d}
-          </button>
-        ))}
-      </div>
-      <p className="settings-note">Scale padding and spacing across the workbench.</p>
 
       <div className="settings-label">FONT SIZE</div>
       <div className="segmented">
@@ -841,6 +828,9 @@ export function SettingsModal({
             <button className={page === "defaults" ? "active" : ""} onClick={() => onSetPage("defaults")}>
               <Sliders size={14} /><span>Defaults</span>
             </button>
+            <button className={page === "pi" ? "active" : ""} onClick={() => onSetPage("pi")}>
+              <Cpu size={14} /><span>Pi</span>
+            </button>
             <button className={page === "keybindings" ? "active" : ""} onClick={() => onSetPage("keybindings")}>
               <Command size={14} /><span>Keybindings</span>
             </button>
@@ -894,6 +884,8 @@ export function SettingsModal({
             />
           ) : page === "keybindings" ? (
             <KeybindingsPage registry={registry} />
+          ) : page === "pi" ? (
+            <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
           ) : contributed ? (
             <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
           ) : page === "inspector" ? (

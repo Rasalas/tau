@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -71,7 +71,6 @@ describe("HostConfigManager", () => {
       keybindings: { "workbench.focus-composer": "mod+1" },
       fontFamily: "Monaco",
       fontSize: 13,
-      density: "compact",
       temperature: 0.7,
       maxTokens: 4096,
     }, "global");
@@ -88,36 +87,76 @@ describe("HostConfigManager", () => {
     });
     expect(merged.fontFamily).toBe("Monaco");
     expect(merged.fontSize).toBe(13);
-    expect(merged.density).toBe("compact");
     expect(merged.temperature).toBe(0.2);
     expect(merged.maxTokens).toBe(4096);
   });
 
-  it("merges models and model presets properly", async () => {
+  it("writes the settings Pi owns into Pi's own settings file", async () => {
     await manager.update({
-      models: {
-        default: "anthropic/claude-3-7-sonnet",
-        thinkingLevel: "medium",
-        presets: {
-          fast: { model: "google/gemini-2.5-flash", temperature: 0.1 },
-        },
-      },
+      models: { default: "anthropic/claude-3-7-sonnet", thinkingLevel: "medium" },
+      steeringMode: "all",
+      compaction: { reserveTokens: 8192 },
     }, "global");
 
-    await manager.update({
-      models: {
-        thinkingLevel: "high",
-        presets: {
-          deep: { model: "anthropic/claude-3-7-sonnet", thinking: "high" },
-        },
-      },
-    }, "project", projectDir);
+    const piRaw = JSON.parse(await readFile(join(tempDir, "pi", "settings.json"), "utf8"));
+    expect(piRaw.defaultProvider).toBe("anthropic");
+    expect(piRaw.defaultModel).toBe("claude-3-7-sonnet");
+    expect(piRaw.defaultThinkingLevel).toBe("medium");
+    expect(piRaw.steeringMode).toBe("all");
+    expect(piRaw.compaction).toEqual({ reserveTokens: 8192 });
 
-    const merged = await manager.read(projectDir);
-    expect(merged.models?.default).toBe("anthropic/claude-3-7-sonnet");
-    expect(merged.models?.thinkingLevel).toBe("high");
-    expect(merged.models?.presets?.fast).toEqual({ model: "google/gemini-2.5-flash", temperature: 0.1 });
-    expect(merged.models?.presets?.deep).toEqual({ model: "anthropic/claude-3-7-sonnet", thinking: "high" });
+    // Nothing of it lands in Tau's own file: with no Tau-owned key in the patch
+    // that file is not created at all.
+    await expect(readFile(globalPath, "utf8")).rejects.toThrow();
+
+    // It reads back through the same merge as a hand-written Pi setting.
+    const config = await manager.read();
+    expect(config.models?.default).toBe("anthropic/claude-3-7-sonnet");
+    expect(config.models?.thinkingLevel).toBe("medium");
+    expect(config.steeringMode).toBe("all");
+    expect(config.compaction?.reserveTokens).toBe(8192);
+  });
+
+  it("keeps the Pi settings a user wrote by hand when it writes one key", async () => {
+    const piDir = join(tempDir, "pi");
+    await mkdir(piDir, { recursive: true });
+    await writeFile(join(piDir, "settings.json"), JSON.stringify({
+      theme: "nord",
+      defaultProvider: "anthropic",
+      defaultModel: "claude-sonnet-4",
+      packages: ["pi-skills"],
+      someUnknownPiKey: 42,
+    }), "utf8");
+
+    await manager.update({ quietStartup: true }, "global");
+
+    const raw = JSON.parse(await readFile(join(piDir, "settings.json"), "utf8"));
+    expect(raw.quietStartup).toBe(true);
+    expect(raw.packages).toEqual(["pi-skills"]);
+    expect(raw.someUnknownPiKey).toBe(42);
+    expect(raw.defaultProvider).toBe("anthropic");
+    expect(raw.defaultModel).toBe("claude-sonnet-4");
+  });
+
+  it("writes a project-scoped Pi setting into the project's own .pi folder", async () => {
+    await manager.update({ defaultProjectTrust: "never" }, "project", projectDir);
+
+    const raw = JSON.parse(await readFile(join(projectDir, ".pi", "settings.json"), "utf8"));
+    expect(raw.defaultProjectTrust).toBe("never");
+    // A patch with no Tau-owned key must not create Tau's project config.
+    await expect(readFile(join(projectDir, ".tau", "config.json"), "utf8")).rejects.toThrow();
+  });
+
+  it("lets Pi's own file win over a hand-written value in Tau's config", async () => {
+    // A config written before Tau stopped accepting Pi-owned keys.
+    await writeFile(globalPath, JSON.stringify({ steeringMode: "all", theme: "dark" }), "utf8");
+    const piDir = join(tempDir, "pi");
+    await mkdir(piDir, { recursive: true });
+    await writeFile(join(piDir, "settings.json"), JSON.stringify({ steeringMode: "one-at-a-time" }), "utf8");
+
+    const config = await manager.read();
+    expect(config.steeringMode).toBe("one-at-a-time");
+    expect(config.theme).toBe("dark");
   });
 
   describe("sanitizePatch (defence-in-depth against unknown keys)", () => {
@@ -142,7 +181,6 @@ describe("HostConfigManager", () => {
   });
 
   it("inherits configuration from Pi CLI settings when tau config is absent", async () => {
-    const { mkdir, writeFile } = await import("node:fs/promises");
     const piDir = join(tempDir, "pi");
     await mkdir(piDir, { recursive: true });
     await writeFile(

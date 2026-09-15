@@ -6,7 +6,6 @@ import type {
   PreparedPrompt,
   RuntimeCapabilities,
   TauConfig,
-  TauModelPreset,
   ThreadBackendKind,
   UiPromptAttachment,
   UiSkillDraft,
@@ -257,7 +256,6 @@ export function decodeCustomProviderInput(channel: string, field: string, value:
 }
 
 const TRANSCRIPT_DETAIL_VALUES = new Set(["focused", "detailed", "everything"]);
-const DENSITY_VALUES = new Set(["compact", "default", "relaxed"]);
 
 /**
  * Decodes the patch payload for `update-config`. Accepts only known TauConfig top-level keys
@@ -277,11 +275,6 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
   if (item.prewarm !== undefined) result.prewarm = decodeBoolean(channel, `${field}.prewarm`, item.prewarm);
   if (item.fontFamily !== undefined) result.fontFamily = decodeString(channel, `${field}.fontFamily`, item.fontFamily);
   if (item.fontSize !== undefined) result.fontSize = decodeNumber(channel, `${field}.fontSize`, item.fontSize);
-  if (item.density !== undefined) {
-    const d = decodeString(channel, `${field}.density`, item.density);
-    if (!DENSITY_VALUES.has(d)) fail(channel, `${field}.density`, 'must be "compact", "default" or "relaxed"');
-    result.density = d as TauConfig["density"];
-  }
   if (item.temperature !== undefined) result.temperature = decodeNumber(channel, `${field}.temperature`, item.temperature);
   if (item.maxTokens !== undefined) result.maxTokens = decodeNumber(channel, `${field}.maxTokens`, item.maxTokens);
   if (item.favouriteModels !== undefined) {
@@ -314,11 +307,6 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
     result.models = {
       ...(m.default !== undefined ? { default: decodeString(channel, `${field}.models.default`, m.default) } : {}),
       ...(m.thinkingLevel !== undefined ? { thinkingLevel: decodeString(channel, `${field}.models.thinkingLevel`, m.thinkingLevel) } : {}),
-      // Presets are user-authored complex objects; structural typing ensures correctness from the renderer.
-      // A basic object-shape check is sufficient here — deep preset validation is not in scope.
-      ...(m.presets !== undefined && m.presets && typeof m.presets === "object" && !Array.isArray(m.presets)
-        ? { presets: m.presets as Record<string, TauModelPreset> }
-        : {}),
     };
   }
   if (item.compaction !== undefined) {

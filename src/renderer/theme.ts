@@ -76,18 +76,12 @@ export function applyTheme(
 }
 
 /**
- * Applies typography and density styling overrides to the root element.
+ * Applies typography overrides to the root element.
  */
 export function applyAppearance(
-  state: { fontFamily?: string; fontSize?: number; density?: string },
+  state: { fontFamily?: string; fontSize?: number },
   root: HTMLElement = document.documentElement,
 ): void {
-  if (state.density) {
-    root.dataset.density = state.density;
-  } else {
-    delete root.dataset.density;
-  }
-
   if (state.fontFamily) {
     root.style.setProperty("--font-family-override", state.fontFamily);
   } else {

@@ -127,7 +127,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
-Defaults, Keybindings and Inspector pages, and the contributions that reach
+Defaults, Pi, Keybindings and Inspector pages, and the contributions that reach
 core's own actions — the command palette, `escape` to abort, `mod+n`,
 `/reload`, `/tree`, `/fork`, `/clone`, "Set model…", "Set thinking level…" —
 are the workbench itself. A window that cannot pick a model is not a usable
@@ -137,6 +137,15 @@ safe mode too and carries no switch). The host entry that reads Pi's
 `keybindings.json` and its extension shortcuts is the Keybindings kit's
 `kits/keybindings/host.ts`, not core; Runtime Controls only keeps the id
 `tau.runtime-settings`, the name Pi's keybindings arrive under.
+
+The **Pi page** draws the settings Pi owns. `HostConfigManager` splits an
+`update-config` patch: the keys Tau applies itself go to `~/.tau/config.json`,
+and the keys Pi reads and applies go to Pi's own `~/.pi/agent/settings.json`
+(or the project's `.pi/settings.json`), merging into what is already there. A
+value in Tau's file that Pi owns is therefore never accepted, persisted and
+then ignored — Pi's file is the one authority for those, and `read` lets it
+win. The names differ on one point: Tau calls a model `provider/modelId` in
+`models.default`, Pi wants `defaultProvider` and `defaultModel` apart.
 
 The one thing safe mode loses with the kits is `/install` and the Packages
 page — the package manager is a kit like any other now. Recovering from a

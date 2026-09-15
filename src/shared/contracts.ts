@@ -607,17 +607,9 @@ export interface UserTheme {
   sourcePath?: string;
 }
 
-export interface TauModelPreset {
-  model: string;
-  temperature?: number;
-  thinking?: string;
-  maxTokens?: number;
-}
-
 export interface TauConfigModels {
   default?: string;
   thinkingLevel?: string;
-  presets?: Record<string, TauModelPreset>;
 }
 
 export interface TauCompactionConfig {
@@ -649,7 +641,6 @@ export interface TauConfig {
   keybindings?: Record<string, string>;
   fontFamily?: string;
   fontSize?: number;
-  density?: "compact" | "default" | "relaxed";
   temperature?: number;
   maxTokens?: number;
   models?: TauConfigModels;
