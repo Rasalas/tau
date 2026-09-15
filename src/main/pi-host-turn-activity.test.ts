@@ -14,7 +14,7 @@ import { loadBundledKitHostHalves } from "./bundled-kits.js";
 import { readBootstrapCache, writeBootstrapCache } from "../workbench/bootstrap-cache.js";
 import { applyTranscriptBundleMerge } from "../workbench/transcript-history-page-state.js";
 import { TOOL_OUTPUT_READ_PAGE_CHARACTERS } from "../shared/tool-output.js";
-import { adoptThread, setActiveThread, setSessionIndex, attachRuntimeWithBridge, activateHostExtensions, mockActivationCoordination, mockInternalMethods, getActiveThreadId, rawInternals } from "./test-support/host-harness.js";
+import { adoptThread, setActiveThread, setSessionIndex, attachRuntimeWithBridge, activateHostExtensions, mockInternalMethods, getActiveThreadId, rawInternals } from "./test-support/host-harness.js";
 
 describe("cleanThreadTitle", () => {
   it("removes Markdown and title-model framing", () => {
@@ -441,8 +441,9 @@ describe("PiHost.generateThreadTitle", () => {
     const staleStarted = new Promise<void>((resolve) => { staleEntered = resolve; });
     const staleGate = new Promise<void>((resolve) => { releaseStale = resolve; });
     
-    const coord = mockActivationCoordination(host);
     const internals = rawInternals(host);
+    const lifecycle = internals.lifecycle as { beginActivation(): number };
+    const activateThread = internals.activateThread!.bind(host);
     internals.rememberProject = async () => {
       if (internals.threads.active?.runtime === staleThread) {
         staleEntered();
@@ -450,15 +451,56 @@ describe("PiHost.generateThreadTitle", () => {
       }
     };
 
-    const staleEpoch = coord.beginActivation();
-    const staleActivation = coord.activateThread(staleThread, true, staleEpoch);
+    const staleEpoch = lifecycle.beginActivation();
+    const staleActivation = activateThread(staleThread, true, staleEpoch);
     await staleStarted;
-    const liveEpoch = coord.beginActivation();
-    await expect(coord.activateThread(liveThread, false, liveEpoch)).resolves.toBe(true);
+    const liveEpoch = lifecycle.beginActivation();
+    await expect(activateThread(liveThread, false, liveEpoch)).resolves.toBe(true);
     releaseStale();
 
     await expect(staleActivation).resolves.toBe(false);
     expect(getActiveThreadId(host)).toBe("live-thread");
+  });
+
+  it("rejects a different runtime reusing an owned thread id before activation hooks run", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const current = makeActivationThread("reused-id");
+    const candidate = makeActivationThread("reused-id");
+    await adoptThread(host, { threadId: current.threadId, cwd: current.cwd, runtime: current });
+
+    const internals = rawInternals(host);
+    const activation = (internals.lifecycle as { beginActivation(): number }).beginActivation();
+    await expect(internals.activateThread?.(candidate, true, activation)).rejects.toThrow("different runtime already owns this thread");
+    expect(getActiveThreadId(host)).toBeUndefined();
+  });
+
+  it("does not let a duplicate prepared handle invalidate another activation", async () => {
+    const host = new PiHost("/repo", () => undefined, {} as never, true, false);
+    const internals = host as unknown as Record<string, any>;
+    const runtime = makeActivationThread("prepared-thread");
+    internals.runtimes.open = async () => runtime;
+    internals.activateThread = vi.fn(async () => true);
+    internals.snapshot = async () => ({}) as never;
+    internals.lifecycleUpdates = () => [];
+
+    const prepared = await internals.prepareThread({} as never, {} as never);
+    await prepared.activate();
+
+    let release!: () => void;
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const competing = internals.lifecycle.runActivation("competing", async (activation: { isCurrent(): boolean }) => {
+      started();
+      await gate;
+      return activation.isCurrent();
+    });
+    await startedPromise;
+
+    await expect(prepared.activate()).rejects.toThrow("This prepared thread was already used.");
+    expect(internals.lifecycle.currentActivationEpoch).toBe(2);
+    release();
+    await expect(competing).resolves.toBe(true);
   });
 
   it("keeps a superseded newSession alive in the background when a newer live switch wins", async () => {

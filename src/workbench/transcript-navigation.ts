@@ -33,7 +33,7 @@ export interface TranscriptTurnStart {
   timestamp?: number;
   awaitingMessage?: boolean;
   preserveAcrossSessionChange?: boolean;
-  /** App-owned semantic transcript scope; navigation ignores stale scopes. */
+  /** Workbench-owned semantic transcript scope; navigation ignores stale scopes. */
   scopeKey?: string;
 }
 

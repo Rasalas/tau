@@ -1,8 +1,61 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, NewThreadRequestId } from "../shared/contracts.js";
-import type { PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+import type { PiBridgeDescriptor, PiBridgeServerFrame, PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
+
+const bridgeMocks = vi.hoisted(() => ({
+  findPiBridge: vi.fn(),
+  open: vi.fn(),
+  clients: [] as Array<{ descriptor: PiBridgeDescriptor; close: ReturnType<typeof vi.fn> }>,
+}));
+
+vi.mock("./pi-bridge-client.js", () => {
+  class MockPiBridgeClient {
+    readonly descriptor: PiBridgeDescriptor;
+    readonly close = vi.fn();
+    readonly isConnected = true;
+
+    constructor(bridgeDescriptor: PiBridgeDescriptor) {
+      this.descriptor = bridgeDescriptor;
+      bridgeMocks.clients.push(this);
+    }
+
+    async open(): Promise<PiBridgeSnapshot> {
+      return bridgeMocks.open(this);
+    }
+
+    command(): Promise<unknown> {
+      return Promise.resolve(undefined);
+    }
+
+    subscribe(): () => void {
+      return () => undefined;
+    }
+
+    subscribeDisconnect(): () => void {
+      return () => undefined;
+    }
+  }
+
+  class MockPiBridgeReconnectLoop {
+    start(): void {}
+    cancel(): void {}
+  }
+
+  return {
+    findPiBridge: bridgeMocks.findPiBridge,
+    PiBridgeClient: MockPiBridgeClient,
+    PiBridgeReconnectLoop: MockPiBridgeReconnectLoop,
+  };
+});
+
 import { AttachedPiSession, type AttachedSessionHost } from "./attached-pi-session.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
+
+beforeEach(() => {
+  bridgeMocks.findPiBridge.mockReset();
+  bridgeMocks.open.mockReset();
+  bridgeMocks.clients.length = 0;
+});
 
 function snapshot(overrides: Partial<PiBridgeSnapshot> = {}): PiBridgeSnapshot {
   return {
@@ -21,6 +74,20 @@ function snapshot(overrides: Partial<PiBridgeSnapshot> = {}): PiBridgeSnapshot {
   } as PiBridgeSnapshot;
 }
 
+function descriptor(epoch: string, sessionId: string, cwd: string): PiBridgeDescriptor {
+  return {
+    protocolVersion: 1,
+    epoch,
+    sessionId,
+    sessionFile: `/tmp/${sessionId}.jsonl`,
+    cwd,
+    pid: 1,
+    socketPath: "",
+    token: "",
+    startedAt: 0,
+  };
+}
+
 function fakeHost() {
   const events: HostEvent[] = [];
   const logs: string[] = [];
@@ -36,7 +103,7 @@ function fakeHost() {
     beginActivation: () => 1,
     isCurrentActivation: () => true,
     releaseLocalThread: async () => undefined,
-    clearActiveThread: () => undefined,
+    clearActiveThread: vi.fn(),
     setCwd: vi.fn(),
     onSessionEvent: (event, sessionId) => { sessionEvents.push({ event, sessionId }); },
     onSnapshot: (requestId) => { snapshots.push(requestId); },
@@ -175,6 +242,54 @@ describe("AttachedPiSession", () => {
     // Frames from a client that is no longer the attachment are ignored.
     internals.handleFrame({ protocolVersion: 1, type: "event", epoch: "epoch-1", seq: 5, sessionId: "pi-session", event: { type: "agent_end" } } as PiBridgeServerFrame, {});
     expect(sessionEvents).toHaveLength(1);
+  });
+
+  it("does not let a superseded attach overwrite a newer bridge after deferred cleanup", async () => {
+    const { host, logs } = fakeHost();
+    let currentEpoch = 1;
+    host.isCurrentActivation = (epoch) => epoch === currentEpoch;
+
+    const firstDescriptor = descriptor("epoch-a", "first-session", "/repo-a");
+    const secondDescriptor = descriptor("epoch-b", "second-session", "/repo-b");
+    bridgeMocks.findPiBridge
+      .mockResolvedValueOnce(firstDescriptor)
+      .mockResolvedValueOnce(secondDescriptor);
+    bridgeMocks.open.mockImplementation(async (client: { descriptor: PiBridgeDescriptor }) => snapshot({
+      sessionId: client.descriptor.sessionId,
+      sessionFile: client.descriptor.sessionFile,
+      cwd: client.descriptor.cwd,
+    }));
+
+    const session = new AttachedPiSession(host);
+    let releaseFirstFlush!: () => void;
+    const firstFlush = new Promise<void>((resolve) => { releaseFirstFlush = resolve; });
+    const flushEntered = new Promise<void>((resolve) => {
+      const internals = session as unknown as {
+        flushNewSessionAborts(client: { descriptor: PiBridgeDescriptor }, snapshot: PiBridgeSnapshot): Promise<void>;
+      };
+      internals.flushNewSessionAborts = async (client) => {
+        if (client.descriptor.epoch === firstDescriptor.epoch) {
+          resolve();
+          await firstFlush;
+        }
+      };
+    });
+
+    const firstAttach = session.attach("/repo-a", undefined, {}, 1);
+    await flushEntered;
+    currentEpoch = 2;
+
+    await expect(session.attach("/repo-b", undefined, {}, 2)).resolves.toBe(true);
+    expect(session.descriptor?.epoch).toBe(secondDescriptor.epoch);
+
+    releaseFirstFlush();
+    await expect(firstAttach).resolves.toBe(false);
+
+    expect(session.descriptor?.epoch).toBe(secondDescriptor.epoch);
+    expect(host.setCwd).toHaveBeenLastCalledWith(secondDescriptor.cwd);
+    expect(logs).toContain(`bridge.attached ${secondDescriptor.sessionId.slice(0, 8)}`);
+    expect(logs).not.toContain(`bridge.attached ${firstDescriptor.sessionId.slice(0, 8)}`);
+    expect(bridgeMocks.clients[0]?.close).toHaveBeenCalled();
   });
 
   it("suppresses attaching while the host takes a session over", async () => {

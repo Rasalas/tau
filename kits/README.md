@@ -58,7 +58,9 @@ against a real `pi` TUI; `docs/agents/testing-the-app.md` explains it.
    missing permission fails loudly in tests instead of silently working.
    `isolation` is `in-process` for a kit that holds a live host object (a thread,
    a session file, a runtime backend, a Pi extension), `worker` otherwise.
-   `engines.api` is `^<EXTENSION_API_VERSION major.minor>`.
+   `engines.api` must accept the API version used by the kit. Raise the minimum
+   when the kit uses a newly added API seam; Review and Workspace use `^1.6.0`,
+   while kits that only use older additive seams may retain `^1.5.0`.
 3. **Move whole.** Host half, desktop half, protocol file and tests in one
    commit, with the old files deleted in the same commit. Never duplicate.
 4. **Register.** Add the desktop half's default export to
@@ -97,11 +99,11 @@ instead, so the two agree.
 
 ## Versioning
 
-`version` is the distribution's, raised when the set changes. `engines.api` is
-the `EXTENSION_API_VERSION` line every kit builds against; `src/shared/kits-boundary.test.ts`
-fails when it drifts from that constant or from a kit's own `engines.api`. Core
-owns that constant and is the only side that raises it, which is why API lands
-in a core release before the kits that use it
+`version` is the distribution's, raised when the set changes. Each
+`engines.api` range states the oldest additive API line that kit needs;
+`src/shared/kits-boundary.test.ts` checks that every shipped kit accepts the
+current host version. Core owns `EXTENSION_API_VERSION` and is the only side
+that raises it, which is why API lands in a core release before the kits that use it
 ([ADR 0015](../docs/adr/0015-core-and-distribution.md)).
 
 There is no npm workspace here, deliberately. `@tau/kits` is `private` and

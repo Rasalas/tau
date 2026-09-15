@@ -1,125 +1,39 @@
-import { useCallback, useRef, useState, type SetStateAction } from "react";
-import { createNewThreadRequestId, type NewThreadRequestId } from "../shared/contracts";
+import { useCallback, useRef, useState, useSyncExternalStore, type SetStateAction } from "react";
+import { NewThreadController, type NewThreadPromotionContext } from "../workbench/new-thread-controller";
 import type { ClientStorage } from "../workbench/client-storage";
-import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
-import { createDraftKey, type DraftKey } from "../workbench/composer-scope-store";
+import type { NewThreadDraft } from "../workbench/draft-store";
 
-let draftIdentityCounter = 0;
-let requestIdentityCounter = 0;
-function newDraftIdentity(): string {
-  return `${Date.now()}-${++draftIdentityCounter}`;
-}
+export type { NewThreadPromotionContext };
 
-function newRequestIdentity(): NewThreadRequestId {
-  return createNewThreadRequestId(`new-thread-${Date.now()}-${++requestIdentityCounter}`);
-}
-
-export interface NewThreadPromotionContext {
-  pending: NewThreadDraft;
-  scope: DraftKey | undefined;
-  requestId: NewThreadRequestId;
-}
-
+/**
+ * Thin adapter over the platform-neutral NewThreadController. Reads go
+ * through useSyncExternalStore so a change written in a layout effect is
+ * still reflected by the rendered snapshot.
+ */
 export function useNewThreadController(storage: ClientStorage) {
-  const [pendingNewThread, setPendingState] = useState<NewThreadDraft | undefined>(() => readNewThreadDraft(storage));
-  const pendingRef = useRef(pendingNewThread);
-  // The ref moves with the setter, not with rendering: a submission that
-  // awaits the host reads what is pending now, not what was last rendered.
+  const [controller] = useState(() => new NewThreadController(storage));
+  const pendingNewThread = useSyncExternalStore(controller.subscribe, controller.current);
+
+  // Stable across renders (created once); its getter reads the live id in
+  // the controller, so begin/invalidate changes are visible immediately.
+  const requestRef = useRef({ get current() { return controller.requestId(); } });
+  const requestId = requestRef.current;
+
   const setPendingNewThread = useCallback((value: SetStateAction<NewThreadDraft | undefined>) => {
-    pendingRef.current = typeof value === "function" ? value(pendingRef.current) : value;
-    setPendingState(pendingRef.current);
-  }, []);
-  const current = useCallback(() => pendingRef.current, []);
-  const requestRef = useRef<NewThreadRequestId>(newRequestIdentity());
-  const awaitingPromotionRef = useRef<{ scope: DraftKey; requestId: NewThreadRequestId } | undefined>(undefined);
-
-  const begin = useCallback((draft: NewThreadDraft) => {
-    requestRef.current = newRequestIdentity();
-    const scopedDraft = { ...draft, draftId: draft.draftId ?? newDraftIdentity() };
-    writeNewThreadDraft(storage, scopedDraft);
-    setPendingNewThread(scopedDraft);
-  }, [setPendingNewThread, storage]);
-
-  const invalidate = useCallback(() => {
-    requestRef.current = newRequestIdentity();
-    awaitingPromotionRef.current = undefined;
-  }, []);
-
-  const isCurrent = useCallback((pending: NewThreadDraft, scope: DraftKey | undefined, requestId: NewThreadRequestId): boolean => {
-    const pendingDraft = pendingRef.current;
-    return requestRef.current === requestId
-      && pendingDraft !== undefined
-      && draftKey(undefined, pendingDraft) === scope
-      && pendingDraft.projectPath === pending.projectPath
-      && pendingDraft.sessionId === pending.sessionId;
-  }, []);
-
-  const markAwaitingPromotion = useCallback((context: NewThreadPromotionContext) => {
-    if (!isCurrent(context.pending, context.scope, context.requestId)) return false;
-    awaitingPromotionRef.current = { scope: createDraftKey(context.scope), requestId: context.requestId };
-    return true;
-  }, [isCurrent]);
-
-  /**
-   * The request id is the authoritative correlation for a host-reported
-   * thread. Prompt text is not compared: skill and template expansion can
-   * change what the runtime persists.
-   */
-  const promoteFromHostReport = useCallback((sessionId: string, projectPath: string, requestId?: NewThreadRequestId): boolean => {
-    const pendingDraft = pendingRef.current;
-    const awaiting = awaitingPromotionRef.current;
-    if (!pendingDraft || !awaiting || pendingDraft.projectPath !== projectPath || pendingDraft.sessionId) return false;
-    if (awaiting.requestId !== requestRef.current
-      || awaiting.scope !== createDraftKey(draftKey(undefined, pendingDraft))
-      || requestId !== awaiting.requestId) return false;
-    awaitingPromotionRef.current = undefined;
-    writeNewThreadDraft(storage);
-    setPendingNewThread(undefined);
-    return Boolean(sessionId);
-  }, [setPendingNewThread, storage]);
-
-  /**
-   * A persisted user-message is stronger evidence than a blank lifecycle
-   * detail. It can arrive before the newSession IPC response, so promote the
-   * draft from that correlated event without waiting for catalog discovery.
-   */
-  const promoteFromUserMessage = useCallback((sessionId: string, projectPath: string): DraftKey | undefined => {
-    const pendingDraft = pendingRef.current;
-    if (!sessionId || !pendingDraft || pendingDraft.sessionId || pendingDraft.projectPath !== projectPath) return undefined;
-    const scope = draftKey(undefined, pendingDraft);
-    if (!scope) return undefined;
-    awaitingPromotionRef.current = undefined;
-    writeNewThreadDraft(storage);
-    setPendingNewThread(undefined);
-    return scope;
-  }, [setPendingNewThread, storage]);
+    controller.set(value);
+  }, [controller]);
 
   return {
     pendingNewThread,
     setPendingNewThread,
-    current,
-    requestId: requestRef,
-    begin,
-    invalidate,
-    isCurrent,
-    markAwaitingPromotion,
-    promoteFromHostReport,
-    promoteFromUserMessage,
-    setModel: useCallback(async (
-      provider: string,
-      id: string,
-      fallbackSetModel?: (p: string, id: string) => Promise<unknown>,
-      resolveName?: (p: string, id: string) => string | undefined,
-    ) => {
-      const pending = pendingRef.current;
-      if (!pending || pending.sessionId) {
-        if (fallbackSetModel) await fallbackSetModel(provider, id);
-        return;
-      }
-      const name = resolveName?.(provider, id) ?? id;
-      const next = { ...pending, model: { provider, id, name } };
-      writeNewThreadDraft(storage, next);
-      setPendingNewThread(next);
-    }, [setPendingNewThread, storage]),
+    current: controller.current,
+    requestId,
+    begin: controller.begin,
+    invalidate: controller.invalidate,
+    isCurrent: controller.isCurrent,
+    markAwaitingPromotion: controller.markAwaitingPromotion,
+    promoteFromHostReport: controller.promoteFromHostReport,
+    promoteFromUserMessage: controller.promoteFromUserMessage,
+    setModel: controller.setModel,
   };
 }

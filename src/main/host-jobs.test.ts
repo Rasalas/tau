@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HostJobRunner } from "./host-jobs.js";
 import type { HostJobEvent } from "../shared/host-transport.js";
+import type { HostInvocationPrincipal } from "./host-invocation.js";
 
 function runner() {
   const events: HostJobEvent[] = [];
@@ -60,5 +61,17 @@ describe("host jobs", () => {
     await settle();
     report?.("late");
     expect(events.filter((event) => event.type === "job-progress")).toEqual([]);
+  });
+
+  it("preserves the caller principal for a long job", async () => {
+    const { jobs } = runner();
+    const principal: HostInvocationPrincipal = { kind: "host-extension", contextId: "job-context" };
+    let seen: HostInvocationPrincipal | undefined;
+    jobs.start(async (context) => {
+      seen = context.principal;
+      return undefined;
+    }, principal);
+    await settle();
+    expect(seen).toBe(principal);
   });
 });

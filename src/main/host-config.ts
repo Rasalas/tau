@@ -176,6 +176,7 @@ export class HostConfigManager {
       "density", "temperature", "maxTokens", "models", "compaction", "retry",
       "steeringMode", "followUpMode", "defaultTools", "shellPath",
       "shellCommandPrefix", "npmCommand", "quietStartup", "defaultProjectTrust",
+      "vimMode",
     ]);
     const result: Partial<TauConfig> = {};
     for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
@@ -188,7 +189,7 @@ export class HostConfigManager {
         case "defaultProjectTrust":
           if (typeof val === "string") result[key] = val as never;
           break;
-        case "showCosts": case "prewarm": case "quietStartup":
+        case "showCosts": case "prewarm": case "quietStartup": case "vimMode":
           if (typeof val === "boolean") result[key] = val as never;
           break;
         case "fontSize": case "temperature": case "maxTokens":

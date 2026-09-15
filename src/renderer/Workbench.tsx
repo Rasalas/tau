@@ -1,10 +1,10 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
+import { lazy, memo, Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
 import { ChevronDown, Folder, X } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { StageState } from "../workbench/stage";
-import type { ComposerAttachmentHandle, SubmitResult } from "./components/Composer";
+import type { ComposerAttachmentHandle, ComposerControlHandle, SubmitResult } from "./components/Composer";
 import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { QueuedFollowUp } from "../workbench/follow-up-queue";
@@ -116,8 +116,15 @@ export const MountedPanel = memo(function MountedPanel({
 type DropController = ReturnType<typeof useThreadDropController>;
 type Settings = PreferencesState;
 
+/** Commands addressed to the mounted workbench view. */
+export interface WorkbenchControlHandle {
+  openInstructions(): void;
+  focusStage(): void;
+}
+
 /** Window chrome, slots and the modals that belong to the shell. */
 export interface WorkbenchLayout {
+  controlRef?: RefObject<WorkbenchControlHandle | null>;
   registry: ExtensionRegistry;
   threadStore: ThreadStore;
   settings: Settings;
@@ -205,6 +212,7 @@ export interface WorkbenchThread {
 
 /** Everything the composer needs, including what it sends and what it waits on. */
 export interface WorkbenchComposer {
+  controlRef?: RefObject<ComposerControlHandle | null>;
   scopeStore: ComposerScopeStore;
   seed?: string;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -266,11 +274,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const compact = layoutProfile === "compact";
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
-  useEffect(() => {
-    const handleOpen = () => setSystemPromptOpen(true);
-    window.addEventListener("tau:open-instructions", handleOpen);
-    return () => window.removeEventListener("tau:open-instructions", handleOpen);
-  }, []);
+  const stageRef = useRef<HTMLElement>(null);
+  useImperativeHandle(layout.controlRef, () => ({
+    openInstructions: () => setSystemPromptOpen(true),
+    focusStage: () => stageRef.current?.focus(),
+  }), []);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   useEffect(() => { if (!compact) setThreadSheetOpen(false); }, [compact]);
@@ -536,6 +544,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         {stage.tabs.length > 0 ? <LazyFeatureBoundary label="stage">
           <Suspense fallback={<section className="stage"><LazyFeatureFallback label="stage" /></section>}>
             <LazyStage
+              focusRef={stageRef}
               stage={stage}
               cwd={snapshot?.cwd}
               changes={documentState.changes}
@@ -673,7 +682,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     ? { kind: effectiveNewThreadRuntime(newThreadRuntime, snapshot), backends: runtimeBackends, onSelect: (kind: string) => preferences.setNewThreadRuntime(kind) }
     : undefined;
   const {
-    scopeStore, seed, textareaRef, attachmentRef, queue, holds, prompts, submit, abort,
+    scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
     cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
   } = composer;
   const contextBreakdown = useMemo(
@@ -691,6 +700,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     threadUsage={showCosts && !showStartScreen ? snapshot?.usage : undefined}
     textareaRef={textareaRef}
     attachmentRef={attachmentRef}
+    controlRef={controlRef}
     onSubmit={(text, attachments, delivery, skillDraft) => submit(text ?? "", attachments, delivery, skillDraft)}
     onAbort={() => abort(snapshot?.sessionId)}
     onCancelQueued={cancelQueued}

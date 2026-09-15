@@ -76,3 +76,13 @@ The `process` grant gates `noteSubprocess` and `findCommand`, not `child_process
 - An isolated package pays a round trip per service call and cannot hold a live host object, which is why a kit that needs one declares `in-process` — and asks the user for it.
 - A worker package that did not ask for `network` meets a guardrail that blocks `fetch` and `require("http")`, but not `await import("node:http")` or a nested worker. A package that asked for `in-process` bypasses all of it, which is one more reason to read that line in the approval box.
 - The CSP no longer allows arbitrary blob scripts, so an injection that can build a string can no longer turn it into a module.
+
+## 2026-09-14: command authority and desktop trust
+
+The desktop half runs inside the trusted workbench realm. Its declared package
+permissions do not isolate its host-bridge calls from other desktop code.
+Receiver-side grants govern the host handler's facade; caller command authority
+is a separate decision in [ADR 0020](0020-host-command-authority.md). A request's
+extension ID or callerId is never proof of an independent desktop identity.
+Expected service-permission denials use HostCommandError and do not consume the
+handler-crash budget in either the in-process or worker path.

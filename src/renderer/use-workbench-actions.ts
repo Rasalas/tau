@@ -10,6 +10,7 @@ import type { ThreadCommands } from "../workbench/thread-commands";
 import type { NewThreadDraft } from "../workbench/draft-store";
 import type { WorkbenchActions } from "./extension-system";
 import { errorMessage } from "../workbench/error-message";
+import type { PreferencesStore } from "./preferences";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -25,6 +26,7 @@ export interface UseWorkbenchActionsOptions {
   activeDraftKey: DraftKey | undefined;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   transcriptRef: RefObject<HTMLDivElement | null>;
+  focusStage: () => void;
   openPanel: (id: string) => void;
   openPalette: () => void;
   setSettingsPage: (page?: string) => void;
@@ -49,7 +51,10 @@ export interface UseWorkbenchActionsOptions {
   openThread: WorkbenchActions["openThread"];
   setComposerHolds: Dispatch<SetStateAction<number>>;
   setComposerModel: (provider: string, id: string) => Promise<void> | void;
-  openInstructions?: () => void;
+  /** Delivers the model-picker request to the mounted composer. */
+  openModelPicker: () => void;
+  preferences?: PreferencesStore;
+  openInstructions: () => void;
   executeCommand?: (id: string) => Promise<void> | void;
 }
 
@@ -60,7 +65,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   const {
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    closeActiveStageTab, cycleStageTab,
+    closeActiveStageTab, cycleStageTab, openModelPicker, focusStage, openInstructions,
   } = options;
 
   return useMemo<WorkbenchActions>(() => ({
@@ -93,14 +98,10 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       if (seed !== undefined) options.setComposerSeed(seed);
       options.composerRef.current?.focus();
     },
-    focusTranscript: () => {
-      (document.querySelector<HTMLElement>(".virtual-transcript")
-        ?? options.transcriptRef.current
-        ?? (document.querySelector(".transcript-viewport") as HTMLElement | null))?.focus();
-    },
-    focusStage: () => {
-      (document.querySelector(".stage-body, .stage, .stage-container") as HTMLElement | null)?.focus();
-    },
+    // The transcript ref is attached to the active, focusable transcript.
+    // Keep this action independent of its internal CSS and virtualizer rows.
+    focusTranscript: () => { options.transcriptRef.current?.focus(); },
+    focusStage,
     toggleDock: () => { options.setDockOpen((open) => !open); },
     notify: options.setNotice,
     openProjectSources: options.openProjectSources,
@@ -112,7 +113,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     openOverlay: options.openOverlay,
     closeOverlay: options.closeOverlay,
     compactContext: options.threadCommands.compactContext,
-    openModelPicker: () => { window.dispatchEvent(new CustomEvent("tau:open-model-picker")); },
+    openModelPicker,
     setModel: async (providerOrQuery: string, id?: string) => {
       if (id) {
         await setComposerModelRef.current(providerOrQuery, id);
@@ -173,14 +174,29 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         options.setNotice(msg);
       }
     },
-    openInstructions: options.openInstructions ?? (() => { window.dispatchEvent(new CustomEvent("tau:open-instructions")); }),
+    openInstructions,
     executeCommand: options.executeCommand,
     copyChat: () => options.threadCommands.copyThreadValue("chat"),
     renameThread: options.threadCommands.renameThread,
     cycleModel: async (direction: 1 | -1 = 1) => {
       const snap = options.viewStore.getSnapshot();
-      const models = snap?.models ?? [];
-      if (models.length === 0) return false;
+      const allModels = snap?.models ?? [];
+      if (allModels.length === 0) return false;
+
+      const favKeys = options.preferences?.getSnapshot().favouriteModels ?? [];
+      const scopedModels = favKeys.length > 0
+        ? favKeys
+            .map((key) => {
+              const slash = key.indexOf("/");
+              if (slash === -1) return undefined;
+              const provider = key.slice(0, slash);
+              const id = key.slice(slash + 1);
+              return allModels.find((m) => m.provider === provider && m.id === id);
+            })
+            .filter((m): m is NonNullable<typeof m> => Boolean(m))
+        : allModels;
+
+      const models = scopedModels.length > 0 ? scopedModels : allModels;
       const current = snap?.model;
       const currentIndex = current ? models.findIndex((m) => m.provider === current.provider && m.id === current.id) : -1;
       const nextIndex = (currentIndex + direction + models.length) % models.length;
@@ -205,6 +221,6 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   }), [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    closeActiveStageTab, cycleStageTab,
+    closeActiveStageTab, cycleStageTab, openModelPicker, focusStage, openInstructions,
   ]);
 }

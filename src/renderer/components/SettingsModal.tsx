@@ -27,7 +27,7 @@ function DefaultsPage({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, density, fontSize, fontFamily } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, density, fontSize, fontFamily, vimMode, temperature, maxTokens } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
@@ -203,6 +203,63 @@ function DefaultsPage({
           <i />
         </button>
       </div>
+
+      <div className="settings-label">COMPOSER EDITING MODE</div>
+      <div className="segmented">
+        <button
+          className={!vimMode ? "active" : ""}
+          onClick={() => preferences.setVimMode(false)}
+        >
+          Standard (Readline)
+        </button>
+        <button
+          className={vimMode ? "active" : ""}
+          onClick={() => preferences.setVimMode(true)}
+        >
+          Vim (Modal)
+        </button>
+      </div>
+      <p className="settings-note">
+        Standard provides Readline / Emacs shortcuts. Vim mode enables modal editing in the composer with Normal and Insert modes.
+      </p>
+
+      <div className="settings-label">MODEL PARAMETERS</div>
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          <label style={{ fontSize: "11px", color: "var(--ink-muted)", fontWeight: 500 }}>Temperature</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            max="2"
+            className="settings-search-input"
+            style={{ width: "120px" }}
+            placeholder="Default"
+            value={temperature !== undefined ? String(temperature) : ""}
+            onChange={(e) => {
+              const val = e.target.value.trim();
+              preferences.setTemperature(val ? parseFloat(val) : undefined);
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          <label style={{ fontSize: "11px", color: "var(--ink-muted)", fontWeight: 500 }}>Max Tokens</label>
+          <input
+            type="number"
+            step="256"
+            min="1"
+            className="settings-search-input"
+            style={{ width: "120px" }}
+            placeholder="Default"
+            value={maxTokens !== undefined ? String(maxTokens) : ""}
+            onChange={(e) => {
+              const val = e.target.value.trim();
+              preferences.setMaxTokens(val ? parseInt(val, 10) : undefined);
+            }}
+          />
+        </div>
+      </div>
+      <p className="settings-note">Optional sampling parameters for model generations.</p>
 
     </div>
   );

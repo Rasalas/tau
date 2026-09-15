@@ -54,7 +54,7 @@ describe("runtime controls slash commands", () => {
     expect(registry.getSlashCommands().map((command) => command.name)).toEqual([
       "reload", "source", "tree", "fork", "clone", "compact", "model", "thinking", "new",
       "clear", "system", "instructions", "copy", "export", "session", "help",
-      "name", "hotkeys",
+      "name", "hotkeys", "scoped-models",
     ]);
     const reloadWorkbench = vi.fn(async () => false);
     const openWorkbenchSource = vi.fn(async () => true);
@@ -128,6 +128,9 @@ describe("runtime controls slash commands", () => {
 
     await registry.findSlashCommand("/hotkeys")!.command.run("", actions);
     expect(openSettings).toHaveBeenCalledWith("keybindings");
+
+    await registry.findSlashCommand("/scoped-models")!.command.run("", actions);
+    expect(openSettings).toHaveBeenCalledWith("defaults");
   });
 });
 
@@ -144,7 +147,7 @@ describe("runtime controls keybindings", () => {
       "runtime.instructions": "mod+i",
       "runtime.model": "mod+shift+m",
       "runtime.new-session": "mod+n",
-      "runtime.rename-thread": "ctrl+r",
+      "runtime.rename-thread": "mod+shift+r",
       "runtime.transcript-detail": "mod+shift+t",
       "workbench.close-stage-tab": "mod+w",
       "workbench.focus-composer": "mod+1",

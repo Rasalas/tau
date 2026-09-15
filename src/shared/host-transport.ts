@@ -216,6 +216,8 @@ export function decodeHostServerFrame(value: unknown): HostServerFrame | undefin
 }
 
 /** Turns any thrown value into the error a response carries. */
-export function hostErrorInfo(error: unknown, code: string = HOST_ERROR.failed): HostErrorInfo {
-  return { message: error instanceof Error ? error.message : String(error), code };
+export function hostErrorInfo(error: unknown, code?: string): HostErrorInfo {
+  const embedded = (error as { code?: unknown } | null)?.code;
+  const resolvedCode = code ?? (typeof embedded === "string" ? embedded : HOST_ERROR.failed);
+  return { message: error instanceof Error ? error.message : String(error), code: resolvedCode };
 }

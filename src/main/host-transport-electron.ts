@@ -1,4 +1,4 @@
-import type { IpcMain } from "electron";
+import type { IpcMain, WebContents } from "electron";
 import {
   HOST_ERROR,
   decodeHostHello,
@@ -9,6 +9,7 @@ import {
 } from "../shared/host-transport.js";
 import { helloReply, type HostPushLog } from "./host-push-log.js";
 import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
+import type { HostLogger } from "./host-log.js";
 
 /** The renderer invokes exactly this channel; every method travels inside the frame. */
 export const HOST_REQUEST_CHANNEL = "tau:request";
@@ -21,6 +22,9 @@ export interface ElectronHostTransportOptions {
   pushLog: HostPushLog;
   hostVersion: string;
   capabilities: string[];
+  /** The current workbench window. Recreated windows invalidate old senders. */
+  workbenchContents(): WebContents | undefined;
+  logger?: HostLogger;
   /** Delivers one push to the window, if there still is one. */
   send(channel: string, payload: unknown): void;
 }
@@ -37,8 +41,17 @@ export interface ElectronHostTransport {
 export function installElectronHostTransport(options: ElectronHostTransportOptions): ElectronHostTransport {
   const { ipcMain, methods, pushLog } = options;
 
-  ipcMain.handle(HOST_REQUEST_CHANNEL, async (_event, frame: unknown): Promise<HostResponse> => {
+  ipcMain.handle(HOST_REQUEST_CHANNEL, async (event, frame: unknown): Promise<HostResponse> => {
     const request = decodeHostRequest(frame);
+    const workbench = options.workbenchContents();
+    if (!workbench || workbench.isDestroyed() || event.sender !== workbench
+      || event.senderFrame !== workbench.mainFrame) {
+      options.logger?.warn("host-transport-electron.unauthorized", {
+        senderId: event.sender.id, method: request?.method,
+        reason: "not-current-workbench-main-frame",
+      });
+      return { id: request?.id ?? "", error: { message: "Only the workbench main frame may call the host.", code: HOST_ERROR.unauthorized } };
+    }
     if (!request) return { id: "", error: { message: "Malformed request.", code: HOST_ERROR.invalidRequest } };
     try {
       if (request.method === "hello") {

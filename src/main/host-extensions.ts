@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type {
@@ -17,7 +18,8 @@ import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adap
 import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
-import { isExpectedCommandError } from "./host-extension-errors.js";
+import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
+import { HOST_CORE_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 
@@ -434,6 +436,20 @@ export interface HostExtensionServices {
 
 export type HostExtensionCommandHandler = (input: unknown) => unknown;
 
+export interface HostExtensionCommandOptions {
+  /** Commands that may be called by these host extension IDs. */
+  callers?: readonly string[];
+  /** Commands that may run for minutes and therefore use the host job path. */
+  long?: boolean;
+}
+
+export interface HostExtensionInvocationContext {
+  /** Opaque host-issued identity for this activation, useful for diagnostics. */
+  readonly id: string;
+  /** Calls are bound to the extension activation that received this context. */
+  invoke(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+}
+
 // A kit reaches these through `tau/host-extension`; they live in a leaf module
 // so importing one does not pull the registry into a kit's bundle.
 // The package manager's vocabulary. A kit that manages packages needs the row
@@ -443,12 +459,16 @@ export type { PackageScope } from "./extension-sources.js";
 
 export interface HostExtensionContext {
   readonly id: string;
+  /** Opaque identity minted by the host for this activation. */
+  readonly invocationContextId: string;
   readonly services: HostExtensionServices;
+  /** Calls another host entry through a host-bound caller context. */
+  readonly invokeHostExtension: HostExtensionInvocationContext["invoke"];
   /**
    * `long: true` marks a command that may run for minutes (a repository copy,
    * a build): it skips the command timeout and clients run it as a host job.
    */
-  registerCommand(name: string, handler: HostExtensionCommandHandler, options?: { long?: boolean }): () => void;
+  registerCommand(name: string, handler: HostExtensionCommandHandler, options?: HostExtensionCommandOptions): () => void;
   /** Publishes an `extension-event` for this extension's desktop counterpart. */
   emit(name: string, payload?: unknown): void;
   /**
@@ -483,7 +503,10 @@ export function guardedServices(
         if (required && !allowed.has(required)) {
           const message = `Extension ${extensionId} lacks permission ${required}`;
           services.log("host-extension.denied", message);
-          throw new Error(message);
+          // A denied service is an authorization answer, not a broken command.
+          // Keep it out of the registry's handler-crash counter; the denial is
+          // already recorded above and the caller still receives the reason.
+          throw new HostCommandError(message);
         }
       }
       const value = Reflect.get(target, prop, receiver);
@@ -510,8 +533,10 @@ const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 
 interface ActiveHostExtension {
   extension: HostExtension;
+  invocationContextId: string;
   commands: Map<string, HostExtensionCommandHandler>;
   longCommands: Set<string>;
+  commandCallers: Map<string, ReadonlySet<string>>;
   disposers: Array<() => void | Promise<void>>;
   /** Set once the extension reported a failure it cannot recover from. */
   fatal?: string;
@@ -524,6 +549,8 @@ export interface HostExtensionRegistryOptions {
 export class HostExtensionRegistry {
   private readonly active = new Map<string, ActiveHostExtension>();
   private readonly known = new Map<string, HostExtension>();
+  /** Host-issued contexts are valid only while their activation is alive. */
+  private readonly invocationContexts = new Map<string, { extensionId: string; record?: ActiveHostExtension }>();
   private readonly failures = new Map<string, string>();
   private readonly consecutiveFailures = new Map<string, number>();
 
@@ -547,16 +574,42 @@ export class HostExtensionRegistry {
     this.known.set(extension.id, extension);
     this.failures.delete(extension.id);
     this.clearCommandFailures(extension.id);
-    const record: ActiveHostExtension = { extension, commands: new Map(), longCommands: new Set(), disposers: [] };
+    const invocationContextId = randomUUID();
+    const record: ActiveHostExtension = {
+      extension,
+      invocationContextId,
+      commands: new Map(),
+      longCommands: new Set(),
+      commandCallers: new Map(),
+      disposers: [],
+    };
+    this.invocationContexts.set(invocationContextId, { extensionId: extension.id, record });
     const context: HostExtensionContext = {
       id: extension.id,
+      invocationContextId,
       services: extensionServices(this.services, extension),
+      invokeHostExtension: (extensionId, command, input) => this.invoke(
+        extensionId,
+        command,
+        input,
+        { kind: "host-extension", contextId: invocationContextId },
+      ),
       registerCommand: (name, handler, options) => {
         if (!COMMAND_NAME.test(name)) throw new Error(`Host extension ${extension.id}: invalid command name "${name}"`);
         if (record.commands.has(name)) throw new Error(`Host extension ${extension.id}: command "${name}" registered twice`);
+        const callers = options?.callers?.map((caller) => {
+          if (!EXTENSION_ID.test(caller)) throw new Error(`Host extension ${extension.id}: invalid caller id "${caller}"`);
+          return caller;
+        }) ?? [];
         record.commands.set(name, handler);
         if (options?.long) record.longCommands.add(name);
-        const dispose = () => { if (record.commands.get(name) === handler) record.commands.delete(name); };
+        record.commandCallers.set(name, new Set(callers));
+        const dispose = () => {
+          if (record.commands.get(name) !== handler) return;
+          record.commands.delete(name);
+          record.commandCallers.delete(name);
+          record.longCommands.delete(name);
+        };
         record.disposers.push(dispose);
         return dispose;
       },
@@ -576,6 +629,7 @@ export class HostExtensionRegistry {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.failures.set(extension.id, message);
+      this.invocationContexts.delete(invocationContextId);
       await this.disposeAll(record.disposers).catch(() => undefined);
       this.services.log("host-extension.failed", `${extension.name}: ${message}`);
       return false;
@@ -630,6 +684,7 @@ export class HostExtensionRegistry {
     const record = this.active.get(id);
     if (!record) return;
     this.active.delete(id);
+    this.invocationContexts.delete(record.invocationContextId);
     await this.disposeAll(record.disposers);
   }
 
@@ -655,7 +710,12 @@ export class HostExtensionRegistry {
     ]);
   }
 
-  async invoke(extensionId: string, command: string, input?: unknown): Promise<unknown> {
+  async invoke(
+    extensionId: string,
+    command: string,
+    input?: unknown,
+    principal: HostInvocationPrincipal = HOST_CORE_PRINCIPAL,
+  ): Promise<unknown> {
     const record = this.active.get(extensionId);
     if (!record) {
       const known = this.known.get(extensionId);
@@ -665,6 +725,7 @@ export class HostExtensionRegistry {
     }
     const handler = record.commands.get(command);
     if (!handler) throw new Error(`Host extension ${record.extension.name} has no command "${command}".`);
+    this.authorize(record, extensionId, command, principal);
 
     const timeoutMs = this.options.commandTimeoutMs ?? 30_000;
     // The counter is keyed by command so that a healthy command cannot mask an
@@ -698,6 +759,27 @@ export class HostExtensionRegistry {
       }
       throw error;
     }
+  }
+
+  /** Checks a host-issued caller before target lookup or handler execution. */
+  private authorize(record: ActiveHostExtension, extensionId: string, command: string, principal: HostInvocationPrincipal): void {
+    if (principal.kind === "host-core" || principal.kind === "workbench-client") return;
+    const context = principal.kind === "host-extension" ? this.invocationContexts.get(principal.contextId) : undefined;
+    const caller = context?.extensionId;
+    const allowed = caller === extensionId || Boolean(caller && record.commandCallers.get(command)?.has(caller));
+    if (allowed) return;
+    const reason = context
+      ? "the host-issued context has no grant for this target command"
+      : "the host-issued context is unknown or expired";
+    const details = {
+      caller: caller ?? "unknown",
+      target: extensionId,
+      command,
+      capability: `${extensionId}/${command}`,
+      reason,
+    } as const;
+    this.services.log("host-extension.denied", JSON.stringify(details));
+    throw new HostAuthorizationError(details);
   }
 
   /** Long commands of every active extension, as `<extensionId>/<command>`. */

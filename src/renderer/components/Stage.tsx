@@ -1,4 +1,4 @@
-import { useMemo, type KeyboardEvent } from "react";
+import { useMemo, type KeyboardEvent, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activeTab, type StageState, type StageView } from "../../workbench/stage";
@@ -15,11 +15,12 @@ function isEditable(target: EventTarget | null): boolean {
 }
 
 export function Stage({
-  stage, cwd, changes, editor, chatTab,
+  stage, cwd, changes, editor, chatTab, focusRef,
   loadFile, loadDiff, loadThread,
   onActivate, onClose, onPin, onChangeView, onOpenInEditor, onTakeOverThread,
 }: {
   stage: StageState;
+  focusRef?: RefObject<HTMLElement | null>;
   cwd?: string;
   changes: UiWorkspaceChanges;
   editor?: UiEditor;
@@ -53,7 +54,7 @@ export function Stage({
     onClose(current.id);
   };
 
-  return <section className="stage" aria-label="Stage" onKeyDown={onKeyDown}>
+  return <section ref={focusRef} tabIndex={-1} className="stage" aria-label="Stage" onKeyDown={onKeyDown}>
     <StageTabs
       tabs={stage.tabs}
       activeId={stage.activeId}

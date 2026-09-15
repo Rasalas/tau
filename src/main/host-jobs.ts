@@ -1,13 +1,20 @@
 import { HOST_ERROR, hostErrorInfo, type HostJobEvent } from "../shared/host-transport.js";
+import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 
 /** What a method may report while it runs; a plain request gets a no-op context. */
 export interface HostMethodContext {
   progress(message: string, fraction?: number): void;
   /** Aborted when the client cancels the job. */
   readonly signal: AbortSignal;
+  /** Provenance assigned by the authenticated transport, never request data. */
+  readonly principal: HostInvocationPrincipal;
 }
 
-export const NO_JOB_CONTEXT: HostMethodContext = { progress: () => undefined, signal: new AbortController().signal };
+export const NO_JOB_CONTEXT: HostMethodContext = {
+  progress: () => undefined,
+  signal: new AbortController().signal,
+  principal: WORKBENCH_CLIENT_PRINCIPAL,
+};
 
 interface RunningJob {
   controller: AbortController;
@@ -29,7 +36,7 @@ export class HostJobRunner {
     return [...this.jobs.values()].filter((job) => !job.done).length;
   }
 
-  start(run: (context: HostMethodContext) => Promise<unknown>): string {
+  start(run: (context: HostMethodContext) => Promise<unknown>, principal: HostInvocationPrincipal = WORKBENCH_CLIENT_PRINCIPAL): string {
     this.counter += 1;
     const jobId = `job-${this.counter}`;
     const job: RunningJob = { controller: new AbortController(), done: false };
@@ -39,6 +46,7 @@ export class HostJobRunner {
         if (!job.done) this.publish({ type: "job-progress", jobId, message, ...(fraction === undefined ? {} : { fraction }) });
       },
       signal: job.controller.signal,
+      principal,
     };
     void (async () => {
       try {

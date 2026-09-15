@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HostThread } from "tau/host-extension";
+import type { HostExtensionContext, HostThread } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { buildCommitPrompt, cleanCommitMessage, createReviewHostExtension } from "./host.js";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
@@ -41,6 +41,23 @@ describe("Review Kit host extension", () => {
     }
 
     expect(registry.isActive(REVIEW_HOST_EXTENSION_ID)).toBe(true);
+  });
+
+  it("routes Review's workspace reads through its host-owned caller context", async () => {
+    const workspace = {
+      id: "tau.workspace",
+      name: "Workspace Kit",
+      permissions: [] as string[],
+      activate(context: HostExtensionContext) {
+        context.registerCommand("changes", () => ({ files: ["README.md"] }), { callers: [REVIEW_HOST_EXTENSION_ID] });
+        context.registerCommand("file-diff", (input) => ({ path: (input as { relPath: string }).relPath }), { callers: [REVIEW_HOST_EXTENSION_ID] });
+      },
+    };
+    const registry = await activateHostKit(workspace);
+    await expect(registry.activate(createReviewHostExtension())).resolves.toBe(true);
+
+    await expect(registry.invoke(REVIEW_HOST_EXTENSION_ID, "changes")).resolves.toEqual({ files: ["README.md"] });
+    await expect(registry.invoke(REVIEW_HOST_EXTENSION_ID, "file-diff", { relPath: "README.md" })).resolves.toEqual({ path: "README.md" });
   });
 
   it("builds a bounded diff prompt and cleans fenced answers", () => {

@@ -139,6 +139,14 @@ export class AttachedPiSession implements AttachedRuntimeBackend {
     this.client = client;
     this.snapshot = snapshot;
     await this.flushNewSessionAborts(client, snapshot);
+    if (!host.isCurrentActivation(activationEpoch) || this.client !== client) {
+      // A newer activation may have replaced this bridge while its deferred
+      // aborts were flushing. Only detach this client when it is still ours;
+      // otherwise the newer attachment owns the session and must survive.
+      if (this.client === client) this.detach(false);
+      else client.close();
+      return false;
+    }
     this.acceptPendingSnapshot(snapshot, client.descriptor.epoch);
     host.setCwd(snapshot.cwd);
     const unsubscribeEvents = client.subscribe((frame) => this.handleFrame(frame, client));

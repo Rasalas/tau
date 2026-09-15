@@ -1,10 +1,9 @@
-import { useCallback, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { UiProject } from "../shared/contracts";
-import type { HostActionResult } from "../shared/host-protocol";
 import { namesWorkspace } from "../shared/workspace-identity";
 import { optimisticThreadSnapshot } from "../workbench/app-state";
 import type { ClientStorage } from "../workbench/client-storage";
-import { createDraftKey, type ComposerScopeStore, type DraftKey } from "../workbench/composer-scope-store";
+import type { ComposerScopeStore, DraftKey } from "../workbench/composer-scope-store";
 import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
@@ -12,7 +11,7 @@ import { activateTab, closeTab, cycleTab, EMPTY_STAGE, pinTab, setFileView, type
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { TranscriptHistoryController, TransitionToken } from "../workbench/transcript-history";
-import type { WorkbenchStore } from "../workbench/workbench-store";
+import type { WorkbenchSession } from "../workbench/workbench-session";
 
 export interface ThreadNavigationPorts {
   client?: HostClient;
@@ -21,7 +20,9 @@ export interface ThreadNavigationPorts {
   threads: ThreadStore;
   history: TranscriptHistoryController;
   scopes: ComposerScopeStore;
-  workbench: WorkbenchStore;
+  workbench: Pick<WorkbenchSession, "applyActionResult" | "applySnapshot" | "applyHostResult">;
+  stage: StageState;
+  setStage: Dispatch<SetStateAction<StageState>>;
   requireHost(what: string): boolean;
   /** A delivery in flight keeps going in its own thread when the user leaves the draft. */
   detachPendingDelivery(): boolean;
@@ -47,29 +48,12 @@ export interface ThreadNavigationPorts {
  * changes on each render re-runs every effect an extension hung on it.
  */
 export function useThreadNavigation(ports: ThreadNavigationPorts) {
-  const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
   const {
     activeDraftKey, client, closeNewThreadPicker, composerRef, detachPendingDelivery,
-    history, newThread, requireHost, scopes, storage, threads, view, workbench,
+    history, newThread, requireHost, scopes, storage, threads, view, workbench, stage, setStage,
   } = ports;
-  const { applyActionResult, applySnapshot } = workbench;
+  const { applyActionResult, applySnapshot, applyHostResult } = workbench;
   const notify = view.setNotice;
-
-  /**
-   * Applies a host action result. A project change clears the stage. The caller
-   * decides whether unsent composer text follows the result's thread.
-   */
-  const applyHostResult = useCallback((result: HostActionResult, inheritDraft = true) => {
-    const cwd = result.updates.find((update) => update.type === "project")?.project.cwd;
-    const previousCwd = view.getSnapshot()?.cwd;
-    const pendingDraft = inheritDraft ? composerRef.current?.value ?? "" : "";
-    applyActionResult(result);
-    if (cwd && cwd !== previousCwd) setStage(EMPTY_STAGE);
-    const detail = result.updates.find((update) => update.type === "thread-detail");
-    if (pendingDraft && detail?.type === "thread-detail") {
-      scopes.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
-    }
-  }, [applyActionResult, composerRef, scopes, view]);
 
   const discardPendingNewThread = useCallback((expected?: NewThreadDraft): boolean => {
     const current = newThread.current();

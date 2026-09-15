@@ -7,6 +7,8 @@ import { ComposerScopeStore, createDraftKey } from "../workbench/composer-scope-
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import { createMemoryStorage } from "../workbench/client-storage";
 import { draftKey, type NewThreadDraft } from "../workbench/draft-store";
+import { HostSessionState } from "../workbench/host-session-state";
+import { NewThreadDeliveryCoordinator, type NewThreadDeliveryPort } from "../workbench/new-thread-delivery";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { PreferencesStore } from "./preferences";
 import { createFakeHostClient } from "./test-support/fake-host-client";
@@ -34,6 +36,7 @@ function harness(options: {
   client?: Partial<HostClient>;
   snapshot?: HostSnapshot;
   pending?: NewThreadDraft;
+  hostSessionApplied?: boolean;
   slash?: ReturnType<ExtensionRegistry["findSlashCommand"]>;
   prepareNewThread?: ExtensionRegistry["prepareNewThread"];
 } = {}) {
@@ -42,7 +45,9 @@ function harness(options: {
   const threads = new ThreadStore();
   threads.setActiveThread((options.snapshot ?? SESSION_SNAPSHOT).sessionId);
   const scopes = new ComposerScopeStore();
-  const promptHooks = vi.fn(async () => undefined);
+  const hostSession = new HostSessionState();
+  if (options.hostSessionApplied ?? true) hostSession.markApplied();
+  const promptHooks = vi.fn(async (_event?: unknown) => undefined);
   const prepareNewThread = options.prepareNewThread ?? vi.fn(async () => undefined);
   const registry = {
     findSlashCommand: () => options.slash,
@@ -65,46 +70,87 @@ function harness(options: {
     notify: vi.fn(),
     runShellAction: vi.fn(async () => ({ output: "output", exitCode: 0, cancelled: false, truncated: false })),
   } as unknown as WorkbenchActions;
+  const storage = createMemoryStorage();
+  const newThread = {
+    current: () => state.pending,
+    set: (draft: NewThreadDraft | undefined) => { state.pending = draft; },
+    update: (change: (current: NewThreadDraft | undefined) => NewThreadDraft | undefined) => { state.pending = change(state.pending); },
+    requestId: () => state.requestId,
+    isCurrent: (pending: NewThreadDraft) => state.pending?.draftId === pending.draftId,
+    markAwaitingPromotion: () => true,
+    promoteFromUserMessage: (_sessionId: string, projectPath: string) => {
+      const pending = state.pending;
+      if (!pending || pending.projectPath !== projectPath) return undefined;
+      const scope = draftKey(undefined, pending);
+      state.pending = undefined;
+      return scope;
+    },
+  };
+  const turn = {
+    current: () => state.turn,
+    set: (next: TranscriptTurnStart | undefined, expectedTurnId?: string) => {
+      if (expectedTurnId !== undefined && state.turn?.turnId !== expectedTurnId) return false;
+      state.turn = next;
+      return true;
+    },
+  };
+  const delivery = new NewThreadDeliveryCoordinator({
+    projection: { view, threads, scopes, storage, newThread, turn },
+    notification: {
+      notifyPromptSubmitted: (event) => {
+        void promptHooks(event);
+        return true;
+      },
+    },
+  });
+  const deliveryPort: NewThreadDeliveryPort = {
+    register: (clientMessageId, recovery) => delivery.register(clientMessageId, recovery),
+    hasRecovery: delivery.hasRecovery,
+    recoveryScope: delivery.recoveryScope,
+    markWithoutUserTurn: delivery.markWithoutUserTurn,
+    markIpcSettled: delivery.markIpcSettled,
+    promoteReportedThread: (sessionId, message, requestId) => {
+      const plan = delivery.promoteReportedThread(sessionId, message, requestId);
+      if (plan.detail) host.applyHostUpdate(plan.detail);
+      delivery.finishPromotion(plan);
+      return plan.promoted;
+    },
+    promoteRecovery: (clientMessageId, sessionId, message) => {
+      const plan = delivery.promoteRecovery(clientMessageId, sessionId, message);
+      if (plan.detail) host.applyHostUpdate(plan.detail);
+      delivery.finishPromotion(plan);
+      return plan.promoted;
+    },
+    settleDelivery: (clientMessageId, sessionId, settlement) => {
+      const plan = delivery.settleDeliveryPlan(clientMessageId, sessionId, settlement);
+      if (plan.promotion?.detail) host.applyHostUpdate(plan.promotion.detail);
+      if (plan.promotion?.promoted) delivery.finishPromotion(plan.promotion);
+      return plan.handled;
+    },
+    detachPendingDelivery: delivery.detachPendingDelivery,
+    release: delivery.release,
+    rehomeDetached: delivery.rehomeDetached,
+    notifyPromptSubmitted: delivery.notifyPromptSubmitted,
+  };
   const ports: SubmissionControllerPorts = {
     client: () => client,
     view,
     threads,
     scopes,
     registry,
-    storage: createMemoryStorage(),
+    storage,
     preferences: new PreferencesStore(),
+    hostSession,
     notify: (message) => view.setNotice(message),
     actions: () => actions,
-    newThread: {
-      current: () => state.pending,
-      set: (draft) => { state.pending = draft; },
-      update: (change) => { state.pending = change(state.pending); },
-      requestId: () => state.requestId,
-      isCurrent: (pending) => state.pending?.draftId === pending.draftId,
-      markAwaitingPromotion: () => true,
-      promoteFromUserMessage: (_sessionId, projectPath) => {
-        const pending = state.pending;
-        if (!pending || pending.projectPath !== projectPath) return undefined;
-        const scope = draftKey(undefined, pending);
-        state.pending = undefined;
-        return scope;
-      },
-    },
-    turn: {
-      current: () => state.turn,
-      set: (next, expectedTurnId) => {
-        if (expectedTurnId !== undefined && state.turn?.turnId !== expectedTurnId) return false;
-        state.turn = next;
-        return true;
-      },
-    },
+    delivery: deliveryPort,
+    newThread,
+    turn,
     host,
     enqueueFollowUp: (threadId, item) => { followUps.push({ threadId, text: item.text }); },
-    onRecoveriesChanged: vi.fn(),
   };
   const submission = new SubmissionController(ports);
-  submission.notifyHostSnapshot();
-  return { submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks, actions };
+  return { submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks, actions, hostSession };
 }
 
 const sentPrompts = (client: ReturnType<typeof createFakeHostClient>) =>
@@ -138,6 +184,37 @@ describe("SubmissionController", () => {
 
     expect(client.calls.some((call) => call.method === "steer")).toBe(true);
     expect(sentPrompts(client)).toHaveLength(0);
+  });
+
+  it("reads host confirmation at each preflight and steer call site", async () => {
+    const { submission, client, threads, hostSession } = harness({ hostSessionApplied: false });
+    threads.setThreadRunning("session", true);
+
+    await submission.submit({ text: "cold steer", delivery: "steer" });
+
+    expect(client.calls.find((call) => call.method === "preparePrompt")?.args[1]).toBeUndefined();
+    expect(client.calls.find((call) => call.method === "steer")?.args[2]).toBeUndefined();
+
+    hostSession.markApplied();
+    await submission.submit({ text: "warm steer", delivery: "steer" });
+
+    expect(client.calls.filter((call) => call.method === "preparePrompt")[1]?.args[1]).toBe("session");
+    expect(client.calls.filter((call) => call.method === "steer")[1]?.args[2]).toBe("session");
+  });
+
+  it("re-reads host confirmation after an awaited preflight", async () => {
+    let hostSession: HostSessionState | undefined;
+    const preparePrompt = vi.fn(async () => {
+      hostSession?.markApplied();
+      return undefined;
+    });
+    const harnessed = harness({ hostSessionApplied: false, client: { preparePrompt } });
+    hostSession = harnessed.hostSession;
+
+    await harnessed.submission.submit({ text: "confirm during preflight" });
+
+    expect(preparePrompt).toHaveBeenCalledWith("confirm during preflight", undefined, undefined, undefined);
+    expect(sentPrompts(harnessed.client)[0]?.args[2]).toBe("session");
   });
 
   it("queues a message typed while the thread is running", async () => {
@@ -324,14 +401,14 @@ describe("SubmissionController", () => {
   it("names no thread until the host has published one for this run", async () => {
     // The bootstrap cache paints the previous run's thread; a cold host has
     // never opened it, so its id must not reach the first prompt.
-    const { ports, client } = harness();
+    const { ports, client, hostSession } = harness({ hostSessionApplied: false });
     const cold = new SubmissionController(ports);
 
     await cold.submit({ text: "before the host answers" });
     expect(sentPrompts(client)[0].args[2]).toBeUndefined();
     expect(client.calls.find((call) => call.method === "preparePrompt")?.args[1]).toBeUndefined();
 
-    cold.notifyHostSnapshot();
+    hostSession.markApplied();
     await cold.submit({ text: "after the host answers" });
     expect(sentPrompts(client)[1].args[2]).toBe("session");
   });

@@ -349,7 +349,8 @@ export class ComposerScopeStore {
         state.attachments = state.attachments.filter((attachment) => !pending.attachmentIds.has(attachment.id));
       }
       if (sameTextRevision) state.draft = "";
-      if (state.error?.kind !== "attachment" && (state.error === undefined || state.error.submissionId === id)) {
+      const clearsSubmissionError = state.error?.kind === "submission" && state.error.submissionId <= id;
+      if (state.error === undefined || clearsSubmissionError) {
         state.error = undefined;
       }
     } else {

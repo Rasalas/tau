@@ -143,6 +143,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     sessionsDir: services.sessionsDir,
     stateDir: services.stateDir,
     safeMode: services.safeMode,
+    invocationContextId: context.invocationContextId,
     // An isolated extension is always a package, so an absent list is an empty one.
     permissions: options.permissions ?? [],
   };
@@ -355,10 +356,14 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       }
       case "command": {
         try {
+          const callers = Array.isArray(message.callers) ? message.callers : [];
           commandDisposers.push(context.registerCommand(
             message.name,
             (input) => callWorker({ t: "call", command: message.name, input }),
-            message.long ? { long: true } : undefined,
+            {
+              ...(message.long ? { long: true } : {}),
+              ...(callers.length > 0 ? { callers } : {}),
+            },
           ));
         } catch (error) {
           fail(`${options.name}: ${error instanceof Error ? error.message : String(error)}`);
@@ -379,6 +384,14 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
         return;
       }
       case "rpc": {
+        if (message.path === "hostExtension") {
+          respond(message.id, () => context.invokeHostExtension(
+            String(message.args[0]),
+            String(message.args[1]),
+            message.args[2],
+          ));
+          return;
+        }
         if (message.path === "sessions.exclusive") {
           respond(message.id, () => services.sessions.exclusive(() => new Promise((resolve, reject) => {
             const timer = setTimeout(() => {

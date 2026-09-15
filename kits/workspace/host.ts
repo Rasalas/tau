@@ -235,13 +235,13 @@ export function createWorkspaceHostExtension(): HostExtension {
         const query = (record(input).query ?? {}) as WorkspaceChangesQuery;
         if (query.scope === "branch") return branchChanges(cwd(), query);
         return git.getChanges(cwd());
-      });
+      }, { callers: ["tau.review"] });
       context.registerCommand("file-diff", async (input) => {
         const project = cwd();
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
-      });
+      }, { callers: ["tau.review"] });
       context.registerCommand("stage-file", (input) => stageThen(relativePath(input), workspaceGit.stageFile));
       context.registerCommand("unstage-file", (input) => stageThen(relativePath(input), workspaceGit.unstageFile));
       context.registerCommand("revert-file", (input) => stageThen(relativePath(input), workspaceGit.revertFile));

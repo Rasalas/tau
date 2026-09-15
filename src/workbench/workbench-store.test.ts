@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL_VERSION } from "../shared/host-protocol";
-import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
+import { createNewThreadRequestId, type HostSnapshot, type ThreadIndexSnapshot, type UiMessage } from "../shared/contracts";
 import { createMemoryStorage } from "./client-storage";
-import { ComposerScopeStore } from "./composer-scope-store";
+import { createDraftKey } from "./composer-scope-store";
+import { HostSessionState } from "./host-session-state";
+import { transcriptNavigationScopeKey, type NewThreadSubmissionRecovery } from "./app-state";
+import { draftKey, type NewThreadDraft } from "./draft-store";
 import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
 import { TranscriptHistoryController } from "./transcript-history";
+import { WorkbenchSession } from "./workbench-session";
 import { WorkbenchStore } from "./workbench-store";
 
 const snapshot: HostSnapshot = {
@@ -23,34 +27,84 @@ const threadIndex: ThreadIndexSnapshot = {
   sessions: [{ id: "one", path: "one.jsonl", title: "One", modifiedAt: 1, projectPath: "/w/one", projectName: "one", messageCount: 1 }],
 };
 
-function build() {
-  const view = new ThreadViewStore();
+function build(cached?: { snapshot?: HostSnapshot; threadIndex?: ThreadIndexSnapshot }) {
+  const view = new ThreadViewStore(cached?.snapshot);
   const threads = new ThreadStore();
-  const history = new TranscriptHistoryController(undefined, undefined, view.details);
+  const history = new TranscriptHistoryController(cached?.snapshot, cached?.threadIndex, view.details);
   const storage = createMemoryStorage();
+  const hostSession = new HostSessionState();
   const notices: string[] = [];
+  const newThread = {
+    current: () => undefined,
+    set: () => undefined,
+    requestId: () => undefined,
+    promoteFromHostReport: () => false,
+    promoteFromUserMessage: () => undefined,
+  };
   const store = new WorkbenchStore({
     view,
     threads,
     history,
-    scopes: new ComposerScopeStore(),
     storage,
-    submission: { notifyHostSnapshot: () => undefined, promoteReportedThread: () => false },
-    newThread: { current: () => undefined, requestId: () => undefined, promoteFromHostReport: () => false },
+    hostSession,
+    newThread,
     turn: { current: () => undefined, set: () => true },
     notify: (message) => notices.push(message),
-  });
-  return { history, notices, store, storage, threads, view };
+  }, cached);
+  return { history, hostSession, notices, store, storage, threads, view };
 }
 
 describe("WorkbenchStore", () => {
   it("applies a snapshot to the thread on screen and the thread store", () => {
-    const { store, threads, view } = build();
+    const { hostSession, store, threads, view } = build();
+    let markedBeforeSnapshotNotify: string | undefined;
+    view.subscribeToSnapshot(() => {
+      markedBeforeSnapshotNotify = hostSession.sessionIdFor("one");
+    });
+
     expect(store.applySnapshot(snapshot)).toBe(true);
     expect(view.getSnapshot()?.sessionId).toBe("one");
     expect(view.getTranscript().messages.map((message) => message.id)).toEqual(["m1"]);
     expect(threads.getSnapshot().activeThreadId).toBe("one");
     expect(store.getCachedSnapshot()?.sessionId).toBe("one");
+    expect(hostSession.sessionIdFor("one")).toBe("one");
+    expect(markedBeforeSnapshotNotify).toBe("one");
+  });
+
+  it("does not treat constructor cache data as host confirmation", () => {
+    const { hostSession, store, view } = build({ snapshot });
+
+    expect(store.getCachedSnapshot()?.sessionId).toBe("one");
+    expect(view.getSnapshot()?.sessionId).toBe("one");
+    expect(hostSession.sessionIdFor("one")).toBeUndefined();
+  });
+
+  it("does not mark a stale bootstrap result before its request guard", () => {
+    const { history, hostSession, store } = build();
+    const stale = history.beginBootstrap();
+    history.beginBootstrap();
+
+    expect(store.applySnapshot(snapshot, stale)).toBe(false);
+    expect(hostSession.sessionIdFor("one")).toBeUndefined();
+  });
+
+  it("marks the host path before an ignored thread detail is rejected", () => {
+    const { history, hostSession, store, view } = build();
+    history.syncSnapshot(snapshot);
+    const cachedDetail = history.getDetail("one");
+    history.beginThreadSwitch("other");
+
+    store.applyHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-detail",
+      detail: { sessionId: "one", messages: [], isStreaming: false, activeTools: [] },
+    });
+
+    expect(hostSession.sessionIdFor("one")).toBe("one");
+    expect(history.getDetail("one")).toBe(cachedDetail);
+    expect(view.getSnapshot()).toBeUndefined();
+    expect(view.getTranscript().messages).toEqual([]);
+    expect(store.getCachedSnapshot()?.sessionId).toBeUndefined();
   });
 
   it("writes the bootstrap cache only once index and snapshot are both known", () => {
@@ -126,5 +180,61 @@ describe("WorkbenchStore", () => {
     const stale = history.beginThreadSwitch("one");
     history.beginThreadSwitch("two");
     expect(store.applyActionResult({ updates: [] }, stale)).toBe(false);
+  });
+
+  it("returns a correlated observation after reducing detail; Session promotes it once", () => {
+    const session = new WorkbenchSession({
+      storage: createMemoryStorage(),
+      notification: {
+        notifyPromptSubmitted: () => {
+          expect(session.view.details.get("created")?.messages).toHaveLength(1);
+          return true;
+        },
+      },
+    });
+    session.threads.setActiveThread("old");
+    const requestId = createNewThreadRequestId("new-thread");
+    const pending: NewThreadDraft = { kind: "draft", draftId: "draft-1", projectPath: "/w/one", projectName: "one" };
+    session.newThread.begin(pending);
+    const clientMessage: UiMessage = {
+      id: "entry-1",
+      clientMessageId: "client-1",
+      clientTurnId: "turn-1",
+      role: "user",
+      text: "hello",
+      timestamp: 1,
+    };
+    const draftScope = createDraftKey(draftKey(undefined, pending));
+    session.scopes.setDraft(draftScope, "hello");
+    const recovery: NewThreadSubmissionRecovery = {
+      pending,
+      requestId,
+      scopeRef: session.scopes.createScopeReference(draftScope),
+      draft: "hello",
+      attachments: [],
+      optimistic: { ...clientMessage, id: "local-client-1" },
+      ipcPending: true,
+    };
+    session.view.setOptimisticMessages([{ scope: draftScope, message: recovery.optimistic }]);
+    session.turn.set({
+      turnId: "turn-1",
+      scope: { kind: "draft", projectPath: pending.projectPath, draftId: pending.draftId },
+      clientMessageId: clientMessage.clientMessageId,
+      text: clientMessage.text,
+    });
+    session.delivery.register(clientMessage.clientMessageId!, recovery);
+    session.history.prepareActionDetail("created");
+
+    session.applyHostUpdate({
+      version: HOST_PROTOCOL_VERSION,
+      type: "thread-detail",
+      detail: { sessionId: "created", requestId, messages: [clientMessage], isStreaming: true, activeTools: [] },
+    });
+
+    expect(session.newThread.current()).toBeUndefined();
+    expect(recovery.scopeRef.scope).toBe(createDraftKey(draftKey("created")));
+    expect(session.view.getOptimisticMessages()[0]?.scope).toBe("session:created");
+    expect(session.turn.current()?.scopeKey).toBe(transcriptNavigationScopeKey({ cwd: pending.projectPath, sessionId: "created" }));
+    expect(session.delivery.hasRecovery(clientMessage.clientMessageId!)).toBe(false);
   });
 });

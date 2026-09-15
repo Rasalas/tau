@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { bundleHostExtension, writeHostExtensionBundle } from "./extension-packages.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
-import { HostExtensionRegistry, type HostExtensionServices, type HostThreadLifecycle, type HostThread, type HostThreadStartOptions } from "./host-extensions.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostThreadLifecycle, type HostThread, type HostThreadStartOptions } from "./host-extensions.js";
 
 /**
  * The isolated half of ADR 0009: a package's host entry, bundled by the real
@@ -26,6 +26,8 @@ export default {
       return { cwd, input, safeMode: services.safeMode };
     });
     context.registerCommand("sessions", async () => (await services.sessions.list()).length);
+    context.registerCommand("proxy-read", (input) => context.invokeHostExtension("acme.target", "read", input));
+    context.registerCommand("proxy-restricted", (input) => context.invokeHostExtension("acme.target", "restricted", input));
     context.registerCommand("electron", () => require("electron").app.getName());
     context.registerCommand("spin", () => { while (true) { /* a synchronous loop the host must survive */ } });
     context.registerCommand("die", () => { process.exit(3); });
@@ -227,6 +229,50 @@ describe("isolated host extensions", () => {
     try {
       await expect(registry.invoke("acme.worker", "sessions")).rejects.toThrow("Extension acme.worker lacks permission sessions");
       expect(recorder.logs.some((line) => line.startsWith("host-extension.denied"))).toBe(true);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("keeps repeated worker-side permission denials out of the crash counter", async () => {
+    const { registry, extension, recorder } = harness({ permissions: ["workspace:read"] });
+    await registry.activate(extension);
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        // Sequential calls are required to exercise the consecutive-failure counter.
+        // oxlint-disable-next-line eslint/no-await-in-loop
+        await expect(registry.invoke("acme.worker", "sessions")).rejects.toThrow("Extension acme.worker lacks permission sessions");
+      }
+      expect(registry.isActive("acme.worker")).toBe(true);
+      expect(recorder.logs.filter((line) => line.startsWith("host-extension.denied"))).toHaveLength(3);
+      expect(recorder.logs.some((line) => line.startsWith("host-extension.failed"))).toBe(false);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("forwards a worker's host-issued caller context to the target registry", async () => {
+    const { registry, extension } = harness();
+    const target: HostExtension = {
+      id: "acme.target",
+      name: "Target Extension",
+      activate: (context) => {
+        context.registerCommand("read", (input) => ({ input }), { callers: ["acme.worker"] });
+        context.registerCommand("restricted", () => "secret");
+      },
+    };
+    await registry.activate(target);
+    await registry.activate(extension);
+    try {
+      await expect(registry.invoke("acme.worker", "proxy-read", { callerId: "forged" })).resolves.toEqual({ input: { callerId: "forged" } });
+      await expect(registry.invoke("acme.worker", "proxy-restricted")).rejects.toMatchObject({
+        name: "HostAuthorizationError",
+        code: "unauthorized",
+        expected: true,
+        details: { caller: "acme.worker", target: "acme.target", command: "restricted", capability: "acme.target/restricted" },
+      });
+      expect(registry.isActive("acme.target")).toBe(true);
+      expect(registry.isActive("acme.worker")).toBe(true);
     } finally {
       await registry.dispose();
     }

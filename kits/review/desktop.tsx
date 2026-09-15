@@ -1,7 +1,7 @@
 import type { DesktopExtension } from "tau";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
 import { createReviewOverlay } from "./overlay.js";
-import { REVIEW_HOST_EXTENSION_ID, REVIEW_OVERLAY, WORKSPACE_CHANGES_PANEL, WORKSPACE_HOST_EXTENSION_ID, WORKSPACE_STORE_SERVICE, type WorkspaceStoreApi } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, REVIEW_OVERLAY, WORKSPACE_CHANGES_PANEL, WORKSPACE_STORE_SERVICE, type WorkspaceStoreApi } from "./protocol.js";
 import { workspaceChangesReader } from "./workspace.js";
 
 /**
@@ -14,7 +14,7 @@ export const reviewExtension: DesktopExtension = {
   id: REVIEW_HOST_EXTENSION_ID,
   name: "Review Kit",
   activate(plugin) {
-    const workspace = workspaceChangesReader(plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID));
+    const workspace = workspaceChangesReader(plugin.host);
     plugin.registerOptions([
       { id: "split-diff", kind: "toggle", label: "Open diffs in split view", defaultValue: false },
       ...COMMIT_MESSAGE_OPTIONS,

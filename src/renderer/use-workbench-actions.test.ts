@@ -31,6 +31,7 @@ function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}):
     openPalette: vi.fn(),
     setSettingsPage: vi.fn(),
     openNewThreadPicker: vi.fn(),
+    focusStage: vi.fn(),
     switchSession: vi.fn(),
     settleActiveThread: vi.fn(),
     isVisibleThreadRunning: vi.fn().mockReturnValue(true),
@@ -51,6 +52,8 @@ function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}):
     openThread: vi.fn(),
     setComposerHolds: vi.fn(),
     setComposerModel: vi.fn(),
+    openModelPicker: vi.fn(),
+    openInstructions: vi.fn(),
     ...overrides,
   };
 }
@@ -110,6 +113,52 @@ describe("useWorkbenchActions", () => {
     expect(client.abort).toHaveBeenCalledWith("thread-1");
   });
 
+  it("delivers model-picker requests through the explicit action port", () => {
+    const openModelPicker = vi.fn();
+    const dispatchEvent = vi.spyOn(window, "dispatchEvent");
+    const { result } = renderHook(() => useWorkbenchActions(createMockOptions({ openModelPicker })));
+
+    result.current.openModelPicker?.();
+
+    expect(openModelPicker).toHaveBeenCalledOnce();
+    expect(dispatchEvent).not.toHaveBeenCalled();
+    dispatchEvent.mockRestore();
+  });
+
+  it("focuses the supplied active transcript ref without consulting DOM class names", () => {
+    const transcript = document.createElement("div");
+    transcript.tabIndex = 0;
+    document.body.append(transcript);
+    const querySelector = vi.spyOn(document, "querySelector");
+    const options = createMockOptions({ transcriptRef: { current: transcript } });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+
+    result.current.focusTranscript();
+
+    expect(document.activeElement).toBe(transcript);
+    expect(querySelector).not.toHaveBeenCalled();
+    querySelector.mockRestore();
+    transcript.remove();
+  });
+
+  it("delegates stage focus and instructions through explicit callbacks", () => {
+    const focusStage = vi.fn();
+    const openInstructions = vi.fn();
+    const querySelector = vi.spyOn(document, "querySelector");
+    const dispatchEvent = vi.spyOn(window, "dispatchEvent");
+    const { result } = renderHook(() => useWorkbenchActions(createMockOptions({ focusStage, openInstructions })));
+
+    result.current.focusStage();
+    result.current.openInstructions?.();
+
+    expect(focusStage).toHaveBeenCalledOnce();
+    expect(openInstructions).toHaveBeenCalledOnce();
+    expect(querySelector).not.toHaveBeenCalled();
+    expect(dispatchEvent).not.toHaveBeenCalled();
+    querySelector.mockRestore();
+    dispatchEvent.mockRestore();
+  });
+
   it("manages composer holds count correctly", () => {
     const setComposerHolds = vi.fn();
     const options = createMockOptions({ setComposerHolds });
@@ -144,5 +193,20 @@ describe("useWorkbenchActions", () => {
     expect(openExternalEditor).toHaveBeenCalled();
     expect(setComposerSeed).toHaveBeenCalledWith("edited prompt");
     expect(setNotice).toHaveBeenCalledWith("Draft updated from external editor.");
+  });
+
+  it("cycles strictly through scoped favourite models when configured", async () => {
+    const setComposerModel = vi.fn();
+    const preferences = {
+      getSnapshot: () => ({
+        favouriteModels: ["google/gemini-2.5-flash"],
+      }),
+    } as any;
+    const options = createMockOptions({ setComposerModel, preferences });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+
+    const cycled = await result.current.cycleModel?.(1);
+    expect(cycled).toBe(true);
+    expect(setComposerModel).toHaveBeenCalledWith("google", "gemini-2.5-flash");
   });
 });

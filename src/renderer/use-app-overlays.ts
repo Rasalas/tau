@@ -11,7 +11,10 @@ export function useAppOverlays() {
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const openNewThreadPicker = useCallback(() => setNewThreadOpen(true), []);
   const closeNewThreadPicker = useCallback(() => setNewThreadOpen(false), []);
-  const openProjectSources = useCallback(() => setProjectSourcesOpen(true), []);
+  const openProjectSources = useCallback(() => {
+    setNewThreadOpen(false);
+    setProjectSourcesOpen(true);
+  }, []);
   const closeProjectSources = useCallback(() => setProjectSourcesOpen(false), []);
   const openOverlay = useCallback((id: string) => setActiveOverlayId(id), []);
   const closeOverlay = useCallback(() => setActiveOverlayId(undefined), []);

@@ -34,6 +34,7 @@ export interface PreferencesState {
   density?: "compact" | "default" | "relaxed";
   temperature?: number;
   maxTokens?: number;
+  vimMode?: boolean;
 }
 
 const DEFAULTS: PreferencesState = {
@@ -47,6 +48,7 @@ const DEFAULTS: PreferencesState = {
   extensionOptions: {},
   extensionValues: {},
   disabledExtensions: [],
+  vimMode: false,
 };
 
 function stringList(value: unknown): string[] {
@@ -101,6 +103,7 @@ function load(): PreferencesState {
       density: raw.density === "compact" || raw.density === "relaxed" || raw.density === "default" ? raw.density : undefined,
       temperature: typeof raw.temperature === "number" ? raw.temperature : undefined,
       maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
+      vimMode: typeof raw.vimMode === "boolean" ? raw.vimMode : false,
     };
   } catch {
     return DEFAULTS;
@@ -154,6 +157,7 @@ export class PreferencesStore {
     if (config.density !== undefined) patch.density = config.density;
     if (config.temperature !== undefined) patch.temperature = config.temperature;
     if (config.maxTokens !== undefined) patch.maxTokens = config.maxTokens;
+    if (config.vimMode !== undefined) patch.vimMode = config.vimMode;
     this.update(patch, false);
   }
 
@@ -204,6 +208,18 @@ export class PreferencesStore {
 
   setEditor(editorId: string): void {
     this.update({ editorId });
+  }
+
+  setVimMode(vimMode: boolean): void {
+    this.update({ vimMode });
+  }
+
+  setTemperature(temperature: number | undefined): void {
+    this.update({ temperature });
+  }
+
+  setMaxTokens(maxTokens: number | undefined): void {
+    this.update({ maxTokens });
   }
 
   optionValue(extensionId: string, optionId: string, fallback: boolean): boolean {
@@ -310,6 +326,7 @@ export class PreferencesStore {
       if (patch.density !== undefined) hostPatch.density = patch.density;
       if (patch.temperature !== undefined) hostPatch.temperature = patch.temperature;
       if (patch.maxTokens !== undefined) hostPatch.maxTokens = patch.maxTokens;
+      if (patch.vimMode !== undefined) hostPatch.vimMode = patch.vimMode;
       void this.hostClient.updateConfig(hostPatch, "global", this.activeWorkspaceId).catch(() => {});
     }
     this.listeners.forEach((listener) => listener());

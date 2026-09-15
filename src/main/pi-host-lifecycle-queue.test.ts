@@ -86,8 +86,8 @@ describe("PiHost lifecycle queue", () => {
     );
     // Give prompt() time to reach binding.settle before we bump.
     await Promise.resolve();
-    // Simulate a concurrent switch: bump the activation epoch.
-    internals.activationEpoch += 1;
+    // Simulate a concurrent switch: advance the shared lifecycle owner.
+    internals.lifecycle.beginActivation();
     releaseSettle();
     // The gate-resolved microtask must settle promptResult.
     await Promise.resolve();

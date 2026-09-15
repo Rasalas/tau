@@ -371,6 +371,8 @@ function installTransport(): void {
     : createLocalHostMethods();
   transport = installElectronHostTransport({
     ipcMain,
+    workbenchContents: () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined,
+    logger: hostLog,
     methods,
     pushLog,
     hostVersion: app.getVersion(),

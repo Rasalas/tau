@@ -12,11 +12,12 @@ import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import { transcriptNavigationScopeKey } from "./app-state";
 import { writeBootstrapCache } from "./bootstrap-cache";
 import type { ClientStorage } from "./client-storage";
-import { createDraftKey, type ComposerScopeStore } from "./composer-scope-store";
+import { createDraftKey, type DraftKey } from "./composer-scope-store";
 import { draftKey, type NewThreadDraft } from "./draft-store";
+import type { HostSessionState } from "./host-session-state";
 import type { ThreadStore } from "./thread-store";
 import type { ThreadViewStore } from "./thread-view-store";
-import type { TranscriptTurnStart } from "./transcript-navigation";
+import type { TranscriptTurnPort } from "./turn-scope";
 import type {
   TranscriptHistoryController,
   TranscriptBootstrapRequest,
@@ -25,12 +26,6 @@ import type {
 } from "./transcript-history";
 import { readCachedTurnActivity } from "./turn-activity";
 
-/** What the store needs of the delivery in flight. */
-export interface WorkbenchSubmissionPort {
-  notifyHostSnapshot(): void;
-  promoteReportedThread(sessionId: string, message: UiMessage, requestId?: NewThreadRequestId): boolean;
-}
-
 /** What the store needs of the unstarted thread the composer may be pointing at. */
 export interface WorkbenchNewThreadPort {
   current(): NewThreadDraft | undefined;
@@ -38,21 +33,28 @@ export interface WorkbenchNewThreadPort {
   promoteFromHostReport(sessionId: string, projectPath: string, requestId?: NewThreadRequestId): boolean;
 }
 
-/** What the store needs of the transcript's turn marker. */
-export interface WorkbenchTurnPort {
-  current(): TranscriptTurnStart | undefined;
-  set(next: TranscriptTurnStart | undefined, expectedTurnId?: string): boolean;
+/** A correlated detail that Session hands to delivery after reduction. */
+export interface WorkbenchDeliveryObservation {
+  sessionId: string;
+  message: UiMessage;
+  requestId?: NewThreadRequestId;
+  projectPath: string;
+  draftScope: DraftKey;
+}
+
+export interface WorkbenchSnapshotApplication {
+  accepted: boolean;
+  observation?: WorkbenchDeliveryObservation;
 }
 
 export interface WorkbenchStorePorts {
   view: ThreadViewStore;
   threads: ThreadStore;
   history: TranscriptHistoryController;
-  scopes: ComposerScopeStore;
   storage: ClientStorage;
-  submission: WorkbenchSubmissionPort;
+  hostSession: HostSessionState;
   newThread: WorkbenchNewThreadPort;
-  turn: WorkbenchTurnPort;
+  turn: TranscriptTurnPort;
   notify(message: string): void;
 }
 
@@ -79,15 +81,15 @@ export class WorkbenchStore {
   /** The snapshot last written to the bootstrap cache; the next paint starts from it. */
   getCachedSnapshot = (): HostSnapshot | undefined => this.cachedSnapshot;
 
-  applySnapshot = (next: HostSnapshot, request?: TranscriptBootstrapRequest): boolean => {
-    const { history, storage, submission, threads, view } = this.ports;
-    if (request && !history.isCurrentBootstrap(request)) return false;
+  applySnapshotWithObservation = (next: HostSnapshot, request?: TranscriptBootstrapRequest): WorkbenchSnapshotApplication => {
+    const { history, hostSession, storage, threads, view } = this.ports;
+    if (request && !history.isCurrentBootstrap(request)) return { accepted: false };
     // The bootstrap cache paints before the host answers; from here on the
     // session id on screen is one this host really has open.
-    submission.notifyHostSnapshot();
+    hostSession.markApplied();
     view.beginThread(next.sessionId);
     const detail = threadDetailFromHostSnapshot(next);
-    if (!history.syncSnapshot(next, detail, request)) return false;
+    if (!history.syncSnapshot(next, detail, request)) return { accepted: false };
     // applyHostSnapshot and setActiveThread both report the thread's run state
     // to the one writer, so nothing else has to repeat it.
     threads.applyHostSnapshot(next);
@@ -100,12 +102,27 @@ export class WorkbenchStore {
     view.setToolAnchorId(restoredActivity?.anchorMessageId);
     view.setTurnActivity(next.turnActivityHistory ?? [], restoredActivity ? next.sessionId : undefined);
     this.remember(next);
-    return true;
+    const pending = this.ports.newThread.current();
+    const message = next.messages.find((entry) => entry.role === "user");
+    return {
+      accepted: true,
+      observation: pending && message
+        ? {
+          sessionId: next.sessionId,
+          message,
+          projectPath: next.cwd || pending.projectPath,
+          draftScope: createDraftKey(draftKey(undefined, pending)),
+        }
+        : undefined,
+    };
   };
 
+  applySnapshot = (next: HostSnapshot, request?: TranscriptBootstrapRequest): boolean =>
+    this.applySnapshotWithObservation(next, request).accepted;
+
   /** The host's first answer: the thread index and the thread it has open. */
-  applyBootstrap = (bootstrap: HostBootstrap, request: TranscriptBootstrapRequest): boolean => {
-    if (!this.ports.history.isCurrentBootstrap(request)) return false;
+  applyBootstrapWithObservation = (bootstrap: HostBootstrap, request: TranscriptBootstrapRequest): WorkbenchSnapshotApplication => {
+    if (!this.ports.history.isCurrentBootstrap(request)) return { accepted: false };
     this.applyThreadIndex(bootstrap.threadIndex);
     const current = hostSnapshotFromThreadDetail({
       cwd: bootstrap.project.cwd,
@@ -129,8 +146,11 @@ export class WorkbenchStore {
       isStreaming: false,
       activeTools: [],
     }, bootstrap.detail);
-    return this.applySnapshot(current, request);
+    return this.applySnapshotWithObservation(current, request);
   };
+
+  applyBootstrap = (bootstrap: HostBootstrap, request: TranscriptBootstrapRequest): boolean =>
+    this.applyBootstrapWithObservation(bootstrap, request).accepted;
 
   applyThreadIndex = (threadIndex: ThreadIndexSnapshot): void => {
     this.ports.threads.applyThreadIndex(threadIndex);
@@ -150,26 +170,25 @@ export class WorkbenchStore {
     return true;
   };
 
-  applyHostUpdate = (update: HostUpdate): void => {
+  applyHostUpdate = (update: HostUpdate): WorkbenchDeliveryObservation | undefined => {
     const { history, threads, view } = this.ports;
-    if (update.version !== 1) return;
+    if (update.version !== 1) return undefined;
     if (update.type === "thread-index") {
       this.applyThreadIndex(update.index);
-      return;
+      return undefined;
     }
     if (update.type === "thread-shell") {
       const shell = update.update.shell;
       threads.applyThreadShell(update.update.sessionId, shell, update.update.removed);
       if (shell) view.setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, projectLabel: shell.projectLabel } : current);
-      return;
+      return undefined;
     }
     if (update.type === "thread-detail") {
-      this.applyThreadDetail(update.detail);
-      return;
+      return this.applyThreadDetail(update.detail);
     }
     if (update.type === "transcript-page") {
       this.applyTranscriptPage(update.page);
-      return;
+      return undefined;
     }
     if (update.type === "catalog") {
       if (update.catalog.model?.provider) threads.setThreadModelProvider(threads.getSnapshot().activeThreadId, update.catalog.model.provider);
@@ -190,17 +209,18 @@ export class WorkbenchStore {
         if (!current || (update.catalog.sessionId !== undefined && current.sessionId !== update.catalog.sessionId)) return current;
         return this.remember(hostSnapshotWithCatalog(current, update.catalog));
       });
-      return;
+      return undefined;
     }
     if (update.type === "project") {
       view.setSnapshot((current) => current ? { ...current, ...update.project } : current);
-      return;
+      return undefined;
     }
     if (update.type === "run") threads.setThreadRunning(update.sessionId, update.event === "started");
     if (update.type === "error") this.ports.notify(update.message);
+    return undefined;
   };
 
-  applyActionResult = (result: HostActionResult, expectedTransition?: TransitionToken): boolean => {
+  prepareActionResult = (result: HostActionResult, expectedTransition?: TransitionToken): boolean => {
     const { history } = this.ports;
     if (expectedTransition !== undefined && !history.isCurrentThreadTransition(expectedTransition)) return false;
     const detail = result.updates.find((update) => update.type === "thread-detail");
@@ -210,13 +230,18 @@ export class WorkbenchStore {
         : history.confirmThreadTransition(expectedTransition, detail.detail.sessionId);
       if (!prepared) return false;
     }
+    return true;
+  };
+
+  applyActionResult = (result: HostActionResult, expectedTransition?: TransitionToken): boolean => {
+    if (!this.prepareActionResult(result, expectedTransition)) return false;
     result.updates.forEach((update) => this.applyHostUpdate(update));
     return true;
   };
 
-  private applyThreadDetail(detail: Extract<HostUpdate, { type: "thread-detail" }>["detail"]): void {
-    const { history, newThread, scopes, storage, submission, threads, turn, view } = this.ports;
-    submission.notifyHostSnapshot();
+  private applyThreadDetail(detail: Extract<HostUpdate, { type: "thread-detail" }>["detail"]): WorkbenchDeliveryObservation | undefined {
+    const { history, hostSession, newThread, storage, threads, turn, view } = this.ports;
+    hostSession.markApplied();
     const currentSnapshot = history.getCurrentSnapshot();
     const renderedSnapshot = view.getSnapshot();
     const shell = threads.getThread(detail.sessionId);
@@ -246,7 +271,7 @@ export class WorkbenchStore {
         : {}),
     } : undefined;
     const application = history.applyDetail(detail, snapshotForDetail);
-    if (!application) return;
+    if (!application) return undefined;
     const pendingCatalog = this.pendingCatalogs.get(detail.sessionId);
     const catalogSnapshot = pendingCatalog ? history.applyCatalog(pendingCatalog) : undefined;
     if (pendingCatalog) this.pendingCatalogs.delete(detail.sessionId);
@@ -270,16 +295,15 @@ export class WorkbenchStore {
     view.details.set(detailForRender);
     const reportedMessage = detailForRender.messages.find((message) => message.role === "user");
     const pendingForReport = newThread.current();
-    if (isCorrelatedCandidate && reportedMessage && pendingForReport) {
-      const promotedByReport = submission.promoteReportedThread(detail.sessionId, reportedMessage, detail.requestId)
-        || newThread.promoteFromHostReport(detail.sessionId, shell?.projectPath ?? pendingForReport.projectPath, detail.requestId);
-      if (promotedByReport) {
-        scopes.moveScope(
-          createDraftKey(draftKey(undefined, pendingForReport)),
-          createDraftKey(draftKey(detail.sessionId)),
-        );
-      }
-    }
+    const deliveryObservation = isCorrelatedCandidate && reportedMessage && pendingForReport
+      ? {
+        sessionId: detail.sessionId,
+        message: reportedMessage,
+        requestId: detail.requestId,
+        projectPath: shell?.projectPath ?? pendingForReport.projectPath,
+        draftScope: createDraftKey(draftKey(undefined, pendingForReport)),
+      } satisfies WorkbenchDeliveryObservation
+      : undefined;
     threads.setActiveThread(detail.sessionId, detail.isStreaming);
     if (detailForRender.sessionId !== view.getState().activeThreadId) view.beginThread(detailForRender.sessionId);
     view.setMessages(detailForRender.messages);
@@ -299,6 +323,7 @@ export class WorkbenchStore {
         turnActivityHistory: detailForRender.turnActivityHistory,
       });
     });
+    return deliveryObservation;
   }
 
   /** The last snapshot the host confirmed, kept so the next start paints before the host answers. */

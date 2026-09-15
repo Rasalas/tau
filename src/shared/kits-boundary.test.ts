@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { EXTENSION_API_VERSION } from "./extension-compat.js";
+import { EXTENSION_API_VERSION, satisfiesRange } from "./extension-compat.js";
 
 /**
  * The wall around `kits/`. A kit is a package Tau ships (ADR 0014), so it may
@@ -92,12 +92,15 @@ describe("kits boundary", () => {
     expect(distribution.name).toBe("@tau/kits");
     expect(distribution.private).toBe(true);
     expect(distribution.version).toMatch(/^\d+\.\d+\.\d+$/u);
-    const [major, minor] = EXTENSION_API_VERSION.split(".");
-    expect(distribution.engines?.api).toBe(`^${major}.${minor}.0`);
-    // Every kit builds against the same API line as the set that ships it.
+    expect(distribution.engines?.api).toBeDefined();
+    expect(satisfiesRange(EXTENSION_API_VERSION, distribution.engines?.api as string)).toBe(true);
+    // A kit may keep an older additive API range, but every shipped kit must
+    // accept the current host API. Kits that use a new seam raise their own
+    // minimum (Review and Workspace use ^1.6.0).
     for (const name of kitDirectories()) {
       const manifest = JSON.parse(readFileSync(join("kits", name, "tau-extension.json"), "utf8")) as { engines?: { api?: string } };
-      expect(manifest.engines?.api, name).toBe(distribution.engines?.api);
+      expect(manifest.engines?.api, name).toBeDefined();
+      expect(satisfiesRange(EXTENSION_API_VERSION, manifest.engines?.api as string), name).toBe(true);
     }
   });
 

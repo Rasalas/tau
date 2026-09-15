@@ -62,16 +62,16 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
   "./external-editor.js",   "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
-  "./host-extensions.js",   "./host-jobs.js",   "./host-lifecycle.js",
+  "./host-extensions.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
-  "./host-push-log.js",   "./host-text.js",   "./host-token.js",
+  "./host-push-log.js",   "./host-report.js",   "./host-text.js",   "./host-token.js",
   "./host-transcript.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
   "./managed-workbench-source.js",   "./model-attribution.js",   "./model-login.js",   "./models-config.js",   "./packaged-app.js",
   "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
-  "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
+  "./pi-host-components.js",   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
   "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",
   "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",
   "./prompt-attachments.js",   "./prompt-preparation.js",   "./resource-discovery-cache.js",
@@ -80,7 +80,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./session-lineage.js",   "./session-model-provider.js",   "./session-usage.js",
   "./shell-environment.js",   "./single-instance.js",   "./skill-invocation.js",
   "./startup-workspace.js",   "./system-prompt-resolver.js",   "./tau-runtime-owner.js",
-  "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
+  "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./user-themes.js",   "./workbench-build.js",
@@ -141,8 +141,8 @@ function coreSourceFiles(): string[] {
 }
 
 describe("core boundary", () => {
-  it("src/main/pi-host.ts names no moved feature and imports no feature module", () => {
-    const source = readFileSync("src/main/pi-host.ts", "utf8");
+  it.each(["src/main/pi-host.ts", "src/main/pi-host-components.ts", "src/main/host-report.ts", "src/main/host-lifecycle-coordinator.ts", "src/main/thread-activation.ts"])("%s names no moved feature and imports no feature module", (file) => {
+    const source = readFileSync(file, "utf8");
     const offenders = words(source).filter((word) => FORBIDDEN.some((rule) => HOST_RULES.has(rule.label) && rule.test.test(word)));
     expect(offenders).toEqual([]);
     // Redundant with allowlist check below, but kept for clarity.

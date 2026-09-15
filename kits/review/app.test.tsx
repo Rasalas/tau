@@ -30,6 +30,14 @@ const DIFF: UiFileDiff = {
 const WORKSPACE = { root: "/project", isRepo: true, isDirty: true, upstream: "origin/main", branch: "feat/review", worktrees: [], refs: [] };
 
 function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, review: (command: string, input?: unknown) => Promise<unknown> = async () => undefined) {
+  const workspace = workspaceHostStub({
+    getChanges: async () => CHANGES,
+    getFileDiff: async () => DIFF,
+    getWorkspaceInfo: async () => WORKSPACE,
+    getFileTree: async () => [],
+    listEditors: async () => [],
+    ...overrides,
+  });
   return createFakeHostClient({
     bootstrap: async () => ({
       version: 1,
@@ -47,14 +55,14 @@ function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, revi
       },
       project: { cwd: "/project" },
     }),
-    invokeHostExtension: workspaceHostStub({
-      getChanges: async () => CHANGES,
-      getFileDiff: async () => DIFF,
-      getWorkspaceInfo: async () => WORKSPACE,
-      getFileTree: async () => [],
-      listEditors: async () => [],
-      ...overrides,
-    }, { [REVIEW_HOST_EXTENSION_ID]: review }),
+    invokeHostExtension: (extensionId, command, input) => {
+      if (extensionId === REVIEW_HOST_EXTENSION_ID) {
+        return command === "changes" || command === "file-diff"
+          ? workspace("tau.workspace", command, input)
+          : review(command, input);
+      }
+      return workspace(extensionId, command, input);
+    },
   });
 }
 

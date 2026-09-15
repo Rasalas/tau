@@ -11,6 +11,7 @@ import { defaultHostConfigManager } from "./host-config.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
 import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
+import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import {
   decodeBoolean,
   decodeCommandName,
@@ -82,6 +83,12 @@ function decodePromptArgs(method: string, params: readonly unknown[]) {
 export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
   const { platform } = deps;
   const host = () => deps.requireHost();
+  const invokeExtension = async (params: readonly unknown[], context: HostMethodContext): Promise<unknown> => {
+    const extensionId = decodeExtensionId("host-extension", params[0]);
+    const command = decodeCommandName("host-extension", params[1]);
+    const instance = await host();
+    return instance.invokeHostExtension(extensionId, command, params[2], context.principal);
+  };
   // A client names a workspace by its id; one that still speaks paths sends a path.
   const workspace = async (method: string, name: string, value: unknown): Promise<string> =>
     (await host()).resolveWorkspacePath(decodeString(method, name, value));
@@ -176,11 +183,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "read-image-preview": async (params) => platform.readImagePreview(decodeString("read-image-preview", "path", params[0])),
     // Host extensions reach the renderer through this single method; core does
     // not grow a method per feature. `input` stays unknown: the extension owns it.
-    "host-extension": async (params) => (await host()).invokeHostExtension(
-      decodeExtensionId("host-extension", params[0]),
-      decodeCommandName("host-extension", params[1]),
-      params[2],
-    ),
+    "host-extension": invokeExtension,
     "host-extensions": async () => (await host()).listHostExtensions(),
     "inspect-extensions": async (params) => platform.inspectExtensions(await workspace("inspect-extensions", "cwd", params[0])),
     "host-extension-active": async (params) => (await host()).setHostExtensionActive(
@@ -225,14 +228,14 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       return openExternalEditor({ initialText: text });
     },
 
-    "start-job": async (params) => {
+    "start-job": async (params, context) => {
       const method = decodeString("start-job", "method", params[0]);
       if (JOB_CONTROL_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       const target = methods[method];
       if (!target) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
       const jobParams = params[1] === undefined ? [] : params[1];
       if (!Array.isArray(jobParams)) throw new Error("start-job: params must be an array");
-      return { jobId: deps.jobs.start((context) => target(jobParams as unknown[], context)) };
+      return { jobId: deps.jobs.start((jobContext) => target(jobParams as unknown[], jobContext), context.principal) };
     },
     "cancel-job": async (params) => ({ cancelled: deps.jobs.cancel(decodeString("cancel-job", "jobId", params[0])) }),
     /** Which calls a client should run as jobs; a host extension marks its own long commands. */
@@ -278,8 +281,13 @@ export function createUnsupportedHostMethods(reason: string): HostMethodTable {
 }
 
 /** Runs one method outside a job; used by the request path of every transport. */
-export async function invokeHostMethod(methods: HostMethodTable, method: string, params: readonly unknown[]): Promise<unknown> {
+export async function invokeHostMethod(
+  methods: HostMethodTable,
+  method: string,
+  params: readonly unknown[],
+  principal: HostInvocationPrincipal = WORKBENCH_CLIENT_PRINCIPAL,
+): Promise<unknown> {
   const handler = methods[method];
   if (!handler) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
-  return handler(params, NO_JOB_CONTEXT);
+  return handler(params, { ...NO_JOB_CONTEXT, principal });
 }

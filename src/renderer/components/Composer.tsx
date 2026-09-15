@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, Terminal, X } from "lucide-react";
 import type {
@@ -35,9 +35,16 @@ import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
 import { readComposerDraft, writeComposerDraft } from "../../workbench/draft-store";
 import { PromptHistory, loadStoredPromptHistory, saveStoredPromptHistory } from "../../workbench/prompt-history";
 import { handleComposerReadlineKey } from "./useComposerReadline";
+import { useComposerHistorySearch } from "./useComposerHistorySearch";
+import { useComposerVim } from "./useComposerVim";
+import {
+  classifyComposerInput,
+  requiresSubscriptionAcknowledgement,
+  useComposerSubmission,
+  type ComposerDelivery,
+} from "./useComposerSubmission";
 import { useComposerAttachments, type ComposerAttachmentHandle } from "./useComposerAttachments";
 import { useClientStorage } from "../client-storage-context";
-import { expandFileMentions } from "../file-mention-expander.js";
 import {
   type ComposerTrigger,
   type SelectedSkill,
@@ -65,6 +72,10 @@ export interface ComposerRuntimeChoice {
   kind: ThreadBackendKind;
   backends: readonly UiRuntimeBackend[];
   onSelect(kind: ThreadBackendKind): void;
+}
+
+export interface ComposerControlHandle {
+  openModelPicker(): void;
 }
 
 const noSubscribe = () => () => {};
@@ -100,6 +111,7 @@ export function Composer({
   contextBreakdown,
   threadUsage,
   textareaRef,
+  controlRef,
   attachmentRef,
   onChange,
   onSubmit,
@@ -131,6 +143,7 @@ export function Composer({
   /** What this thread has spent; absent when unknown or when costs are hidden. */
   threadUsage?: UiThreadUsage;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  controlRef?: RefObject<ComposerControlHandle | null>;
   attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
   onChange?(value: string): void;
   onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: UiSkillDraft): Promise<SubmitResult>;
@@ -317,12 +330,12 @@ export function Composer({
       }
     }
   }, [snapshot?.sessionId, snapshot?.messages, recordPrompt]);
-  const updateDraft = (next: string) => {
+  const updateDraft = useCallback((next: string) => {
     scopeStore.setDraft(attachmentScope, next);
     writeComposerDraft(clientStorage, draftStorageKey, next);
     onChange?.(next);
     setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
-  };
+  }, [attachmentScope, clientStorage, draftStorageKey, onChange, scopeStore]);
 
   const selectCommand = (command: UiComposerCommand) => {
     if (!trigger) return;
@@ -373,13 +386,14 @@ export function Composer({
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const preferences = usePreferences();
   // A model behind a subscription login is used only after its warning was read once (per provider).
-  const [subscriptionAsk, setSubscriptionAsk] = useState<{ model?: UiModel; resubmit?: "followUp" | "steer" | "prompt" }>();
+  const [subscriptionAsk, setSubscriptionAsk] = useState<{ model?: UiModel; resubmit?: ComposerDelivery | "prompt" }>();
   const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
   const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
-  const needsSubscriptionAck = (model: UiModel | undefined): boolean =>
-    model?.login === "subscription"
-    && (snapshot?.backendKind === "antigravity" || snapshot?.backendKind === "claude-code")
-    && !preferences.hasAcknowledgedSubscriptionLogin(model.provider);
+  const needsSubscriptionAck = useCallback((model: UiModel | undefined): boolean => requiresSubscriptionAcknowledgement(
+    model,
+    snapshot?.backendKind,
+    (provider) => preferences.hasAcknowledgedSubscriptionLogin(provider),
+  ), [preferences, snapshot?.backendKind]);
   const chooseModel = (model: UiModel) => {
     if (needsSubscriptionAck(model)) setSubscriptionAsk({ model });
     else onSetModel(model.provider, model.id);
@@ -396,13 +410,11 @@ export function Composer({
   const draftOnOtherRuntime = runtimeChoice !== undefined && snapshot?.backendKind !== undefined && runtimeChoice.kind !== snapshot.backendKind;
   const modelSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.models.length ?? 0) > 0;
   const modelPickerAvailable = modelSelectionAvailable || runtimeChoice !== undefined;
-  useEffect(() => {
-    const onOpen = () => {
+  useImperativeHandle(controlRef, () => ({
+    openModelPicker: () => {
       if (modelPickerAvailable) setModelPickerOpen(true);
-    };
-    window.addEventListener("tau:open-model-picker", onOpen);
-    return () => window.removeEventListener("tau:open-model-picker", onOpen);
-  }, [modelPickerAvailable]);
+    },
+  }), [controlRef, modelPickerAvailable]);
 
   useEffect(() => {
     const onEditorAction = (event: Event) => {
@@ -428,6 +440,18 @@ export function Composer({
     attachmentRef,
   });
 
+  const { submit: submitPrompt } = useComposerSubmission({
+    scopeStore,
+    scope: attachmentScope,
+    draftStorageKey,
+    clientStorage,
+    documentSource: shellContext?.registry.getDocumentSource?.(),
+    selectedSkill,
+    onSubmit,
+    recordPrompt,
+    clearPreviewForScope,
+  });
+
   // An editor prompt arrives with text to edit; seed the field once.
   const seededPromptRef = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -437,99 +461,57 @@ export function Composer({
   }, [prompt, updateDraft]);
 
   const answerable = prompt && prompt.answerElsewhere !== true;
-  const submitCurrent = (delivery?: "followUp" | "steer") => {
+  const submitCurrent = useCallback((delivery?: ComposerDelivery) => {
     if (held) return;
     if (activeScopeSnapshot.submissionPending) return;
     if (needsSubscriptionAck(snapshot?.model)) {
       setSubscriptionAsk({ resubmit: delivery ?? "prompt" });
       return;
     }
-    if (answerable && prompt) {
-      if (!text.trim()) {
-        if (promptSubmit && !promptSubmit.disabled) promptSubmit.submit();
+    const intent = classifyComposerInput({
+      text,
+      answerable: Boolean(answerable),
+      promptActionAvailable: Boolean(promptSubmit && !promptSubmit.disabled),
+      shellActionAvailable: onRunShellAction !== undefined,
+      delivery,
+    });
+    switch (intent.kind) {
+      case "noop":
         return;
-      }
-      onAnswerPrompt?.(text, true);
-      updateDraft("");
-      return;
-    }
-    const trimmedInput = text.trim();
-    if (trimmedInput.startsWith("!") && onRunShellAction) {
-      const isExcluded = trimmedInput.startsWith("!!");
-      const shellCmd = isExcluded ? trimmedInput.slice(2).trim() : trimmedInput.slice(1).trim();
-      if (shellCmd.length > 0) {
+      case "prompt-action":
+        promptSubmit?.submit();
+        return;
+      case "prompt-answer":
+        onAnswerPrompt?.(intent.text, true);
         updateDraft("");
-        recordPrompt(trimmedInput);
-        void onRunShellAction(shellCmd, !isExcluded).catch((error) => {
+        return;
+      case "shell":
+        if (!onRunShellAction) return;
+        updateDraft("");
+        recordPrompt(intent.historyText);
+        void onRunShellAction(intent.command, intent.includeInContext).catch((error) => {
           onNotify?.(errorMessage(error));
         });
         return;
-      }
-    }
-    const submittedScope = attachmentScope;
-    const submission = scopeStore.beginSubmission(submittedScope);
-    if ("busy" in submission) return;
-    const sendSubmission = async (handle: Awaited<typeof submission>) => {
-      if (!handle.text.trim() && handle.attachments.length === 0) {
-        handle.cancel();
+      case "prompt":
+        submitPrompt(intent.delivery);
         return;
-      }
-      // The selected skill is typed metadata. Keep the editor's text intact;
-      // the host/runtime adapter resolves provider syntax at the boundary.
-      const submittedText = handle.text;
-      const skillDraft = selectedSkillDraft(submittedText, selectedSkill);
-      let promptToSend = submittedText;
-      let attachmentsToSend = [...handle.attachments];
-      if (!skillDraft && promptToSend.includes("@")) {
-        const documentSource = shellContext?.registry.getDocumentSource();
-        if (documentSource) {
-          const expanded = await expandFileMentions(promptToSend, documentSource);
-          promptToSend = expanded.text;
-          if (expanded.attachments.length > 0) {
-            attachmentsToSend = [...attachmentsToSend, ...expanded.attachments];
-          }
-        }
-      }
-      // beginSubmission clears the live editor before the host round trip. Keep
-      // the persisted copy in step so a reload cannot resurrect a sent prompt.
-      if (draftStorageKey !== undefined) {
-        writeComposerDraft(clientStorage, submittedScope, scopeStore.getSnapshot(submittedScope).draft);
-      }
-      let result: SubmitResult;
-      try {
-        result = skillDraft
-          ? await onSubmit(promptToSend, attachmentsToSend, delivery, skillDraft)
-          : delivery
-            ? await onSubmit(promptToSend, attachmentsToSend, delivery)
-            : await onSubmit(promptToSend, attachmentsToSend);
-      } catch (error) {
-        result = { accepted: false, message: errorMessage(error) };
-      }
-      handle.settle(result);
-      // Settling empties an accepted draft in the scope store. The persisted
-      // copy is written per keystroke and has to follow it, or the next start
-      // seeds the composer with a prompt that was already sent.
-      if (draftStorageKey !== undefined) {
-        writeComposerDraft(clientStorage, submittedScope, scopeStore.getSnapshot(submittedScope).draft);
-      }
-      if (result.accepted) {
-        recordPrompt(submittedText);
-        clearPreviewForScope(submittedScope);
-      }
-    };
-    const handleSubmissionError = (error: unknown) => {
-      scopeStore.setAttachmentError(
-        submittedScope,
-        errorMessage(error),
-        scopeStore.getAttachmentGeneration(submittedScope),
-      );
-    };
-    if ("then" in submission) {
-      void submission.then(sendSubmission).catch(handleSubmissionError);
-    } else {
-      void sendSubmission(submission).catch(handleSubmissionError);
     }
-  };
+  }, [
+    activeScopeSnapshot.submissionPending,
+    answerable,
+    held,
+    needsSubscriptionAck,
+    onAnswerPrompt,
+    onNotify,
+    onRunShellAction,
+    promptSubmit,
+    recordPrompt,
+    snapshot?.model,
+    submitPrompt,
+    text,
+    updateDraft,
+  ]);
 
   const handleDequeue = useCallback(() => {
     if (queue.length === 0) return;
@@ -542,6 +524,26 @@ export function Composer({
       textareaRef.current?.setSelectionRange(restored.length, restored.length);
     }, 0);
   }, [queue, onCancelQueued, updateDraft, text, textareaRef]);
+
+  const prefSnapshot = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
+  const isVimEnabled = Boolean(prefSnapshot.vimMode);
+
+  const historySearch = useComposerHistorySearch({
+    promptHistory: promptHistoryRef.current,
+    text,
+    updateDraft,
+    setCaret,
+    textareaRef,
+  });
+
+  const vim = useComposerVim({
+    enabled: isVimEnabled,
+    text,
+    updateDraft,
+    setCaret,
+    textareaRef,
+    onSubmit: () => submitCurrent(),
+  });
 
   return (
     <footer className="composer-zone">
@@ -670,6 +672,27 @@ export function Composer({
             onSelectArg={selectArg}
           />
         ) : null}
+        {historySearch.isSearching ? (
+          <div className="composer-history-search" role="status" aria-live="polite" style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "4px 8px",
+            background: "var(--sunken)",
+            borderBottom: "1px solid var(--line-inset)",
+            fontSize: "12px",
+            fontFamily: "var(--font-mono)",
+            color: "var(--ink)",
+            borderRadius: "var(--radius-sm)",
+            margin: "0 0 4px 0",
+          }}>
+            <span style={{ color: "var(--ink-muted)" }}>(reverse-i-search)`<strong>{historySearch.searchQuery}</strong>`:</span>
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {historySearch.matchedPrompt ?? <span style={{ color: "var(--ink-subtle)" }}>failing search</span>}
+            </span>
+            <small style={{ color: "var(--ink-subtle)", fontSize: "10px" }}>↵ accept · esc cancel · ctrl+r cycle</small>
+          </div>
+        ) : null}
         <textarea
           ref={textareaRef}
           rows={1}
@@ -685,6 +708,12 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
+            if (historySearch.handleSearchKeyDown(event)) {
+              return;
+            }
+            if (vim.handleVimKeyDown(event)) {
+              return;
+            }
             const totalMatches = trigger?.kind === "@"
               ? fileMatches.length
               : trigger?.kind === "arg"
@@ -758,7 +787,9 @@ export function Composer({
           placeholder={
             answerable && prompt
               ? prompt.placeholder ?? "Answer yourself — ↵ sends it back to the extension"
-              : text.trimStart().startsWith("!")
+              : isVimEnabled && vim.vimMode === "normal"
+                ? "Vim NORMAL mode — press 'i' to insert, ↵ to send"
+                : text.trimStart().startsWith("!")
                 ? text.trimStart().startsWith("!!")
                   ? "Silent shell mode — runs command without LLM context"
                   : "Shell mode — runs command and shares output with agent"
@@ -856,6 +887,25 @@ export function Composer({
 
           </div>
           <span className="spacer" />
+
+          {isVimEnabled ? (
+            <span
+              className={`chip vim-badge ${vim.vimMode}`}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "10px",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                padding: "2px 6px",
+                letterSpacing: "0.5px",
+                background: vim.vimMode === "normal" ? "var(--accent, #e5a93c)" : "var(--raised)",
+                color: vim.vimMode === "normal" ? "var(--accent-fg, #000)" : "var(--ink)",
+                borderRadius: "var(--radius-xs, 3px)",
+              }}
+            >
+              {vim.vimMode === "normal" ? "NORMAL" : "INSERT"}
+            </span>
+          ) : null}
 
           {threadUsage ? <ThreadCost usage={threadUsage} /> : null}
 

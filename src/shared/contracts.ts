@@ -663,6 +663,7 @@ export interface TauConfig {
   npmCommand?: string[];
   quietStartup?: boolean;
   defaultProjectTrust?: "ask" | "always" | "never";
+  vimMode?: boolean;
 }
 
 export interface CustomModelDefinition {

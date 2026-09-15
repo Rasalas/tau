@@ -35,4 +35,16 @@ describe("useAppOverlays", () => {
     act(() => result.current.setSettingsPage("packages"));
     expect(result.current.settingsPage).toBe("packages");
   });
+
+  it("closes the new-thread picker before opening project sources", () => {
+    const { result } = renderHook(() => useAppOverlays());
+
+    act(() => result.current.openNewThreadPicker());
+    expect(result.current.newThreadOpen).toBe(true);
+
+    act(() => result.current.openProjectSources());
+
+    expect(result.current.newThreadOpen).toBe(false);
+    expect(result.current.projectSourcesOpen).toBe(true);
+  });
 });

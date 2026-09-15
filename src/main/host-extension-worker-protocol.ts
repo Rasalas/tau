@@ -21,6 +21,8 @@ export interface WorkerBootstrap {
   /** This package's own state folder, as `HostExtensionServices.stateDir` reports it. */
   stateDir: string;
   safeMode: boolean;
+  /** Host-issued identity for this worker activation; the supervisor binds it to the worker. */
+  invocationContextId: string;
   /** The grant, so the worker can close what the main side cannot see: `network`. */
   permissions: readonly string[];
 }
@@ -138,8 +140,12 @@ export type WorkerCommandHandler = (input: unknown) => unknown;
 
 export interface WorkerHostExtensionContext {
   readonly id: string;
+  /** Opaque host-issued identity for this worker activation. */
+  readonly invocationContextId: string;
   readonly services: WorkerHostServices;
-  registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean }): () => void;
+  /** Calls another host entry through the supervisor-bound worker identity. */
+  readonly invokeHostExtension: (extensionId: string, command: string, input?: unknown) => Promise<unknown>;
+  registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean; callers?: readonly string[] }): () => void;
   emit(name: string, payload?: unknown): void;
 }
 
@@ -153,6 +159,9 @@ export interface WorkerHostExtension {
 export interface SerializedError {
   message: string;
   stack?: string;
+  name?: string;
+  code?: string;
+  details?: unknown;
   /** Set for a `HostCommandError`: bad input, not a broken command. */
   expected?: true;
 }
@@ -167,7 +176,7 @@ export type HostToWorkerMessage =
 export type WorkerToHostMessage =
   | { t: "ready" }
   | { t: "fatal"; error: SerializedError }
-  | { t: "command"; name: string; long: boolean }
+  | { t: "command"; name: string; long: boolean; callers: readonly string[] }
   | { t: "command-off"; name: string }
   | { t: "emit"; name: string; payload: unknown }
   | { t: "log"; label: string; detail?: string }
@@ -181,7 +190,20 @@ export type WorkerToHostMessage =
 export function serializeError(error: unknown): SerializedError {
   if (error instanceof Error) {
     const expected = (error as { expected?: unknown }).expected === true;
-    return { message: error.message, ...(error.stack ? { stack: error.stack } : {}), ...(expected ? { expected: true } : {}) };
+    const code = (error as { code?: unknown }).code;
+    const details = (error as { details?: unknown }).details;
+    let plainDetails: unknown;
+    if (details !== undefined) {
+      try { plainDetails = toPlain(details); } catch { plainDetails = undefined; }
+    }
+    return {
+      message: error.message,
+      ...(error.stack ? { stack: error.stack } : {}),
+      ...(error.name !== "Error" ? { name: error.name } : {}),
+      ...(typeof code === "string" ? { code } : {}),
+      ...(plainDetails === undefined ? {} : { details: plainDetails }),
+      ...(expected ? { expected: true } : {}),
+    };
   }
   return { message: String(error) };
 }
@@ -189,8 +211,11 @@ export function serializeError(error: unknown): SerializedError {
 export function reviveError(error: SerializedError): Error {
   const revived = new Error(error.message);
   if (error.stack) revived.stack = error.stack;
+  if (error.name) revived.name = error.name;
+  if (error.code) Object.defineProperty(revived, "code", { value: error.code, enumerable: true });
+  if (error.details !== undefined) Object.defineProperty(revived, "details", { value: error.details, enumerable: true });
   if (error.expected) {
-    revived.name = "HostCommandError";
+    revived.name = error.name ?? "HostCommandError";
     Object.defineProperty(revived, "expected", { value: true, enumerable: false });
   }
   return revived;

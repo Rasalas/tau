@@ -369,6 +369,15 @@ export const runtimeControls: DesktopExtension = {
         return undefined;
       },
     });
+    plugin.registerSlashCommand({
+      name: "scoped-models",
+      description: "Manage scoped models for quick cycling (Ctrl+P / Alt+P)",
+      run: (_args, app) => {
+        if (app.openModelPicker) app.openModelPicker();
+        else app.openSettings("defaults");
+        return undefined;
+      },
+    });
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
@@ -377,7 +386,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
     plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model" });
     plugin.registerKeybinding({ keys: "shift+tab", commandId: "runtime.cycle-thinking" });
-    plugin.registerKeybinding({ keys: "ctrl+r", commandId: "runtime.rename-thread" });
+    plugin.registerKeybinding({ keys: "mod+shift+r", commandId: "runtime.rename-thread" });
     plugin.registerKeybinding({ keys: "ctrl+g", commandId: "runtime.open-prompt-editor" });
     plugin.registerKeybinding({ keys: "mod+1", commandId: "workbench.focus-composer" });
     plugin.registerKeybinding({ keys: "mod+2", commandId: "workbench.focus-transcript" });

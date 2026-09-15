@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
-import { Composer } from "./Composer";
+import { Composer, type ComposerControlHandle } from "./Composer";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
 import { ExtensionRegistry } from "../extension-system";
@@ -40,6 +40,7 @@ function renderComposer(
   snapshotOverride: HostSnapshot = snapshot,
   queueHandlers: { queue?: QueuedFollowUp[]; onSteerQueued?: (id: string) => void; onReorderQueue?: (id: string, toIndex: number) => void; onCancelQueued?: (id: string) => void } = {},
   handlers: { onRunShellAction?: (command: string) => Promise<unknown>; onOpenPromptEditor?: () => void; onNotify?: (msg: string) => void } = {},
+  controlRef?: React.RefObject<ComposerControlHandle | null>,
 ) {
   const scopeStore = new ComposerScopeStore();
   render(<TestProviders>
@@ -49,6 +50,7 @@ function renderComposer(
       queue={queueHandlers.queue ?? []}
       contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
       textareaRef={createRef<HTMLTextAreaElement>()}
+      controlRef={controlRef}
       onSubmit={onSubmit}
       onAbort={() => {}}
       onCancelQueued={queueHandlers.onCancelQueued ?? (() => {})}
@@ -328,18 +330,27 @@ describe("Composer command menu", () => {
     expect(textarea.value).toBe("@src/utils.ts ");
   });
 
-  it("opens model picker when tau:open-model-picker event is dispatched", async () => {
+  it("opens model picker through its control handle when available", async () => {
     const snapshotWithModels: HostSnapshot = {
       ...snapshot,
       models: [{ provider: "anthropic", id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet" }],
       model: { provider: "anthropic", id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet" },
     };
-    renderComposer(undefined, false, snapshotWithModels);
+    const controlRef = createRef<ComposerControlHandle>();
+    renderComposer(undefined, false, snapshotWithModels, {}, {}, controlRef);
 
-    window.dispatchEvent(new CustomEvent("tau:open-model-picker"));
+    act(() => controlRef.current?.openModelPicker());
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: /model/iu })).toBeTruthy();
     });
+  });
+
+  it("does not open model picker through its control handle when unavailable", () => {
+    const controlRef = createRef<ComposerControlHandle>();
+    renderComposer(undefined, false, snapshot, {}, {}, controlRef);
+
+    act(() => controlRef.current?.openModelPicker());
+    expect(screen.queryByRole("dialog", { name: /model/iu })).toBeNull();
   });
 
   it("autocompletes /model arguments from snapshot models", async () => {

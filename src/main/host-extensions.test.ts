@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError } from "./host-extension-errors.js";
 import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
+import { WORKBENCH_CLIENT_PRINCIPAL } from "./host-invocation.js";
 
 function services(): HostExtensionServices & { logs: string[] } {
   const logs: string[] = [];
@@ -193,6 +194,87 @@ describe("HostExtensionRegistry", () => {
     };
     await expect(r.activate(legacyExt)).resolves.toBe(true);
     await expect(r.invoke("legacy.kit", "open")).resolves.toEqual({ version: 1, updates: [] });
+  });
+
+  it("does not count repeated permission denials as handler crashes", async () => {
+    const { registry: r, services: s, events } = registry();
+    await r.activate({
+      id: "denied.kit",
+      name: "Denied Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("call-sessions", () => ctx.services.sessions.list());
+      },
+    });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(r.invoke("denied.kit", "call-sessions")).rejects.toThrow("Extension denied.kit lacks permission sessions");
+    }
+    expect(r.isActive("denied.kit")).toBe(true);
+    expect(s.logs.filter((line) => line.startsWith("host-extension.denied"))).toHaveLength(3);
+    expect(events.filter((event) => event.type === "extension-deactivated")).toEqual([]);
+  });
+
+  it("authorizes host-issued callers per declared command and rejects forged contexts", async () => {
+    const { registry: r, services: s } = registry();
+    let reviewContextId = "";
+    let reviewInvoke: ((extensionId: string, command: string, input?: unknown) => Promise<unknown>) | undefined;
+    await r.activate({
+      id: "tau.workspace",
+      name: "Workspace Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("changes", () => "read", { callers: ["tau.review"] });
+        ctx.registerCommand("pick-folder", () => "restricted");
+      },
+    });
+    await r.activate({
+      id: "tau.review",
+      name: "Review Kit",
+      permissions: [],
+      activate: (ctx) => {
+        reviewContextId = ctx.invocationContextId;
+        reviewInvoke = ctx.invokeHostExtension;
+      },
+    });
+
+    expect(reviewInvoke).toBeDefined();
+    const invokeFromReview = reviewInvoke as (extensionId: string, command: string, input?: unknown) => Promise<unknown>;
+    await expect(invokeFromReview("tau.workspace", "changes")).resolves.toBe("read");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(invokeFromReview("tau.workspace", "pick-folder")).rejects.toMatchObject({
+        name: "HostAuthorizationError",
+        code: "unauthorized",
+        details: { caller: "tau.review", target: "tau.workspace", command: "pick-folder", capability: "tau.workspace/pick-folder" },
+      });
+    }
+    expect(r.isActive("tau.workspace")).toBe(true);
+    expect(s.logs.some((line) => line.includes('host-extension.denied {"caller":"tau.review","target":"tau.workspace","command":"pick-folder"'))).toBe(true);
+
+    await expect(r.invoke("tau.workspace", "pick-folder", { callerId: "tau.review" }, {
+      kind: "host-extension",
+      contextId: "forged-context",
+    })).rejects.toMatchObject({ name: "HostAuthorizationError", code: "unauthorized" });
+    expect(s.logs.some((line) => line.includes('host-extension.denied {"caller":"unknown","target":"tau.workspace","command":"pick-folder"'))).toBe(true);
+
+    // The authenticated renderer is the one trusted workbench principal. Its
+    // legacy owner calls remain compatible, regardless of command input.
+    await expect(r.invoke("tau.workspace", "pick-folder", { callerId: "tau.untrusted" }, WORKBENCH_CLIENT_PRINCIPAL)).resolves.toBe("restricted");
+
+    const expiredInvoke = invokeFromReview;
+    const expiredContextId = reviewContextId;
+    await r.deactivate("tau.review");
+    await expect(expiredInvoke("tau.workspace", "changes")).rejects.toMatchObject({
+      name: "HostAuthorizationError",
+      code: "unauthorized",
+      details: { caller: "unknown", target: "tau.workspace", command: "changes" },
+    });
+    await expect(r.activateKnown("tau.review")).resolves.toBe(true);
+    expect(reviewContextId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(reviewContextId).not.toBe(expiredContextId);
+    await expect(expiredInvoke("tau.workspace", "changes")).rejects.toMatchObject({ name: "HostAuthorizationError", code: "unauthorized" });
+    expect(reviewInvoke).toBeDefined();
+    await expect(reviewInvoke!("tau.workspace", "changes")).resolves.toBe("read");
   });
 
   it("deactivates an extension when a command times out", async () => {

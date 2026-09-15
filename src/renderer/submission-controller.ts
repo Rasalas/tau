@@ -9,11 +9,7 @@ import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
 import { chosenNewThreadRuntime, effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
-  backgroundNewThreadDetail,
   isCurrentTranscriptSubmission,
-  isSameUserMessage,
-  mergeNewThreadRecoveryAttachments,
-  mergeNewThreadRecoveryDraft,
   transcriptNavigationScope,
   transcriptNavigationScopeKey,
   type NewThreadSubmissionCompletion,
@@ -23,11 +19,13 @@ import {
 import { allocateAttachmentId, createDraftKey, type ComposerScopeStore, type DraftKey } from "../workbench/composer-scope-store";
 import type { ClientStorage } from "../workbench/client-storage";
 import type { SubmitResult } from "./components/Composer";
-import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
+import type { TranscriptTurnPort } from "../workbench/turn-scope";
 import { draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
 import { errorMessage } from "../workbench/error-message";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import type { HostClient } from "../workbench/host-client";
+import type { HostSessionState } from "../workbench/host-session-state";
+import type { NewThreadDeliveryPort } from "../workbench/new-thread-delivery";
 import type { PreferencesStore } from "./preferences";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
@@ -36,8 +34,6 @@ import {
   addOptimisticMessage,
   removeOptimisticMessage,
   retargetOptimisticMessage,
-  retargetOptimisticByClientMessageId,
-  removeOptimisticByClientMessageId,
 } from "./submission-optimistic";
 import { shouldQueueSubmission, formatQueuedFollowUp } from "./submission-queue";
 
@@ -61,12 +57,6 @@ export interface NewThreadPort {
   promoteFromUserMessage(sessionId: string, projectPath: string): DraftKey | undefined;
 }
 
-/** Where the transcript starts reading this turn; the workbench renders it. */
-export interface TranscriptTurnPort {
-  current(): TranscriptTurnStart | undefined;
-  set(next: TranscriptTurnStart | undefined, expectedTurnId?: string): boolean;
-}
-
 /** What the host says back, applied by the workbench's update path. */
 export interface HostUpdatePort {
   applyHostUpdate(update: HostUpdate): void;
@@ -86,12 +76,12 @@ export interface SubmissionControllerPorts {
   preferences: PreferencesStore;
   notify(message?: string): void;
   actions(): WorkbenchActions | undefined;
+  hostSession: HostSessionState;
+  delivery: NewThreadDeliveryPort;
   newThread: NewThreadPort;
   turn: TranscriptTurnPort;
   host: HostUpdatePort;
   enqueueFollowUp(threadId: string, item: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): void;
-  /** A held or released delivery changes what the workbench may do next. */
-  onRecoveriesChanged(): void;
 }
 
 /**
@@ -100,10 +90,7 @@ export interface SubmissionControllerPorts {
  * delivery paths and the recovery of a new thread's first message.
  */
 export class SubmissionController {
-  /** Detached and in-flight new-thread deliveries, keyed by client message id. */
-  private readonly recoveries = new Map<string, NewThreadSubmissionRecovery>();
   private turnSequence = 0;
-  private hostSnapshotApplied = false;
 
   constructor(private readonly ports: SubmissionControllerPorts) {}
 
@@ -144,13 +131,6 @@ export class SubmissionController {
       view.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== noticeId));
     }
   };
-
-  /**
-   * The host has published a thread for this run. Until it does, the rendered
-   * snapshot may still be the bootstrap cache's, whose session id names a
-   * thread this host has never opened.
-   */
-  notifyHostSnapshot = (): void => { this.hostSnapshotApplied = true; };
 
   submit = async (input: SubmissionInput): Promise<SubmitResult> => {
     const { client: getClient, view, threads, scopes, registry, newThread, turn, host } = this.ports;
@@ -206,7 +186,7 @@ export class SubmissionController {
       try {
         prepared = await client.preparePrompt(
           text,
-          pendingNewThread ? undefined : this.hostSessionId(snapshot?.sessionId),
+          pendingNewThread ? undefined : this.ports.hostSession.sessionIdFor(snapshot?.sessionId),
           skillDraft,
           pendingNewThread ? chosenNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot) : undefined,
         );
@@ -286,7 +266,7 @@ export class SubmissionController {
       startTranscriptTurn(snapshot?.sessionId);
       try {
         if (!client) throw new Error("Steering requires the Electron host.");
-        await client.steer(text, attachments, this.hostSessionId(snapshot?.sessionId), clientTurn, prepared);
+        await client.steer(text, attachments, this.ports.hostSession.sessionIdFor(snapshot?.sessionId), clientTurn, prepared);
       } catch (error) {
         return rejectSubmission(error);
       }
@@ -322,8 +302,7 @@ export class SubmissionController {
       if (recovery) {
         // The user may have left this draft while the prompt was being prepared.
         if (newThread.current()?.draftId !== pending.draftId) recovery.detached = true;
-        this.recoveries.set(clientMessageId, recovery);
-        this.ports.onRecoveriesChanged();
+        this.ports.delivery.register(clientMessageId, recovery);
       }
       startTranscriptTurn(pending.sessionId, false, true);
       addOptimisticMessage(view, optimisticScope, optimistic);
@@ -389,7 +368,7 @@ export class SubmissionController {
             return result.submission;
           }
           if (detachedSessionId && recovery.sessionId !== detachedSessionId) {
-            this.rehomeDetached(clientMessageId, recovery, detachedSessionId);
+            this.ports.delivery.rehomeDetached(clientMessageId, recovery, detachedSessionId);
           }
           // The user is looking at something else now; only the thread list
           // learns about the new thread.
@@ -478,7 +457,7 @@ export class SubmissionController {
     addOptimisticMessage(view, optimisticScope, optimistic);
     if (!client) return this.deliverInPreview();
     try {
-      await client.sendPrompt(text, attachments, this.hostSessionId(snapshot?.sessionId), clientTurn, prepared);
+      await client.sendPrompt(text, attachments, this.ports.hostSession.sessionIdFor(snapshot?.sessionId), clientTurn, prepared);
       const actions = this.ports.actions();
       if (actions) {
         void registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions)
@@ -491,219 +470,45 @@ export class SubmissionController {
   };
 
   /** Whether a new-thread delivery still holds this client message. */
-  hasRecovery = (clientMessageId: string): boolean => this.recoveries.has(clientMessageId);
+  hasRecovery = (clientMessageId: string): boolean => this.ports.delivery.hasRecovery(clientMessageId);
 
   /** The composer scope a held delivery would restore into. */
-  recoveryScope = (clientMessageId: string): string | undefined => this.recoveries.get(clientMessageId)?.scopeRef.scope;
+  recoveryScope = (clientMessageId: string): string | undefined => this.ports.delivery.recoveryScope(clientMessageId);
 
   /** The host answered this prompt without persisting a user turn. */
   markWithoutUserTurn = (clientMessageId: string): void => {
-    const recovery = this.recoveries.get(clientMessageId);
-    if (recovery) recovery.withoutUserTurn = true;
+    this.ports.delivery.markWithoutUserTurn(clientMessageId);
   };
 
-  /**
-   * A host-reported thread carries either identity of a detached delivery: the
-   * persisted client message, or the new-thread request it belongs to.
-   */
-  promoteReportedThread = (sessionId: string, message: UiMessage, requestId?: NewThreadRequestId): boolean => {
-    const byRequest = requestId
-      ? [...this.recoveries.entries()].find(([, recovery]) => recovery.requestId === requestId)?.[0]
-      : undefined;
-    const reported = message.clientMessageId;
-    const clientMessageId = reported !== undefined && this.recoveries.has(reported) ? reported : byRequest;
-    return clientMessageId ? this.promoteRecovery(clientMessageId, sessionId, message) : false;
-  };
+  /** A host-reported thread is correlated and promoted by the shared coordinator. */
+  promoteReportedThread = (sessionId: string, message: UiMessage, requestId?: NewThreadRequestId): boolean =>
+    this.ports.delivery.promoteReportedThread(sessionId, message, requestId);
 
-  /** Commit a new-thread delivery without changing whichever thread is now visible. */
-  promoteRecovery = (clientMessageId: string, sessionId: string, message?: UiMessage): boolean => {
-    const { view, threads, scopes, newThread, turn, host } = this.ports;
-    const recovery = this.recoveries.get(clientMessageId);
-    if (!recovery || recovery.failed) return false;
-    if (recovery.sessionId && recovery.sessionId !== sessionId) return false;
-    const keepInBackground = recovery.detached && threads.getSnapshot().activeThreadId !== sessionId;
-    // A detached delivery must not reclaim the visible new-thread controller.
-    const promotedScope = recovery.detached ? undefined : newThread.promoteFromUserMessage(sessionId, recovery.pending.projectPath);
-    if (!promotedScope && !recovery.detached && recovery.sessionId !== sessionId) return false;
-    recovery.sessionId = sessionId;
-    recovery.promoted = true;
-    scopes.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
-    if (message) {
-      retargetOptimisticByClientMessageId(view, clientMessageId, `session:${sessionId}`);
-    } else {
-      removeOptimisticByClientMessageId(view, clientMessageId);
-    }
-
-    const turnStart = turn.current();
-    if (turnStart?.clientMessageId === clientMessageId) {
-      turn.set(message ? {
-        ...turnStart,
-        sessionId,
-        scope: { kind: "session", projectPath: recovery.pending.projectPath, sessionId },
-        scopeKey: transcriptNavigationScopeKey({ cwd: recovery.pending.projectPath, sessionId }),
-      } : undefined, turnStart.turnId);
-    }
-
-    if (keepInBackground) {
-      if (message) {
-        view.details.set(backgroundNewThreadDetail(view.details.get(sessionId), sessionId, message));
-        threads.setThreadRunning(sessionId, true);
-      } else {
-        threads.setThreadRunning(sessionId, false);
-      }
-    } else if (!message) {
-      // An extension command answered the prompt without a user turn and
-      // without an agent run. The thread exists; nothing is in flight in it.
-      threads.setActiveThread(sessionId, false);
-    } else if (!view.details.get(sessionId)?.messages.some((entry) => isSameUserMessage(entry, message))) {
-      // A blank detail may have arrived before this event. Feed the confirmed
-      // message through the normal detail path so the history coordinator and
-      // the active snapshot move together even when no catalog is available.
-      host.prepareThreadDetail(sessionId);
-      host.applyHostUpdate({
-        version: 1,
-        type: "thread-detail",
-        detail: { sessionId, messages: [message], isStreaming: true, activeTools: [] },
-      });
-    } else {
-      threads.setActiveThread(sessionId, true);
-    }
-    this.notifyPromptSubmitted(recovery.pending, sessionId, message?.text || recovery.draft, recovery);
-    // Delivery acceptance is the commit point. The later IPC acknowledgement
-    // must not keep thread navigation blocked and is safe because this record
-    // is already promoted before the result can arrive.
-    this.release(clientMessageId);
-    return true;
-  };
+  /** Commit a new-thread delivery without changing whichever thread is visible. */
+  promoteRecovery = (clientMessageId: string, sessionId: string, message?: UiMessage): boolean =>
+    this.ports.delivery.promoteRecovery(clientMessageId, sessionId, message);
 
   /** The host's own verdict on a delivery, whichever thread is on screen. */
   settleDelivery = (
     clientMessageId: string,
     sessionId: string,
     settlement: { accepted: true } | { accepted: false; message: string },
-  ): boolean => {
-    const recovery = this.recoveries.get(clientMessageId);
-    if (!recovery) return false;
-    if (settlement.accepted) {
-      const promoted = this.promoteRecovery(
-        clientMessageId,
-        sessionId,
-        recovery.withoutUserTurn ? undefined : recovery.optimistic,
-      );
-      // The host has committed this delivery. Whether the draft was still there
-      // to promote decides nothing: holding the record would block thread
-      // switching and every guarded workspace action for the rest of the session.
-      if (!promoted) this.release(clientMessageId);
-      return true;
-    }
-    recovery.failed = settlement.message || "The runtime rejected the message.";
-    this.restoreFailed(recovery, sessionId);
-    // A failed delivery is safe to release once its IPC acknowledgement has
-    // arrived; until then the late accepted result must not clear recovery.
-    if (!recovery.ipcPending) this.release(clientMessageId);
-    return true;
-  };
+  ): boolean => this.ports.delivery.settleDelivery(clientMessageId, sessionId, settlement);
 
-  /**
-   * Leaving a draft never waits for its first message: delivery continues in
-   * the background and follows the runtime thread once the host has named one.
-   */
-  detachPendingDelivery = (): boolean => {
-    const pending = this.ports.newThread.current();
-    if (!pending) return false;
-    let detached = false;
-    for (const [clientMessageId, recovery] of this.recoveries) {
-      if (recovery.pending.draftId !== pending.draftId || recovery.detached) continue;
-      recovery.detached = true;
-      detached = true;
-      if (recovery.sessionId) this.rehomeDetached(clientMessageId, recovery, recovery.sessionId);
-    }
-    return detached;
-  };
-
-  /**
-   * The thread id a host call may name. An id restored from the bootstrap
-   * cache belongs to the previous run; passing undefined instead means "the
-   * thread the host has open", which is what a cold start needs.
-   */
-  private hostSessionId(sessionId?: string): string | undefined {
-    return this.hostSnapshotApplied ? sessionId : undefined;
-  }
+  /** Leaving a draft lets the shared coordinator continue delivery in the background. */
+  detachPendingDelivery = (): boolean => this.ports.delivery.detachPendingDelivery();
 
   /** The navigation scope as of now; a submission compares against it after every await. */
   private currentScopeKey(): string {
     return transcriptNavigationScopeKey(this.ports.view.getSnapshot(), this.ports.newThread.current());
   }
 
-  /** Bind a detached delivery to its runtime thread once the host names it. */
-  private rehomeDetached(clientMessageId: string, recovery: NewThreadSubmissionRecovery, sessionId: string): void {
-    recovery.sessionId = sessionId;
-    this.ports.scopes.moveScope(recovery.scopeRef.scope, createDraftKey(draftKey(sessionId)));
-    retargetOptimisticByClientMessageId(this.ports.view, clientMessageId, `session:${sessionId}`);
-  }
-
   private release(clientMessageId: string): void {
-    const recovery = this.recoveries.get(clientMessageId);
-    if (!recovery) return;
-    this.recoveries.delete(clientMessageId);
-    this.ports.scopes.releaseScopeReference(recovery.scopeRef);
-    this.ports.onRecoveriesChanged();
+    this.ports.delivery.release(clientMessageId);
   }
 
   private settleIpc(clientMessageId: string, recovery?: NewThreadSubmissionRecovery): void {
-    const current = recovery ?? this.recoveries.get(clientMessageId);
-    if (current) current.ipcPending = false;
-  }
-
-  /** Put a rejected prompt back into the composer it came from. */
-  private restoreSubmission(recovery: NewThreadSubmissionRecovery): void {
-    const { scopes, storage, newThread } = this.ports;
-    const scope = recovery.scopeRef.scope;
-    const current = scopes.getSnapshot(scope);
-    const draft = mergeNewThreadRecoveryDraft(recovery.draft, current.draft);
-    const attachments = mergeNewThreadRecoveryAttachments(recovery.attachments, current.attachments);
-    // Keep edits made while the runtime was starting and place the failed
-    // prompt before them, so neither text nor a newly selected image vanishes.
-    if (draft !== current.draft) {
-      scopes.setDraft(scope, draft);
-      writeComposerDraft(storage, scope, draft);
-    }
-    if (attachments.length !== current.attachments.length) scopes.setAttachments(scope, attachments);
-    // Draft scopes are persisted through the active-new-thread record. A late
-    // detached failure can otherwise restore the textarea only until reload.
-    if (typeof scope === "string" && scope.startsWith("new:")) {
-      const pending = newThread.current();
-      if (pending && draftKey(undefined, pending) === scope) {
-        writeNewThreadDraft(storage, { ...pending, draft: draft || undefined });
-      }
-    }
-  }
-
-  private restoreFailed(recovery: NewThreadSubmissionRecovery, sessionId: string): void {
-    const { scopes, storage, threads, newThread } = this.ports;
-    recovery.sessionId = sessionId || recovery.sessionId;
-    const oldScope = recovery.scopeRef.scope;
-    const visible = draftKey(this.ports.view.getSnapshot()?.sessionId, newThread.current()) === oldScope
-      || (recovery.sessionId !== undefined && threads.getSnapshot().activeThreadId === recovery.sessionId);
-    let pending = newThread.current();
-
-    // Once a positive user-message promoted the draft, a later failure must
-    // reopen that same runtime-backed draft. Retrying it then uses sendPrompt
-    // with the generated session id instead of allocating another runtime.
-    if (visible && recovery.promoted
-      && (!pending || pending.draftId !== recovery.pending.draftId)) {
-      pending = { ...recovery.pending, ...(recovery.sessionId ? { sessionId: recovery.sessionId } : {}) };
-      const target = createDraftKey(draftKey(undefined, pending));
-      scopes.moveScope(oldScope, target);
-      recovery.scopeRef.scope = target;
-      newThread.set(pending);
-      writeNewThreadDraft(storage, pending);
-    } else if (visible && pending && pending.draftId === recovery.pending.draftId && recovery.sessionId && !pending.sessionId) {
-      pending = { ...pending, sessionId: recovery.sessionId };
-      newThread.set(pending);
-      writeNewThreadDraft(storage, pending);
-    }
-    this.restoreSubmission(recovery);
+    this.ports.delivery.markIpcSettled(clientMessageId, recovery);
   }
 
   /** Close a new-thread submission that the visible draft is still waiting on. */
@@ -728,40 +533,7 @@ export class SubmissionController {
     newThread.set(undefined);
     if (result) host.applyHostResult(result);
     threads.markRead(sessionId);
-    this.notifyPromptSubmitted(pending, sessionId, prompt, recovery);
-  }
-
-  private notifyPromptSubmitted(
-    pending: NewThreadDraft,
-    sessionId: string,
-    prompt: string,
-    recovery?: NewThreadSubmissionRecovery,
-  ): void {
-    if (recovery?.notified) return;
-    const actions = this.ports.actions();
-    if (!actions) return;
-    if (recovery) recovery.notified = true;
-    const snapshot = this.ports.view.getSnapshot();
-    void this.ports.registry.notifyPromptSubmitted({
-      prompt,
-      snapshot: snapshot ? {
-        ...snapshot,
-        cwd: pending.projectPath,
-        sessionId,
-        sessionName: undefined,
-        sessionTitle: "Untitled thread",
-        // Without an explicit draft choice, the model and runtime on screen
-        // still belong to whichever thread was open before.
-        model: pending.model,
-        backendKind: undefined,
-        messages: [],
-        isStreaming: false,
-        activeTools: [],
-        turnActivity: undefined,
-        taskProgress: undefined,
-        taskHistory: [],
-      } : undefined,
-    }, actions).catch((error) => this.ports.notify(errorMessage(error)));
+    this.ports.delivery.notifyPromptSubmitted(pending, sessionId, prompt, recovery);
   }
 
   /** Without the Electron host the workbench answers its own prompt. */

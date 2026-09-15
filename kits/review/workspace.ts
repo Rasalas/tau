@@ -1,5 +1,4 @@
 import type { DiffLoadOptions, HostExtensionClient, UiFileDiff, UiWorkspaceChanges, WorkspaceChangesQuery } from "tau";
-import type { WorkspaceHostCommand } from "../workspace/protocol.js";
 
 /**
  * The slice of Workspace Kit's host entry that Review asks: the changes and
@@ -11,8 +10,8 @@ export interface WorkspaceChangesReader {
   fileDiff(relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
 }
 
-const CHANGES: WorkspaceHostCommand = "changes";
-const FILE_DIFF: WorkspaceHostCommand = "file-diff";
+const CHANGES = "changes";
+const FILE_DIFF = "file-diff";
 
 export function workspaceChangesReader(host: HostExtensionClient): WorkspaceChangesReader {
   return {

@@ -14,6 +14,10 @@ The owner of one thread's runtime for that thread's whole life (ADR 0005). Core 
 
 The interactive client in which a person manages projects, threads, agent activity, and extension-provided workflows. Tau is the workbench.
 
+## Workbench session
+
+The client-side coordination of a person's threads, drafts, submissions and navigation while the workbench is open. Distinct from a thread's persisted runtime session.
+
 ## Host
 
 The process that owns an agent runtime and exposes it to a workbench client. A host may run on the same machine as the client or remotely.

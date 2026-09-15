@@ -22,6 +22,8 @@ export interface ExtensionUiBridge {
   setToolsExpanded?(expanded: boolean): boolean;
   getToolsExpanded?(): boolean;
   addAutocompleteProvider?(provider: (prefix: string) => Promise<unknown[]>): () => void;
+  onCustomInput?(promptId: string, handler: (data: string) => void): () => void;
+  updateCustomPrompt?(promptId: string, lines: string[]): boolean;
   theme?: Record<string, unknown>;
   getAllThemes?(): string[];
   getTheme?(): Record<string, unknown> | undefined;
@@ -53,17 +55,17 @@ export function createExtensionUiContext(bridge: ExtensionUiBridge): ExtensionUI
 
   async function ask<T>(
     kind: ExtensionUiPromptKind,
-    fields: Omit<ExtensionUiPrompt, "id" | "sessionId" | "kind" | "expiresAt">,
+    fields: Omit<ExtensionUiPrompt, "id" | "sessionId" | "kind" | "expiresAt"> & { id?: string },
     options: DialogOptions | undefined,
     read: (answer: ExtensionUiAnswer) => T,
     fallback: T,
   ): Promise<T> {
     if (options?.signal?.aborted) return fallback;
     const prompt: ExtensionUiPrompt = {
-      id: promptId(),
       sessionId: bridge.sessionId(),
       kind,
       ...fields,
+      id: fields.id ?? promptId(),
       ...(options?.timeout ? { expiresAt: Date.now() + options.timeout } : {}),
     };
     try {
@@ -117,25 +119,59 @@ export function createExtensionUiContext(bridge: ExtensionUiBridge): ExtensionUI
         }
       };
 
+      const customPromptId = promptId();
+      let component: { render(width: number): string[]; handleInput?(data: string): void; invalidate?(): void } | undefined;
+
       const tui = {
-        requestRender: () => {},
+        requestRender: () => {
+          if (component && typeof component.render === "function" && bridge.updateCustomPrompt) {
+            try {
+              bridge.updateCustomPrompt(customPromptId, component.render(80));
+            } catch {
+              // Ignore render update errors
+            }
+          }
+        },
         terminal: { columns: 80, rows: 24 },
       };
 
+      let cleanupInput: (() => void) | undefined;
+
       try {
         const theme = bridge.getTheme?.() ?? bridge.theme ?? defaultUserThemeResolver.getActiveThemeObject();
-        const component = typeof factory === "function" ? factory(tui, theme, {}, done) : undefined;
+        component = typeof factory === "function" ? factory(tui, theme, {}, done) : undefined;
+
+        if (component && typeof component.handleInput === "function" && bridge.onCustomInput) {
+          cleanupInput = bridge.onCustomInput(customPromptId, (data) => {
+            try {
+              component?.handleInput?.(data);
+            } catch {
+              // Ignore input errors
+            }
+          });
+        }
+
         const initialLines = typeof component?.render === "function" ? component.render(80) : [];
         const result = await ask<T>(
           "custom" as ExtensionUiPromptKind,
           {
+            id: customPromptId,
             title: "Custom Dialog",
             lines: initialLines,
           },
           options,
           (answer) => {
             if ("customResult" in answer) return answer.customResult as T;
-            if ("value" in answer) return answer.value as unknown as T;
+            if ("value" in answer) {
+              if (component && typeof component.handleInput === "function") {
+                try {
+                  component.handleInput(answer.value);
+                } catch {
+                  // Ignore
+                }
+              }
+              return answer.value as unknown as T;
+            }
             return undefined as T;
           },
           undefined as T,
@@ -145,6 +181,8 @@ export function createExtensionUiContext(bridge: ExtensionUiBridge): ExtensionUI
         }
       } catch {
         done(undefined as T);
+      } finally {
+        cleanupInput?.();
       }
 
       return promise;

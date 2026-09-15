@@ -195,16 +195,18 @@ const services: WorkerHostServices = {
 
 const context: WorkerHostExtensionContext = {
   id: boot.id,
+  invocationContextId: boot.invocationContextId,
   services: new Proxy(services, {
     get(target, prop, receiver) {
       if (typeof prop === "string" && UNAVAILABLE.has(prop)) return () => unavailable(`services.${prop}`);
       return Reflect.get(target, prop, receiver) as unknown;
     },
   }),
+  invokeHostExtension: (extensionId, command, input) => rpc("hostExtension", extensionId, command, input),
   registerCommand: (name, handler, options) => {
     if (commands.has(name)) throw new Error(`Host extension ${boot.id}: command "${name}" registered twice`);
     commands.set(name, handler);
-    send({ t: "command", name, long: Boolean(options?.long) });
+    send({ t: "command", name, long: Boolean(options?.long), callers: options?.callers ?? [] });
     return () => {
       if (commands.get(name) !== handler) return;
       commands.delete(name);

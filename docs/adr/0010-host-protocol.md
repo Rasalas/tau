@@ -43,7 +43,10 @@ transport announces it only for a loopback peer whose host was started with
 `TAU_HOST_LOCAL_FILES=1`. The renderer reads it and offers no editor list, no
 "Open in editor" and no "Copy path" without it.
 
-Authentication of the socket transport is a 32-byte token in `~/.tau/host-token`, written 0o600 in a 0o700 directory on first listen and repeated in every hello. A wrong or missing token closes the connection before any method runs, as does a request from a peer that never said hello. Electron IPC needs no token: it is in-process and already sandboxed.
+Authentication of the socket transport is a 32-byte token in `~/.tau/host-token`, written 0o600 in a 0o700 directory on first listen and repeated in every hello. A wrong or missing token closes the connection before any method runs, as does a request from a peer that never said hello. Electron IPC needs no token. It verifies that the sender is the current
+workbench WebContents and its main frame before answering hello or dispatching
+a method. Sandboxing by itself does not authenticate an IPC sender. See
+[ADR 0020](0020-host-command-authority.md).
 
 ## Amendment, 2026-09-05: a window that is only a client
 

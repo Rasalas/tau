@@ -2,16 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { HostEvent, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
-import { WorkbenchStore } from "../workbench/workbench-store";
+import { WorkbenchSession } from "../workbench/workbench-session";
 import { ThreadCommands } from "../workbench/thread-commands";
 import { useThreadNavigation } from "./use-thread-navigation";
 import { useThreadTree } from "./use-thread-tree";
 import { readBootstrapCache } from "../workbench/bootstrap-cache";
-import { type ComposerAttachmentHandle } from "./components/Composer";
+import { type ComposerAttachmentHandle, type ComposerControlHandle } from "./components/Composer";
 import { visibleUserMessageText } from "./components/MessageText";
 import { UpdateToast } from "./components/UpdateToast";
-import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
-import { ComposerScopeStore, createDraftKey } from "../workbench/composer-scope-store";
+import { createDraftKey } from "../workbench/composer-scope-store";
 import { useConversationActivities } from "./conversation-activities";
 import { draftKey, writeNewThreadDraft } from "../workbench/draft-store";
 import { errorMessage } from "../workbench/error-message";
@@ -30,18 +29,14 @@ import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
+import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, EMPTY_STAGE, type StageState, type StageView } from "../workbench/stage";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
-import { ThreadStore } from "../workbench/thread-store";
-import { ThreadViewStore } from "../workbench/thread-view-store";
-import { TranscriptHistoryController } from "../workbench/transcript-history";
 import { writeCachedTurnActivity } from "../workbench/turn-activity";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
-import { useNewThreadController } from "./use-new-thread-controller";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
 import { useWorkbenchReload } from "./use-workbench-reload";
-import { Workbench, type WorkbenchComposer, type WorkbenchLayout, type WorkbenchModel, type WorkbenchThread } from "./Workbench";
+import { Workbench, type WorkbenchComposer, type WorkbenchControlHandle, type WorkbenchLayout, type WorkbenchModel, type WorkbenchThread } from "./Workbench";
 
 const noopSubscribe = () => () => {};
 const EMPTY_COMPOSER_ATTACHMENTS = { attachments: [] as const };
@@ -59,6 +54,9 @@ export default function App() {
   // What the client claims never moves; how wide it is does.
   const layoutProfile = useLayoutProfile(profile);
   const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
+  const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
+  const clientRef = useRef(client);
+  const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
   const [registry] = useState(() => {
     const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, profile });
     // Core's own contributions come first and stay on: safe mode is a workbench
@@ -84,9 +82,24 @@ export default function App() {
     setPlatform(value);
     return value;
   });
-  // One store owns everything about the thread on screen: its snapshot, the
-  // ordered transcript, tools, prompts and the optimistic rows waiting on it.
-  const [viewStore] = useState(() => new ThreadViewStore(cachedBootstrap?.snapshot));
+  const [workbenchSession] = useState(() => new WorkbenchSession({
+    storage: clientStorage,
+    cached: cachedBootstrap,
+    onProjectChange: () => setStage(EMPTY_STAGE),
+    notification: {
+      notifyPromptSubmitted: (event) => {
+        const actions = actionsRef.current;
+        if (!actions) return false;
+        return registry.notifyPromptSubmitted(event, actions);
+      },
+    },
+  }));
+  const {
+    view: viewStore, threads: threadStore, history: transcriptHistory,
+    scopes: composerScopeStore, hostSession, turn: turnScope,
+    newThread: newThreadController, delivery: newThreadDelivery,
+  } = workbenchSession;
+  const { applySnapshot, applyThreadIndex, applyTranscriptPage, applyHostUpdate, applyActionResult } = workbenchSession;
   // Extensions from ~/.tau/extensions and <project>/.tau/extensions load at
   // runtime, like Pi's own; the project set follows the open workspace.
   const [runtimeExtensions] = useState(() => {
@@ -100,19 +113,6 @@ export default function App() {
       log: (label, detail) => viewStore.addEvent(label, detail),
     });
   });
-  const [threadStore] = useState(() => {
-    const store = new ThreadStore();
-    if (cachedBootstrap) {
-      store.applyThreadIndex(cachedBootstrap.threadIndex);
-      store.applyHostSnapshot(cachedBootstrap.snapshot);
-    }
-    return store;
-  });
-  const [transcriptHistory] = useState(() => new TranscriptHistoryController(
-    cachedBootstrap?.snapshot,
-    cachedBootstrap?.threadIndex,
-    viewStore.details,
-  ));
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
@@ -145,20 +145,12 @@ export default function App() {
     activeOverlayId, openOverlay, closeOverlay,
     settingsPage, setSettingsPage,
   } = useAppOverlays();
-  const newThreadController = useNewThreadController(clientStorage);
+  const pendingNewThread = useSyncExternalStore(newThreadController.subscribe, newThreadController.current);
   const {
-    pendingNewThread,
-    setPendingNewThread,
-    requestId: newThreadRequestRef,
-    begin: beginNewThread,
-    invalidate: invalidateNewThread,
-    isCurrent: isCurrentNewThreadRequest,
-    markAwaitingPromotion,
-    promoteFromHostReport,
-    promoteFromUserMessage,
-    current: currentPendingNewThread,
+    set: setPendingNewThread, begin: beginNewThread, invalidate: invalidateNewThread,
+    isCurrent: isCurrentNewThreadRequest, markAwaitingPromotion,
+    promoteFromUserMessage, current: currentPendingNewThread,
   } = newThreadController;
-  const [transcriptTurnStart, setTranscriptTurnStartState] = useState<TranscriptTurnStart>();
   // Below this many pixels the centre cannot hold chat and stage side by side;
   // the chat then joins the stage's tab strip instead of losing the thread list.
   const [centerCompact, setCenterCompact] = useState(false);
@@ -166,20 +158,18 @@ export default function App() {
   const centerRef = useRef<HTMLDivElement>(null);
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
-  const [composerScopeStore] = useState(() => new ComposerScopeStore());
-  // A delivery held for recovery changes what the workbench may do next, so
-  // taking or releasing one has to reach the render.
-  const [, setDeliveryVersion] = useState(0);
   const newThreadDeliveryPending = Boolean(pendingNewThread);
   const [dockOpen, setDockOpen] = useState(false);
   /** The version the host downloaded; the toast that offers the restart reads it. */
   const [updateReady, setUpdateReady] = useState<string>();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerAttachmentRef = useRef<ComposerAttachmentHandle>(null);
-  const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
-  const clientRef = useRef(client);
+  const composerControlRef = useRef<ComposerControlHandle>(null);
+  const workbenchControlRef = useRef<WorkbenchControlHandle>(null);
+  const openModelPicker = useCallback(() => composerControlRef.current?.openModelPicker(), []);
+  const openInstructions = useCallback(() => workbenchControlRef.current?.openInstructions(), []);
+  const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const transcriptTurnStartRef = useRef<TranscriptTurnStart | undefined>(undefined);
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
   /** The draft key as of now, for the async paths that must not read a rendered value. */
   const currentDraftKey = useCallback(
@@ -197,37 +187,16 @@ export default function App() {
     () => transcriptNavigationScope(snapshot, pendingNewThread),
     [pendingNewThread, snapshot?.cwd, snapshot?.sessionId],
   );
-  const committedTranscriptScopeKeyRef = useRef(transcriptScopeKey);
-  /** The navigation scope as of now; a submission compares against it after every await. */
-  const currentTranscriptScopeKey = useCallback(
-    () => transcriptNavigationScopeKey(viewStore.getSnapshot(), currentPendingNewThread()),
-    [currentPendingNewThread, viewStore],
-  );
-  const setTranscriptTurnStart = useCallback((
-    next: TranscriptTurnStart | undefined,
-    expectedTurnId?: string,
-  ): boolean => {
-    if (expectedTurnId !== undefined && transcriptTurnStartRef.current?.turnId !== expectedTurnId) return false;
-    const scoped = next ? { ...next, scopeKey: next.scopeKey ?? currentTranscriptScopeKey() } : undefined;
-    transcriptTurnStartRef.current = scoped;
-    setTranscriptTurnStartState(scoped);
-    return true;
-  }, [currentTranscriptScopeKey]);
+  const transcriptTurnStart = useSyncExternalStore(turnScope.subscribe, turnScope.current);
   useEffect(() => {
-    const previous = committedTranscriptScopeKeyRef.current;
-    if (previous === transcriptScopeKey) return;
-    committedTranscriptScopeKeyRef.current = transcriptScopeKey;
-    const currentTurnStart = transcriptTurnStartRef.current;
-    if (currentTurnStart?.scopeKey === transcriptScopeKey && currentTurnStart.preserveAcrossSessionChange) return;
-    setTranscriptTurnStart(undefined);
-  }, [setTranscriptTurnStart, transcriptScopeKey]);
+    turnScope.commitScope(transcriptScopeKey);
+  }, [turnScope, transcriptScopeKey]);
   const visibleTranscriptTurnStart = transcriptTurnStart?.scopeKey === transcriptScopeKey
     ? transcriptTurnStart
     : undefined;
   const [followUpQueue] = useState(() => new FollowUpQueueStore());
-  // Everything between the composer and the runtime. Created once: its ports
-  // are the stores, the new-thread controller and the host-update callbacks
-  // declared below, all of which keep their identity for the whole session.
+  // Renderer prompt contributions adapt to the already-constructed session.
+  // Host updates and delivery no longer call back through this controller.
   const [submission] = useState<SubmissionController>(() => {
     const ports: SubmissionControllerPorts = {
       client: () => clientRef.current,
@@ -237,29 +206,22 @@ export default function App() {
       registry,
       storage: clientStorage,
       preferences,
+      hostSession,
+      delivery: newThreadDelivery,
       notify: (message) => viewStore.setNotice(message),
       actions: () => actionsRef.current,
       newThread: {
         current: currentPendingNewThread,
         set: (draft) => setPendingNewThread(draft),
         update: (change) => setPendingNewThread((current) => change(current)),
-        requestId: () => newThreadRequestRef.current,
+        requestId: newThreadController.requestId,
         isCurrent: isCurrentNewThreadRequest,
         markAwaitingPromotion,
         promoteFromUserMessage,
       },
-      turn: { current: () => transcriptTurnStartRef.current, set: setTranscriptTurnStart },
-      // Host updates promote a delivery and a delivery applies host updates.
-      // These four must stay stable for the controller to keep reaching the
-      // current ones; every dependency they have is a store or a ref.
-      host: {
-        applyHostUpdate: (update) => applyHostUpdate(update),
-        applyActionResult: (result) => applyActionResult(result),
-        applyHostResult: (result, inheritDraft) => applyHostResult(result, inheritDraft),
-        prepareThreadDetail: (sessionId) => transcriptHistory.prepareActionDetail(sessionId),
-      },
+      turn: turnScope,
+      host: workbenchSession,
       enqueueFollowUp: (threadId, item) => followUpQueue.enqueue(threadId, item),
-      onRecoveriesChanged: () => setDeliveryVersion((version) => version + 1),
     };
     return new SubmissionController(ports);
   });
@@ -288,26 +250,6 @@ export default function App() {
     viewStore.setOptimisticMessages(reconciled);
   }, [activeDraftKey, optimisticMessages, pendingNewThread, transcriptUserRevision]);
 
-  const [workbenchStore] = useState(() => new WorkbenchStore({
-    view: viewStore,
-    threads: threadStore,
-    history: transcriptHistory,
-    scopes: composerScopeStore,
-    storage: clientStorage,
-    submission: {
-      notifyHostSnapshot: () => submission.notifyHostSnapshot(),
-      promoteReportedThread: (sessionId, message, requestId) => submission.promoteReportedThread(sessionId, message, requestId),
-    },
-    newThread: {
-      current: currentPendingNewThread,
-      requestId: () => newThreadRequestRef.current,
-      promoteFromHostReport,
-    },
-    turn: { current: () => transcriptTurnStartRef.current, set: setTranscriptTurnStart },
-    notify: (message) => viewStore.setNotice(message),
-  }, cachedBootstrap));
-  const { applySnapshot, applyThreadIndex, applyTranscriptPage, applyHostUpdate, applyActionResult } = workbenchStore;
-
   // Everything the workbench does to the thread on screen that is one host
   // call and a notice. It reads the client through a getter, so it survives
   // every reconnect the window does.
@@ -323,7 +265,7 @@ export default function App() {
   }));
   const { abort: abortThread, duplicateThread, requireHost, settleActiveThread } = threadCommands;
   const {
-    stage, setStage, activateStage, closeStage, pinStage, setStageView, closeActiveStageTab, cycleStageTab,
+    activateStage, closeStage, pinStage, setStageView, closeActiveStageTab, cycleStageTab,
     applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread,
   } = useThreadNavigation({
     ...(client ? { client } : {}),
@@ -332,9 +274,10 @@ export default function App() {
     threads: threadStore,
     history: transcriptHistory,
     scopes: composerScopeStore,
-    workbench: workbenchStore,
+    workbench: workbenchSession,
+    stage, setStage,
     requireHost,
-    detachPendingDelivery: submission.detachPendingDelivery,
+    detachPendingDelivery: newThreadDelivery.detachPendingDelivery,
     newThread: newThreadPorts,
     activeDraftKey: currentDraftKey,
     composerRef,
@@ -364,14 +307,14 @@ export default function App() {
   }, [runtimeExtensions, setNotice]);
 
   const hostEventTargets = useMemo<HostEventTargets>(() => ({
-    client, registry, threadStore, view: viewStore, submission, preferences,
+    client, registry, threadStore, view: viewStore, submission: newThreadDelivery, preferences,
     viewerHidden: () => document.hidden, currentDraftKey,
-    transcriptTurnStart: () => transcriptTurnStartRef.current,
-    setTranscriptTurnStart, applyHostUpdate, applyThreadIndex,
+    transcriptTurnStart: turnScope.current,
+    setTranscriptTurnStart: turnScope.set, applyHostUpdate, applyThreadIndex,
     syncDesktopExtensions, setUpdateReady, setNotice,
   }), [
     client, currentDraftKey, preferences, registry, setNotice,
-    submission, syncDesktopExtensions, threadStore, viewStore,
+    newThreadDelivery, syncDesktopExtensions, threadStore, turnScope, viewStore,
   ]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
@@ -385,7 +328,7 @@ export default function App() {
       void client.syncExtensionUi().catch(() => undefined);
       const bootstrapRequest = transcriptHistory.beginBootstrap();
       client.bootstrap().then((bootstrap) => {
-        workbenchStore.applyBootstrap(bootstrap, bootstrapRequest);
+        workbenchSession.applyBootstrap(bootstrap, bootstrapRequest);
       }).catch((error) => {
         if (transcriptHistory.isCurrentBootstrap(bootstrapRequest)) setNotice(errorMessage(error));
       });
@@ -395,7 +338,7 @@ export default function App() {
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
     return unsubscribe;
-  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, transcriptHistory, workbenchStore]);
+  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, transcriptHistory, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {
@@ -472,7 +415,8 @@ export default function App() {
     switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, closeActiveStageTab, cycleStageTab, openOverlay, closeOverlay,
-    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel,
+    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, preferences,
+    openModelPicker, openInstructions, focusStage,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
@@ -579,6 +523,7 @@ export default function App() {
   const startProjectPath = conversationSnapshot?.cwd ?? "";
   const startProjectName = pendingNewThread?.projectName ?? projects.find((project) => project.path === startProjectPath)?.name ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? startProjectPath;
   const layout = useMemo<WorkbenchLayout>(() => ({
+    controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, activateStageTab: activateStage, closeStageTab: closeStage,
@@ -612,6 +557,7 @@ export default function App() {
   ]);
 
   const composer = useMemo<WorkbenchComposer>(() => ({
+    controlRef: composerControlRef,
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
     submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue,

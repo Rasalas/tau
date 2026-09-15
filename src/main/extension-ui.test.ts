@@ -109,6 +109,54 @@ describe("createExtensionUiContext", () => {
     expect(result).toEqual({ answer: 42 });
   });
 
+  it("routes input and dynamic re-rendering for custom dialogs", async () => {
+    const { bridge } = makeBridge();
+    let capturedHandler: ((data: string) => void) | undefined;
+    const cleanup = vi.fn();
+    bridge.onCustomInput = vi.fn((_promptId, handler) => {
+      capturedHandler = handler;
+      return cleanup;
+    });
+    bridge.updateCustomPrompt = vi.fn();
+
+    let renderCount = 0;
+    const handleInput = vi.fn();
+    let tuiRef: any;
+
+    (bridge.ask as any).mockImplementationOnce(async (prompt: any) => {
+      expect(prompt.lines).toEqual(["render-1"]);
+      // Simulate input event from bridge
+      capturedHandler?.("test-keystroke");
+      // Trigger requestRender
+      tuiRef.requestRender();
+      return { value: "submit-data" };
+    });
+
+    const ui = createExtensionUiContext(bridge);
+    const factory = vi.fn((tui, _theme, _kb, done) => {
+      tuiRef = tui;
+      return {
+        render: () => {
+          renderCount++;
+          return [`render-${renderCount}`];
+        },
+        handleInput: (data: string) => {
+          handleInput(data);
+          if (data === "submit-data") {
+            done({ completed: true });
+          }
+        },
+      };
+    });
+
+    const result = await ui.custom(factory as any);
+    expect(handleInput).toHaveBeenCalledWith("test-keystroke");
+    expect(handleInput).toHaveBeenCalledWith("submit-data");
+    expect(bridge.updateCustomPrompt).toHaveBeenCalledWith(expect.any(String), ["render-2"]);
+    expect(cleanup).toHaveBeenCalled();
+    expect(result).toEqual({ completed: true });
+  });
+
   it("delegates autocomplete providers and theme operations to bridge", () => {
     const { bridge } = makeBridge();
     bridge.addAutocompleteProvider = vi.fn();
