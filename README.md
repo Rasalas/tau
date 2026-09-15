@@ -284,6 +284,10 @@ Tau's own source can be changed from inside Tau too. A clean installation carrie
 - commit and push from the review, with the message editable before it runs
 - composer-level model, thinking and access controls, plus a context dial wired to Pi's own usage and manual compaction
 - composer autocomplete for Pi skills, prompt templates, and extension commands; skills are searchable as `$skill` or `/skill`, and the selected runtime adapter resolves the shorthand to its supported invocation form when sent
+- `@` file mentions in the composer, expanded to the file's workspace-relative path the way Pi reads it
+- `!` shell commands from the composer, run through the login shell with their output styled in the transcript
+- prompt history that survives a restart, plus a search over it
+- open the workspace in the user's own editor (`Cmd/Ctrl+O`) or terminal (`Cmd/Ctrl+J`), and the draft prompt in the editor (`Cmd/Ctrl+E`)
 - `TAU_RUNTIME_ADAPTER=pi` (default) keeps the embedded Pi runtime; `TAU_RUNTIME_ADAPTER=claude-code` or `antigravity` makes that backend, which the bundled `tau.claude-code` or `tau.antigravity` host extension registers, the default for new threads and the thread opened at startup (a name without a registered extension stops the start with an error dialog). The composer's runtime chip and Settings → Defaults override the default per client.
 - model picker with provider tabs, cross-provider search and favourites
 - clickable workspace bar under the composer: switch between the checkout and its worktrees, create a worktree for a new branch, and pick a ref from a searchable list
@@ -343,6 +347,26 @@ Every contribution is stamped with the extension that supplied it, which is what
 
 See `src/renderer/extension-system.tsx` and the kits under `kits/` ([docs/CORE.md](docs/CORE.md) lists what each one owns). The left sidebar and right dock are empty core slots. Workspace Kit contributes the thread and project sidebar, local-folder and Git-clone sources, and Files. Review Kit contributes Changes and the diff review. Other bundled kits contribute Signals, thread title generation, and the runtime commands.
 
-## Deliberately missing
+## What is not done yet
 
-This prototype does not yet prove dynamic third-party package loading, extension UI dialogs, session tree navigation, editor/file mutation UI, mobile rendering or secure remote access. Those should only be built if the host/UI seam feels right in use.
+The prototype has proved the seams it was built to test: dynamic package loading, the extension
+permission and isolation model, a host reached over a socket, a browser client of that host, and the
+core/kit split into two artifacts. [PLAN.md](PLAN.md) records the completion check for each. What is
+still open:
+
+- **A week of real use.** Phase 1's own completion check — working across several projects without
+  reaching for the Pi TUI for a missing interaction — has not been run.
+- **Windows.** Every verification so far is macOS and Linux. The login-shell environment read
+  (`src/main/shell-environment.ts`) and the `findCommand` lookups it feeds assume a POSIX shell.
+- **Encryption for a host reached without a tunnel.** The host refuses a non-loopback bind unless
+  `TAU_HOST_INSECURE=1` says otherwise, and the token then travels in the clear; the supported path
+  is an SSH tunnel.
+- **Kits in a desktop window pointed at a remote host.** A `file://` page may not evaluate the
+  bundle the host sends as source, so that window loads no kits. The browser client, served over
+  HTTP, has no such problem.
+- **`kits/` in a repository of its own.** Two artifacts from one repository first; splitting them
+  is a governance decision with a second release train behind it and no forcing need yet.
+
+Not goals: a full code editor, a replacement for Git tooling, feature-for-feature parity with T3
+Code, or a new agent runtime. Those arrive through extensions when they improve agent work enough to
+justify their maintenance cost.
