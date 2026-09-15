@@ -659,10 +659,15 @@ function KeybindingsPage({ registry }: { registry: ExtensionRegistry }) {
   const conflicts = registry.getKeybindingConflicts();
 
   const query = filter.trim().toLowerCase();
+  // A keybindings.json names a Pi action by its own id. When Tau implements no
+  // command for it the chord is registered but nothing runs, so it belongs in
+  // its own list rather than under "active".
+  const implemented = keybindings.filter((binding) => commands.some((command) => command.id === binding.commandId));
+  const unimplemented = keybindings.filter((binding) => !commands.some((command) => command.id === binding.commandId));
 
   const filteredBindings = useMemo(() => {
-    if (!query) return keybindings;
-    return keybindings.filter((b) => {
+    if (!query) return implemented;
+    return implemented.filter((b) => {
       const cmd = commands.find((c) => c.id === b.commandId);
       const label = cmd?.label?.toLowerCase() ?? "";
       return (
@@ -673,7 +678,16 @@ function KeybindingsPage({ registry }: { registry: ExtensionRegistry }) {
         b.extensionName.toLowerCase().includes(query)
       );
     });
-  }, [keybindings, commands, query]);
+  }, [implemented, commands, query]);
+
+  const filteredUnimplemented = useMemo(() => {
+    if (!query) return unimplemented;
+    return unimplemented.filter((b) =>
+      b.commandId.toLowerCase().includes(query) ||
+      b.keys.toLowerCase().includes(query) ||
+      b.extensionName.toLowerCase().includes(query)
+    );
+  }, [unimplemented, query]);
 
   const filteredCommands = useMemo(() => {
     if (!query) return commands;
@@ -702,8 +716,7 @@ function KeybindingsPage({ registry }: { registry: ExtensionRegistry }) {
       <div className="settings-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: "460px" }}>
         <span>ACTIVE KEYBINDINGS ({filteredBindings.length})</span>
         <button
-          className="ghost"
-          style={{ fontSize: "11px", padding: "2px 6px", cursor: "pointer" }}
+          className="text-button"
           onClick={() => setShowAllCommands((v) => !v)}
         >
           {showAllCommands ? "Hide all command IDs" : "Show all command IDs"}
@@ -724,6 +737,29 @@ function KeybindingsPage({ registry }: { registry: ExtensionRegistry }) {
           <div className="keybinding-row"><span>No keybindings match &ldquo;{filter}&rdquo;.</span></div>
         ) : null}
       </div>
+
+      {filteredUnimplemented.length > 0 ? (
+        <>
+          <div className="settings-label" style={{ marginTop: "24px", maxWidth: "460px" }}>
+            NOT IMPLEMENTED BY TAU ({filteredUnimplemented.length})
+          </div>
+          <p className="settings-note">
+            <code>~/.pi/agent/keybindings.json</code> names these Pi actions, but Tau has no command for them, so
+            pressing the chord does nothing. The equivalent Pi terminal action has no workbench counterpart.
+          </p>
+          <div className="keybinding-list">
+            {filteredUnimplemented.map((binding) => (
+              <div className="keybinding-row" key={binding.keys} data-level="unimplemented">
+                <span>
+                  <strong>{binding.commandId}</strong>
+                  <small style={{ display: "block", opacity: 0.7, fontSize: "10.5px" }}>{binding.extensionName.toLowerCase()}</small>
+                </span>
+                <kbd>{binding.label}</kbd>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
 
       {conflicts.map((conflict) => (
         <div className="settings-note" key={`${conflict.keys}:${conflict.commandId}`}>
