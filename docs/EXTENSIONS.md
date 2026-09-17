@@ -77,6 +77,14 @@ which a copy bundled into an extension would no longer find. It needs
 either. Computer Use (`kits/computer-use/`) is the example: it loads
 `@amaster.ai/pi-computer-use` this way and registers what it gets back.
 
+`context.services.loadDependency(packageName)` is the same resolution for a
+dependency that is not a Pi extension: it answers with the module itself (a
+CommonJS module's `module.exports`, an ES module's namespace). It exists for
+native addons, which find their binary beside themselves only where npm put
+them — Terminal Kit (`kits/terminal/`) loads `node-pty` this way. It needs no
+permission, because it hands out nothing the host process did not already
+have, but a worker cannot reach it: a module is a live object.
+
 **A runtime Tau does not own** — a Pi TUI that already holds the session, which
 Tau attaches to — cannot be handed a closure. That case is the manifest's `pi`
 entry: a module default-exporting `(pi: ExtensionAPI, bridge: PiKitBridge) =>
@@ -437,7 +445,7 @@ naming the one a client gets when it names none.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.6.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.7.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only
@@ -704,7 +712,7 @@ nothing that hands out a live object. From
 | Available in a worker | Not available — declare `"isolation": "in-process"` instead |
 |---|---|
 | `cwd`, `log`, `safeMode` | `attachedRuntime` (a live Pi terminal) |
-| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension` |
+| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension`, `loadDependency` |
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |

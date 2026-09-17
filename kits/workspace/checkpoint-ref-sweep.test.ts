@@ -174,6 +174,7 @@ function services(cwd: string, sessionsDir: string, threads: readonly HostThread
     pinTranscriptEntries: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
     loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
+    loadDependency: async () => { throw new Error("no dependencies in this test"); },
     decorateUiPrompt: () => () => undefined,
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,

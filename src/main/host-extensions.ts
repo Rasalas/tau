@@ -424,6 +424,12 @@ export interface HostExtensionServices {
    * kit's bundle, so the host loads it and the kit registers what it gets back.
    */
   loadRuntimeExtension(packageName: string): Promise<RuntimeExtensionFactory>;
+  /**
+   * A module from Tau's own npm dependencies, resolved from the host's modules
+   * for the same reason: a native addon finds its binary beside itself only
+   * where npm put it. A CommonJS module answers with its `module.exports`.
+   */
+  loadDependency(packageName: string): Promise<unknown>;
   /** Lets an extension annotate Pi dialogs before the workbench sees them. */
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** What the user lets external runtimes do; `undefined` restores full access. */

@@ -142,6 +142,7 @@ function harness() {
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: (name, factory, extensionOptions) => { runtimeExtensions.push({ name, factory, ...extensionOptions }); return () => undefined; },
     loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
+    loadDependency: async () => { throw new Error("no dependencies in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,

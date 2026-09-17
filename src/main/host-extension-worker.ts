@@ -99,6 +99,7 @@ const UNAVAILABLE = new Set([
   "registerRuntimeBackend",
   "registerRuntimeExtension",
   "loadRuntimeExtension",
+  "loadDependency",
   "decorateUiPrompt",
   "setPermissionLevel",
   "presentUi",

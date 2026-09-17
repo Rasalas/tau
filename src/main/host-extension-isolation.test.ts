@@ -151,6 +151,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     decorateUiPrompt: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
     loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
+    loadDependency: async () => { throw new Error("no dependencies in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
