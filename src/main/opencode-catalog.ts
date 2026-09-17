@@ -1,4 +1,4 @@
-import { createProvider, type Api, type Model, type Provider } from "@earendil-works/pi-ai";
+import type { Api, Model, Provider } from "@earendil-works/pi-ai";
 
 const SDK_APIS: Record<string, Api> = {
   "@ai-sdk/anthropic": "anthropic-messages",
@@ -55,13 +55,21 @@ function catalogModels(provider: Provider, value: unknown): Model<Api>[] {
   });
 }
 
-export function withOpenCodeCatalog(provider: Provider, load: (signal: AbortSignal) => Promise<unknown>): Provider {
-  const catalog = createProvider({
-    id: provider.id,
-    auth: provider.auth,
-    models: provider.getModels(),
-    api: provider,
-    fetchModels: async ({ signal }) => catalogModels(provider, await load(signal)),
-  });
-  return { ...provider, getModels: catalog.getModels, refreshModels: catalog.refreshModels };
+/**
+ * The provider with models.dev's entries added to its own list, as plain
+ * models: nothing to fetch later, so a runtime publishes them the moment the
+ * provider is registered. Without a catalog the provider is returned as is.
+ * A catalog that does not name the provider, or is malformed, adds nothing.
+ */
+export function withOpenCodeCatalog(provider: Provider, catalog: unknown): Provider {
+  if (catalog === undefined) return provider;
+  let extra: Model<Api>[];
+  try {
+    extra = catalogModels(provider, catalog);
+  } catch {
+    return provider;
+  }
+  if (extra.length === 0) return provider;
+  const models = [...provider.getModels(), ...extra];
+  return { ...provider, getModels: () => models };
 }

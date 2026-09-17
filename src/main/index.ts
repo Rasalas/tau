@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
 import { PiHost } from "./pi-host.js";
+import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
@@ -289,6 +290,8 @@ function watchHostStart<T>(ready: Promise<T>): Promise<T> {
 function startLocalHost(): void {
   const startup = resolveStartupWorkspace(requestedWorkspace, projectHistory.list());
   if (startup.missing) hostLog.warn("workspace.missing", { requested: startup.missing, fallback: startup.cwd });
+  // Off the critical path: the first thread's runtime finds the models.dev catalog done, later ones share it.
+  primeOpenCodeCatalog();
   host = new PiHost(startup.cwd, publish, projectHistory, safeMode, true, hostOptions);
   hostReady = watchHostStart(host.start());
 }

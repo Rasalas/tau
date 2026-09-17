@@ -25,9 +25,9 @@ describe("OpenCode catalog", () => {
       credentials: new InMemoryCredentialStore(),
       modelsPath: null, refreshOnCreate: false,
     });
-    runtime.registerNativeProvider(withOpenCodeCatalog(opencodeGoProvider(), async () => catalog));
+    runtime.registerNativeProvider(withOpenCodeCatalog(opencodeGoProvider(), catalog));
     await runtime.setRuntimeApiKey("opencode-go", "test-key");
-    await runtime.refresh({ providers: ["opencode-go"], allowNetwork: true });
+    await runtime.refresh({ providers: ["opencode-go"], allowNetwork: false });
     expect(await runtime.getAvailable("opencode-go")).toContainEqual(expect.objectContaining({
       id: "new-model", api: "anthropic-messages", baseUrl: "https://opencode.ai/zen/go",
       contextWindow: 262144, maxTokens: 131072, input: ["text", "image"],

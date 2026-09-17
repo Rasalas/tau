@@ -6,10 +6,11 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { opencodeProvider } from "@earendil-works/pi-ai/providers/opencode";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-import { createPiModelRuntime } from "./pi-model-runtime.js";
+import { createPiModelRuntime, resetOpenCodeCatalogCache } from "./pi-model-runtime.js";
 
 beforeEach(() => {
   vi.stubEnv("PI_OFFLINE", undefined);
+  resetOpenCodeCatalogCache();
 });
 
 afterEach(() => {
@@ -42,6 +43,8 @@ const CATALOG_GPT = {
 
 describe("createPiModelRuntime", () => {
   it("refreshes remote model catalogs while retaining Pi's persistent cache", async () => {
+    // No catalog this time: the runtime still refreshes with network, only without models.dev's additions.
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("no network in this test"); }));
     const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false });
     const create = vi.spyOn(ModelRuntime, "create").mockResolvedValue(runtime);
     const refresh = vi.spyOn(runtime, "refresh").mockResolvedValue({ aborted: false, errors: new Map() });

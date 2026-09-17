@@ -20,6 +20,7 @@ import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { PiHost } from "./pi-host.js";
+import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
 
 /**
@@ -67,6 +68,7 @@ async function main(): Promise<void> {
   const methods = createHostMethods({
     bootstrap: async () => {
       if (!host) {
+        primeOpenCodeCatalog();
         host = new PiHost(workspace, publish, projectHistory, safeMode, false, {
           hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
           hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
