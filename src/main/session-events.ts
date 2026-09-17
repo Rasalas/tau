@@ -2,6 +2,8 @@ import type { HostEvent, HostSnapshot, UiMessage, UiToolRun } from "../shared/co
 import { HOST_PROTOCOL_VERSION, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import { withClientTurnIdentity } from "./client-turn-ledger.js";
+import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
+import { knownSkillNames } from "../shared/skill-envelope.js";
 import type { MessageMappingOptions } from "./host-messages.js";
 import { boundedToolOutput, mapMessage, nextVisibleMessageId, resultText } from "./host-messages.js";
 import { assistantAnchorForBranch } from "./session-entries.js";
@@ -155,10 +157,12 @@ function finishMessage(event: any, thread: LiveTurnState, sessionId: string, ser
   }
   if (event.message.role !== "user") return;
   const decorated = isThreadRuntime(thread) ? services.decorateUserEvent(thread, event.message) : event.message;
-  const message = mapMessage(decorated, 0, services.messageMappingOptions(thread));
+  const mapping = services.messageMappingOptions(thread);
+  const message = mapMessage(decorated, 0, mapping);
   if (!message) return;
+  const fingerprint = clientMessageFingerprint(event.message, knownSkillNames(mapping.skillCommands ?? []));
   const identity = services.clientTurns.identityForRaw(event.message)
-    ?? services.clientTurns.claim(sessionId, message, event.message);
+    ?? services.clientTurns.claim(sessionId, { ...message, fingerprint }, event.message);
   if (identity && event.message && typeof event.message === "object") {
     const raw = event.message as Record<string, unknown>;
     raw.tauClientTurnId = identity.clientTurnId;

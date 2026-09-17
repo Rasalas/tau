@@ -43,6 +43,30 @@ describe("ClientTurnLedger", () => {
     }))).toEqual(first);
   });
 
+  it("claims the pending turn whose fingerprint matches before an older one", () => {
+    const ledger = new ClientTurnLedger();
+    const followUp = { clientTurnId: "turn-follow-up", clientMessageId: "message-follow-up" };
+    const steer = { clientTurnId: "turn-steer", clientMessageId: "message-steer" };
+    ledger.enqueue("session", followUp, "fp-follow-up");
+    ledger.enqueue("session", steer, "fp-steer");
+
+    expect(ledger.claim("session", { ...userMessage({ text: "steer" }), fingerprint: "fp-steer" })).toEqual(steer);
+    expect(ledger.claim("session", { ...userMessage({ text: "follow-up" }), fingerprint: "fp-follow-up" })).toEqual(followUp);
+    expect(ledger.pendingSize).toBe(0);
+  });
+
+  it("prefers a turn without a fingerprint over one with a different fingerprint, then the oldest", () => {
+    const ledger = new ClientTurnLedger();
+    const other = { clientTurnId: "turn-other", clientMessageId: "message-other" };
+    const legacy = { clientTurnId: "turn-legacy", clientMessageId: "message-legacy" };
+    ledger.enqueue("session", other, "fp-other");
+    ledger.enqueue("session", legacy);
+
+    expect(ledger.claim("session", { ...userMessage({ text: "rewritten", timestamp: 1 }), fingerprint: "fp-rewritten" })).toEqual(legacy);
+    expect(ledger.claim("session", { ...userMessage({ text: "rewritten again", timestamp: 2 }), fingerprint: "fp-rewritten" })).toEqual(other);
+    expect(ledger.pendingSize).toBe(0);
+  });
+
   it("consumes a new-session identity before later session-scoped sends", () => {
     const ledger = new ClientTurnLedger();
     const draft = { clientTurnId: "turn-draft", clientMessageId: "message-draft" };

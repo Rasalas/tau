@@ -88,7 +88,10 @@ export class ClientMessageTracker {
     const value = message as { role?: string; clientMessageId?: unknown };
     if (value.role !== "user") return;
     const mapped = mapMessage(message, 0, this.mapping(thread));
-    const identity = sessionId && mapped ? this.clientTurns.claim(sessionId, mapped, message) : undefined;
+    // The same digest the request marker carries, so the claim can tell two
+    // queued prompts apart instead of consuming the oldest one.
+    const fingerprint = thread ? clientMessageFingerprint(message, this.skillNames(thread)) : undefined;
+    const identity = sessionId && mapped ? this.clientTurns.claim(sessionId, { ...mapped, fingerprint }, message) : undefined;
     if (identity) {
       const raw = message as Record<string, unknown>;
       raw.tauClientTurnId = identity.clientTurnId;

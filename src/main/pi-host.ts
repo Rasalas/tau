@@ -1023,7 +1023,7 @@ export class PiHost {
           const rebind = promptRebindForThread(prepared, owner.threadId);
           const ownedPrepared = rebind ? await owner.backend.preparePrompt(initialPrompt ?? "", rebind.skill) : prepared;
           if (ownedPrepared) this.prompts.assertBound(owner, initialPrompt ?? "", ownedPrepared, this.projection.composerCommands(owner));
-          if (identity) this.clientTurns.enqueueAny(identity);
+          if (identity) this.clientTurns.enqueueAny(identity, ownedPrepared?.sourceFingerprint);
           const outcome = await runtimeThreads.create({
             requestId: ownedRequestId,
             projectPath: this.cwd,
@@ -1457,7 +1457,7 @@ export class PiHost {
     };
     this.log("prompt.accepted", `${prompt.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
     try {
-      if (identity) this.clientTurns.enqueue(thread.threadId, identity);
+      if (identity) this.clientTurns.enqueue(thread.threadId, identity, resolvedPrepared.sourceFingerprint);
       markerActive = this.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
       const run = thread.backend.prompt({
         text,

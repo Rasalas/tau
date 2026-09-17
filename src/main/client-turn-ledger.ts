@@ -2,12 +2,13 @@ import type { ClientTurnIdentity, UiMessage } from "../shared/contracts.js";
 import {
   ClientTurnLedgerStore,
   type ClientTurnLedgerObservation,
+  type ClientTurnLedgerSelection,
 } from "../shared/client-turn-ledger.js";
 import { clientIdentityMatches, resolveClientTurnIdentity, hasExplicitClientIdentity } from "../shared/transcript-turn.js";
 
 type ClientMessageObservation = Partial<ClientTurnIdentity>
   & Pick<UiMessage, "text" | "timestamp" | "sourceEntryId">
-  & { role?: UiMessage["role"] };
+  & { role?: UiMessage["role"]; fingerprint?: string };
 
 /** Keep correlation state bounded even when a host is left attached for days. */
 export const CLIENT_TURN_PENDING_LIMIT = 64;
@@ -33,14 +34,15 @@ export class ClientTurnLedger {
     rememberedTotal: CLIENT_TURN_TOTAL_REMEMBERED_LIMIT,
   });
 
-  enqueue(sessionId: string | undefined, identity: ClientTurnIdentity): void {
+  /** The fingerprint is the one written into the request marker: the same text normalization on both sides. */
+  enqueue(sessionId: string | undefined, identity: ClientTurnIdentity, fingerprint?: string): void {
     if (!sessionId) return;
-    this.store.enqueue(sessionId, identity);
+    this.store.enqueue(sessionId, identity, fingerprint ? { fingerprint } : {});
   }
 
   /** Used by a bridge `new_session` command whose resulting session ID is not known yet. */
-  enqueueAny(identity: ClientTurnIdentity): void {
-    this.store.enqueueAny(identity);
+  enqueueAny(identity: ClientTurnIdentity, fingerprint?: string): void {
+    this.store.enqueueAny(identity, fingerprint ? { fingerprint } : {});
   }
 
   cancel(sessionId: string | undefined, identity: ClientTurnIdentity): void {
@@ -49,8 +51,10 @@ export class ClientTurnLedger {
 
   /**
    * Claims a pending identity for an emitted Pi user message. Explicit bridge
-   * metadata is matched first; local AgentSession delivery is serialized, so
-   * FIFO is the safe compatibility fallback and never compares expanded text.
+   * metadata is matched first. Otherwise the message's text fingerprint picks
+   * the pending turn: Pi delivers a steer before an earlier follow-up, so queue
+   * order alone would hand the steer the follow-up's identity. Only turns that
+   * were enqueued without a fingerprint still fall back to FIFO.
    */
   claim(
     sessionId: string | undefined,
@@ -67,7 +71,7 @@ export class ClientTurnLedger {
 
     const selected = explicit
       ? this.store.findPending(sessionId, (entry) => clientIdentityMatches(observation, entry.identity), { preferAny: true })
-      : this.store.findPending(sessionId, () => true, { preferAny: true });
+      : this.findPendingByFingerprint(sessionId, observation.fingerprint);
     if (selected) {
       this.store.removePending(selected);
       return this.rememberClaim(sessionId, observation, selected.entry.identity, rawMessage);
@@ -79,6 +83,19 @@ export class ClientTurnLedger {
     const identity = this.identityForMessage(sessionId, observation);
     if (identity) this.remember(sessionId, observation, identity, rawMessage);
     return identity;
+  }
+
+  /**
+   * The exact fingerprint wins, then a turn enqueued without one. A message
+   * whose text matches no pending turn still takes the oldest: Pi templates
+   * and extension input hooks rewrite text before it is persisted.
+   */
+  private findPendingByFingerprint(sessionId: string, fingerprint: string | undefined): ClientTurnLedgerSelection | undefined {
+    const any = () => this.store.findPending(sessionId, () => true, { preferAny: true });
+    if (!fingerprint) return any();
+    return this.store.findPending(sessionId, (entry) => entry.fingerprint === fingerprint, { preferAny: true })
+      ?? this.store.findPending(sessionId, (entry) => entry.fingerprint === undefined, { preferAny: true })
+      ?? any();
   }
 
   private rememberClaim(

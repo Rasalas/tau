@@ -61,10 +61,10 @@ export class TurnDelivery {
         await this.toRuntime(thread, text, attachments, delivery, identity, prepared);
         return;
       }
-      if (identity) this.port.clientTurns.enqueue(thread.threadId, identity);
       this.port.prompts.assertImageInput(thread, attachments);
       const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
       this.port.prompts.assertBound(thread, text, resolvedPrepared, this.port.projection.composerCommands(thread));
+      if (identity) this.port.clientTurns.enqueue(thread.threadId, identity, resolvedPrepared.sourceFingerprint);
       if (!this.port.projection.isExtensionCommand(thread, resolvedPrepared.runtimeText)) {
         preparedTurnId = randomUUID();
         this.port.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: true, expectsInput: false });
@@ -122,7 +122,7 @@ export class TurnDelivery {
     if (observed) this.port.turnObservers.accepted(thread.threadId, turnId, { deferBefore: wasStreaming, ...(delivery !== "prompt" ? { expectsInput: false } : {}) });
     try {
       if (ownTurn && !wasStreaming) await this.port.turnObservers.prepare(thread.threadId, turnId);
-      if (identity) this.port.clientTurns.enqueue(thread.threadId, identity);
+      if (identity) this.port.clientTurns.enqueue(thread.threadId, identity, prepared?.sourceFingerprint);
       await thread.backend.prompt({
         text,
         delivery,
