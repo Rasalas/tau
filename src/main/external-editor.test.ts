@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTerminalEditor, resolveEditorCommand } from "./external-editor.js";
+import { editorCommandArgv, isTerminalEditor, resolveEditorCommand } from "./external-editor.js";
 
 describe("external-editor", () => {
   describe("resolveEditorCommand", () => {
@@ -29,6 +29,46 @@ describe("external-editor", () => {
       expect(resolveEditorCommand({ platform: "win32", env: {} })).toBe("notepad");
       expect(resolveEditorCommand({ platform: "darwin", env: {} })).toBe("nano");
       expect(resolveEditorCommand({ platform: "linux", env: {} })).toBe("nano");
+    });
+  });
+
+  describe("editorCommandArgv", () => {
+    it("keeps a plain binary as a single argv entry", () => {
+      expect(editorCommandArgv("code")).toEqual(["code"]);
+      expect(editorCommandArgv("/usr/local/bin/mate")).toEqual(["/usr/local/bin/mate"]);
+    });
+
+    it("preserves a quoted binary path containing spaces", () => {
+      expect(editorCommandArgv('"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"')).toEqual([
+        "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+      ]);
+      expect(editorCommandArgv("'/Applications/My Editor/bin/editor'")).toEqual(["/Applications/My Editor/bin/editor"]);
+      expect(editorCommandArgv("/Applications/My\\ Editor/bin/editor")).toEqual(["/Applications/My Editor/bin/editor"]);
+    });
+
+    it("splits command arguments respecting quotes and escapes", () => {
+      expect(editorCommandArgv("code -w")).toEqual(["code", "-w"]);
+      expect(editorCommandArgv("/usr/local/bin/mate -w")).toEqual(["/usr/local/bin/mate", "-w"]);
+      expect(editorCommandArgv('code --wait --profile "My Profile"')).toEqual(["code", "--wait", "--profile", "My Profile"]);
+      expect(editorCommandArgv("code --title 'a b' --empty ''")).toEqual(["code", "--title", "a b", "--empty", ""]);
+    });
+
+    it("falls back to a shell for metacharacter commands", () => {
+      for (const command of [
+        "code > /tmp/log",
+        "code | tee /tmp/log",
+        "code; true",
+        "$(which code) -w",
+        "`which code` -w",
+        "code && true",
+      ]) {
+        expect(editorCommandArgv(command)).toBeNull();
+      }
+    });
+
+    it("falls back to a shell for malformed quoting", () => {
+      expect(editorCommandArgv('"unterminated')).toBeNull();
+      expect(editorCommandArgv("code \\")).toBeNull();
     });
   });
 

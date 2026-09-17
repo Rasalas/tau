@@ -425,6 +425,7 @@ function ExtensionPage({
               )}
             </>
           ) : null}
+          <p className="settings-note">process access only governs subprocess reporting and command lookup through noteSubprocess/findCommand, so this package can still spawn processes without it.</p>
           <div className="extension-grant-actions">
             <button type="button" className="grant-allow" onClick={() => void handleGrant(true)}>Allow</button>
             <button type="button" className="grant-deny" onClick={() => void handleGrant(false)}>Deny</button>

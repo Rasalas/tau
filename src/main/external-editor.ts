@@ -50,9 +50,75 @@ export function resolveEditorCommand(options: ExternalEditorOptions = {}): strin
 
 /** Determines whether the given editor command is a terminal-based editor. */
 export function isTerminalEditor(command: string): boolean {
-  const binary = command.trim().split(/\s+/)[0];
+  const binary = editorCommandArgv(command)?.[0] ?? command.trim().split(/\s+/)[0];
   const baseName = binary.replace(/^.*[\\/]/, "");
   return CLI_EDITORS.has(baseName);
+}
+
+/**
+ * Characters that only a shell can interpret. When present, the command line is
+ * passed to the shell verbatim as a last resort; otherwise it is parsed into
+ * argv and spawned without a shell.
+ */
+const SHELL_METACHARACTERS = /[>|;`&$(){}[\]*?~\n]/;
+
+/**
+ * Splits a command line into argv, respecting single quotes, double quotes, and
+ * backslash escapes. Returns null if quotes are unterminated.
+ */
+export function parseCommandArgv(command: string): string[] | null {
+  const argv: string[] = [];
+  let current = "";
+  let started = false;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (const char of command.trim()) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      started = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (started) {
+        argv.push(current);
+        current = "";
+        started = false;
+      }
+      continue;
+    }
+    current += char;
+    started = true;
+  }
+
+  if (quote || escaped) return null;
+  if (started) argv.push(current);
+  return argv;
+}
+
+/** Returns argv for the command line, or null if it needs a shell to interpret. */
+export function editorCommandArgv(command: string): string[] | null {
+  if (SHELL_METACHARACTERS.test(command)) return null;
+  const argv = parseCommandArgv(command);
+  return argv && argv.length > 0 ? argv : null;
 }
 
 /**
@@ -79,10 +145,11 @@ export async function openExternalEditor(options: ExternalEditorOptions = {}): P
 
     if (isCli && platform === "darwin") {
       // On macOS, if it's a CLI editor, launch Terminal.app running the editor
+      const argv = editorCommandArgv(command);
       const scriptPath = join(tempDir, `run-${randomId}.sh`);
       const scriptContent = [
         "#!/bin/sh",
-        `${command} "${tempFile}"`,
+        argv ? `${JSON.stringify(argv[0])} ${argv.slice(1).map((a) => JSON.stringify(a)).join(" ")} "${tempFile}"`.trim() : `${command} "${tempFile}"`,
         `touch "${doneFile}"`,
         "exit 0",
       ].join("\n");
@@ -110,12 +177,11 @@ export async function openExternalEditor(options: ExternalEditorOptions = {}): P
       try { await unlink(doneFile); } catch {}
     } else {
       // Spawn directly (GUI editor with --wait or standard editor process)
+      const argv = editorCommandArgv(command);
       await new Promise<void>((resolve, reject) => {
-        const child = spawn(command, [tempFile], {
-          shell: true,
-          env,
-          stdio: "inherit",
-        });
+        const child = argv
+          ? spawn(argv[0], [...argv.slice(1), tempFile], { env, stdio: "inherit" })
+          : spawn(command, [tempFile], { shell: true, env, stdio: "inherit" });
         child.on("error", reject);
         child.on("close", (code) => {
           if (code === 0) resolve();

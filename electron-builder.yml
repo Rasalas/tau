@@ -28,6 +28,7 @@ files:
   # The isolated dev instance (`npm run dev:instance`) keeps its userData here.
   - "!.tau-dev/**"
   - "!benchmarks"
+  - "!dist-web"
   - "!docs"
   - "!examples"
   # Kit sources; the app loads `dist-kits/`, which the default `**/*` picks up
@@ -39,11 +40,14 @@ files:
   - "!src"
   - "!*.md"
   - "!index.html"
+  - "!index.web.html"
+  - "!Makefile"
   - "!electron-builder.yml"
   - "!t3.json"
   - "!.oxlintrc.json"
   - "!tsconfig*.json"
   - "!vite.config.ts"
+  - "!vite.web.config.ts"
   - "!vitest.config.ts"
   - "!**/*.test.js"
   - "!**/*.test.js.map"
