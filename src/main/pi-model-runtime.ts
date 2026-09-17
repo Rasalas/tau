@@ -5,9 +5,16 @@ import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go"
 import { withOpenCodeCatalog } from "./opencode-catalog.js";
 
 const MODEL_REFRESH_TIMEOUT_MS = 5_000;
+/** How long the stray internal refreshes get to settle before the awaited one runs. */
+const SETTLE_BUDGET_MS = 2_000;
+
+export interface PiModelRuntimeOptions {
+  /** Upper bound for the catalog refresh at start-up; a slow CI host needs more than a laptop. */
+  refreshTimeoutMs?: number;
+}
 
 /** Create Pi's model runtime with bounded remote catalog refresh and persistent cache reuse. */
-export async function createPiModelRuntime(agentDir: string): Promise<ModelRuntime> {
+export async function createPiModelRuntime(agentDir: string, options: PiModelRuntimeOptions = {}): Promise<ModelRuntime> {
   const runtime = await ModelRuntime.create({
     authPath: join(agentDir, "auth.json"),
     modelsPath: join(agentDir, "models.json"),
@@ -23,7 +30,7 @@ export async function createPiModelRuntime(agentDir: string): Promise<ModelRunti
   }
   await settleRuntimeRefreshes(runtime);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MODEL_REFRESH_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), options.refreshTimeoutMs ?? MODEL_REFRESH_TIMEOUT_MS);
   try {
     await runtime.refresh({ allowNetwork: process.env.PI_OFFLINE === undefined, signal: controller.signal });
   } finally {
@@ -38,13 +45,16 @@ export async function createPiModelRuntime(agentDir: string): Promise<ModelRunti
  * last refresh's catalog publication can be lost. Drain those before the awaited refresh.
  */
 async function settleRuntimeRefreshes(runtime: ModelRuntime): Promise<void> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  // A time budget, not an attempt count: ten polls of 25 ms were not enough
+  // on a loaded CI host, where the refreshes take longer to come to rest.
+  const deadline = Date.now() + SETTLE_BUDGET_MS;
+  do {
     const before = await refreshSequences(runtime);
     await Promise.resolve();
     const after = await refreshSequences(runtime);
     if (sameSequences(before, after)) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+  } while (Date.now() < deadline);
 }
 
 async function refreshSequences(runtime: ModelRuntime): Promise<string> {

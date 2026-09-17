@@ -15,7 +15,8 @@ concurrency:
 jobs:
   fast:
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tau-linux' }}
-    timeout-minutes: 15
+    # The self-hosted Linux runner takes 7–15 minutes for the test suite alone.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -90,7 +90,7 @@ describe("createPiModelRuntime", () => {
         vi.fn(async () => new Response(JSON.stringify(catalog), { headers: { "content-type": "application/json" } })),
       );
 
-      const runtime = await createPiModelRuntime(agentDir);
+      const runtime = await createPiModelRuntime(agentDir, { refreshTimeoutMs: 60_000 });
 
       const model = runtime.getModel("opencode-go", "union-alpha");
       expect(model).toBeDefined();
@@ -118,7 +118,7 @@ describe("createPiModelRuntime", () => {
       vi.fn(async () => new Response(JSON.stringify(modelsDev), { headers: { "content-type": "application/json" } })),
     );
 
-    const result = await createPiModelRuntime("/agent");
+    const result = await createPiModelRuntime("/agent", { refreshTimeoutMs: 60_000 });
 
     expect(result).toBe(runtime);
     expect(create).toHaveBeenCalledWith({
