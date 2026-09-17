@@ -741,8 +741,22 @@ interception. Both paths are known and documented; the isolation the worker
 provides is crash containment and heap caps, not a sandbox against hostile
 code.
 
-`child_process` is not on the blocklist: the `process` grant gates the host's
-bookkeeping API (`noteSubprocess`, `findCommand`), not the spawn itself.
+### The process permission does not gate spawning
+
+`process` gates only `noteSubprocess` and `findCommand`, through
+`guardedServices` for both in-process calls and worker RPC. It does not gate
+`child_process` in either mode. Granting it does not automatically track
+subprocesses; the extension must call `noteSubprocess` itself.
+
+We retain that bookkeeping-only contract. A service wrapper cannot intercept
+Node imports. Adding `child_process` to the worker's `Module._load` blocklist
+would still allow dynamic imports and nested workers to bypass it, while an
+in-process package shares the host's Node runtime. Such a hook would not meet
+a promise that the permission controls spawning. Enforcing that promise
+requires a separate execution boundary, not another member of the facade.
+[ADR 0018](adr/0018-sandboxed-host-extensions.md) discusses those alternatives;
+this decision does not ratify its broader sandbox proposal. Install only host
+packages whose code you trust.
 
 An `in-process` package is a different story. It runs with everything the host
 process can reach, so `network` there is purely advisory — and even in a worker

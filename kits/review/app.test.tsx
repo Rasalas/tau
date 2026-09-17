@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiFileDiff, UiWorkspaceChanges } from "tau";
+import type { DesktopExtension, UiFileDiff, UiWorkspaceChanges } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { workspaceExtension } from "../workspace/desktop.js";
 import { reviewExtension } from "./desktop.js";
-import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_STORE_SERVICE, type WorkspaceStoreApi } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -72,6 +72,27 @@ function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, revi
  * writes belong to Review Kit, the Changes panel to Workspace Kit.
  */
 describe("Review Kit in the workbench", () => {
+  it("lets a third package open Review through the declared store service", async () => {
+    const example: DesktopExtension = {
+      id: "example.review-consumer",
+      name: "Review consumer",
+      activate(context) {
+        return context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => context.registerStatusItem({
+          id: "example.review",
+          align: "left",
+          profiles: ["desktop"],
+          Component: () => <button onClick={() => store.openReview("src/a.ts")}>Review from example</button>,
+        }));
+      },
+    };
+    const suggest = vi.fn(async () => ({ message: "fix: review from another package" }));
+    renderApp(workbench({}, suggest), { extensions: [example, reviewExtension, workspaceExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review from example" }));
+    await waitFor(() => expect(document.querySelector(".diff-code")?.textContent).toContain("const reviewed = true;"));
+    expect(await screen.findByRole("button", { name: "fix: review from another package" })).toBeTruthy();
+  });
+
   it("commits the worktree from the changes panel", async () => {
     const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: true, detail: "Committed and pushed." }));
     renderApp(workbench({ commit }), { extensions: [workspaceExtension, reviewExtension] });

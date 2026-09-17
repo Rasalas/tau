@@ -1,19 +1,32 @@
-/**
- * Review Kit's contract between its host entry and its desktop entry, and the
- * Workspace Kit facts it stands on. The desktop side gathers the diff and
- * picks the model; the host side asks the model for a commit message.
- */
-export const REVIEW_HOST_EXTENSION_ID = "tau.review";
+import type { UiEditor, UiFileDiff, UiWorkspaceChanges, WorkbenchActions } from "tau";
 
-// Review reads the worktree Workspace Kit owns: its host entry answers with
-// changes and diffs, its store arrives as a service, and it opens the review
-// overlay by this id, so the id is that kit's to name.
-export {
-  WORKSPACE_CHANGES_PANEL,
-  WORKSPACE_HOST_EXTENSION_ID,
-  WORKSPACE_REVIEW_OVERLAY as REVIEW_OVERLAY,
-  WORKSPACE_STORE_SERVICE,
-  type WorkspaceStoreApi,
-} from "../workspace/protocol.js";
+export const REVIEW_HOST_EXTENSION_ID = "tau.review";
+export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
+export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
+export const WORKSPACE_CHANGES_PANEL = "changes";
+export const REVIEW_OVERLAY = "review.workspace";
+
+export interface WorkspaceStoreApi {
+  getSnapshot(): {
+    cwd?: string;
+    workspaceId?: string;
+    changes: UiWorkspaceChanges;
+    committing: boolean;
+    review?: { path?: string; primaryPush: boolean };
+  };
+  subscribe(listener: () => void): () => void;
+  activeEditor(): UiEditor | undefined;
+  openReview(path?: string, pushPrimary?: boolean): void;
+  selectReviewPath(path: string): void;
+  closeReview(): void;
+  commit(message: string, push: boolean): Promise<boolean>;
+  openInEditor(relPath?: string, editorOverride?: string): Promise<void>;
+  suggestCommitMessage(changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]): Promise<string | undefined>;
+  registerCommitMessageSuggester(suggester: (request: {
+    changes: UiWorkspaceChanges;
+    diffs: readonly UiFileDiff[];
+    actions: WorkbenchActions;
+  }) => Promise<string>): () => void;
+}
 
 export type CommitMessageStyle = "conventional" | "gitmoji" | "plain";

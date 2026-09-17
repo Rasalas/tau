@@ -68,6 +68,13 @@ describe("kits boundary", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("Review consumes Workspace contracts without importing its files", () => {
+    const offenders = sourceFiles("kits/review")
+      .filter((path) => !isTest(path))
+      .filter((path) => specifiers(path).some((specifier) => specifier.includes("workspace/")));
+    expect(offenders).toEqual([]);
+  });
+
   it("a kit ships no test harness in the code it loads", () => {
     const offenders = sourceFiles("kits")
       .filter((path) => !isTest(path))
@@ -94,6 +101,8 @@ describe("kits boundary", () => {
     expect(distribution.version).toMatch(/^\d+\.\d+\.\d+$/u);
     expect(distribution.engines?.api).toBeDefined();
     expect(satisfiesRange(EXTENSION_API_VERSION, distribution.engines?.api as string)).toBe(true);
+    expect(distribution.engines?.api).toMatch(/^\^\d+\.\d+\.\d+$/u);
+    const minimum = distribution.engines?.api?.slice(1) ?? "";
     // A kit may keep an older additive API range, but every shipped kit must
     // accept the current host API. Kits that use a new seam raise their own
     // minimum (Review and Workspace use ^1.6.0).
@@ -101,6 +110,7 @@ describe("kits boundary", () => {
       const manifest = JSON.parse(readFileSync(join("kits", name, "tau-extension.json"), "utf8")) as { engines?: { api?: string } };
       expect(manifest.engines?.api, name).toBeDefined();
       expect(satisfiesRange(EXTENSION_API_VERSION, manifest.engines?.api as string), name).toBe(true);
+      expect(satisfiesRange(minimum, manifest.engines?.api as string), `${name} must support the distribution minimum ${minimum}`).toBe(true);
     }
   });
 

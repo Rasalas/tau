@@ -1,6 +1,5 @@
 import type { DesktopExtensionContext, ExtensionOption, PreferencesStore } from "tau";
-import type { WorkspaceStoreApi } from "../workspace/protocol.js";
-import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle, type WorkspaceStoreApi } from "./protocol.js";
 
 const MODEL_OPTION = "commit-model";
 const STYLE_OPTION = "commit-style";
