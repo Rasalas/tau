@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish a GitHub release from the build (otherwise just build and upload artifacts)
+        description: Publish a GitHub release from a tag ref (otherwise just build and upload artifacts)
         type: boolean
         default: false
 
@@ -24,6 +24,11 @@ jobs:
     runs-on: tau-linux
     timeout-minutes: 15
     steps:
+      - name: Require a tag ref for publishing
+        if: inputs.publish && github.ref_type != 'tag'
+        run: |
+          echo "::error::Publishing requires a tag ref. Dispatch this workflow on a tag, or set publish=false."
+          exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

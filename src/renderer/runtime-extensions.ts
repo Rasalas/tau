@@ -134,12 +134,14 @@ export class RuntimeExtensions {
       try { this.registry.deactivate(record.extension.id); } catch (error) { this.host.log("desktop-extension.deactivate.failed", String(error)); }
     }
     const next: RuntimeExtensionRecord[] = [];
+    this.loaded = next;
     // A theme is only a stylesheet, and a stylesheet's rules are ordered by
     // where its <link> lands: last, so a theme's tokens beat core's and every
     // kit's without any of them raising their specificity.
     for (const bundle of [...result.bundles].sort((left, right) => Number(left.theme ?? false) - Number(right.theme ?? false))) {
       try {
         const module = await (this.host.importModule ?? importBundle)(bundle);
+        if (generation !== this.generation) return this.loaded;
         const extension = (module as { default?: unknown } | null)?.default;
         if (!isDesktopExtension(extension)) {
           throw new Error("the module's default export is not a desktop extension ({ id, name, activate })");
@@ -159,12 +161,12 @@ export class RuntimeExtensions {
         next.push({ extension, bundle });
         this.host.log("desktop-extension.loaded", `${extension.name} · ${bundle.scope} · ${bundle.path}`);
       } catch (error) {
+        if (generation !== this.generation) return this.loaded;
         const message = error instanceof Error ? error.message : String(error);
         this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
         this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
       }
     }
-    this.loaded = next;
-    return next;
+    return this.loaded;
   }
 }

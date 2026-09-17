@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { ExtensionRegistry } from "./extension-system";
+import { ExtensionRegistry, type DesktopExtension } from "./extension-system";
+import type { DesktopExtensionLoadResult } from "../shared/contracts";
 import { DEFERRED_SHARED_MODULES, SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules";
 import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
 
@@ -206,5 +207,129 @@ describe("theme packages", () => {
 
     const linked = [...document.head.querySelectorAll("[data-tau-extension]")].map((node) => node.getAttribute("data-tau-extension"));
     expect(linked).toEqual(["tau.kit", "acme.theme"]);
+  });
+});
+
+describe("overlapping syncs", () => {
+  interface Deferred<T> { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void; }
+  function deferred<T>(): Deferred<T> {
+    let resolve!: Deferred<T>["resolve"];
+    let reject!: Deferred<T>["reject"];
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  function extension(id: string, name = id): DesktopExtension {
+    return { id, name, activate() {} };
+  }
+
+  function result(bundles: DesktopExtensionLoadResult["bundles"]): DesktopExtensionLoadResult {
+    return { bundles, errors: [], skipped: [] };
+  }
+
+  function bundle(path: string): DesktopExtensionLoadResult["bundles"][number] {
+    return { id: `x.${path.split("/").pop()}`, path, scope: "global" as const, code: "", permissions: [] };
+  }
+
+  function deferredHost(paths: string[]) {
+    const log = vi.fn();
+    const notify = vi.fn();
+    const imports = paths.map(() => ({ ...deferred<unknown>(), started: deferred<void>() }));
+    return {
+      log,
+      notify,
+      imports,
+      host: {
+        load: async () => result([]),
+        importModule: vi.fn((entry: DesktopExtensionLoadResult["bundles"][number]) => {
+          const gate = imports[paths.indexOf(entry.path)];
+          gate.started.resolve();
+          return gate.promise;
+        }),
+        isEnabled: () => true,
+        notify,
+        log,
+      } satisfies RuntimeExtensionHost,
+    };
+  }
+
+  it.each(["resolve", "reject"] as const)("an obsolete import that %ss leaves the newer sync's extensions alone", async (settlement) => {
+    const registry = new ExtensionRegistry();
+    const { host: h, imports } = deferredHost(["/x/old.tsx", "/x/new.tsx"]);
+    let loadCount = 0;
+    const runtime = new RuntimeExtensions(registry, {
+      ...h,
+      load: async () => {
+        loadCount += 1;
+        return loadCount === 1 ? result([bundle("/x/old.tsx")]) : result([bundle("/x/new.tsx")]);
+      },
+    });
+
+    const first = runtime.sync("/old");
+    await imports[0].started.promise;
+    const second = runtime.sync("/new");
+    await imports[1].started.promise;
+    const current = extension("x.new", "New");
+    const dispose = vi.fn();
+    current.activate = vi.fn(() => dispose);
+    imports[1].resolve({ default: current });
+    const winner = await second;
+
+    if (settlement === "resolve") imports[0].resolve({ default: extension("x.new", "Old") });
+    else imports[0].reject(new Error("obsolete import failed"));
+    expect(await first).toBe(winner);
+
+    expect(winner.map((record) => record.extension)).toEqual([current]);
+    expect(runtime.list()).toBe(winner);
+    expect(registry.isActive("x.new")).toBe(true);
+    expect(current.activate).toHaveBeenCalledTimes(1);
+    expect(dispose).not.toHaveBeenCalled();
+    expect(h.log).not.toHaveBeenCalledWith("desktop-extension.loaded", expect.stringContaining("Old"));
+    expect(h.log).not.toHaveBeenCalledWith("desktop-extension.failed", expect.anything());
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
+  it.each(["resolve", "reject"] as const)("the next sync cleans partial activations before an obsolete import %ss", async (settlement) => {
+    const registry = new ExtensionRegistry();
+    const { host: h, imports } = deferredHost(["/x/a.tsx", "/x/b.tsx", "/x/keep.tsx"]);
+    const runtime = new RuntimeExtensions(registry, {
+      ...h,
+      load: async (cwd) => cwd === "/old"
+        ? result([bundle("/x/a.tsx"), bundle("/x/b.tsx"), bundle("/x/unreached.tsx")])
+        : result([bundle("/x/keep.tsx")]),
+    });
+    const oldDispose = vi.fn();
+    const old = extension("x.shared", "Old");
+    old.activate = () => oldDispose;
+    const newDispose = vi.fn();
+    const current = extension("x.shared", "New");
+    current.activate = vi.fn(() => newDispose);
+
+    const first = runtime.sync("/old");
+    await imports[0].started.promise;
+    imports[0].resolve({ default: old });
+    await imports[1].started.promise;
+    expect(registry.isActive("x.shared")).toBe(true);
+    expect(oldDispose).not.toHaveBeenCalled();
+
+    const second = runtime.sync("/new");
+    await imports[2].started.promise;
+    expect(oldDispose).toHaveBeenCalledTimes(1);
+    expect(registry.isActive("x.shared")).toBe(false);
+    imports[2].resolve({ default: current });
+    const winner = await second;
+
+    if (settlement === "resolve") imports[1].resolve({ default: extension("x.stale", "Stale") });
+    else imports[1].reject(new Error("obsolete import failed"));
+    expect(await first).toBe(winner);
+    expect(runtime.list()).toBe(winner);
+    expect(winner.map((record) => record.extension)).toEqual([current]);
+    expect(registry.isActive("x.stale")).toBe(false);
+    expect(registry.isActive("x.shared")).toBe(true);
+    expect(oldDispose).toHaveBeenCalledTimes(1);
+    expect(newDispose).not.toHaveBeenCalled();
+    expect(current.activate).toHaveBeenCalledTimes(1);
+    expect(h.importModule.mock.calls.map(([entry]) => entry.path)).toEqual(["/x/a.tsx", "/x/b.tsx", "/x/keep.tsx"]);
+    expect(h.notify).not.toHaveBeenCalled();
   });
 });

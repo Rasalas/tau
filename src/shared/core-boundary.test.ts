@@ -70,6 +70,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
   "./managed-workbench-source.js",   "./model-attribution.js",   "./model-login.js",   "./models-config.js",   "./packaged-app.js",
+  "./opencode-catalog.js",
   "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
   "./pi-host-components.js",   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
   "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",
@@ -89,6 +90,9 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-ai/providers/opencode",
+  "@earendil-works/pi-ai/providers/opencode-go",
   "@earendil-works/pi-coding-agent",
   "electron",
   "electron-updater",

@@ -31,9 +31,12 @@ jobs:
       # Frame and mount timings from a shared runner are not release numbers; the
       # local gate is `npm run performance:ci` (docs/PERFORMANCE.md). Here they are
       # published for trend reading but do not fail the workflow.
-      - name: Renderer and start budgets (advisory on shared runners)
+      - name: Renderer budget (advisory on shared runners)
         continue-on-error: true
-        run: xvfb-run -a sh -c 'npm run benchmark:renderer -- --no-build --check && npm run start:report -- --check'
+        run: xvfb-run -a npm run benchmark:renderer -- --no-build --check
+      - name: Start budget (advisory on shared runners)
+        continue-on-error: true
+        run: xvfb-run -a npm run start:report -- --check
       - name: Publish performance measurements
         if: always()
         uses: actions/upload-artifact@v4

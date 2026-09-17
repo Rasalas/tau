@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
+import { isLoopbackHost } from "./host-listen.js";
 
 /** Everything the built client is made of; anything else is not served at all. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -22,6 +23,38 @@ const CONTENT_TYPES: Record<string, string> = {
 /** A pairing code is redeemable once and briefly; after that the paste field is the way in. */
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 4096;
+const AUTH_MAX_SOURCES = 1024;
+const AUTH_IDLE_MS = 10 * 60 * 1000;
+const AUTH_MAX_BACKOFF_MS = 60 * 1000;
+
+export function createAuthRateLimiter(now: () => number = Date.now): (source: string | undefined) => number {
+  const sources = new Map<string, { attempts: number; retryAt: number; expiresAt: number }>();
+  return (source) => {
+    const key = (source ?? "unknown").toLowerCase().replace(/^::ffff:/u, "");
+    const time = now();
+    let entry = sources.get(key);
+    if (entry && entry.expiresAt <= time) {
+      sources.delete(key);
+      entry = undefined;
+    }
+    if (!entry) {
+      if (sources.size >= AUTH_MAX_SOURCES) {
+        for (const [address, state] of sources) {
+          if (state.expiresAt <= time) sources.delete(address);
+        }
+        if (sources.size >= AUTH_MAX_SOURCES) return AUTH_MAX_BACKOFF_MS;
+      }
+      entry = { attempts: 0, retryAt: time, expiresAt: time + AUTH_IDLE_MS };
+      sources.set(key, entry);
+    }
+    if (entry.retryAt > time) return entry.retryAt - time;
+    const burst = isLoopbackHost(key) ? 20 : 5;
+    entry.attempts = Math.min(entry.attempts + 1, burst + 6);
+    entry.retryAt = time + (entry.attempts < burst ? 0 : Math.min(1000 * 2 ** (entry.attempts - burst), AUTH_MAX_BACKOFF_MS));
+    entry.expiresAt = time + AUTH_IDLE_MS;
+    return 0;
+  };
+}
 
 export interface WebClientServerOptions {
   /** The built client, normally `dist-web/`. */
@@ -52,6 +85,7 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
   const ttl = options.codeTtlMs ?? CODE_TTL_MS;
   const now = options.now ?? Date.now;
   const codes = new Map<string, number>();
+  const admitPair = createAuthRateLimiter(now);
 
   const redeem = (code: string): string | undefined => {
     const expiresAt = codes.get(code);
@@ -67,6 +101,13 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (url.pathname === "/pair") {
       if (request.method !== "POST") { send(response, 405, "text/plain; charset=utf-8", "use POST"); return; }
+      const retryAfterMs = admitPair(request.socket.remoteAddress);
+      if (retryAfterMs > 0) {
+        request.resume();
+        response.setHeader("retry-after", Math.ceil(retryAfterMs / 1000));
+        send(response, 429, "application/json; charset=utf-8", JSON.stringify({ error: "too many pairing attempts" }));
+        return;
+      }
       const body = await readBody(request);
       const code = typeof body?.code === "string" ? body.code : "";
       const token = code ? redeem(code) : undefined;
