@@ -34,6 +34,9 @@ import type {
   ThreadTitleSource,
 } from "./runtime-types.js";
 
+/** Marks a row Tau wrote into a thread itself; the transcript draws it as a notice. */
+const TAU_NOTICE_ENTRY = "tau_notice";
+
 export interface PiThreadBackendOptions {
   mapMessages(messages: readonly unknown[]): UiMessage[];
 }
@@ -135,6 +138,10 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
         runShortcut: (keys, userBindings) => this.runShortcut(keys, userBindings),
       },
       reload: { reload: () => this.session.reload() },
+      resume: {
+        hiddenPrompt: true,
+        notice: (text) => this.appendNotice(text),
+      },
       events: { subscribe: (listener) => this.subscribe(listener) },
       systemPrompt: { inspect: () => this.inspectSystemPrompt() },
     };
@@ -270,7 +277,15 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     const images = input.attachments?.length ? promptImages(input.attachments) : undefined;
     if (input.delivery === "steer") await this.session.steer(prepared.runtimeText, images);
     else if (input.delivery === "followUp") await this.session.followUp(prepared.runtimeText, images);
-    else {
+    else if (input.hidden) {
+      // A continuation the host wrote, not the user: Pi's custom message is a
+      // notice in the transcript and an ordinary user turn to the model.
+      await this.session.sendCustomMessage(
+        { customType: TAU_NOTICE_ENTRY, content: [{ type: "text", text: prepared.runtimeText }] },
+        { triggerTurn: true },
+      );
+      input.onAdmitted?.(true);
+    } else {
       await this.session.prompt(prepared.runtimeText, {
         images,
         streamingBehavior: input.queued ? "followUp" : undefined,
@@ -281,6 +296,14 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   async abort(): Promise<void> { await this.session.abort(); }
+
+  /** A durable transcript row that belongs to nobody; the model sees it as context. */
+  private async appendNotice(text: string): Promise<void> {
+    await this.session.sendCustomMessage(
+      { customType: TAU_NOTICE_ENTRY, content: [{ type: "text", text }] },
+      { triggerTurn: false },
+    );
+  }
 
   async persist(messages: readonly UiMessage[]): Promise<void> {
     if (this.lifecycle === "disposed") throw new Error("The Pi runtime backend has been disposed.");

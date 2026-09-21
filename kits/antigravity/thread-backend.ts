@@ -153,6 +153,12 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
         setModel: (_provider, id) => this.setModel(id),
         setThinkingLevel: async () => { throw new Error("Antigravity chooses effort with the model; pick a model variant instead."); },
       },
+      // The agent reloads the stored ACP session itself, so a continuation is
+      // an ordinary turn; the protocol has no message kind the transcript hides.
+      resume: {
+        hiddenPrompt: false,
+        notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
+      },
     };
   }
 
