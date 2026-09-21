@@ -109,10 +109,10 @@ async function main(): Promise<void> {
           packages: [...kits.packages, ...inspection.packages],
         };
       },
-      loadDesktopExtensions: async (cwd, sharedExports) => {
+      loadDesktopExtensions: async (cwd, sharedExports, only) => {
         const [kits, result] = await Promise.all([
-          safeMode ? { bundles: [], errors: [] } : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
-          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions }),
+          safeMode ? { bundles: [], errors: [] } : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports, ...(only ? { only } : {}) }),
+          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions, ...(only ? { only } : {}) }),
         ]);
         return { ...result, bundles: [...kits.bundles, ...result.bundles], errors: [...kits.errors, ...result.errors] };
       },

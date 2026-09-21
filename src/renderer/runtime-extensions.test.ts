@@ -185,6 +185,77 @@ describe("runtime desktop extensions", () => {
   });
 });
 
+describe("replacing one extension", () => {
+  /** A host whose folders hold these ids, each with a module the test can swap. */
+  function partialHost(ids: string[]) {
+    const modules = new Map(ids.map((id) => [id, { default: { id, name: id, activate: vi.fn() } }]));
+    const broken = new Set<string>();
+    const requested: Array<readonly string[] | undefined> = [];
+    return {
+      modules,
+      broken,
+      requested,
+      host: {
+        load: async (_cwd: string, _shared: Record<string, string[]>, only?: readonly string[]) => {
+          requested.push(only);
+          const wanted = only ? ids.filter((id) => only.includes(id)) : ids;
+          return {
+            bundles: wanted.filter((id) => !broken.has(id)).map((id) => ({
+              id,
+              path: `/x/${id}.tsx`,
+              scope: "global" as const,
+              code: "",
+              permissions: [],
+            })),
+            errors: wanted.filter((id) => broken.has(id)).map((id) => ({ path: `/x/${id}.tsx`, message: "Unexpected token" })),
+            skipped: [],
+          };
+        },
+        importModule: async (bundle: { id: string }) => modules.get(bundle.id),
+        isEnabled: () => true,
+        notify: vi.fn(),
+        log: vi.fn(),
+      },
+    };
+  }
+
+  it("swaps the named module and leaves every other extension running", async () => {
+    const registry = new ExtensionRegistry();
+    const { host: h, modules, requested } = partialHost(["x.hello", "x.other"]);
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    const untouched = runtime.list().find((record) => record.extension.id === "x.other")?.extension;
+
+    const dispose = vi.fn();
+    const replacement = { id: "x.hello", name: "Hello v2", activate: vi.fn(() => dispose) };
+    modules.set("x.hello", { default: replacement } as never);
+    await runtime.resync(["x.hello"]);
+
+    expect(requested).toEqual([undefined, ["x.hello"]]);
+    expect(replacement.activate).toHaveBeenCalledTimes(1);
+    expect(registry.isActive("x.hello")).toBe(true);
+    expect(runtime.list().map((record) => record.extension.name)).toEqual(["Hello v2", "x.other"]);
+    // The extension that was not named kept the very object it was activated with.
+    expect(runtime.list().find((record) => record.extension.id === "x.other")?.extension).toBe(untouched);
+    expect(h.notify).toHaveBeenCalledWith("Reloaded Hello v2");
+  });
+
+  it("keeps the running version when the edited file does not build", async () => {
+    const registry = new ExtensionRegistry();
+    const { host: h, broken } = partialHost(["x.hello"]);
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    const running = runtime.list()[0].extension;
+
+    broken.add("x.hello");
+    await runtime.resync(["x.hello"]);
+
+    expect(registry.isActive("x.hello")).toBe(true);
+    expect(runtime.list().map((record) => record.extension)).toEqual([running]);
+    expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("Unexpected token"));
+  });
+});
+
 describe("theme packages", () => {
   it("links a theme's stylesheet after every other one, whatever order it arrived in", async () => {
     const registry = new ExtensionRegistry();

@@ -63,7 +63,7 @@ export interface RuntimeExtensionRecord {
 }
 
 export interface RuntimeExtensionHost {
-  load(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
+  load(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[]): Promise<DesktopExtensionLoadResult>;
   /** Evaluates a bundle as an ES module; defaults to the host's `tau-ext:` URL. */
   importModule?(bundle: DesktopExtensionBundle): Promise<unknown>;
   isEnabled(id: string): boolean;
@@ -107,10 +107,87 @@ export class RuntimeExtensions {
   /**
    * Loads the same workspace again, for a host that reports its package set
    * moved: an approval, an install, an update or a removal. Before the first
-   * sync there is no workspace to load, and this does nothing.
+   * sync there is no workspace to load, and this does nothing. `only` names the
+   * extensions that moved — a watched file edit knows them — and then nothing
+   * else is rebuilt, re-imported or re-activated.
    */
-  async resync(): Promise<readonly RuntimeExtensionRecord[]> {
-    return this.cwd === undefined ? this.loaded : this.sync(this.cwd);
+  async resync(only?: readonly string[]): Promise<readonly RuntimeExtensionRecord[]> {
+    if (this.cwd === undefined) return this.loaded;
+    return only && only.length > 0 ? this.replace(this.cwd, only) : this.sync(this.cwd);
+  }
+
+  /**
+   * Swaps the modules of the named extensions and leaves every other one
+   * running. A replaced extension is a new module, so its panels remount and
+   * whatever state they held is gone; a package whose new code does not build
+   * keeps the version that does, and says why.
+   */
+  private async replace(cwd: string, only: readonly string[]): Promise<readonly RuntimeExtensionRecord[]> {
+    const generation = this.generation;
+    const result = await this.host.load(cwd, sharedExportNames(), only);
+    if (generation !== this.generation) return this.loaded;
+    if (result.bundles.length > 0) {
+      await loadSharedIcons();
+      if (generation !== this.generation) return this.loaded;
+    }
+    for (const failure of result.errors) {
+      this.host.log("desktop-extension.failed", `${failure.path}: ${failure.message}`);
+      this.host.notify(`${failure.path.split("/").pop()}: ${failure.message.split("\n")[0]}`);
+    }
+    for (const id of only) {
+      const bundle = result.bundles.find((candidate) => candidate.id === id);
+      const previous = this.loaded.find((record) => record.extension.id === id);
+      // Nothing built for an id the host still knows: either it left the disk,
+      // or its files no longer compile and the errors above said so. Either way
+      // the half that is running stays the last one that worked.
+      if (!bundle) continue;
+      try {
+        if (previous) this.registry.deactivate(previous.extension.id);
+        const record = await this.activateBundle(bundle, this.loaded.filter((entry) => entry !== previous), () => generation === this.generation);
+        if (!record) return this.loaded;
+        this.loaded = previous
+          ? this.loaded.map((entry) => entry === previous ? record : entry)
+          : [...this.loaded, record];
+        this.host.notify(`Reloaded ${record.extension.name}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
+        this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
+      }
+    }
+    return this.loaded;
+  }
+
+  /**
+   * Imports one bundle, checks it is an extension and activates it. Undefined
+   * means the load it belongs to was superseded while the module was fetched,
+   * so nothing was activated.
+   */
+  private async activateBundle(
+    bundle: DesktopExtensionBundle,
+    others: readonly RuntimeExtensionRecord[],
+    stillCurrent: () => boolean,
+  ): Promise<RuntimeExtensionRecord | undefined> {
+    const module = await (this.host.importModule ?? importBundle)(bundle);
+    if (!stillCurrent()) return undefined;
+    const extension = (module as { default?: unknown } | null)?.default;
+    if (!isDesktopExtension(extension)) {
+      throw new Error("the module's default export is not a desktop extension ({ id, name, activate })");
+    }
+    if (others.some((entry) => entry.extension.id === extension.id)) {
+      throw new Error(`extension id ${extension.id} is already taken by another loaded extension`);
+    }
+    extension.permissions = bundle.permissions;
+    extension.granted = bundle.granted;
+    // The stylesheet travels with the extension object, so switching the
+    // extension off in Settings takes its rules with it and back on brings
+    // them again — the registry owns both ends (see `activate`).
+    if (bundle.stylesUrl) extension.styles = { url: bundle.stylesUrl };
+    else if (bundle.styles) extension.styles = { css: bundle.styles };
+    this.registry.addKnown(extension);
+    if (bundle.granted !== false && this.host.isEnabled(extension.id)) this.registry.activate(extension);
+    this.host.log("desktop-extension.loaded", `${extension.name} · ${bundle.scope} · ${bundle.path}`);
+    return { extension, bundle };
   }
 
   async sync(cwd: string): Promise<readonly RuntimeExtensionRecord[]> {
@@ -140,26 +217,9 @@ export class RuntimeExtensions {
     // kit's without any of them raising their specificity.
     for (const bundle of [...result.bundles].sort((left, right) => Number(left.theme ?? false) - Number(right.theme ?? false))) {
       try {
-        const module = await (this.host.importModule ?? importBundle)(bundle);
-        if (generation !== this.generation) return this.loaded;
-        const extension = (module as { default?: unknown } | null)?.default;
-        if (!isDesktopExtension(extension)) {
-          throw new Error("the module's default export is not a desktop extension ({ id, name, activate })");
-        }
-        if (next.some((entry) => entry.extension.id === extension.id)) {
-          throw new Error(`extension id ${extension.id} is already taken by another loaded extension`);
-        }
-        extension.permissions = bundle.permissions;
-        extension.granted = bundle.granted;
-        // The stylesheet travels with the extension object, so switching the
-        // extension off in Settings takes its rules with it and back on brings
-        // them again — the registry owns both ends (see `activate`).
-        if (bundle.stylesUrl) extension.styles = { url: bundle.stylesUrl };
-        else if (bundle.styles) extension.styles = { css: bundle.styles };
-        this.registry.addKnown(extension);
-        if (bundle.granted !== false && this.host.isEnabled(extension.id)) this.registry.activate(extension);
-        next.push({ extension, bundle });
-        this.host.log("desktop-extension.loaded", `${extension.name} · ${bundle.scope} · ${bundle.path}`);
+        const record = await this.activateBundle(bundle, next, () => generation === this.generation);
+        if (!record) return this.loaded;
+        next.push(record);
       } catch (error) {
         if (generation !== this.generation) return this.loaded;
         const message = error instanceof Error ? error.message : String(error);
