@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { errorMessage, type PanelProps } from "tau";
 import { TerminalView } from "./view.js";
 import { terminalKit, useTerminalKit } from "./store.js";
-import type { UiTerminalSession } from "./protocol.js";
+import { TERMINAL_STAGE_TAB, type UiTerminalSession } from "./protocol.js";
 
 /** Where a terminal sits relative to the thread on screen; the panel marks the ones that are not here. */
 export type TerminalPlace = "thread" | "project" | "elsewhere";
@@ -19,7 +19,7 @@ const PLACE_LABEL: Record<TerminalPlace, string> = {
 };
 
 export function TerminalPanel({ actions }: PanelProps) {
-  const { sessions, activeSessionId: switched } = useTerminalKit();
+  const { sessions, activeSessionId: switched, onStage } = useTerminalKit();
   // The thread on screen, asked on every render: the store's copy only says
   // that it changed, and is empty until the first switch after activation.
   const activeSessionId = actions.activeThread()?.sessionId ?? switched;
@@ -45,6 +45,12 @@ export function TerminalPanel({ actions }: PanelProps) {
   });
   const restart = (id: string) => run(() => terminalKit.restart({ id }));
   const close = (id: string) => run(() => terminalKit.kill({ id }));
+  const openAsTab = (session: UiTerminalSession) => {
+    setError("");
+    try { actions.openStageTab(TERMINAL_STAGE_TAB, { id: session.id, label: session.label }); }
+    catch (problem) { setError(errorMessage(problem)); }
+  };
+  const staged = (id: string) => onStage.includes(id);
   const running = sessions.filter((session) => session.exitCode === undefined && placeOf(session, activeSessionId) === "elsewhere").length;
 
   return <section className="panel-body terminal-panel">
@@ -68,8 +74,16 @@ export function TerminalPanel({ actions }: PanelProps) {
           >
             {session.label}
             {place !== "thread" && <span className="terminal-tab-place">{PLACE_LABEL[place]}</span>}
+            {staged(session.id) && <span className="terminal-tab-place">on the stage</span>}
             {session.exitCode !== undefined && <span className="terminal-tab-place">exited</span>}
           </button>
+          {!staged(session.id) && <button
+            type="button"
+            className="text-button"
+            aria-label={`Open ${session.label} as tab`}
+            title="Move this shell to the stage; it keeps running"
+            onClick={() => openAsTab(session)}
+          >↗</button>}
           <button type="button" className="text-button" aria-label={`Close ${session.label}`} onClick={() => void close(session.id)}>×</button>
         </div>;
       })}
@@ -83,9 +97,11 @@ export function TerminalPanel({ actions }: PanelProps) {
       </>}
     </p>}
     <div className="terminal-surface">
-      {current
-        ? <TerminalView key={current.id} id={current.id} cols={current.cols} rows={current.rows} exitCode={current.exitCode} />
-        : <p className="empty-copy">Open a terminal to run commands in this workspace.</p>}
+      {!current
+        ? <p className="empty-copy">Open a terminal to run commands in this workspace.</p>
+        : staged(current.id)
+          ? <p className="empty-copy">This shell is open as a stage tab.</p>
+          : <TerminalView key={current.id} id={current.id} cols={current.cols} rows={current.rows} exitCode={current.exitCode} />}
     </div>
   </section>;
 }

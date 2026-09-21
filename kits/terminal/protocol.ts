@@ -87,5 +87,8 @@ export interface TerminalExitedEvent {
 
 export const TERMINAL_PANEL = "terminal";
 
+/** The stage tab kind this kit registers; one tab per shell. */
+export const TERMINAL_STAGE_TAB = "terminal";
+
 /** Order the panel is drawn in the dock rail, after Files and Changes. */
 export const TERMINAL_PANEL_ORDER = 25;

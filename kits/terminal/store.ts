@@ -16,10 +16,12 @@ export function onTerminalEvent(name: string, listener: (payload: unknown) => vo
 export interface TerminalKitState {
   sessions: readonly UiTerminalSession[];
   activeSessionId?: string;
+  /** Sessions a stage tab is drawing; the panel leaves those to it. */
+  onStage: readonly string[];
 }
 
 export class TerminalStore {
-  private state: TerminalKitState = { sessions: [] };
+  private state: TerminalKitState = { sessions: [], onStage: [] };
   private readonly listeners = new Set<() => void>();
 
   subscribe = (listener: () => void): (() => void) => {
@@ -31,6 +33,13 @@ export class TerminalStore {
 
   setSessions(sessions: UiTerminalSession[]): void {
     this.publish({ ...this.state, sessions });
+  }
+
+  /** A terminal opened as a stage tab, or that tab going away again. */
+  setOnStage(id: string, onStage: boolean): void {
+    const without = this.state.onStage.filter((entry) => entry !== id);
+    if (onStage === this.state.onStage.includes(id)) return;
+    this.publish({ ...this.state, onStage: onStage ? [...without, id] : without });
   }
 
   setActiveSession(activeSessionId: string | undefined): void {
