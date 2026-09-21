@@ -69,6 +69,8 @@ export class ThreadIndex {
   private lineageCacheLoaded?: Promise<void>;
   /** The parent of a thread this host started or indexed, for its live shell. */
   private readonly parents = new Map<string, string>();
+  /** Threads a restart cut a turn short in; survives a rescan, which reads files only. */
+  private readonly interrupted = new Set<string>();
   private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
   private recoveryTimer?: ReturnType<typeof setInterval>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
@@ -306,10 +308,26 @@ export class ThreadIndex {
     }
   }
 
+  /**
+   * A restart cut this thread's turn short. The mark is the host's, not the
+   * session file's, so it lasts for this run and clears on the next prompt.
+   */
+  setInterrupted(sessionId: string, interrupted: boolean): void {
+    if (interrupted === this.interrupted.has(sessionId)) return;
+    if (interrupted) this.interrupted.add(sessionId); else this.interrupted.delete(sessionId);
+    const shell = this.byId(sessionId);
+    if (shell) this.publishShellSoon(shell);
+  }
+
   /** A thread shell names its project the way every other published shape does. */
   private withIdentity(session: UiSession): UiSession {
     const { workspaceId, displayPath } = this.port.workspaces.ref(session.projectPath);
-    return { ...session, workspaceId, projectDisplayPath: displayPath };
+    return {
+      ...session,
+      workspaceId,
+      projectDisplayPath: displayPath,
+      ...(this.interrupted.has(session.id) ? { interrupted: true } : {}),
+    };
   }
 
   private publishShellSoon(shell: UiSession): void {

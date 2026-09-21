@@ -207,6 +207,8 @@ export interface UiSession {
   modelProvider?: string;
   /** Tokens and money the thread has used; absent until the host knows them. */
   usage?: UiThreadUsage;
+  /** A turn of this thread was cut short by a restart and was not continued. */
+  interrupted?: boolean;
   /**
    * The thread that spawned this one, as its own session file records it
    * (ADR 0013, amended). Absent for a thread the user started.
