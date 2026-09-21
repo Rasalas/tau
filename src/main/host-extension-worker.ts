@@ -2,6 +2,7 @@ import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import Module, { createRequire } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";
 import {
+  CLIENT_HOOKS,
   FACT_HOOKS,
   LIFECYCLE_HOOKS,
   TURN_HOOKS,
@@ -172,6 +173,7 @@ const services: WorkerHostServices = {
     list: () => rpc("sessions.list") as ReturnType<WorkerHostServices["sessions"]["list"]>,
     read: (path) => rpc("sessions.read", path) as ReturnType<WorkerHostServices["sessions"]["read"]>,
     start: (options) => rpc("sessions.start", options) as ReturnType<WorkerHostServices["sessions"]["start"]>,
+    remove: async (sessionId) => { await rpc("sessions.remove", sessionId); },
     exclusive: <T>(work: () => Promise<T> | T): Promise<T> => {
       const id = nextId++;
       exclusiveWork.set(id, async () => work());
@@ -180,6 +182,10 @@ const services: WorkerHostServices = {
         send({ t: "rpc", id, path: "sessions.exclusive", args: [] });
       });
     },
+  },
+  clients: {
+    observe: (observer) => registerHooks("clients.observe", observer as Record<string, unknown>, CLIENT_HOOKS),
+    count: () => rpc("clients.count") as Promise<number>,
   },
   registerThreadLifecycle: (lifecycle) => registerHooks("registerThreadLifecycle", lifecycle as Record<string, unknown>, LIFECYCLE_HOOKS),
   registerTurnObserver: (observer) => registerHooks("registerTurnObserver", observer as Record<string, unknown>, TURN_HOOKS),

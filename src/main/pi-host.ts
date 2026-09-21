@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -67,6 +68,7 @@ import type {
   HostThread,
   HostThreadStartOptions,
   HostUiPresenter,
+  HostWorkspaceCloseReason,
   RuntimeSessionInfo,
 } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
@@ -246,6 +248,7 @@ export class PiHost {
       knownWorkspacePath: (path) => this.knownWorkspacePath(path),
       prepareThread: (session, manager, prepareOptions) => this.prepareThread(session, manager, prepareOptions),
       startThread: (startOptions) => this.startThread(startOptions),
+      removeThread: (sessionId) => this.removeThread(sessionId),
       pendingHostExtensions: () => this.pendingHostExtensions,
     });
     this.agentDir = components.agentDir;
@@ -908,6 +911,7 @@ export class PiHost {
     }
     if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     this.attached.session.detach();
+    await this.leaveWorkspaceFor(cwd);
     await this.threadLifecycle.beforeWorkspace(cwd);
     const startedAt = performance.now();
     const thread = this.defaultBackendKind !== "pi"
@@ -920,6 +924,45 @@ export class PiHost {
     if (!await this.activateThread(thread, false, activationEpoch)) return this.staleActivationResult();
     this.logReplacement("workspace", startedAt);
     return this.activeUpdates(activationEpoch);
+  }
+
+  /**
+   * The host left `cwd`. It runs after that workspace's last thread and before
+   * `beforeWorkspace` of the next one, and a hook that cannot let go is logged
+   * rather than allowed to block the workspace that is opening.
+   */
+  private async closeWorkspace(cwd: string, reason: HostWorkspaceCloseReason): Promise<void> {
+    try {
+      await this.threadLifecycle.afterWorkspaceClose(cwd, reason);
+    } catch (error) {
+      this.log("workspace.close.failed", this.errorMessage(error));
+    }
+  }
+
+  /** A project switch closes the workspace being left, unless the host stays in it. */
+  private async leaveWorkspaceFor(next: string): Promise<void> {
+    if (next === this.cwd) return;
+    await this.closeWorkspace(this.cwd, "switch");
+  }
+
+  /**
+   * Deletes a persisted thread: its runtime is released, its file is removed
+   * and the `threadDeleted` hooks run before the index is republished. A
+   * thread that is running, or the one on screen, is refused — the caller
+   * stops or leaves it first.
+   */
+  async removeThread(sessionId: string): Promise<void> {
+    return this.lifecycle.run("remove-thread", async () => {
+      const session = this.index.byId(sessionId);
+      if (!session) throw new Error(`No thread ${sessionId.slice(0, 8)} in this host's index.`);
+      if (this.active?.threadId === sessionId) throw new Error("This thread is on screen; open another one before deleting it.");
+      const live = this.threadFor(sessionId);
+      if (live?.state.streaming) throw new Error("This thread is still running; stop it before deleting it.");
+      if (live) await this.threads.release(sessionId);
+      await rm(session.path, { force: true });
+      await this.index.announceDeleted(sessionId, session.projectPath);
+      await this.index.refresh("changes");
+    });
   }
 
   async removeProject(path: string): Promise<HostActionResult> {
@@ -1337,6 +1380,7 @@ export class PiHost {
       }
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       this.attached.session.detach();
+      await this.leaveWorkspaceFor(indexedSession?.projectPath ?? dirname(path));
       await this.threadLifecycle.beforeWorkspace(this.cwd);
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
@@ -1691,6 +1735,11 @@ export class PiHost {
       this.prewarm.dispose();
       const teardownErrors: unknown[] = [];
       this.attached.session.detach();
+      // Before the extensions are torn down: a hook that releases what belongs
+      // to a workspace still has to run, and nothing reopens after this.
+      for (const cwd of new Set([this.cwd, ...this.threads.list().map((thread) => thread.cwd)])) {
+        await this.closeWorkspace(cwd, "shutdown");
+      }
       try { await this.hostExtensions.dispose(); } catch (error) { teardownErrors.push(error); }
       try { await this.prewarm.discardSpare(); } catch (error) { teardownErrors.push(error); }
       await this.runtimes.settleOpening();

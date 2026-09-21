@@ -111,9 +111,11 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
       prepare: async () => { throw new Error("no runtimes here"); },
       start: async () => { throw new Error("no threads in this test"); },
       exclusive: (work) => work(),
+      remove: async () => undefined,
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
     setThreadTitle: async () => undefined,
+    clients: { observe: () => () => undefined, count: () => 1 },
     registerThreadLifecycle: () => () => undefined,
     registerTurnObserver: () => () => undefined,
     pinTranscriptEntries: () => () => undefined,
@@ -155,6 +157,7 @@ describe("Workspace Kit checkpoint lifecycle", () => {
         prepare: async () => { throw new Error("no runtimes here"); },
         start: async () => { throw new Error("no threads in this test"); },
         exclusive: (work) => work(),
+        remove: async () => undefined,
         refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
       },
     }), { emit: () => undefined });
@@ -180,7 +183,7 @@ describe("Workspace Kit checkpoint lifecycle", () => {
     // Its workspace still needs pending clean/read-tree recovery before the
     // thread is exposed, even though it has no backup marker of its own.
     const list = vi.fn(async () => []);
-    const kit = createWorkspaceKitLifecycle(services({ sessions: { list, open: () => { throw new Error("none"); }, prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }), { emit: () => undefined });
+    const kit = createWorkspaceKitLifecycle(services({ sessions: { list, open: () => { throw new Error("none"); }, prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, remove: async () => undefined, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }), { emit: () => undefined });
     await expect(kit.lifecycle.beforeActivate!(thread({ cwd: "/project-b", backendKind: "claude-code" }))).resolves.toBeUndefined();
     expect(list).toHaveBeenCalledOnce();
   });
@@ -195,7 +198,7 @@ describe("Workspace Kit checkpoint lifecycle", () => {
   it("carries the source's checkpoints into a fork whose branch holds their anchors", async () => {
     const upkeep = maintenance();
     const open = vi.fn(() => sessionFile());
-    const kit = createWorkspaceKitLifecycle(services({ sessions: { list: async () => [], open, prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }), { emit: () => undefined, maintenance: upkeep, hasSnapshotRefs: async () => true });
+    const kit = createWorkspaceKitLifecycle(services({ sessions: { list: async () => [], open, prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, remove: async () => undefined, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }), { emit: () => undefined, maintenance: upkeep, hasSnapshotRefs: async () => true });
     const target = sessionFile({ path: "/sessions/fork.jsonl", sessionId: "fork", entries: () => [branch[0]!] });
     await kit.lifecycle.afterFork!(thread(), target);
     expect(open).toHaveBeenCalledWith("/sessions/session.jsonl");
@@ -215,7 +218,7 @@ describe("Workspace Kit checkpoint lifecycle", () => {
     const logs: string[] = [];
     const open = vi.fn(() => sessionFile());
     const kit = createWorkspaceKitLifecycle(
-      services({ log: (label, detail) => { logs.push(`${label} ${detail ?? ""}`); }, sessions: { list: async () => [], open, prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }),
+      services({ log: (label, detail) => { logs.push(`${label} ${detail ?? ""}`); }, sessions: { list: async () => [], open, prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, remove: async () => undefined, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }),
       { emit: () => undefined, maintenance: upkeep, hasSnapshotRefs: async () => false },
     );
     await kit.lifecycle.afterFork!(thread(), sessionFile({ path: "/sessions/fork.jsonl", sessionId: "fork", entries: () => [branch[0]!] }));
@@ -228,7 +231,7 @@ describe("Workspace Kit checkpoint lifecycle", () => {
     const a = await workspace();
     const b = await workspace();
     const kit = createWorkspaceKitLifecycle(services({
-      sessions: { list: async () => [], open: () => sessionFile({ cwd: a }), prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) },
+      sessions: { list: async () => [], open: () => sessionFile({ cwd: a }), prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, remove: async () => undefined, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) },
     }), { emit: () => undefined, maintenance: upkeep });
     await kit.lifecycle.sweep!({
       sessions: [{ sessionId: "session", path: "/sessions/session.jsonl", cwd: a }],

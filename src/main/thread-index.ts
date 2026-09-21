@@ -69,6 +69,8 @@ export class ThreadIndex {
   private lineageCacheLoaded?: Promise<void>;
   /** The parent of a thread this host started or indexed, for its live shell. */
   private readonly parents = new Map<string, string>();
+  /** Deletions already announced, so the sweep does not repeat one the host made itself. */
+  private readonly announcedDeletions = new Set<string>();
   private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
   private recoveryTimer?: ReturnType<typeof setInterval>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
@@ -182,6 +184,18 @@ export class ThreadIndex {
     });
   }
 
+  /**
+   * Word to every hook that a thread is gone for good. The host announces a
+   * thread it deletes itself; the sweep announces one whose file disappeared.
+   * The id is remembered until the sweep that would report it again has run,
+   * so a deletion is announced once whichever of the two noticed it.
+   */
+  async announceDeleted(sessionId: string, cwd: string): Promise<void> {
+    if (this.announcedDeletions.has(sessionId)) return;
+    this.announcedDeletions.add(sessionId);
+    await this.port.threadLifecycle.threadDeleted(sessionId, cwd);
+  }
+
   /** Extensions reconcile what they keep beside sessions; a missing file is deletion, eviction is not. */
   private async sweep(sessionInfos: readonly SessionInfo[], previous: readonly UiSession[], next: readonly UiSession[]): Promise<void> {
     const nextIds = new Set(next.map((session) => session.id));
@@ -192,6 +206,11 @@ export class ThreadIndex {
     for (const threadId of [...this.parents.keys()]) {
       if (!nextIds.has(threadId) && !liveIds.has(threadId)) this.parents.delete(threadId);
     }
+    for (const session of deleted) {
+      try { await this.announceDeleted(session.sessionId, session.cwd); }
+      catch (error) { this.port.log("thread.deleted.failed", this.port.errorMessage(error)); }
+    }
+    for (const session of deleted) this.announcedDeletions.delete(session.sessionId);
     await this.port.threadLifecycle.sweep({
       sessions: sessionInfos.map((info) => ({
         sessionId: info.id,

@@ -87,11 +87,13 @@ interface Recorder {
   pending: Array<(sessionId: string) => number>;
   names: Array<(cwd: string) => Promise<string | undefined>>;
   started: HostThreadStartOptions[];
+  removed: string[];
   exclusiveDepth: number;
+  clientCount: number;
 }
 
 function services(): { services: HostExtensionServices; recorder: Recorder } {
-  const recorder: Recorder = { logs: [], lifecycles: [], pins: [], pending: [], names: [], started: [], exclusiveDepth: 0 };
+  const recorder: Recorder = { logs: [], lifecycles: [], pins: [], pending: [], names: [], started: [], removed: [], exclusiveDepth: 0, clientCount: 1 };
   const facade: HostExtensionServices = {
     cwd: () => "/project",
     complete: async () => "",
@@ -139,12 +141,14 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
         recorder.started.push(options);
         return { sessionId: "session-2", cwd: options.cwd, ...(options.title ? { title: options.title } : {}) };
       },
+      remove: async (sessionId) => { recorder.removed.push(sessionId); },
       exclusive: async (work) => {
         recorder.exclusiveDepth += 1;
         try { return await work(); } finally { recorder.exclusiveDepth -= 1; }
       },
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
+    clients: { observe: () => () => undefined, count: () => recorder.clientCount },
     registerThreadLifecycle: (lifecycle) => { recorder.lifecycles.push(lifecycle); return () => undefined; },
     registerTurnObserver: (observer) => { if (observer.pending) recorder.pending.push(observer.pending); return () => undefined; },
     pinTranscriptEntries: (provider) => { recorder.pins.push(provider); return () => undefined; },
