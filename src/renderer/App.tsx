@@ -374,7 +374,9 @@ export default function App() {
 
   const panels = registry.getPanels();
   useEffect(() => {
-    if (panels.length === 0) { setActivePanel(""); return; }
+    // No panels yet is a kit that has not activated, not an empty dock: a
+    // restored panel keeps its place until the contributions have arrived.
+    if (panels.length === 0) return;
     if (!panels.some((panel) => panel.id === activePanel)) setActivePanel(panels[0].id);
   }, [activePanel, panels, setActivePanel]);
 
@@ -540,7 +542,7 @@ export default function App() {
     activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, closeStage, commands, createThreadInProject,
     documentSource, documentState, dockOpen, dockWidth, setDockOpen, setDockWidth, newThreadOpen, notice,
-    openNewThreadPicker, openPanel, openedPanelIds, setActivePanel,
+    openNewThreadPicker, openPanel, openedPanelIds,
     threadCommands, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
     setNotice, setStageView, settings, settingsPage,
     sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,

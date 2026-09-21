@@ -81,7 +81,11 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     activePanel: dock.activePanel ?? "", setActivePanel,
     openedPanels: dock.openedPanels,
     dockWidth: dock.width, setDockWidth,
-    /** A project switch starts the stage over; the next restore fills it. */
-    resetStage: useCallback(() => setStage(EMPTY_STAGE), []),
+    /**
+     * A project switch starts the stage over; the next restore fills it.
+     * Forgetting what was restored is what keeps the empty stage from being
+     * written over the workspace that is being left.
+     */
+    resetStage: useCallback(() => { restoredFor.current = undefined; setStage(EMPTY_STAGE); }, []),
   };
 }
