@@ -1777,6 +1777,9 @@ export class PiHost {
   }
 
   async dispose(): Promise<void> {
+    // Before anything is torn down: the aborts below are this shutdown's, not
+    // the user's, and a thread they stop is exactly one a restart must see.
+    this.turnsInFlight.freeze();
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
       this.toolOutputBatcher.dispose();

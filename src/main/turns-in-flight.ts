@@ -52,6 +52,7 @@ export class TurnsInFlight {
   private readonly turns = new Map<string, InFlightTurn>();
   private pending: Promise<void> = Promise.resolve();
   private loaded = false;
+  private frozen = false;
 
   constructor(private readonly options: TurnsInFlightOptions = {}) {}
 
@@ -80,7 +81,17 @@ export class TurnsInFlight {
     return this.turns.get(sessionId);
   }
 
+  /**
+   * Stops recording and forgetting. The host is going away, and the aborts its
+   * own shutdown fires would otherwise read as turns that finished — which is
+   * exactly the case these markers exist for.
+   */
+  freeze(): void {
+    this.frozen = true;
+  }
+
   record(turn: InFlightTurn): void {
+    if (this.frozen) return;
     this.turns.set(turn.sessionId, {
       ...turn,
       prompt: { ...turn.prompt, text: turn.prompt.text.slice(0, MAX_PROMPT_TEXT) },
@@ -90,6 +101,7 @@ export class TurnsInFlight {
 
   /** Forgets the thread's marker. With a `turnId` only that turn's, so an older turn's end never clears a newer one. */
   clear(sessionId: string, turnId?: string): void {
+    if (this.frozen) return;
     const held = this.turns.get(sessionId);
     if (!held || (turnId !== undefined && held.turnId !== turnId)) return;
     this.turns.delete(sessionId);

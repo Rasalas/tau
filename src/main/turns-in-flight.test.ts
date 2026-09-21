@@ -56,6 +56,19 @@ describe("TurnsInFlight", () => {
     expect(written.turns.map((turn) => turn.turnId)).toEqual(["turn-2", "turn-3"]);
   });
 
+  it("keeps what it holds once frozen, so a shutdown's own aborts lose nothing", async () => {
+    const { filePath, turns } = await store();
+    turns.record(marker());
+    await turns.flush();
+
+    turns.freeze();
+    turns.clear("thread-1", "turn-1");
+    turns.record(marker({ sessionId: "thread-2" }));
+    await turns.flush();
+
+    expect(await new TurnsInFlight({ filePath }).load()).toEqual([marker()]);
+  });
+
   it("clips a long prompt rather than copying the transcript", async () => {
     const { turns } = await store();
     turns.record(marker({ prompt: { text: "x".repeat(10_000) } }));
