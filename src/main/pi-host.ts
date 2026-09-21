@@ -1035,7 +1035,7 @@ export class PiHost {
   private async reconcileInterruptedTurns(): Promise<void> {
     const markers = await this.turnsInFlight.load();
     if (markers.length === 0) return;
-    const reconciled = await reconcileInFlightTurns({
+    await reconcileInFlightTurns({
       markers: () => markers,
       forget: (sessionId) => this.turnsInFlight.clear(sessionId),
       continueAfterRestart: this.continueThreadsAfterRestart,
@@ -1045,18 +1045,25 @@ export class PiHost {
       open: async (marker) => {
         const thread = this.threads.get(marker.sessionId)?.runtime ?? await this.openMarkedThread(marker);
         if (!thread) return undefined;
+        const resume = thread.backend.capabilities.resume;
         return {
           threadId: thread.threadId,
           repair: () => this.repairDanglingToolCalls(thread),
-          ...(thread.backend.capabilities.resume ? { resume: thread.backend.capabilities.resume } : {}),
+          // The notice lands in a transcript the client has already drawn, and
+          // it has to be there before the continuation starts, not after it.
+          ...(resume ? { resume: { ...resume, notice: async (text: string) => {
+            await resume.notice?.(text);
+            await this.publishThreadDetail(thread);
+          } } } : {}),
           prompt: (text, hidden) => this.prompt(text, [], thread.threadId, undefined, undefined, { hidden }),
         } satisfies ReconcilableThread;
       },
     });
-    // The notice landed in a transcript the client already drew; republish it.
-    const touched = new Set([...reconciled.continued, ...reconciled.interrupted]);
-    const active = this.active;
-    if (!active || !touched.has(active.threadId)) return;
+  }
+
+  /** Republishes one thread's transcript, when it is the one on screen. */
+  private async publishThreadDetail(thread: ThreadRuntime): Promise<void> {
+    if (this.active !== thread) return;
     const snapshot = await this.snapshot();
     this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) });
   }
