@@ -178,6 +178,7 @@ function services(cwd: string, sessionsDir: string, threads: readonly HostThread
     decorateUiPrompt: () => () => undefined,
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
+    observeConfigChanges: () => () => undefined,
     presentUi: () => () => undefined,
   };
 }

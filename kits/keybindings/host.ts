@@ -41,6 +41,12 @@ export function createKeybindingsHostExtension(): HostExtension {
     name: "Keybindings",
     activate(context: HostExtensionContext) {
       const agentDir = () => context.services.agentDir;
+      // The host watches `keybindings.json` but re-reads nothing for this kit:
+      // it says the file moved, and the commands below read it again.
+      const stopWatching = context.services.observeConfigChanges((change) => {
+        if (change.kind !== "keybindings") return;
+        context.emit("changed", { paths: [...change.paths] });
+      });
       context.registerCommand("pi-keybindings", async (): Promise<PiKeybindingsState> => {
         const user = await readPiUserKeybindings(agentDir());
         const bindings: Record<string, string[]> = {};
@@ -62,6 +68,7 @@ export function createKeybindingsHostExtension(): HostExtension {
         if (!thread) throw new Error("No thread is open for this shortcut.");
         if (!await thread.runShortcut(keys, await readPiUserKeybindings(agentDir()))) throw new Error(`Pi has no shortcut for ${keys}.`);
       });
+      return stopWatching;
     },
   };
 }

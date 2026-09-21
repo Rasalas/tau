@@ -30,6 +30,9 @@ export function activateHostKit(
     stateDir: "/state",
     safeMode: false,
     log: () => undefined,
+    // Nothing is watched in a kit's own test; a kit that follows config changes
+    // still activates, and its test drives the listener it passes here.
+    observeConfigChanges: () => () => undefined,
     ...services,
   } as HostExtensionServices, (event: GlobalHostEvent) => {
     if (event.type === "extension-event") publish(event);

@@ -123,6 +123,7 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     decorateUiPrompt: () => () => undefined,
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
+    observeConfigChanges: () => () => undefined,
     presentUi: () => () => undefined,
     ...overrides,
   };
