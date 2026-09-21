@@ -441,6 +441,47 @@ it defaults to the kind. The host publishes every installed backend, Pi first,
 as `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
 naming the one a client gets when it names none.
 
+### Lifecycle hooks a host half may step into
+
+`services.registerThreadLifecycle(hooks)` and
+`services.registerTurnObserver(observer)` (both `sessions`) are how a package
+learns what is happening to a workspace, a thread and a turn. Every hook is
+optional; the host awaits them in registration order.
+
+| `HostThreadLifecycle` | Runs when |
+|---|---|
+| `beforeWorkspace(cwd)` | before a workspace's first thread opens — startup, project switch. Repair what you keep beside its sessions here. |
+| `afterWorkspaceClose(cwd, reason)` | after the host left a workspace and before `beforeWorkspace` of the next one; `reason` is `"switch"` or `"shutdown"`, and at shutdown every open workspace gets one. Release what belonged to it: shells, watchers, caches. |
+| `beforeOpen(session)` | before a runtime is built for a session file. |
+| `afterFork(source, target)` | after a fork wrote its session file, before that file's runtime opens. |
+| `beforeActivate(thread)` | before a thread goes on screen; may answer with a `{ commit, rollback }` transaction (in-process only). |
+| `threadDeleted(sessionId, cwd)` | the thread is gone for good: its session file was removed, or is about to be. Runtime eviction is **not** this — that is `HostTurnObserver.closed`. |
+| `sweep(sweep)` | a periodic pass over every persisted session the host indexes. |
+
+`threadDeleted` runs once per deletion, whether the host deleted the thread
+itself (`services.sessions.remove(sessionId)`, the verb behind a rail's
+"delete thread") or a sweep found the file gone. A throwing hook is reported
+and the others still run: the thread is gone either way.
+
+`HostTurnObserver` brackets the turns of every thread the host drives:
+`accepted`, `prepare`, `cancelled`, `ended`, `pending`, `reset`, `closed` and
+`toolEnded`. `closed` is a released runtime, not a deleted thread.
+
+### Who is attached: `services.clients`
+
+`services.clients` is ungated — it answers `count()` and takes an observer
+with `attached(clientId, { id, transport, profile })` and `detached(clientId)`.
+`transport` is `"electron"` (the window) or `"socket"` (a browser tab or a
+remote client); `profile` is what that client claimed in its hello
+(`desktop`, `web`, `compact`). A package uses it to hold background work until
+somebody is watching, or to raise a notification when nobody is.
+
+On the desktop side the same two facts arrive as workbench events:
+`context.events.on("client-count", …)` carries `{ count }` whenever a client
+comes or goes, and `context.events.on("workspace-changed", …)` carries
+`{ from?, to }` when the host opens another project — so a panel reacts
+without asking the host what changed.
+
 ### `engines` and `engines.api`
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
