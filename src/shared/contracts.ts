@@ -639,8 +639,18 @@ export interface TauRetryConfig {
   };
 }
 
+export interface TauConfigExtensions {
+  /**
+   * Whether the host watches the files it reads — package folders, themes,
+   * keybindings, config — and reloads what changed. On unless set to false or
+   * `TAU_NO_WATCH=1` is in the environment.
+   */
+  watch?: boolean;
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
+  extensions?: TauConfigExtensions;
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];

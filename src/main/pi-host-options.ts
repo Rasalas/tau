@@ -40,4 +40,10 @@ export interface PiHostOptions {
   kitStateDir?: string;
   /** Mints the ids clients address workspaces by; without one they are per-run. */
   workspaceIdentity?: WorkspaceIdentity;
+  /**
+   * Root of the running checkout. The host watches the kit sources under it
+   * while Tau runs from a checkout; an installed app runs prebuilt kits and
+   * passes nothing.
+   */
+  appPath?: string;
 }

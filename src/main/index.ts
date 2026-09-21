@@ -100,6 +100,8 @@ const hostOptions = {
   }),
   logger: hostLog,
   workspaceIdentity,
+  // A checkout edits `kits/`; an installed Tau has only the prebuilt ones.
+  appPath: workbenchRoot,
   // A kit's own state lives under this instance's userData, so TAU_USER_DATA
   // isolates a dev instance's kit state the way it isolates everything else.
   kitStateDir: join(app.getPath("userData"), "kit-state"),
