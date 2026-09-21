@@ -33,7 +33,9 @@ const workspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless");
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
-const hostVersion = process.env.npm_package_version || "0.0.0";
+// A supervised host is told which version it belongs to; a hand-started one
+// reads npm's environment, as it always did.
+const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || "0.0.0";
 // dist-electron/main/headless.js -> the app root the kits are shipped in.
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 // The built browser client, when there is one; `npm run build:web` writes it.

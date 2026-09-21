@@ -64,6 +64,36 @@ core owns and what a distribution owns. Safe mode is neither — it is
 recovery, and loads no extension at all. The kits are Tau's opinion about what
 a coding workbench should have, not a floor you build on.
 
+## Architecture: the window and the host
+
+Tau runs as two processes. The **host** owns the threads: Pi, the runtimes, the
+host halves of the kits, the session files. The **window** is a client of it —
+Electron, the workbench, the kits' desktop halves — and it is the one that
+starts and watches the host ([ADR 0021](docs/adr/0021-host-runs-in-its-own-process.md)).
+
+On start the window reads `<userData>/host.json`. If the host it names is still
+alive and built from this version, the window connects to it and finds its
+threads where they were; otherwise it starts `dist-electron/main/headless.js`
+with Electron's own binary in Node mode, on a loopback socket with the token in
+`~/.tau/host-token`, and records the new `host.json`. A host that crashes is
+restarted (at most three times a minute, then a dialog with the log path);
+`<userData>/logs/host-out-*.log` holds what it printed, `host-process.log` what
+it logged.
+
+What follows from that:
+
+- **Closing the window does not stop a turn.** The host keeps working, on every
+  platform; the next window picks the threads up again, and starting Tau while
+  it has no window opens one.
+- **Quitting stops the host** — unless *Settings → Defaults → "Keep the host
+  running in the background"* is on, in which case it keeps going and the next
+  start adopts it.
+- **The window still owns its own machine.** The clipboard, image previews and
+  the workbench rebuild are answered in the window process, not in the host;
+  everything else is one call over the protocol.
+- `TAU_HOST_INPROCESS=1` runs the old shape (host inside the window's process)
+  for one release cycle, if something in the new one gets in your way.
+
 ## Install
 
 Download the newest build for your platform from the
@@ -140,7 +170,7 @@ Then copy the host's `~/.tau/host-token` to the client machine (or pass it as `T
 TAU_HOST_URL=ws://127.0.0.1:7788 npm run start:existing
 ```
 
-The main process starts no `PiHost` and no Pi in that mode: it opens the window, which speaks the protocol over the socket. Everything that needs this machine — the clipboard, image previews, rebuilding the workbench — answers with an `unsupported` error, because the state it would touch lives on the host. Paths in the workbench (the project's `cwd`, changed files, a tool's output) are the host's paths, so an action that hands a path to a local tool points at a directory that exists only there. The socket transport says so by leaving the `local-files` capability out of its hello, which the Electron transport announces.
+The main process supervises no host of its own in that mode: it opens the window, which speaks the protocol over the socket, and the kits' code is fetched from the host and served to the renderer from here. What needs this machine — the clipboard, image previews, rebuilding the workbench — is answered in the window process rather than sent to the host. Paths in the workbench (the project's `cwd`, changed files, a tool's output) are the host's paths, so an action that hands a path to a local tool points at a directory that exists only there. The socket transport says so by leaving the `local-files` capability out of its hello, which the Electron transport announces.
 
 A dropped link (a suspended machine, a restarted tunnel) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. A strip above the status line reads `Reconnecting to the host…`, then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. Nothing has to be restarted by hand.
 

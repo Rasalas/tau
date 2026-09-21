@@ -210,6 +210,9 @@ export class HostProcessSupervisor {
       // builds, no window. Without this the host would start a second app.
       ELECTRON_RUN_AS_NODE: "1",
       TAU_USER_DATA: this.options.userData,
+      // The host answers hello with this, and a window adopts only a host of
+      // its own version; a packaged app has no npm environment to read it from.
+      TAU_HOST_VERSION: this.options.version,
       TAU_HOST_LISTEN: `127.0.0.1:${this.preferredPort}`,
       // The host is this machine, so its paths are the window's paths.
       TAU_HOST_LOCAL_FILES: "1",
@@ -249,7 +252,11 @@ export class HostProcessSupervisor {
     this.running = running;
     await this.writeDescriptor(running);
     this.options.logger?.info("host-process.started", { pid: running.pid, url, log: this.logPath });
-    child.on("exit", (code, signal) => this.onExit(code, signal));
+    child.on("exit", (code, signal) => {
+      // The log stream holds a file handle; a host that is gone needs none.
+      logStream.end();
+      this.onExit(code, signal);
+    });
     return running;
   }
 

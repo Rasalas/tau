@@ -43,13 +43,14 @@ describe("resolvePort", () => {
 });
 
 describe("instanceHostPid", () => {
-  it("prefers the pid the instance file recorded", () => {
-    expect(instanceHostPid({ hostPid: 4242, userData: "/nowhere" })).toBe(4242);
+  it("prefers the host descriptor, which a restart rewrites", () => {
+    const readFile = () => JSON.stringify({ pid: 99, url: "ws://127.0.0.1:1" });
+    expect(instanceHostPid({ hostPid: 4242, userData: "/instance" }, { readFile })).toBe(99);
   });
 
-  it("falls back to the host descriptor in the instance's userData", () => {
-    const readFile = () => JSON.stringify({ pid: 99, url: "ws://127.0.0.1:1" });
-    expect(instanceHostPid({ userData: "/instance" }, { readFile })).toBe(99);
+  it("falls back to the pid the instance file recorded", () => {
+    const readFile = () => { throw new Error("no such file"); };
+    expect(instanceHostPid({ hostPid: 4242, userData: "/instance" }, { readFile })).toBe(4242);
   });
 
   it("names no pid when the instance has no host", () => {

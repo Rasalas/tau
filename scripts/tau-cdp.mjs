@@ -352,13 +352,25 @@ export async function stopProcess(pid, {
  * name, which would be somebody else's Tau.
  */
 export function instanceHostPid(instance, { readFile = (path) => readFileSync(path, "utf8") } = {}) {
-  if (typeof instance?.hostPid === "number") return instance.hostPid;
-  if (typeof instance?.userData !== "string") return undefined;
+  // host.json is rewritten on every restart, so it wins over the pid the
+  // instance file recorded when the window started.
+  if (typeof instance?.userData === "string") {
+    try {
+      const descriptor = JSON.parse(readFile(join(instance.userData, "host.json")));
+      if (typeof descriptor.pid === "number") return descriptor.pid;
+    } catch {
+      // No descriptor: the host stopped, or never wrote one.
+    }
+  }
+  return typeof instance?.hostPid === "number" ? instance.hostPid : undefined;
+}
+
+function isAlive(pid) {
   try {
-    const descriptor = JSON.parse(readFile(join(instance.userData, "host.json")));
-    return typeof descriptor.pid === "number" ? descriptor.pid : undefined;
+    process.kill(pid, 0);
+    return true;
   } catch {
-    return undefined;
+    return false;
   }
 }
 
@@ -416,9 +428,11 @@ async function main() {
       // The host outlives the window by design, so stopping an instance means
       // stopping both — its own host, named by its own instance file.
       const hostPid = instanceHostPid(readInstanceFile());
-      if (hostPid !== undefined) {
+      if (hostPid !== undefined && isAlive(hostPid)) {
         const hostResult = await stopProcess(hostPid);
         console.log(hostResult.escalated ? `host ${hostPid} (SIGTERM was ignored; sent SIGKILL)` : `host ${hostPid}`);
+      } else if (hostPid !== undefined) {
+        console.log(`host ${hostPid} had already stopped`);
       }
     } catch (error) {
       console.error(error.message);

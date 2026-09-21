@@ -47,6 +47,15 @@ Workbench
 
 ### The workbench and its client
 
+The workbench is always a client of a host in another process. The window
+starts that host, watches it and connects the renderer to its socket; the
+threads belong to the host, so the window may close, crash or reload without
+stopping one ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)). Eight
+methods stay on this side — clipboard, image preview, the kit bundles the
+renderer imports, the workbench rebuild, relaunch and update — and a kit that
+needs the window's process for a native view ships a `window` half the host
+calls with `callClient`.
+
 `src/workbench/` is Tau's client without a window: the thread index, the thread
 on screen, transcript pages, composer scopes and drafts, notices and the host
 connection, plus `WorkbenchStore` — the one place a host update becomes client

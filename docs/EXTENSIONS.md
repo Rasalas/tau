@@ -132,6 +132,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
   "source": { "url": "https://github.com/acme/hello", "commit": "0123456789abcdef" },
   "desktop": "./desktop.tsx",
   "host": "./host.ts",
+  "window": "./view.ts",
   "styles": "./styles.css",
   "pi": "./pi.ts"
 }
@@ -147,6 +148,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 | `isolation` | `"worker"` (default) or `"in-process"` (§6). |
 | `source` | `{ url, commit? }`, shown in Settings → Inspector. Provenance only — it proves nothing by itself (§4). |
 | `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, and both may be when `styles` is there instead. |
+| `window` | Relative entry path of the half that runs in the process the user's window lives in (§ below); optional, and only useful together with a `host` entry. |
 | `styles` | Relative path of a stylesheet loaded while the package is active. On its own — no `desktop`, no `host` — it makes the package a **theme** (§8). |
 | `pi` | Relative entry path of the package's half inside a Pi runtime Tau does not own (see above); optional. |
 
@@ -516,6 +518,40 @@ The worker enforces it for itself instead — see §6. For an `in-process`
 package it stays advisory, because a package running in the host process can
 reach everything the host process can; that is what granting `in-process`
 means.
+
+### The window half
+
+The host runs in its own process ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)),
+so it has no window: anything that needs one — a native view over a panel, a
+dialog the OS draws — cannot be done there. A package that needs it names a
+`window` entry. That module is compiled like a host half (CommonJS, `electron`
+external) and loaded by the window's process, and it default-exports a factory:
+
+```ts
+import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
+
+export default function activate(context: WindowExtensionContext): WindowExtension {
+  return {
+    handle(command, input) {
+      if (command === "open") return openSomething(input);
+      throw new Error(`no command "${command}"`);
+    },
+    dispose() { /* let the window's resources go */ },
+  };
+}
+```
+
+The host half reaches it with `services.callClient(command, input)`, which
+resolves with whatever `handle` returned. The extension id is bound by the
+window's registry, so a package can only call its own half. `context.invokeHost`
+goes the other way, into the package's own host commands — that is how a view
+reports that the page changed.
+
+Two limits: an isolated (worker) package cannot use `callClient` at all, and a
+client that has no window half (the browser client, a host nobody is attached
+to) makes the call reject. Treat it as an optional capability and say what is
+missing, the way Preview Kit answers "Preview needs the Tau desktop app on this
+host".
 
 ### Isolation
 

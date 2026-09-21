@@ -12,6 +12,7 @@
     "manifest.json",
     "*/tau-extension.json",
     "*/host.cjs",
+    "*/window.cjs",
     "*/desktop.js",
     "*/styles.css",
     "*/pi.cjs"
