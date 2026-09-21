@@ -78,7 +78,11 @@ asarUnpack:
   - "node_modules/**"
   # `new Worker(file)` reads the entry before Electron's archive support is
   # installed in the worker, and the headless host is started as a plain script.
+  # That host is the window's child process (ADR 0021): the shared modules it
+  # imports and the kits it loads must be real files beside it.
   - "dist-electron/main/**"
+  - "dist-electron/shared/**"
+  - "dist-kits/**"
   # Pi resizes images in a worker thread that instantiates WebAssembly from disk.
   - "node_modules/@earendil-works/pi-coding-agent/dist/utils/image-resize-worker.js"
   - "node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node/**"
