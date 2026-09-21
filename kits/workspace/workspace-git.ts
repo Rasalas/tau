@@ -2408,7 +2408,7 @@ export async function commit(
   let pushed = false;
   let detail = `Committed ${committed}`;
   if (shouldPush) {
-    await git(cwd, ["push"], 8 * 1024 * 1024);
+    await pushCurrentBranch(cwd);
     pushed = true;
     detail = `Committed ${committed} and pushed`;
   }
@@ -2421,8 +2421,32 @@ export async function pull(cwd: string, runGit: GitRunner = git): Promise<PullRe
   return { detail: `Pulled ${committed}` };
 }
 
+/**
+ * Pushes the checked-out branch. A branch without an upstream is published to
+ * `origin` (or the only remote) and starts tracking it, which is what a new
+ * pull request needs; a repository without a remote says so.
+ */
+export async function pushCurrentBranch(cwd: string, runGit: GitRunner = git): Promise<void> {
+  const upstream = (await runGit(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).catch(() => "")).trim();
+  if (upstream) {
+    await runGit(cwd, ["push"], 8 * 1024 * 1024);
+    return;
+  }
+  const branch = (await runGit(cwd, ["branch", "--show-current"]).catch(() => "")).trim();
+  if (!branch) throw new Error("Check out a branch before pushing; HEAD is detached.");
+  const remote = await primaryRemote(cwd, runGit);
+  if (!remote) throw new Error("This repository has no remote to push to. Add one with `git remote add origin <url>`.");
+  await runGit(cwd, ["push", "--set-upstream", remote, `HEAD:refs/heads/${branch}`], 8 * 1024 * 1024);
+}
+
+/** `origin` when it exists, else the only remote; undefined without one. */
+export async function primaryRemote(cwd: string, runGit: GitRunner = git): Promise<string | undefined> {
+  const remotes = (await runGit(cwd, ["remote"]).catch(() => "")).split(/\r?\n/u).map((name) => name.trim()).filter(Boolean);
+  return remotes.includes("origin") ? "origin" : remotes[0];
+}
+
 export async function push(cwd: string, runGit: GitRunner = git): Promise<PushResult> {
-  await runGit(cwd, ["push"], 8 * 1024 * 1024);
+  await pushCurrentBranch(cwd, runGit);
   const committed = (await runGit(cwd, ["rev-parse", "--short", "HEAD"])).trim();
   return { detail: `Pushed ${committed}` };
 }
