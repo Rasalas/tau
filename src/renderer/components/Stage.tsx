@@ -1,7 +1,9 @@
 import { useMemo, type KeyboardEvent, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
-import { activeTab, type StageState, type StageView } from "../../workbench/stage";
+import { activeTab, type StageExtensionTab, type StageState, type StageView } from "../../workbench/stage";
+import type { ExtensionRegistry } from "../extension-system";
+import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
 import { StageTabs, type ChatTab } from "./StageTabs";
 import { ThreadDocument } from "./ThreadDocument";
@@ -14,10 +16,31 @@ function isEditable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.isContentEditable);
 }
 
+/**
+ * A tab a desktop extension drew. Core frames it and hands the kind the tab's
+ * params and its handle; a kind that went away leaves the frame with a note,
+ * because the tab itself is closed by the controller, not by this render.
+ */
+function ExtensionPane({ tab, registry, stageTabs }: {
+  tab: StageExtensionTab;
+  registry?: ExtensionRegistry;
+  stageTabs?: StageTabController;
+}) {
+  const contribution = registry?.getStageTabKind(tab.tabKind);
+  if (!contribution || !stageTabs) {
+    return <section className="stage-pane" aria-label={tab.title}>
+      <div className="stage-empty" role="status">The extension that draws this tab is not active.</div>
+    </section>;
+  }
+  return <section className="stage-pane" aria-label={tab.title}>
+    {contribution.render(tab.params, stageTabs.handle(tab.id))}
+  </section>;
+}
+
 export function Stage({
-  stage, cwd, changes, editor, chatTab, focusRef,
+  stage, cwd, changes, editor, chatTab, focusRef, registry, stageTabs,
   loadFile, loadDiff, loadThread,
-  onActivate, onClose, onPin, onChangeView, onOpenInEditor, onTakeOverThread,
+  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread,
 }: {
   stage: StageState;
   focusRef?: RefObject<HTMLElement | null>;
@@ -26,6 +49,9 @@ export function Stage({
   editor?: UiEditor;
   /** Present while the chat shares the tab strip because the centre is too narrow for both. */
   chatTab?: ChatTab;
+  /** Who offers the stage tab kinds, and who holds their handles. */
+  registry?: ExtensionRegistry;
+  stageTabs?: StageTabController;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   /** The transcript of a thread the composer is not addressing. */
@@ -33,6 +59,9 @@ export function Stage({
   onActivate(id: string): void;
   onClose(id: string): void;
   onPin(id: string): void;
+  onUnpin(id: string): void;
+  onCloseOthers(id: string): void;
+  onCloseToRight(id: string): void;
   onChangeView(id: string, view: StageView): void;
   onOpenInEditor(path: string): void;
   /** Makes a thread tab the thread the composer talks to. */
@@ -60,11 +89,22 @@ export function Stage({
       activeId={stage.activeId}
       changedPaths={changedAbsolute}
       chatTab={chatTab}
+      {...(registry ? { registry } : {})}
       onActivate={onActivate}
       onClose={onClose}
       onPin={onPin}
+      onUnpin={onUnpin}
+      onCloseOthers={onCloseOthers}
+      onCloseToRight={onCloseToRight}
     />
-    {!current || chatTab?.active ? null : current.kind === "thread" ? (
+    {!current || chatTab?.active ? null : current.kind === "extension" ? (
+      <ExtensionPane
+        key={current.id}
+        tab={current}
+        {...(registry ? { registry } : {})}
+        {...(stageTabs ? { stageTabs } : {})}
+      />
+    ) : current.kind === "thread" ? (
       <ThreadDocument
         key={current.id}
         sessionId={current.sessionId}

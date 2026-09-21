@@ -70,6 +70,8 @@ export type {
   WorkbenchActions,
   PanelContribution,
   PanelProps,
+  StageTabContribution,
+  StageTabHandle,
   SettingsPageContribution,
   SettingsPageProps,
   SidebarContribution,
@@ -97,6 +99,8 @@ export type {
   TimelineEvent,
 } from "./workbench-context";
 export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from "../workbench/thread-store";
+/** The shape of a stage tab, as `actions.stageTabs()` hands it over. */
+export type { StageExtensionTab, StageFileTab, StageState, StageTab, StageThreadTab, StageView } from "../workbench/stage";
 export type { PreferencesStore } from "./preferences";
 export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity } from "./components/ThreadRow";

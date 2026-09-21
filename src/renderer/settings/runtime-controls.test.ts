@@ -138,25 +138,26 @@ describe("runtime controls keybindings", () => {
   it("binds Tau's own chords without asking any host", () => {
     const registry = new ExtensionRegistry();
     registry.activate(runtimeControls);
-    const keys = Object.fromEntries(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys]));
+    const keys: Record<string, string[]> = {};
+    for (const binding of registry.getKeybindings()) (keys[binding.commandId] ??= []).push(binding.keys);
     expect(keys).toEqual({
-      "runtime.abort": "escape",
-      "runtime.command-palette": "mod+k",
-      "runtime.cycle-model": "ctrl+p",
-      "runtime.cycle-thinking": "shift+tab",
-      "runtime.instructions": "mod+i",
-      "runtime.model": "mod+shift+m",
-      "runtime.new-session": "mod+n",
-      "runtime.rename-thread": "mod+shift+r",
-      "runtime.transcript-detail": "mod+shift+t",
-      "workbench.close-stage-tab": "mod+w",
-      "workbench.focus-composer": "mod+1",
-      "workbench.focus-stage": "mod+3",
-      "workbench.focus-transcript": "mod+2",
-      "workbench.next-stage-tab": "mod+shift+]",
-      "workbench.prev-stage-tab": "mod+shift+[",
-      "workbench.toggle-dock": "mod+b",
-      "runtime.open-prompt-editor": "ctrl+g",
+      "runtime.abort": ["escape"],
+      "runtime.command-palette": ["mod+k"],
+      "runtime.cycle-model": ["ctrl+p"],
+      "runtime.cycle-thinking": ["shift+tab"],
+      "runtime.instructions": ["mod+i"],
+      "runtime.model": ["mod+shift+m"],
+      "runtime.new-session": ["mod+n"],
+      "runtime.rename-thread": ["mod+shift+r"],
+      "runtime.transcript-detail": ["mod+shift+t"],
+      "workbench.close-stage-tab": ["mod+w"],
+      "workbench.focus-composer": ["mod+1"],
+      "workbench.focus-stage": ["mod+3"],
+      "workbench.focus-transcript": ["mod+2"],
+      "workbench.next-stage-tab": ["mod+shift+]", "ctrl+tab"],
+      "workbench.prev-stage-tab": ["mod+shift+[", "ctrl+shift+tab"],
+      "workbench.toggle-dock": ["mod+b"],
+      "runtime.open-prompt-editor": ["ctrl+g"],
     });
   });
 });

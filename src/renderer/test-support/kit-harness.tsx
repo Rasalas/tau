@@ -67,7 +67,7 @@ export async function expectKitActivatesCleanly(
   const leftovers = [
     ...registry.getPanels(), ...registry.getSidebarContributions(), ...registry.getProjectSources(), ...registry.getCommands(),
     ...registry.getSlashCommands(), ...registry.getKeybindings(), ...registry.getComposerControls(), ...registry.getStatusItems(),
-    ...registry.getSettingsPages(),
+    ...registry.getSettingsPages(), ...registry.getStageTabKinds(),
     ...KIT_REGION_PLACEMENTS.flatMap((placement) => registry.getRegions(placement)),
   ];
   if (leftovers.length > 0) throw new Error(`${extension.id} left ${leftovers.length} contributions behind`);
