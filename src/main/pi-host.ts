@@ -1035,7 +1035,7 @@ export class PiHost {
   private async reconcileInterruptedTurns(): Promise<void> {
     const markers = await this.turnsInFlight.load();
     if (markers.length === 0) return;
-    await reconcileInFlightTurns({
+    const reconciled = await reconcileInFlightTurns({
       markers: () => markers,
       forget: (sessionId) => this.turnsInFlight.clear(sessionId),
       continueAfterRestart: this.continueThreadsAfterRestart,
@@ -1053,6 +1053,12 @@ export class PiHost {
         } satisfies ReconcilableThread;
       },
     });
+    // The notice landed in a transcript the client already drew; republish it.
+    const touched = new Set([...reconciled.continued, ...reconciled.interrupted]);
+    const active = this.active;
+    if (!active || !touched.has(active.threadId)) return;
+    const snapshot = await this.snapshot();
+    this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) });
   }
 
   /** Reopens a marked thread off screen; `undefined` when its session is gone. */

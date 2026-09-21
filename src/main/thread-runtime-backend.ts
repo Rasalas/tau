@@ -297,12 +297,19 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   async abort(): Promise<void> { await this.session.abort(); }
 
-  /** A durable transcript row that belongs to nobody; the model sees it as context. */
+  /**
+   * A durable transcript row that belongs to nobody. It goes in as a message
+   * entry rather than through `sendCustomMessage`: the transcript projection
+   * walks message entries, and a custom-message entry would never be drawn.
+   */
   private async appendNotice(text: string): Promise<void> {
-    await this.session.sendCustomMessage(
-      { customType: TAU_NOTICE_ENTRY, content: [{ type: "text", text }], display: true },
-      { triggerTurn: false },
-    );
+    this.session.sessionManager.appendMessage({
+      role: "custom",
+      customType: TAU_NOTICE_ENTRY,
+      content: [{ type: "text", text }],
+      display: true,
+      timestamp: Date.now(),
+    } as Parameters<AgentSession["sessionManager"]["appendMessage"]>[0]);
   }
 
   async persist(messages: readonly UiMessage[]): Promise<void> {

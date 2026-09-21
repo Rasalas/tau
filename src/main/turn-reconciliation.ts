@@ -9,6 +9,11 @@ export function restartInterruptionNotice(startedAt: number): string {
   return `Interrupted by a restart at ${new Date(startedAt).toLocaleString()}`;
 }
 
+/** The same line, for a thread the host is about to pick back up. */
+export function restartContinuationNotice(startedAt: number): string {
+  return `${restartInterruptionNotice(startedAt)}. Continuing the interrupted work.`;
+}
+
 /** A thread the host reopened for a marker, with only what reconciling needs. */
 export interface ReconcilableThread {
   threadId: string;
@@ -63,9 +68,9 @@ export async function reconcileInFlightTurns(port: TurnReconciliationPort): Prom
       const repaired = await thread.repair();
       const resume = thread.resume;
       if (shouldContinue && resume) {
-        // A runtime that cannot hide the message still gets the notice, so the
-        // continuation does not read as something the user typed.
-        if (!resume.hiddenPrompt) await resume.notice?.(restartInterruptionNotice(marker.startedAt));
+        // The notice comes first either way: a continuation nobody asked for
+        // must not read as something the user typed, hidden or not.
+        await resume.notice?.(restartContinuationNotice(marker.startedAt));
         await thread.prompt(RESTART_CONTINUATION_PROMPT, resume.hiddenPrompt);
         result.continued.push(marker.sessionId);
         port.log("turns.in-flight.continued", `${marker.sessionId.slice(0, 8)} · ${repaired} repaired`);

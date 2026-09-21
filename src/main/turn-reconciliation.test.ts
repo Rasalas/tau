@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   RESTART_CONTINUATION_PROMPT,
   reconcileInFlightTurns,
+  restartContinuationNotice,
   restartInterruptionNotice,
   type ReconcilableThread,
   type TurnReconciliationPort,
@@ -70,8 +71,7 @@ describe("reconcileInFlightTurns", () => {
 
     expect(thread.repair).toHaveBeenCalled();
     expect(thread.prompt).toHaveBeenCalledWith(RESTART_CONTINUATION_PROMPT, true);
-    // A hidden continuation is its own transcript row; no second notice.
-    expect(thread.resume?.notice).not.toHaveBeenCalled();
+    expect(thread.resume?.notice).toHaveBeenCalledWith(restartContinuationNotice(marker().startedAt));
     expect(port.markInterrupted).not.toHaveBeenCalled();
     expect(result.continued).toEqual(["thread-1"]);
   });
@@ -84,7 +84,7 @@ describe("reconcileInFlightTurns", () => {
     });
     await reconcileInFlightTurns(port);
 
-    expect(notice).toHaveBeenCalledWith(restartInterruptionNotice(marker().startedAt));
+    expect(notice).toHaveBeenCalledWith(restartContinuationNotice(marker().startedAt));
     expect(thread.prompt).toHaveBeenCalledWith(RESTART_CONTINUATION_PROMPT, false);
   });
 
