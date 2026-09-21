@@ -9,6 +9,7 @@ import type {
   HostEvent,
   HostSnapshot,
   ShellActionResult,
+  UiPromptAttachment,
   UiToolRun,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -235,6 +236,73 @@ export interface ComposerControlContribution extends ProfileScoped {
   /** `toolbar` sits beside model and thinking; `footer` spans the row below the editor. */
   placement?: "toolbar" | "footer";
   Component: ComponentType<ComposerControlProps>;
+}
+
+/** One draft of one composer: where an inline contribution is working. */
+export interface ComposerInlineContext {
+  /** The draft the composer edits. Stable while the draft lives; a new thread's draft gets a new one once the thread exists. */
+  scope: string;
+  snapshot?: HostSnapshot;
+  /** The thread's runtime takes `kind: "file"` attachments; otherwise embed a file as text. */
+  fileAttachments: boolean;
+  /** The thread's model takes images. */
+  imageInput: boolean;
+}
+
+export interface ComposerInlineProps extends ComposerInlineContext {
+  /** This extension's state beside the draft's text, persisted with it (plain JSON; `undefined` removes it). */
+  draftState: { read(): unknown; write(value: unknown): void };
+}
+
+/** One row of a trigger's menu. */
+export interface ComposerTriggerItem {
+  id: string;
+  label: string;
+  description?: string;
+  hint?: string;
+}
+
+/**
+ * A character that opens a menu at the start of a word, the way `@` lists
+ * files. Choosing a row removes the typed trigger and hands the row over.
+ */
+export interface ComposerTriggerContribution {
+  /** One character; `/` and `$` are core's. An extension's `@` replaces core's file list. */
+  char: string;
+  /** What the menu lists, for its accessible name: "Files", "Pull requests". */
+  label: string;
+  search(query: string, context: ComposerInlineContext): readonly ComposerTriggerItem[] | Promise<readonly ComposerTriggerItem[]>;
+  select(item: ComposerTriggerItem, query: string, context: ComposerInlineContext): void;
+}
+
+/** What an inline contribution adds to a prompt that is being sent. */
+export interface ComposerSendContribution {
+  /** Text core puts before the user's (after it, for a skill). */
+  context?: string;
+  attachments?: readonly UiPromptAttachment[];
+}
+
+/**
+ * Typed context inside the composer's input frame: a strip drawn above the
+ * text, what it takes from a paste or a drop, its trigger menus, and what it
+ * adds to a prompt when one is sent. A `/command` is sent without it.
+ */
+export interface ComposerInlineContribution extends ProfileScoped {
+  id: string;
+  Component?: ComponentType<ComposerInlineProps>;
+  triggers?: readonly ComposerTriggerContribution[];
+  /** Answer `true` to keep pasted text out of the field. */
+  pasteText?(text: string, context: ComposerInlineContext): boolean;
+  /** Takes files from a drop, a paste or the attach button, and answers with the ones left for core's images. */
+  takeFiles?(files: readonly File[], context: ComposerInlineContext): readonly File[];
+  /** Whether this draft holds something worth sending on its own; enables Send without text. */
+  hasContent?(scope: string): boolean;
+  /** Called when what `hasContent` answers may have changed. */
+  subscribe?(listener: () => void): () => void;
+  /** Runs once per sent prompt; a throw rejects the submission and keeps the draft. */
+  prepareSend?(context: ComposerInlineContext & { text: string }): ComposerSendContribution | void | Promise<ComposerSendContribution | void>;
+  /** The prompt `prepareSend` contributed to was accepted or refused. */
+  settleSend?(scope: string, accepted: boolean): void;
 }
 
 export interface PanelProps {
@@ -526,6 +594,8 @@ export interface DesktopExtensionContext {
    */
   inspectPackages(cwd: string): Promise<ExtensionInspection>;
   registerComposerControl(control: ComposerControlContribution): () => void;
+  /** Typed context inside the composer's input frame: chips, paste and drop handling, trigger menus. */
+  registerComposerInline(inline: ComposerInlineContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
@@ -681,6 +751,7 @@ export class ExtensionRegistry {
   private stageTabKinds = new Map<string, Owned<StageTabContribution>>();
   private settingsPages = new Map<string, Owned<SettingsPageContribution>>();
   private composerControls = new Map<string, Owned<ComposerControlContribution>>();
+  private composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
@@ -886,6 +957,16 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "composer control", control.id, undefined, control)) return noContribution;
         note("composer controls");
         return this.register(this.composerControls, control.id, { ...control, ...owner }, disposers);
+      },
+      registerComposerInline: (inline) => {
+        for (const trigger of inline.triggers ?? []) {
+          if ([...trigger.char].length !== 1 || /[\s/$]/u.test(trigger.char)) {
+            throw new Error(`Composer trigger "${trigger.char}" from ${extension.id} must be one character other than "/", "$" or a space`);
+          }
+        }
+        if (!this.scopeToProfile(owner, "composer inline", inline.id, undefined, inline)) return noContribution;
+        note("composer context");
+        return this.register(this.composerInlines, inline.id, { ...inline, ...owner }, disposers);
       },
       provideService: (id, value) => {
         const held = this.extensionServices.get(id);
@@ -1170,6 +1251,10 @@ export class ExtensionRegistry {
 
   getComposerControls(): Array<Owned<ComposerControlContribution>> {
     return this.sorted("composer-controls", this.composerControls);
+  }
+
+  getComposerInlines(): Array<Owned<ComposerInlineContribution>> {
+    return this.sorted("composer-inlines", this.composerInlines, false);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {

@@ -525,6 +525,7 @@ export default function App() {
     conversationSnapshot?.supportsImageInput ?? false,
     addDroppedFiles,
     composerAttachmentSnapshot.attachments,
+    registry.getComposerInlines().some((inline) => inline.takeFiles !== undefined),
   );
   const { conversationActivityTools, conversationPrompts, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread: Boolean(pendingNewThread), activityTools, turnActivityHistory, conversationSnapshot,

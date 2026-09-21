@@ -265,10 +265,57 @@ close others, close to the right and pin/unpin. `examples/desktop-extensions/hel
 is the whole of the above as one file; Terminal Kit's "open as tab" is the
 shipped caller.
 
+#### Context in the composer
+
+`registerComposerInline` lets a package put typed context into the composer's
+input frame — chips for a file, an excerpt, a pull request — without core
+knowing what a chip is. Core owns the frame, the text field and the send; the
+contribution owns what it holds, per **draft**:
+
+```tsx
+plugin.registerComposerInline({
+  id: "example.chips",
+  profiles: ["desktop", "web"],
+  Component: ({ scope, draftState }) => <Chips scope={scope} persist={draftState} />,
+  triggers: [{ char: "#", label: "Issues", search: (query) => issues(query), select: (item, _query, { scope }) => add(scope, item) }],
+  pasteText: (text, { scope }) => text.length > 32_768 && foldPaste(scope, text),
+  takeFiles: (files, { scope }) => files.filter((file) => !take(scope, file)),
+  hasContent: (scope) => has(scope),
+  subscribe: (listener) => onChange(listener),
+  prepareSend: ({ scope, fileAttachments }) => ({ context: serialize(scope), attachments: files(scope, fileAttachments) }),
+  settleSend: (scope, accepted) => accepted ? clear(scope) : restore(scope),
+});
+```
+
+| Member | What core does with it |
+|---|---|
+| `Component` | Drawn inside the input frame, above the text. It gets the `ComposerInlineContext` — `scope`, `snapshot`, `fileAttachments`, `imageInput` — and `draftState`, the extension's own slot beside the draft's text in the draft store (`read()`, `write(json)`, `write(undefined)` to drop it), so a reload brings the chips back with the text. |
+| `triggers` | A character that opens core's autocomplete menu at the start of a word. `search` answers rows (`{ id, label, description?, hint? }`), `select` gets the chosen row once core has removed the typed trigger. `/` and `$` are core's; an extension's `@` replaces core's own file list. |
+| `pasteText` | Asked for every text paste; `true` keeps the text out of the field. |
+| `takeFiles` | Offered every file of a drop, a paste or the attach button before core; answers with the files it left, which core treats as images. While any contribution takes files, the attach button accepts any type and the thread-wide drop overlay lets any file through — the contribution checks its own limits. |
+| `hasContent`, `subscribe` | Whether the draft has something worth sending with no text at all; Send enables on it. |
+| `prepareSend` | Runs once per prompt, after `beginSubmission` captured the draft. `context` is put before the user's text (after it when a skill is selected, which reads its instruction first); `attachments` join the images. A throw refuses the send and keeps the draft. A `/command` never asks. |
+| `settleSend` | The prompt `prepareSend` contributed to was accepted (clear what went) or refused (put it back). |
+
+`scope` is the draft key core persists the text under; a new thread's draft
+gets a new one once the thread exists, so a contribution keeps its state by
+scope and lets go of it on `settleSend(scope, true)`.
+
+**File attachments.** A prompt attachment is an image
+(`{ kind: "image", name, mimeType, data, size }`, the bytes) or a file
+(`{ kind: "file", name, mimeType, path, size }`, an absolute path on the host,
+at most 50 MB). Only a runtime whose adapter declares
+`capabilities.fileAttachments` takes a file — Antigravity does, as ACP
+`resource_link` blocks — and the host refuses one for any other runtime.
+`ComposerInlineContext.fileAttachments` says which case the composer is in, so a
+contribution embeds the file as text instead when it is false. A
+`ThreadRuntimeBackend` receives both kinds in `attachments` and takes the ones
+its runtime understands.
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, stage tabs,
-regions, status items, overlays, composer controls, the sidebar, project
+regions, status items, overlays, composer controls, composer inlines, the sidebar, project
 sources, prompt renderers, the document source, transcript rows, tool renderers
 and tool cards — takes an optional `profiles`:
 

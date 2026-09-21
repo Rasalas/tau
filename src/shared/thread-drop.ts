@@ -7,7 +7,7 @@ import {
   type AttachmentPolicyReason,
 } from "./prompt-attachment-limits.js";
 
-export type ThreadDropState = "idle" | "valid" | "mixed" | "invalid-type" | "invalid-size" | "too-many" | "total-size" | "unavailable" | "unknown";
+export type ThreadDropState = "idle" | "valid" | "files" | "mixed" | "invalid-type" | "invalid-size" | "too-many" | "total-size" | "unavailable" | "unknown";
 
 export interface ThreadDropFeedback {
   title: string;
@@ -28,6 +28,11 @@ export const THREAD_DROP_FEEDBACK: Readonly<Record<ThreadDropState, ThreadDropFe
   valid: {
     title: "Drop images anywhere in the thread",
     description: `${SUPPORTED_IMAGE_TYPES_LABEL} · up to ${MAX_ATTACHMENTS} images · ${MAX_IMAGE_BYTES / 1024 / 1024} MB each`,
+    dropEffect: "copy",
+  },
+  files: {
+    title: "Drop files to attach them",
+    description: "Images go to the model as images; any other file goes as an attachment.",
     dropEffect: "copy",
   },
   mixed: {
@@ -83,8 +88,11 @@ export function classifyThreadDrop(
   supportsImageInput: boolean,
   existingCount = 0,
   existingBytes = 0,
+  /** An extension takes files of any kind, and checks them itself. */
+  acceptsAnyFile = false,
 ): ThreadDropState {
   if (!hasFilesSignal) return "idle";
+  if (acceptsAnyFile) return "files";
   if (!supportsImageInput) return "unavailable";
   const fileItems = items.filter((item) => item.kind === "file");
   if (fileItems.length === 0) return "unknown";
