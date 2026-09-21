@@ -11,6 +11,7 @@ import type { NewThreadDraft } from "../workbench/draft-store";
 import type { WorkbenchActions } from "./extension-system";
 import { errorMessage } from "../workbench/error-message";
 import type { PreferencesStore } from "./preferences";
+import type { StageTabController } from "./stage-tab-controller";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -42,7 +43,8 @@ export interface UseWorkbenchActionsOptions {
   setNotice: (notice: any) => void;
   openProjectSources: () => void;
   applyHostResult: (result: HostActionResult) => void;
-  closeActiveStageTab: () => void;
+  /** Every path that closes a stage tab, and the tabs extensions drew. */
+  stageTabs: StageTabController;
   cycleStageTab: (direction: -1 | 1) => void;
   openOverlay: (id: string) => void;
   closeOverlay: () => void;
@@ -65,7 +67,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   const {
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    closeActiveStageTab, cycleStageTab, openModelPicker, focusStage, openInstructions,
+    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions,
   } = options;
 
   return useMemo<WorkbenchActions>(() => ({
@@ -106,8 +108,11 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     notify: options.setNotice,
     openProjectSources: options.openProjectSources,
     applyHostResult,
-    closeActiveStageTab,
+    closeActiveStageTab: stageTabs.closeActive,
     cycleStageTab,
+    openStageTab: stageTabs.open,
+    closeStageTab: stageTabs.close,
+    stageTabs: stageTabs.tabs,
     copyText: async (text: string) => { await options.platform.clipboard.writeText(text); },
     openExternal: (url: string) => options.platform.openExternal(url),
     openOverlay: options.openOverlay,
@@ -221,6 +226,6 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   }), [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    closeActiveStageTab, cycleStageTab, openModelPicker, focusStage, openInstructions,
+    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions,
   ]);
 }

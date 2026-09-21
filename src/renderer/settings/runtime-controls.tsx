@@ -395,5 +395,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
     plugin.registerKeybinding({ keys: "mod+shift+]", commandId: "workbench.next-stage-tab" });
     plugin.registerKeybinding({ keys: "mod+shift+[", commandId: "workbench.prev-stage-tab" });
+    plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab" });
+    plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab" });
   },
 };

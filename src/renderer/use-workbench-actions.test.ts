@@ -43,7 +43,7 @@ function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}):
     setNotice: vi.fn(),
     openProjectSources: vi.fn(),
     applyHostResult: vi.fn(),
-    closeActiveStageTab: vi.fn(),
+    stageTabs: { closeActive: vi.fn(), open: vi.fn(), close: vi.fn(), tabs: () => [] } as any,
     cycleStageTab: vi.fn(),
     openOverlay: vi.fn(),
     closeOverlay: vi.fn(),

@@ -30,6 +30,7 @@ import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, EMPTY_STAGE, type StageState, type StageView } from "../workbench/stage";
+import { useStageTabs } from "./stage-tab-controller";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { writeCachedTurnActivity } from "../workbench/turn-activity";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
@@ -69,6 +70,8 @@ export default function App() {
     return value;
   });
   const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion);
+  // Stage tabs a kit drew: their handles, and the one door that closes a tab.
+  const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage });
   // What this client can do with the machine it runs on. Everything in the
   // renderer that needs the clipboard, an editor or a module evaluation asks
   // this, never Electron; `src/workbench/` never asks at all.
@@ -265,7 +268,7 @@ export default function App() {
   }));
   const { abort: abortThread, duplicateThread, requireHost, settleActiveThread } = threadCommands;
   const {
-    activateStage, closeStage, pinStage, setStageView, closeActiveStageTab, cycleStageTab,
+    activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
     applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread,
   } = useThreadNavigation({
     ...(client ? { client } : {}),
@@ -414,7 +417,7 @@ export default function App() {
     composerRef, transcriptRef, openPanel, openPalette, setSettingsPage, openNewThreadPicker,
     switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
-    applyHostResult, closeActiveStageTab, cycleStageTab, openOverlay, closeOverlay,
+    applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, preferences,
     openModelPicker, openInstructions, focusStage,
     executeCommand: (id) => {
@@ -526,17 +529,17 @@ export default function App() {
     controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
-    chatFocused, setChatFocused, stage, activateStageTab: activateStage, closeStageTab: closeStage,
-    pinStageTab: pinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
+    chatFocused, setChatFocused, stage, stageTabs, activateStageTab: activateStage,
+    pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
     commands, projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     notice: notice?.message, noticeLevel: notice?.level ?? "info", setNotice, activeOverlayId, closeOverlay,
   }), [
     activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker, layoutProfile,
-    closeOverlay, closePalette, closeProjectSources, closeStage, commands, createThreadInProject,
+    closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
     documentSource, documentState, dockOpen, newThreadOpen, notice, openNewThreadPicker, openPanel,
     threadCommands, openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
-    setNotice, setStageView, settings, settingsPage,
+    setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage,
     sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
   ]);
 

@@ -1,6 +1,7 @@
 /**
  * The stage is the document area beside the conversation. A tab is a file,
- * shown as source or as its working-tree diff, or another thread's transcript.
+ * shown as source or as its working-tree diff, another thread's transcript,
+ * or a surface a desktop extension registered a kind for.
  * Pure so the preview/pin rules can be tested without React.
  */
 export type StageView = "source" | "diff";
@@ -24,7 +25,22 @@ export interface StageThreadTab extends StageTabBase {
   sessionId: string;
 }
 
-export type StageTab = StageFileTab | StageThreadTab;
+/**
+ * A tab a desktop extension draws. Core keeps the strip, the placement and the
+ * preview rules; the registered kind draws the content and names the title.
+ * Every field is plain JSON, so a tab survives being written to storage.
+ */
+export interface StageExtensionTab extends StageTabBase {
+  kind: "extension";
+  /** The kind registered with `registerStageTab` that draws this tab. */
+  tabKind: string;
+  params: Record<string, unknown>;
+  title: string;
+  /** Unsaved work: the strip marks it and closing asks first. */
+  dirty?: boolean;
+}
+
+export type StageTab = StageFileTab | StageThreadTab | StageExtensionTab;
 
 export interface StageState {
   tabs: StageTab[];
@@ -39,6 +55,27 @@ export function fileTabId(path: string): string {
 
 export function threadTabId(sessionId: string): string {
   return `thread:${sessionId}`;
+}
+
+export function extensionTabId(tabKind: string, key: string): string {
+  return `ext:${tabKind}:${key}`;
+}
+
+/**
+ * The key of a tab whose opener named none: the same params mean the same tab.
+ * Key order never decides identity, and `undefined` members read as absent.
+ */
+export function stageParamsKey(params: Record<string, unknown>): string {
+  return stableJson(params);
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value ?? null) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, member]) => member !== undefined)
+    .sort(([a], [b]) => a < b ? -1 : 1);
+  return `{${entries.map(([key, member]) => `${JSON.stringify(key)}:${stableJson(member)}`).join(",")}}`;
 }
 
 export function activeTab(state: StageState): StageTab | undefined {
@@ -87,6 +124,41 @@ export function openThreadTab(state: StageState, sessionId: string, options: { p
   return openTab(state, { id, kind: "thread", sessionId, preview: !options.pin });
 }
 
+/**
+ * A tab of a registered kind. An extension tab is opened by a deliberate
+ * action, so it is pinned unless its opener asks for the preview slot.
+ */
+export function openExtensionTab(
+  state: StageState,
+  tab: { tabKind: string; key: string; params: Record<string, unknown>; title: string },
+  options: { preview?: boolean } = {},
+): StageState {
+  const id = extensionTabId(tab.tabKind, tab.key);
+  const preview = options.preview ?? false;
+  const existing = state.tabs.find((entry) => entry.id === id);
+  if (existing?.kind === "extension") {
+    return reopen(state, existing, { ...existing, params: tab.params, title: tab.title, preview: existing.preview && preview });
+  }
+  return openTab(state, { id, kind: "extension", tabKind: tab.tabKind, params: tab.params, title: tab.title, preview });
+}
+
+function mapExtensionTab(state: StageState, id: string, change: (tab: StageExtensionTab) => StageExtensionTab): StageState {
+  const existing = state.tabs.find((tab) => tab.id === id);
+  if (existing?.kind !== "extension") return state;
+  const next = change(existing);
+  if (next === existing) return state;
+  return { ...state, tabs: state.tabs.map((tab) => tab.id === id ? next : tab) };
+}
+
+/** What the tab is called; the content renames itself through its handle. */
+export function setExtensionTabTitle(state: StageState, id: string, title: string): StageState {
+  return mapExtensionTab(state, id, (tab) => tab.title === title ? tab : { ...tab, title });
+}
+
+export function setExtensionTabDirty(state: StageState, id: string, dirty: boolean): StageState {
+  return mapExtensionTab(state, id, (tab) => Boolean(tab.dirty) === dirty ? tab : { ...tab, dirty });
+}
+
 export function activateTab(state: StageState, id: string): StageState {
   if (state.activeId === id || !state.tabs.some((tab) => tab.id === id)) return state;
   return { ...state, activeId: id };
@@ -103,6 +175,24 @@ export function closeTab(state: StageState, id: string): StageState {
 
 export function pinTab(state: StageState, id: string): StageState {
   return { ...state, tabs: state.tabs.map((tab) => tab.id === id && tab.preview ? { ...tab, preview: false } : tab) };
+}
+
+/** The one preview slot moves to this tab; every other tab keeps its place, pinned. */
+export function unpinTab(state: StageState, id: string): StageState {
+  if (!state.tabs.some((tab) => tab.id === id && !tab.preview)) return state;
+  return { ...state, tabs: state.tabs.map((tab) => ({ ...tab, preview: tab.id === id })) };
+}
+
+/** What the strip's "Close others" would remove, in order; closing them is the caller's. */
+export function otherTabIds(state: StageState, id: string): string[] {
+  if (!state.tabs.some((tab) => tab.id === id)) return [];
+  return state.tabs.filter((tab) => tab.id !== id).map((tab) => tab.id);
+}
+
+/** What the strip's "Close to the right" would remove, in order. */
+export function tabIdsToTheRight(state: StageState, id: string): string[] {
+  const index = state.tabs.findIndex((tab) => tab.id === id);
+  return index < 0 ? [] : state.tabs.slice(index + 1).map((tab) => tab.id);
 }
 
 export function setFileView(state: StageState, id: string, view: StageView): StageState {

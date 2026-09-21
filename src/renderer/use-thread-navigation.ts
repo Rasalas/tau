@@ -7,7 +7,7 @@ import type { ComposerScopeStore, DraftKey } from "../workbench/composer-scope-s
 import { createNewThreadDraft, draftKey, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
-import { activateTab, closeTab, cycleTab, EMPTY_STAGE, pinTab, setFileView, type StageState, type StageView } from "../workbench/stage";
+import { activateTab, cycleTab, EMPTY_STAGE, pinTab, setFileView, unpinTab, type StageState, type StageView } from "../workbench/stage";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { TranscriptHistoryController, TransitionToken } from "../workbench/transcript-history";
@@ -158,15 +158,15 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     if (path) void switchSession(path);
   }, [switchSession, threads]);
 
+  // Closing a tab is not here: it asks the tab first, which is StageTabController's.
   const activateStage = useCallback((id: string) => setStage((current) => activateTab(current, id)), []);
-  const closeStage = useCallback((id: string) => setStage((current) => closeTab(current, id)), []);
   const pinStage = useCallback((id: string) => setStage((current) => pinTab(current, id)), []);
+  const unpinStage = useCallback((id: string) => setStage((current) => unpinTab(current, id)), []);
   const setStageView = useCallback((id: string, stageView: StageView) => setStage((current) => setFileView(current, id, stageView)), []);
-  const closeActiveStageTab = useCallback(() => setStage((current) => current.activeId ? closeTab(current, current.activeId) : current), []);
   const cycleStageTab = useCallback((direction: 1 | -1) => setStage((current) => cycleTab(current, direction)), []);
 
   return {
-    stage, setStage, activateStage, closeStage, pinStage, setStageView, closeActiveStageTab, cycleStageTab,
+    stage, setStage, activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
     applyHostResult, discardPendingNewThread, openWorkspace, createThreadInProject,
     switchSession, takeOverThread,
   };

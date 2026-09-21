@@ -14,6 +14,7 @@ import type {
   ExtensionUiPrompt,
 } from "../shared/contracts";
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
+import type { StageTab } from "../workbench/stage";
 import { PreferencesStore } from "./preferences";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 
@@ -56,6 +57,16 @@ export interface WorkbenchActions {
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff" }): void;
   /** Opens a thread in the stage as a read-only tab, leaving the active thread alone. */
   openThread(sessionId: string, options?: { pin?: boolean }): void;
+  /**
+   * Opens a tab of a kind an extension registered with `registerStageTab` and
+   * answers with its tab id. Two opens with the same params are the same tab;
+   * `key` names one explicitly, `preview` asks for the stage's preview slot.
+   */
+  openStageTab(kind: string, params?: Record<string, unknown>, options?: { preview?: boolean; key?: string }): string;
+  /** Closes a stage tab of any kind, asking first when it says it has unsaved work. */
+  closeStageTab(id: string): void;
+  /** Every tab on the stage, in strip order. */
+  stageTabs(): readonly StageTab[];
   /** Runs a shell command the way Pi's `!` does; output goes to the thread when asked. */
   runShellAction(command: string, includeInContext: boolean): Promise<ShellActionResult>;
   /** Keeps the composer from submitting until the returned release is called. */
@@ -238,6 +249,39 @@ export interface PanelContribution extends ProfileScoped {
   Icon?: PanelIconComponent;
   order?: number;
   Component: ComponentType<PanelProps>;
+}
+
+/**
+ * What a stage tab's content does to its own tab. Core hands one handle per
+ * tab and keeps it while the tab lives, so the content may hold on to it.
+ */
+export interface StageTabHandle {
+  /** The tab's id in the stage, the one `actions.closeStageTab` takes. */
+  readonly id: string;
+  setTitle(title: string): void;
+  /** A dot in the tab; closing a dirty tab asks the user first. */
+  setDirty(dirty: boolean): void;
+  /** Runs when the tab closes, whoever closed it; the returned function unsubscribes. */
+  onClose(listener: () => void): () => void;
+}
+
+/**
+ * A kind of stage tab an extension draws — a terminal, a pull request, a file
+ * editor. Core keeps the strip, the placement and the preview and pin rules;
+ * the kind supplies the title, the glyph, the content and, for a tab that came
+ * back from storage, the answer whether it still names anything.
+ */
+export interface StageTabContribution<Params extends Record<string, unknown> = Record<string, unknown>> extends ProfileScoped {
+  /** What `actions.openStageTab` names; unique across extensions. */
+  kind: string;
+  title(params: Params): string;
+  /** The tab glyph, the way a panel passes one. */
+  Icon?: PanelIconComponent;
+  render(params: Params, handle: StageTabHandle): ReactNode;
+  /** False drops a tab restored from storage whose params name nothing any more. */
+  restore?(params: Params): boolean;
+  /** One tab for the whole kind, whatever params it is opened with. */
+  singleton?: boolean;
 }
 
 /** Places besides the palette where a command may also be offered. */
@@ -470,6 +514,8 @@ export interface DesktopExtensionContext {
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
   registerPanel(panel: PanelContribution): () => void;
+  /** A kind of tab this extension draws on the stage; `actions.openStageTab` opens one. */
+  registerStageTab<Params extends Record<string, unknown>>(tab: StageTabContribution<Params>): () => void;
   /** A page of the Settings modal; core lends the nav entry and the frame. */
   registerSettingsPage(page: SettingsPageContribution): () => void;
   /**
@@ -630,6 +676,7 @@ export class ExtensionRegistry {
   }
 
   private panels = new Map<string, Owned<PanelContribution>>();
+  private stageTabKinds = new Map<string, Owned<StageTabContribution>>();
   private settingsPages = new Map<string, Owned<SettingsPageContribution>>();
   private composerControls = new Map<string, Owned<ComposerControlContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
@@ -750,6 +797,12 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "panel", panel.id, panel.label, panel)) return noContribution;
         note(panel.label.toLowerCase());
         return this.register(this.panels, panel.id, { ...panel, ...owner }, disposers);
+      },
+      registerStageTab: (tab) => {
+        const contribution = tab as unknown as StageTabContribution;
+        if (!this.scopeToProfile(owner, "stage tab", contribution.kind, contribution.kind, contribution)) return noContribution;
+        note("stage tabs");
+        return this.register(this.stageTabKinds, contribution.kind, { ...contribution, ...owner }, disposers);
       },
       registerSettingsPage: (page) => {
         if (!this.scopeToProfile(owner, "settings page", page.id, page.label, page)) return noContribution;
@@ -1032,6 +1085,16 @@ export class ExtensionRegistry {
 
   getPanels(): Array<Owned<PanelContribution>> {
     return this.sorted("panels", this.panels);
+  }
+
+  /** The kind that draws a stage tab, while the extension offering it is active. */
+  getStageTabKind(kind: string): Owned<StageTabContribution> | undefined {
+    return this.stageTabKinds.get(kind);
+  }
+
+  /** Every stage tab kind on offer; a tab of a kind that is gone is closed with it. */
+  getStageTabKinds(): Array<Owned<StageTabContribution>> {
+    return this.sorted("stage-tab-kinds", this.stageTabKinds, false);
   }
 
   /** Pages extensions added to Settings, in `order`. */

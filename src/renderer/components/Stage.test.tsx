@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage, UiSession } from "../../shared/contracts";
 import type { UiFileContent, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
-import { activateTab, closeTab, EMPTY_STAGE, openFileTab, openThreadTab, pinTab, setFileView, type StageState } from "../../workbench/stage";
+import { activateTab, closeTab, EMPTY_STAGE, openExtensionTab, openFileTab, openThreadTab, otherTabIds, pinTab, setFileView, tabIdsToTheRight, unpinTab, type StageState } from "../../workbench/stage";
 import { ThreadStore } from "../../workbench/thread-store";
 import { ThreadStoreContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
+import { ExtensionRegistry } from "../extension-system";
+import { StageTabController } from "../stage-tab-controller";
 import { Stage } from "./Stage";
 import type { ChatTab } from "./StageTabs";
 
@@ -26,7 +28,7 @@ const CHANGED: UiWorkspaceChanges = {
   added: 1, removed: 0, proposedMessage: "Update a",
 };
 
-function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = new ThreadStore(), loadThread, onTakeOverThread }: {
+function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = new ThreadStore(), loadThread, onTakeOverThread, registry }: {
   initial: StageState;
   changes?: UiWorkspaceChanges;
   chatTab?: ChatTab;
@@ -34,10 +36,21 @@ function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = ne
   threads?: ThreadStore;
   loadThread?: (sessionId: string) => Promise<UiMessage[]>;
   onTakeOverThread?: (sessionId: string) => void;
+  registry?: ExtensionRegistry;
 }) {
   const [stage, setStage] = useState(initial);
+  const [stageTabs] = useState(() => new StageTabController({
+    registry: registry ?? new ExtensionRegistry(),
+    stage: () => stageRef.current,
+    setStage: (change) => setStage(change as (current: StageState) => StageState),
+    confirmDiscard: () => true,
+  }));
+  const stageRef = useRef(stage);
+  stageRef.current = stage;
   return <TestProviders><ThreadStoreContext.Provider value={threads}><Stage
     stage={stage}
+    {...(registry ? { registry } : {})}
+    stageTabs={stageTabs}
     cwd={CWD}
     changes={changes}
     chatTab={chatTab}
@@ -46,6 +59,9 @@ function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = ne
     onActivate={(id) => setStage((current) => activateTab(current, id))}
     onClose={(id) => { onClose?.(id); setStage((current) => closeTab(current, id)); }}
     onPin={(id) => setStage((current) => pinTab(current, id))}
+    onUnpin={(id) => setStage((current) => unpinTab(current, id))}
+    onCloseOthers={(id) => setStage((current) => otherTabIds(current, id).reduce(closeTab, current))}
+    onCloseToRight={(id) => setStage((current) => tabIdsToTheRight(current, id).reduce(closeTab, current))}
     onChangeView={(id, view) => setStage((current) => setFileView(current, id, view))}
     onOpenInEditor={() => undefined}
     loadThread={loadThread ?? (async () => [])}
@@ -250,3 +266,59 @@ describe("a thread tab", () => {
   });
 });
 
+
+describe("a tab a kit drew", () => {
+  function terminals(): ExtensionRegistry {
+    const registry = new ExtensionRegistry();
+    registry.activate({
+      id: "acme.terminals",
+      name: "Terminals",
+      activate: (plugin) => {
+        plugin.registerStageTab({
+          kind: "terminal",
+          title: (params) => `shell ${String(params.id)}`,
+          render: (params, handle) => <button onClick={() => handle.setTitle("renamed")}>shell {String(params.id)} output</button>,
+        });
+      },
+    });
+    return registry;
+  }
+
+  const tab = (id: string) => openExtensionTab(EMPTY_STAGE, { tabKind: "terminal", key: id, params: { id }, title: `shell ${id}` });
+
+  it("draws the kind's content and lets it rename its own tab", () => {
+    render(<Harness initial={tab("t1")} registry={terminals()} />);
+
+    expect(screen.getByRole("tab", { name: /shell t1/u })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /shell t1 output/u }));
+    expect(screen.getByRole("tab", { name: /renamed/u })).toBeTruthy();
+  });
+
+  it("says so when the kit that drew it is not active", () => {
+    render(<Harness initial={tab("t1")} />);
+    expect(screen.getByText(/extension that draws this tab is not active/u)).toBeTruthy();
+  });
+
+  it("closes the other tabs from the tab's own context menu", async () => {
+    const registry = terminals();
+    let stage = openFileTab(tab("t1"), `${CWD}/src/a.ts`, { pin: true });
+    stage = openFileTab(stage, `${CWD}/src/b.ts`, { pin: true });
+    render(<Harness initial={stage} registry={registry} />);
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /shell t1/u }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Close others" }));
+
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(1));
+    expect(screen.getByRole("tab", { name: /shell t1/u })).toBeTruthy();
+  });
+
+  it("unpins a tab from the context menu, which makes it the preview again", async () => {
+    render(<Harness initial={tab("t1")} registry={terminals()} />);
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /shell t1/u }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Unpin" }));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: /shell t1/u }).className).toContain("preview"));
+  });
+});
