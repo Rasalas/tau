@@ -23,13 +23,14 @@ import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/ext
 import { HostLog } from "./host-log.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostJobRunner } from "./host-jobs.js";
-import { createHostMethods, createUnsupportedHostMethods, type HostMethodTable } from "./host-methods.js";
+import { createClientHostMethods, createHostMethods, createUnsupportedHostMethods, type ClientHostPlatform, type HostMethodTable } from "./host-methods.js";
 import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { resolveStartupWorkspace } from "./startup-workspace.js";
+import { WindowHost } from "./window-host.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
 
@@ -48,11 +49,13 @@ const appIconPath = existsSync(shippedIconPath) ? shippedIconPath : undefined;
 const requestedWorkspace = process.env.TAU_WORKSPACE;
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 /**
- * `TAU_HOST_URL=ws://machine:7788` turns this process into a client: the window
- * speaks the protocol over that socket and nothing local starts. The renderer
- * takes the same URL through `?host=`, which it already understands.
+ * `TAU_HOST_URL=ws://machine:7788` points this window at a host somebody else
+ * runs. Without it the window starts and supervises a host process of its own
+ * (ADR 0021); either way the renderer reaches it through `?host=`.
  */
 const remoteHostUrl = process.env.TAU_HOST_URL;
+/** `TAU_HOST_INPROCESS=1` keeps the old shape for one release: the host in this process. */
+const inProcessHost = process.env.TAU_HOST_INPROCESS === "1";
 
 // Identity (and so userData) must be set before anything reads app.getPath("userData").
 configureAppIdentity(app, process.env.TAU_USER_DATA);

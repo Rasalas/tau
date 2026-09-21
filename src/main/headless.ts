@@ -123,6 +123,22 @@ async function main(): Promise<void> {
     },
   });
 
+  const shutdown = (): void => {
+    void (async () => {
+      await socket?.close();
+      await host?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
+      process.exit(0);
+    })();
+  };
+  // Not part of the client protocol: the supervisor that started this process
+  // asks for a clean stop here before it reaches for a signal (ADR 0021).
+  methods["host.shutdown"] = async () => {
+    hostLog.info("host.shutdown.requested");
+    // Answer first, leave afterwards.
+    setTimeout(shutdown, 50).unref();
+    return { stopping: true };
+  };
+
   const token = readOrCreateHostToken();
   // A built client turns this host into something a browser can open. Without
   // one the host is exactly what it was: a socket and nothing else.
@@ -150,13 +166,6 @@ async function main(): Promise<void> {
     console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
   }
 
-  const shutdown = () => {
-    void (async () => {
-      await socket?.close();
-      await host?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
-      process.exit(0);
-    })();
-  };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
