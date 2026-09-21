@@ -52,6 +52,7 @@ async function client(cwd: string) {
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
+    callClient: async () => { throw new Error("no window half in this test"); },
   };
   const registry = await activateHostKit(createWorkspaceHostExtension(), services);
   return createWorkspaceHostClient((command, input) => registry.invoke("tau.workspace", command, input));

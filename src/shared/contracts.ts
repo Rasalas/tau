@@ -417,6 +417,12 @@ export type GlobalHostEvent =
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
   /** Published by a host extension for its desktop counterpart; core only routes it. */
   | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; sessionId?: undefined }
+  /**
+   * The host asking the client's own process to do something for it: the half
+   * of an extension that needs a window, not a host (ADR 0021). Answered with
+   * the `client-call-result` method; a client that has no such half ignores it.
+   */
+  | { type: "client-call"; callId: string; extensionId: string; command: string; input?: unknown; sessionId?: undefined }
   /** The set of installed or approved packages moved; a client re-reads its desktop halves. */
   | { type: "extension-packages-changed"; sessionId?: undefined }
   /** A host extension the registry had to stop, with the reason to show the user. */

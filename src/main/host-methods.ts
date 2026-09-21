@@ -94,6 +94,8 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
 }
 
 export interface HostMethodDeps {
+  /** Answers to the calls this host made into a client's process, when it makes any. */
+  clientCalls?: { settle(callId: string, result: unknown, error?: string): void };
   /** Starts the host on the first call; later calls read what is already running. */
   bootstrap(): Promise<HostBootstrap>;
   /** Resolves once the host finished starting. */
@@ -266,6 +268,15 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "open-external-editor": async (params) => {
       const text = decodeOptionalText("open-external-editor", "text", params[0]) ?? "";
       return openExternalEditor({ initialText: text });
+    },
+
+    // The other direction of the protocol: a client answering a `client-call`.
+    "client-call-result": async (params) => {
+      deps.clientCalls?.settle(
+        decodeString("client-call-result", "callId", params[0]),
+        params[1],
+        decodeOptionalString("client-call-result", "error", params[2]),
+      );
     },
 
     "start-job": async (params, context) => {

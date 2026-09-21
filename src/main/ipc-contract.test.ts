@@ -19,8 +19,12 @@ const root = join(import.meta.dirname, "..");
 const read = (file: string) => readFileSync(join(root, file), "utf8");
 const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? []);
 
-/** Names the client itself resolves: they never reach the method table. */
-const CLIENT_SIDE = new Set(["hello", "start-job", "cancel-job", "job-methods"]);
+/**
+ * Names the renderer's client never sends: the first four it resolves itself,
+ * and `client-call-result` belongs to the window process around it, which
+ * answers the host's calls into its own machine (ADR 0021).
+ */
+const CLIENT_SIDE = new Set(["hello", "start-job", "cancel-job", "job-methods", "client-call-result"]);
 
 function tableMethods(): Set<string> {
   const unavailable = () => { throw new Error("not available in this test"); };

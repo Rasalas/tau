@@ -41,8 +41,14 @@ export interface PreviewRect {
   height: number;
 }
 
-/** The browser the tools drive. Electron's `WebContentsView` is the only implementation. */
+/**
+ * The browser the tools drive. Electron's `WebContentsView` is one
+ * implementation; a host in its own process drives the same view through the
+ * kit's window half (`remote-surface.ts`).
+ */
 export interface PreviewSurface {
+  /** A remote surface takes the state its window half reports between calls. */
+  accept?(snapshot: unknown): void;
   /** Zoom of the window the panel is drawn in; the panel measures in CSS pixels. */
   zoomFactor(): number;
   place(rect: PreviewRect, visible: boolean): void;
@@ -61,6 +67,8 @@ export interface PreviewSurfaceOptions {
   /** Workspace of the thread being previewed; the only place `file://` may point into. */
   workspaceRoot(): string;
   log(label: string, detail?: string): void;
+  /** Reaches this kit's window half, when the host has a client that holds one. */
+  callClient?(command: string, input?: unknown): Promise<unknown>;
 }
 
 export type PreviewSurfaceFactory = (options: PreviewSurfaceOptions) => Promise<PreviewSurface | undefined>;
@@ -195,6 +203,7 @@ class PreviewController {
       onChange: () => this.publish(),
       workspaceRoot: () => this.workspaceRoot,
       log: (label, detail) => this.context.services.log(label, detail),
+      callClient: (command, input) => this.context.services.callClient(command, input),
     });
     if (!created) {
       this.available = false;
@@ -217,6 +226,13 @@ class PreviewController {
   close(): PreviewState {
     this.view?.destroy();
     this.view = undefined;
+    this.publish();
+    return this.state();
+  }
+
+  /** The window half reported a change; its snapshot is this surface's state. */
+  acceptRemoteState(snapshot: unknown): PreviewState {
+    this.view?.accept?.(snapshot);
     this.publish();
     return this.state();
   }
@@ -443,10 +459,23 @@ function previewTools(controller: PreviewController): AnyTool[] {
   ];
 }
 
+/**
+ * Where the view is built. `process.type === "browser"` is the Electron main
+ * process, which can create one itself; a host in its own process asks the
+ * window half instead, and a host with neither has no preview at all.
+ */
 const electronSurface: PreviewSurfaceFactory = async (options) => {
-  if (!process.versions.electron) return undefined;
-  const { createElectronPreviewSurface } = await import("./view.js");
-  return createElectronPreviewSurface(options);
+  if (process.type === "browser") {
+    const { createElectronPreviewSurface } = await import("./view.js");
+    return createElectronPreviewSurface(options);
+  }
+  if (!options.callClient) return undefined;
+  const { createRemotePreviewSurface } = await import("./remote-surface.js");
+  const call = options.callClient;
+  const surface = createRemotePreviewSurface(options, (command, input) => call(command, input));
+  // The view exists once the window half made it; a refused call means no window.
+  await call("open-view");
+  return surface;
 };
 
 /**
@@ -466,6 +495,8 @@ export function createPreviewHostExtension(createSurface: PreviewSurfaceFactory 
       context.registerCommand("close", () => controller.close());
       context.registerCommand("bounds", (input) => { controller.setBounds(readPreviewBounds(input)); });
       context.registerCommand("state", () => controller.state());
+      // The window half reports what the page did; core only routes it here.
+      context.registerCommand("view-changed", (input) => controller.acceptRemoteState(input));
 
       const factory: RuntimeExtensionFactory = (pi, session) => {
         controller.noteWorkspace(session.cwd);

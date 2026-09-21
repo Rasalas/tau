@@ -55,6 +55,7 @@ export interface BundledKit {
   directory: string;
   manifest: ExtensionManifest;
   hostEntry?: string;
+  windowEntry?: string;
   desktopEntry?: string;
   stylesEntry?: string;
   /** True when the entries are compiled output rather than TypeScript sources. */
@@ -162,6 +163,33 @@ export async function loadBundledKitHostHalves(
     }
   }
   return { extensions, errors };
+}
+
+/**
+ * The window halves of the shipped kits: the part of a kit that needs the
+ * process the user's window runs in, compiled the same way a host half is
+ * (ADR 0021). A kit without a `window` entry has none.
+ */
+export async function loadBundledKitWindowHalves(
+  options: BundledKitsOptions,
+): Promise<{ halves: Array<{ id: string; name: string; file: string }>; errors: BundledKitFailure[] }> {
+  const { kits, errors } = await kitsOf(options);
+  const halves: Array<{ id: string; name: string; file: string }> = [];
+  for (const kit of kits) {
+    if (!kit.windowEntry) continue;
+    try {
+      const code = kit.prebuilt ? await readFile(kit.windowEntry, "utf8") : await bundleHostExtension(kit.windowEntry);
+      halves.push({
+        id: kit.manifest.id,
+        name: kit.manifest.name,
+        // A real path, so the module loads like any other file of the app.
+        file: kit.prebuilt ? kit.windowEntry : await writeHostExtensionBundle(code, kit.manifest, options.cacheDir, "window"),
+      });
+    } catch (error) {
+      errors.push({ path: kit.windowEntry, message: message(error) });
+    }
+  }
+  return { halves, errors };
 }
 
 async function hostHalf(kit: BundledKit, entry: string, cacheDir?: string): Promise<HostExtension> {

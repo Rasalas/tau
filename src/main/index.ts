@@ -14,7 +14,7 @@ import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } 
 import { rebuildWorkbench } from "./workbench-build.js";
 import { WorkbenchReloader } from "./workbench-reloader.js";
 import { ManagedWorkbenchSource } from "./managed-workbench-source.js";
-import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
+import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, loadBundledKitWindowHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
@@ -173,7 +173,9 @@ const workbenchReloader = new WorkbenchReloader({
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
 
-const primaryInstance = installSingleInstance(app, () => mainWindow);
+const primaryInstance = installSingleInstance(app, () => mainWindow, () => {
+  if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+});
 
 function publish(event: HostEvent): void {
   // Mirrored to the log file so nothing is lost once the window is gone.
@@ -339,10 +341,12 @@ async function startHostProcess(): Promise<void> {
   });
   if (remoteHostUrl) {
     windowHost.attach(remoteHostUrl, clientHostToken());
+    await loadWindowHalves();
     return;
   }
   try {
     const running = await windowHost.startSupervised();
+    await loadWindowHalves();
     hostLog.info("host-process.ready", { pid: running.pid, url: running.url, adopted: running.adopted });
   } catch (error: unknown) {
     hostLog.error("host-process.start.failed", error);
@@ -352,6 +356,18 @@ async function startHostProcess(): Promise<void> {
     );
     app.exit(1);
   }
+}
+
+/** The kits' window halves: compiled here, called by the host over the protocol. */
+async function loadWindowHalves(): Promise<void> {
+  if (safeMode || !windowHost) return;
+  const loaded = await loadBundledKitWindowHalves(kitOptions).catch((error: unknown) => {
+    hostLog.error("window-extension.load.failed", error);
+    return undefined;
+  });
+  if (!loaded) return;
+  for (const failure of loaded.errors) hostLog.warn("window-extension.kit.failed", `${failure.path}: ${failure.message}`);
+  windowHost.extensions.load(loaded.halves);
 }
 
 /** Points the open window at the host's current URL; used when a restart moved it. */

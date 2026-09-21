@@ -20,6 +20,7 @@ import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { PiHost } from "./pi-host.js";
+import { ClientCalls } from "./client-calls.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
 
@@ -38,10 +39,13 @@ const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 // The built browser client, when there is one; `npm run build:web` writes it.
 const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
-const hostLog = new HostLog({ dir: join(userData, "logs") });
+// Its own file: the window process writes host.log in the same directory.
+const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
 const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
 const pushLog = new HostPushLog();
 const jobs = new HostJobRunner((event) => broadcast(event));
+/** The other direction: what a host extension asks the client's process to do. */
+const clientCalls = new ClientCalls((event) => publish(event));
 let socket: SocketHostTransport | undefined;
 
 function broadcast(event: HostPushEvent): void {
@@ -66,6 +70,7 @@ async function main(): Promise<void> {
   let host: PiHost | undefined;
   let ready: Promise<unknown> | undefined;
   const methods = createHostMethods({
+    clientCalls,
     bootstrap: async () => {
       if (!host) {
         primeOpenCodeCatalog();
@@ -78,6 +83,9 @@ async function main(): Promise<void> {
           logger: hostLog,
           workspaceIdentity,
           kitStateDir: join(userData, "kit-state"),
+          // A window half of a kit lives in the client's process; this is the
+          // only way a host without a window of its own reaches one.
+          platform: { callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input) },
           sessionUsageCachePath: join(userData, "session-usage.json"),
           sessionLineageCachePath: join(userData, "session-lineage.json"),
         });
@@ -125,6 +133,7 @@ async function main(): Promise<void> {
 
   const shutdown = (): void => {
     void (async () => {
+      clientCalls.dispose();
       await socket?.close();
       await host?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
       process.exit(0);

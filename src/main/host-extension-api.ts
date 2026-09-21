@@ -8,6 +8,7 @@
  * bump `EXTENSION_API_VERSION` when you do.
  */
 export type * from "./host-extensions.js";
+export type { WindowExtension, WindowExtensionContext, WindowExtensionFactory } from "./window-extensions.js";
 export type * from "./runtime-types.js";
 export type * from "./runtime-adapters.js";
 export type * from "./pi-kit-extensions.js";

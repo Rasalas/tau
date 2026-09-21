@@ -146,6 +146,7 @@ function harness() {
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
+    callClient: async () => { throw new Error("no window half in this test"); },
   };
 
   let invoke: (command: string, input?: unknown) => Promise<unknown> = () => Promise.reject(new Error("the kit is not activated"));

@@ -6,6 +6,7 @@ import type { HostPush } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
 import { HostProcessSupervisor, type RunningHost } from "./host-process-supervisor.js";
 import { HostUplink } from "./host-uplink.js";
+import { WindowExtensionRegistry } from "./window-extensions.js";
 
 /** Compiling every kit on a cold cache takes longer than a click does. */
 const UPLINK_TIMEOUT_MS = 180_000;
@@ -41,9 +42,15 @@ export class WindowHost {
   private url = "";
   private token = "";
   private workspace: string;
+  /** The halves of the kits that need this process; the host calls into them. */
+  readonly extensions: WindowExtensionRegistry;
 
   constructor(private readonly options: WindowHostOptions) {
     this.workspace = options.workspace ?? "";
+    this.extensions = new WindowExtensionRegistry({
+      invokeHost: (extensionId, command, input) => this.request("host-extension", [extensionId, command, input]),
+      logger: options.logger,
+    });
   }
 
   get hostUrl(): string { return this.url; }
@@ -105,6 +112,7 @@ export class WindowHost {
 
   /** Ends the host, or leaves it running when the user asked for that. */
   async stop(keepRunning: boolean): Promise<void> {
+    this.extensions.dispose();
     this.uplink?.close();
     this.uplink = undefined;
     if (!this.supervisor) return;
@@ -114,6 +122,17 @@ export class WindowHost {
       return;
     }
     await this.supervisor.stop();
+  }
+
+  /** Runs one call the host made into this process and reports back. */
+  private async answer(callId: string, extensionId: string, command: string, input: unknown): Promise<void> {
+    try {
+      const result = await this.extensions.invoke(extensionId, command, input);
+      await this.request("client-call-result", [callId, result]);
+    } catch (error: unknown) {
+      await this.request("client-call-result", [callId, undefined, error instanceof Error ? error.message : String(error)])
+        .catch(() => undefined);
+    }
   }
 
   private connect(): void {
@@ -130,6 +149,10 @@ export class WindowHost {
   private receive(push: HostPush): void {
     const event = push.event as HostEvent;
     if (typeof (event as { type?: unknown }).type !== "string") return;
+    if (event.type === "client-call") {
+      void this.answer(event.callId, event.extensionId, event.command, event.input);
+      return;
+    }
     // The host names the open workspace in every project update it publishes.
     if (event.type === "host-update" && isHostUpdate(event.update) && event.update.type === "project") {
       const project = event.update.project as { displayPath?: string; cwd?: string };

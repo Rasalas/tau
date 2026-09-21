@@ -124,6 +124,7 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
+    callClient: async () => { throw new Error("no window half in this test"); },
     ...overrides,
   };
 }

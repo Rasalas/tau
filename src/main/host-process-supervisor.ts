@@ -87,7 +87,7 @@ export function processAlive(pid: number): boolean {
 /** Keeps the newest logs and drops the rest; a host that restarts often must not fill the disk. */
 export function pruneHostLogs(directory: string, keep = KEPT_LOGS): void {
   try {
-    const files = readdirSync(directory).filter((name) => /^host-.*\.log$/u.test(name)).sort();
+    const files = readdirSync(directory).filter((name) => /^host-out-.*\.log$/u.test(name)).sort();
     for (const name of files.slice(0, Math.max(0, files.length - keep))) {
       try { unlinkSync(join(directory, name)); } catch { /* a log we cannot delete is not a failure */ }
     }
@@ -201,7 +201,7 @@ export class HostProcessSupervisor {
     const logDirectory = join(this.options.userData, "logs");
     mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
     pruneHostLogs(logDirectory);
-    this.logPath = join(logDirectory, `host-${new Date().toISOString().replace(/[:.]/gu, "-")}.log`);
+    this.logPath = join(logDirectory, `host-out-${new Date().toISOString().replace(/[:.]/gu, "-")}.log`);
     const logStream = createWriteStream(this.logPath, { flags: "a", mode: 0o600 });
 
     const env: NodeJS.ProcessEnv = {

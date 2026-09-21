@@ -298,6 +298,8 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     // these two before the thread reducer ever sees them.
     case "extension-packages-changed":
     case "extension-deactivated":
+    // Meant for the process the client runs in, not for the workbench.
+    case "client-call":
       return state;
     default: {
       const exhaustive: never = event;

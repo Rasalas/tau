@@ -10,6 +10,7 @@
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
+  "window": "./view.ts",
   "styles": "./styles.css",
   "host": "./host.ts"
 }

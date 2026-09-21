@@ -65,7 +65,7 @@ describe("the host process supervisor", () => {
     expect(processAlive(running.pid)).toBe(true);
     const descriptor = await readHostDescriptor(userData);
     expect(descriptor).toMatchObject({ pid: running.pid, url: running.url, version: "1.0.0" });
-    expect(readdirSync(join(userData, "logs")).some((name) => name.startsWith("host-"))).toBe(true);
+    expect(readdirSync(join(userData, "logs")).some((name) => name.startsWith("host-out-"))).toBe(true);
   }, 30_000);
 
   it("adopts a host that is already running instead of starting a second one", async () => {
@@ -120,8 +120,8 @@ describe("the host process supervisor", () => {
   it("keeps only the newest host logs", () => {
     const directory = join(workingDirectory(), "logs");
     mkdirSync(directory, { recursive: true });
-    for (const name of ["host-1.log", "host-2.log", "host-3.log", "other.log"]) writeFileSync(join(directory, name), "");
+    for (const name of ["host-out-1.log", "host-out-2.log", "host-out-3.log", "host-process.log"]) writeFileSync(join(directory, name), "");
     pruneHostLogs(directory, 2);
-    expect(readdirSync(directory).sort()).toEqual(["host-2.log", "host-3.log", "other.log"]);
+    expect(readdirSync(directory).sort()).toEqual(["host-out-2.log", "host-out-3.log", "host-process.log"]);
   });
 });
