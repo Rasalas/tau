@@ -108,8 +108,8 @@ export default function App() {
   const [runtimeExtensions] = useState(() => {
     installSharedModules();
     return new RuntimeExtensions(registry, {
-      load: (cwd, sharedExports) => client
-        ? client.loadDesktopExtensions(cwd, sharedExports)
+      load: (cwd, sharedExports, only) => client
+        ? client.loadDesktopExtensions(cwd, sharedExports, only)
         : Promise.resolve({ bundles: [], errors: [], skipped: [] }),
       isEnabled: (id) => preferences.isExtensionEnabled(id),
       notify: (message) => viewStore.setNotice(message),
@@ -305,8 +305,8 @@ export default function App() {
     if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
     preferences.setWorkspace(activeWorkspaceId);
   }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
-  const syncDesktopExtensions = useCallback(() => {
-    void runtimeExtensions.resync().catch((error) => setNotice(errorMessage(error)));
+  const syncDesktopExtensions = useCallback((only?: readonly string[]) => {
+    void runtimeExtensions.resync(only).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, setNotice]);
 
   const hostEventTargets = useMemo<HostEventTargets>(() => ({

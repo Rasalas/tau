@@ -26,6 +26,8 @@ export type WorkbenchEventCandidate =
 /** What a host event needs of the user's preferences. */
 export interface SettledThreadsPort {
   unsettle(sessionId: string): void;
+  /** Re-reads config and user themes from the host, e.g. after one of those files changed. */
+  syncFromHost(): Promise<void>;
 }
 
 /** What a delivery in flight needs to hear from the host. */
@@ -52,8 +54,12 @@ export interface HostEventTargets {
   setTranscriptTurnStart(value: TranscriptTurnStart | undefined, expectedTurnId?: string): void;
   applyHostUpdate(update: HostUpdate): void;
   applyThreadIndex(index: ThreadIndexSnapshot): void;
-  /** Re-reads the desktop halves the host serves, after its package set moved. */
-  syncDesktopExtensions(): void;
+  /**
+   * Re-reads the desktop halves the host serves, after its package set moved.
+   * `only` names the extensions that moved, so the client can swap those
+   * modules alone.
+   */
+  syncDesktopExtensions(only?: readonly string[]): void;
   /** A downloaded Tau waiting for a restart. */
   setUpdateReady(version: string): void;
 }
@@ -84,9 +90,15 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       registry.dispatchExtensionEvent(event);
       return;
     case "extension-packages-changed":
-      // A package the user just approved, installed or updated: its desktop
-      // half is built and served now, so the slots appear without a reload.
-      targets.syncDesktopExtensions();
+      // A package the user just approved, installed or updated, or one whose
+      // files the host saw change: its desktop half is built and served now, so
+      // the slots appear without a reload.
+      targets.syncDesktopExtensions(event.extensionIds);
+      return;
+    case "config-changed":
+      // Config and themes are read from the host on demand; this is the one
+      // push that tells a client the answer would be different now.
+      void targets.preferences.syncFromHost();
       return;
     case "extension-deactivated":
       view.setNotice(

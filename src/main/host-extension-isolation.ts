@@ -317,6 +317,12 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
         registrations.set(handle, dispose);
         return handle;
       }
+      case "observeConfigChanges": {
+        const handle = nextHandle++;
+        const dispose = services.observeConfigChanges((change) => { void hookCall(handle, "changed", [change]); });
+        registrations.set(handle, dispose);
+        return handle;
+      }
       case "registerThreadLifecycle": {
         const handle = nextHandle++;
         const dispose = services.registerThreadLifecycle(lifecycleFor(handle, args[0] as string[]));

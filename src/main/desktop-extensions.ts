@@ -17,6 +17,13 @@ const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 export interface DesktopEntryOptions {
   /** Versions a package's `engines` must accept; an incompatible package has no desktop half either. */
   versions?: ExtensionHostVersions;
+  /** Build only these extension ids; everything else in the folders is left alone. */
+  only?: readonly string[];
+}
+
+/** The id an entry will carry once it is built: the manifest's, or the file's own. */
+export function desktopEntryId(entry: DesktopEntryDetailed): string {
+  return entry.manifest?.id ?? looseExtensionId(entry.path);
 }
 
 /** Where desktop extensions live: one folder for the user, one per project. */
@@ -109,7 +116,7 @@ export async function listDesktopExtensionEntries(directory: string, options: De
 }
 
 /** A loose extension file has no manifest id; its path names it instead. */
-function slugForEntry(path: string): string {
+export function looseExtensionId(path: string): string {
   const name = basename(path).replace(/\.[cm]?[jt]sx?$/u, "");
   return `local.${name.toLowerCase().replace(/[^a-z0-9-]+/gu, "-") || "extension"}`;
 }
@@ -235,6 +242,7 @@ export async function loadDesktopExtensions(
   const skipped: DesktopExtensionLoadResult["skipped"] = [];
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
   const grantsFile = await readExtensionGrants(options.grantsFilePath);
+  const only = options.only ? new Set(options.only) : undefined;
 
   const roots = desktopExtensionDirectories(cwd, options.home);
   const fromSources = await listInstalledSources(cwd, options.home ?? homedir());
@@ -256,7 +264,8 @@ export async function loadDesktopExtensions(
   for (const { scope, directory } of roots) {
     const own = await listDesktopExtensionEntriesDetailed(directory, { versions: options.versions });
     const installed = sourceEntries.filter((found) => found.scope === scope).map((found) => found.entry);
-    const entries = [...own, ...installed.filter((entry) => !own.some((candidate) => candidate.path === entry.path))];
+    const found = [...own, ...installed.filter((entry) => !own.some((candidate) => candidate.path === entry.path))];
+    const entries = only ? found.filter((entry) => only.has(desktopEntryId(entry))) : found;
     if (entries.length === 0) continue;
     if (scope === "project" && !trusted(cwd)) {
       skipped.push({ directory, reason: "The project is not trusted in Pi, so its desktop extensions stay off." });
@@ -270,7 +279,7 @@ export async function loadDesktopExtensions(
         // A theme runs no code and asks for nothing, so there is no grant to wait for.
         const granted = entry.theme || !entry.manifest || isPackageGranted(entry.manifest, grantsFile.grants);
         bundles.push({
-          id: entry.manifest?.id ?? slugForEntry(entry.path),
+          id: desktopEntryId(entry),
           path: entry.path,
           scope,
           projectPath: scope === "project" ? cwd : undefined,

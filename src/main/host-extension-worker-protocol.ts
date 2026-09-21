@@ -101,6 +101,7 @@ export interface WorkerClientObserver {
   attached?(clientId: string, client: WorkerClientInfo): void | Promise<void>;
   detached?(clientId: string): void | Promise<void>;
 }
+export const CONFIG_HOOKS = ["changed"] as const;
 
 /**
  * What an isolated host extension may ask of the host. Everything is a round
@@ -149,6 +150,8 @@ export interface WorkerHostServices {
     observe(observer: WorkerClientObserver): Promise<() => void>;
     count(): Promise<number>;
   };
+  /** Follows the files the host watches; the hook receives one change at a time. */
+  observeConfigChanges(listener: (change: { kind: string; paths: readonly string[] }) => void): Promise<() => void>;
   registerThreadLifecycle(lifecycle: WorkerThreadLifecycle): Promise<() => void>;
   registerTurnObserver(observer: WorkerTurnObserver): Promise<() => void>;
   /** Work the extension still owes a thread; the host keeps such a thread alive. */

@@ -23,6 +23,7 @@ import {
   decodeNavigateOptions,
   decodeNewThreadConfiguration,
   decodeOptionalBoolean,
+  decodeOptionalExtensionIds,
   decodeOptionalString,
   decodeOptionalText,
   decodePreparedPrompt,
@@ -45,7 +46,8 @@ export interface HostMethodPlatform {
   copyImage(dataUrl: string): void;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
-  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
+  /** `only` narrows the build to those extension ids; the client keeps every other module it has. */
+  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[]): Promise<DesktopExtensionLoadResult>;
   rebuildWorkbench(context: HostMethodContext, activeWorkspace: string): Promise<WorkbenchBuildResult>;
   workbenchSource(): Promise<string | undefined>;
   relaunchWorkbench(): void;
@@ -200,6 +202,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "desktop-extensions": async (params) => platform.loadDesktopExtensions(
       await workspace("desktop-extensions", "cwd", params[0]),
       decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
+      decodeOptionalExtensionIds("desktop-extensions", "only", params[2]),
     ),
     "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context, (await host()).activeWorkspacePath()),
     "workbench-source": async () => ({ path: await platform.workbenchSource() }),

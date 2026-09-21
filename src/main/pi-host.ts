@@ -54,6 +54,7 @@ import { HOST_CORE_PRINCIPAL, type HostInvocationPrincipal } from "./host-invoca
 import type { HostPublication } from "./host-publication.js";
 import { RuntimeResourceCache } from "./runtime-resource-cache.js";
 import type { ExtensionPackageActivator } from "./extension-package-activation.js";
+import type { WorkspaceWatch } from "./workspace-watch.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import type { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import type {
@@ -123,7 +124,14 @@ type PromptPreflight = (result: PromptPreflightResult) => void;
 type PromptPreflightState = "pending" | "accepted" | "rejected";
 
 export class PiHost {
-  private cwd: string;
+  private currentCwd: string;
+  /** The open workspace. Writing it re-points whatever follows the project's own files. */
+  private get cwd(): string { return this.currentCwd; }
+  private set cwd(value: string) {
+    if (value === this.currentCwd) return;
+    this.currentCwd = value;
+    void this.watch?.retarget().catch((error: unknown) => this.log("watch.retarget.failed", this.errorMessage(error)));
+  }
   /** Pi is the built-in backend; every other kind comes from a registered provider. */
   private readonly piAdapter: AgentRuntimeAdapter;
   private readonly defaultBackendKind: ThreadBackendKind;
@@ -155,6 +163,8 @@ export class PiHost {
   private pendingHostExtensions: readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
   /** The host halves of installed packages; absent in safe mode, where no package loads. */
   private readonly packages?: ExtensionPackageActivator;
+  /** Follows the files the host reads, so an edit needs no reload; absent when watching is off. */
+  private readonly watch?: WorkspaceWatch;
   /** Mints and resolves the ids clients name workspaces by. */
   private readonly workspaces: WorkspaceIdentity;
   private readonly report: HostReport;
@@ -201,7 +211,7 @@ export class PiHost {
     private readonly automaticPrewarm = true,
     options: PiHostOptions = {},
   ) {
-    this.cwd = cwd;
+    this.currentCwd = cwd;
     const components = buildPiHostComponents(options, {
       getCwd: () => this.cwd,
       setCwd: (value) => { this.cwd = value; },
@@ -271,6 +281,7 @@ export class PiHost {
     this.seam = components.seam;
     this.hostExtensions = components.hostExtensions;
     this.packages = components.packages;
+    this.watch = components.watch;
     this.attached = components.attached;
     this.attachedThread = components.attachedThread;
     this.projection = components.projection;
@@ -499,6 +510,7 @@ export class PiHost {
     this.pendingHostExtensions = bundled;
     for (const extension of bundled) await this.hostExtensions.activate(extension);
     await this.packages?.start();
+    await this.watch?.retarget().catch((error: unknown) => this.log("watch.retarget.failed", this.errorMessage(error)));
   }
 
   /** Turns a known host extension off or on again; the desktop toggle calls this for a package's host half. */
@@ -1742,6 +1754,7 @@ export class PiHost {
   async dispose(): Promise<void> {
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
+      this.watch?.close();
       this.toolOutputBatcher.dispose();
       this.prewarm.dispose();
       const teardownErrors: unknown[] = [];

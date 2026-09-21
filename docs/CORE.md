@@ -44,6 +44,7 @@ Workbench
 - **which clients are attached**: every transport reports its clients to one registry, so the host knows how many there are and what each claims to be; the count is published, and `services.clients` on the host seam is where a kit reads it
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen
 - the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
+- **watching the files the host itself reads** — the package folders, the theme folders, `keybindings.json`, `config.json` — and reloading only what changed: the one package that was edited, the themes, the config. Core re-reads nothing on anyone else's behalf: `observeConfigChanges` on the seam and a `config-changed` push say what moved, and whoever owns those files decides. Off under `extensions.watch: false`, `TAU_NO_WATCH=1` and safe mode (`src/main/config-watcher.ts`, `src/main/workspace-watch.ts`)
 - enough persisted state to restore the workbench
 
 ### The workbench and its client

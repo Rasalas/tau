@@ -105,6 +105,8 @@ const hostOptions = {
   logger: hostLog,
   workspaceIdentity,
   clients: hostClients,
+  // A checkout edits `kits/`; an installed Tau has only the prebuilt ones.
+  appPath: workbenchRoot,
   // A kit's own state lives under this instance's userData, so TAU_USER_DATA
   // isolates a dev instance's kit state the way it isolates everything else.
   kitStateDir: join(app.getPath("userData"), "kit-state"),
@@ -337,15 +339,18 @@ function createLocalHostMethods(): HostMethodTable {
           packages: [...kits.packages, ...inspection.packages],
         };
       },
-      loadDesktopExtensions: async (cwd, sharedExports) => {
+      loadDesktopExtensions: async (cwd, sharedExports, only) => {
         // The kits Tau ships travel the same road as an installed package's
         // desktop half; only their origin differs. Safe mode loads neither.
         const [kits, result] = await Promise.all([
-          safeMode ? EMPTY_DESKTOP_EXTENSIONS : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
-          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions }),
+          safeMode ? EMPTY_DESKTOP_EXTENSIONS : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports, ...(only ? { only } : {}) }),
+          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions, ...(only ? { only } : {}) }),
         ]);
-        // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
-        desktopBundles.clear();
+        // Each sync replaces the served set, so an edited extension never keeps
+        // its old URL alive. A narrowed sync drops only what it rebuilds: the
+        // modules the client keeps still have to be reachable.
+        if (only) for (const id of only) desktopBundles.remove(id);
+        else desktopBundles.clear();
         return {
           bundles: [...kits.bundles, ...result.bundles].map((bundle) => ({
             ...bundle,

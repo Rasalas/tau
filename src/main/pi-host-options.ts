@@ -46,4 +46,10 @@ export interface PiHostOptions {
    * a transport can outlive one host; without one the host counts nobody.
    */
   clients?: HostClientRegistry;
+  /**
+   * Root of the running checkout. The host watches the kit sources under it
+   * while Tau runs from a checkout; an installed app runs prebuilt kits and
+   * passes nothing.
+   */
+  appPath?: string;
 }

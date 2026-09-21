@@ -300,6 +300,7 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     case "extension-deactivated":
     // Who else is attached is client-wide, not thread state; extensions read it.
     case "client-count":
+    case "config-changed":
       return state;
     default: {
       const exhaustive: never = event;

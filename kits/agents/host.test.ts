@@ -147,6 +147,7 @@ function harness() {
     loadDependency: async () => { throw new Error("no dependencies in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
+    observeConfigChanges: () => () => undefined,
     presentUi: () => () => undefined,
   };
 

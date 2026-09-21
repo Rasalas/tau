@@ -417,8 +417,18 @@ export type GlobalHostEvent =
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
   /** Published by a host extension for its desktop counterpart; core only routes it. */
   | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; sessionId?: undefined }
-  /** The set of installed or approved packages moved; a client re-reads its desktop halves. */
-  | { type: "extension-packages-changed"; sessionId?: undefined }
+  /**
+   * The set of installed or approved packages moved; a client re-reads its
+   * desktop halves. `extensionIds` narrows that to the ones that moved, so a
+   * client can swap those modules instead of every one it loaded.
+   */
+  | { type: "extension-packages-changed"; extensionIds?: string[]; sessionId?: undefined }
+  /**
+   * A file the host watches moved on disk: `kind` names the group it belongs to
+   * ("config", "themes", "keybindings"), `paths` what changed. A client re-reads
+   * whatever it holds from that group; the host re-reads nothing for it.
+   */
+  | { type: "config-changed"; kind: string; paths: string[]; sessionId?: undefined }
   /** A host extension the registry had to stop, with the reason to show the user. */
   | { type: "extension-deactivated"; extensionId: string; name: string; reason: string; sessionId?: undefined }
   | { type: "error"; message: string; sessionId?: undefined }
@@ -631,8 +641,18 @@ export interface TauRetryConfig {
   };
 }
 
+export interface TauConfigExtensions {
+  /**
+   * Whether the host watches the files it reads — package folders, themes,
+   * keybindings, config — and reloads what changed. On unless set to false or
+   * `TAU_NO_WATCH=1` is in the environment.
+   */
+  watch?: boolean;
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
+  extensions?: TauConfigExtensions;
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];

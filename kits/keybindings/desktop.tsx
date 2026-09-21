@@ -39,25 +39,34 @@ const ignoreHostUnavailable = (error: unknown) => {
   console.warn("Pi keybindings are unavailable", error);
 };
 
-function bindPiKeys(plugin: DesktopExtensionContext, isDisposed: () => boolean): void {
-  void plugin.host.invoke("pi-keybindings").then((state) => {
-    if (isDisposed()) return;
-    const bindings = (state as PiKeybindingsState).bindings;
-    const actionToCommand = new Map<string, string>(
-      PI_KEYBINDINGS.map((entry) => [entry.piAction, entry.commandId])
-    );
-    for (const [action, keys] of Object.entries(bindings)) {
-      if (!keys?.length) continue;
-      const commandId = actionToCommand.get(action) ?? action;
-      for (const chord of keys) {
-        try {
-          plugin.registerKeybinding({ keys: chord, commandId, replaces: commandId });
-        } catch (error) {
-          console.warn(`keybindings.json: ${action} = ${chord} is not a chord Tau understands`, error);
+function bindPiKeys(plugin: DesktopExtensionContext, isDisposed: () => boolean): { refresh: () => void; clear: () => void } {
+  let disposers: Array<() => void> = [];
+  const clear = () => { disposers.forEach((dispose) => dispose()); disposers = []; };
+  const refresh = () => {
+    void plugin.host.invoke("pi-keybindings").then((state) => {
+      if (isDisposed()) return;
+      // The file is the whole truth about these chords, so a re-read replaces
+      // what the last one bound rather than adding to it.
+      clear();
+      const bindings = (state as PiKeybindingsState).bindings;
+      const actionToCommand = new Map<string, string>(
+        PI_KEYBINDINGS.map((entry) => [entry.piAction, entry.commandId])
+      );
+      for (const [action, keys] of Object.entries(bindings)) {
+        if (!keys?.length) continue;
+        const commandId = actionToCommand.get(action) ?? action;
+        for (const chord of keys) {
+          try {
+            disposers.push(plugin.registerKeybinding({ keys: chord, commandId, replaces: commandId }));
+          } catch (error) {
+            console.warn(`keybindings.json: ${action} = ${chord} is not a chord Tau understands`, error);
+          }
         }
       }
-    }
-  }).catch(ignoreHostUnavailable);
+    }).catch(ignoreHostUnavailable);
+  };
+  refresh();
+  return { refresh, clear };
 }
 
 /** Shortcuts Pi extensions registered: a palette command each, bound to the same chord. */
@@ -98,9 +107,11 @@ export const keybindingsExtension: DesktopExtension = {
   name: "Keybindings",
   activate(plugin) {
     let disposed = false;
-    bindPiKeys(plugin, () => disposed);
+    const piKeys = bindPiKeys(plugin, () => disposed);
     const clearShortcuts = bindPiShortcuts(plugin, () => disposed);
-    return () => { disposed = true; clearShortcuts(); };
+    // The host half hears that keybindings.json moved and says so here.
+    const stopWatching = plugin.host.onEvent("changed", () => piKeys.refresh());
+    return () => { disposed = true; stopWatching(); piKeys.clear(); clearShortcuts(); };
   },
 };
 

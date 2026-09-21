@@ -174,6 +174,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     loadDependency: async () => { throw new Error("no dependencies in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
+    observeConfigChanges: () => () => undefined,
     presentUi: () => () => undefined,
   };
   return { services: facade, recorder };

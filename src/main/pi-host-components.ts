@@ -43,6 +43,8 @@ import {
   type HostExtensionSeam,
 } from "./host-ports.js";
 import { ExtensionPackageActivator } from "./extension-package-activation.js";
+import { watchingEnabled } from "./config-watcher.js";
+import { WorkspaceWatch } from "./workspace-watch.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ThreadIndex } from "./thread-index.js";
@@ -154,6 +156,8 @@ export interface PiHostComponents {
   readonly seam: HostExtensionSeam;
   readonly hostExtensions: HostExtensionRegistry;
   readonly packages: ExtensionPackageActivator | undefined;
+  /** Follows the files the host reads; undefined in safe mode or when watching is off. */
+  readonly watch: WorkspaceWatch | undefined;
   readonly attached: AttachedThreadBackend;
   readonly attachedThread: ThreadRuntime;
   readonly projection: ThreadProjection;
@@ -402,6 +406,24 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     errorMessage: (error) => deps.errorMessage(error),
   });
   const hostConfig = defaultHostConfigManager.readSync(deps.getCwd());
+  /**
+   * Edits to a package, a theme, the keybindings or the config take effect
+   * where they are read, not after a reload. Safe mode watches nothing: it
+   * exists so a broken extension cannot load at all.
+   */
+  const watch = safeMode || !watchingEnabled(hostConfig) ? undefined : new WorkspaceWatch({
+    cwd: () => deps.getCwd(),
+    agentDir: getAgentDir(),
+    ...(options.appPath ? { appPath: options.appPath } : {}),
+    refreshPackages: (ids) => packages?.refresh({ only: ids }) ?? Promise.resolve(),
+    configChanged: (change) => {
+      // The host re-reads nothing for anyone: it says what moved, and the kits
+      // and clients that own those files decide.
+      seam.notifyConfigChange({ kind: change.kind, paths: change.paths });
+      emit({ type: "config-changed", kind: change.kind, paths: [...change.paths] });
+    },
+    log: (label, detail) => deps.log(label, detail),
+  });
   const prewarmEnabled = process.env.TAU_NO_PREWARM !== "1" && hostConfig.prewarm !== false && deps.automaticPrewarm;
   const prewarm = new RuntimePrewarm({
     automatic: prewarmEnabled,
@@ -465,6 +487,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     seam,
     hostExtensions,
     packages,
+    watch,
     attached,
     attachedThread,
     projection,

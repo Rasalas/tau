@@ -37,6 +37,7 @@ import type {
   HostStartedThread,
   HostThread,
   HostThreadStartOptions,
+  HostConfigChange,
   HostThreadLifecycle,
   HostTurnObserver,
   HostUiPresenter,
@@ -187,6 +188,8 @@ export interface HostExtensionSeam {
   readonly uiPresenters: ReadonlySet<HostUiPresenter>;
   /** Entries an extension anchors rows to; a text-empty assistant stays visible for them. */
   readonly entryPins: ReadonlySet<(thread: HostThread) => Iterable<string>>;
+  /** Tells every subscriber that a watched file moved; the host is the only caller. */
+  notifyConfigChange(change: HostConfigChange): void;
   /** What the user lets external runtimes do. */
   permissionLevel(): RuntimePermissionLevel;
   /** Wraps a session manager for extensions; a runtime prepared for the file shares the manager. */
@@ -198,6 +201,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
   const uiPresenters = new Set<HostUiPresenter>();
   const entryPins = new Set<(thread: HostThread) => Iterable<string>>();
+  const configObservers = new Set<(change: HostConfigChange) => void>();
   const sessionFileManagers = new WeakMap<HostSessionFile, SessionManager>();
   let permissionLevelProvider: (() => RuntimePermissionLevel) | undefined;
 
@@ -290,6 +294,10 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       entryPins.add(provider);
       return () => { entryPins.delete(provider); };
     },
+    observeConfigChanges: (listener) => {
+      configObservers.add(listener);
+      return () => { configObservers.delete(listener); };
+    },
     decorateUiPrompt: (decorator) => port.decorateUiPrompt(decorator),
     registerRuntimeExtension: (name, factory, options) => {
       const contribution = { name, factory, ...(options ?? {}) };
@@ -322,6 +330,11 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     runtimeExtensions,
     uiPresenters,
     entryPins,
+    notifyConfigChange: (change) => {
+      for (const observer of [...configObservers]) {
+        try { observer(change); } catch (error) { port.log("host-extension.config-changed.failed", error instanceof Error ? error.message : String(error)); }
+      }
+    },
     // Without an access extension everything is allowed.
     permissionLevel: () => permissionLevelProvider?.() ?? "full",
     sessionFile,
