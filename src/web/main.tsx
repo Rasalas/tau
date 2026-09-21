@@ -40,7 +40,7 @@ function connect(token: string): void {
     onUnauthorized: () => { storage.remove(WEB_TOKEN_KEY); showGate("The host refused that token."); },
   });
   setHostClient(host.client);
-  void host.connection.start().catch(() => undefined);
+  void host.connection.start(profile).catch(() => undefined);
   root.render(<StrictMode>
     <WebWorkbench
       client={host.client}

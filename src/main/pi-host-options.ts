@@ -1,6 +1,7 @@
 import type { HostCompletionOptions } from "./host-completion.js";
 import type { ThreadBackendKind, UiComposerCommand } from "../shared/contracts.js";
 import type { HostPackageLoadResult } from "./extension-packages.js";
+import type { HostClientRegistry } from "./host-clients.js";
 import type { HostExtension, HostPlatform } from "./host-extensions.js";
 import type { HostLogger } from "./host-log.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
@@ -40,4 +41,9 @@ export interface PiHostOptions {
   kitStateDir?: string;
   /** Mints the ids clients address workspaces by; without one they are per-run. */
   workspaceIdentity?: WorkspaceIdentity;
+  /**
+   * Where the transports report their clients. The entry point owns it, because
+   * a transport can outlive one host; without one the host counts nobody.
+   */
+  clients?: HostClientRegistry;
 }

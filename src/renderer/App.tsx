@@ -348,6 +348,17 @@ export default function App() {
     registry.dispatchWorkbenchEvent({ type: "active-thread-changed", sessionId: activeThreadIdForEvents });
   }, [activeThreadIdForEvents, registry]);
 
+  // The project the host has open, as the workbench's own event: a panel reacts
+  // to a project change without asking the host what changed.
+  const hostWorkspace = snapshot?.cwd;
+  const lastWorkspace = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!hostWorkspace || hostWorkspace === lastWorkspace.current) return;
+    const from = lastWorkspace.current;
+    lastWorkspace.current = hostWorkspace;
+    registry.dispatchWorkbenchEvent({ type: "workspace-changed", ...(from ? { from } : {}), to: hostWorkspace });
+  }, [hostWorkspace, registry]);
+
   // Opening or switching a thread should leave you ready to type — but never
   // steal the caret out of the thread search or a dialog the user is using.
   useEffect(() => {

@@ -47,6 +47,8 @@ export class HostRequestError extends Error {
  */
 export class HostConnection {
   private lastSeq = 0;
+  /** Which client this is, repeated in every hello so the host can count profiles. */
+  private profile?: string;
   private state: HostConnectionState = "connected";
   private recovering = false;
   private queued: HostPush[] = [];
@@ -84,7 +86,8 @@ export class HostConnection {
   }
 
   /** Says hello without a `lastSeq`: a fresh client starts from the bootstrap it fetches. */
-  async start(): Promise<HostHelloReply | undefined> {
+  async start(profile?: string): Promise<HostHelloReply | undefined> {
+    this.profile = profile;
     return this.hello(undefined);
   }
 
@@ -193,6 +196,7 @@ export class HostConnection {
     const reply = decodeHostHelloReply(await this.request<unknown>("hello", [{
       protocol: HOST_TRANSPORT_VERSION,
       ...(lastSeq === undefined ? {} : { lastSeq }),
+      ...(this.profile ? { profile: this.profile } : {}),
     }]));
     if (!reply) throw new HostRequestError("The host answered hello with a frame this client cannot read.", "invalid-hello");
     this.capabilities = new Set(reply.capabilities);

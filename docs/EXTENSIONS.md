@@ -502,6 +502,47 @@ it defaults to the kind. The host publishes every installed backend, Pi first,
 as `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
 naming the one a client gets when it names none.
 
+### Lifecycle hooks a host half may step into
+
+`services.registerThreadLifecycle(hooks)` and
+`services.registerTurnObserver(observer)` (both `sessions`) are how a package
+learns what is happening to a workspace, a thread and a turn. Every hook is
+optional; the host awaits them in registration order.
+
+| `HostThreadLifecycle` | Runs when |
+|---|---|
+| `beforeWorkspace(cwd)` | before a workspace's first thread opens — startup, project switch. Repair what you keep beside its sessions here. |
+| `afterWorkspaceClose(cwd, reason)` | after the host left a workspace and before `beforeWorkspace` of the next one; `reason` is `"switch"` or `"shutdown"`, and at shutdown every open workspace gets one. Release what belonged to it: shells, watchers, caches. |
+| `beforeOpen(session)` | before a runtime is built for a session file. |
+| `afterFork(source, target)` | after a fork wrote its session file, before that file's runtime opens. |
+| `beforeActivate(thread)` | before a thread goes on screen; may answer with a `{ commit, rollback }` transaction (in-process only). |
+| `threadDeleted(sessionId, cwd)` | the thread is gone for good: its session file was removed, or is about to be. Runtime eviction is **not** this — that is `HostTurnObserver.closed`. |
+| `sweep(sweep)` | a periodic pass over every persisted session the host indexes. |
+
+`threadDeleted` runs once per deletion, whether the host deleted the thread
+itself (`services.sessions.remove(sessionId)`, the verb behind a rail's
+"delete thread") or a sweep found the file gone. A throwing hook is reported
+and the others still run: the thread is gone either way.
+
+`HostTurnObserver` brackets the turns of every thread the host drives:
+`accepted`, `prepare`, `cancelled`, `ended`, `pending`, `reset`, `closed` and
+`toolEnded`. `closed` is a released runtime, not a deleted thread.
+
+### Who is attached: `services.clients`
+
+`services.clients` is ungated — it answers `count()` and takes an observer
+with `attached(clientId, { id, transport, profile })` and `detached(clientId)`.
+`transport` is `"electron"` (the window) or `"socket"` (a browser tab or a
+remote client); `profile` is what that client claimed in its hello
+(`desktop`, `web`, `compact`). A package uses it to hold background work until
+somebody is watching, or to raise a notification when nobody is.
+
+On the desktop side the same two facts arrive as workbench events:
+`context.events.on("client-count", …)` carries `{ count }` whenever a client
+comes or goes, and `context.events.on("workspace-changed", …)` carries
+`{ from?, to }` when the host opens another project — so a panel reacts
+without asking the host what changed.
+
 ### `engines` and `engines.api`
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
@@ -538,8 +579,8 @@ A package's `permissions` array draws from a fixed list
 | `workspace:switch` | open or pick another project. |
 | `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — and read a workspace's skill catalog (`skills`). |
-| `process` | call `noteSubprocess` and `findCommand` — the host-side bookkeeping for processes. It does **not** gate `child_process`: a package can spawn processes without this grant; with it, the host knows about them. |
-| `network` | request network access. For an isolated (worker) package the grant blocks `fetch`, `require("http")` and friends — but the block is a guardrail, not a boundary: `await import("node:https")` and a nested `worker_threads` worker bypass it. For an `in-process` package the grant is advisory and carries no enforcement at all. |
+| `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
+| `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
@@ -573,10 +614,12 @@ into the identical guarded facade from the main side).
 
 `network` is the one permission not in `HOST_SERVICE_PERMISSIONS`: a package
 that dials out never asks the host for anything, so there is no member to gate.
-The worker enforces it for itself instead — see §6. For an `in-process`
-package it stays advisory, because a package running in the host process can
-reach everything the host process can; that is what granting `in-process`
-means.
+The worker enforces it for itself instead — see §6. `process` is enforced in
+both places: the facade members are guarded on the main side, and the worker
+refuses `child_process` for itself. For an `in-process` package neither is
+enforced, because a package running in the host process can reach everything
+the host process can; that is what granting `in-process` means, and the
+approval box says so in that many words.
 
 ### Isolation
 
@@ -764,10 +807,9 @@ its own. There is no revocation list: removing a key from
 ## 6. What an isolated (worker) package cannot use
 
 By default a package's host half runs in a worker thread: no Electron
-(`import "electron"` throws, intercepted through `Module._load`, the only hook
-Node 22.14 gives Electron for this), no network unless it asked for it, a
-256 MB heap cap, and a facade that only carries plain data across the port —
-nothing that hands out a live object. From
+(`import "electron"` throws), no network and no `child_process` unless it asked
+for them, a 256 MB heap cap, and a facade that only carries plain data across
+the port — nothing that hands out a live object. From
 `src/main/host-extension-worker-protocol.ts` and ADR 0009:
 
 | Available in a worker | Not available — declare `"isolation": "in-process"` instead |
@@ -777,9 +819,11 @@ nothing that hands out a live object. From
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
+| `clients.observe`, `clients.count` | |
 | `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
+| `sessions.remove` | |
 
 Everything on the left is asynchronous, even members that are synchronous
 in-process (`cwd()`, `thread()`), because every call is a round trip over the
@@ -792,45 +836,47 @@ the permission list ("runs inside the host process, outside the worker
 isolation") and is recorded in the grant, so a package that later leaves the
 worker has to be approved again even if its permission list did not change.
 
-### The network, in a worker
+### The network and processes, in a worker
 
-A worker that was not granted `network` meets a guardrail. Before the package's
-bundle is loaded, `host-extension-worker.ts` replaces whichever of `fetch`,
-`WebSocket`, `EventSource` and `XMLHttpRequest` this Node defines on the worker
-global, and hooks `Module._load` to refuse `require` of `http`, `https`, `net`,
-`tls`, `dgram`, `http2` and `dns` — under any `node:` prefix and any submodule.
-Both throw `Extension <id> lacks permission network` and log
-`host-extension.denied`. A bundled `ws` or `undici` needs `net`/`tls`, so it
-hits the same wall.
+A worker meets a guardrail for whichever of `network` and `process` its grant
+left out. Before the package's bundle is loaded, `host-extension-worker.ts`
 
-**This is a guardrail, not an OS-level boundary.** The `Module._load` hook does
-not cover dynamic `import()`: `await import("node:https")` bypasses it and
-returns a live module. A nested `worker_threads` worker also runs outside the
-interception. Both paths are known and documented; the isolation the worker
-provides is crash containment and heap caps, not a sandbox against hostile
-code.
+- replaces whichever of `fetch`, `WebSocket`, `EventSource` and
+  `XMLHttpRequest` this Node defines on the worker global (without `network`);
+- refuses `http`, `https`, `net`, `tls`, `dgram`, `http2` and `dns` (without
+  `network`) and `child_process` (without `process`) — under any `node:`
+  prefix and any submodule, so `node:dns/promises` is the same door as `dns`;
+- refuses `worker_threads` while either grant is still missing, because a
+  nested worker runs outside both guards and would hand the package back
+  whatever it asked for;
+- refuses `electron` always: it only exists in the main process.
 
-### The process permission does not gate spawning
+Each of those throws `Extension <id> lacks permission <name>` (the nested
+worker says why it is refused instead) and logs `host-extension.denied`, so the
+Inspector and Signals show a denied socket or a denied spawn exactly like a
+denied service member. A bundled `ws` or `undici` needs `net`/`tls` and hits
+the same wall. The grant does not do the host's bookkeeping for you: a package
+that spawns still calls `noteSubprocess` itself.
 
-`process` gates only `noteSubprocess` and `findCommand`, through
-`guardedServices` for both in-process calls and worker RPC. It does not gate
-`child_process` in either mode. Granting it does not automatically track
-subprocesses; the extension must call `noteSubprocess` itself.
+Two interceptions are installed, because neither covers the other:
+`Module._load`, which is what `require` goes through, and
+`module.registerHooks`, which is what `import()` goes through (and which sees
+`require` as well). `await import("node:https")` used to walk straight past the
+first one; it does not any more.
 
-We retain that bookkeeping-only contract. A service wrapper cannot intercept
-Node imports. Adding `child_process` to the worker's `Module._load` blocklist
-would still allow dynamic imports and nested workers to bypass it, while an
-in-process package shares the host's Node runtime. Such a hook would not meet
-a promise that the permission controls spawning. Enforcing that promise
-requires a separate execution boundary, not another member of the facade.
-[ADR 0018](adr/0018-sandboxed-host-extensions.md) discusses those alternatives;
-this decision does not ratify its broader sandbox proposal. Install only host
-packages whose code you trust.
+**This is still a guardrail, not an OS-level boundary.** A package holds
+`node:module` like any other Node code and can put both hooks back the way it
+found them; it reads and writes files either way, and an `in-process` package
+meets nothing at all. What the worker gives you is crash containment, a heap
+cap and a wall a mistake runs into — not a sandbox against hostile code.
+[ADR 0018](adr/0018-sandboxed-host-extensions.md) collects what a real boundary
+would cost. Install only host packages whose code you trust.
 
 An `in-process` package is a different story. It runs with everything the host
-process can reach, so `network` there is purely advisory — and even in a worker
-the guardrail above has documented gaps. If you rely on blocking network access,
-read the gaps and decide whether they matter for your case.
+process can reach, so neither grant is enforced there — the approval box says
+"runs inside the host process; permissions are not enforced there" rather than
+naming one of them. If you rely on a package not reaching the network or not
+spawning anything, do not grant it `in-process`.
 
 Electron works the same way round. An `in-process` host half may
 `import { BrowserWindow } from "electron"` — the host bundler keeps `electron`

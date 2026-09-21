@@ -41,6 +41,7 @@ Workbench
 - command palette and keybinding dispatch; the chords themselves are extension contributions — `kits/keybindings/` binds Tau's own, replaces them from `~/.pi/agent/keybindings.json` and adds one command per Pi extension shortcut
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
 - one versioned request/push protocol between client and host, with reconnect and replay; Electron IPC is one transport of it, and the one generic method host extensions use travels on it
+- **which clients are attached**: every transport reports its clients to one registry, so the host knows how many there are and what each claims to be; the count is published, and `services.clients` on the host seam is where a kit reads it
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen
 - the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
 - enough persisted state to restore the workbench

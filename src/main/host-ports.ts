@@ -27,6 +27,7 @@ import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
   HostAttachedRuntime,
+  HostClientServices,
   HostExtensionServices,
   HostPlatform,
   HostPreparedThread,
@@ -130,6 +131,10 @@ export interface ExtensionServicesPort {
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   refreshThreadIndex(): Promise<ThreadIndexSnapshot>;
+  /** Deletes a persisted thread and runs the `threadDeleted` hooks for it. */
+  removeThread(sessionId: string): Promise<void>;
+  /** The clients attached to this host, for the seam's ungated `clients` member. */
+  readonly clients: HostClientServices;
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   registerTurnObserver(observer: HostTurnObserver): () => void;
   pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
@@ -270,6 +275,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         options,
       ),
       start: (options) => port.startThread(options),
+      remove: (sessionId) => port.removeThread(sessionId),
       exclusive: (work) => port.exclusive(work),
       refreshIndex: async () => ({
         version: HOST_PROTOCOL_VERSION,
@@ -277,6 +283,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         index: await port.refreshThreadIndex(),
       }),
     },
+    clients: port.clients,
     registerThreadLifecycle: (lifecycle) => port.registerThreadLifecycle(lifecycle),
     registerTurnObserver: (observer) => port.registerTurnObserver(observer),
     pinTranscriptEntries: (provider) => {

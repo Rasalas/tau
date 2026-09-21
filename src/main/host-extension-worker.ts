@@ -2,6 +2,7 @@ import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import Module, { createRequire } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";
 import {
+  CLIENT_HOOKS,
   FACT_HOOKS,
   LIFECYCLE_HOOKS,
   TURN_HOOKS,
@@ -21,7 +22,8 @@ import {
  * The entry an isolated host extension runs in. It loads the package's
  * compiled bundle, hands it a facade that answers by message, and holds no
  * Electron and no live host object of its own. Without the `network` grant it
- * also holds no socket: the guards below run before the bundle is loaded.
+ * also holds no socket, and without `process` no way to start one: the guards
+ * below run before the bundle is loaded.
  */
 
 const port = parentPort;
@@ -33,28 +35,25 @@ const send = (message: WorkerToHostMessage): void => { port.postMessage(message)
 const granted = new Set(boot.permissions);
 
 /**
- * Node builtins that open a socket. The `Module._load` hook below refuses
- * these when the grant is missing, and the global shims above refuse the
- * browser-style APIs.
- *
- * This is a guardrail, not an OS boundary:
- * - `await import("node:https")` bypasses `Module._load` (dynamic import uses
- *   a different code path in Node 22).
- * - A nested `worker_threads` worker runs outside this hook entirely.
- *
- * `child_process` is absent because `process` gates the host's bookkeeping
- * (`noteSubprocess`, `findCommand`), not the spawn itself.
+ * Node builtins that open a socket, refused without `network`. The global
+ * shims below close the browser-style doors to the same place.
  */
 const NETWORK_MODULES = new Set(["http", "https", "net", "tls", "dgram", "http2", "dns"]);
+
+/** Node builtins that start a process, refused without `process`. */
+const PROCESS_MODULES = new Set(["child_process"]);
 
 /** Globals that reach the network without a `require`; only what this Node has. */
 const NETWORK_GLOBALS = ["fetch", "WebSocket", "EventSource", "XMLHttpRequest"] as const;
 
 /** Reads like a denied service member, so the Inspector and Signals show both the same way. */
-function denyNetwork(what: string): never {
-  const message = `Extension ${boot.id} lacks permission network`;
+function deny(message: string, what: string): never {
   send({ t: "log", label: "host-extension.denied", detail: `${message} (${what})` });
   throw new Error(message);
+}
+
+function denyPermission(permission: string, what: string): never {
+  return deny(`Extension ${boot.id} lacks permission ${permission}`, what);
 }
 
 /** `node:dns/promises` and `dns` are the same door. */
@@ -62,30 +61,55 @@ function moduleName(request: string): string {
   return (request.startsWith("node:") ? request.slice(5) : request).split("/")[0] ?? request;
 }
 
-// Electron's API only exists in the main process, and reaching it from here
-// would be the hole the isolation is meant to close. We hook `Module._load`
-// because that is what Electron's Node (22.14) gives us; `module.registerHooks`
-// needs 22.15. Note that this hook does not cover `import()` (dynamic import),
-// so `await import("electron")` would still fail (Electron itself refuses) but
-// `await import("node:https")` does succeed even without the grant.
+/**
+ * A module the grant does not cover, or nothing. A nested `worker_threads`
+ * worker runs outside every guard installed here, so it is refused for as long
+ * as one of them still has something to hold.
+ */
+function refuse(request: string, what: string): void {
+  if (request === "electron" || request.startsWith("electron/")) {
+    throw new Error(`Extension ${boot.id} runs isolated in a worker, where Electron is not available. Declare "isolation": "in-process" in its manifest if it must run in the host process.`);
+  }
+  const name = moduleName(request);
+  if (!granted.has("network") && NETWORK_MODULES.has(name)) denyPermission("network", what);
+  if (!granted.has("process") && PROCESS_MODULES.has(name)) denyPermission("process", what);
+  if (name === "worker_threads" && !(granted.has("network") && granted.has("process"))) {
+    deny(
+      `Extension ${boot.id} may not start a worker thread: a nested worker runs outside the guards its grant is enforced by. Declare "isolation": "in-process" in its manifest if it needs one.`,
+      what,
+    );
+  }
+}
+
+// Two interceptions, because neither covers the other. `Module._load` is what
+// `require` goes through; `module.registerHooks` (Node 22.15+, and Electron's
+// Node is past it) is what `import()` goes through, and it sees `require` too.
+// A package can still undo both — it holds `node:module` like any Node code —
+// so this is a guardrail, not a sandbox: see ADR 0009 and ADR 0018.
 /* eslint-disable no-underscore-dangle */
 const loader = Module as unknown as { _load(request: string, parent: unknown, isMain: boolean): unknown };
 const load = loader._load.bind(loader);
 loader._load = (request: string, parent: unknown, isMain: boolean): unknown => {
-  if (request === "electron" || request.startsWith("electron/")) {
-    throw new Error(`Extension ${boot.id} runs isolated in a worker, where Electron is not available. Declare "isolation": "in-process" in its manifest if it must run in the host process.`);
-  }
-  if (!granted.has("network") && NETWORK_MODULES.has(moduleName(request))) denyNetwork(`require("${request}")`);
+  refuse(request, `require("${request}")`);
   return load(request, parent, isMain);
 };
 /* eslint-enable no-underscore-dangle */
+
+type ResolveHook = (specifier: string, context: unknown, next: (specifier: string, context: unknown) => unknown) => unknown;
+const registerModuleHooks = (Module as unknown as { registerHooks?: (hooks: { resolve: ResolveHook }) => void }).registerHooks;
+registerModuleHooks?.({
+  resolve: (specifier, context, next) => {
+    refuse(specifier, `import ${specifier}`);
+    return next(specifier, context);
+  },
+});
 
 // Before the bundle runs, so its top-level code cannot capture the real ones.
 if (!granted.has("network")) {
   for (const name of NETWORK_GLOBALS) {
     if (!(name in globalThis)) continue;
     Object.defineProperty(globalThis, name, {
-      value: function denied(): never { return denyNetwork(name); },
+      value: function denied(): never { return denyPermission("network", name); },
       writable: true,
       configurable: true,
       enumerable: false,
@@ -172,6 +196,7 @@ const services: WorkerHostServices = {
     list: () => rpc("sessions.list") as ReturnType<WorkerHostServices["sessions"]["list"]>,
     read: (path) => rpc("sessions.read", path) as ReturnType<WorkerHostServices["sessions"]["read"]>,
     start: (options) => rpc("sessions.start", options) as ReturnType<WorkerHostServices["sessions"]["start"]>,
+    remove: async (sessionId) => { await rpc("sessions.remove", sessionId); },
     exclusive: <T>(work: () => Promise<T> | T): Promise<T> => {
       const id = nextId++;
       exclusiveWork.set(id, async () => work());
@@ -180,6 +205,10 @@ const services: WorkerHostServices = {
         send({ t: "rpc", id, path: "sessions.exclusive", args: [] });
       });
     },
+  },
+  clients: {
+    observe: (observer) => registerHooks("clients.observe", observer as Record<string, unknown>, CLIENT_HOOKS),
+    count: () => rpc("clients.count") as Promise<number>,
   },
   registerThreadLifecycle: (lifecycle) => registerHooks("registerThreadLifecycle", lifecycle as Record<string, unknown>, LIFECYCLE_HOOKS),
   registerTurnObserver: (observer) => registerHooks("registerTurnObserver", observer as Record<string, unknown>, TURN_HOOKS),

@@ -24,7 +24,11 @@ function seed(index: ThreadIndex, sessions: UiSession[]): void {
   (index as unknown as { sessions: UiSession[] }).sessions = sessions;
 }
 
-function makeIndex(options: { projects?: Array<{ path: string; name: string; lastOpenedAt: number }>; live?: ThreadRuntime[] } = {}) {
+function makeIndex(options: {
+  projects?: Array<{ path: string; name: string; lastOpenedAt: number }>;
+  live?: ThreadRuntime[];
+  threadLifecycle?: HostThreadLifecycleSet;
+} = {}) {
   const events: HostEvent[] = [];
   const updates: HostUpdate[] = [];
   const noop = () => undefined;
@@ -42,7 +46,7 @@ function makeIndex(options: { projects?: Array<{ path: string; name: string; las
       list: () => [...(options.projects ?? [{ path: "/repo", name: "repo", lastOpenedAt: 2 }])],
       isHidden: () => false,
     } as never,
-    threadLifecycle: new HostThreadLifecycleSet(),
+    threadLifecycle: options.threadLifecycle ?? new HostThreadLifecycleSet(),
     backends: () => new Map(),
     liveThreads: () => options.live ?? [],
     hostThread: (thread) => ({ sessionId: thread.threadId }) as never,
@@ -179,5 +183,35 @@ describe("ThreadIndex", () => {
     const { index } = makeIndex();
     index.startRecovery();
     await expect(index.dispose()).resolves.toBeUndefined();
+  });
+});
+
+describe("thread deletion", () => {
+  it("announces a deleted thread once, whichever side noticed it", async () => {
+    const seen: string[] = [];
+    const threadLifecycle = new HostThreadLifecycleSet();
+    threadLifecycle.add({ threadDeleted: async (sessionId, cwd) => { seen.push(`${sessionId} ${cwd}`); } });
+    const { index } = makeIndex({ threadLifecycle });
+
+    await index.announceDeleted("gone", "/repo");
+    await index.announceDeleted("gone", "/repo");
+
+    expect(seen).toEqual(["gone /repo"]);
+  });
+
+  it("announces a session whose file disappeared, and only that one", async () => {
+    const seen: string[] = [];
+    const threadLifecycle = new HostThreadLifecycleSet();
+    threadLifecycle.add({ threadDeleted: async (sessionId) => { seen.push(sessionId); } });
+    const { index } = makeIndex({ threadLifecycle });
+    const gone = shell({ id: "gone", path: "/sessions/gone.jsonl" });
+    const kept = shell({ id: "kept", path: "/sessions/kept.jsonl" });
+    const sweep = (index as unknown as {
+      sweep(infos: unknown[], previous: UiSession[], next: UiSession[]): Promise<void>;
+    }).sweep.bind(index);
+
+    await sweep([], [gone, kept], [kept]);
+
+    expect(seen).toEqual(["gone"]);
   });
 });

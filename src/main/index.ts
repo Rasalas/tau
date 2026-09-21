@@ -24,6 +24,7 @@ import { HostLog } from "./host-log.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostJobRunner } from "./host-jobs.js";
 import { createHostMethods, createUnsupportedHostMethods, type HostMethodTable } from "./host-methods.js";
+import { HostClientRegistry } from "./host-clients.js";
 import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
@@ -88,6 +89,9 @@ const kitOptions = {
   cacheDir: join(app.getPath("userData"), "host-extensions"),
   versions: extensionVersions,
 };
+/** Both transports report their clients here; the host publishes the count. */
+const hostClients = new HostClientRegistry();
+
 const hostOptions = {
   // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
   defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
@@ -100,6 +104,7 @@ const hostOptions = {
   }),
   logger: hostLog,
   workspaceIdentity,
+  clients: hostClients,
   // A kit's own state lives under this instance's userData, so TAU_USER_DATA
   // isolates a dev instance's kit state the way it isolates everything else.
   kitStateDir: join(app.getPath("userData"), "kit-state"),
@@ -375,6 +380,7 @@ function installTransport(): void {
   transport = installElectronHostTransport({
     ipcMain,
     workbenchContents: () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined,
+    clients: hostClients,
     logger: hostLog,
     methods,
     pushLog,
@@ -393,6 +399,7 @@ function installTransport(): void {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token: readOrCreateHostToken(),
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
+    clients: hostClients,
     logger: hostLog,
   }).then((started) => { socketTransport = started; })
     .catch((error: unknown) => hostLog.error("host-transport-socket.failed", error));

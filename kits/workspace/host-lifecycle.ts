@@ -730,6 +730,14 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       });
     },
     beforeActivate: (thread) => restoreBackupWorkspaceOnOpen(thread),
+    /**
+     * A deleted thread's snapshot refs go now rather than at the next sweep:
+     * the journal they belong to is gone, so nothing can read them again.
+     */
+    threadDeleted: async (sessionId, cwd) => {
+      features.delete(sessionId);
+      await maintenance.cleanupSessionRefs(cwd || services.cwd(), sessionId);
+    },
     sweep: async ({ sessions, liveThreads, projectPaths, deleted }: HostSessionSweep) => {
       // Reconcile every journal against the namespaced snapshot refs. Both
       // sides of a session are roots: the file on disk and the live thread,

@@ -61,6 +61,8 @@ export interface WorkerSessionSweep {
 /** Thread lifecycle hooks a worker may implement; a hook returns nothing, so it cannot roll back. */
 export interface WorkerThreadLifecycle {
   beforeWorkspace?(cwd: string): void | Promise<void>;
+  afterWorkspaceClose?(cwd: string, reason: "switch" | "shutdown"): void | Promise<void>;
+  threadDeleted?(sessionId: string, cwd: string): void | Promise<void>;
   beforeOpen?(session: WorkerSessionSnapshot): void | Promise<void>;
   afterFork?(source: WorkerThreadSnapshot, target: WorkerSessionSnapshot): void | Promise<void>;
   beforeActivate?(thread: WorkerThreadSnapshot): void | Promise<void>;
@@ -83,9 +85,22 @@ export interface WorkerProjectFacts {
   nested?(cwd: string): Promise<boolean> | boolean;
 }
 
-export const LIFECYCLE_HOOKS = ["beforeWorkspace", "beforeOpen", "afterFork", "beforeActivate", "sweep"] as const;
+export const LIFECYCLE_HOOKS = ["beforeWorkspace", "afterWorkspaceClose", "threadDeleted", "beforeOpen", "afterFork", "beforeActivate", "sweep"] as const;
 export const TURN_HOOKS = ["accepted", "prepare", "cancelled", "ended", "reset", "closed", "toolEnded"] as const;
 export const FACT_HOOKS = ["name", "label", "nested"] as const;
+export const CLIENT_HOOKS = ["attached", "detached"] as const;
+
+/** One attached client as a worker sees it; the same plain data the seam carries. */
+export interface WorkerClientInfo {
+  id: string;
+  transport: "electron" | "socket";
+  profile?: string;
+}
+
+export interface WorkerClientObserver {
+  attached?(clientId: string, client: WorkerClientInfo): void | Promise<void>;
+  detached?(clientId: string): void | Promise<void>;
+}
 
 /**
  * What an isolated host extension may ask of the host. Everything is a round
@@ -125,8 +140,14 @@ export interface WorkerHostServices {
     read(path: string): Promise<WorkerSessionSnapshot>;
     /** Starts a thread for a project and delivers its first prompt, off screen. */
     start(options: HostThreadStartOptions): Promise<HostStartedThread>;
+    /** Deletes a persisted thread; the host runs every `threadDeleted` hook for it. */
+    remove(sessionId: string): Promise<void>;
     /** Runs `work` inside the host's thread lifecycle lock, one round trip wide. */
     exclusive<T>(work: () => Promise<T> | T): Promise<T>;
+  };
+  readonly clients: {
+    observe(observer: WorkerClientObserver): Promise<() => void>;
+    count(): Promise<number>;
   };
   registerThreadLifecycle(lifecycle: WorkerThreadLifecycle): Promise<() => void>;
   registerTurnObserver(observer: WorkerTurnObserver): Promise<() => void>;

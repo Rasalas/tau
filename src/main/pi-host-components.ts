@@ -30,6 +30,7 @@ import {
   type HostUiPresenter,
   type RuntimeSessionInfo,
 } from "./host-extensions.js";
+import { HostClientRegistry } from "./host-clients.js";
 import { HostPublication } from "./host-publication.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { HostReport } from "./host-report.js";
@@ -122,6 +123,7 @@ export interface PiHostDeps {
   knownWorkspacePath(path: string): Promise<string>;
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  removeThread(sessionId: string): Promise<void>;
   pendingHostExtensions(): readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
 }
 
@@ -145,6 +147,7 @@ export interface PiHostComponents {
   readonly prompts: PromptPreparation;
   readonly threadLifecycle: HostThreadLifecycleSet;
   readonly turnObservers: HostTurnObserverSet;
+  readonly clients: HostClientRegistry;
   readonly toolOwners: Map<string, string>;
   readonly index: ThreadIndex;
   readonly publication: HostPublication;
@@ -188,6 +191,13 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const kitStateDir = options.kitStateDir ?? join(tmpdir(), "tau-kit-state");
   const threadLifecycle = new HostThreadLifecycleSet();
   const turnObservers = new HostTurnObserverSet();
+  // Transports report their clients into this one; a client that arrives or
+  // leaves is published, so a panel never has to ask the host for the count.
+  const clients = options.clients ?? new HostClientRegistry();
+  clients.observe({
+    attached: () => emit({ type: "client-count", count: clients.count() }),
+    detached: () => emit({ type: "client-count", count: clients.count() }),
+  });
   const toolOwners = new Map<string, string>();
   const threads: ThreadRuntimeRegistry<ThreadRuntime> = new ThreadRuntimeRegistry<ThreadRuntime>({
     maxLive: MAX_LIVE_THREADS,
@@ -294,6 +304,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     refreshExtensionPackages: () => packages?.refresh() ?? Promise.resolve(),
     prepareThread: (session, manager, prepareOptions) => deps.prepareThread(session, manager, prepareOptions),
     startThread: (startOptions) => deps.startThread(startOptions),
+    removeThread: (sessionId) => deps.removeThread(sessionId),
+    clients,
     exclusive: (work) => lifecycle.run("extension.exclusive", work),
     refreshThreadIndex: () => index.refresh("none").catch(() => index.snapshot()),
     registerThreadLifecycle: (hook) => threadLifecycle.add(hook),
@@ -446,6 +458,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     prompts,
     threadLifecycle,
     turnObservers,
+    clients,
     toolOwners,
     index,
     publication,

@@ -13,6 +13,7 @@ import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
 import { socketCapabilities } from "./host-local-files.js";
+import type { HostClientSink } from "./host-transport-clients.js";
 import type { HostLogger } from "./host-log.js";
 
 /** Closed with this when the hello carried no token or the wrong one. */
@@ -35,6 +36,8 @@ export interface SocketHostTransportOptions {
    * page and the protocol at the same origin and the same port.
    */
   attachTo?: Server;
+  /** Where attached clients are reported; without one the host counts nobody. */
+  clients?: HostClientSink;
   logger?: HostLogger;
 }
 
@@ -60,6 +63,15 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     ? new WebSocketServer({ server: http, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES })
     : new WebSocketServer({ host, port, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES });
   const authenticated = new Set<WebSocket>();
+  /** The id the client registry knows a socket by, while it is authenticated. */
+  const clientIds = new Map<WebSocket, string>();
+  const forget = (socket: WebSocket): void => {
+    authenticated.delete(socket);
+    const clientId = clientIds.get(socket);
+    if (clientId === undefined) return;
+    clientIds.delete(socket);
+    options.clients?.detached(clientId);
+  };
 
   const send = (socket: WebSocket, frame: HostServerFrame): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
@@ -84,8 +96,19 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           socket.close(UNAUTHORIZED, HOST_ERROR.unauthorized);
           return;
         }
+        // A client that says hello twice on one socket replaces itself, with
+        // whatever profile it now claims.
+        forget(socket);
         authenticated.add(socket);
+        // The reply first: it carries the sequence this client starts from, and
+        // the push that announces its own arrival must come after that number.
         send(socket, { type: "hello-reply", id: frame.id, reply: helloReply(options.pushLog, frame.hello, { ...options, capabilities }) });
+        if (options.clients) {
+          clientIds.set(socket, options.clients.attached({
+            transport: "socket",
+            ...(frame.hello.profile ? { profile: frame.hello.profile } : {}),
+          }));
+        }
         return;
       }
       if (!authenticated.has(socket)) {
@@ -102,8 +125,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           send(socket, { type: "response", response: { id, error: hostErrorInfo(error, code) } });
         });
     });
-    socket.on("close", () => authenticated.delete(socket));
-    socket.on("error", () => authenticated.delete(socket));
+    socket.on("close", () => forget(socket));
+    socket.on("error", () => forget(socket));
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -122,7 +145,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       for (const socket of authenticated) send(socket, { type: "push", push });
     },
     close: async () => {
-      for (const socket of authenticated) socket.close();
+      for (const socket of [...authenticated]) { forget(socket); socket.close(); }
       await new Promise<void>((resolve) => server.close(() => resolve()));
       if (http) await new Promise<void>((resolve) => http.close(() => resolve()));
     },

@@ -134,8 +134,10 @@ function harness() {
         return { sessionId, cwd: startOptions.cwd, ...(startOptions.title ? { title: startOptions.title } : {}) };
       },
       exclusive: (work) => work(),
+      remove: async () => undefined,
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
+    clients: { observe: () => () => undefined, count: () => 1 },
     registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
     registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
     pinTranscriptEntries: () => () => undefined,
@@ -374,6 +376,44 @@ describe("Agents Kit", () => {
     expect(calls.some(([, ...args]) => args.join(" ") === `branch -D ${spawned.branch}`)).toBe(true);
     // Its worktree is gone, so there is nothing left to take.
     await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId })).rejects.toThrow(/already applied/u);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("takes a deleted thread's worktree only when it holds nothing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-agent-delete-"));
+    const project = join(root, "project");
+    const calls: string[][] = [];
+    let uncommitted = "";
+    const runGit: AgentGitRunner = async (cwd, args) => {
+      calls.push([cwd, ...args]);
+      const command = args.join(" ");
+      if (command.startsWith("rev-parse --is-inside-work-tree")) return "true\n";
+      if (command.startsWith("rev-parse --verify HEAD")) return "headcommit\n";
+      if (command.startsWith("rev-parse --path-format=absolute")) return `${project}/.git\n`;
+      if (command.startsWith("config --get")) return "basecommit\n";
+      if (command.startsWith("write-tree")) return "childtree\n";
+      if (command.startsWith("diff --numstat")) return uncommitted ? "3\t1\tanswer.md\n" : "";
+      if (command.startsWith("rev-list")) return "0\n";
+      if (command.startsWith("status --porcelain")) return uncommitted;
+      return "";
+    };
+    const bench = await activated({ runGit });
+    const parent = bench.runtime("parent", project);
+    const first = await parent.call("tau_spawn_thread", { prompt: "one" }) as { threadId: string; branch: string };
+    const second = await parent.call("tau_spawn_thread", { prompt: "two" }) as { threadId: string; branch: string };
+    const deleted = (sessionId: string) => bench.lifecycles[0]!.threadDeleted!(sessionId, project);
+
+    // Nothing changed in it: the checkout and its branch go with the thread.
+    await deleted(first.threadId);
+    expect(calls.some(([, ...args]) => args.join(" ") === `branch -D ${first.branch}`)).toBe(true);
+
+    // The second one holds uncommitted work, so it outlives its thread.
+    uncommitted = " M answer.md\n";
+    await deleted(second.threadId);
+    expect(calls.some(([, ...args]) => args.join(" ") === `branch -D ${second.branch}`)).toBe(false);
+
+    // Either way the link is gone: the panel does not list a deleted thread.
+    await expect(parent.call("tau_list_threads")).resolves.toEqual({ threads: [] });
     await rm(root, { recursive: true, force: true });
   });
 

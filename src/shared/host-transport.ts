@@ -51,6 +51,8 @@ export interface HostHello {
   token?: string;
   /** Highest sequence the client has seen; absent for a first connection. */
   lastSeq?: number;
+  /** Which client this is (`desktop`, `web`, `compact`), for a host extension that counts them. */
+  profile?: string;
 }
 
 export interface HostHelloReply {
@@ -137,10 +139,12 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
   if (!item || item.protocol !== HOST_TRANSPORT_VERSION) return undefined;
   if (item.token !== undefined && typeof item.token !== "string") return undefined;
   if (item.lastSeq !== undefined && !Number.isSafeInteger(item.lastSeq)) return undefined;
+  if (item.profile !== undefined && typeof item.profile !== "string") return undefined;
   return {
     protocol: HOST_TRANSPORT_VERSION,
     ...(typeof item.token === "string" ? { token: item.token } : {}),
     ...(typeof item.lastSeq === "number" ? { lastSeq: item.lastSeq } : {}),
+    ...(typeof item.profile === "string" ? { profile: item.profile } : {}),
   };
 }
 

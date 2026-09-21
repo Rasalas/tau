@@ -17,16 +17,19 @@ export const PERMISSION_WORKSPACE_SWITCH = "workspace:switch" as const;
 export const PERMISSION_SESSIONS = "sessions" as const;
 export const PERMISSION_RUNTIME_EXTEND = "runtime:extend" as const;
 /**
- * Host-side subprocess bookkeeping: `noteSubprocess` and `findCommand`.
- * Does **not** gate `child_process` — a package can spawn processes without
- * this grant; with it, the host knows about them.
+ * Starting processes, and the host-side bookkeeping for them
+ * (`noteSubprocess`, `findCommand`). Inside a worker the grant is enforced:
+ * `child_process` is refused without it, through both the `require` and the
+ * `import()` interception. For an `in-process` package it is advisory, like
+ * every other permission there.
  */
 export const PERMISSION_PROCESS = "process" as const;
 /**
  * Outbound network access. Enforced inside the worker a package is isolated in
  * (`fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket
- * builtins throw without it); advisory for an `in-process` package, which by
- * definition runs with everything the host process can reach.
+ * builtins throw without it, whether they are reached by `require` or by
+ * `import()`); advisory for an `in-process` package, which by definition runs
+ * with everything the host process can reach.
  */
 export const PERMISSION_NETWORK = "network" as const;
 
@@ -34,11 +37,11 @@ export const PERMISSION_NETWORK = "network" as const;
 export const PERMISSION_PACKAGES = "packages" as const;
 
 /**
- * The one line Settings shows a package that runs in-process without `network`.
- * Even for isolated packages the guardrail has gaps (`await import()`, nested
- * workers), so the phrasing avoids promising enforcement.
+ * The one line Settings shows a package that asked to run in the host process.
+ * Nothing is enforced there — no interception point would hold — so the
+ * phrasing says so rather than naming one permission.
  */
-export const NETWORK_ADVISORY_NOTE = "network access is advisory for in-process packages";
+export const NETWORK_ADVISORY_NOTE = "runs inside the host process; permissions are not enforced there";
 
 /**
  * Where a package's host half runs. `worker` is the default for packages: a
