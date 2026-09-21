@@ -185,7 +185,9 @@ describe("AntigravityThreadRuntimeBackend", () => {
   });
 
   it("puts text before images in the prompt and reports a stopped agent as an error notice", async () => {
-    expect(promptBlocks("look", [{ mimeType: "image/png", data: "AAAA", name: "a.png" } as never])).toEqual([{ type: "text", text: "look" }, { type: "image", data: "AAAA", mimeType: "image/png" }]);
+    expect(promptBlocks("look", [{ kind: "image", mimeType: "image/png", data: "AAAA", name: "a.png", size: 3 }])).toEqual([{ type: "text", text: "look" }, { type: "image", data: "AAAA", mimeType: "image/png" }]);
+    expect(promptBlocks("read it", [{ kind: "file", mimeType: "application/pdf", path: "/state/a b.pdf", name: "a b.pdf", size: 9 }]))
+      .toEqual([{ type: "text", text: "read it" }, { type: "resource_link", uri: "file:///state/a%20b.pdf", name: "a b.pdf", mimeType: "application/pdf" }]);
     const store = await scratchStore();
     const script: Script = async (_blocks, session) => { session.input.onExit(new Error("Antigravity exited with code 1.")); throw new Error("Antigravity exited with code 1."); };
     const { backend, events } = harness(store, script);
