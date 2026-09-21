@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostExtensionClient, PanelProps } from "tau";
+import type { HostExtensionClient, PanelProps, StageTabHandle } from "tau";
 import { TerminalPanel, placeOf } from "./panel.js";
+import { TerminalStageTab } from "./stage-tab.js";
 import { connectTerminalHost, terminalStore } from "./store.js";
-import { TERMINAL_LIST_EVENT, type UiTerminalSession } from "./protocol.js";
+import { TERMINAL_LIST_EVENT, TERMINAL_STAGE_TAB, type UiTerminalSession } from "./protocol.js";
 
 // xterm draws on a canvas jsdom does not have; the panel is what is under test.
 vi.mock("@xterm/xterm", () => ({ Terminal: class { options = {}; loadAddon() {} open() {} write() {} onData() { return { dispose() {} }; } focus() {} dispose() {} cols = 80; rows = 24; } }));
@@ -67,18 +68,26 @@ function fakeHost() {
 /** The thread on screen, as the workbench would answer; a test moves it by reassigning. */
 let activeSessionId: string | undefined;
 
-function panelProps(): PanelProps {
+function panelProps(actions: Record<string, unknown> = {}): PanelProps {
   return {
     active: true,
     extensionName: "Terminal",
-    actions: { activeThread: () => ({ sessionId: activeSessionId, workspaceId: "workspace-one", draftPending: false }) } as unknown as PanelProps["actions"],
+    actions: {
+      activeThread: () => ({ sessionId: activeSessionId, workspaceId: "workspace-one", draftPending: false }),
+      ...actions,
+    } as unknown as PanelProps["actions"],
   };
+}
+
+function stageTabHandle(): StageTabHandle {
+  return { id: "ext:terminal:t1", setTitle: vi.fn(), setDirty: vi.fn(), onClose: () => () => undefined };
 }
 
 afterEach(() => {
   cleanup();
   activeSessionId = undefined;
   terminalStore.setActiveSession(undefined);
+  terminalStore.setOnStage("t1", false);
 });
 
 describe("placeOf", () => {
@@ -125,6 +134,28 @@ describe("TerminalPanel", () => {
       await waitFor(() => expect(fake.invoke).toHaveBeenCalledWith("restart", { id: "t1" }));
       await waitFor(() => expect(screen.queryByText(/shell exited/u)).toBeNull());
       expect(screen.getByRole("tab", { name: /shell 1/u }).textContent).not.toContain("exited");
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("hands a shell to the stage without ending it, and stands down while it is there", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    const opened: Array<[string, unknown]> = [];
+    try {
+      render(<TerminalPanel {...panelProps({ openStageTab: (kind: string, params: unknown) => { opened.push([kind, params]); return "ext:terminal:t1"; } })} />);
+      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      await screen.findByRole("tab", { name: /shell 1/u });
+
+      fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
+      expect(opened).toEqual([[TERMINAL_STAGE_TAB, { id: "t1", label: "shell 1" }]]);
+
+      // The tab takes the view over; the shell itself is never killed.
+      render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={stageTabHandle()} />);
+      await waitFor(() => expect(screen.getByText("This shell is open as a stage tab.")).toBeTruthy());
+      expect(screen.getByRole("tab", { name: /shell 1/u }).textContent).toContain("on the stage");
+      expect(fake.invoke).not.toHaveBeenCalledWith("kill", { id: "t1" });
     } finally {
       disconnect();
     }

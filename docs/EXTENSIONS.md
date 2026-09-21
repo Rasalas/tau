@@ -209,12 +209,70 @@ context.registerToolCard({
 });
 ```
 
+#### Stage tabs
+
+The stage is the document area beside the conversation. Core owns the tab
+strip, the placement, the preview and pin rules and its own two kinds (a file
+and another thread's transcript); `registerStageTab` adds a kind of your own —
+a terminal, a pull request, a file editor, a device panel.
+
+```tsx
+plugin.registerStageTab<NoteParams>({
+  kind: "example.note",
+  profiles: ["desktop", "web"],
+  title: (params) => `Note: ${params.name}`,
+  Icon: StickyNote,
+  render: (params, handle) => <Note params={params} handle={handle} />,
+  restore: (params) => Boolean(params.name),
+});
+
+plugin.registerCommand({
+  id: "example.note.open",
+  label: "Open a scratch note",
+  group: "Extensions",
+  run: (app) => { app.openStageTab("example.note", { name: "scratch" }); },
+});
+```
+
+`actions.openStageTab(kind, params?, { preview?, key? })` opens one and answers
+with the tab's id; `actions.closeStageTab(id)` closes any tab and
+`actions.stageTabs()` lists what is on the stage. **`params` is plain JSON and
+is the whole of what the tab is:** two opens with the same params are the same
+tab, the params key the tab (`ext:<kind>:<key>` — pass `key` to name one
+yourself, or `singleton: true` for a kind with one tab whatever it is opened
+with), and they are what a restored tab comes back with. Put an id in them, not
+an object. An extension tab opens pinned, because it is opened by a deliberate
+action; pass `preview: true` to take the stage's one preview slot instead.
+
+`render` is given the params and a **handle**, the tab's own:
+
+| Member | What it does |
+|---|---|
+| `id` | the tab's id, the one `closeStageTab` takes. |
+| `setTitle(title)` | renames the tab; the strip and the context menu follow. |
+| `setDirty(dirty)` | a dot in the tab, and core asks the user before closing it. |
+| `onClose(listener)` | runs when the tab closes, whoever closed it — the ✕, `mod+w`, "Close others", or your kit going away. Returns an unsubscribe. |
+
+Core hands out one handle per tab and keeps it while the tab lives, so the
+content may hold on to it. `restore(params)` is asked once for a tab that came
+back from storage rather than from your own `openStageTab`: answer `false` and
+core drops the tab. A tab whose kind is not registered yet waits — a kit that
+activates late still gets its tabs — and a tab whose kind is *withdrawn* goes
+with it, without asking about unsaved work, because nobody is left to save it.
+
+The tab strip's own gestures are core's: double-click pins a preview, the
+middle button and Escape close, `mod+w` closes the active tab, `ctrl+tab` and
+`ctrl+shift+tab` move through them, and the right-click menu offers close,
+close others, close to the right and pin/unpin. `examples/desktop-extensions/hello-stage-tab.tsx`
+is the whole of the above as one file; Terminal Kit's "open as tab" is the
+shipped caller.
+
 #### Which clients draw it
 
-Every contribution the workbench draws — panels, settings pages, regions,
-status items, overlays, composer controls, the sidebar, project sources, prompt
-renderers, the document source, transcript rows, tool renderers and tool cards —
-takes an optional `profiles`:
+Every contribution the workbench draws — panels, settings pages, stage tabs,
+regions, status items, overlays, composer controls, the sidebar, project
+sources, prompt renderers, the document source, transcript rows, tool renderers
+and tool cards — takes an optional `profiles`:
 
 ```ts
 context.registerPanel({ id: "agents", label: "Agents", profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
@@ -304,7 +362,9 @@ for what the ask tool folds into a dialog's title and options —
 `freeTextOption` and `optionForLabel`, with their `OptionParts` and
 `OptionPreview` types.
 
-`actions.openFile(path, options?)` puts a document in the stage; `actions.openThread(sessionId, options?)`
+`actions.openFile(path, options?)` puts a document in the stage;
+`actions.openStageTab(kind, params?, options?)` puts a tab of your own kind
+there (above); `actions.openThread(sessionId, options?)`
 puts a thread there instead — its transcript, read-only, with the title, status
 and cost the thread index carries and a "Take over" button, while the composer
 goes on addressing the thread it was already addressing. Both take
@@ -340,6 +400,7 @@ It also exports the renderer's shared state and presentation:
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
+| `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
@@ -443,6 +504,47 @@ it defaults to the kind. The host publishes every installed backend, Pi first,
 as `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
 naming the one a client gets when it names none.
 
+### Lifecycle hooks a host half may step into
+
+`services.registerThreadLifecycle(hooks)` and
+`services.registerTurnObserver(observer)` (both `sessions`) are how a package
+learns what is happening to a workspace, a thread and a turn. Every hook is
+optional; the host awaits them in registration order.
+
+| `HostThreadLifecycle` | Runs when |
+|---|---|
+| `beforeWorkspace(cwd)` | before a workspace's first thread opens — startup, project switch. Repair what you keep beside its sessions here. |
+| `afterWorkspaceClose(cwd, reason)` | after the host left a workspace and before `beforeWorkspace` of the next one; `reason` is `"switch"` or `"shutdown"`, and at shutdown every open workspace gets one. Release what belonged to it: shells, watchers, caches. |
+| `beforeOpen(session)` | before a runtime is built for a session file. |
+| `afterFork(source, target)` | after a fork wrote its session file, before that file's runtime opens. |
+| `beforeActivate(thread)` | before a thread goes on screen; may answer with a `{ commit, rollback }` transaction (in-process only). |
+| `threadDeleted(sessionId, cwd)` | the thread is gone for good: its session file was removed, or is about to be. Runtime eviction is **not** this — that is `HostTurnObserver.closed`. |
+| `sweep(sweep)` | a periodic pass over every persisted session the host indexes. |
+
+`threadDeleted` runs once per deletion, whether the host deleted the thread
+itself (`services.sessions.remove(sessionId)`, the verb behind a rail's
+"delete thread") or a sweep found the file gone. A throwing hook is reported
+and the others still run: the thread is gone either way.
+
+`HostTurnObserver` brackets the turns of every thread the host drives:
+`accepted`, `prepare`, `cancelled`, `ended`, `pending`, `reset`, `closed` and
+`toolEnded`. `closed` is a released runtime, not a deleted thread.
+
+### Who is attached: `services.clients`
+
+`services.clients` is ungated — it answers `count()` and takes an observer
+with `attached(clientId, { id, transport, profile })` and `detached(clientId)`.
+`transport` is `"electron"` (the window) or `"socket"` (a browser tab or a
+remote client); `profile` is what that client claimed in its hello
+(`desktop`, `web`, `compact`). A package uses it to hold background work until
+somebody is watching, or to raise a notification when nobody is.
+
+On the desktop side the same two facts arrive as workbench events:
+`context.events.on("client-count", …)` carries `{ count }` whenever a client
+comes or goes, and `context.events.on("workspace-changed", …)` carries
+`{ from?, to }` when the host opens another project — so a panel reacts
+without asking the host what changed.
+
 ### `engines` and `engines.api`
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
@@ -479,8 +581,8 @@ A package's `permissions` array draws from a fixed list
 | `workspace:switch` | open or pick another project. |
 | `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — and read a workspace's skill catalog (`skills`). |
-| `process` | call `noteSubprocess` and `findCommand` — the host-side bookkeeping for processes. It does **not** gate `child_process`: a package can spawn processes without this grant; with it, the host knows about them. |
-| `network` | request network access. For an isolated (worker) package the grant blocks `fetch`, `require("http")` and friends — but the block is a guardrail, not a boundary: `await import("node:https")` and a nested `worker_threads` worker bypass it. For an `in-process` package the grant is advisory and carries no enforcement at all. |
+| `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
+| `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
@@ -514,10 +616,12 @@ into the identical guarded facade from the main side).
 
 `network` is the one permission not in `HOST_SERVICE_PERMISSIONS`: a package
 that dials out never asks the host for anything, so there is no member to gate.
-The worker enforces it for itself instead — see §6. For an `in-process`
-package it stays advisory, because a package running in the host process can
-reach everything the host process can; that is what granting `in-process`
-means.
+The worker enforces it for itself instead — see §6. `process` is enforced in
+both places: the facade members are guarded on the main side, and the worker
+refuses `child_process` for itself. For an `in-process` package neither is
+enforced, because a package running in the host process can reach everything
+the host process can; that is what granting `in-process` means, and the
+approval box says so in that many words.
 
 ### The window half
 
@@ -659,7 +763,40 @@ separate, later gate).
 | Compiled host bundle cache | a temp directory (`tmpdir()/tau-host-extensions` by default, keyed by content hash) |
 
 A folder source is never copied — `/install ./my-extension` loads it where it
-lies, which is also how you develop one: edit it in place, `/reload`.
+lies, which is also how you develop one: edit it in place and save.
+
+### The development loop
+
+The host watches the files it reads and reloads what changed. Save a file and
+the change is in the app — no `/reload`, no restart:
+
+| Edited | What happens |
+|---|---|
+| Anything in a package folder (`~/.tau/extensions/<name>/`, `<project>/.tau/extensions/<name>/`, a folder source in `packages.json`) | That one package is rebuilt and restarted. Its host half restarts only if its compiled code actually changed; its desktop module is swapped in place, so the rest of the workbench keeps running. A toast says *Reloaded &lt;name&gt;* |
+| A loose file, `~/.tau/extensions/hello.tsx` | The same, under the id its path gives it (`local.hello`) |
+| A kit under `kits/` in a checkout | Its desktop half is swapped. Its **host** half still needs `/reload` — a shipped kit is loaded once, before any package |
+| A theme in `~/.tau/themes`, `<project>/.tau/themes`, `~/.pi/agent/themes`, `<project>/.pi/themes` | The client re-reads the themes and re-applies the active one; nothing else moves. A theme *package* (a folder that is only a stylesheet) goes the package route and swaps its `<link>` |
+| `~/.pi/agent/keybindings.json` | The host reports the change; the Keybindings kit re-reads the file and rebinds |
+| `~/.tau/config.json`, `<project>/.tau/config.json` | The client re-reads the config and applies it. Pi's own `settings.json` stays Pi's business |
+
+Only the file that changed is acted on: a save in one package never restarts
+another one's worker, and a theme edit touches no extension at all.
+
+**A save that does not compile changes nothing.** The version that was running
+stays running, the error is a toast and a line in Settings → Inspector, and it
+counts as nothing — a reload failure is not a command failure, so it can never
+add up to a deactivation. Fix the file, save again, and the new version takes
+over.
+
+The panels of a reloaded package remount, so whatever state they held is gone.
+That is the price of swapping a module in place, and it is why only the package
+you edited is swapped.
+
+**Turning it off.** `extensions.watch: false` in `~/.tau/config.json` (or
+`<project>/.tau/config.json`), or `TAU_NO_WATCH=1` in the environment, stops
+the host from watching anything; `/reload` then applies changes as before.
+Safe mode (`TAU_NO_EXTENSIONS=1`) watches nothing either — it exists so that no
+extension loads at all.
 
 ## 4. Signing
 
@@ -729,6 +866,11 @@ its own. There is no revocation list: removing a key from
   service member, or the network without `network` — throws inside the command
   and logs `host-extension.denied`, but the package stays active. Only the
   three-strikes rule above can turn repeated denials into a deactivation.
+- **A failed reload is not a failure:** when a watched edit leaves a package
+  that no longer parses or compiles, the version that is running stays
+  running. The error is reported (toast, Settings → Inspector) and nothing is
+  counted against the package — neither the three-strikes counter nor the
+  timeout rule applies to code that never ran.
 - **What the user sees:** the deactivation reason is recorded in
   `summaries()` and shown on the package's own settings page — never a crash
   or a frozen workbench. On the renderer side every slot a package renders
@@ -739,10 +881,9 @@ its own. There is no revocation list: removing a key from
 ## 6. What an isolated (worker) package cannot use
 
 By default a package's host half runs in a worker thread: no Electron
-(`import "electron"` throws, intercepted through `Module._load`, the only hook
-Node 22.14 gives Electron for this), no network unless it asked for it, a
-256 MB heap cap, and a facade that only carries plain data across the port —
-nothing that hands out a live object. From
+(`import "electron"` throws), no network and no `child_process` unless it asked
+for them, a 256 MB heap cap, and a facade that only carries plain data across
+the port — nothing that hands out a live object. From
 `src/main/host-extension-worker-protocol.ts` and ADR 0009:
 
 | Available in a worker | Not available — declare `"isolation": "in-process"` instead |
@@ -752,9 +893,12 @@ nothing that hands out a live object. From
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
+| `clients.observe`, `clients.count` | |
 | `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
+| `sessions.remove` | |
+| `observeConfigChanges` (one change per call, plain data) | |
 
 Everything on the left is asynchronous, even members that are synchronous
 in-process (`cwd()`, `thread()`), because every call is a round trip over the
@@ -767,45 +911,47 @@ the permission list ("runs inside the host process, outside the worker
 isolation") and is recorded in the grant, so a package that later leaves the
 worker has to be approved again even if its permission list did not change.
 
-### The network, in a worker
+### The network and processes, in a worker
 
-A worker that was not granted `network` meets a guardrail. Before the package's
-bundle is loaded, `host-extension-worker.ts` replaces whichever of `fetch`,
-`WebSocket`, `EventSource` and `XMLHttpRequest` this Node defines on the worker
-global, and hooks `Module._load` to refuse `require` of `http`, `https`, `net`,
-`tls`, `dgram`, `http2` and `dns` — under any `node:` prefix and any submodule.
-Both throw `Extension <id> lacks permission network` and log
-`host-extension.denied`. A bundled `ws` or `undici` needs `net`/`tls`, so it
-hits the same wall.
+A worker meets a guardrail for whichever of `network` and `process` its grant
+left out. Before the package's bundle is loaded, `host-extension-worker.ts`
 
-**This is a guardrail, not an OS-level boundary.** The `Module._load` hook does
-not cover dynamic `import()`: `await import("node:https")` bypasses it and
-returns a live module. A nested `worker_threads` worker also runs outside the
-interception. Both paths are known and documented; the isolation the worker
-provides is crash containment and heap caps, not a sandbox against hostile
-code.
+- replaces whichever of `fetch`, `WebSocket`, `EventSource` and
+  `XMLHttpRequest` this Node defines on the worker global (without `network`);
+- refuses `http`, `https`, `net`, `tls`, `dgram`, `http2` and `dns` (without
+  `network`) and `child_process` (without `process`) — under any `node:`
+  prefix and any submodule, so `node:dns/promises` is the same door as `dns`;
+- refuses `worker_threads` while either grant is still missing, because a
+  nested worker runs outside both guards and would hand the package back
+  whatever it asked for;
+- refuses `electron` always: it only exists in the main process.
 
-### The process permission does not gate spawning
+Each of those throws `Extension <id> lacks permission <name>` (the nested
+worker says why it is refused instead) and logs `host-extension.denied`, so the
+Inspector and Signals show a denied socket or a denied spawn exactly like a
+denied service member. A bundled `ws` or `undici` needs `net`/`tls` and hits
+the same wall. The grant does not do the host's bookkeeping for you: a package
+that spawns still calls `noteSubprocess` itself.
 
-`process` gates only `noteSubprocess` and `findCommand`, through
-`guardedServices` for both in-process calls and worker RPC. It does not gate
-`child_process` in either mode. Granting it does not automatically track
-subprocesses; the extension must call `noteSubprocess` itself.
+Two interceptions are installed, because neither covers the other:
+`Module._load`, which is what `require` goes through, and
+`module.registerHooks`, which is what `import()` goes through (and which sees
+`require` as well). `await import("node:https")` used to walk straight past the
+first one; it does not any more.
 
-We retain that bookkeeping-only contract. A service wrapper cannot intercept
-Node imports. Adding `child_process` to the worker's `Module._load` blocklist
-would still allow dynamic imports and nested workers to bypass it, while an
-in-process package shares the host's Node runtime. Such a hook would not meet
-a promise that the permission controls spawning. Enforcing that promise
-requires a separate execution boundary, not another member of the facade.
-[ADR 0018](adr/0018-sandboxed-host-extensions.md) discusses those alternatives;
-this decision does not ratify its broader sandbox proposal. Install only host
-packages whose code you trust.
+**This is still a guardrail, not an OS-level boundary.** A package holds
+`node:module` like any other Node code and can put both hooks back the way it
+found them; it reads and writes files either way, and an `in-process` package
+meets nothing at all. What the worker gives you is crash containment, a heap
+cap and a wall a mistake runs into — not a sandbox against hostile code.
+[ADR 0018](adr/0018-sandboxed-host-extensions.md) collects what a real boundary
+would cost. Install only host packages whose code you trust.
 
 An `in-process` package is a different story. It runs with everything the host
-process can reach, so `network` there is purely advisory — and even in a worker
-the guardrail above has documented gaps. If you rely on blocking network access,
-read the gaps and decide whether they matter for your case.
+process can reach, so neither grant is enforced there — the approval box says
+"runs inside the host process; permissions are not enforced there" rather than
+naming one of them. If you rely on a package not reaching the network or not
+spawning anything, do not grant it `in-process`.
 
 Electron works the same way round. An `in-process` host half may
 `import { BrowserWindow } from "electron"` — the host bundler keeps `electron`

@@ -12,6 +12,7 @@ import { HostJobRunner } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { createHostMethods } from "./host-methods.js";
 import { hostTokenPath, readOrCreateHostToken } from "./host-token.js";
+import { HostClientRegistry } from "./host-clients.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
 import { parseListen } from "./host-listen.js";
@@ -21,6 +22,8 @@ import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { PiHost } from "./pi-host.js";
 import { ClientCalls } from "./client-calls.js";
+import { selectDefaultBackend } from "./runtime-adapters.js";
+import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
 
@@ -71,12 +74,15 @@ async function main(): Promise<void> {
 
   let host: PiHost | undefined;
   let ready: Promise<unknown> | undefined;
+  /** The socket transport reports its clients here; the host publishes the count. */
+  const clients = new HostClientRegistry();
   const methods = createHostMethods({
     clientCalls,
     bootstrap: async () => {
       if (!host) {
         primeOpenCodeCatalog();
         host = new PiHost(workspace, publish, projectHistory, safeMode, false, {
+          defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
           hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
           hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
             versions,
@@ -84,10 +90,18 @@ async function main(): Promise<void> {
           }),
           logger: hostLog,
           workspaceIdentity,
+          clients,
+          appPath: appRoot,
           kitStateDir: join(userData, "kit-state"),
+          turnsInFlightPath: join(userData, "turns-in-flight.json"),
           // A window half of a kit lives in the client's process; this is the
-          // only way a host without a window of its own reaches one.
-          platform: { callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input) },
+          // only way a host without a window of its own reaches one. The folder
+          // picker is the window's own, asked for the same way.
+          platform: {
+            callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input),
+            pickDirectory: async (options) =>
+              await clientCalls.call(WINDOW_SERVICES_ID, "pick-directory", options, 10 * 60_000) as string | undefined,
+          },
           sessionUsageCachePath: join(userData, "session-usage.json"),
           sessionLineageCachePath: join(userData, "session-lineage.json"),
         });
@@ -119,10 +133,10 @@ async function main(): Promise<void> {
           packages: [...kits.packages, ...inspection.packages],
         };
       },
-      loadDesktopExtensions: async (cwd, sharedExports) => {
+      loadDesktopExtensions: async (cwd, sharedExports, only) => {
         const [kits, result] = await Promise.all([
-          safeMode ? { bundles: [], errors: [] } : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
-          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions }),
+          safeMode ? { bundles: [], errors: [] } : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports, ...(only ? { only } : {}) }),
+          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions, ...(only ? { only } : {}) }),
         ]);
         return { ...result, bundles: [...kits.bundles, ...result.bundles], errors: [...kits.errors, ...result.errors] };
       },
@@ -163,6 +177,7 @@ async function main(): Promise<void> {
     token,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     ...(web ? { attachTo: web.server } : {}),
+    clients,
     logger: hostLog,
   });
   const { host: boundHost } = parseListen(listen);

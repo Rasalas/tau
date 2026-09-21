@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { HostThread } from "tau/host-extension";
-import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createKeybindingsHostExtension, readPiUserKeybindings } from "./host.js";
 import { KEYBINDINGS_HOST_EXTENSION_ID } from "./protocol.js";
 
@@ -31,6 +31,27 @@ describe("Keybindings host extension", () => {
     const registry = await activateHostKit(createKeybindingsHostExtension(), { thread: () => undefined });
     await expect(registry.invoke(KEYBINDINGS_HOST_EXTENSION_ID, "shortcuts")).resolves.toEqual({ shortcuts: [] });
     await expect(registry.invoke(KEYBINDINGS_HOST_EXTENSION_ID, "run-shortcut", { keys: "ctrl+x" })).rejects.toThrow("No thread is open for this shortcut.");
+  });
+
+  it("tells its desktop half when the host saw keybindings.json change, and nothing else", async () => {
+    let notify: ((change: { kind: string; paths: readonly string[] }) => void) | undefined;
+    const published: PublishedKitEvent[] = [];
+    await activateHostKit(
+      createKeybindingsHostExtension(),
+      { observeConfigChanges: (listener) => { notify = listener; return () => { notify = undefined; }; } },
+      (event) => published.push(event),
+    );
+
+    notify?.({ kind: "themes", paths: ["/home/.tau/themes/acid.css"] });
+    expect(published).toEqual([]);
+
+    notify?.({ kind: "keybindings", paths: ["/agent/keybindings.json"] });
+    expect(published).toEqual([{
+      type: "extension-event",
+      extensionId: KEYBINDINGS_HOST_EXTENSION_ID,
+      name: "changed",
+      payload: { paths: ["/agent/keybindings.json"] },
+    }]);
   });
 
   it("is denied the thread it did not ask for", async () => {

@@ -659,6 +659,27 @@ export function createAgentsHostExtension(options: {
           pending: (sessionId) => waiters.get(book.linkFor(sessionId)?.id ?? "")?.size ?? 0,
         }),
         services.registerThreadLifecycle({
+          /**
+           * A deleted thread takes its link with it, and its worktree when
+           * nothing would be lost with it. A worktree that still holds work
+           * stays: the parent can still merge that branch by hand, and what
+           * else to do with it is a policy question, not this hook's.
+           */
+          threadDeleted: async (sessionId) => {
+            const link = book.linkFor(sessionId);
+            const workspace = link?.workspace;
+            if (link && workspace?.mode === "worktree" && workspace.branch && !workspace.settled) {
+              const worktree = { path: workspace.path, branch: workspace.branch };
+              const changes = await readAgentWorktreeChanges(worktree, runGit).catch(() => undefined);
+              if (changes && changes.files === 0 && changes.commits === 0) {
+                await removeAgentWorktree({ parentCwd: link.projectPath, worktree, runGit }).catch(() => undefined);
+                services.log("agents.worktree-removed", `${workspace.branch} went with its deleted thread`);
+              } else {
+                services.log("agents.worktree-kept", `${workspace.branch} still holds work; it outlives its deleted thread`);
+              }
+            }
+            if (book.forget(sessionId)) { publish(); save(); }
+          },
           beforeOpen: async (session) => {
             const links = linksFromEntries(session.sessionId, session.entries());
             for (const link of links) if (!book.has(link.id)) book.add(link);

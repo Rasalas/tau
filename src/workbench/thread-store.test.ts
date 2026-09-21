@@ -87,3 +87,26 @@ describe("ThreadStore selective navigation subscriptions", () => {
     expect(store.getActivity().runningStartedAt.one).toBeUndefined();
   });
 });
+
+describe("ThreadStore interrupted threads", () => {
+  it("mirrors the index's interrupted mark and clears it when the index does", () => {
+    const store = new ThreadStore();
+    let activity = 0;
+    store.subscribeToActivity(() => { activity += 1; });
+
+    store.applyThreadIndex({ projects: [], sessions: [{ ...shell("one"), interrupted: true }, shell("two")] });
+    expect(store.getActivity().interruptedThreadIds).toEqual(["one"]);
+    expect(activity).toBe(1);
+
+    store.applyThreadShell("one", shell("one"));
+    expect(store.getActivity().interruptedThreadIds).toEqual([]);
+  });
+
+  it("keeps the same list across a rescan that changes nothing", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [{ ...shell("one"), interrupted: true }] });
+    const list = store.getActivity().interruptedThreadIds;
+    store.applyThreadIndex({ projects: [], sessions: [{ ...shell("one"), interrupted: true }] });
+    expect(store.getActivity().interruptedThreadIds).toBe(list);
+  });
+});

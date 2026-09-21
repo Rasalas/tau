@@ -41,9 +41,11 @@ function services(): HostExtensionServices & { logs: string[] } {
       open: () => { throw new Error("no sessions in this test"); },
       prepare: async () => { throw new Error("no sessions in this test"); },
       start: async () => { throw new Error("no threads in this test"); },
+      remove: async () => undefined,
       exclusive: (work) => work(),
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
+    clients: { observe: () => () => undefined, count: () => 0 },
     registerThreadLifecycle: () => () => undefined,
     registerTurnObserver: () => () => undefined,
     pinTranscriptEntries: () => () => undefined,
@@ -54,6 +56,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     callClient: async () => { throw new Error("no client in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
+    observeConfigChanges: () => () => undefined,
     presentUi: () => () => undefined,
   };
 }

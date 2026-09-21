@@ -24,13 +24,14 @@ export class ClientCalls {
     private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ) {}
 
-  call(extensionId: string, command: string, input?: unknown): Promise<unknown> {
+  /** `timeoutMs` overrides the default for a call that waits on the user, like a dialog. */
+  call(extensionId: string, command: string, input?: unknown, timeoutMs: number = this.timeoutMs): Promise<unknown> {
     const callId = randomUUID();
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(callId);
-        reject(new Error(`No client answered ${extensionId}/${command} within ${this.timeoutMs}ms.`));
-      }, this.timeoutMs);
+        reject(new Error(`No client answered ${extensionId}/${command} within ${timeoutMs}ms.`));
+      }, timeoutMs);
       timer.unref?.();
       this.pending.set(callId, { resolve, reject, timer });
       this.publish({ type: "client-call", callId, extensionId, command, ...(input === undefined ? {} : { input }) });

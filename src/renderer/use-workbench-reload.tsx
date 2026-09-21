@@ -2,7 +2,20 @@ import { useCallback, useState } from "react";
 import { ReloadConflictDialog } from "./components/ReloadConflictDialog";
 import { ReloadCurtain, type ReloadPhase } from "./components/ReloadCurtain";
 import { errorMessage } from "../workbench/error-message";
+import type { WorkbenchBuildResult } from "../shared/contracts";
 import type { HostClient } from "../workbench/host-client";
+
+/**
+ * What a build has to be applied with. Only a change the host cannot swap out
+ * from under a running thread — the agent runtime's own halves, or the main
+ * process — stops anything; everything else reloads kits and the page.
+ */
+export type ReloadRoute = "extensions" | "runtime" | "relaunch";
+
+export function reloadRouteFor(result: WorkbenchBuildResult): ReloadRoute {
+  if (result.mainChanged) return "relaunch";
+  return result.runtimeChanged ? "runtime" : "extensions";
+}
 
 export function useWorkbenchReload(options: {
   client: HostClient | undefined;
@@ -13,21 +26,14 @@ export function useWorkbenchReload(options: {
   const { client, requireHost, addEvent, setNotice } = options;
   const [phase, setPhase] = useState<ReloadPhase>();
   const [conflictCount, setConflictCount] = useState<number>();
+  const [pendingRoute, setPendingRoute] = useState<ReloadRoute>();
 
-  const applyPreparedReload = useCallback(async () => {
-    setPhase("building");
+  /** The half that needs the host to hold still: a runtime reload or a restart. */
+  const applyHeldRoute = useCallback(async (route: ReloadRoute) => {
+    setPhase("extensions");
     try {
-      const result = await client!.rebuildWorkbench();
-      if (!result.ok) {
-        setPhase(undefined);
-        await client!.releaseWorkbenchReload();
-        addEvent("workbench.build.failed", result.output);
-        setNotice(`Build failed: ${result.output.split("\n").filter(Boolean).at(-1) ?? "see Signals"}`);
-        return false;
-      }
-      setPhase("extensions");
       await client!.reloadRuntime();
-      if (result.mainChanged) {
+      if (route === "relaunch") {
         setPhase("restarting");
         await client!.relaunchWorkbench();
       } else {
@@ -41,37 +47,72 @@ export function useWorkbenchReload(options: {
       setNotice(errorMessage(error));
       return false;
     }
-  }, [addEvent, client, setNotice]);
+  }, [client, setNotice]);
 
-  const reloadWorkbench = useCallback(async () => {
-    if (!requireHost("Reloading")) return false;
+  /** Kits and the page only. Nothing is drained, so a running turn never sees it. */
+  const applyExtensionReload = useCallback(async () => {
+    setPhase("extensions");
     try {
-      const preparation = await client!.prepareWorkbenchReload("inspect");
-      if (!preparation.ready) { setConflictCount(preparation.runningThreads); return true; }
-      return applyPreparedReload();
+      await client!.reloadExtensions();
+      window.location.reload();
+      return true;
     } catch (error) {
+      setPhase(undefined);
       setNotice(errorMessage(error));
       return false;
     }
-  }, [applyPreparedReload, client, requireHost, setNotice]);
+  }, [client, setNotice]);
+
+  const startHeldRoute = useCallback(async (route: ReloadRoute) => {
+    const preparation = await client!.prepareWorkbenchReload("inspect");
+    if (preparation.ready) return applyHeldRoute(route);
+    setPhase(undefined);
+    setPendingRoute(route);
+    setConflictCount(preparation.runningThreads);
+    return true;
+  }, [applyHeldRoute, client]);
+
+  const reloadWorkbench = useCallback(async () => {
+    if (!requireHost("Reloading")) return false;
+    setPhase("building");
+    try {
+      // The build comes first: only its result says whether anything has to
+      // hold still, and building never disturbs a thread.
+      const result = await client!.rebuildWorkbench();
+      if (!result.ok) {
+        setPhase(undefined);
+        addEvent("workbench.build.failed", result.output);
+        setNotice(`Build failed: ${result.output.split("\n").filter(Boolean).at(-1) ?? "see Signals"}`);
+        return false;
+      }
+      const route = reloadRouteFor(result);
+      return route === "extensions" ? applyExtensionReload() : startHeldRoute(route);
+    } catch (error) {
+      setPhase(undefined);
+      setNotice(errorMessage(error));
+      return false;
+    }
+  }, [addEvent, applyExtensionReload, client, requireHost, setNotice, startHeldRoute]);
 
   const continueReload = useCallback(async (mode: "wait" | "abort") => {
+    const route = pendingRoute ?? "runtime";
     setConflictCount(undefined);
+    setPendingRoute(undefined);
     if (mode === "wait") setNotice("Reload queued until running threads finish.");
     try {
       await client!.prepareWorkbenchReload(mode);
       setNotice(undefined);
-      await applyPreparedReload();
+      await applyHeldRoute(route);
     } catch (error) {
       await client!.releaseWorkbenchReload().catch(() => undefined);
       setNotice(errorMessage(error));
     }
-  }, [applyPreparedReload, client, setNotice]);
+  }, [applyHeldRoute, client, pendingRoute, setNotice]);
 
   const reloadUi = <>
     {conflictCount !== undefined ? <ReloadConflictDialog
       runningThreads={conflictCount}
-      onCancel={() => setConflictCount(undefined)}
+      onCancel={() => { setConflictCount(undefined); setPendingRoute(undefined); }}
       onWait={() => void continueReload("wait")}
       onAbort={() => void continueReload("abort")}
     /> : null}

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-02. Extended 2026-09-04 with the `tau-ext` scheme and the renderer sandbox, 2026-09-05 with isolated host packages, and 2026-09-06 with an enforced `network`.
+Accepted, 2026-09-02. Extended 2026-09-04 with the `tau-ext` scheme and the renderer sandbox, 2026-09-05 with isolated host packages, 2026-09-06 with an enforced `network`, and 2026-09-21 with an enforced `process`, an `import()` that no longer bypasses the guard, and the lifecycle hooks the seam gained beside them.
 
 ## Context
 
@@ -74,8 +74,50 @@ The `process` grant gates `noteSubprocess` and `findCommand`, not `child_process
 - A desktop package cannot reach raw IPC: `window.tau` is defined away at bundle time and `globalThis.__tauShared.tau` is the only bridge.
 - A host package can no longer freeze the workbench with a synchronous loop, exhaust the host's heap, or crash it by exiting. It still reads files through Node directly and can still lie in its manifest: the worker bounds the blast radius, it is not an OS sandbox.
 - An isolated package pays a round trip per service call and cannot hold a live host object, which is why a kit that needs one declares `in-process` — and asks the user for it.
-- A worker package that did not ask for `network` meets a guardrail that blocks `fetch` and `require("http")`, but not `await import("node:http")` or a nested worker. A package that asked for `in-process` bypasses all of it, which is one more reason to read that line in the approval box.
+- A worker package that did not ask for `network` or `process` meets a guardrail that blocks `fetch`, `require("http")`, `await import("node:http")`, `child_process` and a nested worker — but not a package that puts the hooks back. A package that asked for `in-process` bypasses all of it, which is one more reason to read that line in the approval box.
 - The CSP no longer allows arbitrary blob scripts, so an injection that can build a string can no longer turn it into a module.
+
+## 2026-09-21: `process` is enforced in the worker, and `import()` is closed
+
+The 2026-09-10 note above recorded two holes and left them open: the
+`Module._load` hook did not cover dynamic `import()`, and `process` gated the
+host's bookkeeping rather than the spawn. Both are closed as far as an
+in-process interception can close them.
+
+**`process` gates `child_process` in a worker.** Without the grant, the worker
+refuses `child_process` under any `node:` prefix, the way `network` already
+refused the socket builtins. The facade members (`noteSubprocess`,
+`findCommand`) stay gated by the same permission on the main side, and the
+grant still does not do the bookkeeping for the package: a package that spawns
+calls `noteSubprocess` itself.
+
+**`import()` goes through `module.registerHooks`.** Electron 36 ships Node
+22.19, which has the synchronous `registerHooks` that 22.14 did not. A resolve
+hook now refuses the same module names for `import()` that `Module._load`
+refuses for `require`, so `await import("node:https")` no longer walks past the
+guard. Both interceptions are installed, because the ESM hook does not replace
+`Module._load` for every path Node takes and `Module._load` never saw
+`import()`.
+
+**A nested worker is refused while anything is left to escape.** A worker
+started from inside a worker runs outside both interceptions. `worker_threads`
+is therefore refused for a package that is missing `network` or `process`; a
+package holding both has nothing left to gain from one, and gets it.
+
+**It is still a guardrail.** The package holds `node:module` and can undo both
+hooks; it reads and writes files either way. And for `in-process` nothing is
+enforced at all — the approval box no longer names one permission there but
+says "runs inside the host process; permissions are not enforced there", which
+is the whole truth. A real boundary is a separate execution context:
+[ADR 0018](0018-sandboxed-host-extensions.md) still holds that case.
+
+## 2026-09-21: the thread lifecycle gained two hooks and a client observer
+
+`HostThreadLifecycle` gained `afterWorkspaceClose(cwd, reason)` and
+`threadDeleted(sessionId, cwd)`; `services.clients` (ungated) reports which
+clients are attached, fed by both transports. None of them is a permission
+decision — `clients` carries a count, a transport name and a client profile —
+but they are part of the same facade and the worker carries all three.
 
 ## 2026-09-14: command authority and desktop trust
 

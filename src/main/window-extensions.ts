@@ -3,6 +3,13 @@ import type { HostLogger } from "./host-log.js";
 
 const requireModule = createRequire(import.meta.url);
 
+/**
+ * Core's own window half: what a host asks of the window for itself rather
+ * than for a kit (the folder picker). Not a valid extension id, so no kit can
+ * claim it.
+ */
+export const WINDOW_SERVICES_ID = "window";
+
 /** What a window half may ask of the process it runs in. */
 export interface WindowExtensionContext {
   readonly id: string;

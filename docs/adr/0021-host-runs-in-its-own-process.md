@@ -89,6 +89,11 @@ Preview Kit is the first user: `view.ts` is its window half, and its host half
 drives the view through a remote surface that caches the state the window
 reports.
 
+Core uses the same channel once for itself: a host with no window has no
+folder picker, so `pickDirectory` is a call to the window's own half
+(`WINDOW_SERVICES_ID`). The window process's connection says hello with
+`auxiliary: true`, so the host counts one client per window, not two.
+
 **Lifetime.** Closing the window leaves the host running, on every platform;
 the next window adopts it through `host.json`, and starting Tau again while it
 has no window opens one. Quitting the app stops the host — `host.shutdown`,
@@ -101,6 +106,10 @@ release cycle.
 
 ## Consequences
 
+- The host process owns what ticket 10 and 13 put into the host: it gets
+  `turnsInFlightPath` and `appPath`, so in-flight markers are frozen by its own
+  `dispose()` when the window's quit asks it to stop, and the config watcher
+  runs there.
 - A turn survives the window. Closing, crashing or reloading the window does
   not stop a running thread; the host keeps going and the next client picks up
   the transcript where the push log left it.

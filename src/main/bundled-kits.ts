@@ -71,6 +71,8 @@ export interface BundledKitsOptions {
   versions?: ExtensionHostVersions;
   /** Read `kits/` even when a prebuilt `dist-kits/` exists: a test wants the sources it sits beside, not last build's output. */
   sources?: boolean;
+  /** Build only these kit ids; the rest keep the halves the client already has. */
+  only?: readonly string[];
 }
 
 export interface BundledKitFailure {
@@ -299,8 +301,10 @@ export async function loadBundledKitDesktopHalves(
   options: BundledKitsOptions & BundleOptions,
 ): Promise<DesktopExtensionLoadResult> {
   const { kits, errors } = await kitsOf(options);
+  const only = options.only ? new Set(options.only) : undefined;
   const bundles: DesktopExtensionBundle[] = [];
   for (const kit of kits) {
+    if (only && !only.has(kit.manifest.id)) continue;
     // A shipped theme is a kit that is only a stylesheet; it travels as a
     // desktop half whose whole behaviour is having one.
     const theme = isThemeManifest(kit.manifest);

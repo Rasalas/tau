@@ -207,6 +207,8 @@ export interface UiSession {
   modelProvider?: string;
   /** Tokens and money the thread has used; absent until the host knows them. */
   usage?: UiThreadUsage;
+  /** A turn of this thread was cut short by a restart and was not continued. */
+  interrupted?: boolean;
   /**
    * The thread that spawned this one, as its own session file records it
    * (ADR 0013, amended). Absent for a thread the user started.
@@ -423,11 +425,23 @@ export type GlobalHostEvent =
    * the `client-call-result` method; a client that has no such half ignores it.
    */
   | { type: "client-call"; callId: string; extensionId: string; command: string; input?: unknown; sessionId?: undefined }
-  /** The set of installed or approved packages moved; a client re-reads its desktop halves. */
-  | { type: "extension-packages-changed"; sessionId?: undefined }
+  /**
+   * The set of installed or approved packages moved; a client re-reads its
+   * desktop halves. `extensionIds` narrows that to the ones that moved, so a
+   * client can swap those modules instead of every one it loaded.
+   */
+  | { type: "extension-packages-changed"; extensionIds?: string[]; sessionId?: undefined }
+  /**
+   * A file the host watches moved on disk: `kind` names the group it belongs to
+   * ("config", "themes", "keybindings"), `paths` what changed. A client re-reads
+   * whatever it holds from that group; the host re-reads nothing for it.
+   */
+  | { type: "config-changed"; kind: string; paths: string[]; sessionId?: undefined }
   /** A host extension the registry had to stop, with the reason to show the user. */
   | { type: "extension-deactivated"; extensionId: string; name: string; reason: string; sessionId?: undefined }
   | { type: "error"; message: string; sessionId?: undefined }
+  /** How many clients are attached to this host, after one arrived or left. */
+  | { type: "client-count"; count: number; sessionId?: undefined }
   /** A new Tau finished downloading and installs on the next restart. */
   | { type: "app-update"; version: string; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
@@ -566,6 +580,11 @@ export interface WorkbenchBuildResult {
   durationMs: number;
   /** The main process or preload changed; only a restart applies that. */
   mainChanged: boolean;
+  /**
+   * A kit's runtime half changed. Those load inside the agent runtime, so the
+   * new code needs a runtime reload; everything else reloads without one.
+   */
+  runtimeChanged: boolean;
   /** Last lines of the build output. */
   output: string;
 }
@@ -635,8 +654,28 @@ export interface TauRetryConfig {
   };
 }
 
+export interface TauConfigExtensions {
+  /**
+   * Whether the host watches the files it reads — package folders, themes,
+   * keybindings, config — and reloads what changed. On unless set to false or
+   * `TAU_NO_WATCH=1` is in the environment.
+   */
+  watch?: boolean;
+}
+
+/** Settings about threads themselves, rather than about the model they run on. */
+export interface TauThreadsConfig {
+  /**
+   * Whether the host picks a thread back up when a restart cut its turn short.
+   * Off by default: continuing costs a model call nobody asked for.
+   */
+  continueAfterRestart?: boolean;
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
+  extensions?: TauConfigExtensions;
+  threads?: TauThreadsConfig;
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];

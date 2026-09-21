@@ -4,6 +4,7 @@ import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, 
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { StageState } from "../workbench/stage";
+import type { StageTabController } from "./stage-tab-controller";
 import type { ComposerAttachmentHandle, ComposerControlHandle, SubmitResult } from "./components/Composer";
 import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "../workbench/composer-scope-store";
@@ -138,15 +139,20 @@ export interface WorkbenchLayout {
   openPanel(id: string): void;
   dockOpen: boolean;
   setDockOpen(open: boolean): void;
+  /** The width this workspace was last left at; the default otherwise. */
+  dockWidth?: number;
+  onDockWidthChange(width: number): void;
   centerRef: RefObject<HTMLDivElement | null>;
   centerCompact: boolean;
   setCenterCompact(compact: boolean): void;
   chatFocused: boolean;
   setChatFocused(focused: boolean): void;
   stage: StageState;
+  /** Who holds the handles of the tabs extensions drew, and closes any tab. */
+  stageTabs: StageTabController;
   activateStageTab(id: string): void;
-  closeStageTab(id: string): void;
   pinStageTab(id: string): void;
+  unpinStageTab(id: string): void;
   setStageFileView(id: string, view: "source" | "diff"): void;
   loadThread(sessionId: string): Promise<UiMessage[]>;
   takeOverThread(sessionId: string): void;
@@ -247,8 +253,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const { actions, layout, thread, composer, view } = model;
   const {
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
-    openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
-    chatFocused, setChatFocused, stage, activateStageTab, closeStageTab, pinStageTab, setStageFileView,
+    openedPanels, openPanel, dockOpen, setDockOpen, dockWidth: restoredDockWidth, onDockWidthChange,
+    centerRef, centerCompact, setCenterCompact,
+    chatFocused, setChatFocused, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
     documentState, documentSource, visibleStreaming, paletteOpen, closePalette, commands,
     projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
@@ -268,6 +275,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const hostCapabilities = useHostCapabilities();
   const platform = usePlatform();
   const [dockWidth, setDockWidthState] = useState(() => storedDockWidth(clientStorage));
+  // The workspace's own width arrives with its restored dock state.
+  useEffect(() => {
+    if (restoredDockWidth !== undefined) setDockWidthState(clampDockWidth(restoredDockWidth));
+  }, [restoredDockWidth]);
   const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   // One screen wide: the thread list is a sheet and the dock has nowhere to go.
   // The registry still holds those contributions; only this layout leaves them out.
@@ -299,6 +310,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     const bounded = clampDockWidth(width);
     setDockWidthState(bounded);
     clientStorage.set(DOCK_WIDTH_KEY, String(bounded));
+    onDockWidthChange(bounded);
   };
 
   const startDockResize = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -550,12 +562,17 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               changes={documentState.changes}
               editor={documentState.editor}
               chatTab={centerCompact ? { active: chatFocused, streaming: visibleStreaming, onSelect: setChatFocused } : undefined}
+              registry={registry}
+              stageTabs={stageTabs}
               loadFile={documentSource?.loadFile ?? loadFileUnavailable}
               loadDiff={documentSource?.loadDiff ?? loadDiffUnavailable}
               loadThread={loadThread}
               onActivate={activateStageTab}
-              onClose={closeStageTab}
+              onClose={stageTabs.close}
               onPin={pinStageTab}
+              onUnpin={unpinStageTab}
+              onCloseOthers={stageTabs.closeOthers}
+              onCloseToRight={stageTabs.closeToTheRight}
               onChangeView={setStageFileView}
               onOpenInEditor={(path) => platform.files?.openInEditor(path)}
               onTakeOverThread={takeOverThread}

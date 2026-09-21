@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Cpu, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
-import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extension-permissions";
+import { NETWORK_ADVISORY_NOTE } from "../../shared/extension-permissions";
 import { TRANSCRIPT_DETAIL_LEVELS } from "../../workbench/transcript-folding";
 import { allAvailableThemes, getUserTheme } from "../theme";
 import { usePreferences } from "../renderer-services-context";
@@ -28,7 +28,7 @@ function DefaultsPage({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, temperature, maxTokens, hostBackground } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, continueThreadsAfterRestart, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, temperature, maxTokens, hostBackground } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
@@ -203,6 +203,23 @@ function DefaultsPage({
           aria-checked={hostBackground === true}
           aria-label="Keep the host running in the background"
           onClick={() => preferences.setHostBackground(!hostBackground)}
+        >
+          <i />
+        </button>
+      </div>
+
+      <div className="settings-label">RESTARTS</div>
+      <div className="settings-toggle-row">
+        <span>
+          <strong>Continue threads after restarts</strong>
+          <small>Pick a thread back up where a restart cut its turn short. Off, the thread is repaired and marked instead.</small>
+        </span>
+        <button
+          className={`switch ${continueThreadsAfterRestart ? "on" : ""}`}
+          role="switch"
+          aria-checked={continueThreadsAfterRestart}
+          aria-label="Continue threads after restarts"
+          onClick={() => preferences.setContinueThreadsAfterRestart(!continueThreadsAfterRestart)}
         >
           <i />
         </button>
@@ -437,12 +454,11 @@ function ExtensionPage({
           {summary.isolation === "in-process" ? (
             <>
               <ul><li><code>in-process</code> — runs inside the host process, outside the worker isolation</li></ul>
-              {summary.permissions?.includes(PERMISSION_NETWORK) ? null : (
-                <p className="settings-note">{NETWORK_ADVISORY_NOTE}, so this package can reach the network without asking.</p>
-              )}
+              <p className="settings-note">{NETWORK_ADVISORY_NOTE}, so this package can reach the network and start processes whatever it asked for.</p>
             </>
-          ) : null}
-          <p className="settings-note">process access only governs subprocess reporting and command lookup through noteSubprocess/findCommand, so this package can still spawn processes without it.</p>
+          ) : (
+            <p className="settings-note">In its worker, network and process access are refused without the matching grant — a guardrail against a mistake, not against code written to get around it.</p>
+          )}
           <div className="extension-grant-actions">
             <button type="button" className="grant-allow" onClick={() => void handleGrant(true)}>Allow</button>
             <button type="button" className="grant-deny" onClick={() => void handleGrant(false)}>Deny</button>
@@ -560,7 +576,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   return (
     <div className="settings-page inspector-page">
       <h3>Inspector</h3>
-      <p className="lede">Every extension both halves know, and the package folders on disk. Edit a package's files, then run /update or /reload.</p>
+      <p className="lede">Every extension both halves know, and the package folders on disk. Editing a package's files reloads it; /reload is for the rest.</p>
 
       <div className="settings-label">VERSIONS</div>
       <div className="inspector-versions">
@@ -656,6 +672,11 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
           </tbody>
         </table>
       ) : inspection ? <div className="settings-note">No package folder carries a tau-extension.json.</div> : null}
+      {registry.getLoadFailures().map((failure) => (
+        <div className="settings-note" data-level="error" key={`load:${failure.path}`}>
+          {failure.path}: {failure.message.split("\n")[0]} — the version that was running stays until this builds.
+        </div>
+      ))}
       {inspection?.errors.map((failure) => (
         <div className="settings-note" data-level="error" key={failure.path}>{failure.path}: {failure.message}</div>
       ))}

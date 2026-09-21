@@ -71,6 +71,14 @@ export interface HostHello {
   token?: string;
   /** Highest sequence the client has seen; absent for a first connection. */
   lastSeq?: number;
+  /** Which client this is (`desktop`, `web`, `compact`), for a host extension that counts them. */
+  profile?: string;
+  /**
+   * A connection that is not a client of its own: the window process around a
+   * renderer that already said hello, or a supervisor's probe (ADR 0021). The
+   * host serves it but does not count it among its clients.
+   */
+  auxiliary?: boolean;
 }
 
 export interface HostHelloReply {
@@ -157,10 +165,14 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
   if (!item || item.protocol !== HOST_TRANSPORT_VERSION) return undefined;
   if (item.token !== undefined && typeof item.token !== "string") return undefined;
   if (item.lastSeq !== undefined && !Number.isSafeInteger(item.lastSeq)) return undefined;
+  if (item.profile !== undefined && typeof item.profile !== "string") return undefined;
+  if (item.auxiliary !== undefined && typeof item.auxiliary !== "boolean") return undefined;
   return {
     protocol: HOST_TRANSPORT_VERSION,
     ...(typeof item.token === "string" ? { token: item.token } : {}),
     ...(typeof item.lastSeq === "number" ? { lastSeq: item.lastSeq } : {}),
+    ...(typeof item.profile === "string" ? { profile: item.profile } : {}),
+    ...(item.auxiliary === true ? { auxiliary: true } : {}),
   };
 }
 

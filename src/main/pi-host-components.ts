@@ -30,6 +30,7 @@ import {
   type HostUiPresenter,
   type RuntimeSessionInfo,
 } from "./host-extensions.js";
+import { HostClientRegistry } from "./host-clients.js";
 import { HostPublication } from "./host-publication.js";
 import { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { HostReport } from "./host-report.js";
@@ -42,6 +43,8 @@ import {
   type HostExtensionSeam,
 } from "./host-ports.js";
 import { ExtensionPackageActivator } from "./extension-package-activation.js";
+import { watchingEnabled } from "./config-watcher.js";
+import { WorkspaceWatch } from "./workspace-watch.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ThreadIndex } from "./thread-index.js";
@@ -54,6 +57,7 @@ import { RuntimePrewarm } from "./runtime-prewarm.js";
 import { PromptPreparation } from "./prompt-preparation.js";
 import { TurnDelivery } from "./turn-delivery.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
+import { TurnsInFlight } from "./turns-in-flight.js";
 import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
 import { ProjectHistory } from "./project-history.js";
@@ -122,6 +126,7 @@ export interface PiHostDeps {
   knownWorkspacePath(path: string): Promise<string>;
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  removeThread(sessionId: string): Promise<void>;
   pendingHostExtensions(): readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
 }
 
@@ -145,12 +150,15 @@ export interface PiHostComponents {
   readonly prompts: PromptPreparation;
   readonly threadLifecycle: HostThreadLifecycleSet;
   readonly turnObservers: HostTurnObserverSet;
+  readonly clients: HostClientRegistry;
   readonly toolOwners: Map<string, string>;
   readonly index: ThreadIndex;
   readonly publication: HostPublication;
   readonly seam: HostExtensionSeam;
   readonly hostExtensions: HostExtensionRegistry;
   readonly packages: ExtensionPackageActivator | undefined;
+  /** Follows the files the host reads; undefined in safe mode or when watching is off. */
+  readonly watch: WorkspaceWatch | undefined;
   readonly attached: AttachedThreadBackend;
   readonly attachedThread: ThreadRuntime;
   readonly projection: ThreadProjection;
@@ -160,6 +168,9 @@ export interface PiHostComponents {
   readonly runtimes: ThreadRuntimeLifecycle;
   readonly prewarm: RuntimePrewarm;
   readonly turns: TurnDelivery;
+  readonly turnsInFlight: TurnsInFlight;
+  /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
+  readonly continueThreadsAfterRestart: () => boolean;
   readonly toolOutputBatcher: ToolOutputBatcher;
 }
 
@@ -188,6 +199,13 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const kitStateDir = options.kitStateDir ?? join(tmpdir(), "tau-kit-state");
   const threadLifecycle = new HostThreadLifecycleSet();
   const turnObservers = new HostTurnObserverSet();
+  // Transports report their clients into this one; a client that arrives or
+  // leaves is published, so a panel never has to ask the host for the count.
+  const clients = options.clients ?? new HostClientRegistry();
+  clients.observe({
+    attached: () => emit({ type: "client-count", count: clients.count() }),
+    detached: () => emit({ type: "client-count", count: clients.count() }),
+  });
   const toolOwners = new Map<string, string>();
   const threads: ThreadRuntimeRegistry<ThreadRuntime> = new ThreadRuntimeRegistry<ThreadRuntime>({
     maxLive: MAX_LIVE_THREADS,
@@ -294,6 +312,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     refreshExtensionPackages: () => packages?.refresh() ?? Promise.resolve(),
     prepareThread: (session, manager, prepareOptions) => deps.prepareThread(session, manager, prepareOptions),
     startThread: (startOptions) => deps.startThread(startOptions),
+    removeThread: (sessionId) => deps.removeThread(sessionId),
+    clients,
     exclusive: (work) => lifecycle.run("extension.exclusive", work),
     refreshThreadIndex: () => index.refresh("none").catch(() => index.snapshot()),
     registerThreadLifecycle: (hook) => threadLifecycle.add(hook),
@@ -390,6 +410,24 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     errorMessage: (error) => deps.errorMessage(error),
   });
   const hostConfig = defaultHostConfigManager.readSync(deps.getCwd());
+  /**
+   * Edits to a package, a theme, the keybindings or the config take effect
+   * where they are read, not after a reload. Safe mode watches nothing: it
+   * exists so a broken extension cannot load at all.
+   */
+  const watch = safeMode || !watchingEnabled(hostConfig) ? undefined : new WorkspaceWatch({
+    cwd: () => deps.getCwd(),
+    agentDir: getAgentDir(),
+    ...(options.appPath ? { appPath: options.appPath } : {}),
+    refreshPackages: (ids) => packages?.refresh({ only: ids }) ?? Promise.resolve(),
+    configChanged: (change) => {
+      // The host re-reads nothing for anyone: it says what moved, and the kits
+      // and clients that own those files decide.
+      seam.notifyConfigChange({ kind: change.kind, paths: change.paths });
+      emit({ type: "config-changed", kind: change.kind, paths: [...change.paths] });
+    },
+    log: (label, detail) => deps.log(label, detail),
+  });
   const prewarmEnabled = process.env.TAU_NO_PREWARM !== "1" && hostConfig.prewarm !== false && deps.automaticPrewarm;
   const prewarm = new RuntimePrewarm({
     automatic: prewarmEnabled,
@@ -408,10 +446,15 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     fail: (error) => deps.fail(error),
     errorMessage: (error) => deps.errorMessage(error),
   });
+  const turnsInFlight = new TurnsInFlight({
+    ...(options.turnsInFlightPath ? { filePath: options.turnsInFlightPath } : {}),
+    ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),
+  });
   const turns = new TurnDelivery({
     clientTurns,
     clientMessages,
     turnObservers,
+    turnsInFlight,
     projection,
     prompts,
     binding,
@@ -446,12 +489,14 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     prompts,
     threadLifecycle,
     turnObservers,
+    clients,
     toolOwners,
     index,
     publication,
     seam,
     hostExtensions,
     packages,
+    watch,
     attached,
     attachedThread,
     projection,
@@ -461,6 +506,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     runtimes,
     prewarm,
     turns,
+    turnsInFlight,
+    continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
     toolOutputBatcher,
   };
 }

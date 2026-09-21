@@ -307,6 +307,9 @@ export class HostConfigManager {
       ...base,
       ...override,
     };
+    if (base.extensions || override.extensions) {
+      result.extensions = { ...(base.extensions ?? {}), ...(override.extensions ?? {}) };
+    }
     if (base.options || override.options) {
       result.options = { ...(base.options ?? {}), ...(override.options ?? {}) };
     }

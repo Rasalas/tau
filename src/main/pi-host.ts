@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -53,7 +54,10 @@ import { HOST_CORE_PRINCIPAL, type HostInvocationPrincipal } from "./host-invoca
 import type { HostPublication } from "./host-publication.js";
 import { RuntimeResourceCache } from "./runtime-resource-cache.js";
 import type { ExtensionPackageActivator } from "./extension-package-activation.js";
+import type { WorkspaceWatch } from "./workspace-watch.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
+import { reconcileInFlightTurns, type ReconcilableThread } from "./turn-reconciliation.js";
+import type { TurnsInFlight } from "./turns-in-flight.js";
 import type { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import type {
   HostExtensionRegistry,
@@ -67,6 +71,7 @@ import type {
   HostThread,
   HostThreadStartOptions,
   HostUiPresenter,
+  HostWorkspaceCloseReason,
   RuntimeSessionInfo,
 } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
@@ -86,7 +91,7 @@ import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { requireCapability } from "./runtime-types.js";
 import { localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
-import { PersistedThreadTranscript } from "./persisted-transcript.js";
+import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
@@ -95,7 +100,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
 import { buildPiHostComponents } from "./pi-host-components.js";
-import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -121,7 +126,14 @@ type PromptPreflight = (result: PromptPreflightResult) => void;
 type PromptPreflightState = "pending" | "accepted" | "rejected";
 
 export class PiHost {
-  private cwd: string;
+  private currentCwd: string;
+  /** The open workspace. Writing it re-points whatever follows the project's own files. */
+  private get cwd(): string { return this.currentCwd; }
+  private set cwd(value: string) {
+    if (value === this.currentCwd) return;
+    this.currentCwd = value;
+    void this.watch?.retarget().catch((error: unknown) => this.log("watch.retarget.failed", this.errorMessage(error)));
+  }
   /** Pi is the built-in backend; every other kind comes from a registered provider. */
   private readonly piAdapter: AgentRuntimeAdapter;
   private readonly defaultBackendKind: ThreadBackendKind;
@@ -151,8 +163,13 @@ export class PiHost {
   private readonly hostExtensions: HostExtensionRegistry;
   /** Resolved on the first activation when it arrived as a thunk. */
   private pendingHostExtensions: readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
+
+  /** The unresolved form of the above, so the kits Tau ships can be read again. */
+  private readonly hostExtensionSource: readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
   /** The host halves of installed packages; absent in safe mode, where no package loads. */
   private readonly packages?: ExtensionPackageActivator;
+  /** Follows the files the host reads, so an edit needs no reload; absent when watching is off. */
+  private readonly watch?: WorkspaceWatch;
   /** Mints and resolves the ids clients name workspaces by. */
   private readonly workspaces: WorkspaceIdentity;
   private readonly report: HostReport;
@@ -184,6 +201,10 @@ export class PiHost {
   private readonly prompts: PromptPreparation;
   /** Steering, follow-up, and every turn of a runtime that keeps no host journal. */
   private readonly turns: TurnDelivery;
+
+  private readonly turnsInFlight: TurnsInFlight;
+
+  private readonly continueThreadsAfterRestart: () => boolean;
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -199,7 +220,7 @@ export class PiHost {
     private readonly automaticPrewarm = true,
     options: PiHostOptions = {},
   ) {
-    this.cwd = cwd;
+    this.currentCwd = cwd;
     const components = buildPiHostComponents(options, {
       getCwd: () => this.cwd,
       setCwd: (value) => { this.cwd = value; },
@@ -246,6 +267,7 @@ export class PiHost {
       knownWorkspacePath: (path) => this.knownWorkspacePath(path),
       prepareThread: (session, manager, prepareOptions) => this.prepareThread(session, manager, prepareOptions),
       startThread: (startOptions) => this.startThread(startOptions),
+      removeThread: (sessionId) => this.removeThread(sessionId),
       pendingHostExtensions: () => this.pendingHostExtensions,
     });
     this.agentDir = components.agentDir;
@@ -255,6 +277,7 @@ export class PiHost {
     this.defaultBackendKind = components.defaultBackendKind;
     this.runtimeCommands = components.runtimeCommands;
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
+    this.hostExtensionSource = this.pendingHostExtensions;
     this.workspaces = components.workspaces;
     this.report = components.report;
     this.clientTurns = components.clientTurns;
@@ -268,6 +291,7 @@ export class PiHost {
     this.seam = components.seam;
     this.hostExtensions = components.hostExtensions;
     this.packages = components.packages;
+    this.watch = components.watch;
     this.attached = components.attached;
     this.attachedThread = components.attachedThread;
     this.projection = components.projection;
@@ -278,6 +302,8 @@ export class PiHost {
     this.prewarm = components.prewarm;
     this.prompts = components.prompts;
     this.turns = components.turns;
+    this.turnsInFlight = components.turnsInFlight;
+    this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
     this.toolOwners = components.toolOwners;
@@ -496,6 +522,26 @@ export class PiHost {
     this.pendingHostExtensions = bundled;
     for (const extension of bundled) await this.hostExtensions.activate(extension);
     await this.packages?.start();
+    await this.watch?.retarget().catch((error: unknown) => this.log("watch.retarget.failed", this.errorMessage(error)));
+  }
+
+  /**
+   * Kits and packages, read from disk again and re-activated. No runtime is
+   * touched and nothing waits for a turn: a thread mid-run keeps the runtime
+   * it has, and a runtime extension the new code registers applies to the next
+   * runtime the host builds. Host commands and panels change at once.
+   */
+  async reloadExtensions(): Promise<void> {
+    return this.lifecycle.run("reload-extensions", async () => {
+      const source = this.hostExtensionSource;
+      const bundled = typeof source === "function" ? await source() : source;
+      this.pendingHostExtensions = bundled;
+      for (const extension of bundled) await this.hostExtensions.activate(extension);
+      await this.packages?.refresh({ force: true });
+      this.log("extensions.reloaded", `${bundled.length} bundled`);
+      const snapshot = await this.snapshot();
+      for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);
+    });
   }
 
   /** Turns a known host extension off or on again; the desktop toggle calls this for a package's host half. */
@@ -684,10 +730,13 @@ export class PiHost {
         this.log("bootstrap.first-content");
         // The global index is independent of the active detail. Publish it when
         // ready rather than making first content wait for every session file.
-        void this.index.refresh("index").then(() => {
+        void this.index.refresh("index").then(async () => {
           this.recordBackgroundLifecycle("session-index", indexStartedAt);
           this.log("bootstrap.full-ready");
           this.index.startRecovery();
+          // Before anything else is opened for this run: the index is the only
+          // way back to a marked thread's session file.
+          await this.reconcileInterruptedTurns();
           this.prewarm.scheduleThreads();
         }).catch((error) => this.fail(error));
         const result = await this.bootstrap();
@@ -741,7 +790,7 @@ export class PiHost {
   async loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
     const thread = this.threadFor(sessionId);
     if (!thread) {
-      const result = this.persistedTranscript(sessionId).page(cursor);
+      const result = await this.releasedTranscript(sessionId, cursor);
       this.lifecycleMetrics.recordIpc(result);
       return result;
     }
@@ -787,9 +836,20 @@ export class PiHost {
 
   /**
    * The transcript of a thread no runtime holds. Runtimes are capped and idle
-   * ones are released oldest first, so a thread's tab must read its session
-   * file rather than tell the reader to take the thread over first.
+   * ones are released oldest first, so a thread's tab must read what was
+   * persisted rather than tell the reader to take the thread over first: a Pi
+   * thread its session file, a thread of another backend the shell that
+   * backend keeps. Neither opens a runtime.
    */
+  private async releasedTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
+    const session = this.index.byId(sessionId);
+    const kind = session?.backendKind ?? "pi";
+    if (!session || kind === "pi") return this.persistedTranscript(sessionId).page(cursor);
+    const record = await this.seam.backends.get(kind)?.lookup(sessionId);
+    if (!record) this.noRuntimeFor(sessionId);
+    return shellTranscriptPage(sessionId, record, cursor);
+  }
+
   private persistedTranscript(sessionId: string): PersistedThreadTranscript {
     const session = this.index.byId(sessionId);
     // Nothing persisted to read: a thread of another backend keeps no session
@@ -908,6 +968,7 @@ export class PiHost {
     }
     if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
     this.attached.session.detach();
+    await this.leaveWorkspaceFor(cwd);
     await this.threadLifecycle.beforeWorkspace(cwd);
     const startedAt = performance.now();
     const thread = this.defaultBackendKind !== "pi"
@@ -920,6 +981,45 @@ export class PiHost {
     if (!await this.activateThread(thread, false, activationEpoch)) return this.staleActivationResult();
     this.logReplacement("workspace", startedAt);
     return this.activeUpdates(activationEpoch);
+  }
+
+  /**
+   * The host left `cwd`. It runs after that workspace's last thread and before
+   * `beforeWorkspace` of the next one, and a hook that cannot let go is logged
+   * rather than allowed to block the workspace that is opening.
+   */
+  private async closeWorkspace(cwd: string, reason: HostWorkspaceCloseReason): Promise<void> {
+    try {
+      await this.threadLifecycle.afterWorkspaceClose(cwd, reason);
+    } catch (error) {
+      this.log("workspace.close.failed", this.errorMessage(error));
+    }
+  }
+
+  /** A project switch closes the workspace being left, unless the host stays in it. */
+  private async leaveWorkspaceFor(next: string): Promise<void> {
+    if (next === this.cwd) return;
+    await this.closeWorkspace(this.cwd, "switch");
+  }
+
+  /**
+   * Deletes a persisted thread: its runtime is released, its file is removed
+   * and the `threadDeleted` hooks run before the index is republished. A
+   * thread that is running, or the one on screen, is refused — the caller
+   * stops or leaves it first.
+   */
+  async removeThread(sessionId: string): Promise<void> {
+    return this.lifecycle.run("remove-thread", async () => {
+      const session = this.index.byId(sessionId);
+      if (!session) throw new Error(`No thread ${sessionId.slice(0, 8)} in this host's index.`);
+      if (this.active?.threadId === sessionId) throw new Error("This thread is on screen; open another one before deleting it.");
+      const live = this.threadFor(sessionId);
+      if (live?.state.streaming) throw new Error("This thread is still running; stop it before deleting it.");
+      if (live) await this.threads.release(sessionId);
+      await rm(session.path, { force: true });
+      await this.index.announceDeleted(sessionId, session.projectPath);
+      await this.index.refresh("changes");
+    });
   }
 
   async removeProject(path: string): Promise<HostActionResult> {
@@ -954,34 +1054,93 @@ export class PiHost {
         this.emitUpdate(update);
         return this.actionResult([update]);
       }
-      // A run that is still in flight owns its tool calls; closing them from
-      // outside would race the runtime. Stop it first, then repair.
-      if (!thread.state.idle || thread.adapterPending > 0) await this.abortThread(thread);
-      // Zero dangling calls is a success: the session is already consistent and
-      // the caller only has stale activity to clear.
-      const dangling = findDanglingToolCalls(thread.entries
-        .flatMap((entry) => entry && typeof entry === "object" && (entry as { type?: unknown }).type === "message"
-          ? [(entry as { message?: unknown }).message]
-          : []));
-      for (const { toolCallId, toolName } of dangling) {
-        journal.appendMessage({
-          role: "toolResult",
-          toolCallId,
-          toolName,
-          content: [{ type: "text", text: "Interrupted: Tau closed this tool call so the thread could continue." }],
-          isError: true,
-          timestamp: Date.now(),
-        });
-      }
-      thread.tools.clear();
-      this.log("thread.recovered", dangling.length === 0
-        ? "session already consistent"
-        : `${dangling.length} tool ${dangling.length === 1 ? "call" : "calls"}`);
+      await this.repairDanglingToolCalls(thread);
       const snapshot = await this.snapshot();
       const update: HostUpdate = { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) };
       this.emitUpdate(update);
       return this.actionResult([update]);
     });
+  }
+
+  /**
+   * Closes the tool calls a turn left open, so the provider takes the next
+   * request. Zero of them is a success: the session is already consistent.
+   */
+  private async repairDanglingToolCalls(thread: ThreadRuntime): Promise<number> {
+    const journal = thread.backend.capabilities.journal;
+    if (!journal) return 0;
+    // A run that is still in flight owns its tool calls; closing them from
+    // outside would race the runtime. Stop it first, then repair.
+    if (!thread.state.idle || thread.adapterPending > 0) await this.abortThread(thread);
+    const dangling = findDanglingToolCalls(thread.entries
+      .flatMap((entry) => entry && typeof entry === "object" && (entry as { type?: unknown }).type === "message"
+        ? [(entry as { message?: unknown }).message]
+        : []));
+    for (const { toolCallId, toolName } of dangling) {
+      journal.appendMessage({
+        role: "toolResult",
+        toolCallId,
+        toolName,
+        content: [{ type: "text", text: "Interrupted: Tau closed this tool call so the thread could continue." }],
+        isError: true,
+        timestamp: Date.now(),
+      });
+    }
+    thread.tools.clear();
+    this.log("thread.recovered", dangling.length === 0
+      ? "session already consistent"
+      : `${dangling.length} tool ${dangling.length === 1 ? "call" : "calls"}`);
+    return dangling.length;
+  }
+
+  /**
+   * The turns this host had in flight when it stopped. Continuing one is the
+   * user's choice (Settings → Defaults); otherwise the thread is repaired,
+   * told in its own transcript, and marked for the rail.
+   */
+  private async reconcileInterruptedTurns(): Promise<void> {
+    const markers = await this.turnsInFlight.load();
+    if (markers.length === 0) return;
+    await reconcileInFlightTurns({
+      markers: () => markers,
+      forget: (sessionId) => this.turnsInFlight.clear(sessionId),
+      continueAfterRestart: this.continueThreadsAfterRestart,
+      markInterrupted: (sessionId) => this.index.setInterrupted(sessionId, true),
+      log: (label, detail) => this.log(label, detail),
+      errorMessage: (error) => this.errorMessage(error),
+      open: async (marker) => {
+        const thread = this.threads.get(marker.sessionId)?.runtime ?? await this.openMarkedThread(marker);
+        if (!thread) return undefined;
+        const resume = thread.backend.capabilities.resume;
+        return {
+          threadId: thread.threadId,
+          repair: () => this.repairDanglingToolCalls(thread),
+          // The notice lands in a transcript the client has already drawn, and
+          // it has to be there before the continuation starts, not after it.
+          ...(resume ? { resume: { ...resume, notice: async (text: string) => {
+            await resume.notice?.(text);
+            await this.publishThreadDetail(thread);
+          } } } : {}),
+          prompt: (text, hidden) => this.prompt(text, [], thread.threadId, undefined, undefined, { hidden }),
+        } satisfies ReconcilableThread;
+      },
+    });
+  }
+
+  /** Republishes one thread's transcript, when it is the one on screen. */
+  private async publishThreadDetail(thread: ThreadRuntime): Promise<void> {
+    if (this.active !== thread) return;
+    const snapshot = await this.snapshot();
+    this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) });
+  }
+
+  /** Reopens a marked thread off screen; `undefined` when its session is gone. */
+  private async openMarkedThread(marker: { sessionId: string; backend: ThreadBackendKind }): Promise<ThreadRuntime | undefined> {
+    const path = marker.backend === "pi"
+      ? this.index.byId(marker.sessionId)?.path
+      : externalThreadPath(marker.backend, marker.sessionId);
+    if (!path) return undefined;
+    return this.runtimes.openForPath(path, "resume", true, marker.backend);
   }
 
   async newSession(
@@ -1337,6 +1496,7 @@ export class PiHost {
       }
       if (!this.isCurrentActivation(activationEpoch)) return this.staleActivationResult();
       this.attached.session.detach();
+      await this.leaveWorkspaceFor(indexedSession?.projectPath ?? dirname(path));
       await this.threadLifecycle.beforeWorkspace(this.cwd);
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
@@ -1372,6 +1532,7 @@ export class PiHost {
     sessionId?: string,
     clientMessageIdOrPreflight?: ClientTurnRequest | PromptPreflight,
     prepared?: PreparedPrompt,
+    options: { hidden?: boolean } = {},
   ): Promise<void> {
     this.workbenchReload.assertAvailable();
     const onPreflightResult = typeof clientMessageIdOrPreflight === "function" ? clientMessageIdOrPreflight : undefined;
@@ -1388,6 +1549,8 @@ export class PiHost {
     if (!this.isCurrentActivation(promptEpoch)) {
       throw new Error("The active thread changed while the prompt was being prepared. Retry after the switch completes.");
     }
+    // Whatever a restart left behind, this thread is moving again.
+    this.index.setInterrupted(thread.threadId, false);
     if (!thread.backend.capabilities.journal) {
       // The composer waits for admission, not for the whole turn: a streamed
       // runtime reports it as soon as the message is on its way, and this call
@@ -1403,7 +1566,7 @@ export class PiHost {
         onPreflightResult?.(result);
         resolveAdmitted();
       };
-      const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted) => { if (accepted) report({ accepted: true }); })
+      const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted) => { if (accepted) report({ accepted: true }); }, options.hidden)
         .then(() => report({ accepted: true }), (error) => {
           if (preflight.state === "pending") report({ accepted: false, error });
           else this.fail(error, thread.threadId);
@@ -1426,6 +1589,10 @@ export class PiHost {
     const wasStreaming = thread.state.streaming;
     if (preparedTurnId) {
       this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: wasStreaming });
+      this.turnsInFlight.record({
+        sessionId: thread.threadId, cwd: thread.cwd, turnId: preparedTurnId, backend: thread.backend.kind,
+        startedAt: Date.now(), prompt: { text, ...(attachments.length ? { images: attachments.length } : {}) },
+      });
       // Idle prompts prepare before Pi starts; queued prompts are prepared at
       // their actual delivery boundary, after earlier tool work has settled.
       if (!wasStreaming) await this.turnObservers.prepare(thread.threadId, preparedTurnId);
@@ -1451,6 +1618,7 @@ export class PiHost {
       if (result.accepted) resolvePreflight();
       else {
         failUnpersistedMarker();
+        if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
         if (preparedTurnId) void this.turnObservers.cancelled(thread.threadId, preparedTurnId);
         rejectPreflight(result.error ?? new Error("The prompt was rejected before it started."));
       }
@@ -1466,21 +1634,25 @@ export class PiHost {
         prepared: resolvedPrepared,
         attachments,
         queued: wasStreaming,
+        ...(options.hidden ? { hidden: true } : {}),
         onAdmitted: (accepted) => reportPreflight({ accepted }),
       });
       void run.then(async () => {
         if (preflightState === "pending") reportPreflight({ accepted: true });
+        if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
         if (preparedTurnId) await this.turnObservers.ended(thread.threadId, preparedTurnId, "completed");
         if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
       }).catch((error) => {
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
         else if (preflightState === "accepted") {
+          if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
           if (preparedTurnId) void this.turnObservers.ended(thread.threadId, preparedTurnId, "failed");
           if (!thread.deferError(error)) this.fail(error, thread.threadId);
         }
       });
     } catch (error) {
       if (this.threads.get(thread.threadId)?.runtime !== thread) return;
+      if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
       if (preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
       if (identity) this.clientTurns.cancel(thread.threadId, identity);
       reportPreflight({ accepted: false, error });
@@ -1685,12 +1857,21 @@ export class PiHost {
   }
 
   async dispose(): Promise<void> {
+    // Before anything is torn down: the aborts below are this shutdown's, not
+    // the user's, and a thread they stop is exactly one a restart must see.
+    this.turnsInFlight.freeze();
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
+      this.watch?.close();
       this.toolOutputBatcher.dispose();
       this.prewarm.dispose();
       const teardownErrors: unknown[] = [];
       this.attached.session.detach();
+      // Before the extensions are torn down: a hook that releases what belongs
+      // to a workspace still has to run, and nothing reopens after this.
+      for (const cwd of new Set([this.cwd, ...this.threads.list().map((thread) => thread.cwd)])) {
+        await this.closeWorkspace(cwd, "shutdown");
+      }
       try { await this.hostExtensions.dispose(); } catch (error) { teardownErrors.push(error); }
       try { await this.prewarm.discardSpare(); } catch (error) { teardownErrors.push(error); }
       await this.runtimes.settleOpening();

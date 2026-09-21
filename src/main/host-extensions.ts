@@ -177,6 +177,13 @@ export interface HostSessionServices {
    * they are reading; it resolves once the thread exists, not when it answers.
    */
   start(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  /**
+   * Removes a persisted thread: its runtime is released, its session file is
+   * deleted and `threadDeleted` runs for every hook before the index is
+   * republished. This is the verb behind a rail's "delete thread"; a thread
+   * the host is still running one is refused.
+   */
+  remove(sessionId: string): Promise<void>;
   /** Serializes with the host's own thread lifecycle work (open, switch, fork). */
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   /** Rescans persisted sessions and returns the index update. The sweep runs inside, so release any lease first. */
@@ -198,6 +205,9 @@ export interface HostSessionSweep {
   deleted: Array<{ sessionId: string; cwd: string }>;
 }
 
+/** Why the host left a workspace: it opened another one, or it is stopping. */
+export type HostWorkspaceCloseReason = "switch" | "shutdown";
+
 /**
  * Where an extension may step into the thread lifecycle. Every hook is
  * optional; a failure is the caller's failure, so a hook that cannot repair
@@ -206,6 +216,19 @@ export interface HostSessionSweep {
 export interface HostThreadLifecycle {
   /** Before a workspace's first thread opens: startup, project switch. */
   beforeWorkspace?(cwd: string): Promise<void>;
+  /**
+   * After the host left a workspace and before `beforeWorkspace` of the next
+   * one: `"switch"` for a project change, `"shutdown"` for every workspace the
+   * host still had open when it stopped. Nothing of that workspace is opened
+   * again without a `beforeWorkspace` first, so this is where what belongs to
+   * it — shells, watchers, caches — is released.
+   */
+  afterWorkspaceClose?(cwd: string, reason: HostWorkspaceCloseReason): Promise<void>;
+  /**
+   * A thread is gone for good: its session file was removed, or is about to
+   * be. Runtime eviction is not deletion — `HostTurnObserver.closed` is that.
+   */
+  threadDeleted?(sessionId: string, cwd: string): Promise<void>;
   /** Before a runtime is built for a session file. */
   beforeOpen?(session: HostSessionFile): Promise<void>;
   /** After a fork wrote its session file and before that file's runtime opens. */
@@ -237,6 +260,33 @@ export interface HostTurnObserver {
   closed?(sessionId: string): Promise<void>;
   /** A tool call of the thread finished; `cwd` is the checkout it may have changed. */
   toolEnded?(sessionId: string, tool: UiToolRun, cwd: string): void;
+}
+
+/** Which door a client came through: the window's own IPC, or the host socket. */
+export type HostClientTransport = "electron" | "socket";
+
+/** What the host knows about one attached client, all of it plain data. */
+export interface HostClientInfo {
+  readonly id: string;
+  readonly transport: HostClientTransport;
+  /** The client profile it claimed in its hello (`desktop`, `web`, `compact`); absent when it claimed none. */
+  readonly profile?: string;
+}
+
+/**
+ * Clients coming and going. A kit reads this to know whether anybody is
+ * watching — to raise a notification, or to hold background work until
+ * somebody is.
+ */
+export interface HostClientObserver {
+  attached?(clientId: string, client: HostClientInfo): void;
+  detached?(clientId: string): void;
+}
+
+/** Who is attached right now, and word when that changes. */
+export interface HostClientServices {
+  observe(observer: HostClientObserver): () => void;
+  count(): number;
 }
 
 export interface RuntimeSessionInfo {
@@ -320,6 +370,15 @@ export interface HostUiPresenter {
   setToolsExpanded?(sessionId: string, expanded: boolean): void;
   /** The thread's runtime went away; forget what it drew. */
   clear?(sessionId: string): void;
+}
+
+/**
+ * Files the host watches changed on disk. `kind` names the group — the host's
+ * own vocabulary for what it reads — and `paths` what moved inside it.
+ */
+export interface HostConfigChange {
+  kind: string;
+  paths: readonly string[];
 }
 
 /** One entry of a workspace's skill catalog, as `services.skills` reports it. */
@@ -411,6 +470,12 @@ export interface HostExtensionServices {
   /** Re-fetches one source, or every source both files list. */
   updatePackages(source?: string, progress?: (message: string) => void): Promise<InstalledPackage[]>;
   readonly sessions: HostSessionServices;
+  /**
+   * The clients attached to this host. Ungated: it reports how many there are,
+   * which transport each came through and which profile it claimed, and
+   * nothing about what they see.
+   */
+  readonly clients: HostClientServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   /** Follows the turns of every thread the host drives. */
@@ -441,6 +506,13 @@ export interface HostExtensionServices {
    * host has no such client, so a kit can fall back or say so.
    */
   callClient(command: string, input?: unknown): Promise<unknown>;
+  /**
+   * Follows the files the host watches. The host re-reads none of them for a
+   * kit and calls no kit by name: it reports what moved, and whoever owns those
+   * files decides what to do — the keybindings kit re-reads `keybindings.json`,
+   * a themes kit its folder. Off when watching is.
+   */
+  observeConfigChanges(listener: (change: HostConfigChange) => void): () => void;
   /** Lets an extension annotate Pi dialogs before the workbench sees them. */
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** What the user lets external runtimes do; `undefined` restores full access. */
@@ -855,6 +927,24 @@ export class HostThreadLifecycleSet {
 
   async beforeWorkspace(cwd: string): Promise<void> {
     for (const hook of [...this.hooks]) await hook.beforeWorkspace?.(cwd);
+  }
+
+  /** One hook that cannot let go must not keep the next workspace from opening. */
+  async afterWorkspaceClose(cwd: string, reason: HostWorkspaceCloseReason): Promise<void> {
+    const errors: unknown[] = [];
+    for (const hook of [...this.hooks]) {
+      try { await hook.afterWorkspaceClose?.(cwd, reason); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Workspace close failed");
+  }
+
+  /** The thread is already gone, so every hook gets its turn whatever the others do. */
+  async threadDeleted(sessionId: string, cwd: string): Promise<void> {
+    const errors: unknown[] = [];
+    for (const hook of [...this.hooks]) {
+      try { await hook.threadDeleted?.(sessionId, cwd); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Thread deletion cleanup failed");
   }
 
   async beforeOpen(session: HostSessionFile): Promise<void> {

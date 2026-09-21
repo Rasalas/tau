@@ -37,7 +37,7 @@ const client = host?.client;
 setHostClient(client);
 // Says hello before the first request, so the client knows where the push
 // sequence starts and which capabilities this host has.
-void host?.connection.start().catch(() => undefined);
+void host?.connection.start(search.get("profile") ?? "desktop").catch(() => undefined);
 
 // The browser storage adapter works in Electron's renderer like any browser; a
 // future web or mobile client installs its own ClientStorage here instead.

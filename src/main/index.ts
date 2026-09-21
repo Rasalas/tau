@@ -24,6 +24,7 @@ import { HostLog } from "./host-log.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostJobRunner } from "./host-jobs.js";
 import { createClientHostMethods, createHostMethods, createUnsupportedHostMethods, type ClientHostPlatform, type HostMethodTable } from "./host-methods.js";
+import { HostClientRegistry } from "./host-clients.js";
 import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
@@ -31,6 +32,7 @@ import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { resolveStartupWorkspace } from "./startup-workspace.js";
 import { WindowHost } from "./window-host.js";
+import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
@@ -92,6 +94,9 @@ const kitOptions = {
   cacheDir: join(app.getPath("userData"), "host-extensions"),
   versions: extensionVersions,
 };
+/** Both transports report their clients here; the host publishes the count. */
+const hostClients = new HostClientRegistry();
+
 const hostOptions = {
   // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
   defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
@@ -104,10 +109,14 @@ const hostOptions = {
   }),
   logger: hostLog,
   workspaceIdentity,
+  clients: hostClients,
+  // A checkout edits `kits/`; an installed Tau has only the prebuilt ones.
+  appPath: workbenchRoot,
   // A kit's own state lives under this instance's userData, so TAU_USER_DATA
   // isolates a dev instance's kit state the way it isolates everything else.
   kitStateDir: join(app.getPath("userData"), "kit-state"),
   sessionUsageCachePath: join(app.getPath("userData"), "session-usage.json"),
+  turnsInFlightPath: join(app.getPath("userData"), "turns-in-flight.json"),
   sessionLineageCachePath: join(app.getPath("userData"), "session-lineage.json"),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
@@ -360,7 +369,15 @@ async function startHostProcess(): Promise<void> {
 
 /** The kits' window halves: compiled here, called by the host over the protocol. */
 async function loadWindowHalves(): Promise<void> {
-  if (safeMode || !windowHost) return;
+  if (!windowHost) return;
+  // Core's own half answers even in safe mode: a host with no window has no folder picker.
+  windowHost.extensions.register(WINDOW_SERVICES_ID, () => ({
+    handle: (command, input) => {
+      if (command !== "pick-directory") throw new Error(`The window has no service "${command}".`);
+      return hostOptions.platform.pickDirectory(input as Parameters<typeof hostOptions.platform.pickDirectory>[0]);
+    },
+  }));
+  if (safeMode) return;
   const loaded = await loadBundledKitWindowHalves(kitOptions).catch((error: unknown) => {
     hostLog.error("window-extension.load.failed", error);
     return undefined;
@@ -412,18 +429,18 @@ function createLocalHostMethods(): HostMethodTable {
           packages: [...kits.packages, ...inspection.packages],
         };
       },
-      loadDesktopExtensions: async (cwd, sharedExports) => {
+      loadDesktopExtensions: async (cwd, sharedExports, only) => {
         // The kits Tau ships travel the same road as an installed package's
         // desktop half; only their origin differs. Safe mode loads neither.
         const [kits, result] = await Promise.all([
-          safeMode ? EMPTY_DESKTOP_EXTENSIONS : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
-          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions }),
+          safeMode ? EMPTY_DESKTOP_EXTENSIONS : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports, ...(only ? { only } : {}) }),
+          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions, ...(only ? { only } : {}) }),
         ]);
         return serveBundles({
           bundles: [...kits.bundles, ...result.bundles],
           errors: [...kits.errors, ...result.errors],
           skipped: result.skipped,
-        });
+        }, only);
       },
       rebuildWorkbench: async (context, activeWorkspace) => runRebuild(context, activeWorkspace),
       workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
@@ -434,9 +451,12 @@ function createLocalHostMethods(): HostMethodTable {
 }
 
 /** Turns the code the host compiled into the `tau-ext:` URLs the renderer imports. */
-function serveBundles(result: WorkbenchDesktopExtensions): WorkbenchDesktopExtensions {
-  // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
-  desktopBundles.clear();
+function serveBundles(result: WorkbenchDesktopExtensions, only?: readonly string[]): WorkbenchDesktopExtensions {
+  // Each sync replaces the served set, so an edited extension never keeps its
+  // old URL alive. A narrowed sync drops only what it rebuilds: the modules the
+  // client keeps still have to be reachable.
+  if (only) for (const id of only) desktopBundles.remove(id);
+  else desktopBundles.clear();
   return {
     ...result,
     bundles: result.bundles.map((bundle) => ({
@@ -457,8 +477,8 @@ function createWindowPlatform(): ClientHostPlatform {
       clipboard.writeImage(image);
     },
     readImagePreview: rendererImagePreview,
-    loadDesktopExtensions: async (cwd, sharedExports) =>
-      windowHost!.loadDesktopExtensions(cwd, sharedExports, serveBundles),
+    loadDesktopExtensions: async (cwd, sharedExports, only) =>
+      windowHost!.loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only)),
     rebuildWorkbench: async (context) => runRebuild(context, windowHost?.activeWorkspace ?? requestedWorkspace ?? ""),
     workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
     relaunchWorkbench: () => workbenchReloader.relaunch(),
@@ -490,6 +510,7 @@ function installTransport(): void {
   transport = installElectronHostTransport({
     ipcMain,
     workbenchContents: () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined,
+    clients: hostClients,
     logger: hostLog,
     methods,
     pushLog,
@@ -508,6 +529,7 @@ function installTransport(): void {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token: readOrCreateHostToken(),
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
+    clients: hostClients,
     logger: hostLog,
   }).then((started) => { socketTransport = started; })
     .catch((error: unknown) => hostLog.error("host-transport-socket.failed", error));

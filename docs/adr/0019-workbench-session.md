@@ -36,3 +36,19 @@ batch ordering, stale recovery, cross-draft guards and notification failures.
 Existing submission, navigation and App render-isolation tests verify the
 renderer integration. The implemented boundary and validation are recorded in
 `.scratch/architecture-completion/01-workbench-session.md`.
+
+## Amendment, 2026-09-21: client state that outlives the window
+
+Stage and dock state stay renderer responsibilities, and they are now
+persisted per workspace identity rather than rebuilt empty on every start.
+`src/workbench/workbench-layout-state.ts` owns the format, the validation and
+the pruning rules; `src/renderer/use-workbench-layout-state.ts` owns when a
+workspace is restored and when a deferred write happens. The session is not
+involved: it still only tells the renderer that the project changed, and the
+renderer decides that this means "start the stage over and restore the new
+workspace's". A write happens only for the workspace that was last restored,
+so opening a second project cannot overwrite the first one's layout.
+
+The stored stage is deliberately generic — a tab is written as it is held and
+read back when it carries `id`, `kind` and `preview` — so a tab kind a kit
+contributes survives a restart without this module learning about it.

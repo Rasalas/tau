@@ -136,6 +136,11 @@ the desktop halves and answers with their code, the window publishes that code
 under `tau-ext:` and hands the renderer URLs. That is how a window at a host in
 another process — or on another machine — loads kits at all.
 
+The window's own process keeps a connection to the host beside its renderer's
+(bundles, calls into the window, shutdown). It says hello with
+`auxiliary: true`, so the host serves it without counting it as a second
+client; a supervisor's liveness probe does the same.
+
 Two methods are not part of the client surface:
 
 - `host.shutdown` exists only in the headless host. The supervisor that started

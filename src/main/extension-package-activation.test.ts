@@ -34,10 +34,17 @@ async function harness() {
   const services = { cwd: () => "/project", safeMode: false, log: () => undefined } as unknown as HostExtensionServices;
   const registry = new HostExtensionRegistry(services, (event) => events.push(event));
 
+  /** Packages whose folder no longer compiles; the scan reports an error instead of a half. */
+  const failing = new Set<string>();
+
   const load = async (): Promise<HostPackageLoadResult> => {
     const grants = (await readExtensionGrants(grantsFilePath)).grants;
     const result: HostPackageLoadResult = { extensions: [], ungranted: [], errors: [], skipped: [] };
     for (const entry of disk.values()) {
+      if (failing.has(entry.id)) {
+        result.errors.push({ path: `/home/.tau/extensions/${entry.id}/host.ts`, message: "Unexpected end of file" });
+        continue;
+      }
       const manifest = { id: entry.id, name: entry.name, permissions: entry.permissions, host: "./host.ts" };
       const pkg = { scope: "global" as const, directory: `/home/.tau/extensions/${entry.id}`, manifest };
       if (!isPackageGranted(manifest, grants)) {
@@ -76,8 +83,10 @@ async function harness() {
   });
 
   const install = (entry: Installed) => { disk.set(entry.id, entry); };
+  const breakEntry = (id: string) => { failing.add(id); };
+  const fixEntry = (id: string) => { failing.delete(id); };
   const approve = (id: string) => grantPackage({ id, permissions: disk.get(id)?.permissions ?? [] }, true, grantsFilePath);
-  return { activator, registry, events, activations, disk, install, approve, grantsFilePath };
+  return { activator, registry, events, activations, disk, install, breakEntry, fixEntry, approve, grantsFilePath };
 }
 
 const hello: Installed = { id: "acme.hello", name: "Hello", permissions: ["workspace:read"], hash: "1111111111111111" };
@@ -160,6 +169,51 @@ describe("ExtensionPackageActivator", () => {
 
     expect(activations.get("acme.hello")).toBe(2);
     expect(await registry.invoke("acme.hello", "which")).not.toBe(first);
+  });
+
+  it("reloads only the package a watched edit named, and says which one moved", async () => {
+    const { activator, registry, events, activations, install, approve } = await harness();
+    install(hello);
+    install(other);
+    await approve("acme.hello");
+    await approve("acme.other");
+    await activator.start();
+    const untouched = await registry.invoke("acme.other", "which");
+    events.length = 0;
+
+    // Both folders hold new code; only one of them was edited.
+    install({ ...hello, hash: "3333333333333333" });
+    install({ ...other, hash: "4444444444444444" });
+    await activator.refresh({ only: ["acme.hello"] });
+
+    expect(activations.get("acme.hello")).toBe(2);
+    expect(activations.get("acme.other")).toBe(1);
+    await expect(registry.invoke("acme.other", "which")).resolves.toBe(untouched);
+    expect(events).toContainEqual({ type: "extension-packages-changed", extensionIds: ["acme.hello"] });
+  });
+
+  it("keeps the last good version running when a reload finds a broken package", async () => {
+    const { activator, registry, activations, install, breakEntry, fixEntry, approve } = await harness();
+    install(hello);
+    await approve("acme.hello");
+    await activator.start();
+    const running = await registry.invoke("acme.hello", "which");
+
+    breakEntry("acme.hello");
+    await activator.refresh({ only: ["acme.hello"] });
+
+    // The half that is running is the one that compiled; nothing was restarted
+    // and nothing was deactivated over the failure.
+    expect(registry.isActive("acme.hello")).toBe(true);
+    expect(activations.get("acme.hello")).toBe(1);
+    await expect(registry.invoke("acme.hello", "which")).resolves.toBe(running);
+    expect(registry.summaries().map((summary) => summary.id)).toEqual(["acme.hello"]);
+
+    // And it is replaced as soon as the file compiles again.
+    fixEntry("acme.hello");
+    install({ ...hello, hash: "5555555555555555" });
+    await activator.refresh({ only: ["acme.hello"] });
+    expect(activations.get("acme.hello")).toBe(2);
   });
 
   it("stops both halves again when the grant is taken back", async () => {

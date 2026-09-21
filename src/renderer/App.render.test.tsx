@@ -1516,3 +1516,35 @@ describe("App render isolation", () => {
     expect(screen.getByText("persistent draft")).toBeTruthy();
   });
 });
+
+describe("App workbench events", () => {
+  it("tells extensions which project is open and how many clients are attached", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const probe: DesktopExtension = {
+      id: "test.events",
+      name: "Event probe",
+      activate: (plugin) => {
+        plugin.events.on("workspace-changed", (event) => seen.push({ ...event }));
+        plugin.events.on("client-count", (event) => seen.push({ ...event }));
+      },
+    };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [], sessions: [] },
+        detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+    });
+
+    renderApp(client, { extensions: [probe] });
+    await waitFor(() => expect(seen).toContainEqual({ type: "workspace-changed", to: "/project" }));
+
+    client.emit({ type: "host-update", update: { version: 1, type: "project", project: { cwd: "/other" } } });
+    await waitFor(() => expect(seen).toContainEqual({ type: "workspace-changed", from: "/project", to: "/other" }));
+
+    client.emit({ type: "client-count", count: 2 });
+    await waitFor(() => expect(seen).toContainEqual({ type: "client-count", count: 2 }));
+  });
+});

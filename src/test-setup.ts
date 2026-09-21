@@ -1,6 +1,11 @@
 import { configure } from "@testing-library/dom";
 import { afterAll, afterEach, vi } from "vitest";
 
+// A host built in a test would otherwise watch the developer's own ~/.tau and
+// ~/.pi: real files, real edits, and one more set of handles per suite. A test
+// about watching builds its watcher directly.
+process.env.TAU_NO_WATCH = "1";
+
 // Integration-heavy renderer tests share the machine with Git and runtime
 // subprocess fixtures. Keep DOM polling tolerant of scheduler contention while
 // preserving each assertion's own failure output.

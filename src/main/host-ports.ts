@@ -27,6 +27,7 @@ import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
   HostAttachedRuntime,
+  HostClientServices,
   HostExtensionServices,
   HostPlatform,
   HostPreparedThread,
@@ -36,6 +37,7 @@ import type {
   HostStartedThread,
   HostThread,
   HostThreadStartOptions,
+  HostConfigChange,
   HostThreadLifecycle,
   HostTurnObserver,
   HostUiPresenter,
@@ -130,6 +132,10 @@ export interface ExtensionServicesPort {
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   refreshThreadIndex(): Promise<ThreadIndexSnapshot>;
+  /** Deletes a persisted thread and runs the `threadDeleted` hooks for it. */
+  removeThread(sessionId: string): Promise<void>;
+  /** The clients attached to this host, for the seam's ungated `clients` member. */
+  readonly clients: HostClientServices;
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   registerTurnObserver(observer: HostTurnObserver): () => void;
   pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
@@ -182,6 +188,8 @@ export interface HostExtensionSeam {
   readonly uiPresenters: ReadonlySet<HostUiPresenter>;
   /** Entries an extension anchors rows to; a text-empty assistant stays visible for them. */
   readonly entryPins: ReadonlySet<(thread: HostThread) => Iterable<string>>;
+  /** Tells every subscriber that a watched file moved; the host is the only caller. */
+  notifyConfigChange(change: HostConfigChange): void;
   /** What the user lets external runtimes do. */
   permissionLevel(): RuntimePermissionLevel;
   /** Wraps a session manager for extensions; a runtime prepared for the file shares the manager. */
@@ -193,6 +201,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
   const uiPresenters = new Set<HostUiPresenter>();
   const entryPins = new Set<(thread: HostThread) => Iterable<string>>();
+  const configObservers = new Set<(change: HostConfigChange) => void>();
   const sessionFileManagers = new WeakMap<HostSessionFile, SessionManager>();
   let permissionLevelProvider: (() => RuntimePermissionLevel) | undefined;
 
@@ -270,6 +279,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         options,
       ),
       start: (options) => port.startThread(options),
+      remove: (sessionId) => port.removeThread(sessionId),
       exclusive: (work) => port.exclusive(work),
       refreshIndex: async () => ({
         version: HOST_PROTOCOL_VERSION,
@@ -277,11 +287,16 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         index: await port.refreshThreadIndex(),
       }),
     },
+    clients: port.clients,
     registerThreadLifecycle: (lifecycle) => port.registerThreadLifecycle(lifecycle),
     registerTurnObserver: (observer) => port.registerTurnObserver(observer),
     pinTranscriptEntries: (provider) => {
       entryPins.add(provider);
       return () => { entryPins.delete(provider); };
+    },
+    observeConfigChanges: (listener) => {
+      configObservers.add(listener);
+      return () => { configObservers.delete(listener); };
     },
     decorateUiPrompt: (decorator) => port.decorateUiPrompt(decorator),
     registerRuntimeExtension: (name, factory, options) => {
@@ -319,6 +334,11 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     runtimeExtensions,
     uiPresenters,
     entryPins,
+    notifyConfigChange: (change) => {
+      for (const observer of [...configObservers]) {
+        try { observer(change); } catch (error) { port.log("host-extension.config-changed.failed", error instanceof Error ? error.message : String(error)); }
+      }
+    },
     // Without an access extension everything is allowed.
     permissionLevel: () => permissionLevelProvider?.() ?? "full",
     sessionFile,

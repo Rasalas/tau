@@ -214,6 +214,16 @@ const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 /** A plain lowercase identifier, matching the names extensions pass to registerCommand. */
 const COMMAND_NAME = /^[a-z][a-z0-9-]*$/u;
 
+/** An optional list of manifest ids: which extensions a call is narrowed to. */
+export function decodeOptionalExtensionIds(channel: string, field: string, value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) fail(channel, field, "must be an array of extension ids");
+  for (const entry of value as unknown[]) {
+    if (typeof entry !== "string" || !EXTENSION_ID.test(entry)) fail(channel, field, "must hold manifest ids (lowercase, dot-separated)");
+  }
+  return [...new Set(value as string[])];
+}
+
 export function decodeExtensionId(channel: string, value: unknown): string {
   const id = decodeString(channel, "extensionId", value);
   if (!EXTENSION_ID.test(id)) fail(channel, "extensionId", "must look like a manifest id (lowercase, dot-separated)");

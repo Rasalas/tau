@@ -67,7 +67,8 @@ export class HostUplink {
 
   async hello(): Promise<HostHelloReply> {
     this.helloSent = true;
-    const reply = await this.send("hello", [{ protocol: HOST_TRANSPORT_VERSION }]) as HostHelloReply;
+    // Not a client of its own: the renderer beside this process is the one that counts.
+    const reply = await this.send("hello", [{ protocol: HOST_TRANSPORT_VERSION, auxiliary: true }]) as HostHelloReply;
     this.options.onHello?.(reply);
     return reply;
   }

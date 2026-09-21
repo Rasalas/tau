@@ -2,13 +2,19 @@ import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { describe, expect, it, vi } from "vitest";
 import { HOST_ERROR, HOST_TRANSPORT_VERSION, type HostResponse } from "../shared/host-transport.js";
 import { HostPushLog } from "./host-push-log.js";
+import { HostClientRegistry } from "./host-clients.js";
 import { HOST_REQUEST_CHANNEL, installElectronHostTransport } from "./host-transport-electron.js";
 
-function contents() {
-  return { id: 42, mainFrame: {}, isDestroyed: vi.fn(() => false) } as unknown as WebContents;
+function contents(id = 42) {
+  const listeners = new Map<string, () => void>();
+  return {
+    id, mainFrame: {}, isDestroyed: vi.fn(() => false),
+    once: (event: string, listener: () => void) => { listeners.set(event, listener); },
+    destroy: () => listeners.get("destroyed")?.(),
+  } as unknown as WebContents & { destroy(): void };
 }
 
-function fixture() {
+function fixture(clients?: HostClientRegistry) {
   const current = { value: contents() as WebContents | undefined };
   let invoke!: (event: IpcMainInvokeEvent, frame: unknown) => Promise<HostResponse>;
   const ping = vi.fn(async () => "pong");
@@ -21,6 +27,7 @@ function fixture() {
     ipcMain: { handle } as unknown as IpcMain,
     methods: { ping }, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [],
     workbenchContents: () => current.value,
+    ...(clients ? { clients } : {}),
     logger,
     send: () => undefined,
   });
@@ -72,5 +79,24 @@ describe("Electron host caller provenance", () => {
     h.current.value = undefined;
     expect((await h.invoke(h.event(old), h.request)).error?.code).toBe(HOST_ERROR.unauthorized);
     expect(h.ping).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Electron host client counting", () => {
+  it("counts the window from its hello and drops it when the contents go", async () => {
+    const clients = new HostClientRegistry();
+    const h = fixture(clients);
+    const window = h.current.value as WebContents & { destroy(): void };
+
+    await h.invoke(h.event(window), { id: "hello", method: "hello", params: [{ protocol: HOST_TRANSPORT_VERSION, profile: "desktop" }] });
+    await vi.waitFor(() => expect(clients.count()).toBe(1));
+    expect(clients.list()[0]).toMatchObject({ transport: "electron", profile: "desktop" });
+
+    // A reload says hello again on the same contents: still one client.
+    await h.invoke(h.event(window), { id: "hello-2", method: "hello", params: [{ protocol: HOST_TRANSPORT_VERSION, profile: "desktop" }] });
+    await vi.waitFor(() => expect(clients.count()).toBe(1));
+
+    window.destroy();
+    expect(clients.count()).toBe(0);
   });
 });

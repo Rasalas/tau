@@ -1,3 +1,4 @@
+import { sep } from "node:path";
 import type { GlobalHostEvent, HostExtensionSummary } from "../shared/contracts.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult, type LoadedHostPackage } from "./extension-packages.js";
@@ -44,20 +45,25 @@ export class ExtensionPackageActivator {
    * `force` restarts every package the way `/reload` always has; without it a
    * package whose code, permissions, isolation and folder are unchanged keeps
    * running, so installing one package never resets another one's worker.
+   * `only` narrows the whole pass to the named ids: nothing else is started,
+   * stopped or announced, which is what a watched file edit asks for.
    */
-  refresh(options: { force?: boolean } = {}): Promise<void> {
+  refresh(options: { force?: boolean; only?: readonly string[] } = {}): Promise<void> {
+    if (options.only) return this.enqueue(true, false, new Set(options.only));
     if (options.force) return this.enqueue(true, true);
     return this.queued ?? this.enqueue(true, false);
   }
 
   /** One scan at a time; refreshes arriving during one share the next instead of queueing up. */
-  private enqueue(announce: boolean, force: boolean): Promise<void> {
+  private enqueue(announce: boolean, force: boolean, only?: ReadonlySet<string>): Promise<void> {
     const next = (this.running ?? Promise.resolve()).then(async () => {
       if (this.queued === next) this.queued = undefined;
-      await this.sync(force);
-      if (announce) this.options.publish({ type: "extension-packages-changed" });
+      await this.sync(force, only);
+      if (announce) {
+        this.options.publish({ type: "extension-packages-changed", ...(only ? { extensionIds: [...only] } : {}) });
+      }
     });
-    if (announce && !force) this.queued = next;
+    if (announce && !force && !only) this.queued = next;
     this.running = next.catch(() => undefined);
     return next;
   }
@@ -90,7 +96,7 @@ export class ExtensionPackageActivator {
   }
 
   /** Replaces the host halves of extension packages with what the workspace's folders hold now. */
-  private async sync(force: boolean): Promise<void> {
+  private async sync(force: boolean, only?: ReadonlySet<string>): Promise<void> {
     let loaded: HostPackageLoadResult;
     try {
       loaded = await this.options.load(this.options.cwd());
@@ -100,23 +106,43 @@ export class ExtensionPackageActivator {
     }
     for (const failure of loaded.errors) this.options.log("host-extension.package.failed", `${failure.path}: ${failure.message}`);
     for (const skip of loaded.skipped) this.options.log("host-extension.package.skipped", `${skip.directory}: ${skip.reason}`);
-    this.ungranted = new Map(loaded.ungranted.map((pkg) => [pkg.manifest.id, pkg]));
+    // A package whose folder produced an error — a manifest that stopped
+    // parsing, an entry that stopped compiling — is missing from the loaded set
+    // without having left the disk. Its running half is its last good version,
+    // so it keeps running until the files are readable again.
+    const broken = new Set([...this.entries]
+      .filter(([, entry]) => loaded.errors.some((failure) => inside(failure.path, entry.package.directory)))
+      .map(([id]) => id));
+    const wanted = (id: string): boolean => !only || only.has(id);
+    this.ungranted = new Map([
+      ...(only ? [...this.ungranted].filter(([id]) => !only.has(id)) : []),
+      ...loaded.ungranted.filter((pkg) => wanted(pkg.manifest.id)).map((pkg) => [pkg.manifest.id, pkg] as const),
+    ]);
     for (const pkg of loaded.ungranted) {
+      if (!wanted(pkg.manifest.id)) continue;
       this.options.log("host-extension.package.ungranted", `${pkg.manifest.name} · ${pkg.scope} · awaiting approval`);
     }
-    const next = new Set(loaded.extensions.map((entry) => entry.extension.id));
+    const found = new Set(loaded.extensions.map((entry) => entry.extension.id));
     // A package that left the disk, lost its grant or changed what it asks for
     // is no longer in the loaded set, so its half stops here.
     for (const id of this.activeIds) {
-      if (next.has(id)) continue;
+      if (found.has(id) || !wanted(id)) continue;
+      if (broken.has(id)) {
+        this.options.log("host-extension.package.kept", `${id} · reload failed, the running version stays`);
+        continue;
+      }
       this.entries.delete(id);
       this.activeKeys.delete(id);
       await this.options.registry.remove(id).catch((error: unknown) => this.options.log("host-extension.remove.failed", `${id}: ${message(error)}`));
     }
+    const next = only ? new Set([...this.activeIds].filter((id) => !only.has(id))) : new Set<string>();
+    for (const id of this.activeIds) if (broken.has(id)) next.add(id);
+    for (const id of found) if (wanted(id)) next.add(id);
     const grantsFile = await readExtensionGrants(this.options.grantsFilePath).catch(() => ({ grants: [] }));
-    const keys = new Map<string, string>();
+    const keys = only ? new Map(this.activeKeys) : new Map<string, string>();
     for (const entry of loaded.extensions) {
       const { extension, package: pkg } = entry;
+      if (!wanted(extension.id)) continue;
       if (this.options.bundled(extension.id)) {
         this.options.log("host-extension.package.failed", `${pkg.directory}: id ${extension.id} belongs to a bundled kit`);
         continue;
@@ -157,6 +183,11 @@ function packageIdentity(entry: LoadedHostPackage): string {
     entry.package.scope,
     entry.package.directory,
   ].join("|");
+}
+
+/** Whether a reported path belongs to a package folder. */
+function inside(path: string, directory: string): boolean {
+  return path === directory || path.startsWith(`${directory}${sep}`);
 }
 
 function message(error: unknown): string {

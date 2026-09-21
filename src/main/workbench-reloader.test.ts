@@ -7,7 +7,7 @@ import { workbenchSourceStatePath } from "./workbench-source.js";
 import { WorkbenchReloader } from "./workbench-reloader.js";
 
 const roots: string[] = [];
-const successfulBuild: WorkbenchBuildResult = { ok: true, durationMs: 12, mainChanged: false, output: "built" };
+const successfulBuild: WorkbenchBuildResult = { ok: true, durationMs: 12, mainChanged: false, runtimeChanged: false, output: "built" };
 
 async function directory(name: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), `${name}-`));

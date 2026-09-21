@@ -31,19 +31,53 @@ Threads
 - the thread index across projects, and one live runtime per open thread
 - new, resume, fork, duplicate, rename, tree navigation, recovery of a broken thread
 - the current project (working directory) as Pi sees it
+- **which threads were mid-turn when the host stopped**: the host writes one
+  marker per thread to `<userData>/turns-in-flight.json` when it accepts a
+  prompt (`{ sessionId, cwd, turnId, backend, startedAt, prompt }`, atomically,
+  never into the session file, which is the runtime's) and drops it when the
+  turn ends or is cancelled. At the next start each marker is dropped before
+  its thread is touched, so nothing is ever continued twice, and then: with
+  **Continue threads after restarts** on (Settings → Defaults,
+  `threads.continueAfterRestart`, **off** by default) the thread is reopened
+  off screen, its dangling tool calls are closed and it is sent "Continue the
+  interrupted work…"; with the setting off it is repaired, told so in its own
+  transcript, and marked `interrupted` in the index until its next prompt. What
+  "continue" means is the runtime's answer: the `resume` capability says
+  whether the continuation can be delivered without reading as the user's own
+  message, and a runtime without that capability is only marked. An external
+  shell a kit owns is always interrupted; the kit says so through its own
+  `closed` hook
 
 Workbench
 
 - the window, the two layout slots (left sidebar, right dock) and shared modals
 - **which token set the window paints with**: `system`, `dark` or `light`, applied as `data-theme` on `<html>`; a theme package may replace the values, never the mechanism
 - the **client profile** the window draws for (`desktop`, `web`, `compact`): a contribution declares which clients render it, and the workbench leaves out what this one cannot draw ([ADR 0016](adr/0016-client-profiles.md))
-- the stage: the document area beside the conversation, whose tabs hold files and threads
+- the stage: the document area beside the conversation, whose tabs hold files, threads and the surfaces kits register kinds for
 - command palette and keybinding dispatch; the chords themselves are extension contributions — `kits/keybindings/` binds Tau's own, replaces them from `~/.pi/agent/keybindings.json` and adds one command per Pi extension shortcut
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
 - one versioned request/push protocol between client and host, with reconnect and replay; Electron IPC is one transport of it, and the one generic method host extensions use travels on it
+- **which clients are attached**: every transport reports its clients to one registry, so the host knows how many there are and what each claims to be; the count is published, and `services.clients` on the host seam is where a kit reads it
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen
 - the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
-- enough persisted state to restore the workbench
+- **watching the files the host itself reads** — the package folders, the theme folders, `keybindings.json`, `config.json` — and reloading only what changed: the one package that was edited, the themes, the config. Core re-reads nothing on anyone else's behalf: `observeConfigChanges` on the seam and a `config-changed` push say what moved, and whoever owns those files decides. Off under `extensions.watch: false`, `TAU_NO_WATCH=1` and safe mode (`src/main/config-watcher.ts`, `src/main/workspace-watch.ts`)
+- enough persisted state to restore the workbench: the window puts the stage
+  and the dock back the way the workspace was left (`tau.stage.v1:<workspace>`
+  and `tau.dock.v1:<workspace>` in `src/workbench/storage-keys.ts`, written
+  through `src/workbench/workbench-layout-state.ts`). Tabs are stored as they
+  are held, so a tab kind a kit adds round-trips and one that cannot be read
+  is dropped; a file of another project and a thread the index has forgotten
+  are dropped silently
+- **applying a rebuild**: `reloadExtensions()` loads kits and packages again
+  and the client reloads its page, without touching a single runtime and
+  without waiting for anything, while `reloadRuntime()` is the heavier path
+  that rediscovers Pi's resources and is the only one that asks about running
+  threads. The build result chooses: a kit's runtime half (`pi.cjs`) takes the
+  runtime path, the main process or preload takes a restart, everything else
+  takes the light one. A package refresh never replaces the runtime extensions
+  of a runtime that is already built — `registerRuntimeExtension` applies to
+  every runtime from then on — so a turn in flight keeps the code it started
+  with while host commands and panels change at once
 
 ### The workbench and its client
 
@@ -94,7 +128,13 @@ performs (`UiModel.login`) is tagged there and asked about once.
 
 ### The stage
 
-The stage is the column beside the conversation, and its tabs are of two kinds.
+The stage is the column beside the conversation. Core owns the tab strip, the
+placement, the preview and pin rules and the strip's own gestures — double-click
+pins a preview, the middle button and Escape close, `mod+w` closes the active
+tab, `ctrl+tab` and `ctrl+shift+tab` move through them, and the right-click menu
+offers close, close others, close to the right and pin/unpin. Two kinds of tab
+are core's own, and a third belongs to whoever registered it.
+
 A **file** tab shows source or the working-tree diff; core owns the tab strip
 and the placement, and whoever registered the document source loads the
 content. A **thread** tab shows another thread's transcript, read-only, drawn
@@ -107,7 +147,21 @@ entry — which is what the host does when a background turn settles — and pol
 every two seconds only while the index says the thread is streaming. A tab whose
 session the index no longer knows shows an empty state rather than an error.
 `WorkbenchActions.openThread(sessionId)` is how an extension opens one; the
-Agents Kit panel is the caller that motivated it.
+Agents Kit panel is the caller that motivated it. It reads whether or not a
+runtime holds the thread: a released Pi thread is projected from its session
+file, a thread of another backend from the shell that backend keeps for the
+index, and neither opens a runtime.
+
+An **extension** tab is a kind a desktop extension registered with
+`registerStageTab`: the kind supplies the title, the glyph and the content,
+core everything else. The tab is `{ id, kind: "extension", tabKind, params,
+title }` with `params` plain JSON, so it is the same tab whatever draws it and
+it survives being written to storage; the content talks back through a handle
+(`setTitle`, `setDirty`, `onClose`), and `StageTabController`
+(`src/renderer/stage-tab-controller.ts`) is the one door that closes a tab of
+any kind — it asks about unsaved work, runs that tab's listeners and forgets
+its handle. A kit that goes away takes its tabs with it. Terminal Kit's "open
+as tab" is the shipped caller; `docs/EXTENSIONS.md` is the guide.
 
 ## Not in core
 
@@ -119,7 +173,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Turn checkpoints and restore | Workspace Kit on both sides: capture, restore, recovery and ref upkeep in `kits/workspace/host-lifecycle.ts` through the seam's lifecycle hooks and turn observer; cards, status and the restore dialog in `kits/workspace/checkpoints.tsx`. The Git and lease engine it drives lives with it (`kits/workspace/workspace-git.ts`, `workspace-checkpoint-lease.ts`, `workspace-kit-checkpoints.ts`, the `turn-checkpoint-*` family), and `kits/workspace/pi.ts` is the half that captures a turn inside a Pi TUI Tau is only attached to. Core keeps only what an anchor needs: a pinned text-empty assistant entry stays in the transcript | Workspace Kit |
 | Thread rail: the sidebar, its search, the settled shelf and the project switcher | Workspace Kit's `kits/workspace/navigation.tsx`, filled through `registerSidebar`. Core owns threads and draws a row with `ThreadRow` from the `tau` API; without the kit the window has no sidebar and still shows a composer and a transcript | Workspace Kit |
 | Review mode, diff viewer, changed-files dock | Review Kit overlay over the store Workspace Kit publishes as `tau.workspace/store`; the Files and Changes panels and the dock are Workspace Kit's | Review Kit |
-| Stage tabs, file viewer | tabs and placement stay core (the document area); loading, changed markers and editors come from the registered document source. A thread tab is core's own content: it reads the transcript through `transcript-page` and draws it with core's `VirtualTranscript` | core placement, Workspace Kit file content |
+| Stage tabs, file viewer | tabs and placement stay core (the document area); loading, changed markers and editors come from the registered document source. A thread tab is core's own content: it reads the transcript through `transcript-page` and draws it with core's `VirtualTranscript`. Any other content is a kit's: `registerStageTab` is the seam, and core never learns what a kind draws | core placement, Workspace Kit file content, kits for their own kinds |
 | Thread title generation | Thread Title Generator: `kits/thread-titles/`, a package Tau ships (ADR 0014) | Thread Title Generator |
 | Installing, updating and removing extension packages: `/install`, `/remove`, `/update` and the Settings → Packages page | Packages Kit: `kits/packages/`, a package Tau ships. The installer itself (npm, git, `packages.json`, signatures) stays core behind the `packages` permission; the kit owns the verbs, the wording and the page | Packages Kit |
 | Signals: host events, live counts and the shell-run presentation | Signals: `kits/signals/`, a package Tau ships (ADR 0014); core lends the panel slot and the `useObservatory` hook it reads | Signals |
@@ -133,7 +187,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Model for a kit's small job | `HostExtensionServices.complete` (`src/main/host-completion.ts`): one short answer on the user's own `~/.pi/agent` model configuration, for a title, a branch name or a commit message. Core neither writes those prompts nor picks the model; the kit names one or takes the user's default | Title generator, Worktree Names, Review Kit |
 | Antigravity backend | Gemini through Google's own agent: `kits/antigravity/` registers a runtime backend that downloads Google's Antigravity ACP server from the official registry URL (or takes `TAU_ANTIGRAVITY_ACP_COMMAND`), speaks the Agent Client Protocol to it over stdio, lets the user sign in with Google inside that server, forwards the user's own MCP servers and skills, and owns its Settings page; the same `onEvent` and `ask` routes | Antigravity kit, shipped by default |
 | Project sources: folder browsing, native folder picker, Git clone | Workspace Kit host entry (`kits/workspace/host.ts`) and its two sources in `kits/workspace/navigation.tsx`; core keeps the sources modal as the placement for `registerProjectSource`, and `assertAllowedCloneSource` stays core's because the package installer clones too | Workspace Kit |
-| Terminals: a shell per workspace or thread, in the dock, on desktop and web | Terminal Kit: `kits/terminal/`, a package Tau ships (ADR 0014). Its host half holds one `node-pty` session per terminal (`kits/terminal/host.ts`), loaded through `loadDependency` so the native addon stays where npm put it, filed under the workspace the host has open and, when a thread asked, started in that thread's worktree; input and resize are commands, output and exit are pushes with byte offsets, so a reloaded client replays without drawing twice. Terminals die with the workspace (`beforeWorkspace`) or the kit, never with the window. Its desktop half is the Terminal dock panel over xterm.js, grouped by the thread on screen; a shell that belongs to another thread is marked, not killed | Terminal Kit |
+| Terminals: a shell per workspace or thread, in the dock, on desktop and web | Terminal Kit: `kits/terminal/`, a package Tau ships (ADR 0014). Its host half holds one `node-pty` session per terminal (`kits/terminal/host.ts`), loaded through `loadDependency` so the native addon stays where npm put it, filed under the workspace the host has open and, when a thread asked, started in that thread's worktree; input and resize are commands, output and exit are pushes with byte offsets, so a reloaded client replays without drawing twice. Terminals die with the workspace (`beforeWorkspace`) or the kit, never with the window. Its desktop half is the Terminal dock panel over xterm.js, grouped by the thread on screen; a shell that belongs to another thread is marked, not killed, and "open as tab" draws one on the stage through `registerStageTab` while the panel stands down for it | Terminal Kit |
 | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its

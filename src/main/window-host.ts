@@ -104,9 +104,10 @@ export class WindowHost {
   async loadDesktopExtensions(
     cwd: string,
     sharedExports: Record<string, string[]>,
+    only: readonly string[] | undefined,
     serve: (result: DesktopExtensionLoadResult) => DesktopExtensionLoadResult,
   ): Promise<DesktopExtensionLoadResult> {
-    const result = await this.request<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports]);
+    const result = await this.request<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only]);
     return serve(result);
   }
 

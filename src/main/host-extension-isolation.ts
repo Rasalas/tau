@@ -11,6 +11,7 @@ import { build } from "esbuild";
 import type { UiToolRun } from "../shared/contracts.js";
 import type {
   DirectoryPickerOptions,
+  HostClientObserver,
   HostExtension,
   HostExtensionContext,
   HostExtensionServices,
@@ -231,6 +232,8 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     const has = new Set(hooks);
     const lifecycle: HostThreadLifecycle = {};
     if (has.has("beforeWorkspace")) lifecycle.beforeWorkspace = async (cwd) => { await hookCall(handle, "beforeWorkspace", [cwd]); };
+    if (has.has("afterWorkspaceClose")) lifecycle.afterWorkspaceClose = async (cwd, reason) => { await hookCall(handle, "afterWorkspaceClose", [cwd, reason]); };
+    if (has.has("threadDeleted")) lifecycle.threadDeleted = async (sessionId, cwd) => { await hookCall(handle, "threadDeleted", [sessionId, cwd]); };
     if (has.has("beforeOpen")) lifecycle.beforeOpen = async (session) => { await hookCall(handle, "beforeOpen", [readSession(session.path)]); };
     if (has.has("afterFork")) lifecycle.afterFork = async (source, target) => { await hookCall(handle, "afterFork", [threadSnapshot(source), readSession(target.path)]); };
     // A worker hook returns nothing, so it cannot take part in the activation transaction.
@@ -259,6 +262,15 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     if (has.has("ended")) observer.ended = async (sessionId, turnId, outcome) => { await hookCall(handle, "ended", [sessionId, turnId, outcome]); };
     if (has.has("reset")) observer.reset = async (sessionId) => { await hookCall(handle, "reset", [sessionId]); };
     if (has.has("closed")) observer.closed = async (sessionId) => { await hookCall(handle, "closed", [sessionId]); };
+    return observer;
+  };
+
+  const clientObserverFor = (handle: number, hooks: readonly string[]): HostClientObserver => {
+    const has = new Set(hooks);
+    const observer: HostClientObserver = {};
+    // The host does not wait for a client observer; a worker answers in its own time.
+    if (has.has("attached")) observer.attached = (clientId, client) => { void hookCall(handle, "attached", [clientId, client]); };
+    if (has.has("detached")) observer.detached = (clientId) => { void hookCall(handle, "detached", [clientId]); };
     return observer;
   };
 
@@ -291,9 +303,23 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "sessions.list": return services.sessions.list();
       case "sessions.read": return readSession(String(args[0]));
       case "sessions.start": return services.sessions.start(args[0] as HostThreadStartOptions);
+      case "sessions.remove": return services.sessions.remove(String(args[0]));
+      case "clients.count": return services.clients.count();
+      case "clients.observe": {
+        const handle = nextHandle++;
+        const dispose = services.clients.observe(clientObserverFor(handle, args[0] as string[]));
+        registrations.set(handle, dispose);
+        return handle;
+      }
       case "describeProjects": {
         const handle = nextHandle++;
         const dispose = services.describeProjects(factsFor(handle, args[0] as string[]));
+        registrations.set(handle, dispose);
+        return handle;
+      }
+      case "observeConfigChanges": {
+        const handle = nextHandle++;
+        const dispose = services.observeConfigChanges((change) => { void hookCall(handle, "changed", [change]); });
         registrations.set(handle, dispose);
         return handle;
       }
