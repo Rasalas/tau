@@ -534,7 +534,8 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
 
   const desktop = registry.getExtensionSummaries();
   const unrendered = registry.getUnrenderedContributions();
-  const ids = [...new Set([...desktop.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)])].sort();
+  const problems = registry.getProblems();
+  const ids =[...new Set([...desktop.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)])].sort();
   const packages = inspection?.packages ?? [];
   const hostStatus = (half: HostExtensionSummary | undefined) => !half ? "—" : half.error ? `failed: ${half.error}` : half.active ? `active${half.commands.length ? ` · ${half.commands.length} commands` : ""}` : "off";
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
@@ -592,6 +593,17 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
           {ids.length === 0 ? <tr><td colSpan={5}>No extension is loaded (safe mode).</td></tr> : null}
         </tbody>
       </table>
+
+      {problems.length > 0 ? (
+        <>
+          <div className="settings-label">PROBLEMS</div>
+          {problems.map((problem, index) => (
+            <div className="settings-note" data-level={problem.level ?? "error"} data-extension-id={problem.extensionId} key={`${problem.extensionId}:${index}`}>
+              <strong>{problem.extensionName}</strong> · <code>{problem.source}</code>: {problem.message}
+            </div>
+          ))}
+        </>
+      ) : null}
 
       <div className="settings-label">NOT ON THIS CLIENT</div>
       <p className="lede">

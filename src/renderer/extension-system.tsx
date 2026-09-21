@@ -211,6 +211,17 @@ export interface OverlayContribution extends ProfileScoped {
   Component: ComponentType<OverlayProps>;
 }
 
+/**
+ * Something wrong with what an extension reads — a project file it could not
+ * parse, a setting it had to ignore. Settings → Inspector lists it.
+ */
+export interface ExtensionProblem {
+  /** What the problem is about, for the user's eyes: a file path, a setting. */
+  source: string;
+  message: string;
+  level?: "error" | "warning";
+}
+
 /** Host events the workbench forwards to extensions; the rest stays core state. */
 export type WorkbenchEvent =
   | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" | "client-count" }>
@@ -532,6 +543,8 @@ export interface DesktopExtensionContext {
   setLiveStatus(sessionId: string, label: string | undefined): void;
   /** Publishes how threads this extension created relate to their parents; `undefined` withdraws it. */
   setThreadLineage(lineage: ThreadLineage | undefined): void;
+  /** Replaces this extension's problems in Settings → Inspector; `[]` clears them. */
+  setProblems(problems: readonly ExtensionProblem[]): void;
   /**
    * Publishes a value the extensions of one product may share, under an id
    * their own protocol file names. Core never looks inside it, and the offer
@@ -691,6 +704,7 @@ export class ExtensionRegistry {
   /** Thread lineage per extension; entries merge, the first extension's answer wins. */
   private lineages = new Map<string, ThreadLineage>();
   private lineageCache: { version: number; value: ThreadLineage } | undefined;
+  private problems = new Map<string, Array<ExtensionProblem & ContributionOwner>>();
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
@@ -853,6 +867,12 @@ export class ExtensionRegistry {
       setThreadLineage: (lineage) => {
         if (lineage) this.lineages.set(extension.id, lineage);
         else this.lineages.delete(extension.id);
+        this.changed();
+      },
+      setProblems: (problems) => {
+        if (problems.length === 0 && !this.problems.has(extension.id)) return;
+        if (problems.length === 0) this.problems.delete(extension.id);
+        else this.problems.set(extension.id, problems.map((problem) => ({ ...problem, ...owner })));
         this.changed();
       },
       registerTranscriptRows: (id, order = 0, options) => {
@@ -1062,6 +1082,7 @@ export class ExtensionRegistry {
     this.profiledContributions.delete(id);
     this.liveStatuses.delete(id);
     this.lineages.delete(id);
+    this.problems.delete(id);
     this.changed();
     if (cleanupError) throw cleanupError;
   }
@@ -1114,6 +1135,11 @@ export class ExtensionRegistry {
       if (label !== undefined) return label;
     }
     return undefined;
+  }
+
+  /** What the active extensions reported as wrong, in activation order. */
+  getProblems(): Array<ExtensionProblem & ContributionOwner> {
+    return [...this.problems.values()].flat();
   }
 
   /** Lineage of every extension, merged into one map the navigator can read. */

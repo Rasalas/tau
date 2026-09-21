@@ -331,6 +331,14 @@ any code — including `distribution`, the name and version of the set the
 `bundled` entries came in, absent in safe mode, which loads none. Core keeps Defaults, Keybindings and the Inspector; every other page
 is a contribution and is gone with its extension.
 
+`context.setProblems(problems)` is how a package says that something it reads
+is wrong — a project file that does not parse, an entry it had to skip. Each
+`ExtensionProblem` is `{ source, message, level? }` (`level` is `"error"`, the
+default, or `"warning"`); Settings → Inspector lists them under PROBLEMS with
+the package's name. A call replaces the package's whole list, `[]` clears it,
+and the list goes with the package when it deactivates. Project Scripts is the
+caller that motivated it: an invalid `.tau/project.json` shows there.
+
 Beyond the contribution types, `tau` exports `useWorkbench`,
 `useWorkbenchShell`, `useObservatory` and `useThreadStore` (the workbench
 hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
