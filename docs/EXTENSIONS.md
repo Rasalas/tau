@@ -417,7 +417,11 @@ travels between them: one publishes under an id its own protocol file names,
 the others use it. `use` runs as soon as the value exists — before or after
 the user's own activation — and whatever it returns is disposed when the
 provider withdraws or either side deactivates, so activation order does not
-matter. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
+matter. The shipped kits publish two: Workspace Kit's store as
+`tau.workspace/store`, and Preview Kit's `tau.preview/browser`, whose
+`open(url, actions)` brings the Preview panel forward and navigates — Project
+Scripts opens a script's `previewUrl` through it, and falls back to
+`actions.openExternal` when Preview Kit is off. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
 
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a
