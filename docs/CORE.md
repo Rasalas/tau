@@ -148,6 +148,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Project sources: folder browsing, native folder picker, Git clone | Workspace Kit host entry (`kits/workspace/host.ts`) and its two sources in `kits/workspace/navigation.tsx`; core keeps the sources modal as the placement for `registerProjectSource`, and `assertAllowedCloneSource` stays core's because the package installer clones too | Workspace Kit |
 | Terminals: a shell per workspace or thread, in the dock, on desktop and web | Terminal Kit: `kits/terminal/`, a package Tau ships (ADR 0014). Its host half holds one `node-pty` session per terminal (`kits/terminal/host.ts`), loaded through `loadDependency` so the native addon stays where npm put it, filed under the workspace the host has open and, when a thread asked, started in that thread's worktree; input and resize are commands, output and exit are pushes with byte offsets, so a reloaded client replays without drawing twice. Terminals die with the workspace (`beforeWorkspace`) or the kit, never with the window. Its desktop half is the Terminal dock panel over xterm.js, grouped by the thread on screen; a shell that belongs to another thread is marked, not killed, and "open as tab" draws one on the stage through `registerStageTab` while the panel stands down for it | Terminal Kit |
 | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
+| Pull and merge requests: create (generated title and body, draft, template), edit, merge, status and checks on the rail row | Review Kit: `kits/review/requests-host.ts` drives `gh` or `glab`, found with `findCommand`; the Git it needs (push with upstream, branch context, template from the base tree, the request detector) is Workspace Kit's, reached through commands that name `tau.review` as caller (ADR 0020). The desktop half fills the Changes section and the rail-row mark Workspace Kit's store lends; core lends only `ThreadRow`'s `accessory` | Review Kit |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
 Defaults, Pi, Keybindings and Inspector pages, and the contributions that reach
@@ -194,8 +195,8 @@ names win on order alone. Nothing about a layout class is API.
 
 A kit that draws a surface of its own carries the rules for it: a `styles`
 entry in its manifest, `kits/<name>/styles.css`, linked while the kit is active
-and gone with it (see [EXTENSIONS.md](EXTENSIONS.md)). Seven kits have one —
-Workspace, Agents, Preview, Signals, Packages, Questionnaires and Pi UI. They
+and gone with it (see [EXTENSIONS.md](EXTENSIONS.md)). Workspace, Agents,
+Preview, Signals, Packages, Questionnaires, Pi UI and Review have one. They
 name tokens like everything else and define no colour of their own.
 
 `src/renderer/styles.css` keeps the classes **core itself draws**, which is the
