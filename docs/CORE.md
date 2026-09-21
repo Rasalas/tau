@@ -31,6 +31,22 @@ Threads
 - the thread index across projects, and one live runtime per open thread
 - new, resume, fork, duplicate, rename, tree navigation, recovery of a broken thread
 - the current project (working directory) as Pi sees it
+- **which threads were mid-turn when the host stopped**: the host writes one
+  marker per thread to `<userData>/turns-in-flight.json` when it accepts a
+  prompt (`{ sessionId, cwd, turnId, backend, startedAt, prompt }`, atomically,
+  never into the session file, which is the runtime's) and drops it when the
+  turn ends or is cancelled. At the next start each marker is dropped before
+  its thread is touched, so nothing is ever continued twice, and then: with
+  **Continue threads after restarts** on (Settings → Defaults,
+  `threads.continueAfterRestart`, **off** by default) the thread is reopened
+  off screen, its dangling tool calls are closed and it is sent "Continue the
+  interrupted work…"; with the setting off it is repaired, told so in its own
+  transcript, and marked `interrupted` in the index until its next prompt. What
+  "continue" means is the runtime's answer: the `resume` capability says
+  whether the continuation can be delivered without reading as the user's own
+  message, and a runtime without that capability is only marked. An external
+  shell a kit owns is always interrupted; the kit says so through its own
+  `closed` hook
 
 Workbench
 
@@ -45,7 +61,23 @@ Workbench
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen
 - the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
 - **watching the files the host itself reads** — the package folders, the theme folders, `keybindings.json`, `config.json` — and reloading only what changed: the one package that was edited, the themes, the config. Core re-reads nothing on anyone else's behalf: `observeConfigChanges` on the seam and a `config-changed` push say what moved, and whoever owns those files decides. Off under `extensions.watch: false`, `TAU_NO_WATCH=1` and safe mode (`src/main/config-watcher.ts`, `src/main/workspace-watch.ts`)
-- enough persisted state to restore the workbench
+- enough persisted state to restore the workbench: the window puts the stage
+  and the dock back the way the workspace was left (`tau.stage.v1:<workspace>`
+  and `tau.dock.v1:<workspace>` in `src/workbench/storage-keys.ts`, written
+  through `src/workbench/workbench-layout-state.ts`). Tabs are stored as they
+  are held, so a tab kind a kit adds round-trips and one that cannot be read
+  is dropped; a file of another project and a thread the index has forgotten
+  are dropped silently
+- **applying a rebuild**: `reloadExtensions()` loads kits and packages again
+  and the client reloads its page, without touching a single runtime and
+  without waiting for anything, while `reloadRuntime()` is the heavier path
+  that rediscovers Pi's resources and is the only one that asks about running
+  threads. The build result chooses: a kit's runtime half (`pi.cjs`) takes the
+  runtime path, the main process or preload takes a restart, everything else
+  takes the light one. A package refresh never replaces the runtime extensions
+  of a runtime that is already built — `registerRuntimeExtension` applies to
+  every runtime from then on — so a turn in flight keeps the code it started
+  with while host commands and panels change at once
 
 ### The workbench and its client
 

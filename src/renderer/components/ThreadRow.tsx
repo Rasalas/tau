@@ -1,14 +1,16 @@
 import { memo, useEffect, useState, type CSSProperties } from "react";
-import { ArchiveRestore, Check } from "lucide-react";
+import { ArchiveRestore, Check, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { threadCostLabel, threadUsageDetail } from "../cost-format";
 
-export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled";
+export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted";
 
 interface ThreadRowProps {
   activity: ThreadActivity;
   activityLabel?: string;
+  /** Tooltip for the activity badge; what the state means, in the caller's words. */
+  activityHint?: string;
   active: boolean;
   age: string;
   compact?: boolean;
@@ -42,7 +44,7 @@ function elapsedLabel(milliseconds: number): string {
   return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
-function ThreadStatus({ activity, label, startedAt }: { activity: ThreadActivity; label: string; startedAt: number }) {
+function ThreadStatus({ activity, label, hint, startedAt }: { activity: ThreadActivity; label: string; hint?: string; startedAt: number }) {
   const working = activity === "working" || activity === "tool";
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -51,8 +53,9 @@ function ThreadStatus({ activity, label, startedAt }: { activity: ThreadActivity
     return () => window.clearInterval(timer);
   }, [working]);
   return (
-    <span className={`thread-status-age status-${activity}`}>
+    <span className={`thread-status-age status-${activity}`} {...(hint ? { title: hint } : {})}>
       {working ? <i /> : null}
+      {activity === "interrupted" ? <PlugZap size={11} aria-hidden="true" /> : null}
       {label}
       {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
     </span>
@@ -62,6 +65,7 @@ function ThreadStatus({ activity, label, startedAt }: { activity: ThreadActivity
 export const ThreadRow = memo(function ThreadRow({
   activity,
   activityLabel,
+  activityHint,
   active,
   age,
   compact,
@@ -83,7 +87,7 @@ export const ThreadRow = memo(function ThreadRow({
     settled ? "Settled" : activity === "ready" ? "READY" : activity === "idle" ? "IDLE" : "WORKING"
   );
   const working = activity === "working" || activity === "tool";
-  const showStatus = working || activity === "waiting" || activity === "ready";
+  const showStatus = working || activity === "waiting" || activity === "ready" || activity === "interrupted";
   const childCount = workingChildren > 0
     ? (
       <span className="thread-agent-count" aria-label={`${workingChildren} agent${workingChildren === 1 ? "" : "s"} running`}>
@@ -121,7 +125,7 @@ export const ThreadRow = memo(function ThreadRow({
           <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
           <strong>{session.projectName}</strong>
           {showStatus
-            ? <ThreadStatus activity={activity} label={working ? "WORKING" : label} startedAt={startedAt ?? session.modifiedAt} />
+            ? <ThreadStatus activity={activity} label={working ? "WORKING" : label} {...(activityHint ? { hint: activityHint } : {})} startedAt={startedAt ?? session.modifiedAt} />
             : <time>{age}</time>}
         </span>
         <span className="thread-title">{session.title}</span>

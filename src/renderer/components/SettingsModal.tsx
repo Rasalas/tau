@@ -28,7 +28,7 @@ function DefaultsPage({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, temperature, maxTokens } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, continueThreadsAfterRestart, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, temperature, maxTokens } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
@@ -186,6 +186,23 @@ function DefaultsPage({
           aria-checked={showCosts}
           aria-label="Show costs"
           onClick={() => preferences.setShowCosts(!showCosts)}
+        >
+          <i />
+        </button>
+      </div>
+
+      <div className="settings-label">RESTARTS</div>
+      <div className="settings-toggle-row">
+        <span>
+          <strong>Continue threads after restarts</strong>
+          <small>Pick a thread back up where a restart cut its turn short. Off, the thread is repaired and marked instead.</small>
+        </span>
+        <button
+          className={`switch ${continueThreadsAfterRestart ? "on" : ""}`}
+          role="switch"
+          aria-checked={continueThreadsAfterRestart}
+          aria-label="Continue threads after restarts"
+          onClick={() => preferences.setContinueThreadsAfterRestart(!continueThreadsAfterRestart)}
         >
           <i />
         </button>

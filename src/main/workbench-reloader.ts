@@ -24,6 +24,7 @@ const INSTALLED_EXTENSION_RELOAD: WorkbenchBuildResult = {
   ok: true,
   durationMs: 0,
   mainChanged: false,
+  runtimeChanged: false,
   output: "No Tau source checkout is open; reloading extensions only.",
 };
 

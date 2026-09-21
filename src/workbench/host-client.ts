@@ -75,6 +75,8 @@ export interface HostClient {
 
   // Desktop/host extension lifecycle and the generic host-extension channel.
   reloadRuntime(): Promise<void>;
+  /** Kits and packages only; every runtime keeps running. */
+  reloadExtensions(): Promise<void>;
   answerExtensionUi(id: string, answer: ExtensionUiAnswer): Promise<void>;
   syncExtensionUi(): Promise<void>;
   /** `only` asks for just those extension ids, so a client can swap one module instead of all of them. */
@@ -164,6 +166,7 @@ export function createHostClient(connection: HostConnection): HostClient {
     compactContext: () => call<HostActionResult>("compact-context"),
 
     reloadRuntime: () => call<void>("reload-runtime"),
+    reloadExtensions: () => call<void>("reload-extensions"),
     answerExtensionUi: (id, answer) => call<void>("answer-extension-ui", [id, answer]),
     syncExtensionUi: () => call<void>("sync-extension-ui"),
     loadDesktopExtensions: (cwd, sharedExports, only) => call<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only]),

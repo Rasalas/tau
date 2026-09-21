@@ -41,6 +41,11 @@ export interface ThreadBackendPromptInput {
   attachments?: readonly UiPromptAttachment[];
   /** The prompt queues behind a run that is already in flight. */
   queued?: boolean;
+  /**
+   * Deliver this as a message the transcript does not attribute to the user.
+   * Only a backend whose `resume` capability reports `hiddenPrompt` honours it.
+   */
+  hidden?: boolean;
   /** Reports whether the runtime admitted the turn, before that turn ends. */
   onAdmitted?(accepted: boolean): void;
 }
@@ -206,6 +211,18 @@ export interface ThreadReloadCapability {
   reload(): Promise<void>;
 }
 
+/**
+ * A runtime that can take a thread back up after a restart cut a turn short.
+ * Without this group the host only marks the thread as interrupted; it never
+ * guesses that a runtime will accept work it has no record of.
+ */
+export interface ThreadResumeCapability {
+  /** Whether `prompt({ hidden: true })` is honoured; the continuation is an ordinary message otherwise. */
+  readonly hiddenPrompt: boolean;
+  /** A transcript row that is nobody's message. Absent where the runtime has no such row. */
+  notice?(text: string): Promise<void>;
+}
+
 export interface ThreadEventCapability {
   subscribe(listener: RuntimeEventListener): () => void;
 }
@@ -243,6 +260,7 @@ export interface ThreadBackendCapabilities {
   completions?: ThreadCompletionCapability;
   extensions?: ThreadExtensionCapability;
   reload?: ThreadReloadCapability;
+  resume?: ThreadResumeCapability;
   events?: ThreadEventCapability;
   transcriptPaging?: ThreadTranscriptPagingCapability;
   markdownExport?: ThreadMarkdownExportCapability;
@@ -274,6 +292,7 @@ const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
   completions: "Model completions",
   extensions: "Runtime extensions",
   reload: "Reloading runtime resources",
+  resume: "Continuing an interrupted turn",
   events: "Runtime events",
   transcriptPaging: "Runtime-paged transcripts",
   markdownExport: "Markdown export",

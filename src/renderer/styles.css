@@ -233,6 +233,7 @@ button > svg { pointer-events: none; }
   color: var(--working); font: 500 10px var(--mono); letter-spacing: .035em;
 }
 .thread-status-age.status-ready { color: var(--ready); }
+.thread-status-age.status-interrupted { color: var(--warn); }
 .thread-status-age > i {
   width: 10px; height: 10px; flex: none; border: 1.5px solid var(--working);
   border-top-color: transparent; border-radius: 50%; animation: spin .9s linear infinite;
@@ -1449,6 +1450,10 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 }
 @keyframes waiting-pulse { 50% { opacity: .3; } }
 .thread-row.activity-waiting { border-color: var(--acid-line); }
+
+/* Rail marker for a thread whose turn a restart cut short. */
+.thread-row.activity-interrupted { border-color: var(--warn-chip); }
+.activity-interrupted .thread-activity { color: var(--warn); }
 
 /* -------------------------------------------------------- tool approval */
 

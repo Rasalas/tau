@@ -32,6 +32,8 @@ export interface PiHostOptions {
   grantsFilePath?: string;
   /** Where per-thread cost totals are cached; without one they last only for this run. */
   sessionUsageCachePath?: string;
+  /** Where the markers of turns in flight live; without one they last only for this run. */
+  turnsInFlightPath?: string;
   /** Where the index keeps which thread spawned which; defaults to memory only. */
   sessionLineageCachePath?: string;
   /**
