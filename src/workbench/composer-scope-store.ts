@@ -1,4 +1,4 @@
-import type { SubmissionResult, UiPromptAttachment } from "../shared/contracts";
+import type { SubmissionResult, UiPromptAttachment, UiPromptImageAttachment } from "../shared/contracts";
 
 declare const draftKeyBrand: unique symbol;
 export type DraftKey = string & { readonly [draftKeyBrand]: true };
@@ -8,7 +8,8 @@ export function createDraftKey(storageKey?: string): DraftKey {
   return (storageKey ?? "thread:default") as DraftKey;
 }
 
-export type PendingAttachment = UiPromptAttachment & { id: number; previewUrl: string };
+/** The composer itself holds images only; files arrive through an extension's own send hook. */
+export type PendingAttachment = UiPromptImageAttachment & { id: number; previewUrl: string };
 export interface ComposerScopeReference { scope: ComposerScope }
 
 let nextAttachmentId = 0;

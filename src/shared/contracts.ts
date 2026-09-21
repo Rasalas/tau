@@ -33,6 +33,8 @@ export interface RuntimeCapabilities {
   ownsModelSelection?: boolean;
   /** False when the runtime cannot stop for an approval; the access gate then offers no "ask". */
   interactiveApprovals?: boolean;
+  /** The runtime takes `kind: "file"` prompt attachments; without it the host refuses them. */
+  fileAttachments?: boolean;
 }
 
 /** Host-resolved metadata for a user skill invocation. */
@@ -80,13 +82,28 @@ export interface UiImagePreview {
   dataUrl: string;
 }
 
-export interface UiPromptAttachment {
+export interface UiPromptImageAttachment {
   kind: "image";
   name: string;
   mimeType: string;
   data: string;
   size: number;
 }
+
+/**
+ * A file already on the host's disk. Only a runtime whose adapter declares
+ * `fileAttachments` takes one; for any other the client embeds it as text.
+ */
+export interface UiPromptFileAttachment {
+  kind: "file";
+  name: string;
+  mimeType: string;
+  /** Absolute path on the host. */
+  path: string;
+  size: number;
+}
+
+export type UiPromptAttachment = UiPromptImageAttachment | UiPromptFileAttachment;
 
 export interface UiTask {
   id: number;

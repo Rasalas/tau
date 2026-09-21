@@ -98,7 +98,12 @@ describe("ipc-input decoders", () => {
       expect(() => decodeUiPromptAttachments(CHANNEL, "field", [{ kind: "image", name: "a" }])).toThrow();
     });
     it("rejects the wrong kind", () => {
-      expect(() => decodeUiPromptAttachments(CHANNEL, "field", [{ ...validAttachment, kind: "file" }])).toThrow('must be "image"');
+      expect(() => decodeUiPromptAttachments(CHANNEL, "field", [{ ...validAttachment, kind: "audio" }])).toThrow('must be "image" or "file"');
+    });
+    it("accepts a file on the host's disk and drops fields a file does not have", () => {
+      const file = { kind: "file", name: "spec.pdf", mimeType: "application/pdf", path: "/state/attachments/t1/spec.pdf", size: 2048 };
+      expect(decodeUiPromptAttachments(CHANNEL, "field", [{ ...file, data: "x" }])).toEqual([file]);
+      expect(() => decodeUiPromptAttachments(CHANNEL, "field", [{ ...file, path: 3 }])).toThrow();
     });
   });
 
