@@ -18,8 +18,10 @@ export interface RegistryPort {
 
 /** The host events the registry forwards to extensions; the rest stays workbench state. */
 export type WorkbenchEventCandidate =
-  | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" }>
-  | { type: "active-thread-changed"; sessionId?: string };
+  | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" | "client-count" }>
+  | { type: "active-thread-changed"; sessionId?: string }
+  /** The host opened another project; `from` is absent for the first one this client saw. */
+  | { type: "workspace-changed"; from?: string; to: string };
 
 /** What a host event needs of the user's preferences. */
 export interface SettledThreadsPort {
@@ -60,7 +62,7 @@ export interface HostEventTargets {
 function isWorkbenchEvent(event: HostEvent): event is HostEvent & WorkbenchEventCandidate {
   return event.type === "tool-start" || event.type === "tool-end" || event.type === "agent-status"
     || event.type === "user-message" || event.type === "assistant-end" || event.type === "thread-index"
-    || event.type === "notice";
+    || event.type === "notice" || event.type === "client-count";
 }
 
 /**

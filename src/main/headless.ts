@@ -12,6 +12,7 @@ import { HostJobRunner } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { createHostMethods } from "./host-methods.js";
 import { hostTokenPath, readOrCreateHostToken } from "./host-token.js";
+import { HostClientRegistry } from "./host-clients.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
 import { parseListen } from "./host-listen.js";
@@ -65,6 +66,8 @@ async function main(): Promise<void> {
 
   let host: PiHost | undefined;
   let ready: Promise<unknown> | undefined;
+  /** The socket transport reports its clients here; the host publishes the count. */
+  const clients = new HostClientRegistry();
   const methods = createHostMethods({
     bootstrap: async () => {
       if (!host) {
@@ -77,6 +80,7 @@ async function main(): Promise<void> {
           }),
           logger: hostLog,
           workspaceIdentity,
+          clients,
           kitStateDir: join(userData, "kit-state"),
           sessionUsageCachePath: join(userData, "session-usage.json"),
           sessionLineageCachePath: join(userData, "session-lineage.json"),
@@ -136,6 +140,7 @@ async function main(): Promise<void> {
     token,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     ...(web ? { attachTo: web.server } : {}),
+    clients,
     logger: hostLog,
   });
   const { host: boundHost } = parseListen(listen);

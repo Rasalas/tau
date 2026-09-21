@@ -1,11 +1,12 @@
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostServerFrame } from "../shared/host-transport.js";
 import { HostPushLog } from "./host-push-log.js";
 import { clientHostToken, hostTokenMatches, readHostToken, readOrCreateHostToken } from "./host-token.js";
+import { HostClientRegistry } from "./host-clients.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import type { HostMethodTable } from "./host-methods.js";
@@ -25,7 +26,7 @@ afterEach(async () => {
   transport = undefined;
 });
 
-async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allowNonLoopback = false) {
+async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allowNonLoopback = false, clients?: HostClientRegistry) {
   transport = await startSocketHostTransport({
     listen: address,
     allowNonLoopback,
@@ -34,6 +35,7 @@ async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allo
     hostVersion: "test",
     capabilities: ["jobs"],
     token: TOKEN,
+    ...(clients ? { clients } : {}),
   });
   return { transport, pushLog };
 }
@@ -65,14 +67,51 @@ function closed(socket: WebSocket): Promise<number> {
   return new Promise((resolve) => socket.once("close", (code) => resolve(code)));
 }
 
-async function hello(port: number, token: string, lastSeq?: number) {
+async function hello(port: number, token: string, lastSeq?: number, profile?: string) {
   const socket = connect(port);
   await opened(socket);
-  socket.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token, ...(lastSeq === undefined ? {} : { lastSeq }) } }));
+  socket.send(JSON.stringify({ type: "hello", id: "h", hello: {
+    protocol: HOST_TRANSPORT_VERSION,
+    token,
+    ...(lastSeq === undefined ? {} : { lastSeq }),
+    ...(profile === undefined ? {} : { profile }),
+  } }));
   return { socket, frame: nextFrame(socket) };
 }
 
 describe("socket host transport", () => {
+  it("counts a client from its hello until its socket closes", async () => {
+    const clients = new HostClientRegistry();
+    const seen: string[] = [];
+    clients.observe({
+      attached: (_id, client) => seen.push(`+${client.transport}:${client.profile ?? "none"}`),
+      detached: () => seen.push("-"),
+    });
+    const { transport: started } = await listen(new HostPushLog(), "127.0.0.1:0", false, clients);
+
+    const first = await hello(started.port, TOKEN, undefined, "web");
+    await first.frame;
+    expect(clients.count()).toBe(1);
+
+    const second = await hello(started.port, TOKEN);
+    await second.frame;
+    expect(clients.count()).toBe(2);
+
+    first.socket.close();
+    await closed(first.socket);
+    await vi.waitFor(() => expect(clients.count()).toBe(1));
+    expect(seen).toEqual(["+socket:web", "+socket:none", "-"]);
+  });
+
+  it("does not count a peer whose token was refused", async () => {
+    const clients = new HostClientRegistry();
+    const { transport: started } = await listen(new HostPushLog(), "127.0.0.1:0", false, clients);
+    const wrong = await hello(started.port, "b".repeat(64));
+    void wrong.frame.catch(() => undefined);
+    expect(await closed(wrong.socket)).toBe(4401);
+    expect(clients.count()).toBe(0);
+  });
+
   it("answers a hello that carries the right token", async () => {
     const { transport: started } = await listen();
     const { frame } = await hello(started.port, TOKEN);

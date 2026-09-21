@@ -202,8 +202,10 @@ export interface OverlayContribution extends ProfileScoped {
 
 /** Host events the workbench forwards to extensions; the rest stays core state. */
 export type WorkbenchEvent =
-  | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" }>
-  | { type: "active-thread-changed"; sessionId?: string };
+  | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" | "client-count" }>
+  | { type: "active-thread-changed"; sessionId?: string }
+  /** The host opened another project; `from` is absent for the first one this client saw. */
+  | { type: "workspace-changed"; from?: string; to: string };
 
 export type WorkbenchEventType = WorkbenchEvent["type"];
 
