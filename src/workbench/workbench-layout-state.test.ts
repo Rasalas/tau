@@ -51,6 +51,16 @@ describe("stage persistence", () => {
     expect(restored.activeId).toBe("ext:1");
   });
 
+  it("keeps an extension tab whose kit has not activated yet, fields and all", () => {
+    const storage = createMemoryStorage();
+    const tab = { id: "ext:preview:1", kind: "extension", tabKind: "tau.preview/page", params: { url: "http://localhost:5173" }, preview: false, title: "Preview", dirty: true };
+    storage.set(stageStateKey(workspace), JSON.stringify({ tabs: [tab], activeId: tab.id }));
+
+    const restored = readStageState(storage, workspace);
+    expect(restored.tabs).toEqual([tab]);
+    expect(pruneStageState(restored, { workspacePath: "/repo", knownThreadIds: new Set() })).toBe(restored);
+  });
+
   it("survives a value that is not JSON", () => {
     const storage = createMemoryStorage();
     storage.set(stageStateKey(workspace), "{not json");
