@@ -162,7 +162,14 @@ export default function App() {
   const {
     stage, setStage, dockOpen, setDockOpen, activePanel, setActivePanel,
     openedPanels, dockWidth, setDockWidth, resetStage,
-  } = useWorkbenchLayoutState({ storage: clientStorage, workspaceId: activeWorkspaceId, workspacePath: workspaceCwd, knownThreadIds });
+  } = useWorkbenchLayoutState({
+    storage: clientStorage,
+    // A host that mints workspace ids names the workspace that way; one that
+    // does not leaves its path, which is what the review state falls back to too.
+    workspaceKey: activeWorkspaceId ?? workspaceCwd,
+    workspacePath: workspaceCwd,
+    knownThreadIds,
+  });
   useEffect(() => { resetStageRef.current = resetStage; }, [resetStage]);
   const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
   // Below this many pixels the centre cannot hold chat and stage side by side;
