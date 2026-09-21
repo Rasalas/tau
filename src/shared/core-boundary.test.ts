@@ -65,7 +65,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-extensions.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
-  "./host-push-log.js",   "./host-report.js",   "./host-text.js",   "./host-token.js",
+  "./host-process-supervisor.js",
+  "./host-push-log.js",   "./host-report.js",   "./host-text.js",   "./host-token.js",   "./host-uplink.js",
   "./host-transcript.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
@@ -86,7 +87,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-runtimes.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
-  "./workspace-identity.js",
+  "./window-host.js",   "./workspace-identity.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

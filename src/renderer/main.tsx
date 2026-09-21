@@ -2,10 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import type { HostClient } from "../workbench/host-client";
-import { createElectronHostClient } from "./platform-electron";
+import { createElectronHostClient, createElectronHostTransport } from "./platform-electron";
 import { createLocalStorageAdapter } from "./browser-storage";
 import { createSocketHostClient } from "../workbench/host-connection-socket";
-import type { HostConnection } from "../workbench/host-connection";
+import { HostConnection } from "../workbench/host-connection";
 import { HostClientProvider, setHostClient } from "./host-client-context";
 import { setClientStorage } from "../workbench/client-storage";
 import { ClientStorageProvider } from "./client-storage-context";
@@ -20,9 +20,15 @@ const search = new URLSearchParams(window.location.search);
 const remoteHost = search.get("host");
 
 // The one place a renderer module reads window.tau: everything else goes
-// through HostClient. `?host=ws://…` picks the socket transport instead.
+// through HostClient. `?host=ws://…` picks the socket transport instead; in a
+// desktop window the bridge stays beside it and answers for this machine —
+// the clipboard, image previews, the workbench build (ADR 0021).
 function connect(): { client: HostClient; connection: HostConnection } | undefined {
-  if (remoteHost) return createSocketHostClient(remoteHost, search.get("token") ?? undefined);
+  if (remoteHost) {
+    const local = window.tau ? new HostConnection(createElectronHostTransport(window.tau)) : undefined;
+    void local?.start().catch(() => undefined);
+    return createSocketHostClient(remoteHost, search.get("token") ?? undefined, undefined, local);
+  }
   return window.tau ? createElectronHostClient(window.tau) : undefined;
 }
 

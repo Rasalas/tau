@@ -28,7 +28,7 @@ function DefaultsPage({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, temperature, maxTokens } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, temperature, maxTokens, hostBackground } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
@@ -186,6 +186,23 @@ function DefaultsPage({
           aria-checked={showCosts}
           aria-label="Show costs"
           onClick={() => preferences.setShowCosts(!showCosts)}
+        >
+          <i />
+        </button>
+      </div>
+
+      <div className="settings-label">HOST</div>
+      <div className="settings-toggle-row">
+        <span>
+          <strong>Keep the host running in the background</strong>
+          <small>Threads keep working after you quit Tau, and the next start picks them up again.</small>
+        </span>
+        <button
+          className={`switch ${hostBackground ? "on" : ""}`}
+          role="switch"
+          aria-checked={hostBackground === true}
+          aria-label="Keep the host running in the background"
+          onClick={() => preferences.setHostBackground(!hostBackground)}
         >
           <i />
         </button>

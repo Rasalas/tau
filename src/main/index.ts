@@ -31,6 +31,7 @@ import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { resolveStartupWorkspace } from "./startup-workspace.js";
 import { WindowHost } from "./window-host.js";
+import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
 
@@ -143,6 +144,10 @@ const pushLog = new HostPushLog();
 const jobs = new HostJobRunner(broadcast);
 let host: PiHost | undefined;
 let hostReady: Promise<unknown> | undefined;
+/** The host this window is a client of, when it does not run one in process. */
+let windowHost: WindowHost | undefined;
+/** Set when the last window closed: quitting then leaves the host running. */
+let quitAfterWindowClosed = false;
 let projectHistory: ProjectHistory;
 let updates: AppUpdates | undefined;
 let shutdownStarted = false;
@@ -184,6 +189,18 @@ function broadcast(event: HostPushEvent): void {
   const push = pushLog.record(event);
   transport?.deliver(push);
   socketTransport?.deliver(push);
+}
+
+/** What the renderer is told: which host to speak to, and as which client. */
+function workbenchQuery(): Record<string, string> {
+  return {
+    ...(safeMode ? { safeMode: "1" } : {}),
+    // Which client this window claims to be (ADR 0016). Unset is `desktop`;
+    // setting it is how the desktop window shows what a smaller one leaves out.
+    ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
+    ...(windowHost ? { host: windowHost.hostUrl } : {}),
+    ...(windowHost?.hostToken ? { token: windowHost.hostToken } : {}),
+  };
 }
 
 async function createWindow(): Promise<void> {
@@ -238,21 +255,17 @@ async function createWindow(): Promise<void> {
   });
 
   // The token travels in the window's own query string, never on a command line.
-  const remoteToken = remoteHostUrl ? clientHostToken() : undefined;
-  const query: Record<string, string> = {
-    ...(safeMode ? { safeMode: "1" } : {}),
-    // Which client this window claims to be (ADR 0016). Unset is `desktop`;
-    // setting it is how the desktop window shows what a smaller one leaves out.
-    ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
-    ...(remoteHostUrl ? { host: remoteHostUrl } : {}),
-    ...(remoteToken ? { token: remoteToken } : {}),
-  };
+  const query = workbenchQuery();
+  await loadWorkbench(mainWindow, query);
+}
+
+async function loadWorkbench(window: BrowserWindow, query: Record<string, string>): Promise<void> {
   if (process.env.TAU_DEV_SERVER_URL) {
     const url = new URL(process.env.TAU_DEV_SERVER_URL);
     for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
-    await mainWindow.loadURL(url.toString());
+    await window.loadURL(url.toString());
   } else {
-    await mainWindow.loadFile(join(currentDir, "../../dist/index.html"), { query });
+    await window.loadFile(join(currentDir, "../../dist/index.html"), { query });
   }
 }
 
@@ -299,6 +312,54 @@ function startLocalHost(): void {
   hostReady = watchHostStart(host.start());
 }
 
+/**
+ * Starts or adopts the host process this window is a client of, or attaches to
+ * the one `TAU_HOST_URL` names. A host that will not start is fatal: the window
+ * has nothing to show without one.
+ */
+async function startHostProcess(): Promise<void> {
+  windowHost = new WindowHost({
+    userData: app.getPath("userData"),
+    version: app.getVersion(),
+    mainDirectory: currentDir,
+    execPath: process.execPath,
+    ...(requestedWorkspace ? { workspace: requestedWorkspace } : {}),
+    logger: hostLog,
+    onFatal: ({ message, logPath }) => {
+      dialog.showErrorBox("Tau's host stopped", `${message}\n\nDetails were written to:\n${logPath || hostLog.filePath}`);
+    },
+    // A restarted host may have landed on another port; the window's client
+    // only learns the new one by being pointed at it again.
+    onUrlChanged: () => { void pointWindowAtHost(); },
+    onEvent: (event) => {
+      // Drop a deactivated extension's bundle so tau-ext: returns 404 for it
+      // rather than serving code the user switched off.
+      if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId);
+    },
+  });
+  if (remoteHostUrl) {
+    windowHost.attach(remoteHostUrl, clientHostToken());
+    return;
+  }
+  try {
+    const running = await windowHost.startSupervised();
+    hostLog.info("host-process.ready", { pid: running.pid, url: running.url, adopted: running.adopted });
+  } catch (error: unknown) {
+    hostLog.error("host-process.start.failed", error);
+    dialog.showErrorBox(
+      "Tau could not start its host",
+      `${error instanceof Error ? error.message : String(error)}\n\nDetails were written to:\n${windowHost.logFile || hostLog.filePath}`,
+    );
+    app.exit(1);
+  }
+}
+
+/** Points the open window at the host's current URL; used when a restart moved it. */
+async function pointWindowAtHost(): Promise<void> {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  await loadWorkbench(mainWindow, workbenchQuery());
+}
+
 /** Everything this machine can answer for itself; a client of a remote host has none of it. */
 function createLocalHostMethods(): HostMethodTable {
   return createHostMethods({
@@ -342,28 +403,13 @@ function createLocalHostMethods(): HostMethodTable {
           safeMode ? EMPTY_DESKTOP_EXTENSIONS : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
           loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions }),
         ]);
-        // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
-        desktopBundles.clear();
-        return {
-          bundles: [...kits.bundles, ...result.bundles].map((bundle) => ({
-            ...bundle,
-            url: desktopBundles.publish(bundle.id, bundle.code),
-            ...(bundle.styles ? { stylesUrl: desktopBundles.publishStyles(bundle.id, bundle.styles) } : {}),
-          })),
+        return serveBundles({
+          bundles: [...kits.bundles, ...result.bundles],
           errors: [...kits.errors, ...result.errors],
           skipped: result.skipped,
-        };
+        });
       },
-      rebuildWorkbench: async (context, activeWorkspace) => {
-        if (rebuild) return rebuild;
-        rebuild = workbenchReloader.rebuild(activeWorkspace, {
-          onOutput: (line) => {
-            context.progress(line);
-            publish({ type: "event-log", label: "workbench.build", detail: line, timestamp: Date.now() });
-          },
-        }).finally(() => { rebuild = undefined; });
-        return rebuild;
-      },
+      rebuildWorkbench: async (context, activeWorkspace) => runRebuild(context, activeWorkspace),
       workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
       relaunchWorkbench: () => workbenchReloader.relaunch(),
       installUpdate: () => updates?.install() ?? false,
@@ -371,9 +417,59 @@ function createLocalHostMethods(): HostMethodTable {
   });
 }
 
+/** Turns the code the host compiled into the `tau-ext:` URLs the renderer imports. */
+function serveBundles(result: WorkbenchDesktopExtensions): WorkbenchDesktopExtensions {
+  // Each sync replaces the served set, so an edited extension never keeps its old URL alive.
+  desktopBundles.clear();
+  return {
+    ...result,
+    bundles: result.bundles.map((bundle) => ({
+      ...bundle,
+      url: desktopBundles.publish(bundle.id, bundle.code),
+      ...(bundle.styles ? { stylesUrl: desktopBundles.publishStyles(bundle.id, bundle.styles) } : {}),
+    })),
+  };
+}
+
+/** What this machine answers for itself while the host answers for the threads. */
+function createWindowPlatform(): ClientHostPlatform {
+  return {
+    copyText: (text) => clipboard.writeText(text),
+    copyImage: (dataUrl) => {
+      const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
+      if (image.isEmpty()) throw new Error("Invalid image data.");
+      clipboard.writeImage(image);
+    },
+    readImagePreview: rendererImagePreview,
+    loadDesktopExtensions: async (cwd, sharedExports) =>
+      windowHost!.loadDesktopExtensions(cwd, sharedExports, serveBundles),
+    rebuildWorkbench: async (context) => runRebuild(context, windowHost?.activeWorkspace ?? requestedWorkspace ?? ""),
+    workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
+    relaunchWorkbench: () => workbenchReloader.relaunch(),
+    installUpdate: () => updates?.install() ?? false,
+  };
+}
+
+/** One build at a time, wherever the request came from. */
+function runRebuild(context: { progress(line: string): void }, activeWorkspace: string): Promise<WorkbenchBuildResult> {
+  if (rebuild) return rebuild;
+  rebuild = workbenchReloader.rebuild(activeWorkspace, {
+    onOutput: (line) => {
+      context.progress(line);
+      publish({ type: "event-log", label: "workbench.build", detail: line, timestamp: Date.now() });
+    },
+  }).finally(() => { rebuild = undefined; });
+  return rebuild;
+}
+
 function installTransport(): void {
-  const methods = remoteHostUrl
-    ? createUnsupportedHostMethods(`This window is a client of the host at ${remoteHostUrl}; local operations (clipboard, image previews, workbench rebuild) are not available here.`)
+  // A window whose host lives elsewhere answers only for its own machine; the
+  // host's own methods would have nothing here to answer with.
+  const methods = windowHost
+    ? {
+      ...createUnsupportedHostMethods(`This window is a client of the host at ${windowHost.hostUrl}; only its own machine answers here.`),
+      ...createClientHostMethods(createWindowPlatform()),
+    }
     : createLocalHostMethods();
   transport = installElectronHostTransport({
     ipcMain,
@@ -382,7 +478,7 @@ function installTransport(): void {
     methods,
     pushLog,
     hostVersion: app.getVersion(),
-    capabilities: remoteHostUrl ? [] : [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
+    capabilities: windowHost ? [HOST_CAPABILITY.localFiles] : [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
     send: (channel, payload) => { if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send(channel, payload); },
   });
   // A second transport for a client that is not this window; off unless asked for.
@@ -433,13 +529,18 @@ if (primaryInstance) app.whenReady().then(async () => {
   if (shellEnvironment?.installed.length) console.log(`shell environment: ${shellEnvironment.installed.join(", ")} from ${shellEnvironment.pathSource}`);
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
+  if (!inProcessHost) await startHostProcess();
   installTransport();
-  if (!remoteHostUrl) startLocalHost();
+  if (inProcessHost) startLocalHost();
   await createWindow();
 });
 
 if (primaryInstance) app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform === "darwin") return;
+  // The window is not the host any more: closing it leaves the threads
+  // running, and the next start adopts them through host.json (ADR 0021).
+  quitAfterWindowClosed = true;
+  app.quit();
 });
 
 // `webviewTag` is off, so this only ever fires on a bug or on injected markup.
@@ -455,15 +556,32 @@ if (primaryInstance) app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
 
+/**
+ * Quitting ends the host too, unless the user asked for it to stay (Settings →
+ * Defaults) or the window merely closed. A host in this process is disposed
+ * the way it always was.
+ */
 if (primaryInstance) app.on("before-quit", (event) => {
-  if (!host || shutdownComplete) return;
+  if (shutdownComplete || (!host && !windowHost)) return;
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
-  void host.dispose()
-    .catch((error) => hostLog.error("host.shutdown.failed", error))
+  void (async () => {
+    if (host) await host.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
+    if (windowHost) await windowHost.stop(quitAfterWindowClosed || await keepHostRunning());
+  })()
+    .catch((error: unknown) => hostLog.error("host.shutdown.failed", error))
     .finally(() => {
       shutdownComplete = true;
       app.quit();
     });
 });
+
+/** The "keep the host running" preference; read from the file, not from the host that is stopping. */
+async function keepHostRunning(): Promise<boolean> {
+  try {
+    return (await defaultHostConfigManager.read()).hostBackground === true;
+  } catch {
+    return false;
+  }
+}

@@ -34,6 +34,8 @@ export interface PreferencesState {
   temperature?: number;
   maxTokens?: number;
   vimMode?: boolean;
+  /** Leave the host process running when the app quits; its threads keep going. */
+  hostBackground?: boolean;
 }
 
 const DEFAULTS: PreferencesState = {
@@ -48,6 +50,7 @@ const DEFAULTS: PreferencesState = {
   extensionValues: {},
   disabledExtensions: [],
   vimMode: false,
+  hostBackground: false,
 };
 
 function stringList(value: unknown): string[] {
@@ -155,6 +158,7 @@ export class PreferencesStore {
     if (config.temperature !== undefined) patch.temperature = config.temperature;
     if (config.maxTokens !== undefined) patch.maxTokens = config.maxTokens;
     if (config.vimMode !== undefined) patch.vimMode = config.vimMode;
+    if (config.hostBackground !== undefined) patch.hostBackground = config.hostBackground;
     this.update(patch, false);
   }
 
@@ -185,6 +189,10 @@ export class PreferencesStore {
 
   setShowCosts(showCosts: boolean): void {
     this.update({ showCosts });
+  }
+
+  setHostBackground(hostBackground: boolean): void {
+    this.update({ hostBackground });
   }
 
   setTheme(theme: ThemePreference): void {
@@ -318,6 +326,7 @@ export class PreferencesStore {
       if (patch.fontSize !== undefined) hostPatch.fontSize = patch.fontSize;
       if (patch.temperature !== undefined) hostPatch.temperature = patch.temperature;
       if (patch.maxTokens !== undefined) hostPatch.maxTokens = patch.maxTokens;
+      if (patch.hostBackground !== undefined) hostPatch.hostBackground = patch.hostBackground;
       if (patch.vimMode !== undefined) hostPatch.vimMode = patch.vimMode;
       void this.hostClient.updateConfig(hostPatch, "global", this.activeWorkspaceId).catch(() => {});
     }

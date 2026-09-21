@@ -636,6 +636,8 @@ export interface TauConfig {
   favouriteModels?: string[];
   disabledExtensions?: string[];
   prewarm?: boolean;
+  /** Leave the host process running after the app quits, so its threads keep going. */
+  hostBackground?: boolean;
   options?: Record<string, boolean>;
   values?: Record<string, string>;
   keybindings?: Record<string, string>;
