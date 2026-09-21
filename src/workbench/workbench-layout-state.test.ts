@@ -79,6 +79,11 @@ describe("pruneStageState", () => {
     expect(pruned.tabs.map((tab) => tab.id)).toEqual(["file:/repo/a.ts", "thread:thread-live", "thread:thread-gone"]);
   });
 
+  it("keeps a path the document source spelled relative to the workspace", () => {
+    const relative = openFileTab(EMPTY_STAGE, "docs/CORE.md", { pin: true });
+    expect(pruneStageState(relative, { workspacePath: "/repo" }).tabs).toHaveLength(1);
+  });
+
   it("returns the same state when nothing is dropped", () => {
     expect(pruneStageState(stage, {})).toBe(stage);
   });

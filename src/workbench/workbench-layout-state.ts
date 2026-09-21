@@ -117,7 +117,13 @@ export function pruneStageState(state: StageState, options: StagePruneOptions): 
   return { tabs, activeId: tabs.some((tab) => tab.id === state.activeId) ? state.activeId : tabs[0].id };
 }
 
+/**
+ * A document source may name a file relative to the workspace or absolutely.
+ * Only an absolute path can be read as belonging to another project; a
+ * relative one is this workspace's by construction.
+ */
 function isInside(root: string, path: string): boolean {
+  if (!path.startsWith("/") && !/^[A-Za-z]:[\\/]/u.test(path)) return true;
   const base = root.endsWith("/") ? root : `${root}/`;
   return path === root || path.startsWith(base);
 }
