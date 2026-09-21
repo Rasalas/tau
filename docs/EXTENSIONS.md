@@ -623,7 +623,40 @@ separate, later gate).
 | Compiled host bundle cache | a temp directory (`tmpdir()/tau-host-extensions` by default, keyed by content hash) |
 
 A folder source is never copied — `/install ./my-extension` loads it where it
-lies, which is also how you develop one: edit it in place, `/reload`.
+lies, which is also how you develop one: edit it in place and save.
+
+### The development loop
+
+The host watches the files it reads and reloads what changed. Save a file and
+the change is in the app — no `/reload`, no restart:
+
+| Edited | What happens |
+|---|---|
+| Anything in a package folder (`~/.tau/extensions/<name>/`, `<project>/.tau/extensions/<name>/`, a folder source in `packages.json`) | That one package is rebuilt and restarted. Its host half restarts only if its compiled code actually changed; its desktop module is swapped in place, so the rest of the workbench keeps running. A toast says *Reloaded &lt;name&gt;* |
+| A loose file, `~/.tau/extensions/hello.tsx` | The same, under the id its path gives it (`local.hello`) |
+| A kit under `kits/` in a checkout | Its desktop half is swapped. Its **host** half still needs `/reload` — a shipped kit is loaded once, before any package |
+| A theme in `~/.tau/themes`, `<project>/.tau/themes`, `~/.pi/agent/themes`, `<project>/.pi/themes` | The client re-reads the themes and re-applies the active one; nothing else moves. A theme *package* (a folder that is only a stylesheet) goes the package route and swaps its `<link>` |
+| `~/.pi/agent/keybindings.json` | The host reports the change; the Keybindings kit re-reads the file and rebinds |
+| `~/.tau/config.json`, `<project>/.tau/config.json` | The client re-reads the config and applies it. Pi's own `settings.json` stays Pi's business |
+
+Only the file that changed is acted on: a save in one package never restarts
+another one's worker, and a theme edit touches no extension at all.
+
+**A save that does not compile changes nothing.** The version that was running
+stays running, the error is a toast and a line in Settings → Inspector, and it
+counts as nothing — a reload failure is not a command failure, so it can never
+add up to a deactivation. Fix the file, save again, and the new version takes
+over.
+
+The panels of a reloaded package remount, so whatever state they held is gone.
+That is the price of swapping a module in place, and it is why only the package
+you edited is swapped.
+
+**Turning it off.** `extensions.watch: false` in `~/.tau/config.json` (or
+`<project>/.tau/config.json`), or `TAU_NO_WATCH=1` in the environment, stops
+the host from watching anything; `/reload` then applies changes as before.
+Safe mode (`TAU_NO_EXTENSIONS=1`) watches nothing either — it exists so that no
+extension loads at all.
 
 ## 4. Signing
 
@@ -693,6 +726,11 @@ its own. There is no revocation list: removing a key from
   service member, or the network without `network` — throws inside the command
   and logs `host-extension.denied`, but the package stays active. Only the
   three-strikes rule above can turn repeated denials into a deactivation.
+- **A failed reload is not a failure:** when a watched edit leaves a package
+  that no longer parses or compiles, the version that is running stays
+  running. The error is reported (toast, Settings → Inspector) and nothing is
+  counted against the package — neither the three-strikes counter nor the
+  timeout rule applies to code that never ran.
 - **What the user sees:** the deactivation reason is recorded in
   `summaries()` and shown on the package's own settings page — never a crash
   or a frozen workbench. On the renderer side every slot a package renders
@@ -719,6 +757,7 @@ nothing that hands out a live object. From
 | `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
+| `observeConfigChanges` (one change per call, plain data) | |
 
 Everything on the left is asynchronous, even members that are synchronous
 in-process (`cwd()`, `thread()`), because every call is a round trip over the
