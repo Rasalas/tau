@@ -312,6 +312,45 @@ contribution embeds the file as text instead when it is false. A
 `ThreadRuntimeBackend` receives both kinds in `attachments` and takes the ones
 its runtime understands.
 
+#### The chip service: `tau.composer-context/chips`
+
+Composer Context (`kits/composer-context/`) is the one inline contribution Tau
+ships, and it lends its chips to every other package: a terminal hands over an
+excerpt, a review comment or a pull request view hands over its PR, without
+knowing the composer. Copy the types from `kits/composer-context/protocol.ts`
+(a kit never imports another kit) and use the service:
+
+```ts
+context.useService<ComposerContextChips>("tau.composer-context/chips", (chips) => {
+  const id = chips.addChip({ kind: "text-excerpt", payload: { source: "Terminal", text: selection } });
+  return () => chips.removeChip(id);
+});
+```
+
+| Member | Contract |
+|---|---|
+| `addChip({ kind, label?, payload, render? })` | Puts a chip into the draft of the composer on screen and answers with its id; throws when no composer is open. `label` defaults to one the payload implies; `render(chip)` may answer a React node to draw instead of the label (it is not persisted). |
+| `removeChip(id)` | Takes it out again, from whichever draft holds it. |
+| `chips()` | The chips of the draft on screen, in the order they were added. |
+| `subscribe(listener)` | Called on any change to any draft's chips. |
+
+The four kinds and what each becomes when the prompt is sent, always in this
+order and before the user's text:
+
+| `kind` | `payload` | Sent as |
+|---|---|---|
+| `file` | `{ path, startLine?, endLine? }`, workspace-relative, lines 1-based | `<file path="…" lines="a-b">…</file>`, read at send time, 200 KB at most |
+| `text-excerpt` | `{ source, text }` | `From <source>:` and the text as a `>` quote |
+| `pull-request` | `{ number, title, url, branch? }` | `Pull request [#n](url): title` |
+| `attachment` | `{ name, mimeType, size, path? }`, `path` on the host | a `kind: "file"` attachment for a runtime that opens files; otherwise the text inline (200 KB at most) or, for anything else, a sentence naming the path |
+
+A draft's chips persist with its text (the `draftState` slot above) and go when
+the prompt was accepted; a refused prompt puts them back. The kit's own limits
+are T3 Code's: eight attachments a message, 10 MB an image (an image goes to
+core as an image whenever the model sees images), 50 MB any other file, and a
+paste from 32 KiB on becomes `pasted-text-<n>.txt` with a chip — removing the
+chip is the undo.
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, stage tabs,

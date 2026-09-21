@@ -23,6 +23,7 @@ only what a reader toggled.
 Composer
 
 - text, images, queued steering and follow-up messages, abort
+- the slot inside the input frame that extensions fill with typed context (`registerComposerInline`), and file attachments beside images for a runtime whose adapter declares them
 - Pi commands: extension commands, `/skill:` and prompt templates, as Pi reports them
 - model, thinking level, context usage and compaction; what the thread has spent so far
 
@@ -148,6 +149,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Project sources: folder browsing, native folder picker, Git clone | Workspace Kit host entry (`kits/workspace/host.ts`) and its two sources in `kits/workspace/navigation.tsx`; core keeps the sources modal as the placement for `registerProjectSource`, and `assertAllowedCloneSource` stays core's because the package installer clones too | Workspace Kit |
 | Terminals: a shell per workspace or thread, in the dock, on desktop and web | Terminal Kit: `kits/terminal/`, a package Tau ships (ADR 0014). Its host half holds one `node-pty` session per terminal (`kits/terminal/host.ts`), loaded through `loadDependency` so the native addon stays where npm put it, filed under the workspace the host has open and, when a thread asked, started in that thread's worktree; input and resize are commands, output and exit are pushes with byte offsets, so a reloaded client replays without drawing twice. Terminals die with the workspace (`beforeWorkspace`) or the kit, never with the window. Its desktop half is the Terminal dock panel over xterm.js, grouped by the thread on screen; a shell that belongs to another thread is marked, not killed, and "open as tab" draws one on the stage through `registerStageTab` while the panel stands down for it | Terminal Kit |
 | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
+| Chips in the composer — files by `@`, pull requests by `#`, excerpts other kits hand over — file attachments of any type, and large pastes folded into a text file | Composer Context: `kits/composer-context/`, a package Tau ships (ADR 0014). Its desktop half fills core's inline slot (`registerComposerInline`) and publishes the chip service `tau.composer-context/chips` for the kits that have context to give; its host half stores attachments in `<userData>/kit-state/tau.composer-context/attachments/<thread>/`, reads what a file chip points at and lists files and pull requests (`gh`, `glab` through `findCommand`). A chip becomes text before the prompt when it is sent; an attachment goes as a file to a runtime that opens files and as text or a path to one that does not | Composer Context |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
 Defaults, Pi, Keybindings and Inspector pages, and the contributions that reach
