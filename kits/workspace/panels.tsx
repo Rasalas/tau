@@ -97,7 +97,7 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
 
 export function ChangesPanel({ active, extensionName }: PanelProps) {
   const workspaceStore = useWorkspaceStore();
-  const { changes, committing, pushPrimary, commitFocusToken, cwd, workspace } = useWorkspaceKit();
+  const { changes, committing, pushPrimary, commitFocusToken, cwd, workspace, changesSections } = useWorkspaceKit();
   const { activeDocumentPath: activePath } = useWorkbench();
   const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
   const canPush = Boolean(workspace?.upstream);
@@ -133,6 +133,7 @@ export function ChangesPanel({ active, extensionName }: PanelProps) {
       <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><Maximize2 size={14} /></button>
       <button className="text-button" onClick={() => void refreshChanges()}>rescan</button>
     </header>
+    {changesSections.map((Section, index) => <Section key={index} message={message} committed={() => setDirty(false)} />)}
     {changes.files.length === 0 ? <p className="empty-copy">The worktree is clean.</p> : <>
       <div className="commit-box">
         <div className="commit-selection"><small>{stagedCount}/{changes.files.length} staged</small>{!allStaged ? <button className="text-button" disabled={committing} onClick={() => void stageAll()}>Stage all</button> : <span>All staged</span>}</div>

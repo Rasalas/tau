@@ -10,6 +10,8 @@ import type {
   UiTerminal,
   UiFileContent,
   UiFileDiff,
+  UiReviewRequest,
+  UiSession,
   UiWorktreeStatus,
   UiWorkspaceChanges,
   UiWorkspaceChangesPage,
@@ -20,6 +22,7 @@ import type {
   WorkspaceInfo,
   WorkspaceRef,
 } from "tau";
+import type { ComponentType } from "react";
 import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
@@ -93,6 +96,24 @@ export interface UiDirectoryListing {
 }
 
 /**
+ * The Git facts a pull or merge request is opened from. `base` is the branch a
+ * new request merges into (`origin/HEAD`, then main or master); `detail` adds
+ * the commits since it, a diff stat and the repository's request template.
+ */
+export interface ReviewRequestContext {
+  root: string;
+  branch?: string;
+  remote?: { name: string; url: string };
+  upstream?: string;
+  /** Commits not yet on the upstream; set with `upstream`. */
+  ahead?: number;
+  base: string;
+  commits?: Array<{ subject: string; body: string }>;
+  diffStat?: string;
+  template?: string;
+}
+
+/**
  * Workspace Kit's commands. A file inside a workspace travels as `relPath`, a
  * POSIX path relative to the workspace root; a workspace itself travels as the
  * opaque `workspace` id the host published. Only folder browsing deals in host
@@ -115,7 +136,12 @@ export interface WorkspaceHostCommands {
   "read-file": { input: { relPath: string }; output: UiFileContent };
   "commit": { input: { message: string; push: boolean }; output: CommitResult };
   "pull": { input: undefined; output: PullResult };
+  /** Pushes the branch; one without an upstream is published to the primary remote. Review Kit may call it. */
   "push": { input: undefined; output: PushResult };
+  /** Review Kit's reading of the branch before it opens a request (callers: `tau.review`). */
+  "review-request-context": { input: { detail?: boolean; base?: string } | undefined; output: ReviewRequestContext };
+  /** The branch's pull or merge request as `gh`/`glab` report it; `fresh` skips the short cache (callers: `tau.review`). */
+  "review-request": { input: { workspace?: string; fresh?: boolean } | undefined; output: UiReviewRequest | undefined };
   /** Reads metadata for a known project without changing the active host workspace. */
   "workspace-info": { input: { workspace?: string } | undefined; output: WorkspaceInfo };
   /** Reads every linked checkout only when the picker needs cleanup safety facts. */
@@ -267,6 +293,10 @@ export interface WorkspaceKitState {
   worktreeBase?: UiWorktreeBase;
   /** A worktree is being created for the thread that is starting. */
   preparingWorktree: boolean;
+  /** Sections other kits add to the Changes panel. */
+  changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
+  /** Marks other kits add to rail rows. */
+  threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
 }
 
 export interface WorktreeNameRequest {
@@ -280,6 +310,19 @@ export interface WorktreeNameRequest {
 }
 
 export type WorktreeNamer = (request: WorktreeNameRequest) => Promise<string>;
+
+/** What the Changes panel hands a section another kit contributes. */
+export interface ChangesSectionProps {
+  /** The commit message as the user left it in the box. */
+  message: string;
+  /** Tell the box a commit went through, so it follows the next proposal again. */
+  committed(): void;
+}
+
+/** A small mark another kit draws on a thread's rail row, e.g. its request status. */
+export interface ThreadRowAccessoryProps {
+  session: UiSession;
+}
 
 export type CommitMessageSuggester = (request: {
   changes: UiWorkspaceChanges;
@@ -311,4 +354,10 @@ export interface WorkspaceStoreApi {
   /** An extension offers to name new worktrees; the picker shows the offer only while one is registered. */
   registerWorktreeNamer(namer: WorktreeNamer): () => void;
   registerCommitMessageSuggester(suggester: CommitMessageSuggester): () => void;
+  /** Re-reads the followed project's changes and Git facts, e.g. after another kit pushed. */
+  refresh(): Promise<void>;
+  /** A section drawn at the top of the Changes panel, clean worktree or not. */
+  registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
+  /** A mark drawn on every thread row of the rail. */
+  registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
 }

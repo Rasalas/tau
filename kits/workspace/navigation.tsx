@@ -375,10 +375,13 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   );
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
   const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
+  const workspace = useWorkspaceStore();
+  const accessories = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowAccessories);
   if (!session) return null;
   return (
     <ThreadRow
       session={session}
+      accessory={accessories.length > 0 ? accessories.map((Accessory, index) => <Accessory key={index} session={session} />) : undefined}
       showCost={showCosts}
       projectIcon={findProjectForSession(projects, session)?.icon}
       active={active}
