@@ -423,6 +423,12 @@ export type GlobalHostEvent =
    * client can swap those modules instead of every one it loaded.
    */
   | { type: "extension-packages-changed"; extensionIds?: string[]; sessionId?: undefined }
+  /**
+   * A file the host watches moved on disk: `kind` names the group it belongs to
+   * ("config", "themes", "keybindings"), `paths` what changed. A client re-reads
+   * whatever it holds from that group; the host re-reads nothing for it.
+   */
+  | { type: "config-changed"; kind: string; paths: string[]; sessionId?: undefined }
   /** A host extension the registry had to stop, with the reason to show the user. */
   | { type: "extension-deactivated"; extensionId: string; name: string; reason: string; sessionId?: undefined }
   | { type: "error"; message: string; sessionId?: undefined }

@@ -3,6 +3,7 @@ import Module, { createRequire } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";
 import {
   FACT_HOOKS,
+  CONFIG_HOOKS,
   LIFECYCLE_HOOKS,
   TURN_HOOKS,
   serializeError,
@@ -181,6 +182,7 @@ const services: WorkerHostServices = {
       });
     },
   },
+  observeConfigChanges: (listener) => registerHooks("observeConfigChanges", { changed: listener }, CONFIG_HOOKS),
   registerThreadLifecycle: (lifecycle) => registerHooks("registerThreadLifecycle", lifecycle as Record<string, unknown>, LIFECYCLE_HOOKS),
   registerTurnObserver: (observer) => registerHooks("registerTurnObserver", observer as Record<string, unknown>, TURN_HOOKS),
   setPendingWork: async (sessionId, count) => { await rpc("setPendingWork", sessionId, count); },

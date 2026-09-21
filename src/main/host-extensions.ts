@@ -317,6 +317,15 @@ export interface HostUiPresenter {
   clear?(sessionId: string): void;
 }
 
+/**
+ * Files the host watches changed on disk. `kind` names the group — the host's
+ * own vocabulary for what it reads — and `paths` what moved inside it.
+ */
+export interface HostConfigChange {
+  kind: string;
+  paths: readonly string[];
+}
+
 /** One entry of a workspace's skill catalog, as `services.skills` reports it. */
 export interface HostSkill {
   name: string;
@@ -430,6 +439,13 @@ export interface HostExtensionServices {
    * where npm put it. A CommonJS module answers with its `module.exports`.
    */
   loadDependency(packageName: string): Promise<unknown>;
+  /**
+   * Follows the files the host watches. The host re-reads none of them for a
+   * kit and calls no kit by name: it reports what moved, and whoever owns those
+   * files decides what to do — the keybindings kit re-reads `keybindings.json`,
+   * a themes kit its folder. Off when watching is.
+   */
+  observeConfigChanges(listener: (change: HostConfigChange) => void): () => void;
   /** Lets an extension annotate Pi dialogs before the workbench sees them. */
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** What the user lets external runtimes do; `undefined` restores full access. */

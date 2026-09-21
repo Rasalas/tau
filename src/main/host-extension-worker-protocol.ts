@@ -86,6 +86,7 @@ export interface WorkerProjectFacts {
 export const LIFECYCLE_HOOKS = ["beforeWorkspace", "beforeOpen", "afterFork", "beforeActivate", "sweep"] as const;
 export const TURN_HOOKS = ["accepted", "prepare", "cancelled", "ended", "reset", "closed", "toolEnded"] as const;
 export const FACT_HOOKS = ["name", "label", "nested"] as const;
+export const CONFIG_HOOKS = ["changed"] as const;
 
 /**
  * What an isolated host extension may ask of the host. Everything is a round
@@ -128,6 +129,8 @@ export interface WorkerHostServices {
     /** Runs `work` inside the host's thread lifecycle lock, one round trip wide. */
     exclusive<T>(work: () => Promise<T> | T): Promise<T>;
   };
+  /** Follows the files the host watches; the hook receives one change at a time. */
+  observeConfigChanges(listener: (change: { kind: string; paths: readonly string[] }) => void): Promise<() => void>;
   registerThreadLifecycle(lifecycle: WorkerThreadLifecycle): Promise<() => void>;
   registerTurnObserver(observer: WorkerTurnObserver): Promise<() => void>;
   /** Work the extension still owes a thread; the host keeps such a thread alive. */
