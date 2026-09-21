@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Command, Cpu, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
-import { NETWORK_ADVISORY_NOTE, PERMISSION_NETWORK } from "../../shared/extension-permissions";
+import { NETWORK_ADVISORY_NOTE } from "../../shared/extension-permissions";
 import { TRANSCRIPT_DETAIL_LEVELS } from "../../workbench/transcript-folding";
 import { allAvailableThemes, getUserTheme } from "../theme";
 import { usePreferences } from "../renderer-services-context";
@@ -420,12 +420,11 @@ function ExtensionPage({
           {summary.isolation === "in-process" ? (
             <>
               <ul><li><code>in-process</code> — runs inside the host process, outside the worker isolation</li></ul>
-              {summary.permissions?.includes(PERMISSION_NETWORK) ? null : (
-                <p className="settings-note">{NETWORK_ADVISORY_NOTE}, so this package can reach the network without asking.</p>
-              )}
+              <p className="settings-note">{NETWORK_ADVISORY_NOTE}, so this package can reach the network and start processes whatever it asked for.</p>
             </>
-          ) : null}
-          <p className="settings-note">process access only governs subprocess reporting and command lookup through noteSubprocess/findCommand, so this package can still spawn processes without it.</p>
+          ) : (
+            <p className="settings-note">In its worker, network and process access are refused without the matching grant — a guardrail against a mistake, not against code written to get around it.</p>
+          )}
           <div className="extension-grant-actions">
             <button type="button" className="grant-allow" onClick={() => void handleGrant(true)}>Allow</button>
             <button type="button" className="grant-deny" onClick={() => void handleGrant(false)}>Deny</button>

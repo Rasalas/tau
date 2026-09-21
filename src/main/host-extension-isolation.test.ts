@@ -80,6 +80,22 @@ export default {
 };
 `;
 
+/** Every way out of the worker the two enforced grants cover. */
+const PROCESS_FIXTURE = `
+export default {
+  id: "acme.process",
+  name: "Process Package",
+  activate(context) {
+    context.registerCommand("require-spawn", () => typeof require("child_process").spawnSync);
+    context.registerCommand("require-node-spawn", () => typeof require("node:child_process").execFileSync);
+    context.registerCommand("import-spawn", async () => typeof (await import("node:child_process")).spawnSync);
+    context.registerCommand("import-https", async () => typeof (await import("node:https")).request);
+    context.registerCommand("nested-worker", () => typeof require("node:worker_threads").Worker);
+    context.registerCommand("run", () => require("child_process").execFileSync("echo", ["ran"]).toString().trim());
+  },
+};
+`;
+
 interface Recorder {
   logs: string[];
   lifecycles: HostThreadLifecycle[];
@@ -167,6 +183,7 @@ let scratch: string;
 let bundle: string;
 let electronBundle: string;
 let networkBundle: string;
+let processBundle: string;
 
 beforeAll(async () => {
   scratch = await mkdtemp(join(tmpdir(), "tau-worker-package-"));
@@ -183,6 +200,12 @@ beforeAll(async () => {
   networkBundle = await writeHostExtensionBundle(
     await bundleHostExtension(join(scratch, "network-host.ts")),
     { id: "acme.network", name: "Network Package" },
+    scratch,
+  );
+  await writeFile(join(scratch, "process-host.ts"), PROCESS_FIXTURE);
+  processBundle = await writeHostExtensionBundle(
+    await bundleHostExtension(join(scratch, "process-host.ts")),
+    { id: "acme.process", name: "Process Package" },
     scratch,
   );
 }, 60_000);
@@ -337,6 +360,8 @@ describe("isolated host extensions", () => {
     expect(registry.summaries()[0]?.error).toBeTruthy();
   }, 40_000);
 
+  const spawner = (permissions: string[]) => harness({ permissions, id: "acme.process", name: "Process Package", file: processBundle });
+
   describe("the network permission", () => {
     const network = (permissions: string[]) => harness({ permissions, id: "acme.network", name: "Network Package", file: networkBundle });
 
@@ -378,12 +403,65 @@ describe("isolated host extensions", () => {
       }
     }, 30_000);
 
+    it("refuses a dynamic import of a socket builtin too", async () => {
+      const { registry, extension } = spawner([]);
+      await registry.activate(extension);
+      try {
+        await expect(registry.invoke("acme.process", "import-https")).rejects.toThrow("Extension acme.process lacks permission network");
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
     it("lets a granted package reach the network", async () => {
       const { registry, extension, recorder } = network(["network"]);
       await registry.activate(extension);
       try {
         await expect(registry.invoke("acme.network", "fetch", { port })).resolves.toBe("pong");
         await expect(registry.invoke("acme.network", "require-http")).resolves.toBe("function");
+        expect(recorder.logs.filter((line) => line.startsWith("host-extension.denied"))).toEqual([]);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+  });
+
+  describe("the process permission", () => {
+    it("refuses child_process without the grant, however it is asked for", async () => {
+      const { registry, extension, recorder } = spawner(["workspace:read"]);
+      await expect(registry.activate(extension)).resolves.toBe(true);
+      try {
+        for (const command of ["require-spawn", "require-node-spawn", "import-spawn"]) {
+          await expect(registry.invoke("acme.process", command)).rejects.toThrow("Extension acme.process lacks permission process");
+        }
+        // A denial is an authorization answer, not a crash: the package lives on.
+        expect(registry.isActive("acme.process")).toBe(true);
+        expect(recorder.logs.filter((line) => line.startsWith("host-extension.denied"))).toEqual([
+          'host-extension.denied Extension acme.process lacks permission process (require("child_process"))',
+          'host-extension.denied Extension acme.process lacks permission process (require("node:child_process"))',
+          "host-extension.denied Extension acme.process lacks permission process (import node:child_process)",
+        ]);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
+    it("refuses a nested worker, which would run outside both guards", async () => {
+      const { registry, extension } = spawner(["process"]);
+      await registry.activate(extension);
+      try {
+        await expect(registry.invoke("acme.process", "nested-worker")).rejects.toThrow(/may not start a worker thread/u);
+      } finally {
+        await registry.dispose();
+      }
+    }, 30_000);
+
+    it("lets a granted package spawn, and start a worker once nothing is left to escape", async () => {
+      const { registry, extension, recorder } = spawner(["process", "network"]);
+      await registry.activate(extension);
+      try {
+        await expect(registry.invoke("acme.process", "run")).resolves.toBe("ran");
+        await expect(registry.invoke("acme.process", "nested-worker")).resolves.toBe("function");
         expect(recorder.logs.filter((line) => line.startsWith("host-extension.denied"))).toEqual([]);
       } finally {
         await registry.dispose();
