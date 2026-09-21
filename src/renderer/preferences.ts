@@ -12,6 +12,8 @@ export interface PreferencesState {
   transcriptDetailOverride?: { threadId: string; level: TranscriptDetail };
   /** Whether the workbench shows what threads cost. */
   showCosts: boolean;
+  /** Whether the host picks a thread back up when a restart cut its turn short. */
+  continueThreadsAfterRestart: boolean;
   /** Which token set the window paints with; `system` follows the OS. */
   theme: ThemePreference;
   editorId?: string;
@@ -39,6 +41,7 @@ export interface PreferencesState {
 const DEFAULTS: PreferencesState = {
   transcriptDetail: "focused",
   showCosts: true,
+  continueThreadsAfterRestart: false,
   theme: DEFAULT_THEME,
   settledThreadIds: [],
   pinnedThreadIds: [],
@@ -86,6 +89,7 @@ function load(): PreferencesState {
         ? raw.transcriptDetail
         : raw.showThinking === true ? "detailed" : "focused",
       showCosts: raw.showCosts !== false,
+      continueThreadsAfterRestart: raw.continueThreadsAfterRestart === true,
       theme: isThemePreference(raw.theme) ? raw.theme : DEFAULT_THEME,
       editorId: typeof raw.editorId === "string" ? raw.editorId : undefined,
       settledThreadIds: stringList(raw.settledThreadIds),
@@ -145,6 +149,7 @@ export class PreferencesStore {
     if (config.theme && isThemePreference(config.theme)) patch.theme = config.theme;
     if (config.transcriptDetail && isTranscriptDetail(config.transcriptDetail)) patch.transcriptDetail = config.transcriptDetail;
     if (config.showCosts !== undefined) patch.showCosts = config.showCosts;
+    if (config.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = config.threads.continueAfterRestart;
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
     if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
     if (config.options) patch.extensionOptions = { ...this.state.extensionOptions, ...config.options };
@@ -185,6 +190,10 @@ export class PreferencesStore {
 
   setShowCosts(showCosts: boolean): void {
     this.update({ showCosts });
+  }
+
+  setContinueThreadsAfterRestart(continueThreadsAfterRestart: boolean): void {
+    this.update({ continueThreadsAfterRestart });
   }
 
   setTheme(theme: ThemePreference): void {
@@ -309,6 +318,7 @@ export class PreferencesStore {
       if (patch.theme) hostPatch.theme = patch.theme;
       if (patch.transcriptDetail) hostPatch.transcriptDetail = patch.transcriptDetail;
       if (patch.showCosts !== undefined) hostPatch.showCosts = patch.showCosts;
+      if (patch.continueThreadsAfterRestart !== undefined) hostPatch.threads = { continueAfterRestart: patch.continueThreadsAfterRestart };
       if (patch.favouriteModels) hostPatch.favouriteModels = [...patch.favouriteModels];
       if (patch.disabledExtensions) hostPatch.disabledExtensions = [...patch.disabledExtensions];
       if (patch.extensionOptions) hostPatch.options = { ...patch.extensionOptions };

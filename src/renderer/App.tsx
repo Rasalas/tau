@@ -29,7 +29,8 @@ import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
-import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, EMPTY_STAGE, type StageState, type StageView } from "../workbench/stage";
+import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
+import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { writeCachedTurnActivity } from "../workbench/turn-activity";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
@@ -56,7 +57,9 @@ export default function App() {
   const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
   const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
   const clientRef = useRef(client);
-  const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
+  // The session is built before the layout state exists, and a project change
+  // reaches it from there; the ref is the one hop between them.
+  const resetStageRef = useRef<() => void>(() => {});
   const [registry] = useState(() => {
     const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, profile });
     // Core's own contributions come first and stay on: safe mode is a workbench
@@ -85,7 +88,7 @@ export default function App() {
   const [workbenchSession] = useState(() => new WorkbenchSession({
     storage: clientStorage,
     cached: cachedBootstrap,
-    onProjectChange: () => setStage(EMPTY_STAGE),
+    onProjectChange: () => resetStageRef.current(),
     notification: {
       notifyPromptSubmitted: (event) => {
         const actions = actionsRef.current;
@@ -136,8 +139,6 @@ export default function App() {
   // Only the user-message slice of the transcript reaches this component: a
   // streamed delta must re-render the transcript and nothing above it.
   const transcriptUserRevision = useSyncExternalStore(viewStore.subscribeToUserMessages, viewStore.getUserRevision);
-  const [activePanel, setActivePanel] = useState("");
-  const [openedPanels, setOpenedPanels] = useState<Set<string>>(() => new Set());
   const {
     paletteOpen, openPalette, closePalette,
     newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
@@ -151,6 +152,19 @@ export default function App() {
     isCurrent: isCurrentNewThreadRequest, markAwaitingPromotion,
     promoteFromUserMessage, current: currentPendingNewThread,
   } = newThreadController;
+  // A prepared thread is not a runtime session yet, so its project is the
+  // only trustworthy workspace identity while it is on screen. In
+  // particular, do not expose the last real thread's worktree in the chrome.
+  const workspaceCwd = safeMode ? undefined : (pendingNewThread?.projectPath ?? snapshot?.cwd);
+  const activeWorkspaceId = pendingNewThread?.workspaceId ?? snapshot?.workspaceId;
+  const knownThreadIds = useSyncExternalStore(threadStore.subscribeToIds, threadStore.getThreadIds);
+  // The stage and the dock belong to the workspace, and outlive the window.
+  const {
+    stage, setStage, dockOpen, setDockOpen, activePanel, setActivePanel,
+    openedPanels, dockWidth, setDockWidth, resetStage,
+  } = useWorkbenchLayoutState({ storage: clientStorage, workspaceId: activeWorkspaceId, workspacePath: workspaceCwd, knownThreadIds });
+  useEffect(() => { resetStageRef.current = resetStage; }, [resetStage]);
+  const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
   // Below this many pixels the centre cannot hold chat and stage side by side;
   // the chat then joins the stage's tab strip instead of losing the thread list.
   const [centerCompact, setCenterCompact] = useState(false);
@@ -159,7 +173,6 @@ export default function App() {
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const newThreadDeliveryPending = Boolean(pendingNewThread);
-  const [dockOpen, setDockOpen] = useState(false);
   /** The version the host downloaded; the toast that offers the restart reads it. */
   const [updateReady, setUpdateReady] = useState<string>();
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -292,11 +305,6 @@ export default function App() {
     composerRef,
   });
 
-  // A prepared thread is not a runtime session yet, so its project is the
-  // only trustworthy workspace identity while it is on screen. In
-  // particular, do not expose the last real thread's worktree in the chrome.
-  const workspaceCwd = safeMode ? undefined : (pendingNewThread?.projectPath ?? snapshot?.cwd);
-  const activeWorkspaceId = pendingNewThread?.workspaceId ?? snapshot?.workspaceId;
   useEffect(() => {
     if (!client) return;
     if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
@@ -367,17 +375,13 @@ export default function App() {
   const panels = registry.getPanels();
   useEffect(() => {
     if (panels.length === 0) { setActivePanel(""); return; }
-    if (!panels.some((panel) => panel.id === activePanel)) {
-      setActivePanel(panels[0].id);
-      setOpenedPanels((current) => current.has(panels[0].id) ? current : new Set(current).add(panels[0].id));
-    }
-  }, [activePanel, panels]);
+    if (!panels.some((panel) => panel.id === activePanel)) setActivePanel(panels[0].id);
+  }, [activePanel, panels, setActivePanel]);
 
   const openPanel = useCallback((id: string) => {
     setActivePanel(id);
-    setOpenedPanels((current) => current.has(id) ? current : new Set(current).add(id));
     setDockOpen(true);
-  }, []);
+  }, [setActivePanel, setDockOpen]);
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean }) => { setStage((current) => openThreadTab(current, sessionId, options)); setChatFocused(false); }, []);
   useEffect(() => {
@@ -525,7 +529,8 @@ export default function App() {
   const layout = useMemo<WorkbenchLayout>(() => ({
     controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
-    openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
+    openedPanels: openedPanelIds, openPanel, dockOpen, setDockOpen, dockWidth, onDockWidthChange: setDockWidth,
+    centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, activateStageTab: activateStage, closeStageTab: closeStage,
     pinStageTab: pinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
     commands, projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker,
@@ -534,8 +539,9 @@ export default function App() {
   }), [
     activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, closeStage, commands, createThreadInProject,
-    documentSource, documentState, dockOpen, newThreadOpen, notice, openNewThreadPicker, openPanel,
-    threadCommands, openedPanels, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
+    documentSource, documentState, dockOpen, dockWidth, setDockOpen, setDockWidth, newThreadOpen, notice,
+    openNewThreadPicker, openPanel, openedPanelIds, setActivePanel,
+    threadCommands, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
     setNotice, setStageView, settings, settingsPage,
     sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
   ]);

@@ -138,6 +138,9 @@ export interface WorkbenchLayout {
   openPanel(id: string): void;
   dockOpen: boolean;
   setDockOpen(open: boolean): void;
+  /** The width this workspace was last left at; the default otherwise. */
+  dockWidth?: number;
+  onDockWidthChange(width: number): void;
   centerRef: RefObject<HTMLDivElement | null>;
   centerCompact: boolean;
   setCenterCompact(compact: boolean): void;
@@ -247,7 +250,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const { actions, layout, thread, composer, view } = model;
   const {
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
-    openedPanels, openPanel, dockOpen, setDockOpen, centerRef, centerCompact, setCenterCompact,
+    openedPanels, openPanel, dockOpen, setDockOpen, dockWidth: restoredDockWidth, onDockWidthChange,
+    centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, activateStageTab, closeStageTab, pinStageTab, setStageFileView,
     loadThread, takeOverThread,
     documentState, documentSource, visibleStreaming, paletteOpen, closePalette, commands,
@@ -268,6 +272,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const hostCapabilities = useHostCapabilities();
   const platform = usePlatform();
   const [dockWidth, setDockWidthState] = useState(() => storedDockWidth(clientStorage));
+  // The workspace's own width arrives with its restored dock state.
+  useEffect(() => {
+    if (restoredDockWidth !== undefined) setDockWidthState(clampDockWidth(restoredDockWidth));
+  }, [restoredDockWidth]);
   const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   // One screen wide: the thread list is a sheet and the dock has nowhere to go.
   // The registry still holds those contributions; only this layout leaves them out.
@@ -299,6 +307,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     const bounded = clampDockWidth(width);
     setDockWidthState(bounded);
     clientStorage.set(DOCK_WIDTH_KEY, String(bounded));
+    onDockWidthChange(bounded);
   };
 
   const startDockResize = (event: React.PointerEvent<HTMLDivElement>) => {
