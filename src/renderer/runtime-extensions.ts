@@ -131,6 +131,7 @@ export class RuntimeExtensions {
       if (generation !== this.generation) return this.loaded;
     }
     for (const failure of result.errors) {
+      this.registry.noteLoadFailure(failure.path, failure.message);
       this.host.log("desktop-extension.failed", `${failure.path}: ${failure.message}`);
       this.host.notify(`${failure.path.split("/").pop()}: ${failure.message.split("\n")[0]}`);
     }
@@ -151,6 +152,7 @@ export class RuntimeExtensions {
         this.host.notify(`Reloaded ${record.extension.name}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        this.registry.noteLoadFailure(bundle.path, message);
         this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
         this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
       }
@@ -186,6 +188,7 @@ export class RuntimeExtensions {
     else if (bundle.styles) extension.styles = { css: bundle.styles };
     this.registry.addKnown(extension);
     if (bundle.granted !== false && this.host.isEnabled(extension.id)) this.registry.activate(extension);
+    this.registry.noteLoadFailure(bundle.path, undefined);
     this.host.log("desktop-extension.loaded", `${extension.name} · ${bundle.scope} · ${bundle.path}`);
     return { extension, bundle };
   }
@@ -202,6 +205,7 @@ export class RuntimeExtensions {
       if (generation !== this.generation) return this.loaded;
     }
     for (const failure of result.errors) {
+      this.registry.noteLoadFailure(failure.path, failure.message);
       this.host.log("desktop-extension.failed", `${failure.path}: ${failure.message}`);
       this.host.notify(`Desktop extension failed to build: ${failure.message.split("\n")[0]}`);
     }
@@ -223,6 +227,7 @@ export class RuntimeExtensions {
       } catch (error) {
         if (generation !== this.generation) return this.loaded;
         const message = error instanceof Error ? error.message : String(error);
+        this.registry.noteLoadFailure(bundle.path, message);
         this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
         this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
       }

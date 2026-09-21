@@ -668,6 +668,8 @@ export class ExtensionRegistry {
   private activeExtensions = new Map<string, { extension: DesktopExtension; dispose: () => void }>();
   private listeners = new Set<() => void>();
   private version = 0;
+  /** The last failure per extension entry path; an entry that builds again drops out. */
+  private readonly loadFailures = new Map<string, string>();
   private sortedCache = new Map<string, { version: number; value: unknown[] }>();
 
   /**
@@ -1339,6 +1341,26 @@ export class ExtensionRegistry {
       tone: "neutral",
       detail: Object.keys(tool.args).join(" · ") || "no arguments",
     };
+  }
+
+  /**
+   * Why an extension's module could not be built or imported the last time it
+   * was tried, by the path it was tried from. The extension that was already
+   * running keeps running; this is what the Inspector shows instead of it
+   * silently being one version behind.
+   */
+  noteLoadFailure(path: string, message: string | undefined): void {
+    if (message === undefined) {
+      if (!this.loadFailures.delete(path)) return;
+    } else {
+      if (this.loadFailures.get(path) === message) return;
+      this.loadFailures.set(path, message);
+    }
+    this.changed();
+  }
+
+  getLoadFailures(): Array<{ path: string; message: string }> {
+    return [...this.loadFailures].map(([path, message]) => ({ path, message }));
   }
 
   subscribe = (listener: () => void): (() => void) => {

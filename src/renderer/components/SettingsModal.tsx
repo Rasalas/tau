@@ -543,7 +543,7 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   return (
     <div className="settings-page inspector-page">
       <h3>Inspector</h3>
-      <p className="lede">Every extension both halves know, and the package folders on disk. Edit a package's files, then run /update or /reload.</p>
+      <p className="lede">Every extension both halves know, and the package folders on disk. Editing a package's files reloads it; /reload is for the rest.</p>
 
       <div className="settings-label">VERSIONS</div>
       <div className="inspector-versions">
@@ -639,6 +639,11 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
           </tbody>
         </table>
       ) : inspection ? <div className="settings-note">No package folder carries a tau-extension.json.</div> : null}
+      {registry.getLoadFailures().map((failure) => (
+        <div className="settings-note" data-level="error" key={`load:${failure.path}`}>
+          {failure.path}: {failure.message.split("\n")[0]} — the version that was running stays until this builds.
+        </div>
+      ))}
       {inspection?.errors.map((failure) => (
         <div className="settings-note" data-level="error" key={failure.path}>{failure.path}: {failure.message}</div>
       ))}
