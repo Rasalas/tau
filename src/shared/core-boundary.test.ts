@@ -56,7 +56,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
   "./bundled-kits.js",   "./client-message-tracker.js",   "./client-turn-ledger.js",
-  "./clone-source.js",   "./dangling-tool-calls.js",   "./desktop-extensions.js",
+  "./clone-source.js",   "./config-watcher.js",   "./dangling-tool-calls.js",   "./desktop-extensions.js",
   "./extension-bundle-server.js",   "./extension-grants.js",   "./extension-installer.js",
   "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
@@ -86,7 +86,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-runtimes.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
-  "./workspace-identity.js",
+  "./workspace-identity.js",   "./workspace-watch.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([
