@@ -86,7 +86,7 @@ import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { requireCapability } from "./runtime-types.js";
 import { localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
-import { PersistedThreadTranscript } from "./persisted-transcript.js";
+import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
@@ -741,7 +741,7 @@ export class PiHost {
   async loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
     const thread = this.threadFor(sessionId);
     if (!thread) {
-      const result = this.persistedTranscript(sessionId).page(cursor);
+      const result = await this.releasedTranscript(sessionId, cursor);
       this.lifecycleMetrics.recordIpc(result);
       return result;
     }
@@ -787,9 +787,20 @@ export class PiHost {
 
   /**
    * The transcript of a thread no runtime holds. Runtimes are capped and idle
-   * ones are released oldest first, so a thread's tab must read its session
-   * file rather than tell the reader to take the thread over first.
+   * ones are released oldest first, so a thread's tab must read what was
+   * persisted rather than tell the reader to take the thread over first: a Pi
+   * thread its session file, a thread of another backend the shell that
+   * backend keeps. Neither opens a runtime.
    */
+  private async releasedTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
+    const session = this.index.byId(sessionId);
+    const kind = session?.backendKind ?? "pi";
+    if (!session || kind === "pi") return this.persistedTranscript(sessionId).page(cursor);
+    const record = await this.seam.backends.get(kind)?.lookup(sessionId);
+    if (!record) this.noRuntimeFor(sessionId);
+    return shellTranscriptPage(sessionId, record, cursor);
+  }
+
   private persistedTranscript(sessionId: string): PersistedThreadTranscript {
     const session = this.index.byId(sessionId);
     // Nothing persisted to read: a thread of another backend keeps no session

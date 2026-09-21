@@ -5,7 +5,7 @@ import type { TranscriptPage } from "../shared/host-protocol.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import type { HostThread } from "./host-extensions.js";
+import type { HostBackendThreadRecord, HostThread } from "./host-extensions.js";
 import {
   EMPTY_PINS,
   isVisibleMessage,
@@ -20,6 +20,26 @@ import { branchRecords } from "./thread-projection.js";
 /** What the reader is told when the file behind a thread cannot be opened. */
 export const MISSING_SESSION_FILE = "That thread's session file is gone. It may have been deleted.";
 export const UNREADABLE_SESSION_FILE = "That thread's session file could not be read.";
+
+/**
+ * The transcript of a thread another runtime backend owns while no runtime
+ * holds it: the shell that backend keeps for the index, paged the same way.
+ * It carries what the program persisted — the visible messages — and reading
+ * it starts nothing.
+ */
+export function shellTranscriptPage(
+  sessionId: string,
+  record: Pick<HostBackendThreadRecord, "messages" | "updatedAt">,
+  cursor?: HostTranscriptCursor,
+): TranscriptPage {
+  const messages: UiMessage[] = record.messages.map((message, index) => ({
+    id: `${sessionId}:${index}`,
+    role: message.role,
+    text: message.text,
+    timestamp: record.updatedAt,
+  }));
+  return localTranscriptPage(sessionId, messages, undefined, undefined, true, cursor);
+}
 
 /** The thread a persisted transcript belongs to, as the index knows it. */
 export interface PersistedThreadInfo {
