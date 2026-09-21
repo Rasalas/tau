@@ -5,17 +5,20 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { WorkbenchBuildResult } from "../shared/contracts.js";
 
-async function digestDirectory(directory: string): Promise<string> {
+async function digestDirectory(directory: string, include = /\.(js|cjs|mjs)$/u): Promise<string> {
   const hash = createHash("sha1");
   let names: string[] = [];
   try { names = (await readdir(directory, { recursive: true })).sort(); } catch { return ""; }
   for (const name of names) {
-    if (!/\.(js|cjs|mjs)$/u.test(name)) continue;
+    if (!include.test(name)) continue;
     hash.update(name);
     try { hash.update(await readFile(join(directory, name))); } catch { /* removed mid-scan */ }
   }
   return hash.digest("hex");
 }
+
+/** The halves that load inside an agent runtime rather than in the host. */
+const RUNTIME_HALF = /(^|[\\/])pi\.cjs$/u;
 
 /**
  * Rebuilds the workbench from source, the way `npm run build` does, without
@@ -25,7 +28,9 @@ async function digestDirectory(directory: string): Promise<string> {
 export async function rebuildWorkbench(root: string, options: { onOutput?(line: string): void; execPath?: string } = {}): Promise<WorkbenchBuildResult> {
   const startedAt = performance.now();
   const electronDir = join(root, "dist-electron");
+  const kitsDir = join(root, "dist-kits");
   const before = await digestDirectory(electronDir);
+  const runtimeBefore = await digestDirectory(kitsDir, RUNTIME_HALF);
   const output: string[] = [];
   const ok = await new Promise<boolean>((resolve) => {
     const child = execFile(
@@ -51,10 +56,12 @@ export async function rebuildWorkbench(root: string, options: { onOutput?(line: 
     child.stderr?.on("data", collect);
   });
   const after = await digestDirectory(electronDir);
+  const runtimeAfter = await digestDirectory(kitsDir, RUNTIME_HALF);
   return {
     ok,
     durationMs: Math.round(performance.now() - startedAt),
     mainChanged: ok && before !== after,
+    runtimeChanged: ok && runtimeBefore !== runtimeAfter,
     output: output.slice(-40).join("\n"),
   };
 }

@@ -158,6 +158,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "set-thinking": async (params) => (await host()).setThinkingLevel(decodeString("set-thinking", "level", params[0])),
     "compact-context": async () => (await host()).compactContext(),
     "reload-runtime": async () => (await host()).reloadRuntime(),
+    "reload-extensions": async () => (await host()).reloadExtensions(),
     // Answering must never wait for a ready host: the host is blocked on this very
     // question, so requiring readiness here would deadlock startup.
     "answer-extension-ui": async (params) => deps.host()?.answerExtensionUi(

@@ -153,6 +153,9 @@ export class PiHost {
   private readonly hostExtensions: HostExtensionRegistry;
   /** Resolved on the first activation when it arrived as a thunk. */
   private pendingHostExtensions: readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
+
+  /** The unresolved form of the above, so the kits Tau ships can be read again. */
+  private readonly hostExtensionSource: readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
   /** The host halves of installed packages; absent in safe mode, where no package loads. */
   private readonly packages?: ExtensionPackageActivator;
   /** Mints and resolves the ids clients name workspaces by. */
@@ -261,6 +264,7 @@ export class PiHost {
     this.defaultBackendKind = components.defaultBackendKind;
     this.runtimeCommands = components.runtimeCommands;
     this.pendingHostExtensions = this.safeMode ? [] : options.hostExtensions ?? [];
+    this.hostExtensionSource = this.pendingHostExtensions;
     this.workspaces = components.workspaces;
     this.report = components.report;
     this.clientTurns = components.clientTurns;
@@ -504,6 +508,25 @@ export class PiHost {
     this.pendingHostExtensions = bundled;
     for (const extension of bundled) await this.hostExtensions.activate(extension);
     await this.packages?.start();
+  }
+
+  /**
+   * Kits and packages, read from disk again and re-activated. No runtime is
+   * touched and nothing waits for a turn: a thread mid-run keeps the runtime
+   * it has, and a runtime extension the new code registers applies to the next
+   * runtime the host builds. Host commands and panels change at once.
+   */
+  async reloadExtensions(): Promise<void> {
+    return this.lifecycle.run("reload-extensions", async () => {
+      const source = this.hostExtensionSource;
+      const bundled = typeof source === "function" ? await source() : source;
+      this.pendingHostExtensions = bundled;
+      for (const extension of bundled) await this.hostExtensions.activate(extension);
+      await this.packages?.refresh({ force: true });
+      this.log("extensions.reloaded", `${bundled.length} bundled`);
+      const snapshot = await this.snapshot();
+      for (const update of this.lifecycleUpdates(snapshot)) this.emitUpdate(update);
+    });
   }
 
   /** Turns a known host extension off or on again; the desktop toggle calls this for a package's host half. */

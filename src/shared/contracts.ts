@@ -562,6 +562,11 @@ export interface WorkbenchBuildResult {
   durationMs: number;
   /** The main process or preload changed; only a restart applies that. */
   mainChanged: boolean;
+  /**
+   * A kit's runtime half changed. Those load inside the agent runtime, so the
+   * new code needs a runtime reload; everything else reloads without one.
+   */
+  runtimeChanged: boolean;
   /** Last lines of the build output. */
   output: string;
 }
