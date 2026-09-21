@@ -14,6 +14,26 @@ export const HOST_TRANSPORT_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 /** How many pushes a host keeps for a reconnecting client. */
 export const HOST_PUSH_BUFFER_SIZE = 500;
 
+/**
+ * Methods the machine a client runs on answers for itself: its clipboard, the
+ * files it can preview, the workbench build it started from. A host in another
+ * process — or on another machine — has none of that, so a client that speaks
+ * to one routes these to its own transport instead (ADR 0021).
+ */
+export const CLIENT_SIDE_METHODS = [
+  "copy-text",
+  "copy-image",
+  "read-image-preview",
+  "desktop-extensions",
+  "rebuild-workbench",
+  "workbench-source",
+  "relaunch-workbench",
+  "install-update",
+] as const;
+
+export const isClientSideMethod = (method: string): boolean =>
+  (CLIENT_SIDE_METHODS as readonly string[]).includes(method);
+
 export interface HostErrorInfo {
   message: string;
   code: string;

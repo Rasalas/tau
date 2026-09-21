@@ -53,6 +53,46 @@ export interface HostMethodPlatform {
   installUpdate(): boolean;
 }
 
+/**
+ * The half of the platform a client answers for itself. A window that is only
+ * a protocol client implements exactly this and refuses the rest, so the
+ * clipboard, the image preview and the workbench build stay where the user is
+ * rather than travelling to the host process (ADR 0021).
+ */
+export interface ClientHostPlatform {
+  copyText(text: string): void;
+  copyImage(dataUrl: string): void;
+  readImagePreview(path: string): Promise<UiImagePreview | undefined>;
+  /** `cwd` is passed on as the client received it; only a host resolves an id. */
+  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
+  rebuildWorkbench(context: HostMethodContext): Promise<WorkbenchBuildResult>;
+  workbenchSource(): Promise<string | undefined>;
+  relaunchWorkbench(): void;
+  /** Restarts into the downloaded update; false when none is waiting. */
+  installUpdate(): boolean;
+}
+
+/**
+ * The client-side half of the method table, for a window whose host lives in
+ * another process. Its names are `CLIENT_SIDE_METHODS`; everything else in
+ * that window's table refuses with `unsupported`.
+ */
+export function createClientHostMethods(platform: ClientHostPlatform): HostMethodTable {
+  return {
+    "copy-text": async (params) => platform.copyText(decodeString("copy-text", "text", params[0])),
+    "copy-image": async (params) => platform.copyImage(decodeString("copy-image", "dataUrl", params[0])),
+    "read-image-preview": async (params) => platform.readImagePreview(decodeString("read-image-preview", "path", params[0])),
+    "desktop-extensions": async (params) => platform.loadDesktopExtensions(
+      decodeString("desktop-extensions", "cwd", params[0]),
+      decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
+    ),
+    "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context),
+    "workbench-source": async () => ({ path: await platform.workbenchSource() }),
+    "relaunch-workbench": async () => platform.relaunchWorkbench(),
+    "install-update": async () => ({ installing: platform.installUpdate() }),
+  };
+}
+
 export interface HostMethodDeps {
   /** Starts the host on the first call; later calls read what is already running. */
   bootstrap(): Promise<HostBootstrap>;
@@ -176,10 +216,10 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeString("read-tool-output", "sessionId", params[0]),
       decodeString("read-tool-output", "toolCallId", params[1]),
     ),
-    "copy-thread-markdown": async (params) => {
-      const markdown = await (await host()).exportThreadMarkdown(decodeOptionalString("copy-thread-markdown", "expectedSessionId", params[0]));
-      platform.copyText(markdown);
-    },
+    // Answers with the text rather than copying it: the clipboard belongs to
+    // the client, which may be a different process than the host.
+    "copy-thread-markdown": async (params) =>
+      (await host()).exportThreadMarkdown(decodeOptionalString("copy-thread-markdown", "expectedSessionId", params[0])),
     "read-image-preview": async (params) => platform.readImagePreview(decodeString("read-image-preview", "path", params[0])),
     // Host extensions reach the renderer through this single method; core does
     // not grow a method per feature. `input` stays unknown: the extension owns it.

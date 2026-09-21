@@ -161,12 +161,17 @@ export function createSocketHostTransport(url: string, token?: string, options?:
   };
 }
 
-/** A host client that talks to a host over a socket instead of through Electron. */
+/**
+ * A host client that talks to a host over a socket instead of through Electron.
+ * `local` is the client's own machine, when it has one: a desktop window whose
+ * host runs in another process keeps answering `CLIENT_SIDE_METHODS` there.
+ */
 export function createSocketHostClient(
   url: string,
   token?: string,
   options?: SocketTransportOptions,
+  local?: HostConnection,
 ): { client: HostClient; connection: HostConnection } {
   const connection = new HostConnection(createSocketHostTransport(url, token, options));
-  return { client: createHostClient(connection), connection };
+  return { client: createHostClient(connection, local), connection };
 }
