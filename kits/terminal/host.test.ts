@@ -147,7 +147,7 @@ describe("terminal host commands", () => {
     }
   });
 
-  it("closes a workspace's terminals when the host moves to another workspace", async () => {
+  it("closes a workspace's terminals when the host leaves that workspace", async () => {
     const { spawn, processes } = fakePtys();
     let hook: HostThreadLifecycle | undefined;
     const events: PublishedKitEvent[] = [];
@@ -158,12 +158,12 @@ describe("terminal host commands", () => {
     try {
       await client.open({ workspaceId: "workspace-one", sessionId: "thread-one" });
       await client.open({ workspaceId: "workspace-one" });
-      // The same workspace again (a re-open, a thread of it) keeps every shell.
-      await hook?.beforeWorkspace?.("/project");
+      // Another workspace closing says nothing about this one's shells.
+      await hook?.afterWorkspaceClose?.("/elsewhere", "switch");
       expect(processes.map((process) => process.kill.mock.calls.length)).toEqual([0, 0]);
       expect(await client.list()).toHaveLength(2);
-      // Another workspace: the shells of the one left behind die with it.
-      await hook?.beforeWorkspace?.("/elsewhere");
+      // This one closing takes them with it.
+      await hook?.afterWorkspaceClose?.("/project", "switch");
       expect(processes.map((process) => process.kill.mock.calls.length)).toEqual([1, 1]);
       expect(await client.list()).toEqual([]);
       expect(events.at(-1)).toMatchObject({ name: TERMINAL_LIST_EVENT, payload: [] });
@@ -171,6 +171,27 @@ describe("terminal host commands", () => {
       await registry.dispose();
     }
     expect(hook).toBeUndefined();
+  });
+
+  it("closes the terminals of a thread that was deleted, and only those", async () => {
+    const { spawn, processes } = fakePtys();
+    let hook: HostThreadLifecycle | undefined;
+    const registry = await activateHostKit(createTerminalHostExtension(spawn), services({
+      registerThreadLifecycle: (lifecycle) => { hook = lifecycle; return () => { hook = undefined; }; },
+    }));
+    const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+    try {
+      const doomed = await client.open({ workspaceId: "workspace-one", sessionId: "thread-one" });
+      const kept = await client.open({ workspaceId: "workspace-one", sessionId: "thread-two" });
+
+      await hook?.threadDeleted?.("thread-one", "/project");
+
+      expect(processes.map((process) => process.kill.mock.calls.length)).toEqual([1, 0]);
+      expect((await client.list()).map((session) => session.id)).toEqual([kept.id]);
+      expect(doomed.id).not.toBe(kept.id);
+    } finally {
+      await registry.dispose();
+    }
   });
 
   it("caps the terminals of one workspace", async () => {

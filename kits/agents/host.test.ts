@@ -379,6 +379,44 @@ describe("Agents Kit", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("takes a deleted thread's worktree only when it holds nothing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-agent-delete-"));
+    const project = join(root, "project");
+    const calls: string[][] = [];
+    let uncommitted = "";
+    const runGit: AgentGitRunner = async (cwd, args) => {
+      calls.push([cwd, ...args]);
+      const command = args.join(" ");
+      if (command.startsWith("rev-parse --is-inside-work-tree")) return "true\n";
+      if (command.startsWith("rev-parse --verify HEAD")) return "headcommit\n";
+      if (command.startsWith("rev-parse --path-format=absolute")) return `${project}/.git\n`;
+      if (command.startsWith("config --get")) return "basecommit\n";
+      if (command.startsWith("write-tree")) return "childtree\n";
+      if (command.startsWith("diff --numstat")) return uncommitted ? "3\t1\tanswer.md\n" : "";
+      if (command.startsWith("rev-list")) return "0\n";
+      if (command.startsWith("status --porcelain")) return uncommitted;
+      return "";
+    };
+    const bench = await activated({ runGit });
+    const parent = bench.runtime("parent", project);
+    const first = await parent.call("tau_spawn_thread", { prompt: "one" }) as { threadId: string; branch: string };
+    const second = await parent.call("tau_spawn_thread", { prompt: "two" }) as { threadId: string; branch: string };
+    const deleted = (sessionId: string) => bench.lifecycles[0]!.threadDeleted!(sessionId, project);
+
+    // Nothing changed in it: the checkout and its branch go with the thread.
+    await deleted(first.threadId);
+    expect(calls.some(([, ...args]) => args.join(" ") === `branch -D ${first.branch}`)).toBe(true);
+
+    // The second one holds uncommitted work, so it outlives its thread.
+    uncommitted = " M answer.md\n";
+    await deleted(second.threadId);
+    expect(calls.some(([, ...args]) => args.join(" ") === `branch -D ${second.branch}`)).toBe(false);
+
+    // Either way the link is gone: the panel does not list a deleted thread.
+    await expect(parent.call("tau_list_threads")).resolves.toEqual({ threads: [] });
+    await rm(root, { recursive: true, force: true });
+  });
+
   it("shares the parent's checkout when asked, and always outside a repository", async () => {
     const runGit: AgentGitRunner = async (_cwd, args) =>
       args[0] === "rev-parse" && args[1] === "--is-inside-work-tree" ? "true\n" : "";

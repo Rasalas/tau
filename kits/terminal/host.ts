@@ -177,9 +177,9 @@ export class TerminalSessions {
     return this.closeWhere((session) => session.root === root);
   }
 
-  /** Closes every session that is not in `root`: the host moved on to another workspace. */
-  closeOthers(root: string): number {
-    return this.closeWhere((session) => session.root !== root);
+  /** Closes the shells a thread opened: that thread is gone. */
+  closeThread(sessionId: string): number {
+    return this.closeWhere((session) => session.record.sessionId === sessionId);
   }
 
   /** The kit is leaving: every shell dies with it. */
@@ -338,7 +338,7 @@ export function createTerminalHostExtension(spawn?: PtyFactory): HostExtension {
         const workspaceId = typeof input.workspaceId === "string" && input.workspaceId ? input.workspaceId : undefined;
         const sessionId = typeof input.sessionId === "string" && input.sessionId ? input.sessionId : undefined;
         // A terminal belongs to the workspace the host has open now: that is
-        // the root `beforeWorkspace` later names when the host moves on.
+        // the root `afterWorkspaceClose` later names when the host leaves it.
         const root = context.services.cwd();
         // The workspace id the client sent is an identity the host published;
         // resolve it to the folder the shell may start in, and refuse anything else.
@@ -378,13 +378,17 @@ export function createTerminalHostExtension(spawn?: PtyFactory): HostExtension {
       context.registerCommand("list", () => sessions.list());
       context.registerCommand("replay", (raw) => sessions.replay(String(fields(raw).id)));
 
-      // Terminals die with their workspace: when the host opens another one,
-      // the shells of the one it leaves are closed. The hook is the only word
-      // the host gives about a workspace change, and it names the new root.
+      // Terminals die with the workspace they belong to, and with the thread
+      // that opened them — both are the host's own word, not a guess from the
+      // root of the workspace that opened next.
       const unhook = context.services.registerThreadLifecycle({
-        beforeWorkspace: async (cwd) => {
-          const closed = sessions.closeOthers(cwd);
-          if (closed > 0) context.services.log("terminal.workspace-closed", `${closed} terminal(s) closed with the previous workspace`);
+        afterWorkspaceClose: async (cwd, reason) => {
+          const closed = sessions.closeWorkspace(cwd);
+          if (closed > 0) context.services.log("terminal.workspace-closed", `${closed} terminal(s) closed with ${cwd} (${reason})`);
+        },
+        threadDeleted: async (sessionId) => {
+          const closed = sessions.closeThread(sessionId);
+          if (closed > 0) context.services.log("terminal.thread-closed", `${closed} terminal(s) closed with thread ${sessionId.slice(0, 8)}`);
         },
       });
       return () => {

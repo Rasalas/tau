@@ -246,6 +246,15 @@ describe("Workspace Kit checkpoint lifecycle", () => {
     expect(upkeep.calls.cleanupSessionRefs).toHaveBeenCalledWith(a, "gone");
   });
 
+  it("drops a deleted thread's refs at once, without waiting for a sweep", async () => {
+    const upkeep = maintenance();
+    const kit = createWorkspaceKitLifecycle(services(), { emit: () => undefined, maintenance: upkeep });
+
+    await kit.lifecycle.threadDeleted!("gone", "/project");
+
+    expect(upkeep.calls.cleanupSessionRefs).toHaveBeenCalledWith("/project", "gone");
+  });
+
   it("reports historical diffs as unavailable for a thread without a capture runtime", async () => {
     const cwd = await workspace();
     const kit = createWorkspaceKitLifecycle(services({ thread: () => thread({ cwd }) }), { emit: () => undefined });
