@@ -13,6 +13,7 @@ export interface WorkspaceStoreApi {
     workspaceId?: string;
     changes: UiWorkspaceChanges;
     committing: boolean;
+    workspace?: { branch?: string; upstream?: string };
     review?: { path?: string; primaryPush: boolean };
   };
   subscribe(listener: () => void): () => void;
@@ -29,8 +30,15 @@ export interface WorkspaceStoreApi {
     actions: WorkbenchActions;
   }) => Promise<string>): () => void;
   refresh(): Promise<void>;
-  registerChangesSection(section: ComponentType<{ message: string; committed(): void }>): () => void;
+  registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
+}
+
+/** What Workspace Kit's Changes panel hands the section Review adds to it. */
+export interface ChangesSectionProps {
+  actions: WorkbenchActions;
+  message: string;
+  committed(): void;
 }
 
 /** The slice of Workspace Kit's `review-request-context` answer Review reads. */

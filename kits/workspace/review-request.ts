@@ -73,7 +73,7 @@ function requestState(value: string | undefined): UiReviewRequest["state"] {
 }
 
 /** The optional status fields, without keys for what the tool did not say. */
-function status(state: string | undefined, draft: unknown, checks: UiReviewRequestChecks | undefined, body: unknown): Partial<UiReviewRequest> {
+function statusFields(state: string | undefined, draft: unknown, checks: UiReviewRequestChecks | undefined, body: unknown): Partial<UiReviewRequest> {
   const parsedState = requestState(state);
   const text = typeof body === "string" ? body : undefined;
   return {
@@ -94,7 +94,7 @@ export function parseGitHubPullRequest(output: string): UiReviewRequest | undefi
   return {
     provider: "github", number, title: asString(raw.title) ?? `#${number}`, url, baseRef,
     ...(asString(raw.headRefName) ? { headRef: asString(raw.headRefName) } : {}),
-    ...status(asString(raw.state), raw.isDraft, summarizeGitHubChecks(raw.statusCheckRollup), raw.body),
+    ...statusFields(asString(raw.state), raw.isDraft, summarizeGitHubChecks(raw.statusCheckRollup), raw.body),
   };
 }
 
@@ -108,7 +108,7 @@ export function parseGitLabMergeRequest(output: string): UiReviewRequest | undef
   return {
     provider: "gitlab", number, title: asString(raw.title) ?? `!${number}`, url, baseRef,
     ...(asString(raw.source_branch) ? { headRef: asString(raw.source_branch) } : {}),
-    ...status(asString(raw.state), typeof raw.draft === "boolean" ? raw.draft : raw.work_in_progress, summarizeGitLabPipeline(raw.head_pipeline ?? raw.pipeline), raw.description),
+    ...statusFields(asString(raw.state), typeof raw.draft === "boolean" ? raw.draft : raw.work_in_progress, summarizeGitLabPipeline(raw.head_pipeline ?? raw.pipeline), raw.description),
   };
 }
 

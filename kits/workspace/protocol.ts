@@ -313,6 +313,7 @@ export type WorktreeNamer = (request: WorktreeNameRequest) => Promise<string>;
 
 /** What the Changes panel hands a section another kit contributes. */
 export interface ChangesSectionProps {
+  actions: WorkbenchActions;
   /** The commit message as the user left it in the box. */
   message: string;
   /** Tell the box a commit went through, so it follows the next proposal again. */
