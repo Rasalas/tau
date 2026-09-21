@@ -20,6 +20,8 @@ export interface NewThreadDraft {
   model?: UiModel;
   /** Text-only recovery state; pending attachments remain memory-only. */
   draft?: string;
+  /** What extensions keep beside the text, as JSON, by extension id. */
+  extensions?: Record<string, string>;
 }
 
 let draftSequence = 0;
@@ -82,6 +84,44 @@ export function writeComposerDraft(storage: ClientStorage, key: DraftKey | strin
   storage.set(DRAFTS_KEY, JSON.stringify(drafts));
 }
 
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  Boolean(value) && typeof value === "object" && Object.values(value as object).every((entry) => typeof entry === "string");
+
+/** Extension state lives in the same map as the text, under a key no draft key can take. */
+const extensionEntry = (key: string, owner: string) => `ext:${owner}:${key}`;
+
+/**
+ * What an extension keeps beside a draft's text — its chips, say — so a
+ * reload brings both back. `undefined` when nothing was kept or it does not parse.
+ */
+export function readComposerDraftState(storage: ClientStorage, key: DraftKey | string | undefined, owner: string): unknown {
+  if (!key) return undefined;
+  const raw = key.startsWith("new:")
+    ? pendingForKey(storage, key)?.extensions?.[owner]
+    : readComposerDrafts(storage)[extensionEntry(key, owner)];
+  if (raw === undefined) return undefined;
+  try { return JSON.parse(raw) as unknown; } catch { return undefined; }
+}
+
+export function writeComposerDraftState(storage: ClientStorage, key: DraftKey | string | undefined, owner: string, value: unknown): void {
+  if (!key) return;
+  const raw = value === undefined ? undefined : JSON.stringify(value);
+  if (key.startsWith("new:")) {
+    const pending = pendingForKey(storage, key);
+    if (!pending) return;
+    const extensions = { ...pending.extensions };
+    if (raw === undefined) delete extensions[owner];
+    else extensions[owner] = raw;
+    const { extensions: _previous, ...rest } = pending;
+    writeNewThreadDraft(storage, Object.keys(extensions).length > 0 ? { ...rest, extensions } : rest);
+    return;
+  }
+  const drafts = readComposerDrafts(storage);
+  if (raw === undefined) delete drafts[extensionEntry(key, owner)];
+  else drafts[extensionEntry(key, owner)] = raw;
+  storage.set(DRAFTS_KEY, JSON.stringify(drafts));
+}
+
 export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | undefined {
   try {
     const value = JSON.parse(storage.get(NEW_THREAD_KEY) ?? "null") as Partial<NewThreadDraft> | null;
@@ -100,6 +140,7 @@ export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | und
         ? { model: { provider: value.model.provider, id: value.model.id, name: value.model.name } }
         : {}),
       ...(typeof value.draft === "string" ? { draft: value.draft } : {}),
+      ...(isStringRecord(value.extensions) ? { extensions: value.extensions } : {}),
     };
     // Migrate the single legacy persisted draft once. The generated ID is
     // written back so a reload keeps the same draft scope.
