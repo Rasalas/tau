@@ -240,6 +240,22 @@ describe("replacing one extension", () => {
     expect(h.notify).toHaveBeenCalledWith("Reloaded Hello v2");
   });
 
+  it("finds the running module by the id the host named, not by the id the module declares", async () => {
+    const registry = new ExtensionRegistry();
+    const { host: h, modules } = partialHost(["local.hello-panel"]);
+    // A loose file is named by its path; the module inside declares its own id.
+    modules.set("local.hello-panel", { default: { id: "example.hello", name: "Hello", activate: vi.fn() } } as never);
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+
+    modules.set("local.hello-panel", { default: { id: "example.hello", name: "Hello v2", activate: vi.fn() } } as never);
+    await runtime.resync(["local.hello-panel"]);
+
+    expect(runtime.list().map((record) => record.extension.name)).toEqual(["Hello v2"]);
+    expect(h.notify).toHaveBeenCalledWith("Reloaded Hello v2");
+    expect(h.notify).not.toHaveBeenCalledWith(expect.stringContaining("already taken"));
+  });
+
   it("keeps the running version when the edited file does not build", async () => {
     const registry = new ExtensionRegistry();
     const { host: h, broken } = partialHost(["x.hello"]);

@@ -137,14 +137,25 @@ export class RuntimeExtensions {
     }
     for (const id of only) {
       const bundle = result.bundles.find((candidate) => candidate.id === id);
-      const previous = this.loaded.find((record) => record.extension.id === id);
+      // Matched by the bundle's id — the manifest's, or the one a loose file's
+      // path gives it — because that is what the host names. A module may
+      // declare a different id of its own (`example.hello` in a file called
+      // `hello-panel.tsx`), and then the two never meet.
+      const previous = this.loaded.find((record) => record.bundle.id === id);
       // Nothing built for an id the host still knows: either it left the disk,
       // or its files no longer compile and the errors above said so. Either way
       // the half that is running stays the last one that worked.
       if (!bundle) continue;
       try {
-        if (previous) this.registry.deactivate(previous.extension.id);
-        const record = await this.activateBundle(bundle, this.loaded.filter((entry) => entry !== previous), () => generation === this.generation);
+        // The old extension is taken down only once the new module is in hand,
+        // so its panel is gone for a render rather than for a fetch — the dock
+        // keeps the panel the user had open.
+        const record = await this.activateBundle(
+          bundle,
+          this.loaded.filter((entry) => entry !== previous),
+          () => generation === this.generation,
+          previous ? () => this.registry.deactivate(previous.extension.id) : undefined,
+        );
         if (!record) return this.loaded;
         this.loaded = previous
           ? this.loaded.map((entry) => entry === previous ? record : entry)
@@ -169,6 +180,7 @@ export class RuntimeExtensions {
     bundle: DesktopExtensionBundle,
     others: readonly RuntimeExtensionRecord[],
     stillCurrent: () => boolean,
+    beforeActivate?: () => void,
   ): Promise<RuntimeExtensionRecord | undefined> {
     const module = await (this.host.importModule ?? importBundle)(bundle);
     if (!stillCurrent()) return undefined;
@@ -186,6 +198,7 @@ export class RuntimeExtensions {
     // them again — the registry owns both ends (see `activate`).
     if (bundle.stylesUrl) extension.styles = { url: bundle.stylesUrl };
     else if (bundle.styles) extension.styles = { css: bundle.styles };
+    beforeActivate?.();
     this.registry.addKnown(extension);
     if (bundle.granted !== false && this.host.isEnabled(extension.id)) this.registry.activate(extension);
     this.registry.noteLoadFailure(bundle.path, undefined);

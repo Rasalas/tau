@@ -101,6 +101,7 @@ export class WorkspaceWatch {
 
   private apply(change: ConfigChange): void {
     if (change.root !== "packages") {
+      this.options.log?.(`watch.${change.root}.changed`, change.paths.join(", "));
       this.options.configChanged({ kind: change.root as ConfigChangeKind, paths: change.paths });
       return;
     }
