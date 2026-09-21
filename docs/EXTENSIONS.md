@@ -207,12 +207,70 @@ context.registerToolCard({
 });
 ```
 
+#### Stage tabs
+
+The stage is the document area beside the conversation. Core owns the tab
+strip, the placement, the preview and pin rules and its own two kinds (a file
+and another thread's transcript); `registerStageTab` adds a kind of your own —
+a terminal, a pull request, a file editor, a device panel.
+
+```tsx
+plugin.registerStageTab<NoteParams>({
+  kind: "example.note",
+  profiles: ["desktop", "web"],
+  title: (params) => `Note: ${params.name}`,
+  Icon: StickyNote,
+  render: (params, handle) => <Note params={params} handle={handle} />,
+  restore: (params) => Boolean(params.name),
+});
+
+plugin.registerCommand({
+  id: "example.note.open",
+  label: "Open a scratch note",
+  group: "Extensions",
+  run: (app) => { app.openStageTab("example.note", { name: "scratch" }); },
+});
+```
+
+`actions.openStageTab(kind, params?, { preview?, key? })` opens one and answers
+with the tab's id; `actions.closeStageTab(id)` closes any tab and
+`actions.stageTabs()` lists what is on the stage. **`params` is plain JSON and
+is the whole of what the tab is:** two opens with the same params are the same
+tab, the params key the tab (`ext:<kind>:<key>` — pass `key` to name one
+yourself, or `singleton: true` for a kind with one tab whatever it is opened
+with), and they are what a restored tab comes back with. Put an id in them, not
+an object. An extension tab opens pinned, because it is opened by a deliberate
+action; pass `preview: true` to take the stage's one preview slot instead.
+
+`render` is given the params and a **handle**, the tab's own:
+
+| Member | What it does |
+|---|---|
+| `id` | the tab's id, the one `closeStageTab` takes. |
+| `setTitle(title)` | renames the tab; the strip and the context menu follow. |
+| `setDirty(dirty)` | a dot in the tab, and core asks the user before closing it. |
+| `onClose(listener)` | runs when the tab closes, whoever closed it — the ✕, `mod+w`, "Close others", or your kit going away. Returns an unsubscribe. |
+
+Core hands out one handle per tab and keeps it while the tab lives, so the
+content may hold on to it. `restore(params)` is asked once for a tab that came
+back from storage rather than from your own `openStageTab`: answer `false` and
+core drops the tab. A tab whose kind is not registered yet waits — a kit that
+activates late still gets its tabs — and a tab whose kind is *withdrawn* goes
+with it, without asking about unsaved work, because nobody is left to save it.
+
+The tab strip's own gestures are core's: double-click pins a preview, the
+middle button and Escape close, `mod+w` closes the active tab, `ctrl+tab` and
+`ctrl+shift+tab` move through them, and the right-click menu offers close,
+close others, close to the right and pin/unpin. `examples/desktop-extensions/hello-stage-tab.tsx`
+is the whole of the above as one file; Terminal Kit's "open as tab" is the
+shipped caller.
+
 #### Which clients draw it
 
-Every contribution the workbench draws — panels, settings pages, regions,
-status items, overlays, composer controls, the sidebar, project sources, prompt
-renderers, the document source, transcript rows, tool renderers and tool cards —
-takes an optional `profiles`:
+Every contribution the workbench draws — panels, settings pages, stage tabs,
+regions, status items, overlays, composer controls, the sidebar, project
+sources, prompt renderers, the document source, transcript rows, tool renderers
+and tool cards — takes an optional `profiles`:
 
 ```ts
 context.registerPanel({ id: "agents", label: "Agents", profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
@@ -302,7 +360,9 @@ for what the ask tool folds into a dialog's title and options —
 `freeTextOption` and `optionForLabel`, with their `OptionParts` and
 `OptionPreview` types.
 
-`actions.openFile(path, options?)` puts a document in the stage; `actions.openThread(sessionId, options?)`
+`actions.openFile(path, options?)` puts a document in the stage;
+`actions.openStageTab(kind, params?, options?)` puts a tab of your own kind
+there (above); `actions.openThread(sessionId, options?)`
 puts a thread there instead — its transcript, read-only, with the title, status
 and cost the thread index carries and a "Take over" button, while the composer
 goes on addressing the thread it was already addressing. Both take
@@ -338,6 +398,7 @@ It also exports the renderer's shared state and presentation:
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
+| `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
