@@ -365,7 +365,7 @@ export function instanceHostPid(instance, { readFile = (path) => readFileSync(pa
   return typeof instance?.hostPid === "number" ? instance.hostPid : undefined;
 }
 
-function isAlive(pid) {
+function processRuns(pid) {
   try {
     process.kill(pid, 0);
     return true;
@@ -428,7 +428,7 @@ async function main() {
       // The host outlives the window by design, so stopping an instance means
       // stopping both — its own host, named by its own instance file.
       const hostPid = instanceHostPid(readInstanceFile());
-      if (hostPid !== undefined && isAlive(hostPid)) {
+      if (hostPid !== undefined && processRuns(hostPid)) {
         const hostResult = await stopProcess(hostPid);
         console.log(hostResult.escalated ? `host ${hostPid} (SIGTERM was ignored; sent SIGKILL)` : `host ${hostPid}`);
       } else if (hostPid !== undefined) {
