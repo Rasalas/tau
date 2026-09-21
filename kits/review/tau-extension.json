@@ -6,7 +6,8 @@
     "api": "^1.6.0"
   },
   "permissions": [
-    "sessions"
+    "sessions",
+    "process"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

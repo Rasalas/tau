@@ -1,4 +1,5 @@
-import type { UiEditor, UiFileDiff, UiWorkspaceChanges, WorkbenchActions } from "tau";
+import type { ComponentType } from "react";
+import type { UiEditor, UiFileDiff, UiReviewRequest, UiSession, UiWorkspaceChanges, WorkbenchActions } from "tau";
 
 export const REVIEW_HOST_EXTENSION_ID = "tau.review";
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
@@ -27,6 +28,50 @@ export interface WorkspaceStoreApi {
     diffs: readonly UiFileDiff[];
     actions: WorkbenchActions;
   }) => Promise<string>): () => void;
+  refresh(): Promise<void>;
+  registerChangesSection(section: ComponentType<{ message: string; committed(): void }>): () => void;
+  registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
+}
+
+/** The slice of Workspace Kit's `review-request-context` answer Review reads. */
+export interface ReviewRequestContext {
+  root: string;
+  branch?: string;
+  remote?: { name: string; url: string };
+  upstream?: string;
+  ahead?: number;
+  base: string;
+  commits?: Array<{ subject: string; body: string }>;
+  diffStat?: string;
+  template?: string;
+}
+
+export type RequestService = "github" | "gitlab";
+export type MergeMethod = "merge" | "squash" | "rebase";
+
+/**
+ * Where the current branch stands on the way to a merged request: its Git
+ * facts, the request when one exists, and the first thing missing for the
+ * next step (no branch, no remote, no CLI, no login), in words for the user.
+ */
+export interface ReviewRequestStatus {
+  branch?: string;
+  /** The branch a new request merges into. */
+  base: string;
+  remote?: string;
+  upstream?: string;
+  ahead?: number;
+  service: RequestService;
+  request?: UiReviewRequest;
+  problem?: string;
+}
+
+export interface ReviewRequestDraft {
+  title: string;
+  body: string;
+  base: string;
+  /** The model wrote it; false when the commits alone had to do. */
+  generated: boolean;
 }
 
 export type CommitMessageStyle = "conventional" | "gitmoji" | "plain";
