@@ -631,8 +631,18 @@ export interface TauRetryConfig {
   };
 }
 
+/** Settings about threads themselves, rather than about the model they run on. */
+export interface TauThreadsConfig {
+  /**
+   * Whether the host picks a thread back up when a restart cut its turn short.
+   * Off by default: continuing costs a model call nobody asked for.
+   */
+  continueAfterRestart?: boolean;
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
+  threads?: TauThreadsConfig;
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];

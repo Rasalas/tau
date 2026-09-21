@@ -281,7 +281,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       // A continuation the host wrote, not the user: Pi's custom message is a
       // notice in the transcript and an ordinary user turn to the model.
       await this.session.sendCustomMessage(
-        { customType: TAU_NOTICE_ENTRY, content: [{ type: "text", text: prepared.runtimeText }] },
+        { customType: TAU_NOTICE_ENTRY, content: [{ type: "text", text: prepared.runtimeText }], display: true },
         { triggerTurn: true },
       );
       input.onAdmitted?.(true);
@@ -300,7 +300,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** A durable transcript row that belongs to nobody; the model sees it as context. */
   private async appendNotice(text: string): Promise<void> {
     await this.session.sendCustomMessage(
-      { customType: TAU_NOTICE_ENTRY, content: [{ type: "text", text }] },
+      { customType: TAU_NOTICE_ENTRY, content: [{ type: "text", text }], display: true },
       { triggerTurn: false },
     );
   }

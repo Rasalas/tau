@@ -54,6 +54,8 @@ import type { HostPublication } from "./host-publication.js";
 import { RuntimeResourceCache } from "./runtime-resource-cache.js";
 import type { ExtensionPackageActivator } from "./extension-package-activation.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
+import { reconcileInFlightTurns, type ReconcilableThread } from "./turn-reconciliation.js";
+import type { TurnsInFlight } from "./turns-in-flight.js";
 import type { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import type {
   HostExtensionRegistry,
@@ -95,7 +97,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
 import { buildPiHostComponents } from "./pi-host-components.js";
-import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -184,6 +186,10 @@ export class PiHost {
   private readonly prompts: PromptPreparation;
   /** Steering, follow-up, and every turn of a runtime that keeps no host journal. */
   private readonly turns: TurnDelivery;
+
+  private readonly turnsInFlight: TurnsInFlight;
+
+  private readonly continueThreadsAfterRestart: () => boolean;
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
   private readonly toolOutputBatcher: ToolOutputBatcher;
@@ -278,6 +284,8 @@ export class PiHost {
     this.prewarm = components.prewarm;
     this.prompts = components.prompts;
     this.turns = components.turns;
+    this.turnsInFlight = components.turnsInFlight;
+    this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
     this.toolOwners = components.toolOwners;
@@ -684,10 +692,13 @@ export class PiHost {
         this.log("bootstrap.first-content");
         // The global index is independent of the active detail. Publish it when
         // ready rather than making first content wait for every session file.
-        void this.index.refresh("index").then(() => {
+        void this.index.refresh("index").then(async () => {
           this.recordBackgroundLifecycle("session-index", indexStartedAt);
           this.log("bootstrap.full-ready");
           this.index.startRecovery();
+          // Before anything else is opened for this run: the index is the only
+          // way back to a marked thread's session file.
+          await this.reconcileInterruptedTurns();
           this.prewarm.scheduleThreads();
         }).catch((error) => this.fail(error));
         const result = await this.bootstrap();
@@ -954,34 +965,80 @@ export class PiHost {
         this.emitUpdate(update);
         return this.actionResult([update]);
       }
-      // A run that is still in flight owns its tool calls; closing them from
-      // outside would race the runtime. Stop it first, then repair.
-      if (!thread.state.idle || thread.adapterPending > 0) await this.abortThread(thread);
-      // Zero dangling calls is a success: the session is already consistent and
-      // the caller only has stale activity to clear.
-      const dangling = findDanglingToolCalls(thread.entries
-        .flatMap((entry) => entry && typeof entry === "object" && (entry as { type?: unknown }).type === "message"
-          ? [(entry as { message?: unknown }).message]
-          : []));
-      for (const { toolCallId, toolName } of dangling) {
-        journal.appendMessage({
-          role: "toolResult",
-          toolCallId,
-          toolName,
-          content: [{ type: "text", text: "Interrupted: Tau closed this tool call so the thread could continue." }],
-          isError: true,
-          timestamp: Date.now(),
-        });
-      }
-      thread.tools.clear();
-      this.log("thread.recovered", dangling.length === 0
-        ? "session already consistent"
-        : `${dangling.length} tool ${dangling.length === 1 ? "call" : "calls"}`);
+      await this.repairDanglingToolCalls(thread);
       const snapshot = await this.snapshot();
       const update: HostUpdate = { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: this.detailForSnapshot(snapshot) };
       this.emitUpdate(update);
       return this.actionResult([update]);
     });
+  }
+
+  /**
+   * Closes the tool calls a turn left open, so the provider takes the next
+   * request. Zero of them is a success: the session is already consistent.
+   */
+  private async repairDanglingToolCalls(thread: ThreadRuntime): Promise<number> {
+    const journal = thread.backend.capabilities.journal;
+    if (!journal) return 0;
+    // A run that is still in flight owns its tool calls; closing them from
+    // outside would race the runtime. Stop it first, then repair.
+    if (!thread.state.idle || thread.adapterPending > 0) await this.abortThread(thread);
+    const dangling = findDanglingToolCalls(thread.entries
+      .flatMap((entry) => entry && typeof entry === "object" && (entry as { type?: unknown }).type === "message"
+        ? [(entry as { message?: unknown }).message]
+        : []));
+    for (const { toolCallId, toolName } of dangling) {
+      journal.appendMessage({
+        role: "toolResult",
+        toolCallId,
+        toolName,
+        content: [{ type: "text", text: "Interrupted: Tau closed this tool call so the thread could continue." }],
+        isError: true,
+        timestamp: Date.now(),
+      });
+    }
+    thread.tools.clear();
+    this.log("thread.recovered", dangling.length === 0
+      ? "session already consistent"
+      : `${dangling.length} tool ${dangling.length === 1 ? "call" : "calls"}`);
+    return dangling.length;
+  }
+
+  /**
+   * The turns this host had in flight when it stopped. Continuing one is the
+   * user's choice (Settings → Defaults); otherwise the thread is repaired,
+   * told in its own transcript, and marked for the rail.
+   */
+  private async reconcileInterruptedTurns(): Promise<void> {
+    const markers = await this.turnsInFlight.load();
+    if (markers.length === 0) return;
+    await reconcileInFlightTurns({
+      markers: () => markers,
+      forget: (sessionId) => this.turnsInFlight.clear(sessionId),
+      continueAfterRestart: this.continueThreadsAfterRestart,
+      markInterrupted: (sessionId) => this.index.setInterrupted(sessionId, true),
+      log: (label, detail) => this.log(label, detail),
+      errorMessage: (error) => this.errorMessage(error),
+      open: async (marker) => {
+        const thread = this.threads.get(marker.sessionId)?.runtime ?? await this.openMarkedThread(marker);
+        if (!thread) return undefined;
+        return {
+          threadId: thread.threadId,
+          repair: () => this.repairDanglingToolCalls(thread),
+          ...(thread.backend.capabilities.resume ? { resume: thread.backend.capabilities.resume } : {}),
+          prompt: (text, hidden) => this.prompt(text, [], thread.threadId, undefined, undefined, { hidden }),
+        } satisfies ReconcilableThread;
+      },
+    });
+  }
+
+  /** Reopens a marked thread off screen; `undefined` when its session is gone. */
+  private async openMarkedThread(marker: { sessionId: string; backend: ThreadBackendKind }): Promise<ThreadRuntime | undefined> {
+    const path = marker.backend === "pi"
+      ? this.index.byId(marker.sessionId)?.path
+      : externalThreadPath(marker.backend, marker.sessionId);
+    if (!path) return undefined;
+    return this.runtimes.openForPath(path, "resume", true, marker.backend);
   }
 
   async newSession(
@@ -1372,6 +1429,7 @@ export class PiHost {
     sessionId?: string,
     clientMessageIdOrPreflight?: ClientTurnRequest | PromptPreflight,
     prepared?: PreparedPrompt,
+    options: { hidden?: boolean } = {},
   ): Promise<void> {
     this.workbenchReload.assertAvailable();
     const onPreflightResult = typeof clientMessageIdOrPreflight === "function" ? clientMessageIdOrPreflight : undefined;
@@ -1388,6 +1446,8 @@ export class PiHost {
     if (!this.isCurrentActivation(promptEpoch)) {
       throw new Error("The active thread changed while the prompt was being prepared. Retry after the switch completes.");
     }
+    // Whatever a restart left behind, this thread is moving again.
+    this.index.setInterrupted(thread.threadId, false);
     if (!thread.backend.capabilities.journal) {
       // The composer waits for admission, not for the whole turn: a streamed
       // runtime reports it as soon as the message is on its way, and this call
@@ -1403,7 +1463,7 @@ export class PiHost {
         onPreflightResult?.(result);
         resolveAdmitted();
       };
-      const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted) => { if (accepted) report({ accepted: true }); })
+      const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted) => { if (accepted) report({ accepted: true }); }, options.hidden)
         .then(() => report({ accepted: true }), (error) => {
           if (preflight.state === "pending") report({ accepted: false, error });
           else this.fail(error, thread.threadId);
@@ -1426,6 +1486,10 @@ export class PiHost {
     const wasStreaming = thread.state.streaming;
     if (preparedTurnId) {
       this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: wasStreaming });
+      this.turnsInFlight.record({
+        sessionId: thread.threadId, cwd: thread.cwd, turnId: preparedTurnId, backend: thread.backend.kind,
+        startedAt: Date.now(), prompt: { text, ...(attachments.length ? { images: attachments.length } : {}) },
+      });
       // Idle prompts prepare before Pi starts; queued prompts are prepared at
       // their actual delivery boundary, after earlier tool work has settled.
       if (!wasStreaming) await this.turnObservers.prepare(thread.threadId, preparedTurnId);
@@ -1451,6 +1515,7 @@ export class PiHost {
       if (result.accepted) resolvePreflight();
       else {
         failUnpersistedMarker();
+        if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
         if (preparedTurnId) void this.turnObservers.cancelled(thread.threadId, preparedTurnId);
         rejectPreflight(result.error ?? new Error("The prompt was rejected before it started."));
       }
@@ -1466,21 +1531,25 @@ export class PiHost {
         prepared: resolvedPrepared,
         attachments,
         queued: wasStreaming,
+        ...(options.hidden ? { hidden: true } : {}),
         onAdmitted: (accepted) => reportPreflight({ accepted }),
       });
       void run.then(async () => {
         if (preflightState === "pending") reportPreflight({ accepted: true });
+        if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
         if (preparedTurnId) await this.turnObservers.ended(thread.threadId, preparedTurnId, "completed");
         if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
       }).catch((error) => {
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
         else if (preflightState === "accepted") {
+          if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
           if (preparedTurnId) void this.turnObservers.ended(thread.threadId, preparedTurnId, "failed");
           if (!thread.deferError(error)) this.fail(error, thread.threadId);
         }
       });
     } catch (error) {
       if (this.threads.get(thread.threadId)?.runtime !== thread) return;
+      if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
       if (preparedTurnId) await this.turnObservers.cancelled(thread.threadId, preparedTurnId);
       if (identity) this.clientTurns.cancel(thread.threadId, identity);
       reportPreflight({ accepted: false, error });

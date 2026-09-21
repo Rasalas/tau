@@ -104,6 +104,7 @@ const hostOptions = {
   // isolates a dev instance's kit state the way it isolates everything else.
   kitStateDir: join(app.getPath("userData"), "kit-state"),
   sessionUsageCachePath: join(app.getPath("userData"), "session-usage.json"),
+  turnsInFlightPath: join(app.getPath("userData"), "turns-in-flight.json"),
   sessionLineageCachePath: join(app.getPath("userData"), "session-lineage.json"),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {

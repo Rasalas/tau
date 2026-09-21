@@ -54,6 +54,7 @@ import { RuntimePrewarm } from "./runtime-prewarm.js";
 import { PromptPreparation } from "./prompt-preparation.js";
 import { TurnDelivery } from "./turn-delivery.js";
 import { ToolOutputBatcher } from "./tool-output-batcher.js";
+import { TurnsInFlight } from "./turns-in-flight.js";
 import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
 import { ProjectHistory } from "./project-history.js";
@@ -160,6 +161,9 @@ export interface PiHostComponents {
   readonly runtimes: ThreadRuntimeLifecycle;
   readonly prewarm: RuntimePrewarm;
   readonly turns: TurnDelivery;
+  readonly turnsInFlight: TurnsInFlight;
+  /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
+  readonly continueThreadsAfterRestart: () => boolean;
   readonly toolOutputBatcher: ToolOutputBatcher;
 }
 
@@ -408,10 +412,15 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     fail: (error) => deps.fail(error),
     errorMessage: (error) => deps.errorMessage(error),
   });
+  const turnsInFlight = new TurnsInFlight({
+    ...(options.turnsInFlightPath ? { filePath: options.turnsInFlightPath } : {}),
+    ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),
+  });
   const turns = new TurnDelivery({
     clientTurns,
     clientMessages,
     turnObservers,
+    turnsInFlight,
     projection,
     prompts,
     binding,
@@ -461,6 +470,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     runtimes,
     prewarm,
     turns,
+    turnsInFlight,
+    continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
     toolOutputBatcher,
   };
 }
