@@ -529,6 +529,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             {!showStartScreen ? <>
               <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
               <header className="conversation-header">
+                <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
                 <SubscriptionLoginIndicator snapshot={snapshot} />
                 <ThreadTitleMenu
                   title={conversationSnapshot?.sessionTitle || "Untitled thread"}

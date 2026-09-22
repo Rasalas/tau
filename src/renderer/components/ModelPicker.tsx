@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { ChevronDown, ChevronRight, Plus, Search, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import { isRestrictedSubscriptionLogin, SUBSCRIPTION_LOGIN_NOTE } from "../../shared/subscription-login";
+import type { ModelBadgeContribution } from "../extension-system";
 import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
@@ -37,6 +38,12 @@ function matches(entry: Entry, needle: string): boolean {
   return `${entry.model.name} ${entry.model.provider} ${entry.model.id}`.toLowerCase().includes(needle);
 }
 
+const NO_BADGES: readonly ModelBadgeContribution[] = [];
+
+function wears(badge: ModelBadgeContribution, model: UiModel, runtime: ThreadBackendKind | undefined): boolean {
+  try { return badge.applies(model, runtime); } catch (error) { console.error(`Model badge ${badge.id} failed`, error); return false; }
+}
+
 function runtimeName(kind: string | undefined, backends: readonly UiRuntimeBackend[] | undefined): string {
   const runtime = kind ?? DEFAULT_RUNTIME;
   return backends?.find((backend) => backend.kind === runtime)?.label ?? (runtime === DEFAULT_RUNTIME ? "Pi" : runtime);
@@ -52,6 +59,7 @@ export function ModelPicker({
   runtimeBackends,
   onSelectRuntime,
   onNewThreadOnRuntime,
+  badges = NO_BADGES,
 }: {
   models: readonly UiModel[];
   activeKey?: string;
@@ -67,6 +75,8 @@ export function ModelPicker({
   onSelectRuntime?(kind: ThreadBackendKind): void;
   /** For a thread that exists: another runtime means another thread. */
   onNewThreadOnRuntime?(kind: ThreadBackendKind): void;
+  /** Marks extensions put on model rows (`registerModelBadge`). */
+  badges?: readonly ModelBadgeContribution[];
 }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -149,6 +159,11 @@ export function ModelPicker({
   }, [current, entries, expandedLegacy, needle]);
 
   useEffect(() => setCursor(0), [needle, tab]);
+
+  const notes = useMemo(() => {
+    const listed = rows.flatMap((row) => row.kind === "model" ? [row.entry.model] : []);
+    return [...new Set(badges.filter((badge) => badge.note && listed.some((model) => wears(badge, model, catalogRuntime))).map((badge) => badge.note as string))];
+  }, [badges, catalogRuntime, rows]);
 
   const toggleLegacy = (group: string) => {
     setExpandedLegacy((held) => {
@@ -314,6 +329,9 @@ export function ModelPicker({
                       {row.entry.presentation.badge === "new" ? <span className="model-badge model-badge-new">NEW</span> : null}
                       {needle && row.entry.presentation.legacy ? <span className="model-badge">legacy</span> : null}
                       {row.entry.model.login === "subscription" ? <span className="model-badge">subscription login</span> : null}
+                      {badges.filter((badge) => wears(badge, row.entry.model, catalogRuntime)).map((badge) => (
+                        <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
+                      ))}
                     </span>
                     <small className="model-sub">
                       <ProviderIconStack modelProvider={row.entry.model.provider} runtimeProvider={catalogRuntime} className="sub-icon" />
@@ -330,6 +348,8 @@ export function ModelPicker({
         </div>
 
         {rows.some((row) => row.kind === "model" && row.entry.model.login === "subscription" && isRestrictedSubscriptionLogin(row.entry.model.provider)) ? <p className="model-picker-note">{SUBSCRIPTION_LOGIN_NOTE}</p> : null}
+
+        {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
 
         <footer>
           <span>↑↓ navigate</span>

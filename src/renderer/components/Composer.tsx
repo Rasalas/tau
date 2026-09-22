@@ -56,7 +56,7 @@ import {
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
 import { ComposerAttachmentsList } from "./ComposerAttachments";
-import type { ComposerInlineContext, ComposerTriggerItem } from "../extension-system";
+import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem } from "../extension-system";
 
 export {
   type ComposerTrigger,
@@ -83,6 +83,16 @@ const noSubscribe = () => () => {};
 const noVersion = () => 0;
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 const NO_INLINES: readonly never[] = [];
+const NO_GATES: readonly ComposerGateContribution[] = [];
+
+/** A gate that asked: where the run stopped, and what finishes it. */
+interface OpenGate {
+  gate: ComposerGateContribution & { extensionId?: string; extensionName?: string };
+  index: number;
+  context: ComposerGateContext;
+  proceed(): void;
+  cancel?(): void;
+}
 
 /** Pi's out-of-the-box reasoning level; shown as the Default badge. */
 const DEFAULT_THINKING = "medium";
@@ -414,6 +424,21 @@ export function Composer({
   const preferences = usePreferences();
   // A model behind a subscription login is used only after its warning was read once (per provider).
   const [subscriptionAsk, setSubscriptionAsk] = useState<{ model?: UiModel; resubmit?: ComposerDelivery | "prompt" }>();
+  const gates = registry?.getComposerGates?.() ?? NO_GATES;
+  const gatesRef = useRef(gates);
+  gatesRef.current = gates;
+  const [openGate, setOpenGate] = useState<OpenGate>();
+  // Runs the gates from `from` on; the first that asks holds the action until it is answered.
+  const passGates = useCallback((context: ComposerGateContext, proceed: () => void, cancel?: () => void, from = 0) => {
+    const list = gatesRef.current;
+    for (let index = from; index < list.length; index += 1) {
+      const gate = list[index];
+      let asks = false;
+      try { asks = gate.check(context); } catch (error) { console.error(`Composer gate ${gate.id} failed`, error); }
+      if (asks) { setOpenGate({ gate, index, context, proceed, ...(cancel ? { cancel } : {}) }); return; }
+    }
+    proceed();
+  }, []);
   const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
   const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
   const needsSubscriptionAck = useCallback((model: UiModel | undefined): boolean => requiresSubscriptionAcknowledgement(
@@ -427,8 +452,12 @@ export function Composer({
     onSetModel(model.provider, model.id);
   };
   const chooseModel = (model: UiModel) => {
-    if (needsSubscriptionAck(model)) setSubscriptionAsk({ model });
-    else applyModel(model);
+    if (needsSubscriptionAck(model)) { setSubscriptionAsk({ model }); return; }
+    passGates(
+      { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
+      () => applyModel(model),
+      () => setModelPickerOpen(true),
+    );
   };
   // Only a drag that starts on the grip reorders; text drags inside a row do not.
   const queueDragArmRef = useRef<string | undefined>(undefined);
@@ -542,7 +571,8 @@ export function Composer({
   }, [prompt, updateDraft]);
 
   const answerable = prompt && prompt.answerElsewhere !== true;
-  const submitCurrent = useCallback((delivery?: ComposerDelivery) => {
+  const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
+  const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
     if (held) return;
     if (activeScopeSnapshot.submissionPending) return;
     if (needsSubscriptionAck(snapshot?.model)) {
@@ -574,9 +604,16 @@ export function Composer({
           onNotify?.(errorMessage(error));
         });
         return;
-      case "prompt":
-        submitPrompt(intent.delivery);
+      case "prompt": {
+        if (gated) { submitPrompt(intent.delivery); return; }
+        const runtime = runtimeChoice?.kind ?? snapshot?.backendKind;
+        const model = draftOnOtherRuntime ? undefined : snapshot?.model;
+        passGates(
+          { action: "prompt", ...(model ? { model } : {}), ...(runtime ? { runtime } : {}), ...(snapshot ? { snapshot } : {}) },
+          () => submitRef.current(delivery, true),
+        );
         return;
+      }
     }
   }, [
     activeScopeSnapshot.submissionPending,
@@ -586,13 +623,27 @@ export function Composer({
     onAnswerPrompt,
     onNotify,
     onRunShellAction,
+    draftOnOtherRuntime,
+    passGates,
     promptSubmit,
     recordPrompt,
-    snapshot?.model,
+    runtimeChoice?.kind,
+    snapshot,
     submitPrompt,
     text,
     updateDraft,
   ]);
+  submitRef.current = submitCurrent;
+  const proceedGate = () => {
+    if (!openGate) return;
+    setOpenGate(undefined);
+    passGates(openGate.context, openGate.proceed, openGate.cancel, openGate.index + 1);
+  };
+  const cancelGate = () => {
+    if (!openGate) return;
+    setOpenGate(undefined);
+    openGate.cancel?.();
+  };
 
   const handleDequeue = useCallback(() => {
     if (queue.length === 0) return;
@@ -1092,7 +1143,24 @@ export function Composer({
           runtimeBackends={runtimeChoice?.backends ?? snapshot?.runtimeBackends}
           onSelectRuntime={runtimeChoice?.onSelect}
           onNewThreadOnRuntime={onNewThreadOnRuntime}
+          badges={registry?.getModelBadges?.()}
         />
+      ) : null}
+      {openGate ? (
+        <div className="palette-backdrop composer-gate" onMouseDown={cancelGate} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); cancelGate(); } }}>
+          <div className="composer-gate-frame" onMouseDown={(event) => event.stopPropagation()}>
+            <LazyFeatureBoundary
+              label={openGate.gate.id}
+              extensionId={openGate.gate.extensionId}
+              extensionName={openGate.gate.extensionName}
+              registry={registry}
+              onNotify={onNotify}
+              onError={cancelGate}
+            >
+              <openGate.gate.Component context={openGate.context} proceed={proceedGate} cancel={cancelGate} />
+            </LazyFeatureBoundary>
+          </div>
+        </div>
       ) : null}
       {subscriptionAsk ? (
         <SubscriptionLoginPrompt

@@ -354,12 +354,61 @@ paste from 32 KiB on becomes `pasted-text-<n>.txt` with a chip — removing the
 chip is the undo. A file travels to the host in 4 MiB pieces, so a 50 MB one
 stays under the host socket's 64 MiB frame.
 
+#### Policy around the model: gates, badges, the thread title
+
+Three seams let a package hold an opinion about models without core having
+one. Subscription Login (`kits/subscription-login/`) uses all three; switching
+it off removes every trace of its warning.
+
+`registerComposerGate({ id, order?, check, Component })` asks the user before
+the composer acts. `check(context)` is called when a model is picked in the
+model picker (`action: "model"`) and when a prompt is about to go to the
+thread's model (`action: "prompt"`); `context` carries the `model`, the
+`runtime` the thread runs on (or a new thread will start on) and the
+`snapshot`. `model` is absent when a new thread will start on another
+runtime's default. Answer `true` and core draws `Component` over a backdrop,
+with `proceed()` and `cancel()`; a click outside or Escape cancels. Gates run
+in `order`, and a proceeded gate hands on to the next one that asks. A
+cancelled model choice reopens the picker; a cancelled prompt stays in the
+composer. A `/command`, a `!` shell command and an answer to a question are not
+prompts and pass no gate. Keep `check` cheap and free of side effects: it runs
+on every choice and every send, and whatever the user decides belongs in the
+dialog.
+
+```tsx
+plugin.registerComposerGate({
+  id: "example.expensive",
+  profiles: ["desktop", "web", "compact"],
+  check: ({ model }) => model?.id === "big-and-expensive" && !confirmed(),
+  Component: ({ proceed, cancel }) => (
+    <section role="dialog" aria-label="Expensive model">
+      <p>This model costs ten times as much.</p>
+      <button onClick={cancel}>Pick another model</button>
+      <button onClick={() => { confirm(); proceed(); }}>Use it</button>
+    </section>
+  ),
+});
+```
+
+`registerModelBadge({ id, applies, label, title?, tone?, note? })` marks
+models in the picker. `applies(model, runtime)` runs for every listed row, and
+a model it answers `true` for wears `label` after its name (`tone: "warning"`
+draws it in the caution colours, `title` is its hover text). `note` is one line
+under the list, shown while any listed model wears the badge.
+
+`registerRegion({ placement: "thread-title", … })` draws before the thread's
+title in the conversation header — a mark about the thread on screen, which
+reads the `snapshot` it is given. The other placements are `title-bar`,
+`composer-above`, `composer-below`, `transcript-header` and
+`transcript-footer`.
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, stage tabs,
-regions, status items, overlays, composer controls, composer inlines, the sidebar, project
-sources, prompt renderers, the document source, transcript rows, tool renderers
-and tool cards — takes an optional `profiles`:
+regions, status items, overlays, composer controls, composer inlines, composer
+gates, model badges, the sidebar, project sources, prompt renderers, the
+document source, transcript rows, tool renderers and tool cards — takes an
+optional `profiles`:
 
 ```ts
 context.registerPanel({ id: "agents", label: "Agents", profiles: ["desktop", "web", "compact"], Component: AgentsPanel });

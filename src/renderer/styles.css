@@ -1642,6 +1642,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
   border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 5px;
 }
 .model-badge-new { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); font-weight: 700; }
+.model-badge-warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-chip); }
 .model-legacy .model-choose { padding-top: 10px; }
 .model-chevron { flex: none; display: grid; place-items: center; color: var(--faint); padding: 0 6px; }
 .model-picker-note {
@@ -2547,6 +2548,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .status-line .status-side { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
 .status-line .status-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .region-title-bar { flex-direction: row; align-items: center; gap: 8px; }
+.region-thread-title { flex: none; flex-direction: row; align-items: center; gap: 4px; margin-right: -4px; }
 
 /* Only rendered while the host link is being repaired. */
 .host-connection-status {
