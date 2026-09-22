@@ -123,4 +123,25 @@ describe("kits boundary", () => {
       expect(Boolean(manifest.desktop) || Boolean(manifest.host)).toBe(true);
     }
   });
+
+  // The shared icon module is this package as a whole; a name missing from it binds to undefined at runtime.
+  it("every icon a kit imports is an export of the shared icon module", async () => {
+    const icons = await import("lucide-react") as Record<string, unknown>;
+    // Value imports only: a type has no runtime binding to check.
+    const imported = /import\s*\{([^}]*)\}\s*from\s*["']lucide-react["']/gu;
+    const names: string[] = [];
+    const missing: string[] = [];
+    for (const path of sourceFiles("kits")) {
+      for (const match of readFileSync(path, "utf8").matchAll(imported)) {
+        for (const part of match[1].split(",")) {
+          const name = part.trim().split(/\s+as\s+/u)[0];
+          if (!name || name.startsWith("type ")) continue;
+          names.push(name);
+          if (icons[name] === undefined) missing.push(`${path}: ${name}`);
+        }
+      }
+    }
+    expect(names.length).toBeGreaterThan(50);
+    expect(missing).toEqual([]);
+  });
 });

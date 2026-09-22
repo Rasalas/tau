@@ -1,8 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { dedupeLegalComments } from "./vite.legal-comments";
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react()],
+  plugins: [react(), dedupeLegalComments()],
   base: "./",
   build: {
     outDir: "dist",

@@ -17,5 +17,5 @@
     "jsx": "react-jsx",
     "types": ["vite/client"]
   },
-  "include": ["src/renderer", "src/shared", "src/web", "vite.config.ts", "vite.web.config.ts"]
+  "include": ["src/renderer", "src/shared", "src/web", "vite.config.ts", "vite.web.config.ts", "vite.legal-comments.ts", "vite.legal-comments.test.ts"]
 }
