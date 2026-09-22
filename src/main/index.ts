@@ -162,6 +162,9 @@ let hostReady: Promise<unknown> | undefined;
 let windowHost: WindowHost | undefined;
 /** How the window trusts the host `TAU_HOST_URL` names; unset for a supervised one. */
 let remoteTrust: RemoteHostTrust | undefined;
+/** Why this window will not talk to that host; the workbench shows it in place of the link state. */
+let hostRefusal: string | undefined;
+let workbenchLoading = false;
 /** Set when the last window closed: quitting then leaves the host running. */
 let quitAfterWindowClosed = false;
 let projectHistory: ProjectHistory;
@@ -233,12 +236,20 @@ function workbenchQuery(): Record<string, string> {
     // Which client this window claims to be (ADR 0016). Unset is `desktop`;
     // setting it is how the desktop window shows what a smaller one leaves out.
     ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
-    ...(windowHost ? { host: windowHost.hostUrl } : {}),
-    ...(windowHost?.hostToken ? { token: windowHost.hostToken } : {}),
+    ...(windowHost ? { host: windowHost.hostUrl || remoteHostUrl || "" } : {}),
+    // A refused host never gets the token, so the page does not hold it either.
+    ...(hostRefusal ? { hostRefused: hostRefusal } : windowHost?.hostToken ? { token: windowHost.hostToken } : {}),
   };
 }
 
 async function createWindow(): Promise<void> {
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : openWindow();
+  // The token travels in the window's own query string, never on a command line.
+  await loadWorkbench(window, workbenchQuery());
+}
+
+/** The window without its workbench; a remote host's trust question needs it before anything loads. */
+function openWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
     width: 1540,
     height: 980,
@@ -288,20 +299,31 @@ async function createWindow(): Promise<void> {
     }
     mainWindow?.webContents.reload();
   });
-
-  // The token travels in the window's own query string, never on a command line.
-  const query = workbenchQuery();
-  await loadWorkbench(mainWindow, query);
+  return mainWindow;
 }
 
 async function loadWorkbench(window: BrowserWindow, query: Record<string, string>): Promise<void> {
-  if (process.env.TAU_DEV_SERVER_URL) {
-    const url = new URL(process.env.TAU_DEV_SERVER_URL);
-    for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
-    await window.loadURL(url.toString());
-  } else {
-    await window.loadFile(join(currentDir, "../../dist/index.html"), { query });
+  workbenchLoading = true;
+  try {
+    if (process.env.TAU_DEV_SERVER_URL) {
+      const url = new URL(process.env.TAU_DEV_SERVER_URL);
+      for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
+      await window.loadURL(url.toString());
+    } else {
+      await window.loadFile(join(currentDir, "../../dist/index.html"), { query });
+    }
+  } finally {
+    workbenchLoading = false;
   }
+  // A refusal that arrived while this page loaded is shown by loading it once more.
+  if (hostRefusal && query.hostRefused !== hostRefusal && !window.isDestroyed()) await loadWorkbench(window, workbenchQuery());
+}
+
+/** The window stops talking to the host and says why, in its own connection state. */
+function refuseRemoteHost(message: string): void {
+  if (hostRefusal) return;
+  hostRefusal = message;
+  if (mainWindow && !mainWindow.isDestroyed() && !workbenchLoading && mainWindow.webContents.getURL()) void pointWindowAtHost();
 }
 
 async function requireHostReady(): Promise<PiHost> {
@@ -379,8 +401,8 @@ async function startHostProcess(): Promise<void> {
       ...(process.env.TAU_HOST_FINGERPRINT ? { fingerprint: process.env.TAU_HOST_FINGERPRINT } : {}),
       session: session.defaultSession,
       logger: hostLog,
-      // A host this window cannot trust leaves it nothing to show.
-      onRefused: (title, message) => { dialog.showErrorBox(title, message); app.exit(1); },
+      parent: openWindow(),
+      onRefused: refuseRemoteHost,
     });
     if (!remoteTrust) return;
     windowHost.attach(remoteHostUrl, clientHostToken(), remoteTrust.fingerprint);

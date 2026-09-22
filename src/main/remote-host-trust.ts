@@ -1,4 +1,4 @@
-import { dialog, type Session } from "electron";
+import { dialog, type BrowserWindow, type Session } from "electron";
 import { join } from "node:path";
 import type { HostLogger } from "./host-log.js";
 import { certificateFingerprint } from "./host-tls.js";
@@ -19,8 +19,10 @@ export interface RemoteHostTrustOptions {
   fingerprint?: string;
   session: Session;
   logger: HostLogger;
-  /** Called once with the message for the dialog; the window cannot go on. */
-  onRefused(title: string, message: string): void;
+  /** The trust question is a sheet on this window, never a free-floating alert. */
+  parent: BrowserWindow;
+  /** Called once with the reason, written for the user; the window shows it and does not connect. */
+  onRefused(message: string): void;
 }
 
 export interface RemoteHostTrust {
@@ -44,12 +46,12 @@ export async function trustRemoteHost(url: string, options: RemoteHostTrustOptio
     trust = await establishHostTrust(url, {
       ...(options.fingerprint ? { fingerprint: options.fingerprint } : {}),
       knownHosts,
-      confirm: ({ endpoint, presented }) => confirmCertificate(endpoint.key, presented),
+      confirm: ({ endpoint, presented }) => confirmCertificate(options.parent, endpoint.key, presented),
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     options.logger.warn("remote-host.trust.failed", { url, reason: error instanceof HostTrustError ? error.reason : "error", message });
-    options.onRefused("Tau did not connect to the host", message);
+    options.onRefused(message);
     return undefined;
   }
   options.logger.info("remote-host.trust", trust.kind === "pinned" ? { url, kind: trust.kind, source: trust.source, fingerprint: trust.fingerprint } : { url, kind: trust.kind });
@@ -59,7 +61,7 @@ export async function trustRemoteHost(url: string, options: RemoteHostTrustOptio
     if (refused) return;
     refused = true;
     options.logger.error("remote-host.certificate-refused", { url, presented });
-    options.onRefused("Tau refused the host's certificate", certificateRefusalMessage(url, trust, presented, knownHosts.path));
+    options.onRefused(certificateRefusalMessage(url, trust, presented, knownHosts.path));
   };
   if (trust.kind === "pinned") {
     options.session.setCertificateVerifyProc((request, callback) => {
@@ -74,8 +76,8 @@ export async function trustRemoteHost(url: string, options: RemoteHostTrustOptio
   return { trust, ...(trust.kind === "pinned" ? { fingerprint: trust.fingerprint } : {}), refuse };
 }
 
-async function confirmCertificate(hostKey: string, presented: PresentedCertificate): Promise<boolean> {
-  const { response } = await dialog.showMessageBox({
+async function confirmCertificate(parent: BrowserWindow, hostKey: string, presented: PresentedCertificate): Promise<boolean> {
+  const { response } = await dialog.showMessageBox(parent, {
     type: "warning",
     title: "Trust this host?",
     message: `Trust the host at ${hostKey}?`,
