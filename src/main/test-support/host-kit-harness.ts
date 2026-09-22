@@ -28,6 +28,7 @@ export function activateHostKit(
     agentDir: "/agent",
     sessionsDir: "/agent/sessions",
     stateDir: "/state",
+    themesDir: "/themes",
     safeMode: false,
     log: () => undefined,
     // Nothing is watched in a kit's own test; a kit that follows config changes

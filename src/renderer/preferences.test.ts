@@ -162,6 +162,45 @@ describe("host configuration sync", () => {
     expect(snapshot.maxTokens).toBe(2048);
   });
 
+  it("sends only the entry that changed, never the whole record", () => {
+    const sent: unknown[] = [];
+    const fakeClient = {
+      getConfig: async () => ({}),
+      updateConfig: async (patch: unknown) => { sent.push(patch); return {}; },
+    } as unknown as import("../workbench/host-client").HostClient;
+    preferences.setValue("acme", "first", "1");
+    preferences.bindHost(fakeClient);
+    preferences.setValue("acme", "second", "2");
+    preferences.setOption("acme", "flag", true);
+    expect(sent).toEqual([{ values: { "acme.second": "2" } }, { options: { "acme.flag": true } }]);
+  });
+
+  it("keeps the workspace it was told about when the host is bound without one", async () => {
+    const asked: Array<string | undefined> = [];
+    const fakeClient = { getConfig: async (workspaceId?: string) => { asked.push(workspaceId); return {}; }, updateConfig: async () => ({}) } as unknown as import("../workbench/host-client").HostClient;
+    const store = new PreferencesStore();
+    store.setWorkspace("/work/app");
+    store.bindHost(fakeClient);
+    await store.syncFromHost();
+    expect(asked.at(-1)).toBe("/work/app");
+  });
+
+  it("forgets what the host said before and no longer says", async () => {
+    const store = new PreferencesStore();
+    let config: import("../shared/contracts").TauConfig = { showCosts: false, fontSize: 15, values: { "acme.mode": "project" } };
+    const fakeClient = { getConfig: async () => config, updateConfig: async () => ({}) } as unknown as import("../workbench/host-client").HostClient;
+    store.setValue("acme", "local", "kept");
+    store.bindHost(fakeClient);
+    await store.syncFromHost();
+    expect(store.getSnapshot()).toMatchObject({ showCosts: false, fontSize: 15, extensionValues: { "acme.local": "kept", "acme.mode": "project" } });
+
+    config = {};
+    await store.syncFromHost();
+    expect(store.getSnapshot().showCosts).toBe(true);
+    expect(store.getSnapshot().fontSize).toBeUndefined();
+    expect(store.getSnapshot().extensionValues).toEqual({ "acme.local": "kept" });
+  });
+
   it("updates and persists fontSize and fontFamily", () => {
     preferences.setFontSize(14);
     preferences.setFontFamily("Fira Code");

@@ -24,6 +24,7 @@ import {
   type InstallerOptions,
 } from "./extension-installer.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
+import { defaultGlobalThemesDir } from "./user-themes.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
   HostAttachedRuntime,
@@ -241,6 +242,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     agentDir: getAgentDir(),
     sessionsDir: resolvePiSessionsDirOverride() ?? join(getAgentDir(), "sessions"),
     stateDir: port.stateDir,
+    themesDir: defaultGlobalThemesDir(),
     safeMode: port.safeMode,
     log: (label, detail) => port.log(label, detail),
     openWorkspace: (path) => port.openWorkspace(path),

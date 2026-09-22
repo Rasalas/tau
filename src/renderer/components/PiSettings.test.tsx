@@ -47,12 +47,12 @@ async function openPiPage(): Promise<HTMLElement> {
   fireEvent.keyDown(window, { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
   const palette = await screen.findByRole("dialog", { name: "Command palette" });
   const input = within(palette).getByRole("textbox", { name: "Command" });
-  fireEvent.change(input, { target: { value: "Open Settings panel" } });
+  fireEvent.change(input, { target: { value: "Open Settings" } });
   fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
   const modal = await screen.findByRole("dialog", { name: "Settings" });
   fireEvent.click(within(modal).getByRole("button", { name: "Pi" }));
   // The page reads Pi's file over the host, so its fields arrive a tick later.
-  await within(modal).findByText("WRITE TO");
+  await within(modal).findByText("Write Pi settings to");
   return modal;
 }
 

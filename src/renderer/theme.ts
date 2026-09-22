@@ -26,6 +26,7 @@ export function getUserTheme(id: string): UserTheme | undefined {
   return userThemes.get(id);
 }
 
+/** The themes the host found in the user's theme folders, as the last sync registered them. */
 export function listUserThemes(): UserTheme[] {
   return Array.from(userThemes.values());
 }

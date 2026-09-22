@@ -125,6 +125,7 @@ function services(cwd: string, sessionsDir: string, threads: readonly HostThread
     agentDir: sessionsDir,
     sessionsDir,
     stateDir: sessionsDir,
+    themesDir: "/themes",
     safeMode: false,
     log: () => undefined,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),

@@ -250,5 +250,46 @@ describe("HostConfigManager", () => {
     const tauOverride = await manager.read(projectDir);
     expect(tauOverride.theme).toBe("tau-dark");
   });
-});
 
+  describe("levels", () => {
+    it("reads the host and project files apart, without the keys Pi owns", async () => {
+      await manager.update({ showCosts: false, values: { "tau.appearance.density": "compact" } }, "global");
+      await manager.update({ transcriptDetail: "everything", values: { "tau.appearance.density": "comfortable" } }, "project", projectDir);
+      await writeFile(globalPath, JSON.stringify({ ...JSON.parse(await readFile(globalPath, "utf8")), compaction: { enabled: false } }), "utf8");
+
+      const layers = await manager.readLayers(projectDir);
+      expect(layers.host).toEqual({ showCosts: false, values: { "tau.appearance.density": "compact" } });
+      expect(layers.project).toEqual({ transcriptDetail: "everything", values: { "tau.appearance.density": "comfortable" } });
+      expect(layers.projectPath).toBe(projectDir);
+      expect(await manager.readLayers()).toEqual({ host: layers.host });
+    });
+
+    it("clears a project override so the host's value shows through again", async () => {
+      await manager.update({ values: { "ext.mode": "a", "ext.other": "x" }, showCosts: true }, "global");
+      await manager.update({ values: { "ext.mode": "b" }, showCosts: false }, "project", projectDir);
+      expect((await manager.read(projectDir)).values?.["ext.mode"]).toBe("b");
+
+      const layers = await manager.clear(["values.ext.mode", "showCosts"], "project", projectDir);
+      expect(layers.project).toEqual({});
+      const merged = await manager.read(projectDir);
+      expect(merged.values).toEqual({ "ext.mode": "a", "ext.other": "x" });
+      expect(merged.showCosts).toBe(true);
+    });
+
+    it("never clears a key Pi owns, and leaves a file it did not change alone", async () => {
+      await writeFile(globalPath, JSON.stringify({ steeringMode: "all", showCosts: false }), "utf8");
+      await manager.clear(["steeringMode"], "global");
+      expect(JSON.parse(await readFile(globalPath, "utf8"))).toEqual({ steeringMode: "all", showCosts: false });
+      await manager.clear(["showCosts"], "project", projectDir);
+      await expect(readFile(join(projectDir, ".tau", "config.json"), "utf8")).rejects.toThrow();
+    });
+
+    it("keeps hostBackground and threads.continueAfterRestart, which the patch used to drop", async () => {
+      await manager.update({ hostBackground: true, threads: { continueAfterRestart: true } }, "global");
+      await manager.update({ threads: { continueAfterRestart: false } }, "project", projectDir);
+      expect((await manager.read()).hostBackground).toBe(true);
+      expect((await manager.read()).threads?.continueAfterRestart).toBe(true);
+      expect((await manager.read(projectDir)).threads?.continueAfterRestart).toBe(false);
+    });
+  });
+});

@@ -274,6 +274,15 @@ export function decodeCustomProviderInput(channel: string, field: string, value:
   };
 }
 
+/** Setting keys for `clear-config`: `showCosts`, or a record entry such as `values.tau.usage.period`. */
+export function decodeSettingKeys(channel: string, field: string, value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 100) fail(channel, field, "must be a list of 1 to 100 setting keys");
+  for (const key of value as unknown[]) {
+    if (typeof key !== "string" || key.length === 0 || key.length > 300) fail(channel, field, "must hold non-empty setting keys");
+  }
+  return value as string[];
+}
+
 const TRANSCRIPT_DETAIL_VALUES = new Set(["focused", "detailed", "everything"]);
 
 /**
@@ -293,6 +302,13 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
   if (item.showCosts !== undefined) result.showCosts = decodeBoolean(channel, `${field}.showCosts`, item.showCosts);
   if (item.prewarm !== undefined) result.prewarm = decodeBoolean(channel, `${field}.prewarm`, item.prewarm);
   if (item.hostBackground !== undefined) result.hostBackground = decodeBoolean(channel, `${field}.hostBackground`, item.hostBackground);
+  if (item.vimMode !== undefined) result.vimMode = decodeBoolean(channel, `${field}.vimMode`, item.vimMode);
+  if (item.threads !== undefined) {
+    const threads = record(channel, `${field}.threads`, item.threads);
+    if (threads.continueAfterRestart !== undefined) {
+      result.threads = { continueAfterRestart: decodeBoolean(channel, `${field}.threads.continueAfterRestart`, threads.continueAfterRestart) };
+    }
+  }
   if (item.fontFamily !== undefined) result.fontFamily = decodeString(channel, `${field}.fontFamily`, item.fontFamily);
   if (item.fontSize !== undefined) result.fontSize = decodeNumber(channel, `${field}.fontSize`, item.fontSize);
   if (item.temperature !== undefined) result.temperature = decodeNumber(channel, `${field}.temperature`, item.temperature);

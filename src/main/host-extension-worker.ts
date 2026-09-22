@@ -178,6 +178,7 @@ const services: WorkerHostServices = {
   agentDir: boot.agentDir,
   sessionsDir: boot.sessionsDir,
   stateDir: boot.stateDir,
+  themesDir: boot.themesDir,
   safeMode: boot.safeMode,
   cwd: () => rpc("cwd") as Promise<string>,
   log: (label, detail) => { send({ t: "log", label, ...(detail === undefined ? {} : { detail }) }); },

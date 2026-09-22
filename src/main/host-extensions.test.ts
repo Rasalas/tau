@@ -14,6 +14,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     agentDir: "/agent",
     sessionsDir: "/agent/sessions",
     stateDir: "/state",
+    themesDir: "/themes",
     safeMode: false,
     log: (label, detail) => { logs.push(detail ? `${label} ${detail}` : label); },
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),

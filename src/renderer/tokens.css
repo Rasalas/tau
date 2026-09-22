@@ -154,6 +154,19 @@
   --radius-xl: 16px;                                 /* a modal */
   --radius-pill: 999px;                              /* a pill or a knob */
 
+  /* Spacing: one scale, multiplied by --density. The client may set --density on
+     <html> (compact .8, comfortable 1.2); unset, every step is its pixel value. A
+     value between two steps is written calc(Npx * var(--density)). */
+  --density: 1;
+  --space-1: calc(2px * var(--density));             /* a hairline gap */
+  --space-2: calc(4px * var(--density));             /* between a glyph and its label */
+  --space-3: calc(6px * var(--density));             /* inside a chip */
+  --space-4: calc(8px * var(--density));             /* between rows of a list */
+  --space-5: calc(12px * var(--density));            /* inside a row */
+  --space-6: calc(16px * var(--density));            /* inside a card */
+  --space-7: calc(24px * var(--density));            /* around a page */
+  --space-8: calc(32px * var(--density));            /* between sections */
+
   --motion-fast: 120ms;                              /* a hover or a chevron */
   --motion: 180ms;                                   /* a row or a card arriving */
   --motion-slow: 320ms;                              /* a curtain */

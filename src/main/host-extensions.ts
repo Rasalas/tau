@@ -428,6 +428,11 @@ export interface HostExtensionServices {
    * extension's folder under it.
    */
   readonly stateDir: string;
+  /**
+   * The folder of the user's own themes (`~/.tau/themes`, or `TAU_THEMES_DIR`):
+   * a theme written here is listed and applied like one the user put there.
+   */
+  readonly themesDir: string;
   readonly safeMode: boolean;
   log(label: string, detail?: string): void;
   /** Opens a project the way a project switch does; the same path re-activates it. */

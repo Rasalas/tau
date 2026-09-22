@@ -143,6 +143,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     agentDir: services.agentDir,
     sessionsDir: services.sessionsDir,
     stateDir: services.stateDir,
+    themesDir: services.themesDir,
     safeMode: services.safeMode,
     invocationContextId: context.invocationContextId,
     // An isolated extension is always a package, so an absent list is an empty one.

@@ -164,6 +164,8 @@ async function main() {
   // its agent worktrees and host token under .tau-dev, never in the user's real ~/.tau.
   const configFile = join(DEV_DIR, "tau-config.json");
   const worktreesDir = join(DEV_DIR, "worktrees");
+  // A theme the instance saves (Appearance's editor, a VS Code import) stays here too.
+  const themesDir = join(DEV_DIR, "themes");
   // Codex keeps its sessions under CODEX_HOME; a caller's own value is kept.
   const codexHome = process.env.CODEX_HOME ?? join(DEV_DIR, "codex-home");
   if (!process.env.CODEX_HOME) prepareCodexHome(codexHome);
@@ -206,6 +208,7 @@ async function main() {
     TAU_WORKSPACE: workspace,
     TAU_CONFIG_FILE: configFile,
     TAU_WORKTREES_DIR: worktreesDir,
+    TAU_THEMES_DIR: themesDir,
     TAU_HOST_TOKEN_FILE: join(DEV_DIR, "host-token"),
     CODEX_HOME: codexHome,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
