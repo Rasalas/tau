@@ -358,7 +358,8 @@ export interface StageTabContribution<Params extends Record<string, unknown> = R
   title(params: Params): string;
   /** The tab glyph, the way a panel passes one. */
   Icon?: PanelIconComponent;
-  render(params: Params, handle: StageTabHandle): ReactNode;
+  /** `actions` are the workbench's, the same a panel is given. */
+  render(params: Params, handle: StageTabHandle, actions: WorkbenchActions): ReactNode;
   /** False drops a tab restored from storage whose params name nothing any more. */
   restore?(params: Params): boolean;
   /** One tab for the whole kind, whatever params it is opened with. */

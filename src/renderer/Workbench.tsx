@@ -568,6 +568,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               chatTab={centerCompact ? { active: chatFocused, streaming: visibleStreaming, onSelect: setChatFocused } : undefined}
               registry={registry}
               stageTabs={stageTabs}
+              actions={actions}
               loadFile={documentSource?.loadFile ?? loadFileUnavailable}
               loadDiff={documentSource?.loadDiff ?? loadDiffUnavailable}
               loadThread={loadThread}

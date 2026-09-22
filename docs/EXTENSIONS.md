@@ -244,7 +244,11 @@ with), and they are what a restored tab comes back with. Put an id in them, not
 an object. An extension tab opens pinned, because it is opened by a deliberate
 action; pass `preview: true` to take the stage's one preview slot instead.
 
-`render` is given the params and a **handle**, the tab's own:
+`render` is given the params, a **handle** — the tab's own — and the
+workbench's `actions`, the same object a panel receives in its props, so a
+tab's content can open a panel, a file or a URL without its kit keeping a
+copy from elsewhere (new in API 1.9.0; Terminal Kit opens a link's Preview
+this way). The handle:
 
 | Member | What it does |
 |---|---|

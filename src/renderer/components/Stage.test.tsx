@@ -8,7 +8,7 @@ import { activateTab, closeTab, EMPTY_STAGE, openExtensionTab, openFileTab, open
 import { ThreadStore } from "../../workbench/thread-store";
 import { ThreadStoreContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
-import { ExtensionRegistry } from "../extension-system";
+import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
 import { StageTabController } from "../stage-tab-controller";
 import { Stage } from "./Stage";
 import type { ChatTab } from "./StageTabs";
@@ -28,7 +28,9 @@ const CHANGED: UiWorkspaceChanges = {
   added: 1, removed: 0, proposedMessage: "Update a",
 };
 
-function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = new ThreadStore(), loadThread, onTakeOverThread, registry }: {
+const NO_ACTIONS = new Proxy({}, { get: () => () => undefined }) as WorkbenchActions;
+
+function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = new ThreadStore(), loadThread, onTakeOverThread, registry, actions = NO_ACTIONS }: {
   initial: StageState;
   changes?: UiWorkspaceChanges;
   chatTab?: ChatTab;
@@ -36,6 +38,7 @@ function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = ne
   threads?: ThreadStore;
   loadThread?: (sessionId: string) => Promise<UiMessage[]>;
   onTakeOverThread?: (sessionId: string) => void;
+  actions?: WorkbenchActions;
   registry?: ExtensionRegistry;
 }) {
   const [stage, setStage] = useState(initial);
@@ -51,6 +54,7 @@ function Harness({ initial, changes = NO_CHANGES, chatTab, onClose, threads = ne
     stage={stage}
     {...(registry ? { registry } : {})}
     stageTabs={stageTabs}
+    actions={actions}
     cwd={CWD}
     changes={changes}
     chatTab={chatTab}
@@ -277,7 +281,10 @@ describe("a tab a kit drew", () => {
         plugin.registerStageTab({
           kind: "terminal",
           title: (params) => `shell ${String(params.id)}`,
-          render: (params, handle) => <button onClick={() => handle.setTitle("renamed")}>shell {String(params.id)} output</button>,
+          render: (params, handle, actions) => <>
+            <button onClick={() => handle.setTitle("renamed")}>shell {String(params.id)} output</button>
+            <button onClick={() => actions.openPanel("terminal")}>show panel</button>
+          </>,
         });
       },
     });
@@ -292,6 +299,13 @@ describe("a tab a kit drew", () => {
     expect(screen.getByRole("tab", { name: /shell t1/u })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /shell t1 output/u }));
     expect(screen.getByRole("tab", { name: /renamed/u })).toBeTruthy();
+  });
+
+  it("gives the content the workbench's actions, as a panel gets them", () => {
+    const openPanel = vi.fn();
+    render(<Harness initial={tab("t1")} registry={terminals()} actions={{ openPanel } as unknown as WorkbenchActions} />);
+    fireEvent.click(screen.getByRole("button", { name: "show panel" }));
+    expect(openPanel).toHaveBeenCalledWith("terminal");
   });
 
   it("says so when the kit that drew it is not active", () => {
