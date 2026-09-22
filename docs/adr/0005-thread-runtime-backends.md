@@ -179,4 +179,13 @@ Claude Code and Codex, the pinned release for Antigravity — through two leaf
 helpers on `tau/host-extension` (`npmLatestVersion`, `packageUpdateCommand`).
 Nothing is ever updated by Tau; the hint names the command.
 
+The three kits' own Settings pages became one: a settings page that names a
+`runtime` is that runtime's card on Settings → Providers (Claude Code, Codex,
+Antigravity, in that order), each with the CLI and its version, the update, the
+login and a path for the executable that the kit keeps in its state folder; an
+environment variable (`TAU_CLAUDE_CODE_COMMAND`, `TAU_CODEX_COMMAND`,
+`TAU_ANTIGRAVITY_ACP_COMMAND`) still wins. Pi has no card: its providers and
+logins live in `~/.pi/agent` and Tau has no page for them, and Settings → Pi
+is Pi's runtime configuration, not a provider's.
+
 Still open: the kit's status page.

@@ -500,7 +500,11 @@ is an esbuild alias onto Tau's own compiled module, which is why
 of the Settings modal with its own nav entry, typed `SettingsPageContribution`
 (`id`, `label`, an optional `Icon` the way panels pass theirs, an optional
 `order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
-`onNotify`) — and `inspectPackages(cwd)`, which answers core's own scan of the
+`onNotify`; a page that also names a `runtime` — a backend kind — gets no
+nav entry: core draws it as that runtime's card on its Providers page, under
+the runtime's mark and `label`, in `order`, and opens Providers for its `id`.
+The backend kits Tau ships put the CLI, its version and update, the login and
+a path override there) — and `inspectPackages(cwd)`, which answers core's own scan of the
 package folders and the shipped kits (`ExtensionInspection`) without loading
 any code — including `distribution`, the name and version of the set the
 `bundled` entries came in, absent in safe mode, which loads none. Core keeps Defaults, Keybindings and the Inspector; every other page
