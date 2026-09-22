@@ -16,6 +16,13 @@ export interface SettingsSearchEntry {
   filter?: string;
   /** Ranks after every other match: a keybinding mirrors a row somewhere else. */
   secondary?: boolean;
+  /** The id of the row on its page, which the page scrolls to. */
+  target?: string;
+}
+
+/** The element id of a core row, from its label: what a search result scrolls to. */
+export function settingAnchor(label: string): string {
+  return `setting-${label.toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-|-$/gu, "")}`;
 }
 
 type CoreRow = readonly [label: string, keywords: readonly string[]];
@@ -31,8 +38,6 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
       ["Runtime for new threads", ["runtime", "backend"]],
       ["Transcript detail", ["focused", "detailed", "everything", "tool output", "show thinking"]],
       ["Theme", ["appearance", "dark", "light", "system", "color", "colour"]],
-      ["Font size", ["font", "text size", "zoom"]],
-      ["Font family", ["font", "typeface", "monospace"]],
       ["Show costs", ["cost", "money", "spend", "price"]],
       ["Keep the host running in the background", ["host", "background", "quit"]],
       ["Continue threads after restarts", ["restart", "resume", "interrupted"]],
@@ -85,7 +90,10 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
   for (const core of CORE_PAGES) {
     entries.push({ id: `page:${core.page}`, page: core.page, label: core.label, section: "Settings", keywords: core.keywords });
     for (const [label, keywords] of core.rows) {
-      entries.push({ id: `${core.page}:${label}`, page: core.page, label, section: core.label, keywords });
+      entries.push({
+        id: `${core.page}:${label}`, page: core.page, label, section: core.label, keywords,
+        ...(core.page === "defaults" ? { target: settingAnchor(label) } : {}),
+      });
     }
   }
   for (const page of sources.pages) {

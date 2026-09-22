@@ -68,7 +68,7 @@ function storedDockWidth(storage: ClientStorage): number {
 }
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
-const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
+const LazySettingsScreen = lazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
 // Modals a command opens; they stay out of the first paint.
 const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").then(({ ThreadTreeModal }) => ({ default: ThreadTreeModal })));
 const LazyProjectSourcesModal = lazy(() => import("./components/ProjectSources").then(({ ProjectSourcesModal }) => ({ default: ProjectSourcesModal })));
@@ -431,11 +431,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       />
     </Suspense>
     {settingsPage ? <LazyFeatureBoundary label="settings">
-      <Suspense fallback={<LazyFeatureFallback label="settings" />}>
-        <LazySettingsModal
+      <Suspense fallback={<div className="settings-screen loading"><LazyFeatureFallback label="settings" /></div>}>
+        <LazySettingsScreen
           page={settingsPage}
           snapshot={snapshot}
           registry={registry}
+          projects={projects}
           onSetPage={setSettingsPage}
           onSetModel={(provider, id) => void setModel(provider, id)}
           onSetThinking={(level) => void setThinking(level)}
@@ -478,7 +479,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </>);
 
   return providers(<>
-    <div className={shellClassName} style={{ "--dock-width": panels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px` } as CSSProperties}>
+    {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
+    <div className={shellClassName} inert={Boolean(settingsPage)} style={{ "--dock-width": panels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px` } as CSSProperties}>
       <TitleBar
         cwd={workspaceCwd}
         dockOpen={dockOpen}
@@ -634,9 +636,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <span className="spacer" />
         </nav>
       </aside> : null}
-      {noticeToast}
+      {settingsPage ? null : noticeToast}
     </div>
     {overlays}
+    {settingsPage ? noticeToast : null}
   </>);
 });
 

@@ -149,6 +149,7 @@ describe("runtime controls keybindings", () => {
       "runtime.model": ["mod+shift+m"],
       "runtime.new-session": ["mod+n"],
       "runtime.rename-thread": ["mod+shift+r"],
+      "runtime.settings": ["mod+,"],
       "runtime.transcript-detail": ["mod+shift+t"],
       "workbench.close-stage-tab": ["mod+w"],
       "workbench.focus-composer": ["mod+1"],

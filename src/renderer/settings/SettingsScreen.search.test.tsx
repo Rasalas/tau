@@ -4,13 +4,13 @@ import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExtensionRegistry } from "../extension-system";
 import { TestProviders } from "../test-support/test-providers";
-import { SettingsModal } from "./SettingsModal";
+import { SettingsScreen } from "./SettingsScreen";
 
 afterEach(cleanup);
 
 function Harness({ registry }: { registry: ExtensionRegistry }) {
   const [page, setPage] = useState("defaults");
-  return <SettingsModal page={page} registry={registry} onSetPage={setPage} onSetModel={() => undefined} onSetThinking={() => undefined} onClose={() => undefined} onNotify={() => undefined} />;
+  return <SettingsScreen page={page} registry={registry} onSetPage={setPage} onSetModel={() => undefined} onSetThinking={() => undefined} onClose={() => undefined} onNotify={() => undefined} />;
 }
 
 function setup() {
@@ -36,7 +36,7 @@ describe("Settings search", () => {
   it("finds a keybinding and opens the Keybindings page filtered to it", () => {
     const { modal, search } = setup();
     fireEvent.change(search, { target: { value: "go to file" } });
-    fireEvent.click(within(modal).getByRole("button", { name: /Go to file…/u }));
+    fireEvent.click(within(modal).getByRole("option", { name: /Go to file…/u }));
     expect(within(modal).getByRole("heading", { name: "Keybindings" })).toBeTruthy();
     expect((within(modal).getByPlaceholderText("Filter keybindings or commands…") as HTMLInputElement).value).toBe("search.files");
     const rows = [...modal.querySelectorAll(".keybinding-row strong")].map((row) => row.textContent);

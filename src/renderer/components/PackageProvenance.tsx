@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ExtensionInspection } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
+import { SettingRow, SettingsSection } from "../settings/settings-layout";
 
 /**
  * Where one extension came from, on its own settings page: core's own scan of
@@ -20,12 +21,11 @@ export function PackageProvenance({ id, cwd }: { id: string; cwd?: string }) {
 
   if (!pkg) return null;
   return (
-    <>
-      <div className="settings-label">PACKAGE</div>
-      <div className="inspector-folder"><span>version</span><code>{pkg.version ?? "not declared"}</code></div>
-      <div className="inspector-folder"><span>signature</span><code>{pkg.signature?.label ?? "unsigned"}</code></div>
-      <div className="inspector-folder"><span>isolation</span><code>{pkg.isolation === "in-process" ? "in-process (runs inside the host process)" : "worker"}</code></div>
-      <div className="inspector-folder"><span>origin</span><code>{pkg.scope === "bundled" ? "bundled with Tau" : pkg.installedFrom ?? pkg.source?.url ?? pkg.directory}</code></div>
-    </>
+    <SettingsSection title="Package">
+      <SettingRow title="Version" control={<code className="settings-value">{pkg.version ?? "not declared"}</code>} />
+      <SettingRow title="Signature" control={<code className="settings-value">{pkg.signature?.label ?? "unsigned"}</code>} />
+      <SettingRow title="Isolation" control={<code className="settings-value">{pkg.isolation === "in-process" ? "in-process (runs inside the host process)" : "worker"}</code>} />
+      <SettingRow title="Origin" control={<code className="settings-value">{pkg.scope === "bundled" ? "bundled with Tau" : pkg.installedFrom ?? pkg.source?.url ?? pkg.directory}</code>} />
+    </SettingsSection>
   );
 }

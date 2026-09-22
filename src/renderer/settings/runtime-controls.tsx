@@ -46,7 +46,7 @@ export const runtimeControls: DesktopExtension = {
   id: "tau.runtime-settings",
   name: "Runtime Controls",
   activate(plugin) {
-    plugin.registerCommand({ id: "runtime.settings", label: "Open Settings panel", group: "Runtime", run: (app) => app.openSettings() });
+    plugin.registerCommand({ id: "runtime.settings", label: "Open Settings", group: "Runtime", run: (app) => app.openSettings() });
     plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({
@@ -345,6 +345,8 @@ export const runtimeControls: DesktopExtension = {
     });
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
+    // As in T3 Code; the open Settings screen answers the same chord by closing.
+    plugin.registerKeybinding({ keys: "mod+,", commandId: "runtime.settings" });
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
     plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });
