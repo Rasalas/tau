@@ -1751,6 +1751,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 }
 /* A kit's page names itself in an h3; the breadcrumb already does. */
 .settings-content > .settings-page > h3:first-child { display: none; }
+.settings-content > .settings-page > h3:first-child + * { margin-top: 0; }
 
 .settings-page { min-width: 0; }
 .settings-page h3 { margin: 0; font-size: 15px; font-weight: 700; }
@@ -1781,6 +1782,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .settings-row-status p { margin: 2px 0 0; }
 .settings-row-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-4); min-width: 0; }
 .settings-row-control[data-inert] { opacity: .5; cursor: not-allowed; }
+.settings-row-control-inert { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-4); }
 .settings-row-extra { margin-top: 10px; }
 .settings-row-inline { display: flex; align-items: center; gap: 6px; }
 .settings-row-empty { font-size: 12px; color: var(--muted-2); }
@@ -1858,7 +1860,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .settings-field:hover { border-color: var(--line-field); }
 .settings-field > svg { color: var(--acid-text); }
 .settings-field > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; }
-.settings-field > .provider-icon-stack { margin-left: 0; }
+.settings-field > .provider-icon-stack { flex: none; margin-left: 0; }
 .settings-field strong { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-field small { font: 10px var(--mono); color: var(--faint); }
 .settings-field > b { display: grid; place-items: center; color: var(--faint); }

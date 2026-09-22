@@ -129,7 +129,8 @@ export class PreferencesStore {
 
   bindHost(client: HostClient, workspaceId?: string): void {
     this.hostClient = client;
-    this.activeWorkspaceId = workspaceId;
+    // App binds once, after the effect that names the workspace may already have run.
+    this.activeWorkspaceId = workspaceId ?? this.activeWorkspaceId;
     void this.syncFromHost();
   }
 

@@ -175,6 +175,16 @@ describe("host configuration sync", () => {
     expect(sent).toEqual([{ values: { "acme.second": "2" } }, { options: { "acme.flag": true } }]);
   });
 
+  it("keeps the workspace it was told about when the host is bound without one", async () => {
+    const asked: Array<string | undefined> = [];
+    const fakeClient = { getConfig: async (workspaceId?: string) => { asked.push(workspaceId); return {}; }, updateConfig: async () => ({}) } as unknown as import("../workbench/host-client").HostClient;
+    const store = new PreferencesStore();
+    store.setWorkspace("/work/app");
+    store.bindHost(fakeClient);
+    await store.syncFromHost();
+    expect(asked.at(-1)).toBe("/work/app");
+  });
+
   it("forgets what the host said before and no longer says", async () => {
     const store = new PreferencesStore();
     let config: import("../shared/contracts").TauConfig = { showCosts: false, fontSize: 15, values: { "acme.mode": "project" } };

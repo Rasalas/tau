@@ -90,6 +90,8 @@ describe("Settings → Appearance", () => {
     fireEvent.change(within(editor).getByRole("textbox", { name: "Accent" }), { target: { value: "#ff8800" } });
     fireEvent.blur(within(editor).getByRole("textbox", { name: "Accent" }));
     expect(document.getElementById("tau-appearance-editor")?.textContent).toContain("--acid: #ff8800;");
+    // An accent change leaves the surfaces the file set alone.
+    expect(document.getElementById("tau-appearance-editor")?.textContent).toContain("--shell: #101820;");
 
     await act(async () => { fireEvent.click(within(editor).getByRole("button", { name: "Save theme" })); });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Theme editor" })).toBeNull());

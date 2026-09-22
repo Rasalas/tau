@@ -8,6 +8,8 @@ import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance, type Save
 import { previewCss, schemeSides } from "./theme-css.js";
 import { DERIVED_GROUPS, TOKEN_GROUPS, themeIdFromName, validateTokens } from "./tokens.js";
 
+const ACCENT_TOKENS = new Set(TOKEN_GROUPS.find((group) => group.id === "accent")!.tokens.map(([name]) => name));
+
 export interface ThemeDraft {
   /** The theme being edited, when it was saved before. */
   id?: string;
@@ -149,8 +151,9 @@ export function ThemeEditorPanel({ store, host, preferences, notify }: {
   const setSeed = (key: keyof ThemeDraft["seed"], value: string) => store.update((current) => {
     const seed = { ...current.seed, [key]: value };
     const derived = derivePalette({ appearance: current.appearance, ...seed });
-    // Status and diff colours set by hand survive; the derived groups follow the seed.
-    return { ...current, seed, tokens: { ...current.tokens, ...derived } };
+    // The accent moves only the accent tokens; background and text move every derived group.
+    const moved = key === "accent" ? Object.fromEntries(Object.entries(derived).filter(([token]) => ACCENT_TOKENS.has(token))) : derived;
+    return { ...current, seed, tokens: { ...current.tokens, ...moved } };
   });
   const setAppearance = (appearance: Appearance) => store.update((current) => ({
     ...current, appearance, tokens: { ...current.tokens, ...derivePalette({ appearance, ...current.seed }) },

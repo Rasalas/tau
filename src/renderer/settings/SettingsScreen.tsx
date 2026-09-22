@@ -22,11 +22,12 @@ function projectName(path?: string): string {
   return path?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "project";
 }
 
-/** The workspace on screen, as the project Settings reads levels for. */
-function currentProject(snapshot?: HostSnapshot): SettingsProject | undefined {
+/** The workspace on screen, as the project Settings reads levels for; named as the project list names it. */
+function currentProject(snapshot: HostSnapshot | undefined, projects: readonly UiProject[]): SettingsProject | undefined {
   const workspaceId = snapshot?.workspaceId ?? snapshot?.cwd;
   if (!workspaceId) return undefined;
-  return { workspaceId, label: snapshot?.projectLabel || projectName(snapshot?.cwd) };
+  const listed = projects.find((project) => project.workspaceId === workspaceId || project.path === snapshot?.cwd);
+  return { workspaceId, label: listed?.name || projectName(snapshot?.cwd), ...(snapshot?.cwd ? { path: snapshot.cwd } : {}) };
 }
 
 /** The last crumb: the level a change on this page is written to. */
@@ -37,6 +38,7 @@ function ScopeCrumb({ projects, current }: { projects: readonly UiProject[]; cur
     const list: SettingsProject[] = current ? [current] : [];
     for (const project of projects) {
       const workspaceId = project.workspaceId ?? project.path;
+      if (current && (project.workspaceId === current.workspaceId || project.path === current.workspaceId || project.path === current.path)) continue;
       if (!list.some((entry) => entry.workspaceId === workspaceId)) list.push({ workspaceId, label: project.name || projectName(project.path) });
     }
     return list;
@@ -122,7 +124,7 @@ export function SettingsScreen({
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const [levels] = useState(() => new ConfigLayersStore(client, () => void preferences.syncFromHost()));
-  const project = currentProject(snapshot);
+  const project = currentProject(snapshot, projects);
   useEffect(() => { levels.setProject(project); }, [levels, project?.workspaceId, project?.label]);
   // A push that changed a file, or the palette's theme, moves the levels too.
   useEffect(() => {

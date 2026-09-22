@@ -321,7 +321,8 @@ export default function App() {
   useEffect(() => {
     if (!client) return;
     if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
-    preferences.setWorkspace(activeWorkspaceId);
+    // A project's own settings apply from the start screen on, before its thread has a workspace id.
+    preferences.setWorkspace(activeWorkspaceId ?? workspaceCwd);
   }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
   const syncDesktopExtensions = useCallback((only?: readonly string[]) => {
     void runtimeExtensions.resync(only).catch((error) => setNotice(errorMessage(error)));

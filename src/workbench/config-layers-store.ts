@@ -8,6 +8,8 @@ export interface SettingsProject {
   /** How the host addresses it; a path works on a local host too. */
   workspaceId: string;
   label: string;
+  /** Where it is, for telling the same project apart in a list. */
+  path?: string;
 }
 
 export interface ConfigLayersSnapshot {
