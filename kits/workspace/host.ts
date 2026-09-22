@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
 import { readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   assertAllowedCloneSource,
   gitExecutable,
+  HostCommandError,
   isWorkspaceRelativePath,
   type DiffLoadOptions,
   type FileNode,
@@ -17,15 +18,17 @@ import {
 } from "tau/host-extension";
 import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
-import { readBoundedFileContent } from "./file-content.js";
+import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
+import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
 import { CHECKPOINT_EVENT, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createReviewRequestDetector } from "./review-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 
 const execFileAsync = promisify(execFile);
-/** The kit built on this one; its host entry may call the commands that name it. */
+/** The kits built on this one; their host entries may call the commands that name them. */
 const REVIEW_KIT_ID = "tau.review";
+const FILES_KIT_ID = "tau.files";
 
 export async function listDirectories(requested: string | undefined, identify: (path: string) => WorkspaceRef): Promise<UiDirectoryListing> {
   const candidate = requested?.trim() || homedir();
@@ -266,7 +269,29 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return readBoundedFileContent(resolve(project, path));
-      });
+      }, { callers: [FILES_KIT_ID] });
+      context.registerCommand("file-stat", async (input) => {
+        const project = cwd();
+        const path = relativePath(input);
+        await workspaceGit.assertWorkspacePath(project, path);
+        return statFile(resolve(project, path));
+      }, { callers: [FILES_KIT_ID] });
+      // An editor's save: refused as a conflict when the file changed since `expectedMtimeMs`.
+      context.registerCommand("write-file", async (input) => {
+        const project = cwd();
+        const path = relativePath(input);
+        const fields = record(input);
+        if (typeof fields.text !== "string") throw new HostCommandError('Workspace command needs "text".');
+        const expected = fields.expectedMtimeMs;
+        if (expected !== undefined && expected !== null && typeof expected !== "number") throw new HostCommandError('"expectedMtimeMs" is a number.');
+        await workspaceGit.assertWorkspacePath(project, path);
+        const result = await writeTextFile(resolve(project, path), fields.text, expected as number | null | undefined);
+        if (result.status === "written") {
+          git.invalidate(project, ["status", "workspace"]);
+          services.log("workspace.file-written", path);
+        }
+        return result;
+      }, { callers: [FILES_KIT_ID] });
       context.registerCommand("commit", async (input) => {
         const project = cwd();
         const message = requiredString(input, "message");
@@ -455,13 +480,28 @@ export function createWorkspaceHostExtension(): HostExtension {
         const limit = record(input).limit;
         return checkpoints.turnFiles(sessionId, checkpointId, optionalString(input, "cursor"), typeof limit === "number" ? limit : undefined);
       });
-      context.registerCommand("list-editors", () => workspaceGit.listEditors());
+      const installedEditors = () => findInstalledEditors(defaultEditorProbe((name) => services.findCommand(name)));
+      const openEditor = async (editorId: string, directory: string, target: string, isFile: boolean, position?: { line?: number; column?: number }) => {
+        const editor = installedEditors().find((entry) => entry.id === editorId);
+        if (!editor) throw new HostCommandError(`${editorId} is not installed on this machine.`);
+        const { command, args } = editorCommand(editor, target, { isFile, platform: process.platform, ...(position ? { position } : {}) });
+        services.noteSubprocess();
+        await launchEditor(command, args, directory);
+      };
+      context.registerCommand("list-editors", () => installedEditors().map(({ id, name }) => ({ id, name })));
       context.registerCommand("open-in-editor", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const editorId = requiredString(input, "editorId");
         const path = optionalRelativePath(input);
         if (path) await workspaceGit.assertWorkspacePath(project, path);
-        await workspaceGit.openInEditor(project, editorId, path);
+        const target = path ? resolve(project, path) : project;
+        const isFile = path ? (await stat(target)).isFile() : false;
+        const line = record(input).line;
+        const column = record(input).column;
+        await openEditor(editorId, project, target, isFile, {
+          ...(typeof line === "number" ? { line } : {}),
+          ...(typeof column === "number" ? { column } : {}),
+        });
       });
       context.registerCommand("list-terminals", () => workspaceGit.listTerminals());
       context.registerCommand("open-terminal", async (input) => {
@@ -474,9 +514,10 @@ export function createWorkspaceHostExtension(): HostExtension {
         const editorId = optionalString(input, "editorId");
         const promptFile = join(tmpdir(), `tau-prompt-${Date.now()}.md`);
         await writeFile(promptFile, text, "utf8");
-        const available = await workspaceGit.listEditors();
-        const chosen = editorId && available.some((e) => e.id === editorId) ? editorId : (available[0]?.id || "code");
-        await workspaceGit.openInEditor(dirname(promptFile), chosen, basename(promptFile));
+        const available = installedEditors().filter((editor) => editor.id !== FILE_MANAGER_ID);
+        const chosen = editorId && available.some((e) => e.id === editorId) ? editorId : available[0]?.id;
+        if (!chosen) throw new HostCommandError("No supported editor found on this machine.");
+        await openEditor(chosen, dirname(promptFile), promptFile, true);
         return { path: promptFile, editor: chosen };
       });
       context.registerCommand("read-prompt-external", async (input) => {

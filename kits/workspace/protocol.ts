@@ -11,6 +11,8 @@ import type {
   UiTerminal,
   UiFileContent,
   UiFileDiff,
+  UiFileStat,
+  UiFileWriteResult,
   UiReviewRequest,
   UiSession,
   UiWorktreeStatus,
@@ -27,6 +29,12 @@ import type { ComponentType } from "react";
 import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
+
+/** Where in a file an editor opens it, 1-based. */
+export interface EditorPosition {
+  line?: number;
+  column?: number;
+}
 
 /** Where a new worktree starts, as the picker shows it. */
 export interface UiWorktreeBase {
@@ -141,6 +149,9 @@ export interface WorkspaceHostCommands {
   "stage-all": { input: undefined; output: UiWorkspaceChanges };
   "revert-file": { input: { relPath: string }; output: UiWorkspaceChanges };
   "read-file": { input: { relPath: string }; output: UiFileContent };
+  "file-stat": { input: { relPath: string }; output: UiFileStat };
+  /** `expectedMtimeMs` is when the caller last saw the file; `null` expects none, absent writes regardless. */
+  "write-file": { input: { relPath: string; text: string; expectedMtimeMs?: number | null }; output: UiFileWriteResult };
   "commit": { input: { message: string; push: boolean }; output: CommitResult };
   "pull": { input: undefined; output: PullResult };
   /** Pushes the branch; one without an upstream is published to the primary remote. Review Kit may call it. */
@@ -167,7 +178,8 @@ export interface WorkspaceHostCommands {
   "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
-  "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string }; output: void };
+  /** `file-manager` reveals the file in Finder, Explorer or Files; a line reaches editors that take one. */
+  "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string } & EditorPosition; output: void };
   "list-terminals": { input: undefined; output: UiTerminal[] };
   "open-terminal": { input: { terminalId?: string; workspace?: string }; output: void };
   /** Every checkpoint of a thread's branch, and whether this runtime can restore one. */
@@ -200,6 +212,8 @@ export interface WorkspaceHostClient {
   stageAll(): Promise<UiWorkspaceChanges>;
   revertFile(relPath: string): Promise<UiWorkspaceChanges>;
   readFile(relPath: string): Promise<UiFileContent>;
+  statFile(relPath: string): Promise<UiFileStat>;
+  writeFile(relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
   commit(message: string, push: boolean): Promise<CommitResult>;
   pull(): Promise<PullResult>;
   push(): Promise<PushResult>;
@@ -213,7 +227,7 @@ export interface WorkspaceHostClient {
   getProjectDefaults(workspace?: string): Promise<ProjectDefaults>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
-  openInEditor(editorId: string, relPath?: string, workspace?: string): Promise<void>;
+  openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
   listTerminals(): Promise<UiTerminal[]>;
   openTerminal(terminalId?: string, workspace?: string): Promise<void>;
   checkpoints(sessionId: string): Promise<WorkspaceCheckpointList>;
@@ -241,6 +255,8 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     stageAll: () => call("stage-all", undefined),
     revertFile: (relPath) => call("revert-file", { relPath }),
     readFile: (relPath) => call("read-file", { relPath }),
+    statFile: (relPath) => call("file-stat", { relPath }),
+    writeFile: (relPath, text, expectedMtimeMs) => call("write-file", expectedMtimeMs === undefined ? { relPath, text } : { relPath, text, expectedMtimeMs }),
     commit: (message, push) => call("commit", { message, push }),
     pull: () => call("pull", undefined),
     push: () => call("push", undefined),
@@ -254,7 +270,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getProjectDefaults: (workspace) => call("project-defaults", { workspace }),
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
-    openInEditor: (editorId, relPath, workspace) => call("open-in-editor", { editorId, relPath, workspace }),
+    openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),
     listTerminals: () => call("list-terminals", undefined),
     openTerminal: (terminalId, workspace) => call("open-terminal", { terminalId, workspace }),
     checkpoints: (sessionId) => call("checkpoints", { sessionId }),
@@ -392,6 +408,9 @@ export interface ThreadWorktreeRequest {
   branchSuffix?: string;
 }
 
+/** Opens a workspace file, by its path inside the workspace, where it can be edited. */
+export type WorkspaceFileEditor = (relPath: string, actions: WorkbenchActions) => void;
+
 export type CommitMessageSuggester = (request: {
   changes: UiWorkspaceChanges;
   diffs: readonly UiFileDiff[];
@@ -415,7 +434,9 @@ export interface WorkspaceStoreApi {
   closeReview(): void;
   /** Commits the selected changes and reports whether the host accepted them. */
   commit(message: string, push: boolean): Promise<boolean>;
-  openInEditor(relPath?: string, editorOverride?: string): Promise<void>;
+  openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition): Promise<void>;
+  /** Makes an editor the one "Open in" uses first. */
+  chooseEditor(id: string): void;
   activeTerminal(): UiTerminal | undefined;
   openTerminal(terminalOverride?: string): Promise<void>;
   suggestCommitMessage(changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]): Promise<string | undefined>;
@@ -424,6 +445,8 @@ export interface WorkspaceStoreApi {
   registerCommitMessageSuggester(suggester: CommitMessageSuggester): () => void;
   /** Re-reads the followed project's changes and Git facts, e.g. after another kit pushed. */
   refresh(): Promise<void>;
+  /** An extension offers to open a file for editing: a double-click in the Files panel asks it. The last one wins. */
+  registerFileEditor(editor: WorkspaceFileEditor): () => void;
   /** A section drawn at the top of the Changes panel, clean worktree or not. */
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
   /** A mark drawn on every thread row of the rail. */

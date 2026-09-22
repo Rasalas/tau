@@ -13,7 +13,6 @@ import type {
   UiChangedFile,
   UiDiffHunk,
   UiDiffLine,
-  UiEditor,
   UiTerminal,
   UiFileDiff,
   PullResult,
@@ -808,16 +807,6 @@ export async function assertWorkspacePath(cwd: string, path: string): Promise<vo
 export const MAX_DIFF_BYTES = 1_024 * 1_024;
 export const MAX_DIFF_LINES = 10_000;
 export const MAX_DIFF_HUNKS = 120;
-
-/** Editors we know how to launch, in the order the "Open in…" menu offers them. */
-const KNOWN_EDITORS: ReadonlyArray<UiEditor> = [
-  { id: "zed", name: "Zed" },
-  { id: "cursor", name: "Cursor" },
-  { id: "code", name: "VS Code" },
-  { id: "subl", name: "Sublime Text" },
-  { id: "idea", name: "IntelliJ IDEA" },
-  { id: "nvim", name: "Neovim" },
-];
 
 /** Terminals we know how to launch. */
 export const KNOWN_TERMINALS: ReadonlyArray<UiTerminal> = [
@@ -2452,17 +2441,6 @@ export async function push(cwd: string, runGit: GitRunner = git): Promise<PushRe
   await pushCurrentBranch(cwd, runGit);
   const committed = (await runGit(cwd, ["rev-parse", "--short", "HEAD"])).trim();
   return { detail: `Pushed ${committed}` };
-}
-
-export async function listEditors(): Promise<UiEditor[]> {
-  return KNOWN_EDITORS.filter((editor) => findExecutable(editor.id) !== undefined);
-}
-
-export async function openInEditor(cwd: string, editorId: string, path?: string): Promise<void> {
-  if (!KNOWN_EDITORS.some((editor) => editor.id === editorId)) {
-    throw new Error(`Unknown editor: ${editorId}`);
-  }
-  await execFileAsync(editorId, [path ? join(cwd, path) : cwd], { cwd });
 }
 
 export async function listTerminals(): Promise<UiTerminal[]> {

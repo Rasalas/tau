@@ -22,6 +22,8 @@ import {
   WORKSPACE_REVIEW_OVERLAY,
   type ChangesSectionProps,
   type CommitMessageSuggester,
+  type EditorPosition,
+  type WorkspaceFileEditor,
   type ProjectDefaults,
   type WorkspaceHostClient,
   type WorkspaceKitState,
@@ -106,6 +108,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private namer?: WorktreeNamer;
   private defaults?: ProjectDefaults;
   private commitMessageSuggester?: CommitMessageSuggester;
+  private fileEditor?: WorkspaceFileEditor;
 
   constructor(
     private readonly preferences: PreferencesStore,
@@ -398,12 +401,12 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     }
   }
 
-  async openInEditor(relPath?: string, editorOverride?: string): Promise<void> {
+  async openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition): Promise<void> {
     if (!hostHasLocalFiles()) { this.notify("This host's files are not on this machine."); return; }
     const editorId = editorOverride ?? this.activeEditor()?.id;
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
     if (!this.requireHost("Opening an editor")) return;
-    try { await this.host.openInEditor(editorId, relPath, this.workspace()); }
+    try { await this.host.openInEditor(editorId, relPath, this.workspace(), position); }
     catch (error) { this.notify(errorMessage(error)); }
   }
 
@@ -559,6 +562,18 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {
     this.update({ threadRailOrganizer: organizer });
     return () => { if (this.state.threadRailOrganizer === organizer) this.update({ threadRailOrganizer: undefined }); };
+  }
+
+  registerFileEditor(editor: WorkspaceFileEditor): () => void {
+    this.fileEditor = editor;
+    return () => { if (this.fileEditor === editor) this.fileEditor = undefined; };
+  }
+
+  /** Hands a file to the kit that edits files; false when none offered to. */
+  editFile(relPath: string): boolean {
+    if (!this.fileEditor || !this.actions) return false;
+    this.fileEditor(relPath, this.actions);
+    return true;
   }
 
   registerCommitMessageSuggester(suggester: CommitMessageSuggester): () => void {
