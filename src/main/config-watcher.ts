@@ -37,6 +37,8 @@ export interface ConfigWatcherOptions {
   readDirectories?(path: string): string[];
   /** Paths that never count as a change; build output and VCS noise by default. */
   ignore?(path: string): boolean;
+  /** How often a path that is not there yet is looked for, in case its ancestor's event never came. */
+  pollMs?: number;
 }
 
 /** Whether `fs.watch` follows a whole tree on this platform (Node documents macOS and Windows). */
@@ -95,6 +97,7 @@ export class ConfigWatcher {
   private readonly changed = new Map<string, Set<string>>();
   private targets: WatchTarget[] = [];
   private timer?: ReturnType<typeof setTimeout>;
+  private poll?: ReturnType<typeof setInterval>;
   private closed = false;
   private readonly debounceMs: number;
   private readonly watchFn: WatchFn;
@@ -128,6 +131,8 @@ export class ConfigWatcher {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
+    if (this.poll) clearInterval(this.poll);
+    this.poll = undefined;
     for (const key of [...this.attachments.keys()]) this.detach(key);
     this.changed.clear();
   }
@@ -164,6 +169,27 @@ export class ConfigWatcher {
       if (this.attachments.has(key)) continue;
       this.attach(key, entry.target, entry.path, entry.recursive, entry.waitingFor);
     }
+    this.pollWaiting();
+  }
+
+  /**
+   * An ancestor's watch can miss the folder appearing (FSEvents starts late
+   * under load), and then nothing would ever re-derive: look for it now and then.
+   */
+  private pollWaiting(): void {
+    const waiting = [...this.attachments.values()].some((attachment) => attachment.waitingFor);
+    if (!waiting) {
+      if (this.poll) clearInterval(this.poll);
+      this.poll = undefined;
+      return;
+    }
+    if (this.poll) return;
+    this.poll = setInterval(() => {
+      for (const [key, attachment] of this.attachments) {
+        if (attachment.waitingFor && this.exists(attachment.waitingFor)) this.record(key, null);
+      }
+    }, this.options.pollMs ?? 2_000);
+    this.poll.unref?.();
   }
 
   private nearestExisting(path: string): string | undefined {
