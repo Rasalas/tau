@@ -144,6 +144,8 @@ async function main(): Promise<void> {
       workbenchSource: unsupported("Opening Tau source"),
       relaunchWorkbench: unsupported("Relaunching the workbench"),
       installUpdate: unsupported("Installing an update"),
+      notify: unsupported("A system notification"),
+      setBadge: unsupported("A badge on the app icon"),
     },
   });
 

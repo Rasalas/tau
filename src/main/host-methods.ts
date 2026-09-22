@@ -6,6 +6,7 @@ import type {
   WorkbenchBuildResult,
 } from "../shared/contracts.js";
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
+import { decodeBadgeCount, decodeSystemNotification, type SystemNotification, type SystemNotificationOutcome } from "../shared/system-attention.js";
 import type { PiHost } from "./pi-host.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
@@ -53,6 +54,10 @@ export interface HostMethodPlatform {
   relaunchWorkbench(): void;
   /** Restarts into the downloaded update; false when none is waiting. */
   installUpdate(): boolean;
+  /** Resolves once the user clicked or dismissed it; a click has already brought the window forward. */
+  notify(notification: SystemNotification): Promise<SystemNotificationOutcome>;
+  /** The count on the app's icon; 0 clears it. */
+  setBadge(count: number): void;
 }
 
 /**
@@ -72,6 +77,8 @@ export interface ClientHostPlatform {
   relaunchWorkbench(): void;
   /** Restarts into the downloaded update; false when none is waiting. */
   installUpdate(): boolean;
+  notify(notification: SystemNotification): Promise<SystemNotificationOutcome>;
+  setBadge(count: number): void;
 }
 
 /**
@@ -93,6 +100,8 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
     "workbench-source": async () => ({ path: await platform.workbenchSource() }),
     "relaunch-workbench": async () => platform.relaunchWorkbench(),
     "install-update": async () => ({ installing: platform.installUpdate() }),
+    "notify": async (params) => platform.notify(decodeSystemNotification("notify", params[0])),
+    "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
   };
 }
 
@@ -218,6 +227,8 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ),
     "copy-text": async (params) => platform.copyText(decodeString("copy-text", "text", params[0])),
     "copy-image": async (params) => platform.copyImage(decodeString("copy-image", "dataUrl", params[0])),
+    "notify": async (params) => platform.notify(decodeSystemNotification("notify", params[0])),
+    "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
     "read-tool-output": async (params) => (await host()).readToolOutput(
       decodeString("read-tool-output", "sessionId", params[0]),
       decodeString("read-tool-output", "toolCallId", params[1]),
@@ -331,6 +342,8 @@ export function createUnsupportedHostMethods(reason: string): HostMethodTable {
       workbenchSource: refuse,
       relaunchWorkbench: refuse,
       installUpdate: refuse,
+      notify: refuse,
+      setBadge: refuse,
     },
   }));
   return Object.fromEntries(names.map((name) => [name, async () => refuse()]));

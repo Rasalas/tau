@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, session, shell } from "electron";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,7 @@ import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { resolveStartupWorkspace } from "./startup-workspace.js";
 import { WindowHost } from "./window-host.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
+import { createWindowAttention } from "./window-attention.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
@@ -178,6 +179,20 @@ const workbenchReloader = new WorkbenchReloader({
   app,
   managedSource: managedWorkbenchSource,
   rebuild: rebuildWorkbench,
+});
+/** Notifications and the icon badge: the renderer asks, this process draws them. */
+const windowAttention = createWindowAttention({
+  isSupported: () => Notification.isSupported(),
+  // Silent: whoever raised it plays its own sound, or none.
+  create: (notification) => new Notification({ ...notification, silent: true }),
+  reveal: () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return true;
+  },
+  setBadgeCount: (count) => app.setBadgeCount(count),
 });
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
@@ -446,6 +461,8 @@ function createLocalHostMethods(): HostMethodTable {
       workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
       relaunchWorkbench: () => workbenchReloader.relaunch(),
       installUpdate: () => updates?.install() ?? false,
+      notify: windowAttention.notify,
+      setBadge: windowAttention.setBadge,
     },
   });
 }
@@ -483,6 +500,8 @@ function createWindowPlatform(): ClientHostPlatform {
     workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
     relaunchWorkbench: () => workbenchReloader.relaunch(),
     installUpdate: () => updates?.install() ?? false,
+    notify: windowAttention.notify,
+    setBadge: windowAttention.setBadge,
   };
 }
 

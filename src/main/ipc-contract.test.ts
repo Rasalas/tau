@@ -43,6 +43,8 @@ function tableMethods(): Set<string> {
       workbenchSource: unavailable,
       relaunchWorkbench: unavailable,
       installUpdate: unavailable,
+      notify: unavailable,
+      setBadge: unavailable,
     },
   });
   return new Set(Object.keys(methods));
@@ -79,6 +81,8 @@ describe("host protocol contract", () => {
       workbenchSource: unavailable,
       relaunchWorkbench: unavailable,
       installUpdate: unavailable,
+      notify: unavailable,
+      setBadge: unavailable,
     });
     expect(Object.keys(client).sort()).toEqual([...CLIENT_SIDE_METHODS].sort());
     // A window merges its client-side table over the refusing one; every name
@@ -138,6 +142,8 @@ describe("host protocol contract", () => {
           workbenchSource: unavailable,
           relaunchWorkbench: unavailable,
           installUpdate: unavailable,
+          notify: unavailable,
+          setBadge: unavailable,
         },
       });
       const principal: HostInvocationPrincipal = { kind: "host-extension", contextId: sourceContextId };

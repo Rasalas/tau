@@ -19,6 +19,7 @@ import type {
 } from "../shared/contracts";
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { StageTab } from "../workbench/stage";
+import type { Platform, PlatformAttention } from "../workbench/platform";
 import { PreferencesStore } from "./preferences";
 import { errorMessage } from "../workbench/error-message";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
@@ -668,6 +669,11 @@ export interface DesktopExtensionContext {
   events: WorkbenchEvents;
   /** The renderer's shared preferences store; extensions read and write through it instead of importing a singleton. */
   preferences: PreferencesStore;
+  /**
+   * How this client reaches the user outside its page — a notification the OS
+   * draws, a count on the app's icon — or undefined where it cannot.
+   */
+  readonly attention: PlatformAttention | undefined;
   registerRegion(region: RegionContribution): () => void;
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
@@ -814,7 +820,7 @@ export function hostExtensionBridge(client: HostClient | undefined): HostExtensi
 export class ExtensionRegistry {
   private readonly hostEventListeners = new Map<string, Map<string, Set<(payload: unknown) => void>>>();
 
-  private readonly services: { preferences: PreferencesStore };
+  private readonly services: { preferences: PreferencesStore; platform?: () => Platform | undefined };
 
   /** Which client is drawing. Every renderable contribution is filtered against it. */
   private readonly profile: ClientProfile;
@@ -826,7 +832,7 @@ export class ExtensionRegistry {
 
   constructor(
     private readonly hostBridge: HostExtensionBridge = noHostBridge,
-    services?: { preferences: PreferencesStore; profile?: ClientProfile },
+    services?: { preferences: PreferencesStore; profile?: ClientProfile; platform?: () => Platform | undefined },
   ) {
     this.services = services ?? { preferences: new PreferencesStore() };
     this.profile = services?.profile ?? "desktop";
@@ -960,8 +966,11 @@ export class ExtensionRegistry {
         return dispose;
       },
     });
+    const platform = this.services.platform;
     const context: DesktopExtensionContext = {
       preferences: this.services.preferences,
+      // Read when used: the client builds its platform after the registry.
+      get attention() { return platform?.()?.attention; },
       host: hostClient(extension.id),
       hostExtension: (extensionId) => hostClient(extensionId),
       registerPanel: (panel) => {

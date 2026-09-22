@@ -1,4 +1,24 @@
 import type { ClientStorage } from "./client-storage";
+import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
+
+export type { SystemNotification, SystemNotificationOutcome };
+
+/**
+ * Getting the user's attention from outside the page: a notification the OS
+ * draws, and a count on the app's icon (the dock, the taskbar, a tab's icon).
+ */
+export interface PlatformAttention {
+  /**
+   * Shows a notification; resolves `clicked` once the user clicked it and the
+   * client's window is in front, `dismissed` when it went away unclicked, and
+   * `unavailable` when this machine or the user's permission would not show it.
+   */
+  notify(notification: SystemNotification): Promise<SystemNotificationOutcome>;
+  /** The count on the app's icon; 0 clears it. */
+  setBadge(count: number): void;
+  /** Asks for the permission to notify, where the client needs one; call it from a click. */
+  requestPermission?(): Promise<boolean>;
+}
 
 /**
  * What the workbench needs from the machine it runs on, and nothing else.
@@ -24,4 +44,6 @@ export interface Platform {
   storage: ClientStorage;
   /** Evaluates a module URL. A page with a strict CSP decides here what it will run. */
   importModule(url: string): Promise<unknown>;
+  /** Absent where the client can reach the user only inside its own page. */
+  attention?: PlatformAttention;
 }

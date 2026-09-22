@@ -20,7 +20,7 @@ import { FollowUpQueueStore } from "../workbench/follow-up-queue";
 import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
-import { PlatformProvider, setPlatform } from "./platform-context";
+import { getPlatform, PlatformProvider, setPlatform } from "./platform-context";
 import { useAppOverlays } from "./use-app-overlays";
 import { useAppKeybindings } from "./use-app-keybindings";
 import { useWorkbenchActions } from "./use-workbench-actions";
@@ -62,7 +62,7 @@ export default function App() {
   // reaches it from there; the ref is the one hop between them.
   const resetStageRef = useRef<() => void>(() => {});
   const [registry] = useState(() => {
-    const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, profile });
+    const value = new ExtensionRegistry(hostExtensionBridge(client), { preferences, profile, platform: getPlatform });
     // Core's own contributions come first and stay on: safe mode is a workbench
     // without kits, not one without a command palette or a model picker.
     value.activateCore(runtimeControls);
