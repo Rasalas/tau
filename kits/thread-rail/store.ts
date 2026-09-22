@@ -66,7 +66,8 @@ export function parseModelKey(key: string): { provider: string; id: string } | u
 /**
  * The models one prompt goes to. Shift-click in a new thread's picker adds a
  * model or takes it out again; the first Shift-click brings the model the
- * draft already has along. The chip in the composer can add a model twice.
+ * draft already has along, so Shift-clicking that one asks for it twice. The
+ * chip in the composer adds a model once more or drops one.
  */
 export class FanOutSelection {
   private keys: readonly string[] = [];
@@ -81,8 +82,12 @@ export class FanOutSelection {
 
   toggle = (model: UiModel, current: UiModel | undefined): void => {
     const key = modelKey(model);
-    const base = this.keys.length === 0 && current ? [modelKey(current)] : this.keys;
-    this.set(base.includes(key) ? base.filter((entry) => entry !== key) : [...base, key]);
+    if (this.keys.length === 0 && current) {
+      // The first Shift-click adds to the draft's own model, the same one included.
+      this.set([modelKey(current), key]);
+      return;
+    }
+    this.set(this.keys.includes(key) ? this.keys.filter((entry) => entry !== key) : [...this.keys, key]);
   };
 
   reset = (): void => this.set([]);

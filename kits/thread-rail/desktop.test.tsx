@@ -125,6 +125,8 @@ describe("Thread Rail on the desktop", () => {
     const { registry, actions, calls, worktrees, push } = setup();
     const selection = registry.getModelSelection()!;
     selection.toggle(model("luna"), model("luna"));
+    expect(selection.selected()).toEqual(["openai/luna", "openai/luna"]);
+    selection.toggle(model("luna"), model("luna"));
     expect(selection.selected()).toEqual([]);
     selection.toggle(model("sol"), model("luna"));
     expect(selection.selected()).toEqual(["openai/luna", "openai/sol"]);
