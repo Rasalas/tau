@@ -86,9 +86,10 @@ Workbench
 The workbench is always a client of a host in another process. The window
 starts that host, watches it and connects the renderer to its socket; the
 threads belong to the host, so the window may close, crash or reload without
-stopping one ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)). Eight
+stopping one ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)). Ten
 methods stay on this side — clipboard, image preview, the kit bundles the
-renderer imports, the workbench rebuild, relaunch and update — and a kit that
+renderer imports, the workbench rebuild, relaunch and update, a system
+notification and the app icon's badge — and a kit that
 needs the window's process for a native view ships a `window` half the host
 calls with `callClient`.
 
@@ -103,9 +104,14 @@ Where it needs the view side it names a port, never a class.
 `src/renderer/` is the React binding of that client, and `Platform`
 (`src/workbench/platform.ts`) is what the client needs of the machine it runs
 on: clipboard, `openExternal`, `files` (only where the host's paths are this
-machine's), storage and `importModule`. Electron answers it in
+machine's), storage, `importModule` and `attention` — a notification the OS
+draws and a count on the app's icon, absent where the client has neither.
+Electron answers it in
 `src/renderer/platform-electron.ts` and a browser tab in
-`src/web/platform-web.ts`. `App.tsx` is bootstrap, store wiring and layout; the
+`src/web/platform-web.ts`. The sandboxed Electron renderer holds no permission
+to notify, so its `attention` asks the window's own process
+(`src/main/window-attention.ts`: `Notification`, `app.setBadgeCount`); a tab
+uses the page's Notification API and draws the count into its icon. `App.tsx` is bootstrap, store wiring and layout; the
 three facts it cannot work out for itself — which client this is, whether kits
 were left out, and how to build the platform — arrive as a `ClientEnvironment`
 from the entry point.
@@ -199,6 +205,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Usage overview: what the threads Tau ran have used, by period, project, runtime and model | Usage: `kits/usage/`, a package Tau ships (ADR 0014). Its host half runs in a worker and reads only what runtimes wrote down: every response in Pi's session files under `services.sessionsDir` (a response a fork copied counts once), cached per file by size and mtime in `services.stateDir`, and the running total per thread that Claude Code and Antigravity keep, through a `usage` command each of them grants to `tau.usage` (ADR 0020). A backend that does not answer is shown as not available. No provider is asked. Its desktop half is the Settings → Usage page and the "Show usage" command. Core lends nothing new | Usage |
 | Organising the rail: pinned, active, snoozed and settled threads, dragging them between sections and within one, snooze until a time, auto-settle rules (quiet for N days, request merged or closed), the thread commands and chords, starting a new thread in the background (⌘↵) and one prompt to several models | Thread Rail: `kits/thread-rail/`, a package Tau ships (ADR 0014). Its host half keeps the meta per thread in `<userData>/kit-state/tau.thread-rail/thread-meta.json`, pushes each change and sweeps every five minutes, while no window is open too: a snooze that ran out wakes, and an idle thread settles by the rules in its Settings page, the request state asked of Review Kit's `pr-status` (callers `tau.thread-rail`) for a thread that has its worktree to itself. Its desktop half is the organizer Workspace Kit's rail lends (`registerThreadRailOrganizer`), claims a new thread's prompt through `claimNewThread` for ⌘↵ and for a model set built with `registerModelSelection`, starts those threads with `services.sessions.start` in worktrees `prepareThreadWorktree` makes, and publishes the sibling groups as `tau.thread-rail/siblings` for the Agents panel. Core's old pin and settle lists in the preferences are handed over once and then mirrored, so the title menu's Pin and Settle keep working | Thread Rail |
 | Prompt tools: stashing a draft, recalling earlier prompts, citing a reply, queue or steer while a turn runs | Prompt Tools: `kits/prompt-tools/`, a package Tau ships (ADR 0014). Its desktop half binds `mod+s` to "Stash the draft" and draws the Stash control with its count in the composer toolbar: an entry keeps the text, Composer Context's chips (through `tau.composer-context/chips`) and the images, per project, twenty at most, and restoring one stashes what the composer held first. ↑ in an empty composer recalls the thread's prompts, then the project's other threads' (`keyDown` on `registerComposerInline`); "Cite" on an assistant reply (`registerMessageAction`) puts the selection, or the reply, into the composer as a quote chip, or as a `>` block without Composer Context; its "While a turn runs" option answers `streamingDelivery`. Its host half runs in a worker and keeps the stash in `<userData>/kit-state/tau.prompt-tools/stash/`, and reads the project's prompts from the session files `sessions.list` names. Core lends those three seams, `actions` for a composer control and a draft's images (`composerImages`, `setComposerImages`) | Prompt Tools |
+| Notifications: a system notification, a sound and the app icon's badge when a thread finishes, fails or asks something while nobody looks at it | Notifications: `kits/notifications/`, a package Tau ships (ADR 0014). Its host half follows turns through the turn observer and questions through `decorateUiPrompt` (so `runtime:extend`, in-process), skips sub-agents, and keeps the threads with unseen news in memory (`attention.ts`); each client reports whether its window has focus and which thread it shows, a thread on screen in a focused window counts nothing, and otherwise one client hears of it — the one that had focus last. News that finds no client waits for the first one to report; a thread's second piece of news within five seconds notifies nobody. Its desktop half draws it through `context.attention` (core's `Platform.attention`), synthesises its two sounds with Web Audio, toasts above the composer when opted in and owns Settings → Notifications; the choices are the client's | Notifications |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
 Defaults, Pi, Keybindings and Inspector pages, and the contributions that reach

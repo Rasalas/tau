@@ -766,6 +766,26 @@ comes or goes, and `context.events.on("workspace-changed", …)` carries
 `{ from?, to }` when the host opens another project — so a panel reacts
 without asking the host what changed.
 
+### Reaching the user outside the window: `context.attention`
+
+`context.attention` on the desktop half is the client's `Platform.attention`
+(`src/workbench/platform.ts`), or `undefined` on a client that has none. It is
+looked up when read, so hold the context, not the value.
+
+| Member | What it does |
+|---|---|
+| `notify({ title, body?, tag? })` | A notification the OS draws. Resolves `"clicked"` once the user clicked it and the window is in front, `"dismissed"` when it went away, `"unavailable"` when the machine or the user's permission would not show it. A newer notification with the same `tag` replaces the older. It is always silent; play your own sound. |
+| `setBadge(count)` | The count on the app's icon — the dock on macOS, the launcher on Linux, the tab's icon and an installed web app's badge in a browser. `0` clears it. |
+| `requestPermission?()` | Where the client needs a permission first (a browser tab): ask from a click, not from a timer. |
+
+The Electron renderer holds no permission of its own, so its `attention` asks
+the window's process through the client-side methods `notify` and `set-badge`
+(ADR 0021); a headless host refuses both. Which client should speak is not
+core's to say: a host half that raises news knows who is attached from
+`services.clients`, and Notifications (`kits/notifications/`) lets each client
+report whether its window has focus and which thread it shows, so exactly one
+of them hears of a thread nobody is looking at. That kit is the shipped caller.
+
 ### `engines` and `engines.api`
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked

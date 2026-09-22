@@ -120,12 +120,14 @@ started and watches itself ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)
 `TAU_HOST_INPROCESS=1` restores the old in-process host for one release.
 
 The method table has two halves. `CLIENT_SIDE_METHODS`
-(`src/shared/host-transport.ts`) are the eight the client's own machine
+(`src/shared/host-transport.ts`) are the ten the client's own machine
 answers — `copy-text`, `copy-image`, `read-image-preview`,
 `desktop-extensions`, `rebuild-workbench`, `workbench-source`,
-`relaunch-workbench`, `install-update` — and they travel over the window's
-Electron bridge (`createClientHostMethods`), which stays installed beside the
-socket. Everything else goes to the host, whose own table refuses the eight.
+`relaunch-workbench`, `install-update`, and `notify` and `set-badge`, the
+notification and the app icon's count the OS draws for the window — and they
+travel over the window's Electron bridge (`createClientHostMethods`), which
+stays installed beside the socket. Everything else goes to the host, whose
+own table refuses the ten.
 `createHostClient(connection, local)` in the renderer does the routing; a
 window without a local side (the browser client) has one connection and sends
 everything to the host. `copy-thread-markdown` answers with the text rather
