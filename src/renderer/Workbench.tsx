@@ -14,13 +14,12 @@ import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { NoticeToast } from "./components/NoticeToast";
 import { PanelIcon } from "./components/PanelIcon";
 import { ProjectPicker } from "./components/ProjectPicker";
-import { ProjectSourcesModal } from "./components/ProjectSources";
 import { Region, StatusLine } from "./components/Regions";
 import { HostConnectionStatus } from "./host-connection-status";
 import { ThreadSupervisor } from "./components/ThreadSupervisor";
 import type { ClientProfile } from "../workbench/client-profile";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
-import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
+import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
@@ -72,6 +71,9 @@ function storedDockWidth(storage: ClientStorage): number {
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
+// Modals a command opens; they stay out of the first paint.
+const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").then(({ ThreadTreeModal }) => ({ default: ThreadTreeModal })));
+const LazyProjectSourcesModal = lazy(() => import("./components/ProjectSources").then(({ ProjectSourcesModal }) => ({ default: ProjectSourcesModal })));
 const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal").then(({ SystemPromptModal }) => ({ default: SystemPromptModal })));
 
 /** One frozen empty list for both contribution kinds the compact layout leaves out. */
@@ -393,10 +395,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         <button type="button" className="thread-sheet-new" onClick={() => { setThreadSheetOpen(false); openNewThreadPicker(); }}>New thread</button>
       </section>
     </div> : null}
-    {threadTreeModal ? <ThreadTreeModal
+    {threadTreeModal ? <Suspense fallback={<LazyFeatureFallback label="thread tree" />}><LazyThreadTreeModal
       tree={threadTreeModal.tree} mode={threadTreeModal.mode} busy={threadTreeModal.busy} error={threadTreeModal.error}
       onClose={closeThreadTree} onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)} onFork={(entryId) => void forkFromTree(entryId)}
-    /> : null}
+    /></Suspense> : null}
     {systemPromptOpen ? (
       <Suspense fallback={<LazyFeatureFallback label="system prompt" />}>
         <LazySystemPromptModal threadId={snapshot?.sessionId} onClose={() => setSystemPromptOpen(false)} />
@@ -414,7 +416,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         />
       </Suspense>
     </LazyFeatureBoundary>
-    {projectSourcesOpen ? <ProjectSourcesModal actions={actions} onClose={closeProjectSources} sources={registry.getProjectSources()} /> : null}
+    {projectSourcesOpen ? <Suspense fallback={<LazyFeatureFallback label="project sources" />}><LazyProjectSourcesModal actions={actions} onClose={closeProjectSources} sources={registry.getProjectSources()} /></Suspense> : null}
     <ProjectPicker
       open={newThreadOpen}
       projects={projects}
