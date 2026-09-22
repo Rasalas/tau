@@ -114,8 +114,14 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     openStageTab: stageTabs.open,
     closeStageTab: stageTabs.close,
     stageTabs: stageTabs.tabs,
+    activeStageTab: stageTabs.active,
     copyText: async (text: string) => { await options.platform.clipboard.writeText(text); },
     openExternal: (url: string) => options.platform.openExternal(url),
+    // Read when called: whether the host's files are this machine's settles after the first render.
+    shareFile: async (path: string) => {
+      const share = options.platform.files?.shareFile;
+      return share ? share(path) : undefined;
+    },
     openOverlay: options.openOverlay,
     closeOverlay: options.closeOverlay,
     compactContext: options.threadCommands.compactContext,

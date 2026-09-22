@@ -45,6 +45,8 @@ export { Menu } from "./components/Menu";
 export { FileKindIcon } from "./components/FileKindIcon";
 export { ThreadRow } from "./components/ThreadRow";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
+// Core's own Markdown renderer, and the highlighter behind its code blocks; highlight.js loads on first use.
+export { Markdown, canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./components/Markdown";
 /** The full-window review surface, as its own chunk: `lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })))`. */
 export const loadReviewMode = () => import("./components/ReviewMode").then((module) => module.ReviewMode);
 export type {
