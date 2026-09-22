@@ -242,6 +242,29 @@ describe("ExtensionRegistry regions, status line, overlays, and events", () => {
   });
 });
 
+describe("ExtensionRegistry problems", () => {
+  it("replaces an extension's problems, clears them on [] and drops them on deactivate", () => {
+    const registry = new ExtensionRegistry({ invoke: async () => undefined });
+    let report: (problems: Array<{ source: string; message: string }>) => void = () => undefined;
+    registry.activate({ id: "kit", name: "Kit", activate(context) { report = context.setProblems; } });
+    const version = registry.getVersion();
+    report([]);
+    expect(registry.getVersion()).toBe(version);
+
+    report([{ source: "/p/.tau/project.json", message: "not JSON" }]);
+    report([{ source: "/p/.tau/project.json", message: "scripts[0].command is missing" }]);
+    expect(registry.getProblems()).toEqual([
+      { source: "/p/.tau/project.json", message: "scripts[0].command is missing", extensionId: "kit", extensionName: "Kit" },
+    ]);
+    report([]);
+    expect(registry.getProblems()).toEqual([]);
+
+    report([{ source: "a", message: "b" }]);
+    registry.deactivate("kit");
+    expect(registry.getProblems()).toEqual([]);
+  });
+});
+
 describe("ExtensionRegistry slash commands", () => {
   it("finds a registered slash command with its arguments and drops it on deactivation", () => {
     const registry = new ExtensionRegistry();

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tau project file",
+  "description": "What a repository checks in about itself for Tau, at .tau/project.json. See docs/project-file.md.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Where an editor finds this schema."
+    },
+    "workspaceMode": {
+      "enum": ["current", "worktree"],
+      "description": "Where a new thread runs: the checkout it was started from, or a worktree of its own. Read by Workspace Kit."
+    },
+    "worktreeDirectory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where worktrees go: a directory path such as \"~/.tau/worktrees\"; beside the repository when absent. Read by Workspace Kit."
+    },
+    "runOnWorktreeCreate": {
+      "type": "string",
+      "minLength": 1,
+      "deprecated": true,
+      "description": "The old spelling of a setup script: runs once in every new worktree and holds the thread until it exits. Prefer a script with \"runOnWorktreeCreate\": true."
+    },
+    "scripts": {
+      "type": "array",
+      "maxItems": 50,
+      "description": "Quick actions: one button above the composer and one script.<id>.run command per entry, in this order. Read by Project Scripts.",
+      "items": { "$ref": "#/$defs/script" }
+    }
+  },
+  "$defs": {
+    "script": {
+      "type": "object",
+      "required": ["name", "command"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+          "description": "Stable id; the command is script.<id>.run. Defaults to the name in lowercase with dashes."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Label of the button and the command."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Shell command, run with /bin/sh -c in the thread's checkout (its worktree, if it has one). TAU_PROJECT_ROOT and TAU_SCRIPT_ID are set; a worktree setup also gets TAU_WORKTREE_PATH."
+        },
+        "icon": {
+          "enum": ["play", "test", "lint", "configure", "build", "debug"],
+          "default": "play",
+          "description": "Glyph on the button."
+        },
+        "keybinding": {
+          "type": "string",
+          "minLength": 1,
+          "examples": ["mod+shift+r", "ctrl+alt+t"],
+          "description": "A chord in the workbench's spelling: modifiers (mod, ctrl, shift, alt, meta) and a key joined by +; mod is Cmd on macOS and Ctrl elsewhere."
+        },
+        "runOnWorktreeCreate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run once in every worktree Workspace Kit creates for a new thread."
+        },
+        "async": {
+          "type": "boolean",
+          "default": true,
+          "description": "Only with runOnWorktreeCreate: false holds the new thread until the script exits; true lets it start while the script runs."
+        },
+        "previewUrl": {
+          "type": "string",
+          "pattern": "^https?://",
+          "description": "Page the script serves. The run card gets a preview button, and the preview opens once the URL answers."
+        },
+        "autoOpenPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open previewUrl by itself once it answers; false leaves it to the card's button."
+        }
+      }
+    }
+  }
+}

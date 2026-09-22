@@ -1,0 +1,16 @@
+.project-scripts { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; }
+.project-scripts-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.project-scripts-bar .chip { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.project-scripts-problem { color: var(--danger); border-color: var(--danger-line); }
+.project-scripts-note { font: 11px var(--mono); color: var(--faint); }
+.project-scripts-more { margin-left: auto; }
+
+.project-script-run { border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--raised); overflow: hidden; }
+.project-script-run[data-status="failed"] { border-color: var(--danger-line); }
+.project-script-run-head { display: flex; align-items: center; gap: 6px; padding: 3px 6px; font: 11px var(--mono); color: var(--muted); }
+.project-script-run-title { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--ink-2); font: inherit; cursor: pointer; padding: 0; }
+.project-script-run-tag { border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 0 4px; color: var(--faint); }
+.project-script-run-status { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.project-script-run[data-status="succeeded"] .project-script-run-status { color: var(--done); }
+.project-script-run[data-status="failed"] .project-script-run-status { color: var(--danger); }
+.project-script-run-output { margin: 0; max-height: 180px; overflow: auto; padding: 6px 8px; background: var(--sunken); color: var(--ink-code); font: 11px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--line-soft); }

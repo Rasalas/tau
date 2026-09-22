@@ -50,7 +50,10 @@ export interface UiWorktreeRemoval {
 export interface ProjectDefaults {
   /** Where a new thread runs: the checkout it was started from, or its own worktree. */
   workspaceMode?: WorkspaceMode;
-  /** Shell command run in a new worktree, with TAU_PROJECT_ROOT and TAU_WORKTREE_PATH. */
+  /**
+   * Shell command run in a new worktree, with TAU_PROJECT_ROOT and TAU_WORKTREE_PATH.
+   * The old spelling: Project Scripts runs it as a script when it is on.
+   */
   runOnWorktreeCreate?: string;
   /**
    * Directory where worktrees are placed: "beside" (default: <repo>-worktrees beside
@@ -58,6 +61,9 @@ export interface ProjectDefaults {
    */
   worktreeDirectory?: string;
 }
+
+/** Project Scripts' host entry; it runs a new worktree's setup scripts when it is on. */
+export const PROJECT_SCRIPTS_HOST_EXTENSION_ID = "tau.project-scripts";
 
 /** Per-thread workspace choice, made before the first turn and locked after it. */
 export type WorkspaceMode = "current" | "worktree";

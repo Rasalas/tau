@@ -18,7 +18,7 @@ import {
 import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent } from "./file-content.js";
-import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
+import { CHECKPOINT_EVENT, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createReviewRequestDetector } from "./review-request.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 
@@ -172,11 +172,18 @@ export function createWorkspaceHostExtension(): HostExtension {
       };
 
       /**
-       * The project's own `runOnWorktreeCreate`, run once in the new worktree.
-       * A setup that fails is reported and does not undo the worktree: the user
-       * can still work in it, which is what they asked for.
+       * The project's own setup, run once in the new worktree. Project Scripts
+       * owns it when it is on (scripts with `runOnWorktreeCreate`, the old
+       * string among them); without it the old string runs here as it always did.
+       * A setup that fails is reported and does not undo the worktree.
        */
       const runWorktreeSetup = async (project: string, worktree: string): Promise<void> => {
+        try {
+          await context.invokeHostExtension(PROJECT_SCRIPTS_HOST_EXTENSION_ID, "worktree-created", { project, worktree });
+          return;
+        } catch (error) {
+          services.log("git.worktree.setup-fallback", error instanceof Error ? error.message : String(error));
+        }
         const { runOnWorktreeCreate } = await readProjectDefaults(project);
         if (!runOnWorktreeCreate) return;
         services.noteSubprocess();

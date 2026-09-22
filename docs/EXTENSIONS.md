@@ -333,6 +333,14 @@ any code — including `distribution`, the name and version of the set the
 `bundled` entries came in, absent in safe mode, which loads none. Core keeps Defaults, Keybindings and the Inspector; every other page
 is a contribution and is gone with its extension.
 
+`context.setProblems(problems)` is how a package says that something it reads
+is wrong — a project file that does not parse, an entry it had to skip. Each
+`ExtensionProblem` is `{ source, message, level? }` (`level` is `"error"`, the
+default, or `"warning"`); Settings → Inspector lists them under PROBLEMS with
+the package's name. A call replaces the package's whole list, `[]` clears it,
+and the list goes with the package when it deactivates. Project Scripts is the
+caller that motivated it: an invalid `.tau/project.json` shows there.
+
 Beyond the contribution types, `tau` exports `useWorkbench`,
 `useWorkbenchShell`, `useObservatory` and `useThreadStore` (the workbench
 hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
@@ -411,7 +419,11 @@ travels between them: one publishes under an id its own protocol file names,
 the others use it. `use` runs as soon as the value exists — before or after
 the user's own activation — and whatever it returns is disposed when the
 provider withdraws or either side deactivates, so activation order does not
-matter. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
+matter. The shipped kits publish two: Workspace Kit's store as
+`tau.workspace/store`, and Preview Kit's `tau.preview/browser`, whose
+`open(url, actions)` brings the Preview panel forward and navigates — Project
+Scripts opens a script's `previewUrl` through it, and falls back to
+`actions.openExternal` when Preview Kit is off. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
 
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a
