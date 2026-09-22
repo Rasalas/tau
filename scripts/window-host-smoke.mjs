@@ -188,9 +188,11 @@ try {
 } finally {
   await supervisor?.stop().catch(() => undefined);
   await adopting?.stop().catch(() => undefined);
-  await rm(workspace, { recursive: true, force: true });
-  await rm(userData, { recursive: true, force: true });
-  await rm(home, { recursive: true, force: true });
+  // A stopped host may still flush its last log line into userData.
+  const gone = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 };
+  await rm(workspace, gone);
+  await rm(userData, gone);
+  await rm(home, gone);
   // A supervisor watches its child; nothing here has anything left to wait for.
   process.exit(passed ? 0 : 1);
 }
