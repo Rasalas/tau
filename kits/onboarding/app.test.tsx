@@ -5,7 +5,7 @@ import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import onboarding from "./desktop.js";
 import { agentRows, age } from "./wizard.js";
-import { defaultProjects, defaultSessions, importSummary } from "./flow.js";
+import { FLOW_STORAGE_KEY, WelcomeFlow, defaultProjects, defaultSessions, importSummary } from "./flow.js";
 import type { Discovery, ToolsReport } from "./protocol.js";
 
 afterEach(cleanup);
@@ -131,5 +131,27 @@ describe("Onboarding's choices", () => {
       "gh:ready:",
       "glab:install:brew install glab",
     ]);
+  });
+
+  it("picks up after a project switch reloaded the page under it", async () => {
+    const values = new Map<string, string>();
+    const storage = { get: (key: string) => values.get(key) ?? null, set: (key: string, value: string) => { values.set(key, value); }, remove: (key: string) => { values.delete(key); }, keys: () => [...values.keys()] };
+    const client = { invoke: async (command: string) => command === "project-ref" ? { workspaceId: "ws" } : undefined, onEvent: () => () => undefined };
+    const flow = new WelcomeFlow(client, () => client, () => storage);
+    flow.start();
+    // The first switch never answers: the page went away under it.
+    void flow.addProjects({ openWorkspace: () => new Promise<boolean>(() => undefined) } as never, ["/work/alpha", "/work/beta"]);
+    await waitFor(() => expect(JSON.parse(values.get(FLOW_STORAGE_KEY) ?? "{}")).toMatchObject({ added: ["/work/alpha"], pending: ["/work/beta"] }));
+
+    const reloaded = new WelcomeFlow(client, () => client, () => storage);
+    expect(reloaded.interrupted()).toBe(true);
+    expect(reloaded.get()).toMatchObject({ step: 0, added: ["/work/alpha"], pending: ["/work/beta"] });
+    const openWorkspace = vi.fn(async () => true);
+    reloaded.start();
+    await reloaded.addProjects({ openWorkspace } as never, reloaded.get().pending!);
+    expect(reloaded.get()).toMatchObject({ step: 2, added: ["/work/alpha", "/work/beta"] });
+    await reloaded.finish();
+    expect(values.has(FLOW_STORAGE_KEY)).toBe(false);
+    expect(new WelcomeFlow(client, () => client, () => storage).interrupted()).toBe(false);
   });
 });

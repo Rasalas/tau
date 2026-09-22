@@ -39,18 +39,21 @@ export function age(at: number, now: number): string {
   return months < 12 ? `${months}mo` : `${Math.round(months / 12)}y`;
 }
 
-function agentRow(id: "claude-code" | "codex", label: string, status: AgentStatus | undefined, commands: { install?: string; login?: string }): AgentRow {
+function agentRow(id: "claude-code" | "codex", label: string, status: AgentStatus | undefined, commands: { install?: string; login?: string }, published?: string): AgentRow {
   if (!status) return { id, label, state: "checking", summary: "Checking…" };
   if (status.error) return { id, label, state: "off", summary: `Not available: ${status.error.replace(/\.$/u, "")}` };
   if (!status.path) return { id, label, state: "install", summary: "Not installed", ...(commands.install ? { command: commands.install } : {}) };
-  const version = status.version ?? "Installed";
+  const version = status.version ?? published ?? "Installed";
   if (status.update) return { id, label, state: "update", summary: `${version} is older than Tau speaks to`, command: status.update };
   if (status.signedIn) return { id, label, state: "ready", summary: `${version} · ${status.account ?? "signed in"}` };
   return { id, label, state: "signIn", summary: `${version} · Not signed in`, ...(commands.login ? { command: commands.login } : {}) };
 }
 
-/** What the agents step lists, in T3 Code's order of importance: the runtimes first, then the review CLIs. */
-export function agentRows(state: FlowState, piModels: number | undefined): AgentRow[] {
+/**
+ * What the agents step lists, in T3 Code's order of importance: the runtimes
+ * first, then the review CLIs. `versions` is what core publishes per backend.
+ */
+export function agentRows(state: FlowState, piModels: number | undefined, versions: Readonly<Record<string, string | undefined>> = {}): AgentRow[] {
   const tool = (id: ToolId) => state.tools?.tools.find((entry) => entry.id === id);
   const pi: AgentRow = piModels === undefined
     ? { id: "pi", label: "Pi", state: "checking", summary: "Checking…" }
@@ -67,8 +70,8 @@ export function agentRows(state: FlowState, piModels: number | undefined): Agent
   });
   return [
     pi,
-    agentRow("claude-code", "Claude Code", state.agents["claude-code"], tool("claude-code") ?? {}),
-    agentRow("codex", "Codex", state.agents.codex, tool("codex") ?? {}),
+    agentRow("claude-code", "Claude Code", state.agents["claude-code"], tool("claude-code") ?? {}, versions["claude-code"]),
+    agentRow("codex", "Codex", state.agents.codex, tool("codex") ?? {}, versions.codex),
     ...clis,
   ];
 }
@@ -175,7 +178,8 @@ function Looking({ onSkip, what }: { onSkip(): void; what: string }) {
 
 function AgentsStep({ state, flow, actions }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions }) {
   const snapshot = useWorkbenchShell().snapshot;
-  const rows = agentRows(state, snapshot ? (snapshot.completionModels ?? snapshot.models).length : undefined);
+  const versions = Object.fromEntries((snapshot?.runtimeBackends ?? []).map((backend) => [backend.kind, backend.version?.installed]));
+  const rows = agentRows(state, snapshot ? (snapshot.completionModels ?? snapshot.models).length : undefined, versions);
   return (
     <StepShell title="Your agents" description="The agents and tools Tau found on this computer. Install or sign in to the ones you want to use; Settings → Providers has them later too.">
       <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} />)}</div>
@@ -202,7 +206,9 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
       {candidates.length > 0 ? <Selection count={chosen.length} total={candidates.length} busy={busy} onAll={() => flow.select("projects", candidates.map((project) => project.path))} onNone={() => flow.select("projects", [])} /> : null}
       <fieldset className="onboarding-list rows" disabled={busy}>
         <legend className="onboarding-sr">Projects to add</legend>
-        {candidates.length === 0 && state.discovery ? <p className="onboarding-empty">No existing Claude Code or Codex projects found.</p> : null}
+        {candidates.length === 0 && state.discovery
+          ? <p className="onboarding-empty">{state.discovery.projects.length ? "Every folder found is a project in Tau already." : "No existing Claude Code or Codex projects found."}</p>
+          : null}
         {candidates.map((project) => (
           <label key={project.path} className="onboarding-row" title={project.path}>
             <input type="checkbox" checked={selected.has(project.path)} onChange={(event) => toggle(project, event.target.checked)} />
@@ -287,7 +293,12 @@ export function createWelcomeWizard(flow: WelcomeFlow) {
     const threads = useThreadStore();
     const projects = useSyncExternalStore(threads.subscribeToProjects, () => threads.getSnapshot().projects);
     const known = new Set(projects.map((project) => project.path));
-    useEffect(() => { flow.start(); }, []);
+    useEffect(() => {
+      flow.start();
+      // Folders a reload interrupted are opened now.
+      const pending = flow.get().pending;
+      if (pending?.length) void flow.addProjects(actions, pending);
+    }, []);
     const finish = () => { void flow.finish().then(onClose); };
     useEffect(() => {
       const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !flow.get().busy) finish(); };

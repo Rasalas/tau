@@ -1,4 +1,4 @@
-import type { HostActionResult, HostExtensionClient, WorkbenchActions } from "tau";
+import type { ClientStorage, HostActionResult, HostExtensionClient, WorkbenchActions } from "tau";
 import {
   IMPORT_PROGRESS_EVENT,
   SESSION_SOURCES,
@@ -11,6 +11,8 @@ import {
 } from "./protocol.js";
 
 const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
+/** The wizard's place while it is open; a project switch may reload the page under it. */
+export const FLOW_STORAGE_KEY = "tau.onboarding.flow.v1";
 
 /** What a backend kit's `status` (and the Agent SDK runtime's `probe`) told us about its CLI. */
 export interface AgentStatus {
@@ -35,6 +37,8 @@ export interface FlowState {
   sessions?: readonly string[];
   /** Folders this run added to Tau. */
   added: readonly string[];
+  /** Folders still to open; opening one may reload the page, so the rest wait here. */
+  pending?: readonly string[];
   busy?: "projects" | "import";
   progress?: { done: number; total: number };
   error?: string;
@@ -99,7 +103,13 @@ export class WelcomeFlow {
   private started = false;
   private progressBase = 0;
 
-  constructor(private readonly host: HostExtensionClient, private readonly hostExtension: (id: string) => HostExtensionClient) {
+  constructor(
+    private readonly host: HostExtensionClient,
+    private readonly hostExtension: (id: string) => HostExtensionClient,
+    private readonly storage: () => ClientStorage | undefined = () => undefined,
+  ) {
+    // A reload or a second activation takes over a wizard that is still open.
+    this.resume();
     host.onEvent(IMPORT_PROGRESS_EVENT, (payload) => {
       const progress = payload as ImportProgress | undefined;
       if (this.state.busy === "import" && this.state.progress && typeof progress?.done === "number") this.set({ progress: { ...this.state.progress, done: this.progressBase + progress.done } });
@@ -111,7 +121,27 @@ export class WelcomeFlow {
 
   private set(patch: Partial<FlowState>): void {
     this.state = { ...this.state, ...patch };
+    if (this.started) {
+      const { step, added, pending, projects, sessions } = this.state;
+      this.storage()?.set(FLOW_STORAGE_KEY, JSON.stringify({ step, added, pending, projects, sessions }));
+    }
     for (const listener of this.listeners) listener();
+  }
+
+  /** Whether a wizard was open when this window last left it. */
+  interrupted(): boolean {
+    return Boolean(this.storage()?.get(FLOW_STORAGE_KEY));
+  }
+
+  private resume(): void {
+    let saved: Partial<FlowState> | undefined;
+    try { saved = JSON.parse(this.storage()?.get(FLOW_STORAGE_KEY) ?? "null") as Partial<FlowState> | undefined; } catch { saved = undefined; }
+    if (!saved || typeof saved !== "object") return;
+    const paths = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : undefined;
+    const pending = paths(saved.pending);
+    // The last folder's switch reloaded the page: adding is done.
+    const step = pending?.length === 0 ? 2 : saved.step === 1 || saved.step === 2 ? saved.step : 0;
+    this.state = { step, agents: {}, added: paths(saved.added) ?? [], ...(pending?.length ? { pending } : {}), ...(paths(saved.projects) ? { projects: paths(saved.projects) } : {}), ...(paths(saved.sessions) ? { sessions: paths(saved.sessions) } : {}) };
   }
 
   /** Asks everything once per opening; `restart` begins at the first step again. */
@@ -150,19 +180,21 @@ export class WelcomeFlow {
   /** Opens each folder as a project, the way the sidebar does; the last one stays open. */
   async addProjects(actions: WorkbenchActions, paths: readonly string[]): Promise<void> {
     if (this.state.busy) return;
-    this.set({ busy: "projects", error: undefined });
+    this.set({ busy: "projects", error: undefined, pending: paths });
     const added: string[] = [...this.state.added];
     const failed: string[] = [];
-    for (const path of paths) {
+    for (const [index, path] of paths.entries()) {
       try {
         const ref = await this.host.invoke("project-ref", { path }) as { workspaceId: string };
+        // Written before the switch: if it reloads the page, the rest resumes from here.
+        this.set({ added: [...added, path], pending: paths.slice(index + 1) });
         if (await actions.openWorkspace(ref.workspaceId)) added.push(path);
         else failed.push(path);
       } catch {
         failed.push(path);
       }
     }
-    this.set({ busy: undefined, added, ...(failed.length ? { error: `${plural(failed.length, "folder")} could not be added.` } : { step: 2 }) });
+    this.set({ busy: undefined, added, pending: undefined, ...(failed.length ? { error: `${plural(failed.length, "folder")} could not be added.` } : { step: 2 }) });
   }
 
   /** Imports per source and answers with what to tell the user; nothing is left out silently. */
@@ -195,6 +227,7 @@ export class WelcomeFlow {
   /** Remembers that setup ran, so it opens by itself no more; `/welcome` starts it afresh. */
   finish(): Promise<unknown> {
     this.started = false;
+    this.storage()?.remove(FLOW_STORAGE_KEY);
     this.state = { step: 0, agents: {}, added: [] };
     return this.host.invoke("complete").catch(() => undefined);
   }

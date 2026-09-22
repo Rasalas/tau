@@ -1,14 +1,15 @@
 import { useEffect } from "react";
-import type { DesktopExtension, DesktopExtensionContext, RegionProps } from "tau";
+import { getClientStorage, type DesktopExtension, type DesktopExtensionContext, type RegionProps } from "tau";
 import { WelcomeFlow } from "./flow.js";
 import { ONBOARDING_EXTENSION_ID as ID, WELCOME_OVERLAY, type WelcomeState } from "./protocol.js";
 import { createWelcomeWizard } from "./wizard.js";
 
 /**
- * Draws nothing: once per window it asks whether this is a first start — no
- * thread yet and setup never finished — and opens the wizard if so.
+ * Draws nothing: once per window it reopens a wizard a reload interrupted, or
+ * asks whether this is a first start — no thread yet and setup never
+ * finished — and opens the wizard if so.
  */
-function createFirstStart(context: DesktopExtensionContext) {
+function createFirstStart(context: DesktopExtensionContext, flow: WelcomeFlow) {
   let asked = false;
   // The host counts Pi's sessions; the index also lists other runtimes' threads.
   let threads: number | undefined;
@@ -17,6 +18,7 @@ function createFirstStart(context: DesktopExtensionContext) {
     useEffect(() => {
       if (asked) return;
       asked = true;
+      if (flow.interrupted()) { actions.openOverlay(WELCOME_OVERLAY); return; }
       void context.host.invoke("state").then((state) => {
         if ((state as WelcomeState).firstStart && !threads) actions.openOverlay(WELCOME_OVERLAY);
       }, () => undefined);
@@ -29,10 +31,10 @@ const onboarding: DesktopExtension = {
   id: ID,
   name: "Onboarding",
   activate(context) {
-    const flow = new WelcomeFlow(context.host, (id) => context.hostExtension(id));
+    const flow = new WelcomeFlow(context.host, (id) => context.hostExtension(id), getClientStorage);
     const open = (actions: { openOverlay(id: string): void }) => { flow.start(true); actions.openOverlay(WELCOME_OVERLAY); };
     context.registerOverlay({ id: WELCOME_OVERLAY, profiles: ["desktop"], Component: createWelcomeWizard(flow) });
-    context.registerRegion({ id: "onboarding.first-start", placement: "title-bar", profiles: ["desktop"], Component: createFirstStart(context) });
+    context.registerRegion({ id: "onboarding.first-start", placement: "title-bar", profiles: ["desktop"], Component: createFirstStart(context, flow) });
     context.registerSlashCommand({ name: "welcome", description: "Set up Tau: agents, projects and earlier conversations", run: (_args, actions) => { open(actions); } });
     context.registerCommand({ id: "onboarding.welcome", label: "Set up Tau…", group: "Workbench", run: open });
   },
