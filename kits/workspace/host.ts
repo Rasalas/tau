@@ -22,6 +22,7 @@ import { CHECKPOINT_EVENT, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXT
 import { createReviewRequestDetector } from "./review-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
+import { registerWorktreeStorage } from "./worktree-storage-host.js";
 
 const execFileAsync = promisify(execFile);
 /** The kit built on this one; its host entry may call the commands that name it. */
@@ -160,6 +161,9 @@ export function createWorkspaceHostExtension(): HostExtension {
       // The kit owns the Git cache; core only learns project facts from it.
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
       const labels = new Map<string, string | undefined>();
+      // The worktrees Tau made, Settings → Storage and the cleanup sweep.
+      const worktrees = registerWorktreeStorage(context, { removed: (repository) => git.invalidate(repository, ["branch", "status", "workspace"]) });
+      const noteFailure = (label: string) => (error: unknown) => services.log(label, error instanceof Error ? error.message : String(error));
       const cwd = () => services.cwd();
       // A command may name another workspace by id; without one it means the host's.
       const workspaceOf = (input: unknown) => optionalString(input, "workspace") ?? optionalString(input, "cwd") ?? cwd();
@@ -346,6 +350,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
+          await worktrees.storage.remember(destination, project, branch).catch(noteFailure("git.worktree.record-failed"));
           await runWorktreeSetup(project, destination);
           return services.workspaceRef(destination);
         } catch (error) {
@@ -372,6 +377,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (used > 0) throw new Error(`${used} thread${used === 1 ? "" : "s"} still run in this worktree.`);
         const branch = optionalString(input, "branch") ?? tree.branch;
         await workspaceGit.removeWorktree(project, path, branch ? { branch } : {});
+        await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
         git.invalidate(project, ["branch", "status", "workspace"]);
         services.log("git.worktree.removed", path);
       }, { long: true });
@@ -382,6 +388,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const branch = optionalString(input, "branch") ?? info.worktrees.find((tree) => tree.path === path)?.branch;
         const recreated = await workspaceGit.ensureWorktree(project, path, branch);
         if (recreated) {
+          await worktrees.storage.restored(path).catch(noteFailure("git.worktree.record-failed"));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.recreated", path);
         }
@@ -487,6 +494,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           return { text: undefined };
         }
       });
+      disposers.push(() => worktrees.dispose());
       return () => { for (const dispose of disposers.reverse()) dispose(); };
     },
   };
