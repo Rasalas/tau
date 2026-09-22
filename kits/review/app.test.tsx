@@ -6,6 +6,7 @@ import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { workspaceExtension } from "../workspace/desktop.js";
+import composerContext from "../composer-context/desktop.js";
 import { reviewExtension } from "./desktop.js";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_STORE_SERVICE, type WorkspaceStoreApi } from "./protocol.js";
 
@@ -126,6 +127,31 @@ describe("Review Kit in the workbench", () => {
       files: [{ path: "src/a.ts", added: 1, removed: 0 }],
     })));
     expect(await screen.findByRole("button", { name: "feat(review): describe the change" })).toBeTruthy();
+  });
+
+  it("comments on a line and hands the comment to the composer as a chip", async () => {
+    renderApp(workbench(), { extensions: [workspaceExtension, reviewExtension, composerContext] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open full review" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Comment on line 1" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Comment" }), { target: { value: "Name it after what it checks." } });
+    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+
+    expect(await screen.findByText("Name it after what it checks.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "1 comment" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Send to composer" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull());
+    const strip = await waitFor(() => {
+      const found = document.querySelector(".composer-context");
+      expect(found?.textContent).toContain("a.ts:1");
+      return found as HTMLElement;
+    });
+    expect(strip.querySelector("[title]")?.getAttribute("title")).toContain("Name it after what it checks.");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open full review" }));
+    expect(await screen.findByRole("button", { name: "0 comments" })).toBeTruthy();
   });
 
   it("returns to the thread after committing from the full review", async () => {
