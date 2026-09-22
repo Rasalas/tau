@@ -1,0 +1,140 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PlatformAttention, SettingsPageProps, UiSession, WorkbenchActions } from "tau";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import notifications from "./desktop.js";
+import { ATTENTION_EVENT, NOTIFICATIONS_EXTENSION_ID, NOTIFY_EVENT, PRESENCE_REQUEST_EVENT, type AttentionItem } from "./protocol.js";
+
+const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+const item = (threadId: string, reason: AttentionItem["reason"] = "completed"): AttentionItem => ({ threadId, reason, at: 1, title: `Host ${threadId}` });
+const session = (id: string): UiSession => ({ id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 1, projectPath: "/p", projectName: "p", messageCount: 1 });
+
+let focused = false;
+beforeEach(() => {
+  focused = false;
+  vi.spyOn(document, "hasFocus").mockImplementation(() => focused);
+});
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+function setup(options: { presence?: unknown } = {}) {
+  const invoke = vi.fn(async (_id: string, command: string) => command === "presence" ? (options.presence ?? { items: [] }) : undefined);
+  const outcomes: Array<(outcome: "clicked" | "dismissed") => void> = [];
+  const attention = {
+    notify: vi.fn(() => new Promise<"clicked" | "dismissed">((resolve) => { outcomes.push(resolve); })),
+    setBadge: vi.fn(),
+    requestPermission: vi.fn(async () => true),
+  } satisfies PlatformAttention;
+  const { registry, preferences } = createKitHarness(invoke, undefined, { attention });
+  registry.activate(notifications);
+  const actions = {
+    switchSession: vi.fn(async () => true),
+    activeThread: vi.fn(() => ({ sessionId: "on-screen", draftPending: false })),
+    notify: vi.fn(),
+  } as unknown as WorkbenchActions;
+  const Region = registry.getRegions("composer-above")[0]!.Component;
+  render(<Region actions={actions} />);
+  const push = (name: string, payload?: unknown) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: NOTIFICATIONS_EXTENSION_ID, name, payload }));
+  const presences = () => invoke.mock.calls.filter((call) => call[1] === "presence").map((call) => call[2] as { clientKey: string; focused: boolean; threadId?: string });
+  const clientKey = () => presences()[0]!.clientKey;
+  registry.dispatchWorkbenchEvent({ type: "thread-index", threadIndex: { projects: [], sessions: [session("t1")] } });
+  return { registry, preferences, invoke, attention, outcomes, actions, push, presences, clientKey };
+}
+
+describe("Notifications on the desktop", () => {
+  it("says which thread this window shows and whether it has focus", async () => {
+    const { presences, clientKey } = setup();
+    await flush();
+    expect(presences().at(-1)).toEqual({ clientKey: clientKey(), focused: false, threadId: "on-screen" });
+    focused = true;
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    expect(presences().at(-1)).toMatchObject({ focused: true, threadId: "on-screen" });
+  });
+
+  it("raises a system notification for news addressed to it, and opens the thread on a click", async () => {
+    const { push, attention, outcomes, actions, clientKey } = setup();
+    await flush();
+    push(NOTIFY_EVENT, { clientKey: clientKey(), items: [item("t1")] });
+    expect(attention.notify).toHaveBeenCalledWith({ title: "Thread t1", body: "Finished", tag: "tau.thread:t1" });
+    outcomes[0]!("clicked");
+    await flush();
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/t1.jsonl");
+  });
+
+  it("ignores news addressed to another client", async () => {
+    const { push, attention } = setup();
+    await flush();
+    push(NOTIFY_EVENT, { clientKey: "another-window", items: [item("t1")] });
+    expect(attention.notify).not.toHaveBeenCalled();
+  });
+
+  it("shows what waited for a client when it first reports", async () => {
+    const { attention } = setup({ presence: { items: [item("t1"), item("t2")], delivery: { clientKey: "x", items: [item("t2"), item("t1")] } } });
+    await flush();
+    expect(attention.notify).toHaveBeenCalledWith({ title: "2 threads need you", body: "Host t2, Thread t1", tag: "tau.threads" });
+    expect(attention.setBadge).toHaveBeenCalledWith(2);
+  });
+
+  it("keeps the icon's badge at the count of unseen threads, and clears it when turned off", async () => {
+    const { push, attention, preferences } = setup();
+    await flush();
+    push(ATTENTION_EVENT, { items: [item("t1"), item("t2", "question")] });
+    expect(attention.setBadge).toHaveBeenLastCalledWith(2);
+    act(() => { preferences.setValue(NOTIFICATIONS_EXTENSION_ID, "mode", "off"); });
+    expect(attention.setBadge).toHaveBeenLastCalledWith(0);
+  });
+
+  it("toasts inside a focused window when asked to, and plays the chosen sound", async () => {
+    const oscillators: number[] = [];
+    class FakeAudio {
+      state = "running";
+      currentTime = 0;
+      destination = {};
+      resume = async () => undefined;
+      createOscillator() { const node = { type: "", frequency: { value: 0 }, connect: (next: unknown) => next, start: () => undefined, stop: () => undefined }; oscillators.push(1); return node; }
+      createGain() { return { gain: { setValueAtTime: () => undefined, exponentialRampToValueAtTime: () => undefined }, connect: (next: unknown) => next }; }
+    }
+    vi.stubGlobal("AudioContext", FakeAudio);
+    const { push, preferences, attention, actions, clientKey } = setup();
+    await flush();
+    act(() => {
+      preferences.setValue(NOTIFICATIONS_EXTENSION_ID, "mode", "both");
+      preferences.setValue(NOTIFICATIONS_EXTENSION_ID, "sound", "ping");
+      preferences.setOption(NOTIFICATIONS_EXTENSION_ID, "toasts", true);
+    });
+    focused = true;
+    push(NOTIFY_EVENT, { clientKey: clientKey(), items: [item("t1", "question")] });
+    expect(attention.notify).not.toHaveBeenCalled();
+    expect(oscillators).toHaveLength(1);
+    expect(screen.getByText("Waiting for your answer")).toBeTruthy();
+    fireEvent.click(screen.getByText("Open"));
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/t1.jsonl");
+    expect(screen.queryByText("Waiting for your answer")).toBeNull();
+  });
+
+  it("reports again when the host asks, and says goodbye when it stops", async () => {
+    const { push, presences, registry, invoke, attention } = setup();
+    await flush();
+    const before = presences().length;
+    push(PRESENCE_REQUEST_EVENT);
+    expect(presences().length).toBe(before + 1);
+    push(ATTENTION_EVENT, { items: [item("t1")] });
+    registry.deactivate(NOTIFICATIONS_EXTENSION_ID);
+    expect(invoke.mock.calls.at(-1)?.[1]).toBe("leave");
+    expect(attention.setBadge).toHaveBeenLastCalledWith(0);
+  });
+
+  it("offers its choices on a settings page of its own", async () => {
+    const { registry, preferences, attention } = setup();
+    const page = registry.getSettingsPages().find((entry) => entry.id === "notifications.settings")!;
+    const props: SettingsPageProps = { onNotify: vi.fn() };
+    render(<page.Component {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Both" }));
+    expect(preferences.value(NOTIFICATIONS_EXTENSION_ID, "mode")).toBe("both");
+    expect(attention.requestPermission).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("switch", { name: "Show a toast" }));
+    expect(preferences.optionValue(NOTIFICATIONS_EXTENSION_ID, "toasts", false)).toBe(true);
+    fireEvent.click(screen.getByText("Send a test notification"));
+    expect(attention.notify).toHaveBeenCalledWith(expect.objectContaining({ tag: "tau.test" }));
+  });
+});

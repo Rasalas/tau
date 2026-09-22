@@ -1,0 +1,16 @@
+{
+  "id": "tau.notifications",
+  "name": "Notifications",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.9.0"
+  },
+  "permissions": [
+    "sessions",
+    "runtime:extend"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}
