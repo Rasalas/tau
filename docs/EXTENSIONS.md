@@ -659,7 +659,7 @@ without asking the host what changed.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.8.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.9.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only
