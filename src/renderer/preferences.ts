@@ -41,6 +41,9 @@ export interface PreferencesState {
   hostBackground?: boolean;
 }
 
+/** Preferences that are keys of the host's config under the same name. */
+const SCALARS = ["theme", "transcriptDetail", "showCosts", "fontFamily", "fontSize", "temperature", "maxTokens", "vimMode", "hostBackground"] as const;
+
 const DEFAULTS: PreferencesState = {
   transcriptDetail: "focused",
   showCosts: true,
@@ -164,14 +167,13 @@ export class PreferencesStore {
       for (const key of Object.keys(before ?? {})) if (!now || !(key in now)) delete kept[key];
       return { ...kept, ...(now ?? {}) };
     };
-    const gone = (key: keyof TauConfig) => previous?.[key] !== undefined && config[key] === undefined;
     const patch: Partial<PreferencesState> = {};
-    if (config.theme && isThemePreference(config.theme)) patch.theme = config.theme;
-    else if (gone("theme")) patch.theme = DEFAULTS.theme;
-    if (config.transcriptDetail && isTranscriptDetail(config.transcriptDetail)) patch.transcriptDetail = config.transcriptDetail;
-    else if (gone("transcriptDetail")) patch.transcriptDetail = DEFAULTS.transcriptDetail;
-    if (config.showCosts !== undefined) patch.showCosts = config.showCosts;
-    else if (gone("showCosts")) patch.showCosts = DEFAULTS.showCosts;
+    const target = patch as Record<string, unknown>;
+    for (const key of SCALARS) {
+      const value = config[key];
+      if (key === "theme" ? isThemePreference(value) : key === "transcriptDetail" ? isTranscriptDetail(value) : value !== undefined) target[key] = value;
+      else if (previous?.[key] !== undefined) target[key] = DEFAULTS[key];
+    }
     if (config.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = config.threads.continueAfterRestart;
     else if (previous?.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = DEFAULTS.continueThreadsAfterRestart;
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
@@ -179,14 +181,6 @@ export class PreferencesStore {
     if (config.options || previous?.options) patch.extensionOptions = record(this.state.extensionOptions, previous?.options, config.options);
     if (config.values || previous?.values) patch.extensionValues = record(this.state.extensionValues, previous?.values, config.values);
     if (config.keybindings || previous?.keybindings) patch.keybindings = record(this.state.keybindings ?? {}, previous?.keybindings, config.keybindings);
-    if (config.fontFamily !== undefined || gone("fontFamily")) patch.fontFamily = config.fontFamily;
-    if (config.fontSize !== undefined || gone("fontSize")) patch.fontSize = config.fontSize;
-    if (config.temperature !== undefined || gone("temperature")) patch.temperature = config.temperature;
-    if (config.maxTokens !== undefined || gone("maxTokens")) patch.maxTokens = config.maxTokens;
-    if (config.vimMode !== undefined) patch.vimMode = config.vimMode;
-    else if (gone("vimMode")) patch.vimMode = DEFAULTS.vimMode;
-    if (config.hostBackground !== undefined) patch.hostBackground = config.hostBackground;
-    else if (gone("hostBackground")) patch.hostBackground = DEFAULTS.hostBackground;
     this.update(patch, false);
   }
 
@@ -345,21 +339,13 @@ export class PreferencesStore {
       void this.hostClient.updateConfig(explicitHostPatch, "global", this.activeWorkspaceId).catch(() => {});
     } else if (syncHost && this.hostClient) {
       const hostPatch: Partial<TauConfig> = {};
-      if (patch.theme) hostPatch.theme = patch.theme;
-      if (patch.transcriptDetail) hostPatch.transcriptDetail = patch.transcriptDetail;
-      if (patch.showCosts !== undefined) hostPatch.showCosts = patch.showCosts;
+      for (const key of SCALARS) if (patch[key] !== undefined) (hostPatch as Record<string, unknown>)[key] = patch[key];
       if (patch.continueThreadsAfterRestart !== undefined) hostPatch.threads = { continueAfterRestart: patch.continueThreadsAfterRestart };
       if (patch.favouriteModels) hostPatch.favouriteModels = [...patch.favouriteModels];
       if (patch.disabledExtensions) hostPatch.disabledExtensions = [...patch.disabledExtensions];
       if (patch.extensionOptions) hostPatch.options = { ...patch.extensionOptions };
       if (patch.extensionValues) hostPatch.values = { ...patch.extensionValues };
       if (patch.keybindings) hostPatch.keybindings = { ...patch.keybindings };
-      if (patch.fontFamily !== undefined) hostPatch.fontFamily = patch.fontFamily;
-      if (patch.fontSize !== undefined) hostPatch.fontSize = patch.fontSize;
-      if (patch.temperature !== undefined) hostPatch.temperature = patch.temperature;
-      if (patch.maxTokens !== undefined) hostPatch.maxTokens = patch.maxTokens;
-      if (patch.hostBackground !== undefined) hostPatch.hostBackground = patch.hostBackground;
-      if (patch.vimMode !== undefined) hostPatch.vimMode = patch.vimMode;
       void this.hostClient.updateConfig(hostPatch, "global", this.activeWorkspaceId).catch(() => {});
     }
     this.listeners.forEach((listener) => listener());

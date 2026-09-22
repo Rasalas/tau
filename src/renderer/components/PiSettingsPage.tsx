@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { HostSnapshot, TauConfig } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
-import { SettingRow, SettingsSection } from "../settings/settings-layout";
+import { SettingRow, SettingsSection, Switch } from "../settings/settings-layout";
 
 /**
  * Pi's own settings, the ones Pi reads from `~/.pi/agent/settings.json` and
@@ -101,16 +101,7 @@ function PiToggleRow({ label, hint, checked, disabled, onChange }: {
     <SettingRow
       title={label}
       description={hint}
-      control={<button
-        className={`switch ${checked ? "on" : ""}`}
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-      >
-        <i />
-      </button>}
+      control={<Switch label={label} checked={checked} disabled={disabled} onChange={onChange} />}
     />
   );
 }

@@ -56,15 +56,11 @@ export interface SettingHandle<T> {
   reset(): void;
   /** Edits the project level, for an override. */
   editProject(): void;
-  editHost(): void;
   format(value: unknown): string;
 }
 
 function defaultFormat(value: unknown): string {
-  if (value === undefined || value === null) return "Not set";
-  if (typeof value === "boolean") return value ? "On" : "Off";
-  if (value === "") return "Empty";
-  return String(value);
+  return typeof value === "boolean" ? (value ? "On" : "Off") : value === "" ? "Empty" : String(value);
 }
 
 /**
@@ -77,10 +73,7 @@ export function useSetting<T>(key: string, options: SettingOptions<T>): SettingH
   const { store, snapshot } = useSettingsLevels();
   const scope = options.scope ?? "host";
   const resolved = resolveSetting(snapshot.layers, key, options.defaultValue, snapshot.editing, options.read);
-  const format = (value: unknown) => {
-    if (value === undefined) return "Not set";
-    return options.format ? options.format(value as T) : defaultFormat(value);
-  };
+  const format = (value: unknown) => (value == null ? "Not set" : (options.format ?? defaultFormat)(value as T));
   return {
     key,
     scope,
@@ -98,22 +91,17 @@ export function useSetting<T>(key: string, options: SettingOptions<T>): SettingH
     },
     reset: () => void store.clear(key),
     editProject: () => store.edit("project"),
-    editHost: () => store.edit("host"),
     format,
   };
 }
 
 const LEVEL_LABELS: Record<ConfigLayerName, string> = { project: "Project", host: "This machine", default: "Default" };
 
-function originSummary(setting: SettingHandle<unknown>): string {
-  if (setting.origin === "project") return `Overridden for ${setting.project?.label ?? "this project"}`;
-  if (setting.editing === "project" && setting.origin === "host") return "Inherited from this machine";
-  if (setting.origin === "host") {
-    return setting.projectOverride !== undefined
-      ? `Set on this machine · overridden in ${setting.project?.label ?? "a project"}`
-      : "Set on this machine";
-  }
-  return setting.projectOverride !== undefined ? `Built-in default · overridden in ${setting.project?.label ?? "a project"}` : "Built-in default";
+function originSummary({ origin, editing, project, projectOverride }: SettingHandle<unknown>): string {
+  const label = project?.label ?? "the project";
+  if (origin === "project") return `Overridden for ${label}`;
+  const base = origin === "default" ? "Built-in default" : editing === "project" ? "Inherited from this machine" : "Set on this machine";
+  return projectOverride === undefined ? base : `${base} · overridden in ${label}`;
 }
 
 /**
@@ -178,6 +166,15 @@ export function SettingOrigin({ setting }: { setting: SettingHandle<unknown> }) 
         </div>
       </> : null}
     </span>
+  );
+}
+
+/** The on/off control of a row. */
+export function Switch({ label, checked, disabled, role = "switch", onChange }: { label: string; checked: boolean; disabled?: boolean; role?: "switch" | "checkbox"; onChange(next: boolean): void }) {
+  return (
+    <button className={`switch ${checked ? "on" : ""}`} role={role} aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)}>
+      <i />
+    </button>
   );
 }
 

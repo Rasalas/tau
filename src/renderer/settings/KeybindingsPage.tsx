@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Search } from "lucide-react";
 import type { ExtensionRegistry } from "../extension-system";
 import { SettingsSection } from "./settings-layout";
@@ -23,24 +23,10 @@ export function KeybindingsPage({ registry, initialFilter = "" }: { registry: Ex
   const implemented = keybindings.filter((binding) => commands.some((command) => command.id === binding.commandId));
   const unimplemented = keybindings.filter((binding) => !commands.some((command) => command.id === binding.commandId));
 
-  const filteredBindings = useMemo(() => {
-    if (!query) return implemented;
-    return implemented.filter((b) => {
-      const label = commands.find((c) => c.id === b.commandId)?.label?.toLowerCase() ?? "";
-      return label.includes(query) || b.commandId.toLowerCase().includes(query) || b.keys.toLowerCase().includes(query)
-        || b.label.toLowerCase().includes(query) || b.extensionName.toLowerCase().includes(query);
-    });
-  }, [implemented, commands, query]);
-
-  const filteredUnimplemented = useMemo(() => {
-    if (!query) return unimplemented;
-    return unimplemented.filter((b) => b.commandId.toLowerCase().includes(query) || b.keys.toLowerCase().includes(query) || b.extensionName.toLowerCase().includes(query));
-  }, [unimplemented, query]);
-
-  const filteredCommands = useMemo(() => {
-    if (!query) return commands;
-    return commands.filter((c) => c.label.toLowerCase().includes(query) || c.id.toLowerCase().includes(query) || c.group.toLowerCase().includes(query));
-  }, [commands, query]);
+  const matches = (...texts: Array<string | undefined>) => !query || texts.some((text) => text?.toLowerCase().includes(query));
+  const filteredBindings = implemented.filter((b) => matches(commands.find((c) => c.id === b.commandId)?.label, b.commandId, b.keys, b.label, b.extensionName));
+  const filteredUnimplemented = unimplemented.filter((b) => matches(b.commandId, b.keys, b.extensionName));
+  const filteredCommands = commands.filter((c) => matches(c.label, c.id, c.group));
 
   return (
     <div className="settings-page">

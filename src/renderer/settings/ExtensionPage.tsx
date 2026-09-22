@@ -7,7 +7,7 @@ import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
 import { ModelPicker, modelKey } from "../components/ModelPicker";
 import { PackageProvenance } from "../components/PackageProvenance";
-import { SettingRow, SettingsSection } from "./settings-layout";
+import { SettingRow, SettingsSection, Switch } from "./settings-layout";
 
 /** A model choice an extension declared; empty means the thread's own model. */
 function ModelOptionRow({
@@ -155,15 +155,7 @@ export function ExtensionPage({
           description={<>{status}{summary.permissions && summary.permissions.length > 0 && summary.granted !== false ? <> · permissions {summary.permissions.join(", ")}</> : null}</>}
           status={hostStatus ? <span data-host-status={hostHalf?.error ? "failed" : hostHalf?.active ? "active" : "off"}>{hostStatus}</span> : undefined}
           control={summary.granted === false || summary.core ? undefined : (
-            <button
-              className={`switch ${summary.active ? "on" : ""}`}
-              role="switch"
-              aria-checked={summary.active}
-              aria-label={`${summary.active ? "Disable" : "Enable"} ${summary.name}`}
-              onClick={toggleExtension}
-            >
-              <i />
-            </button>
+            <Switch label={`${summary.active ? "Disable" : "Enable"} ${summary.name}`} checked={summary.active} onChange={toggleExtension} />
           )}
         />
       </SettingsSection>
@@ -232,14 +224,7 @@ export function ExtensionPage({
               <SettingRow
                 key={option.id}
                 title={option.label}
-                control={<button
-                  className={`switch ${checked ? "on" : ""}`}
-                  role="checkbox"
-                  aria-checked={checked}
-                  aria-label={option.label}
-                  disabled={!summary.active}
-                  onClick={() => preferences.setOption(summary.id, option.id, !checked)}
-                ><i /></button>}
+                control={<Switch role="checkbox" label={option.label} checked={checked} disabled={!summary.active} onChange={(next) => preferences.setOption(summary.id, option.id, next)} />}
               />
             );
           })}

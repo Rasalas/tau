@@ -11,7 +11,7 @@ import { ProviderIconStack } from "../components/ProviderIconStack";
 import { runtimeUpdate } from "../runtime-update";
 import type { SendShortcut } from "../components/composer-send-keys";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
-import { SettingRow, SettingsSection, useSetting } from "./settings-layout";
+import { SettingRow, SettingsSection, Switch, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
 
 const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
@@ -24,14 +24,6 @@ const DETAIL_LABELS: Record<TranscriptDetail, string> = { focused: "Focused", de
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
 const readNumber = (raw: unknown) => (typeof raw === "number" && Number.isFinite(raw) ? raw : undefined);
-
-function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange(next: boolean): void }) {
-  return (
-    <button className={`switch ${checked ? "on" : ""}`} role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}>
-      <i />
-    </button>
-  );
-}
 
 /** A number that is written when focus leaves the field, and cleared when it is emptied. */
 function NumberField({ label, value, step, min, max, onCommit, onClear }: {
