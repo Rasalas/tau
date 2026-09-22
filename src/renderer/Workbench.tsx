@@ -730,6 +730,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}
+    onNewThreadOnRuntime={actions ? (kind) => { preferences.setNewThreadRuntime(kind); actions.newSession(); } : undefined}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}
     onAnswerPrompt={(value, typed) => {

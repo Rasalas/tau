@@ -4,12 +4,12 @@ import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/
 import { isRestrictedSubscriptionLogin, SUBSCRIPTION_LOGIN_NOTE } from "../../shared/subscription-login";
 import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
+import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { AddModelProviderModal } from "./AddModelProviderModal";
+import { pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { VirtualList } from "./VirtualList";
 
-/** Sentinel for the pinned tab; never rendered verbatim. */
-const FAVOURITES = "\u0000favourites";
 const ROW_HEIGHT = 54;
 /** ⌘1 to ⌘9 reach the first nine favourites, in the order they were starred. */
 const JUMP_KEYS = 9;
@@ -27,14 +27,19 @@ interface Entry {
   presentation: ModelPresentation;
 }
 
-/** One line of the list: a model, or the fold that hides a provider's legacy models. */
+/** One line of the list: a model, or the fold that hides a tab's legacy models. */
 type Row =
   | { kind: "model"; key: string; entry: Entry }
-  | { kind: "legacy"; key: string; provider: string; count: number; expanded: boolean };
+  | { kind: "legacy"; key: string; group: string; count: number; expanded: boolean };
 
 function matches(entry: Entry, needle: string): boolean {
   if (!needle) return true;
   return `${entry.model.name} ${entry.model.provider} ${entry.model.id}`.toLowerCase().includes(needle);
+}
+
+function runtimeName(kind: string | undefined, backends: readonly UiRuntimeBackend[] | undefined): string {
+  const runtime = kind ?? DEFAULT_RUNTIME;
+  return backends?.find((backend) => backend.kind === runtime)?.label ?? (runtime === DEFAULT_RUNTIME ? "Pi" : runtime);
 }
 
 export function ModelPicker({
@@ -43,33 +48,39 @@ export function ModelPicker({
   onSelect,
   onClose,
   runtime,
+  catalogRuntime = runtime,
   runtimeBackends,
   onSelectRuntime,
-  modelsAvailable = true,
+  onNewThreadOnRuntime,
 }: {
   models: readonly UiModel[];
   activeKey?: string;
   onSelect(model: UiModel): void;
   onClose(): void;
-  /** The runtime the picked model runs on; its logo is paired with the provider's when they differ. */
-  runtime?: string;
-  /** Offered while choosing the runtime and model for a thread that does not exist yet. */
+  /** The runtime the thread runs on, or the one a thread that does not exist yet will start on. */
+  runtime?: ThreadBackendKind;
+  /** The runtime `models` belongs to, when a new thread is bound for another one. */
+  catalogRuntime?: ThreadBackendKind;
+  /** Every runtime the host offers; each one the thread is not on is a tab of its own. */
   runtimeBackends?: readonly UiRuntimeBackend[];
+  /** Set while the thread does not exist yet: its runtime can still change. */
   onSelectRuntime?(kind: ThreadBackendKind): void;
-  /** False when the visible catalog belongs to a different runtime. */
-  modelsAvailable?: boolean;
+  /** For a thread that exists: another runtime means another thread. */
+  onNewThreadOnRuntime?(kind: ThreadBackendKind): void;
 }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [query, setQuery] = useState("");
-  const [provider, setProvider] = useState<string>();
+  const [tab, setTab] = useState<string>();
   const [cursor, setCursor] = useState(0);
   const [expandedLegacy, setExpandedLegacy] = useState<ReadonlySet<string>>(() => new Set());
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const draft = onSelectRuntime !== undefined;
+  const threadRuntime = runtime ?? catalogRuntime ?? DEFAULT_RUNTIME;
 
   const entries = useMemo<Entry[]>(
-    () => (modelsAvailable ? models : []).map((model) => {
+    () => models.map((model) => {
       const key = modelKey(model);
       const position = settings.favouriteModels.indexOf(key);
       return {
@@ -80,29 +91,36 @@ export function ModelPicker({
         presentation: modelPresentation(model),
       };
     }),
-    [models, modelsAvailable, settings.favouriteModels],
+    [models, settings.favouriteModels],
   );
 
-  const providers = useMemo(() => {
-    const names = [...new Set(entries.map((entry) => entry.model.provider))].sort();
-    return entries.some((entry) => entry.favourite) ? [FAVOURITES, ...names] : names;
-  }, [entries]);
+  const rail = useMemo<RailEntry[]>(() => pickerRail({
+    providers: [...new Set(entries.map((entry) => entry.model.provider))].sort(),
+    catalogRuntime,
+    backends: runtimeBackends,
+    favourites: entries.some((entry) => entry.favourite),
+  }), [catalogRuntime, entries, runtimeBackends]);
+  const railKeys = useMemo(() => rail.map((item) => item.key), [rail]);
+  const current = rail.find((item) => item.key === tab);
 
-  // Land on the active model's provider so the picker opens where you already are.
+  // Open where the thread already is: its runtime's tab, or its model's.
   useEffect(() => {
-    setProvider((current) => {
-      if (current && providers.includes(current)) return current;
+    setTab((held) => {
+      if (held && railKeys.includes(held)) return held;
+      if (threadRuntime !== (catalogRuntime ?? DEFAULT_RUNTIME)) return runtimeEntryKey(threadRuntime);
       const active = entries.find((entry) => entry.key === activeKey);
-      return active?.model.provider ?? providers[0];
+      if (active) return railKeyForModel(active.model.provider, catalogRuntime);
+      return (catalogRuntime ?? DEFAULT_RUNTIME) === DEFAULT_RUNTIME ? railKeys[0] : runtimeEntryKey(catalogRuntime as string);
     });
-  }, [activeKey, entries, providers]);
+  }, [activeKey, catalogRuntime, entries, railKeys, threadRuntime]);
 
   // A legacy model in use is not hidden from the person using it.
   useEffect(() => {
     const active = entries.find((entry) => entry.key === activeKey);
     if (!active?.presentation.legacy) return;
-    setExpandedLegacy((current) => current.has(active.model.provider) ? current : new Set([...current, active.model.provider]));
-  }, [activeKey, entries]);
+    const group = railKeyForModel(active.model.provider, catalogRuntime);
+    setExpandedLegacy((held) => held.has(group) ? held : new Set([...held, group]));
+  }, [activeKey, catalogRuntime, entries]);
 
   useEffect(() => {
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -110,39 +128,50 @@ export function ModelPicker({
 
   const needle = query.trim().toLowerCase();
 
-  // A query searches every provider; without one, the side tab scopes the list.
+  // A query searches the whole catalog; without one, the rail tab scopes the list.
   const rows = useMemo<Row[]>(() => {
     const filtered = entries.filter((entry) => matches(entry, needle));
     const asRows = (list: Entry[]): Row[] => list.map((entry) => ({ kind: "model", key: entry.key, entry }));
     if (needle) return asRows(filtered);
-    if (provider === FAVOURITES) return asRows(filtered.filter((entry) => entry.favourite));
-    const scoped = filtered.filter((entry) => entry.model.provider === provider);
-    const current = scoped.filter((entry) => !entry.presentation.legacy);
+    if (!current) return [];
+    if (current.kind === "favourites") return asRows(filtered.filter((entry) => entry.favourite));
+    if (current.kind === "runtime" && !current.listed) return [];
+    const scoped = current.kind === "provider" ? filtered.filter((entry) => entry.model.provider === current.provider) : filtered;
+    const latest = scoped.filter((entry) => !entry.presentation.legacy);
     const legacy = scoped.filter((entry) => entry.presentation.legacy);
-    if (legacy.length === 0 || !provider) return asRows(scoped);
-    const expanded = expandedLegacy.has(provider);
+    if (legacy.length === 0) return asRows(scoped);
+    const expanded = expandedLegacy.has(current.key);
     return [
-      ...asRows(current),
-      { kind: "legacy", key: `legacy:${provider}`, provider, count: legacy.length, expanded },
+      ...asRows(latest),
+      { kind: "legacy", key: `legacy:${current.key}`, group: current.key, count: legacy.length, expanded },
       ...(expanded ? asRows(legacy) : []),
     ];
-  }, [entries, expandedLegacy, needle, provider]);
+  }, [current, entries, expandedLegacy, needle]);
 
-  useEffect(() => setCursor(0), [needle, provider]);
+  useEffect(() => setCursor(0), [needle, tab]);
 
-  const toggleLegacy = (name: string) => {
-    setExpandedLegacy((current) => {
-      const next = new Set(current);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+  const toggleLegacy = (group: string) => {
+    setExpandedLegacy((held) => {
+      const next = new Set(held);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
       return next;
     });
   };
 
+  // A runtime whose models are not on hand: say what choosing it means.
+  const elsewhere = !needle && current?.kind === "runtime" && !current.listed ? current.backend : undefined;
+  const threadRuntimeName = runtimeName(threadRuntime, runtimeBackends);
+  const paneAction = elsewhere && elsewhere.kind !== threadRuntime
+    ? draft
+      ? { label: `Start this thread on ${elsewhere.label}`, run: () => onSelectRuntime?.(elsewhere.kind) }
+      : onNewThreadOnRuntime ? { label: `New thread on ${elsewhere.label}`, run: () => { onNewThreadOnRuntime(elsewhere.kind); onClose(); } } : undefined
+    : undefined;
+
   const choose = (entry: Entry) => { onSelect(entry.model); onClose(); };
   const activate = (row: Row | undefined, alt: boolean) => {
     if (!row) return;
-    if (row.kind === "legacy") { toggleLegacy(row.provider); return; }
+    if (row.kind === "legacy") { toggleLegacy(row.group); return; }
     if (alt) preferences.toggleFavouriteModel(row.key);
     else choose(row.entry);
   };
@@ -155,14 +184,13 @@ export function ModelPicker({
       return;
     }
     if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && (!needle || event.altKey)) {
-      if (providers.length > 1) {
+      if (railKeys.length > 1) {
         event.preventDefault();
         if (needle) setQuery("");
-        setProvider((curr) => {
-          const idx = curr ? providers.indexOf(curr) : 0;
+        setTab((held) => {
+          const index = held ? railKeys.indexOf(held) : 0;
           const delta = event.key === "ArrowRight" ? 1 : -1;
-          const nextIdx = (idx + delta + providers.length) % providers.length;
-          return providers[nextIdx];
+          return railKeys[(index + delta + railKeys.length) % railKeys.length];
         });
       }
       return;
@@ -178,19 +206,27 @@ export function ModelPicker({
     // Enter on a focused button is that button's own click; only the field selects the cursor row.
     if (event.key === "Enter" && event.target === inputRef.current) {
       event.preventDefault();
-      activate(rows[cursor], event.altKey);
+      if (paneAction) paneAction.run();
+      else activate(rows[cursor], event.altKey);
     }
   };
 
-  const tabCount = (name: string) => name === FAVOURITES
-    ? entries.filter((entry) => entry.favourite).length
-    : entries.filter((entry) => entry.model.provider === name).length;
-  const tabLabel = (name: string) => name === FAVOURITES ? "Favourites" : providerLabel(name);
+  const tabLabel = (item: RailEntry): string => {
+    if (item.kind === "favourites") return `Favourites (${entries.filter((entry) => entry.favourite).length})`;
+    if (item.kind === "provider") return `${providerLabel(item.provider)} (${entries.filter((entry) => entry.model.provider === item.provider).length})`;
+    return item.listed ? `${item.backend.label} (${entries.length})` : item.backend.label;
+  };
+  const tabTitle = (item: RailEntry): string => {
+    if (item.kind !== "runtime" || item.listed) return tabLabel(item).replace(/ \((\d+)\)$/u, " · $1");
+    if (item.backend.kind === threadRuntime) return `${item.backend.label} · this thread's runtime`;
+    return draft ? `${item.backend.label} · run this thread on it` : `${item.backend.label} · starts a new thread`;
+  };
+  const inUse = (key: string) => key === activeKey && threadRuntime === (catalogRuntime ?? DEFAULT_RUNTIME);
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
       <section
-        className={`model-picker ${(runtimeBackends?.length ?? 0) > 1 ? "with-runtime-picker" : ""}`}
+        className="model-picker"
         role="dialog"
         aria-modal="true"
         aria-label="Select model"
@@ -199,18 +235,23 @@ export function ModelPicker({
       >
         <div className="model-picker-body">
           <nav className="model-rail" aria-label="Providers">
-            {providers.map((name) => (
+            {rail.map((item) => (
               <button
-                key={name}
-                className={!needle && name === provider ? "active" : ""}
-                aria-label={`${tabLabel(name)} (${tabCount(name)})`}
-                aria-pressed={!needle && name === provider}
-                title={`${tabLabel(name)} · ${tabCount(name)}`}
-                onClick={() => { setQuery(""); setProvider(name); }}
+                key={item.key}
+                className={[
+                  !needle && item.key === tab ? "active" : "",
+                  item.kind === "runtime" && !item.listed && !draft && item.backend.kind !== threadRuntime ? "elsewhere" : "",
+                ].filter(Boolean).join(" ")}
+                aria-label={tabLabel(item)}
+                aria-pressed={!needle && item.key === tab}
+                title={tabTitle(item)}
+                onClick={() => { setQuery(""); setTab(item.key); }}
               >
-                {name === FAVOURITES
+                {item.kind === "favourites"
                   ? <Star size={16} fill="currentColor" />
-                  : <ProviderIconStack modelProvider={name} runtimeProvider={runtime} className="rail-icon" />}
+                  : item.kind === "provider"
+                    ? <ProviderIconStack modelProvider={item.provider} className="rail-icon" />
+                    : <ProviderIconStack runtimeProvider={item.backend.kind} className="rail-icon" />}
               </button>
             ))}
           </nav>
@@ -224,7 +265,6 @@ export function ModelPicker({
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search models…"
                 aria-label="Search models"
-                disabled={!modelsAvailable}
               />
               <kbd>esc</kbd>
               <button
@@ -237,37 +277,26 @@ export function ModelPicker({
               </button>
             </div>
 
-            {(runtimeBackends?.length ?? 0) > 1 ? (
-              <div className="model-runtime-picker" role="group" aria-label="Runtime for new thread">
-                <span>Run with</span>
-                <div>
-                  {runtimeBackends?.map((backend) => (
-                    <button
-                      key={backend.kind}
-                      className={backend.kind === runtime ? "active" : ""}
-                      aria-label={backend.label}
-                      aria-pressed={backend.kind === runtime}
-                      onClick={() => onSelectRuntime?.(backend.kind)}
-                    >
-                      <ProviderIconStack runtimeProvider={backend.kind} className="runtime-option-icon" />
-                      {backend.label}
-                    </button>
-                  ))}
-                </div>
+            {elsewhere ? (
+              <div className="model-runtime-pane" role="region" aria-label={elsewhere.label}>
+                <ProviderIconStack runtimeProvider={elsewhere.kind} className="runtime-pane-icon" />
+                <strong>{elsewhere.label}</strong>
+                <p>{elsewhere.kind === threadRuntime
+                  ? `This thread starts on ${elsewhere.label} with its default model. Its models are listed once the thread exists.`
+                  : draft
+                    ? `${elsewhere.label} runs the thread instead of ${threadRuntimeName}. Its models are listed once the thread exists.`
+                    : `This thread runs on ${threadRuntimeName}, and a thread keeps the runtime it started on. ${elsewhere.label} runs a thread of its own.`}</p>
+                {paneAction ? <button className="primary" onClick={paneAction.run}>{paneAction.label}</button> : null}
               </div>
-            ) : null}
-
-            <VirtualList
+            ) : <VirtualList
               items={rows}
               itemHeight={ROW_HEIGHT}
               className="model-list"
               scrollToIndex={cursor}
-              empty={<p className="palette-empty">{!modelsAvailable
-                ? `Start the thread to load ${runtimeBackends?.find((backend) => backend.kind === runtime)?.label ?? "this runtime"}'s models.`
-                : needle ? `No model matches “${query}”.` : "No models from this provider."}</p>}
+              empty={<p className="palette-empty">{needle ? `No model matches “${query}”.` : "No models from this provider."}</p>}
               renderItem={(row, index) => row.kind === "legacy"
                 ? <div key={row.key} className={`model-row model-legacy ${index === cursor ? "selected" : ""}`} onMouseMove={() => setCursor(index)}>
-                  <button className="model-choose" aria-expanded={row.expanded} onClick={() => toggleLegacy(row.provider)}>
+                  <button className="model-choose" aria-expanded={row.expanded} onClick={() => toggleLegacy(row.group)}>
                     <span className="model-line"><strong>Legacy models</strong></span>
                     <small className="model-sub">{row.count} {row.count === 1 ? "model" : "models"}</small>
                   </button>
@@ -276,7 +305,7 @@ export function ModelPicker({
                 : <div
                   key={row.key}
                   data-provider={row.entry.model.provider}
-                  className={`model-row ${index === cursor ? "selected" : ""} ${row.key === activeKey ? "current" : ""}`}
+                  className={`model-row ${index === cursor ? "selected" : ""} ${inUse(row.key) ? "current" : ""}`}
                   onMouseMove={() => setCursor(index)}
                 >
                   <button className="model-choose" onClick={() => choose(row.entry)}>
@@ -287,16 +316,16 @@ export function ModelPicker({
                       {row.entry.model.login === "subscription" ? <span className="model-badge">subscription login</span> : null}
                     </span>
                     <small className="model-sub">
-                      <ProviderIconStack modelProvider={row.entry.model.provider} runtimeProvider={runtime} className="sub-icon" />
+                      <ProviderIconStack modelProvider={row.entry.model.provider} runtimeProvider={catalogRuntime} className="sub-icon" />
                       {providerLabel(row.entry.model.provider)}
                       <span className="model-id">{row.entry.model.id}</span>
                     </small>
                   </button>
-                  {row.key === activeKey ? <em>in use</em> : null}
+                  {inUse(row.key) ? <em>in use</em> : null}
                   {row.entry.jump ? <kbd className="model-kbd">⌘{row.entry.jump}</kbd> : null}
                   <button className={`model-star ${row.entry.favourite ? "on" : ""}`} aria-label={row.entry.favourite ? `Unfavourite ${row.entry.model.name}` : `Favourite ${row.entry.model.name}`} aria-pressed={row.entry.favourite} onClick={() => preferences.toggleFavouriteModel(row.key)}><Star size={14} fill={row.entry.favourite ? "currentColor" : "none"} /></button>
                 </div>}
-            />
+            />}
           </div>
         </div>
 
@@ -308,7 +337,7 @@ export function ModelPicker({
           <span>⌥↵ favourite</span>
           <span>⌘1–9 favourite n</span>
           <span className="spacer" />
-          <span>{entries.length} models · {providers.filter((name) => name !== FAVOURITES).length} providers</span>
+          <span>{entries.length} models · {new Set(entries.map((entry) => entry.model.provider)).size} providers</span>
         </footer>
       </section>
       {addProviderOpen ? (
@@ -317,7 +346,7 @@ export function ModelPicker({
           onProviderAdded={(newModels) => {
             setAddProviderOpen(false);
             const latest = newModels[newModels.length - 1];
-            if (latest) setProvider(latest.provider);
+            if (latest) setTab(railKeyForModel(latest.provider, catalogRuntime));
           }}
         />
       ) : null}

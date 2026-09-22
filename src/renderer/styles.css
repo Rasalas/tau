@@ -1561,19 +1561,19 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .model-picker-body { flex: 1; min-height: 0; display: flex; }
 .model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
-/* The rail pairs each provider with the runtime that runs it. */
+/* The rail: Pi's model providers, then every other runtime as one tab. */
 .model-rail {
   width: 64px; flex: none; overflow: auto;
   border-right: 1px solid var(--line); padding: 10px 0;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
-.model-picker.with-runtime-picker .model-rail { padding-top: 112px; }
 .model-rail > button {
   position: relative; width: 48px; height: 40px; display: grid; place-items: center;
   border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .model-rail > button:hover { background: var(--hover-strong); color: var(--ink-2); }
 .model-rail > button.active { background: var(--raised); color: var(--acid-text); }
+.model-rail > button.elsewhere:not(.active) { opacity: .55; }
 .model-rail > button.active::before {
   content: ""; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px;
   border-radius: 0 2px 2px 0; background: var(--acid);
@@ -1591,24 +1591,19 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .model-search > .model-provider-add:hover {
   background: var(--hover-strong); color: var(--ink); border-color: var(--line-float);
 }
-.model-runtime-picker {
-  flex: none; display: flex; align-items: center; gap: 12px; min-height: 52px;
-  padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--inset);
+/* A runtime whose models are not on hand: what choosing it means, and the one action it takes. */
+.model-runtime-pane {
+  flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  padding: 28px 24px; color: var(--ink-2);
 }
-.model-runtime-picker > span {
-  flex: none; color: var(--faint); font: 600 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase;
+.model-runtime-pane > strong { font-size: 14px; color: var(--ink); }
+.model-runtime-pane > p { margin: 0; max-width: 420px; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.model-runtime-pane .runtime-pane-icon { margin-left: 0; }
+.model-runtime-pane > button {
+  height: 32px; padding: 0 12px; border: 1px solid var(--acid-line); border-radius: 8px;
+  background: var(--acid-bg); color: var(--acid-text); font: 600 12px var(--sans); cursor: pointer;
 }
-.model-runtime-picker > div { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-x: auto; }
-.model-runtime-picker button {
-  height: 34px; flex: none; display: inline-flex; align-items: center; gap: 7px;
-  padding: 0 10px; border: 1px solid var(--line-control); border-radius: 8px;
-  background: transparent; color: var(--muted); font: 600 11px var(--sans); cursor: pointer;
-}
-.model-runtime-picker button:hover { border-color: var(--line-float); background: var(--raised); color: var(--ink-2); }
-.model-runtime-picker button.active {
-  border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text);
-}
-.model-runtime-picker .runtime-option-icon { margin-left: 0; }
+.model-runtime-pane > button:hover { background: var(--acid-chip); }
 
 .model-list { flex: 1; min-width: 0; overflow: auto; padding: 8px; }
 .model-row {

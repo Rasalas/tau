@@ -125,6 +125,7 @@ export function Composer({
   onSetModel,
   onSetThinking,
   runtimeChoice,
+  onNewThreadOnRuntime,
   prompt,
   promptsPending = 0,
   onAnswerPrompt,
@@ -159,6 +160,8 @@ export function Composer({
   onSetThinking(level: string): void;
   /** Offered while the composer targets a thread that does not exist yet. */
   runtimeChoice?: ComposerRuntimeChoice;
+  /** Starts a new thread on another runtime, which an existing thread cannot change to. */
+  onNewThreadOnRuntime?(kind: ThreadBackendKind): void;
   prompt?: ExtensionUiPrompt;
   promptsPending?: number;
   /** `typed` is set when the answer came from the text field rather than a choice. */
@@ -418,9 +421,14 @@ export function Composer({
     snapshot?.backendKind,
     (provider) => preferences.hasAcknowledgedSubscriptionLogin(provider),
   ), [preferences, snapshot?.backendKind]);
+  // A model of the visible catalog brings a draft bound elsewhere back to that catalog's runtime.
+  const applyModel = (model: UiModel) => {
+    if (runtimeChoice && snapshot?.backendKind && runtimeChoice.kind !== snapshot.backendKind) runtimeChoice.onSelect(snapshot.backendKind);
+    onSetModel(model.provider, model.id);
+  };
   const chooseModel = (model: UiModel) => {
     if (needsSubscriptionAck(model)) setSubscriptionAsk({ model });
-    else onSetModel(model.provider, model.id);
+    else applyModel(model);
   };
   // Only a drag that starts on the grip reorders; text drags inside a row do not.
   const queueDragArmRef = useRef<string | undefined>(undefined);
@@ -1075,14 +1083,15 @@ export function Composer({
 
       {modelPickerOpen ? (
         <ModelPicker
-          models={snapshot?.models ?? []}
-          activeKey={snapshot?.model ? modelKey(snapshot.model) : undefined}
+          models={runtimeOwnsModel ? [] : snapshot?.models ?? []}
+          activeKey={snapshot?.model && !draftOnOtherRuntime ? modelKey(snapshot.model) : undefined}
           onSelect={chooseModel}
           onClose={() => setModelPickerOpen(false)}
           runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
-          runtimeBackends={runtimeChoice?.backends}
+          catalogRuntime={snapshot?.backendKind}
+          runtimeBackends={runtimeChoice?.backends ?? snapshot?.runtimeBackends}
           onSelectRuntime={runtimeChoice?.onSelect}
-          modelsAvailable={!draftOnOtherRuntime}
+          onNewThreadOnRuntime={onNewThreadOnRuntime}
         />
       ) : null}
       {subscriptionAsk ? (
@@ -1093,7 +1102,7 @@ export function Composer({
             if (provider) preferences.acknowledgeSubscriptionLogin(provider);
             const { model, resubmit } = subscriptionAsk;
             setSubscriptionAsk(undefined);
-            if (model) onSetModel(model.provider, model.id);
+            if (model) applyModel(model);
             if (resubmit) submitCurrent(resubmit === "prompt" ? undefined : resubmit);
           }}
           onDecline={() => {

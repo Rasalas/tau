@@ -18,9 +18,10 @@ function renderPicker(options: {
   runtime?: string;
   preferences?: PreferencesStore;
   onSelect?: (model: UiModel) => void;
+  catalogRuntime?: string;
   runtimeBackends?: { kind: string; label: string }[];
   onSelectRuntime?: (kind: string) => void;
-  modelsAvailable?: boolean;
+  onNewThreadOnRuntime?: (kind: string) => void;
 } = {}) {
   const onSelect = options.onSelect ?? vi.fn();
   render(<TestProviders preferences={options.preferences}>
@@ -29,41 +30,65 @@ function renderPicker(options: {
       onSelect={onSelect}
       onClose={() => {}}
       runtime={options.runtime}
+      catalogRuntime={options.catalogRuntime}
       runtimeBackends={options.runtimeBackends}
       onSelectRuntime={options.onSelectRuntime}
-      modelsAvailable={options.modelsAvailable}
+      onNewThreadOnRuntime={options.onNewThreadOnRuntime}
     />
   </TestProviders>);
   return onSelect;
 }
 
+const backends = [
+  { kind: "pi", label: "Pi" },
+  { kind: "claude-code", label: "Claude Code" },
+  { kind: "antigravity", label: "Antigravity" },
+];
+
 afterEach(cleanup);
 
 describe("ModelPicker", () => {
-  it("selects the runtime for a new thread in the picker", () => {
+  it("offers another runtime to a new thread from its rail tab", () => {
     const onSelectRuntime = vi.fn();
-    renderPicker({
-      runtime: "claude-code",
-      runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "Claude Code" }],
-      onSelectRuntime,
-      modelsAvailable: false,
-    });
-
-    expect(screen.getByRole("group", { name: "Runtime for new thread" })).toBeTruthy();
-    expect(screen.getByText("Start the thread to load Claude Code's models.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
-    expect(onSelectRuntime).toHaveBeenCalledWith("pi");
+    const onSelect = renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime });
+    fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
+    const pane = screen.getByRole("region", { name: "Claude Code" });
+    expect(pane.textContent).toMatch(/runs the thread instead of Pi/u);
+    fireEvent.click(screen.getByRole("button", { name: "Start this thread on Claude Code" }));
+    expect(onSelectRuntime).toHaveBeenCalledWith("claude-code");
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("shows the provider mark paired with the selected runtime", () => {
-    renderPicker({ runtime: "claude-code" });
+  it("opens a draft bound for another runtime on that runtime's tab, with Pi's models a click away", () => {
+    renderPicker({ runtime: "claude-code", catalogRuntime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn() });
+    expect(screen.getByRole("region", { name: "Claude Code" }).textContent).toMatch(/starts on Claude Code with its default model/u);
+    expect(screen.queryByRole("button", { name: /^Start this thread/u })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Anthropic (4)" }));
+    expect(screen.getByText("Claude Opus 5")).toBeTruthy();
+  });
+
+  it("explains in a Pi thread that another runtime starts a new thread", () => {
+    const onNewThreadOnRuntime = vi.fn();
+    renderPicker({ runtime: "pi", runtimeBackends: backends, onNewThreadOnRuntime });
+    const tab = screen.getByRole("button", { name: "Antigravity" });
+    expect(tab.getAttribute("title")).toBe("Antigravity · starts a new thread");
+    fireEvent.click(tab);
+    expect(screen.getByRole("region", { name: "Antigravity" }).textContent).toMatch(/This thread runs on Pi, and a thread keeps the runtime it started on/u);
+    fireEvent.click(screen.getByRole("button", { name: "New thread on Antigravity" }));
+    expect(onNewThreadOnRuntime).toHaveBeenCalledWith("antigravity");
+  });
+
+  it("shows provider marks without Pi's, and a non-Pi runtime's mark beside its models", () => {
+    renderPicker({ runtime: "pi", runtimeBackends: backends });
     const rail = screen.getByRole("navigation", { name: "Providers" });
-    expect(rail.querySelectorAll("button")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Anthropic (4)" }).querySelector(".provider-family-claude-code")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "OpenAI (1)" }).querySelector(".provider-family-claude-code")).toBeTruthy();
+    expect(rail.querySelectorAll("button")).toHaveLength(4);
+    expect(document.querySelector(".provider-family-pi")).toBeNull();
+    expect(screen.getByRole("button", { name: "Claude Code" }).querySelector(".provider-family-claude-code")).toBeTruthy();
     cleanup();
-    renderPicker({ runtime: "pi" });
-    expect(document.querySelector(".provider-family-pi")).toBeTruthy();
+    renderPicker({ runtime: "claude-code", runtimeBackends: backends });
+    expect(screen.getByRole("button", { name: "Claude Code (5)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Pi" }).getAttribute("title")).toBe("Pi · starts a new thread");
+    expect(document.querySelector(".model-sub .provider-family-claude-code")).toBeTruthy();
   });
 
   it("folds a provider's legacy models behind one row and badges the newest", () => {
