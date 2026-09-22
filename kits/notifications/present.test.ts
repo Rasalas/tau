@@ -31,6 +31,7 @@ group("how loud one piece of news is", () => {
 
   it("reads unknown stored values as the defaults", () => {
     expect(readMode("loud")).toBe(DEFAULT_SETTINGS.mode);
+    expect(DEFAULT_SETTINGS.mode).toBe("off");
     expect(readMode("both")).toBe("both");
     expect(readSound(undefined)).toBe("chime");
     expect(readSound("ping")).toBe("ping");

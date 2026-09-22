@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function setup(options: { presence?: unknown } = {}) {
+function setup(options: { presence?: unknown; mode?: string } = {}) {
   const invoke = vi.fn(async (_id: string, command: string, _input?: unknown) => command === "presence" ? (options.presence ?? { items: [] }) : undefined);
   const outcomes: Array<(outcome: "clicked" | "dismissed") => void> = [];
   const attention = {
@@ -26,6 +26,8 @@ function setup(options: { presence?: unknown } = {}) {
     requestPermission: vi.fn(async () => true),
   } satisfies PlatformAttention;
   const { registry, preferences } = createKitHarness(invoke, undefined, { attention });
+  // Off by default; most cases are about what an opted-in client shows.
+  if (options.mode !== "default") preferences.setValue(NOTIFICATIONS_EXTENSION_ID, "mode", options.mode ?? "notification");
   registry.activate(notifications);
   const actions = {
     switchSession: vi.fn(async () => true),
