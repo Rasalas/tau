@@ -377,6 +377,40 @@ message when the button was pressed, if any; core keeps the selection alive
 through the click — and the workbench's actions. A throw is shown as a notice.
 Prompt Tools' "Cite" is the shipped caller.
 
+#### Rows in the command palette
+
+`registerCommand` puts a fixed row in the palette. `registerPaletteSource` is
+for rows that depend on what the user typed — threads, projects, anything a
+query finds:
+
+```ts
+plugin.registerPaletteSource({
+  id: "example.issues",
+  label: "Issues",
+  order: 20,
+  search: async (query, { actions, index, signal }) => {
+    const issues = await findIssues(query, { signal });
+    return issues.map((issue) => ({ id: issue.id, label: issue.title, detail: `#${issue.number}`, run: () => actions.openExternal(issue.url) }));
+  },
+});
+```
+
+The palette asks every source again on each keystroke, and only for a
+non-empty query. `search` may answer at once or with a promise; `index` is the
+thread index this window holds (`projects`, `threads`, `activeThreadId`), and
+`signal` aborts as soon as the query changes or the palette closes. An answer
+that arrives after that is dropped, so a slow source never paints rows for a
+query the user already left; a source that talks to its host half should wait
+a moment on the signal before it asks. A row is `{ id, label, detail?, run }`:
+`detail` is shown after the label, the source's `label` beside it.
+
+What the list shows, in order: commands whose label matches, then every
+source's rows in `order` (eight at most each), then core's own Settings rows —
+a page or a row of one found by the words Settings search uses — and last the
+commands that matched only by their group. An empty query lists the commands
+alone. Search Kit (`kits/search/`) is the shipped caller: threads by title and
+by what was said in them, and projects.
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, stage tabs,
@@ -402,7 +436,7 @@ a profile only for a contribution you have actually seen work there; a Git
 panel over the machine's own files or a native view over the window is
 desktop-only, and saying so is the correct answer, not a gap.
 
-Commands, keybindings, slash commands, prompt hooks and services carry no
+Commands, palette sources, keybindings, slash commands, prompt hooks and services carry no
 profile: they are not surfaces, and they work wherever the workbench does. See
 [ADR 0016](adr/0016-client-profiles.md).
 
@@ -436,12 +470,16 @@ is an esbuild alias onto Tau's own compiled module, which is why
 `DesktopExtensionContext` additionally offers `registerSettingsPage` — a page
 of the Settings modal with its own nav entry, typed `SettingsPageContribution`
 (`id`, `label`, an optional `Icon` the way panels pass theirs, an optional
-`order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
-`onNotify`) — and `inspectPackages(cwd)`, which answers core's own scan of the
+`order`, optional `keywords` — the words the Settings search field and the
+palette find the page by besides its label — and a `Component` receiving
+`SettingsPageProps`: `cwd` and `onNotify`) — and `inspectPackages(cwd)`, which answers core's own scan of the
 package folders and the shipped kits (`ExtensionInspection`) without loading
 any code — including `distribution`, the name and version of the set the
 `bundled` entries came in, absent in safe mode, which loads none. Core keeps Defaults, Keybindings and the Inspector; every other page
-is a contribution and is gone with its extension.
+is a contribution and is gone with its extension. The search field above the
+nav finds core's own rows, a contributed page by its label and `keywords`, an
+extension's page by its name and its options, and every live keybinding — which
+opens the Keybindings page filtered to its command.
 
 `context.setProblems(problems)` is how a package says that something it reads
 is wrong — a project file that does not parse, an entry it had to skip. Each
@@ -480,7 +518,9 @@ for what the ask tool folds into a dialog's title and options —
 `freeTextOption` and `optionForLabel`, with their `OptionParts` and
 `OptionPreview` types.
 
-`actions.openFile(path, options?)` puts a document in the stage;
+`actions.openFile(path, options?)` puts a document in the stage — `{ line }`
+opens it as source scrolled to that line (1-based) and marks it, and asking for
+the same line again scrolls there again;
 `actions.openStageTab(kind, params?, options?)` puts a tab of your own kind
 there (above); `actions.openThread(sessionId, options?)`
 puts a thread there instead — its transcript, read-only, with the title, status
