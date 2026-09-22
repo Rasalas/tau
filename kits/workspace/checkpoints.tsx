@@ -181,16 +181,22 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
       }
     }, [actions, checkpoints, restoreSupported, sessionId, state.restorable, streaming]);
 
-    const confirmRestore = useCallback(async () => {
+    const confirmRestore = useCallback(async (files: boolean) => {
       const request = store.getSnapshot().restore;
       if (!request || !sessionId) return;
-      if (streaming) { store.update({ restore: undefined }); actions.notify("The turn started before restore was confirmed. No changes were made."); return; }
+      if (streaming) { store.update({ restore: undefined }); actions.notify("The turn started before the rewind was confirmed. No changes were made."); return; }
       store.update({ restoreBusy: true });
-      actions.notify("Creating a restore backup…");
+      if (files) actions.notify("Creating a restore backup…");
       try {
-        actions.applyHostResult(await workspaceStore.host.restoreCheckpoint(sessionId, request.checkpoint.id));
-        store.update({ restore: undefined });
-        actions.notify("Restored checkpoint. The previous conversation and workspace are available in the backup thread.");
+        if (files) {
+          actions.applyHostResult(await workspaceStore.host.restoreCheckpoint(sessionId, request.checkpoint.id));
+          store.update({ restore: undefined });
+          actions.notify("Rewound with files. The previous conversation and workspace are available in the backup thread.");
+        } else {
+          actions.applyHostResult(await workspaceStore.host.rewindCheckpoint(sessionId, request.checkpoint.id));
+          store.update({ restore: undefined });
+          actions.notify("Rewound the conversation; files were kept. The previous branch stays in its own thread.");
+        }
       } catch (error) {
         actions.notify(errorMessage(error));
       } finally {
@@ -230,7 +236,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
         workspaceChanges={state.restore.workspaceChanges}
         busy={state.restoreBusy}
         onCancel={() => { if (!store.getSnapshot().restoreBusy) store.update({ restore: undefined }); }}
-        onConfirm={() => void confirmRestore()}
+        onConfirm={(files) => void confirmRestore(files)}
       />
     );
   };

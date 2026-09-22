@@ -1,4 +1,5 @@
-import { mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +9,8 @@ import {
   type HostSessionFile,
   type HostThread,
 } from "tau/host-extension";
-import { TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
+import { TURN_CHECKPOINT_CUSTOM_TYPE, TURN_RESTORE_BACKUP_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
+import { createTurnWorkspaceSnapshot } from "./workspace-git.js";
 import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { WorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 import { createWorkspaceKitLifecycle, prioritizeRestoreTargetSession } from "./host-lifecycle.js";
@@ -284,4 +286,105 @@ describe("restore target discovery", () => {
     expect(SessionManager.continueRecent("/project", directory).getSessionFile()).toBe(targetPath);
     expect((await stat(targetPath)).mtimeMs).toBeGreaterThan((await stat(backupPath)).mtimeMs);
   });
+});
+
+/** A repository with one checkpointed turn, and a later edit nobody committed. */
+async function rewindFixture() {
+  const cwd = await workspace();
+  const git = (...args: string[]) => execFileSync("git", args, { cwd, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } }).toString();
+  git("init", "-q");
+  git("config", "user.email", "tau@example.test");
+  git("config", "user.name", "Tau Test");
+  await writeFile(join(cwd, "note.txt"), "base\n");
+  git("add", "note.txt");
+  git("commit", "-qm", "fixture");
+  // The lease guards refs by session id across test processes.
+  const sessionId = `rewind-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  const before = await createTurnWorkspaceSnapshot(cwd, sessionId, "turn-1", "before");
+  await writeFile(join(cwd, "note.txt"), "checkpoint\n");
+  const after = await createTurnWorkspaceSnapshot(cwd, sessionId, "turn-1", "after");
+  await writeFile(join(cwd, "note.txt"), "later, uncommitted\n");
+  const sourceFile = join(cwd, "source.jsonl");
+  await writeFile(sourceFile, "");
+
+  const stored = { ...checkpoint, sessionId, beforeSnapshotId: before.id, afterSnapshotId: after.id, files: [{ ...checkpoint.files[0]!, path: "note.txt", name: "note.txt", directory: "" }] };
+  const entries = [
+    { type: "message", id: "assistant-entry", message: { role: "assistant", content: [] } },
+    { type: "custom", id: "custom-1", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: stored },
+  ];
+  const branches: Array<HostSessionFile & { appended: Array<{ customType: string; data: unknown }>; infos: string[] }> = [];
+  const file = (path: string, id: string): HostSessionFile => sessionFile({
+    path,
+    sessionId: id,
+    cwd,
+    entries: () => entries,
+    branch: (entryId) => {
+      const appended: Array<{ customType: string; data: unknown }> = [];
+      const infos: string[] = [];
+      const created = Object.assign(sessionFile({
+        path: join(cwd, `branch-${branches.length}.jsonl`),
+        sessionId: `${id}-branch-${branches.length}-${entryId}`,
+        cwd,
+        entries: () => [...entries, ...appended.map((entry) => ({ type: "custom", customType: entry.customType, data: entry.data }))],
+        appendEntry: (customType, data) => { appended.push({ customType, data }); },
+        appendInfo: (text) => { infos.push(text); },
+      }), { appended, infos });
+      branches.push(created);
+      return created;
+    },
+  });
+  const activate = vi.fn(async () => ({ version: 1 as const, updates: [] }));
+  const refreshIndex = vi.fn(async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }));
+  const kit = createWorkspaceKitLifecycle(services({
+    cwd: () => cwd,
+    thread: () => thread({ sessionId, cwd, sessionFile: sourceFile, entries: () => entries }),
+    sessions: {
+      list: async () => [],
+      open: (path) => file(path, sessionId),
+      prepare: async (session) => ({ sessionId: session.sessionId, session, activate, discard: async () => undefined }),
+      start: async () => { throw new Error("no threads in this test"); },
+      exclusive: (work) => work(),
+      remove: async () => undefined,
+      refreshIndex,
+    },
+  }), { emit: () => undefined, maintenance: maintenance() });
+  return { cwd, git, sessionId, kit, branches, activate, refreshIndex, note: () => readFile(join(cwd, "note.txt"), "utf8") };
+}
+
+describe("rewinding to a checkpoint", () => {
+  it("keeps changes: a new branch at the checkpoint's answer, every file as it was", async () => {
+    const fixture = await rewindFixture();
+
+    await fixture.kit.rewind(fixture.sessionId, "turn-1");
+
+    expect(await fixture.note()).toBe("later, uncommitted\n");
+    expect(fixture.branches).toHaveLength(1);
+    expect(fixture.branches[0]!.sessionId).toContain("assistant-entry");
+    expect(fixture.branches[0]!.infos).toEqual([expect.stringContaining("files kept")]);
+    expect(fixture.activate).toHaveBeenCalledOnce();
+    expect(fixture.refreshIndex).toHaveBeenCalledOnce();
+  }, 90_000);
+
+  it("reverts files too, after saving the uncommitted work in a backup thread", async () => {
+    const fixture = await rewindFixture();
+
+    await fixture.kit.restore(fixture.sessionId, "turn-1");
+
+    expect(await fixture.note()).toBe("checkpoint\n");
+    const backup = fixture.branches.flatMap((created) => created.appended).find((entry) => entry.customType === TURN_RESTORE_BACKUP_CUSTOM_TYPE)?.data as { afterSnapshotId: string } | undefined;
+    expect(backup).toBeDefined();
+    expect(fixture.git("show", `${backup!.afterSnapshotId}:note.txt`)).toBe("later, uncommitted\n");
+    expect(fixture.activate).toHaveBeenCalledOnce();
+  }, 90_000);
+
+  it("refuses while the thread still works, and touches nothing", async () => {
+    const fixture = await rewindFixture();
+    const busy = createWorkspaceKitLifecycle(services({
+      cwd: () => fixture.cwd,
+      thread: () => thread({ sessionId: fixture.sessionId, cwd: fixture.cwd, isIdle: () => false }),
+    }), { emit: () => undefined, maintenance: maintenance() });
+
+    await expect(busy.rewind(fixture.sessionId, "turn-1")).rejects.toThrow("Wait for the active turn");
+    expect(await fixture.note()).toBe("later, uncommitted\n");
+  }, 90_000);
 });

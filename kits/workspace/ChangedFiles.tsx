@@ -59,7 +59,7 @@ export function ChangedFiles({
               }
             }}
           >
-            Restore
+            Rewind
           </span> : null}
       </button>
       {isPartial ? <p className="file-tree-error changed-files-warning">
