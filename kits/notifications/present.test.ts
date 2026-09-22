@@ -5,17 +5,22 @@ const with_ = (patch: Partial<NotificationSettings>): NotificationSettings => ({
 
 group("how loud one piece of news is", () => {
   it("follows the mode while the window is in the background", () => {
-    expect(presentation(with_({ mode: "off" }), false)).toEqual({ system: false, sound: false, toast: false });
-    expect(presentation(with_({ mode: "notification" }), false)).toEqual({ system: true, sound: false, toast: false });
-    expect(presentation(with_({ mode: "sound" }), false)).toEqual({ system: false, sound: true, toast: false });
-    expect(presentation(with_({ mode: "both" }), false)).toEqual({ system: true, sound: true, toast: false });
+    expect(presentation(with_({ mode: "off" }), "background")).toEqual({ system: false, sound: false, toast: false });
+    expect(presentation(with_({ mode: "notification" }), "background")).toEqual({ system: true, sound: false, toast: false });
+    expect(presentation(with_({ mode: "sound" }), "background")).toEqual({ system: false, sound: true, toast: false });
+    expect(presentation(with_({ mode: "both" }), "background")).toEqual({ system: true, sound: true, toast: false });
   });
 
-  it("is silent in a focused window unless the user opted in", () => {
-    expect(presentation(with_({ mode: "both" }), true)).toEqual({ system: false, sound: false, toast: false });
-    expect(presentation(with_({ mode: "both", toasts: true }), true)).toEqual({ system: false, sound: true, toast: true });
-    expect(presentation(with_({ mode: "off", toasts: true }), true)).toEqual({ system: false, sound: false, toast: true });
-    expect(presentation(with_({ mode: "notification", whenFocused: true }), true)).toEqual({ system: true, sound: false, toast: false });
+  it("notifies a focused window on another thread, or toasts there instead when asked", () => {
+    expect(presentation(with_({ mode: "both" }), "other-thread")).toEqual({ system: true, sound: true, toast: false });
+    expect(presentation(with_({ mode: "both", toasts: true }), "other-thread")).toEqual({ system: false, sound: true, toast: true });
+    expect(presentation(with_({ mode: "off", toasts: true }), "other-thread")).toEqual({ system: false, sound: false, toast: true });
+  });
+
+  it("stays silent about the thread on screen unless asked not to", () => {
+    expect(presentation(with_({ mode: "both" }), "on-screen")).toEqual({ system: false, sound: false, toast: false });
+    expect(presentation(with_({ mode: "sound", whenFocused: true }), "on-screen")).toEqual({ system: false, sound: true, toast: false });
+    expect(presentation(with_({ mode: "both", whenFocused: true, toasts: true }), "on-screen")).toEqual({ system: true, sound: true, toast: false });
   });
 
   it("badges the count of unseen threads unless everything is off", () => {

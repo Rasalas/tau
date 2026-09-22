@@ -39,6 +39,8 @@ export interface PresenceInput {
 export interface Delivery {
   clientKey: string;
   items: AttentionItem[];
+  /** The client already shows the thread in a focused window; only an opt-in makes it speak. */
+  seen?: boolean;
 }
 
 /** `presence` answers with the list and, the first time a client reports, what waited for one. */
@@ -60,5 +62,6 @@ export function decodeDelivery(value: unknown): Delivery | undefined {
   const clientKey = (value as { clientKey?: unknown } | null)?.clientKey;
   if (typeof clientKey !== "string") return undefined;
   const items = decodeAttentionItems(value);
-  return items.length ? { clientKey, items } : undefined;
+  const seen = (value as { seen?: unknown }).seen === true;
+  return items.length ? { clientKey, items, ...(seen ? { seen } : {}) } : undefined;
 }

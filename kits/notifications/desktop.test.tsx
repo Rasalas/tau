@@ -18,7 +18,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function setup(options: { presence?: unknown } = {}) {
-  const invoke = vi.fn(async (_id: string, command: string) => command === "presence" ? (options.presence ?? { items: [] }) : undefined);
+  const invoke = vi.fn(async (_id: string, command: string, _input?: unknown) => command === "presence" ? (options.presence ?? { items: [] }) : undefined);
   const outcomes: Array<(outcome: "clicked" | "dismissed") => void> = [];
   const attention = {
     notify: vi.fn(() => new Promise<"clicked" | "dismissed">((resolve) => { outcomes.push(resolve); })),
@@ -84,7 +84,7 @@ describe("Notifications on the desktop", () => {
     expect(attention.setBadge).toHaveBeenLastCalledWith(0);
   });
 
-  it("toasts inside a focused window when asked to, and plays the chosen sound", async () => {
+  it("in a focused window on another thread, toasts instead when asked to, and plays the chosen sound", async () => {
     const oscillators: number[] = [];
     class FakeAudio {
       state = "running";
@@ -110,6 +110,21 @@ describe("Notifications on the desktop", () => {
     fireEvent.click(screen.getByText("Open"));
     expect(actions.switchSession).toHaveBeenCalledWith("/sessions/t1.jsonl");
     expect(screen.queryByText("Waiting for your answer")).toBeNull();
+    // Without the toast the same window gets the system notification.
+    act(() => { preferences.setOption(NOTIFICATIONS_EXTENSION_ID, "toasts", false); });
+    push(NOTIFY_EVENT, { clientKey: clientKey(), items: [item("t1")] });
+    expect(attention.notify).toHaveBeenCalledOnce();
+  });
+
+  it("speaks about the thread on screen only when asked to", async () => {
+    const { push, preferences, attention, clientKey } = setup();
+    await flush();
+    focused = true;
+    push(NOTIFY_EVENT, { clientKey: clientKey(), items: [item("t1")], seen: true });
+    expect(attention.notify).not.toHaveBeenCalled();
+    act(() => { preferences.setOption(NOTIFICATIONS_EXTENSION_ID, "when-focused", true); });
+    push(NOTIFY_EVENT, { clientKey: clientKey(), items: [item("t1")], seen: true });
+    expect(attention.notify).toHaveBeenCalledOnce();
   });
 
   it("reports again when the host asks, and says goodbye when it stops", async () => {
@@ -132,7 +147,7 @@ describe("Notifications on the desktop", () => {
     fireEvent.click(screen.getByRole("button", { name: "Both" }));
     expect(preferences.value(NOTIFICATIONS_EXTENSION_ID, "mode")).toBe("both");
     expect(attention.requestPermission).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("switch", { name: "Show a toast" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show a toast instead" }));
     expect(preferences.optionValue(NOTIFICATIONS_EXTENSION_ID, "toasts", false)).toBe(true);
     fireEvent.click(screen.getByText("Send a test notification"));
     expect(attention.notify).toHaveBeenCalledWith(expect.objectContaining({ tag: "tau.test" }));

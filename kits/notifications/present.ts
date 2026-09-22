@@ -7,9 +7,9 @@ export type SoundName = "chime" | "ping";
 export interface NotificationSettings {
   mode: NotificationMode;
   sound: SoundName;
-  /** A toast inside the window while it has focus and another thread is on screen. */
+  /** While the window has focus and another thread is on screen, a toast in the window replaces the system notification. */
   toasts: boolean;
-  /** The system notification (and sound) even while the window has focus. */
+  /** Notify (and play the sound) for the thread on screen in a focused window too. */
   whenFocused: boolean;
 }
 
@@ -42,20 +42,20 @@ export interface Presentation {
   toast: boolean;
 }
 
+/** Where the user is relative to the thread: elsewhere, in this window on another thread, or looking at it. */
+export type Whereabouts = "background" | "other-thread" | "on-screen";
+
 /**
- * The host already decided the thread is not on screen in a focused window.
- * What is left is how loud to be: out of focus the mode decides; in focus
- * (another thread on screen) only the two opt-ins do.
+ * How loud one piece of news is here. The mode says which of notification
+ * and sound this client uses at all; a toast can stand in for the notification
+ * while the window has focus, and the thread on screen speaks only when asked to.
  */
-export function presentation(settings: NotificationSettings, focused: boolean): Presentation {
+export function presentation(settings: NotificationSettings, where: Whereabouts): Presentation {
   const notifies = settings.mode === "notification" || settings.mode === "both";
   const sounds = settings.mode === "sound" || settings.mode === "both";
-  if (!focused) return { system: notifies, sound: sounds, toast: false };
-  return {
-    system: notifies && settings.whenFocused,
-    sound: sounds && (settings.whenFocused || settings.toasts),
-    toast: settings.toasts,
-  };
+  if (where === "on-screen") return settings.whenFocused ? { system: notifies, sound: sounds, toast: false } : { system: false, sound: false, toast: false };
+  if (where === "other-thread" && settings.toasts) return { system: false, sound: sounds, toast: true };
+  return { system: notifies, sound: sounds, toast: false };
 }
 
 /** The badge is the count of threads with unseen news, unless this client turned it all off. */

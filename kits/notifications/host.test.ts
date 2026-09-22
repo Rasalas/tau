@@ -62,12 +62,12 @@ describe("the notifications host half", () => {
     expect(named(NOTIFY_EVENT).map((payload) => (payload as { items: Array<{ reason: string }> }).items[0]?.reason)).toEqual(["failed", "question"]);
   });
 
-  it("stays quiet about a thread a focused client shows, and about a sub-agent", async () => {
+  it("counts nothing for a thread a focused client shows, and ignores a sub-agent", async () => {
     const { observers, presence, named } = await harness();
     await presence({ clientKey: "window", focused: true, threadId: "t1" });
     await observers[0]!.ended!("t1", "turn-1", "completed");
     await observers[0]!.ended!("child", "turn-2", "completed");
-    expect(named(NOTIFY_EVENT)).toEqual([]);
+    expect(named(NOTIFY_EVENT)).toEqual([{ clientKey: "window", items: [expect.objectContaining({ threadId: "t1" })], seen: true }]);
     expect(named(ATTENTION_EVENT)).toEqual([]);
   });
 

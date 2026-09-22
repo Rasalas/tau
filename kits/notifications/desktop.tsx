@@ -118,11 +118,11 @@ function coordinate(context: DesktopExtensionContext) {
     if (path && actions) void actions.switchSession(path);
   };
 
-  const present = (delivered: AttentionItem[]) => {
+  const present = (delivered: AttentionItem[], seen = false) => {
     const [first] = delivered;
     if (!first) return;
     const current = settings();
-    const plan = presentation(current, focused());
+    const plan = presentation(current, seen ? "on-screen" : focused() ? "other-thread" : "background");
     if (plan.sound) playSound(current.sound);
     if (plan.toast) for (const item of delivered.slice(0, 3).reverse()) toasts.show({ item, ...describe([item], titleOf) });
     const attention = context.attention;
@@ -147,7 +147,7 @@ function coordinate(context: DesktopExtensionContext) {
   context.host.onEvent(ATTENTION_EVENT, (payload) => setItems(decodeAttentionItems(payload)));
   context.host.onEvent(NOTIFY_EVENT, (payload) => {
     const delivery = decodeDelivery(payload);
-    if (delivery?.clientKey === clientKey) present(delivery.items);
+    if (delivery?.clientKey === clientKey) present(delivery.items, delivery.seen);
   });
   context.host.onEvent(PRESENCE_REQUEST_EVENT, () => report(true));
   // A client came or went, or this one reconnected to a host that may have restarted.
@@ -257,8 +257,8 @@ function createSettingsPage(context: DesktopExtensionContext) {
           <button type="button" className="text-button" onClick={() => playSound(settings.sound)}>Play</button>
         </div>
         <div className="settings-label">WHILE TAU IS IN FRONT</div>
-        {toggle("toasts", settings.toasts, "Show a toast", "When another thread is on screen")}
-        {toggle("when-focused", settings.whenFocused, "Notify anyway", "The system notification and sound, as if Tau were in the background")}
+        {toggle("toasts", settings.toasts, "Show a toast instead", "When another thread is on screen, a toast in the window replaces the notification")}
+        {toggle("when-focused", settings.whenFocused, "Also for the thread on screen", "Notify and play the sound while you are looking at it")}
         <div className="notifications-actions">
           <button type="button" className="text-button" onClick={test}>Send a test notification</button>
         </div>

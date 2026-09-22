@@ -23,11 +23,14 @@ describe("which thread needs the user, and who tells them", () => {
     expect(attention.raise({ threadId: "t1", reason: "question" }).delivery?.clientKey).toBe("a");
   });
 
-  it("stays quiet and counts nothing when a focused window shows the thread", () => {
+  it("counts nothing when a focused window shows the thread, and tells that window it was seen", () => {
     const { book: attention } = book();
     attention.report("a", { focused: false, threadId: "t1" });
     attention.report("b", { focused: true, threadId: "t1" });
-    expect(attention.raise({ threadId: "t1", reason: "completed" })).toEqual({ changed: false });
+    expect(attention.raise({ threadId: "t1", reason: "completed" })).toEqual({
+      changed: false,
+      delivery: { clientKey: "b", items: [{ threadId: "t1", reason: "completed", at: 1_000 }], seen: true },
+    });
     expect(attention.list()).toEqual([]);
   });
 
@@ -85,6 +88,7 @@ describe("which thread needs the user, and who tells them", () => {
     attention.raise({ threadId: "t1", reason: "completed" });
     const change = attention.report("a", { focused: true, threadId: "t1" });
     expect(change).toEqual({ changed: true });
+    expect(attention.visible("t1")).toBe(true);
     expect(attention.list()).toEqual([]);
   });
 

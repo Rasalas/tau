@@ -41,19 +41,29 @@ export class AttentionBook {
   }
 
   visible(threadId: string): boolean {
-    for (const client of this.clients.values()) if (client.focused && client.threadId === threadId) return true;
-    return false;
+    return this.viewer(threadId) !== undefined;
   }
 
-  /** A thread finished, failed or asked something. */
+  /** A client whose window has focus and shows the thread. */
+  private viewer(threadId: string): string | undefined {
+    for (const [key, client] of this.clients) if (client.focused && client.threadId === threadId) return key;
+    return undefined;
+  }
+
+  /**
+   * A thread finished, failed or asked something. A focused client showing it
+   * has seen it, so the list stays as it is; that client still hears of it,
+   * marked `seen`, in case its user asked to be told anyway.
+   */
   raise(news: Omit<AttentionItem, "at">): AttentionChange {
-    if (this.visible(news.threadId)) return { changed: false };
     const now = this.options.now();
     const item: AttentionItem = { ...news, at: now };
-    this.items.set(item.threadId, item);
+    const viewer = this.viewer(item.threadId);
+    if (!viewer) this.items.set(item.threadId, item);
     const last = this.notifiedAt.get(item.threadId);
-    if (last !== undefined && now - last < this.options.debounceMs) return { changed: true };
+    if (last !== undefined && now - last < this.options.debounceMs) return { changed: !viewer };
     this.notifiedAt.set(item.threadId, now);
+    if (viewer) return { changed: false, delivery: { clientKey: viewer, items: [item], seen: true } };
     const target = this.target();
     if (!target) {
       this.held = [...this.held.filter((entry) => entry.threadId !== item.threadId), item];
