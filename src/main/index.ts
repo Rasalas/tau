@@ -99,6 +99,7 @@ const kitOptions = {
 /** Both transports report their clients here; the host publishes the count. */
 const hostClients = new HostClientRegistry();
 
+let lastPickedDirectory: string | undefined;
 const hostOptions = {
   // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
   defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
@@ -123,11 +124,15 @@ const hostOptions = {
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {
+        // Electron 43+ opens in Downloads unless told otherwise; start where the last pick ended.
+        ...(lastPickedDirectory ? { defaultPath: lastPickedDirectory } : {}),
         ...(options?.buttonLabel ? { buttonLabel: options.buttonLabel } : {}),
         ...(options?.message ? { message: options.message } : {}),
         properties: ["openDirectory", ...(options?.createDirectory ? ["createDirectory" as const] : [])],
       });
-      return result.filePaths[0];
+      const picked = result.filePaths[0];
+      if (picked) lastPickedDirectory = dirname(picked);
+      return picked;
     },
   },
 };
