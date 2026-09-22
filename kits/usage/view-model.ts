@@ -32,8 +32,10 @@ export const USAGE_GROUPINGS: ReadonlyArray<{ id: UsageGrouping; label: string }
 export interface UsageGroup extends UsageTokens {
   key: string;
   label: string;
-  /** The full path or the other two dimensions, for a title. */
+  /** The line under the label: the project's path, or the runtime and model of a row. */
   detail?: string;
+  /** What a hover shows when the line is not the whole story. */
+  title?: string;
   requests: number;
   /** Only where one row is one group: a thread that used two models would count twice in a sum. */
   threads?: number;
@@ -55,7 +57,8 @@ export function groupRows(rows: readonly UsageRow[], by: UsageGrouping): UsageGr
     return rows.map((row) => ({
       key: `${row.backend}\u0000${row.cwd}\u0000${row.model}`,
       label: row.projectName,
-      detail: `${row.backendLabel} · ${row.model} · ${row.cwd}`,
+      detail: `${row.backendLabel} · ${row.model}`,
+      title: `${row.backendLabel} · ${row.model} · ${row.cwd}`,
       requests: row.requests,
       inputTokens: row.inputTokens,
       outputTokens: row.outputTokens,

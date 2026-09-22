@@ -123,7 +123,7 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
                   <tr key={group.key}>
                     <td>
                       <strong>{group.label}</strong>
-                      {group.detail ? <small title={group.detail}>{group.detail}</small> : null}
+                      {group.detail ? <small title={group.title ?? group.detail}>{group.detail}</small> : null}
                     </td>
                     {grouping === "all" ? <td className="usage-number">{group.threads ?? 0}</td> : null}
                     <td className="usage-number">{group.requests}</td>
