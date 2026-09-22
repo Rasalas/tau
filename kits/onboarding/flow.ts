@@ -1,0 +1,234 @@
+import type { ClientStorage, HostActionResult, HostExtensionClient, WorkbenchActions } from "tau";
+import {
+  IMPORT_PROGRESS_EVENT,
+  SESSION_SOURCES,
+  type Discovery,
+  type ImportProgress,
+  type ImportResult,
+  type ImportableSession,
+  type ProjectCandidate,
+  type ToolsReport,
+} from "./protocol.js";
+
+const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
+/** The wizard's place while it is open; a project switch may reload the page under it. */
+export const FLOW_STORAGE_KEY = "tau.onboarding.flow.v1";
+
+/** What a backend kit's `status` (and the Agent SDK runtime's `probe`) told us about its CLI. */
+export interface AgentStatus {
+  path?: string;
+  version?: string;
+  account?: string;
+  signedIn?: boolean;
+  /** The CLI is older than its kit speaks to. */
+  update?: string;
+  /** The kit is off or did not answer. */
+  error?: string;
+}
+
+export interface FlowState {
+  step: 0 | 1 | 2;
+  tools?: ToolsReport;
+  agents: { "claude-code"?: AgentStatus; codex?: AgentStatus };
+  discovery?: Discovery;
+  discoverError?: string;
+  /** `undefined` until the user changes it: the default applies. */
+  projects?: readonly string[];
+  sessions?: readonly string[];
+  /** Folders this run added to Tau. */
+  added: readonly string[];
+  /** Folders still to open; opening one may reload the page, so the rest wait here. */
+  pending?: readonly string[];
+  busy?: "projects" | "import";
+  progress?: { done: number; total: number };
+  error?: string;
+}
+
+/** T3 Code's default: repositories active in the last 30 days with at least three conversations. */
+export function defaultProjects(candidates: readonly ProjectCandidate[], now: number): string[] {
+  return candidates.filter((project) => project.git && project.threadCount >= 3 && now - project.lastActiveAt <= RECENT_MS).map((project) => project.path);
+}
+
+/** Recent conversations of the folders that are projects in Tau. */
+export function defaultSessions(sessions: readonly ImportableSession[], projects: ReadonlySet<string>, now: number): string[] {
+  return sessions.filter((session) => !session.imported && projects.has(session.cwd) && now - session.updatedAt <= RECENT_MS).map((session) => session.path);
+}
+
+function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** The line T3 Code shows when an import left something behind. */
+export function importSummary(result: Pick<ImportResult, "imported" | "failed">): string {
+  if (result.imported > 0 && result.failed > 0) return `Imported ${plural(result.imported, "thread")}. ${plural(result.failed, "thread")} could not be imported.`;
+  if (result.failed > 0) return `${plural(result.failed, "thread")} could not be imported.`;
+  return `Imported ${plural(result.imported, "thread")}.`;
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Asks one backend kit about its CLI; its absence is a state, not an error. */
+async function agentStatus(host: (id: string) => HostExtensionClient, source: "claude-code" | "codex"): Promise<AgentStatus> {
+  const client = host(`tau.${source}`);
+  try {
+    if (source === "codex") {
+      const status = await client.invoke("status") as { path?: string; version?: string; signedIn?: boolean; account?: { kind: string; email?: string; plan?: string }; unsupported?: boolean; updateCommand?: string; message?: string };
+      const account = status.account ? status.account.email ?? status.account.plan ?? (status.account.kind === "apiKey" ? "API key" : "signed in") : undefined;
+      return {
+        ...(status.path ? { path: status.path } : {}),
+        ...(status.version ? { version: status.version } : {}),
+        ...(account ? { account } : {}),
+        signedIn: status.signedIn === true,
+        ...(status.unsupported ? { update: status.updateCommand ?? "codex update" } : {}),
+      };
+    }
+    const status = await client.invoke("status") as { path?: string };
+    if (!status.path) return {};
+    const probe = await client.invoke("probe").catch(() => undefined) as { version?: string; account?: string } | undefined;
+    return { path: status.path, ...(probe?.version ? { version: probe.version } : {}), ...(probe?.account ? { account: probe.account } : {}), signedIn: Boolean(probe?.account) };
+  } catch (error) {
+    return { error: message(error) };
+  }
+}
+
+/**
+ * The wizard's state outside React, so a project switch that remounts the
+ * workbench does not send the user back to the first step.
+ */
+export class WelcomeFlow {
+  private state: FlowState = { step: 0, agents: {}, added: [] };
+  private readonly listeners = new Set<() => void>();
+  private started = false;
+  private progressBase = 0;
+
+  constructor(
+    private readonly host: HostExtensionClient,
+    private readonly hostExtension: (id: string) => HostExtensionClient,
+    private readonly storage: () => ClientStorage | undefined = () => undefined,
+  ) {
+    // A reload or a second activation takes over a wizard that is still open.
+    this.resume();
+    host.onEvent(IMPORT_PROGRESS_EVENT, (payload) => {
+      const progress = payload as ImportProgress | undefined;
+      if (this.state.busy === "import" && this.state.progress && typeof progress?.done === "number") this.set({ progress: { ...this.state.progress, done: this.progressBase + progress.done } });
+    });
+  }
+
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  get = () => this.state;
+
+  private set(patch: Partial<FlowState>): void {
+    this.state = { ...this.state, ...patch };
+    if (this.started) {
+      const { step, added, pending, projects, sessions } = this.state;
+      this.storage()?.set(FLOW_STORAGE_KEY, JSON.stringify({ step, added, pending, projects, sessions }));
+    }
+    for (const listener of this.listeners) listener();
+  }
+
+  /** Whether a wizard was open when this window last left it. */
+  interrupted(): boolean {
+    return Boolean(this.storage()?.get(FLOW_STORAGE_KEY));
+  }
+
+  private resume(): void {
+    let saved: Partial<FlowState> | undefined;
+    try { saved = JSON.parse(this.storage()?.get(FLOW_STORAGE_KEY) ?? "null") as Partial<FlowState> | undefined; } catch { saved = undefined; }
+    if (!saved || typeof saved !== "object") return;
+    const paths = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : undefined;
+    const pending = paths(saved.pending);
+    // The last folder's switch reloaded the page: adding is done.
+    const step = pending?.length === 0 ? 2 : saved.step === 1 || saved.step === 2 ? saved.step : 0;
+    this.state = { step, agents: {}, added: paths(saved.added) ?? [], ...(pending?.length ? { pending } : {}), ...(paths(saved.projects) ? { projects: paths(saved.projects) } : {}), ...(paths(saved.sessions) ? { sessions: paths(saved.sessions) } : {}) };
+  }
+
+  /** Asks everything once per opening; `restart` begins at the first step again. */
+  start(restart = false): void {
+    if (restart) this.state = { step: 0, agents: {}, added: [] };
+    if (this.started && !restart) return;
+    this.started = true;
+    this.checkAgents();
+    this.discover();
+  }
+
+  checkAgents(): void {
+    this.set({ tools: undefined, agents: {} });
+    void this.host.invoke("tools").then((tools) => this.set({ tools: tools as ToolsReport }), (error) => this.set({ error: message(error) }));
+    for (const source of ["claude-code", "codex"] as const) {
+      void agentStatus(this.hostExtension, source).then((status) => this.set({ agents: { ...this.state.agents, [source]: status } }));
+    }
+  }
+
+  discover(): void {
+    this.set({ discovery: undefined, discoverError: undefined });
+    void this.host.invoke("discover").then(
+      (discovery) => this.set({ discovery: discovery as Discovery }),
+      (error) => this.set({ discoverError: message(error) }),
+    );
+  }
+
+  goTo(step: FlowState["step"]): void {
+    if (!this.state.busy) this.set({ step, error: undefined });
+  }
+
+  select(kind: "projects" | "sessions", paths: readonly string[]): void {
+    this.set({ [kind]: [...new Set(paths)] });
+  }
+
+  /** Opens each folder as a project, the way the sidebar does; the last one stays open. */
+  async addProjects(actions: WorkbenchActions, paths: readonly string[]): Promise<void> {
+    if (this.state.busy) return;
+    this.set({ busy: "projects", error: undefined, pending: paths });
+    const added: string[] = [...this.state.added];
+    const failed: string[] = [];
+    for (const [index, path] of paths.entries()) {
+      try {
+        const ref = await this.host.invoke("project-ref", { path }) as { workspaceId: string };
+        // Written before the switch: if it reloads the page, the rest resumes from here.
+        this.set({ added: [...added, path], pending: paths.slice(index + 1) });
+        if (await actions.openWorkspace(ref.workspaceId)) added.push(path);
+        else failed.push(path);
+      } catch {
+        failed.push(path);
+      }
+    }
+    this.set({ busy: undefined, added, pending: undefined, ...(failed.length ? { error: `${plural(failed.length, "folder")} could not be added.` } : { step: 2 }) });
+  }
+
+  /** Imports per source and answers with what to tell the user; nothing is left out silently. */
+  async importSessions(actions: WorkbenchActions, sessions: readonly ImportableSession[]): Promise<ImportResult> {
+    const total: ImportResult = { imported: 0, skipped: 0, failed: 0 };
+    if (this.state.busy) return total;
+    this.progressBase = 0;
+    this.set({ busy: "import", progress: { done: 0, total: sessions.length }, error: undefined });
+    for (const { source } of SESSION_SOURCES) {
+      const paths = sessions.filter((session) => session.source === source).map((session) => session.path);
+      if (paths.length === 0) continue;
+      try {
+        const result = await this.host.invoke("import-sessions", { source, paths }) as ImportResult;
+        total.imported += result.imported;
+        total.skipped += result.skipped;
+        total.failed += result.failed;
+        const update = result.update as HostActionResult["updates"][number] | undefined;
+        if (update) actions.applyHostResult({ version: update.version, updates: [update] });
+      } catch {
+        total.failed += paths.length;
+      }
+      this.progressBase += paths.length;
+    }
+    this.set({ busy: undefined, progress: undefined, sessions: undefined, ...(total.failed ? { error: importSummary(total) } : {}) });
+    // What is in Tau now, without emptying the list while it is asked.
+    void this.host.invoke("discover").then((discovery) => this.set({ discovery: discovery as Discovery }), () => undefined);
+    return total;
+  }
+
+  /** Remembers that setup ran, so it opens by itself no more; `/welcome` starts it afresh. */
+  finish(): Promise<unknown> {
+    this.started = false;
+    this.storage()?.remove(FLOW_STORAGE_KEY);
+    this.state = { step: 0, agents: {}, added: [] };
+    return this.host.invoke("complete").catch(() => undefined);
+  }
+}

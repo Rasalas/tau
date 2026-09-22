@@ -1,0 +1,157 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
+import { renderApp } from "../../src/renderer/test-support/render-app.js";
+import onboarding from "./desktop.js";
+import { agentRows, age } from "./wizard.js";
+import { FLOW_STORAGE_KEY, WelcomeFlow, defaultProjects, defaultSessions, importSummary } from "./flow.js";
+import type { Discovery, ToolsReport } from "./protocol.js";
+
+afterEach(cleanup);
+
+const NOW = Date.now();
+const DAY = 24 * 60 * 60 * 1000;
+
+const tools: ToolsReport = {
+  platform: "darwin",
+  tools: [
+    { id: "claude-code", path: "/bin/claude", install: "curl claude", login: "claude auth login" },
+    { id: "codex", install: "curl codex", login: "codex login" },
+    { id: "gh", path: "/bin/gh", version: "2.81.0", signedIn: true, install: "brew install gh", login: "gh auth login" },
+    { id: "glab", install: "brew install glab", login: "glab auth login" },
+  ],
+};
+
+const discovery: Discovery = {
+  projects: [
+    { path: "/work/alpha", name: "alpha", sources: ["claude-code", "codex"], threadCount: 4, lastActiveAt: NOW - DAY, git: true },
+    { path: "/work/old", name: "old", sources: ["codex"], threadCount: 5, lastActiveAt: NOW - 90 * DAY, git: true },
+  ],
+  sessions: [
+    { source: "claude-code", path: "/h/c1.jsonl", sessionId: "c1", cwd: "/work/alpha", title: "Fix the login test", updatedAt: NOW - DAY, imported: false },
+    { source: "codex", path: "/h/x1.jsonl", sessionId: "x1", cwd: "/work/alpha", title: "Add a --json flag", updatedAt: NOW - 2 * DAY, imported: false },
+    { source: "codex", path: "/h/x2.jsonl", sessionId: "x2", cwd: "/work/alpha", title: "Already here", updatedAt: NOW - 2 * DAY, imported: true },
+    { source: "codex", path: "/h/x3.jsonl", sessionId: "x3", cwd: "/work/old", title: "Old work", updatedAt: NOW - 90 * DAY, imported: false },
+  ],
+  truncated: false,
+  unavailable: [],
+};
+
+function host() {
+  const calls: Array<[string, string, unknown]> = [];
+  let completed = false;
+  const answers: Record<string, (input: unknown) => unknown> = {
+    "tau.onboarding/state": () => ({ completed, firstStart: !completed }),
+    "tau.onboarding/complete": () => { completed = true; },
+    "tau.onboarding/tools": () => tools,
+    "tau.onboarding/discover": () => discovery,
+    "tau.onboarding/project-ref": (input) => ({ workspaceId: `ws:${(input as { path: string }).path}`, displayPath: (input as { path: string }).path }),
+    "tau.onboarding/import-sessions": (input) => ({ imported: (input as { paths: string[] }).paths.length, skipped: 0, failed: 0 }),
+    "tau.claude-code/status": () => ({ path: "/bin/claude" }),
+    "tau.claude-code/probe": () => ({ version: "2.1.0", account: "Claude Max" }),
+    "tau.codex/status": () => ({ command: "codex", message: "not found" }),
+  };
+  const invokeHostExtension = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
+    calls.push([extensionId, command, input]);
+    const answer = answers[`${extensionId}/${command}`];
+    if (!answer) throw new Error(`Host extension ${extensionId} is not installed.`);
+    return answer(input);
+  });
+  return { calls, invokeHostExtension };
+}
+
+describe("Onboarding in the workbench", () => {
+  it("opens on a first start and walks through agents, projects and conversations", async () => {
+    const { calls, invokeHostExtension } = host();
+    const openProject = vi.fn(async () => ({ version: 1 as const, updates: [] }));
+    const client = createFakeHostClient({ invokeHostExtension, openProject });
+    renderApp(client, { extensions: [onboarding] });
+
+    // Agents: the runtimes first, their state from their own kits.
+    await screen.findByRole("heading", { name: "Your agents" });
+    await screen.findByText("2.1.0 · Claude Max");
+    expect(screen.getByText("Not installed · pull requests need it")).toBeTruthy();
+    const codex = (await screen.findByText("Codex")).closest(".onboarding-card") as HTMLElement;
+    fireEvent.click(within(codex).getByRole("button", { name: "Install" }));
+    expect(screen.getByText("curl codex")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    // Projects: recent repositories with three conversations are chosen for you.
+    await screen.findByRole("heading", { name: "Choose your projects" });
+    expect((screen.getByRole("checkbox", { name: /alpha/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: /old/ }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 project" }));
+    await screen.findByRole("heading", { name: "Import conversations" });
+    expect(calls.some(([, command, input]) => command === "project-ref" && (input as { path: string }).path === "/work/alpha")).toBe(true);
+    expect(openProject).toHaveBeenCalled();
+
+    // Conversations: the added project's recent ones; the imported one is only counted.
+    expect(screen.getByText("1 conversation is in Tau already.")).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: /Old work/ }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Import 2 conversations" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Import conversations" })).toBeNull());
+    const imports = calls.filter(([, command]) => command === "import-sessions").map(([, , input]) => input);
+    expect(imports).toEqual([{ source: "claude-code", paths: ["/h/c1.jsonl"] }, { source: "codex", paths: ["/h/x1.jsonl"] }]);
+    expect(calls.some(([, command]) => command === "complete")).toBe(true);
+  });
+
+  it("stays closed once setup ran, and /welcome brings it back", async () => {
+    const { invokeHostExtension } = host();
+    await invokeHostExtension("tau.onboarding", "complete");
+    const client = createFakeHostClient({ invokeHostExtension });
+    renderApp(client, { extensions: [onboarding] });
+    await waitFor(() => expect(invokeHostExtension).toHaveBeenCalledWith("tau.onboarding", "state", undefined));
+    expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull();
+    const composer = document.querySelector("textarea") as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "/welcome" } });
+    // The first Enter takes the command from the `/` menu, the second sends it.
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(composer.value).toBe("/welcome "));
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await screen.findByRole("heading", { name: "Your agents" });
+  });
+});
+
+describe("Onboarding's choices", () => {
+  it("chooses T3 Code's defaults and words the result the same way", () => {
+    expect(defaultProjects(discovery.projects, NOW)).toEqual(["/work/alpha"]);
+    expect(defaultSessions(discovery.sessions, new Set(["/work/alpha", "/work/old"]), NOW)).toEqual(["/h/c1.jsonl", "/h/x1.jsonl"]);
+    expect(importSummary({ imported: 3, failed: 1 })).toBe("Imported 3 threads. 1 thread could not be imported.");
+    expect(importSummary({ imported: 0, failed: 2 })).toBe("2 threads could not be imported.");
+    expect([age(NOW - 30_000, NOW), age(NOW - 5 * 60_000, NOW), age(NOW - 3 * DAY, NOW), age(NOW - 90 * DAY, NOW), age(0, NOW)]).toEqual(["now", "5m", "3d", "3mo", ""]);
+  });
+
+  it("says what each agent needs before it can be used", () => {
+    const rows = agentRows({ step: 0, added: [], tools, agents: { "claude-code": { path: "/bin/claude", version: "2.1.0" }, codex: { error: "Host extension tau.codex is not installed." } } }, 0);
+    expect(rows.map((row) => `${row.id}:${row.state}:${row.command ?? ""}`)).toEqual([
+      "pi:signIn:",
+      "claude-code:signIn:claude auth login",
+      "codex:off:",
+      "gh:ready:",
+      "glab:install:brew install glab",
+    ]);
+  });
+
+  it("picks up after a project switch reloaded the page under it", async () => {
+    const values = new Map<string, string>();
+    const storage = { get: (key: string) => values.get(key) ?? null, set: (key: string, value: string) => { values.set(key, value); }, remove: (key: string) => { values.delete(key); }, keys: () => [...values.keys()] };
+    const client = { invoke: async (command: string) => command === "project-ref" ? { workspaceId: "ws" } : undefined, onEvent: () => () => undefined };
+    const flow = new WelcomeFlow(client, () => client, () => storage);
+    flow.start();
+    // The first switch never answers: the page went away under it.
+    void flow.addProjects({ openWorkspace: () => new Promise<boolean>(() => undefined) } as never, ["/work/alpha", "/work/beta"]);
+    await waitFor(() => expect(JSON.parse(values.get(FLOW_STORAGE_KEY) ?? "{}")).toMatchObject({ added: ["/work/alpha"], pending: ["/work/beta"] }));
+
+    const reloaded = new WelcomeFlow(client, () => client, () => storage);
+    expect(reloaded.interrupted()).toBe(true);
+    expect(reloaded.get()).toMatchObject({ step: 0, added: ["/work/alpha"], pending: ["/work/beta"] });
+    const openWorkspace = vi.fn(async () => true);
+    reloaded.start();
+    await reloaded.addProjects({ openWorkspace } as never, reloaded.get().pending!);
+    expect(reloaded.get()).toMatchObject({ step: 2, added: ["/work/alpha", "/work/beta"] });
+    await reloaded.finish();
+    expect(values.has(FLOW_STORAGE_KEY)).toBe(false);
+    expect(new WelcomeFlow(client, () => client, () => storage).interrupted()).toBe(false);
+  });
+});
