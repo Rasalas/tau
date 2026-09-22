@@ -84,7 +84,11 @@ describe("client profiles", () => {
   it("binds no default chord twice across the kits Tau ships", () => {
     const { registry } = createKitHarness(workspaceHostStub());
     for (const extension of kits) registry.activate(extension);
-    expect(registry.getKeybindingConflicts().map((conflict) => `${conflict.keys}: ${conflict.commandId} vs ${conflict.boundTo.commandId}`)).toEqual([]);
+    // A binding that says it `replaces` the other command holds the chord on purpose.
+    const intended = (conflict: ReturnType<typeof registry.getKeybindingConflicts>[number]) => registry.getKeybindings()
+      .some((binding) => binding.commandId === conflict.boundTo.commandId && binding.replaces === conflict.commandId);
+    expect(registry.getKeybindingConflicts().filter((conflict) => !intended(conflict))
+      .map((conflict) => `${conflict.keys}: ${conflict.commandId} vs ${conflict.boundTo.commandId}`)).toEqual([]);
     for (const extension of kits) registry.deactivate(extension.id);
   });
 

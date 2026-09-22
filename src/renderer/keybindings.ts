@@ -70,16 +70,10 @@ export function isMacPlatform(platform = typeof navigator === "undefined" ? "" :
   return /mac|iphone|ipad/iu.test(platform);
 }
 
-/** The letter or digit a physical key carries, whatever the layout or Option made of `event.key`. */
-function physicalKey(code: string | undefined): string | undefined {
-  const match = /^(?:Key([A-Z])|Digit(\d))$/u.exec(code ?? "");
-  return match ? (match[1] ?? match[2])!.toLowerCase() : undefined;
-}
-
 export function chordMatchesEvent(chord: KeyChord, event: KeyboardEvent, mac = isMacPlatform()): boolean {
   const key = event.key.toLowerCase();
   // On macOS Option turns J into ∆, so an alt chord also matches by the physical key.
-  if (key !== chord.key && !(chord.alt && event.altKey && physicalKey(event.code) === chord.key)) return false;
+  if (key !== chord.key && !(chord.alt && event.code?.replace(/^Key|^Digit/u, "").toLowerCase() === chord.key)) return false;
   const wantsMeta = chord.meta || (chord.mod && mac);
   const wantsCtrl = chord.ctrl || (chord.mod && !mac);
   return event.metaKey === wantsMeta && event.ctrlKey === wantsCtrl && event.altKey === chord.alt && event.shiftKey === chord.shift;
