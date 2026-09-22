@@ -55,7 +55,7 @@ import {
 } from "./ComposerAutocomplete";
 import { ComposerAttachmentsList } from "./ComposerAttachments";
 import { composerEnter, sendHint } from "./composer-send-keys";
-import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem } from "../extension-system";
+import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
   type ComposerTrigger,
@@ -441,6 +441,21 @@ export function Composer({
     }
     proceed();
   }, []);
+  // A model added to a new thread's model set passes the same gates as a model chosen alone.
+  const modelSet = newThread ? registry?.getModelSelection?.() : undefined;
+  const gatedModelSet = useMemo<ModelSelectionContribution | undefined>(() => modelSet && {
+    id: modelSet.id,
+    selected: () => modelSet.selected(),
+    subscribe: (listener) => modelSet.subscribe(listener),
+    reset: () => modelSet.reset(),
+    toggle: (model, current) => {
+      if (modelSet.selected().includes(modelKey(model))) { modelSet.toggle(model, current); return; }
+      passGates(
+        { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
+        () => modelSet.toggle(model, current),
+      );
+    },
+  }, [modelSet, passGates, snapshot]);
   const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
   const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
   // A model of the visible catalog brings a draft bound elsewhere back to that catalog's runtime.
@@ -1154,7 +1169,7 @@ export function Composer({
             onSelectRuntime={runtimeChoice?.onSelect}
             onNewThreadOnRuntime={onNewThreadOnRuntime}
             badges={registry?.getModelBadges?.()}
-            multiSelect={newThread ? registry?.getModelSelection?.() : undefined}
+            multiSelect={gatedModelSet}
           />
         </Suspense>
       ) : null}

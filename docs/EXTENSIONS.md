@@ -385,8 +385,9 @@ switching it off removes every trace of its warning.
 
 `registerComposerGate({ id, order?, check, Component })` asks the user before
 the composer acts. `check(context)` is called when a model is picked in the
-model picker (`action: "model"`) and when a prompt is about to go to the
-thread's model (`action: "prompt"`); `context` carries the `model`, the
+model picker or added to a new thread's model set with Shift-click
+(`action: "model"`), and when a prompt is about to go to the thread's model,
+the ⌘↵ alternate send included (`action: "prompt"`); `context` carries the `model`, the
 `runtime` the thread runs on (or a new thread will start on) and the
 `snapshot`. `model` is absent when a new thread will start on another
 runtime's default. Answer `true` and core draws `Component` over a backdrop,

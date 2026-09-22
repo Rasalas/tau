@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiModel } from "../../shared/contracts";
 import { Composer } from "./Composer";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
-import { ExtensionRegistry, type ComposerGateContext, type ComposerGateContribution, type ComposerGateProps, type ModelBadgeContribution } from "../extension-system";
+import { ExtensionRegistry, type ComposerGateContext, type ComposerGateContribution, type ComposerGateProps, type ModelBadgeContribution, type ModelSelectionContribution } from "../extension-system";
 import { WorkbenchShellContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
 
@@ -30,7 +30,7 @@ function Ask({ context, proceed, cancel }: ComposerGateProps) {
   );
 }
 
-function renderComposer(model: UiModel, gates: ComposerGateContribution[], badges: ModelBadgeContribution[] = [], onRunShellAction?: (command: string) => Promise<unknown>) {
+function renderComposer(model: UiModel, gates: ComposerGateContribution[], badges: ModelBadgeContribution[] = [], onRunShellAction?: (command: string) => Promise<unknown>, modelSet?: ModelSelectionContribution) {
   const registry = new ExtensionRegistry();
   registry.activate({
     id: "test.policy",
@@ -38,6 +38,7 @@ function renderComposer(model: UiModel, gates: ComposerGateContribution[], badge
     activate(context) {
       for (const gate of gates) context.registerComposerGate(gate);
       for (const badge of badges) context.registerModelBadge(badge);
+      if (modelSet) context.registerModelSelection(modelSet);
     },
   });
   const onSubmit = vi.fn(async () => ({ accepted: true as const }));
@@ -60,6 +61,7 @@ function renderComposer(model: UiModel, gates: ComposerGateContribution[], badge
         onSetThinking={() => {}}
         onCompactContext={() => {}}
         onRunShellAction={onRunShellAction}
+        newThread={modelSet !== undefined}
       />
     </WorkbenchShellContext.Provider>
   </TestProviders>);
@@ -118,6 +120,45 @@ describe("composer gates", () => {
     expect(screen.queryByRole("dialog", { name: "Ask prompt" })).toBeNull();
     expect(shell).toHaveBeenCalledWith("ls", true);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("hold the alternate send, the one that starts a thread in the background", async () => {
+    const { onSubmit } = renderComposer(guarded, [asksFor("acme")]);
+    const field = screen.getByPlaceholderText(/Direct the agent/u);
+    fireEvent.change(field, { target: { value: "in the background" } });
+    fireEvent.keyDown(field, { key: "Enter", metaKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Yes"));
+    await Promise.resolve();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect((onSubmit.mock.calls[0] as unknown[])[2]).toBe("alternate");
+  });
+
+  it("hold a model added to a new thread's model set, and let one taken out go", async () => {
+    let keys: string[] = [];
+    const listeners = new Set<() => void>();
+    const modelSet: ModelSelectionContribution = {
+      id: "test.set",
+      selected: () => keys,
+      subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      toggle: (model) => {
+        const key = `${model.provider}/${model.id}`;
+        keys = keys.includes(key) ? keys.filter((entry) => entry !== key) : [...keys, key];
+        for (const listener of listeners) listener();
+      },
+      reset: () => { keys = []; },
+    };
+    renderComposer(plain, [asksFor("acme")], [], undefined, modelSet);
+    fireEvent.click(screen.getByLabelText(/^Select model:/u));
+    fireEvent.click(await screen.findByRole("button", { name: /^acme/u }));
+    const row = screen.getByText("Acme Big").closest("button")!;
+    fireEvent.click(row, { shiftKey: true });
+    expect(keys).toEqual([]);
+    fireEvent.click(screen.getByText("Yes"));
+    expect(keys).toEqual(["acme/big"]);
+    fireEvent.click(screen.getByText("Acme Big").closest("button")!, { shiftKey: true });
+    expect(keys).toEqual([]);
+    expect(screen.queryByRole("dialog", { name: "Ask model" })).toBeNull();
   });
 
   it("run in order, each one asking in turn", async () => {
