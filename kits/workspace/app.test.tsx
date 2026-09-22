@@ -15,6 +15,7 @@ import {
   writeNewThreadDraft,
 } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
+import { WORKSPACE_STORE_SERVICE, type ThreadRailOrganizer, type WorkspaceStoreApi } from "./protocol.js";
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
@@ -137,6 +138,60 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.queryByText("Settled thread 25")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "+ show 25 more" }));
     expect(screen.getByText("Settled thread 25")).toBeTruthy();
+  });
+
+  it("draws the sections, the row menu and the settle button another kit's organizer decides", async () => {
+    const sessions = ["alpha", "beta", "gamma"].map((id, index) => ({
+      id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 10 - index, projectPath: "/project", projectName: "project", messageCount: 1,
+    }));
+    const runMenu = vi.fn();
+    const toggleSettled = vi.fn();
+    const organizer: ThreadRailOrganizer = {
+      subscribe: () => () => undefined,
+      getVersion: () => 1,
+      sections: (threads) => [
+        { id: "pinned", label: "PINNED", threads: threads.filter((thread) => thread.id === "gamma") },
+        { id: "active", threads: threads.filter((thread) => thread.id === "alpha") },
+        { id: "snoozed", label: "SNOOZED", shelf: true, collapsed: true, threads: threads.filter((thread) => thread.id === "beta") },
+      ],
+      menu: (session) => [{ items: [{ id: "pin", label: `Pin ${session.title}` }] }],
+      runMenu,
+      toggleSettled,
+      dropLabel: () => "Move",
+      drop: () => undefined,
+      Layer: () => <p>organizer layer</p>,
+    };
+    const organizing: DesktopExtension = {
+      id: "test.organizer",
+      name: "Organizer",
+      activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => store.registerThreadRailOrganizer(organizer)),
+    };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions },
+        detail: { sessionId: "alpha", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "alpha", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub(),
+    });
+    renderApp(client, { extensions: [workspaceExtension, organizing] });
+
+    expect(await screen.findByText("PINNED · 1")).toBeTruthy();
+    expect(screen.getByText("organizer layer")).toBeTruthy();
+    const snoozed = screen.getByRole("button", { name: /SNOOZED · 1/u });
+    expect(snoozed.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Thread beta")).toBeNull();
+    fireEvent.click(snoozed);
+    expect(screen.getByText("Thread beta")).toBeTruthy();
+
+    fireEvent.contextMenu(screen.getByText("Thread gamma"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Pin Thread gamma" }));
+    expect(runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }), "pin", expect.anything());
+
+    fireEvent.click(screen.getByRole("button", { name: "Settle Thread gamma" }));
+    expect(toggleSettled).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }));
   });
 
   it("switches to an existing thread while a new-thread message is still being delivered", async () => {

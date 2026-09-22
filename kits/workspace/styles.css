@@ -148,6 +148,24 @@
 .settled-shelf-toggle:hover { color: var(--muted); }
 .sidebar-empty { margin: 18px 10px; color: var(--faint); font-size: 12px; }
 
+/* Sections another kit organises the rail into, and dragging a thread between them. */
+.rail-section { display: flex; flex-direction: column; gap: 2px; }
+.rail-section + .rail-section .thread-group-label, .rail-section .thread-group-label { padding-top: 6px; }
+.session-list.rail-dragging { user-select: none; cursor: grabbing; }
+.rail-row { border-radius: var(--radius-md); }
+.rail-row.dragging { opacity: .45; }
+.rail-row.drop-before { box-shadow: inset 0 2px 0 var(--acid); }
+.rail-row.drop-after { box-shadow: inset 0 -2px 0 var(--acid); }
+.thread-group-label.drop-target, .settled-shelf-toggle.drop-target { color: var(--acid-text); }
+.thread-group-label.drop-target > i, .settled-shelf-toggle.drop-target > i { background: var(--acid-line); }
+.rail-drag-label {
+  position: fixed; z-index: 70; pointer-events: none;
+  padding: 3px 8px; border-radius: var(--radius-sm);
+  background: var(--acid); color: var(--acid-ink);
+  font: 500 11px var(--sans); box-shadow: var(--elevation-1);
+}
+.rail-menu-anchor { position: fixed; z-index: 61; width: 0; height: 0; }
+
 .sidebar-footer {
   flex: none; border-top: 1px solid var(--line);
   padding: 8px 12px; display: flex; align-items: center; gap: 4px;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "tau";
-import { findProjectForSession, navigationRowKey, visibleThreads } from "./navigation.js";
+import { defaultRailSections, findProjectForSession, navigationRowKey, visibleThreads } from "./navigation.js";
+import { railDropAt } from "./rail-drag.js";
 
 function session(id: string): UiSession {
   return {
@@ -65,5 +66,30 @@ describe("findProjectForSession", () => {
 
   it("returns undefined when no project matches", () => {
     expect(findProjectForSession(projects, { projectPath: "/other/unknown", projectName: "unknown" })).toBeUndefined();
+  });
+});
+
+describe("rail sections", () => {
+  it("puts pins first and settled threads on their shelf unless the shelf is off", () => {
+    const threads = [{ ...session("new"), modifiedAt: 3 }, { ...session("pinned"), modifiedAt: 1 }, { ...session("done"), modifiedAt: 2 }];
+    const [active, settled] = defaultRailSections(threads, ["pinned"], ["done"], true);
+    expect(active.threads.map((entry) => entry.id)).toEqual(["pinned", "new"]);
+    expect(settled).toMatchObject({ label: "SETTLED", shelf: true, settled: true });
+    expect(settled.threads.map((entry) => entry.id)).toEqual(["done"]);
+    expect(defaultRailSections(threads, [], ["done"], false)[0].threads.map((entry) => entry.id)).toEqual(["new", "done", "pinned"]);
+  });
+
+  it("works out where a dragged thread lands from the row or heading under the pointer", () => {
+    const sections = [
+      { id: "pinned", label: "PINNED", threads: [session("p1"), session("p2")] },
+      { id: "active", threads: [session("a1"), session("a2"), session("a3")] },
+    ];
+    expect(railDropAt(sections, { sectionId: "pinned" }, "a2")).toEqual({ sectionId: "pinned", beforeThreadId: "p1" });
+    expect(railDropAt(sections, { sectionId: "pinned", threadId: "p2", after: true }, "a2")).toEqual({ sectionId: "pinned" });
+    expect(railDropAt(sections, { sectionId: "active", threadId: "a1", after: false }, "a3")).toEqual({ sectionId: "active", beforeThreadId: "a1" });
+    expect(railDropAt(sections, { sectionId: "active", threadId: "a1", after: true }, "a3")).toEqual({ sectionId: "active", beforeThreadId: "a2" });
+    // Over its own row the thread stays where it is.
+    expect(railDropAt(sections, { sectionId: "active", threadId: "a2", after: true }, "a2")).toEqual({ sectionId: "active", beforeThreadId: "a3" });
+    expect(railDropAt(sections, { sectionId: "active", threadId: "a3" }, "a3")).toEqual({ sectionId: "active" });
   });
 });
