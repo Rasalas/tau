@@ -75,6 +75,11 @@
 /* The pull-request view: header fold, tab bar, then one scrolling body per tab. */
 .pr-view { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--stage); color: var(--ink-2); font: 12px/1.5 var(--sans); }
 .pr-view .spacer { flex: 1; }
+/* The stage has no icon-button rule of its own; the view draws the dock's. */
+.pr-view .icon-button { width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--faint); cursor: pointer; }
+.pr-view .icon-button:hover:not(:disabled) { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.pr-view .icon-button.compact { width: 24px; height: 24px; }
+.pr-view .icon-button.active { color: var(--ink-2); }
 .pr-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .pr-head { flex: none; border-bottom: 1px solid var(--line); }
 .pr-head-row { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px 0 16px; }
@@ -234,7 +239,7 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-viewed.dismissed { color: var(--warn); }
 .pr-diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pr-diff > .diff-empty { padding: 16px; }
-.pr-file-list { flex: none; width: 260px; overflow: auto; border-left: 1px solid var(--line); background: var(--chrome); padding: 6px 0; }
+.pr-file-list { flex: none; width: 230px; overflow: auto; border-left: 1px solid var(--line); background: var(--chrome); padding: 6px 0; }
 .pr-file-row { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; padding: 5px 10px; background: transparent; color: var(--ink-2); text-align: left; cursor: pointer; }
 .pr-file-row:hover { background: var(--hover); }
 .pr-file-row.active { background: var(--thread-active); color: var(--ink); }
@@ -243,4 +248,5 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-file-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 9.5px; }
 .pr-file-threads { display: inline-flex; align-items: center; gap: 2px; color: var(--acid-text); font: 10px var(--mono); }
 .pr-file-viewed { color: var(--ready); font-size: 11px; }
-@container (max-width: 640px) { .pr-file-list { display: none; } }
+/* Too narrow for both: the diff keeps the room, the header's arrows step through the files. */
+@container (max-width: 520px) { .pr-file-list, .pr-tree-toggle { display: none; } }

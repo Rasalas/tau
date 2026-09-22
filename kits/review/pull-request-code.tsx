@@ -167,7 +167,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
           <button className={layout === "unified" ? "active" : ""} onClick={() => setLayout("unified")}>Unified</button>
           <button className={layout === "split" ? "active" : ""} onClick={() => setLayout("split")}>Split</button>
         </div>
-        <button className={`icon-button ${treeOpen ? "active" : ""}`} aria-label={treeOpen ? "Hide file tree" : "Show file tree"} title={treeOpen ? "Hide file tree" : "Show file tree"} aria-expanded={treeOpen} onClick={() => setTree(!treeOpen)}>
+        <button className={`icon-button pr-tree-toggle ${treeOpen ? "active" : ""}`} aria-label={treeOpen ? "Hide file tree" : "Show file tree"} title={treeOpen ? "Hide file tree" : "Show file tree"} aria-expanded={treeOpen} onClick={() => setTree(!treeOpen)}>
           {treeOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
         </button>
       </header>
