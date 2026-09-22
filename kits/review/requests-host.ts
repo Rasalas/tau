@@ -1,5 +1,6 @@
 import { HostCommandError, type HostExtensionContext, type UiReviewRequest } from "tau/host-extension";
 import {
+  THREAD_RAIL_EXTENSION_ID,
   WORKSPACE_HOST_EXTENSION_ID,
   type MergeMethod,
   type RequestService,
@@ -160,7 +161,7 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
     // A rail row asks about any thread's checkout and only wants the request.
     if (named) return { request: await workspace<UiReviewRequest | undefined>("review-request", { workspace: named }) };
     return status(record(input).fresh === true);
-  });
+  }, { callers: [THREAD_RAIL_EXTENSION_ID] }); // a merged or closed request settles a Thread Rail thread
 
   context.registerCommand("pr-draft", async (input): Promise<ReviewRequestDraft> => {
     const fields = record(input);
