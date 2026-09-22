@@ -106,7 +106,7 @@ function createSettingsPage(store: RailStore, update: (settings: Partial<Record<
       </div>
     );
     return (
-      <div className="settings-page">
+      <div className="settings-page thread-rail-settings">
         <h3>Thread rail</h3>
         <p className="lede">
           Settled threads leave the active list without being deleted. These rules settle a thread on their own, on the

@@ -32,3 +32,6 @@
 .thread-rail-snooze footer > button.primary:disabled { opacity: .45; cursor: default; }
 
 .thread-rail-fanout { color: var(--cyan); }
+
+.thread-rail-settings .segmented { max-width: none; }
+.thread-rail-settings .segmented > button { white-space: nowrap; padding: 8px 10px; }
