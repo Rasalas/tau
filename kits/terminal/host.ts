@@ -8,9 +8,11 @@ import {
   TERMINAL_LIST_EVENT,
   type TerminalDataEvent,
   type TerminalExitedEvent,
+  type TerminalFontDefaults,
   type UiTerminalSession,
 } from "./protocol.js";
 import { defaultShell, shellArgs, shellAvailable } from "./shell.js";
+import { ghosttyFontDefaults } from "./ghostty-config.js";
 
 /**
  * The pty the host half drives, as a shape. `node-pty` arrives through the
@@ -311,7 +313,11 @@ export async function loadNodePty(loadDependency: (name: string) => Promise<unkn
  * panel calls, and the pushes the panel renders from. The shell dies with the
  * workspace or the kit, never with the window.
  */
-export function createTerminalHostExtension(spawn?: PtyFactory): HostExtension {
+export function createTerminalHostExtension(
+  spawn?: PtyFactory,
+  kit: { fontDefaults?: () => TerminalFontDefaults } = {},
+): HostExtension {
+  const fontDefaults = kit.fontDefaults ?? (() => ghosttyFontDefaults());
   return {
     id: TERMINAL_HOST_EXTENSION_ID,
     name: "Terminal",
@@ -377,6 +383,7 @@ export function createTerminalHostExtension(spawn?: PtyFactory): HostExtension {
       });
       context.registerCommand("list", () => sessions.list());
       context.registerCommand("replay", (raw) => sessions.replay(String(fields(raw).id)));
+      context.registerCommand("font", () => fontDefaults());
 
       // Terminals die with the workspace they belong to, and with the thread
       // that opened them — both are the host's own word, not a guess from the

@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "tau";
 import type { ITheme, Terminal } from "@xterm/xterm";
-import { terminalKit, onTerminalEvent } from "./store.js";
+import { terminalFont, terminalKit, onTerminalEvent, useTerminalFont } from "./store.js";
 import { unseenOutput } from "./output.js";
+import { terminalFontStack, type ResolvedTerminalFont } from "./font.js";
 import { TERMINAL_DATA_EVENT, type TerminalDataEvent } from "./protocol.js";
+
+/** Lines a view keeps; the host retains as many for a view that reattaches. */
+const SCROLLBACK_LINES = 5_000;
 
 /** xterm draws with its own palette; the tokens the workbench theme sets are read once per mount. */
 function themeFrom(element: HTMLElement): ITheme {
@@ -17,6 +21,29 @@ function themeFrom(element: HTMLElement): ITheme {
   };
 }
 
+const FONT_SAMPLE = "iMW0@# .─│";
+
+/** Waits for a web font the stack names, so xterm measures its cell in the face it will draw. */
+async function loadFont(font: ResolvedTerminalFont): Promise<void> {
+  const fonts = typeof document === "undefined" ? undefined : document.fonts;
+  if (!fonts?.load) return;
+  const variants = ["normal 400", "normal 700", "italic 400"].map((variant) => fonts.load(`${variant} ${font.size}px ${font.family}`, FONT_SAMPLE));
+  await Promise.race([Promise.all(variants).catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 1500))]);
+}
+
+/**
+ * A face whose "i" and "W" differ in width draws text narrower than its cells;
+ * the platform faces take over rather than leave a ragged grid.
+ */
+function monospaceStack(font: ResolvedTerminalFont): string {
+  const context = typeof document === "undefined" ? undefined : document.createElement("canvas").getContext("2d");
+  if (!context) return font.family;
+  context.font = `${font.size}px ${font.family}`;
+  const narrow = context.measureText("i").width;
+  const wide = context.measureText("W").width;
+  return Math.abs(narrow - wide) < 0.5 ? font.family : terminalFontStack();
+}
+
 /**
  * One xterm over one host session. The session's output arrives as pushes
  * numbered by byte offset; the replay on mount and the live pushes are
@@ -27,7 +54,18 @@ export function TerminalView({ id, cols, rows, exitCode }: { id: string; cols: n
   const terminal = useRef<Terminal | null>(null);
   const running = useRef(exitCode === undefined);
   const initialSize = useRef({ cols, rows });
+  const refitRef = useRef<() => void>(() => undefined);
   const [error, setError] = useState("");
+  const font = useTerminalFont().resolved;
+
+  useEffect(() => {
+    const instance = terminal.current;
+    if (!instance) return;
+    instance.options.fontFamily = monospaceStack(font);
+    instance.options.fontSize = font.size;
+    // A new cell size changes how many columns fit, which no resize reports.
+    refitRef.current();
+  }, [font]);
 
   useEffect(() => {
     running.current = exitCode === undefined;
@@ -40,14 +78,18 @@ export function TerminalView({ id, cols, rows, exitCode }: { id: string; cols: n
   useEffect(() => {
     let disposed = false;
     let cleanup = () => {};
-    void Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]).then(async ([xterm, fit]) => {
+    const initialFont = terminalFont.getSnapshot().resolved;
+    void Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit"), loadFont(initialFont)]).then(async ([xterm, fit]) => {
       if (disposed || !surface.current) return;
+      const current = terminalFont.getSnapshot().resolved;
       const instance = new xterm.Terminal({
         ...initialSize.current,
         disableStdin: !running.current,
         cursorBlink: running.current,
-        fontSize: 12,
-        fontFamily: "var(--mono, monospace)",
+        fontSize: current.size,
+        fontFamily: monospaceStack(current),
+        lineHeight: 1,
+        scrollback: SCROLLBACK_LINES,
         theme: themeFrom(surface.current),
         screenReaderMode: true,
       });
@@ -79,9 +121,10 @@ export function TerminalView({ id, cols, rows, exitCode }: { id: string; cols: n
         addon.fit();
         if (running.current) void terminalKit.resize({ id, cols: instance.cols, rows: instance.rows }).catch(report);
       };
+      refitRef.current = refit;
       const observer = new ResizeObserver(refit);
       observer.observe(surface.current);
-      cleanup = () => { stop(); input.dispose(); observer.disconnect(); instance.dispose(); terminal.current = null; };
+      cleanup = () => { stop(); input.dispose(); observer.disconnect(); instance.dispose(); terminal.current = null; refitRef.current = () => undefined; };
       const replay = await terminalKit.replay({ id });
       if (disposed) return;
       if (replay) {

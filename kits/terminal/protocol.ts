@@ -50,6 +50,19 @@ export interface TerminalHostCommands {
   "list": { input: undefined; output: UiTerminalSession[] };
   /** One session's scrollback, so a reloaded renderer can redraw where it was. */
   "replay": { input: { id: string }; output: { data: string; offset: number } | undefined };
+  /** The font the user's Ghostty config names on the host, read and never written. */
+  "font": { input: undefined; output: TerminalFontDefaults };
+}
+
+/** What the host found in the user's Ghostty config; empty when there is none. */
+export interface TerminalFontDefaults {
+  /** `font-family` entries in order: the first is the face, the rest its fallbacks. */
+  families: string[];
+  /** `font-size` in points, which the window draws as CSS pixels. */
+  size?: number;
+  /** The files that were read, for the settings page to name. */
+  files: string[];
+  problems: string[];
 }
 
 export type TerminalHostClient = {
@@ -69,6 +82,7 @@ export function createTerminalHostClient(invoke: (command: string, input?: unkno
     kill: call("kill"),
     list: call("list"),
     replay: call("replay"),
+    font: call("font"),
   } as TerminalHostClient;
 }
 

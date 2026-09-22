@@ -111,6 +111,17 @@ describe("terminal host commands", () => {
     }
   });
 
+  it("answers with the Ghostty font the host reads", async () => {
+    const defaults = { families: ["JetBrains Mono"], size: 16, files: ["/config"], problems: [] };
+    const registry = await activateHostKit(createTerminalHostExtension(fakePtys().spawn, { fontDefaults: () => defaults }), services());
+    const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+    try {
+      expect(await client.font()).toEqual(defaults);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
   it("starts a project terminal in the workspace root and refuses an unknown workspace", async () => {
     const { spawn } = fakePtys();
     const registry = await activateHostKit(createTerminalHostExtension(spawn), services());

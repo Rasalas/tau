@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
-import { HostUnavailableError, type HostExtensionClient } from "tau";
-import { createTerminalHostClient, TERMINAL_LIST_EVENT, type UiTerminalSession } from "./protocol.js";
+import { HostUnavailableError, type HostExtensionClient, type PreferencesStore } from "tau";
+import { createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, type TerminalFontDefaults, type UiTerminalSession } from "./protocol.js";
+import { FONT_FAMILY_SETTING, FONT_SIZE_SETTING, resolveTerminalFont, type ResolvedTerminalFont, type TerminalFontSettings } from "./font.js";
 
 let connection: HostExtensionClient | undefined;
 
@@ -90,4 +91,68 @@ export function connectTerminalHost(host: HostExtensionClient): () => void {
 
 export function useTerminalKit(): TerminalKitState {
   return useSyncExternalStore(terminalStore.subscribe, terminalStore.getSnapshot, terminalStore.getSnapshot);
+}
+
+export interface TerminalFontState {
+  settings: TerminalFontSettings;
+  /** What the host read from the user's Ghostty config; absent until it answered. */
+  ghostty?: TerminalFontDefaults;
+  resolved: ResolvedTerminalFont;
+}
+
+/** The font every terminal view draws with: the kit's settings over the user's Ghostty config. */
+export class TerminalFontStore {
+  private state: TerminalFontState = { settings: {}, resolved: resolveTerminalFont({}) };
+  private readonly listeners = new Set<() => void>();
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+
+  getSnapshot = (): TerminalFontState => this.state;
+
+  setSettings(settings: TerminalFontSettings): void {
+    if (settings.family === this.state.settings.family && settings.size === this.state.settings.size) return;
+    this.publish({ ...this.state, settings });
+  }
+
+  setGhostty(ghostty: TerminalFontDefaults | undefined): void {
+    const { ghostty: _previous, ...rest } = this.state;
+    this.publish(ghostty ? { ...rest, ghostty } : rest);
+  }
+
+  private publish(next: Omit<TerminalFontState, "resolved">): void {
+    const resolved = resolveTerminalFont(next.settings, next.ghostty);
+    const same = resolved.family === this.state.resolved.family && resolved.size === this.state.resolved.size
+      && resolved.familySource === this.state.resolved.familySource && resolved.sizeSource === this.state.resolved.sizeSource;
+    this.state = { ...next, resolved: same ? this.state.resolved : resolved };
+    this.listeners.forEach((listener) => listener());
+  }
+}
+
+export const terminalFont = new TerminalFontStore();
+
+function fontSettingsOf(preferences: PreferencesStore): TerminalFontSettings {
+  const family = preferences.value(TERMINAL_HOST_EXTENSION_ID, FONT_FAMILY_SETTING);
+  const size = preferences.value(TERMINAL_HOST_EXTENSION_ID, FONT_SIZE_SETTING);
+  return { ...(family ? { family } : {}), ...(size ? { size } : {}) };
+}
+
+/** Follows the kit's font settings and asks the host once for the Ghostty config. */
+export function connectTerminalFont(preferences: PreferencesStore): () => void {
+  terminalFont.setSettings(fontSettingsOf(preferences));
+  const stop = preferences.subscribe(() => terminalFont.setSettings(fontSettingsOf(preferences)));
+  void refreshGhosttyFont().catch(() => undefined);
+  return stop;
+}
+
+/** Reads the Ghostty config again; the settings page asks when it opens. */
+export async function refreshGhosttyFont(): Promise<void> {
+  const defaults = await terminalKit.font();
+  if (defaults && Array.isArray(defaults.families)) terminalFont.setGhostty(defaults);
+}
+
+export function useTerminalFont(): TerminalFontState {
+  return useSyncExternalStore(terminalFont.subscribe, terminalFont.getSnapshot, terminalFont.getSnapshot);
 }
