@@ -205,10 +205,11 @@ export function createWorkspaceHostExtension(): HostExtension {
 
       // Project sources: browse, pick, clone. Opening the result is core's job.
       context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)));
+      // The folder dialog waits on the user, well past the ordinary command timeout.
       context.registerCommand("pick-folder", async () => {
         const path = await services.pickDirectory();
         return path ? services.workspaceRef(path) : undefined;
-      });
+      }, { long: true });
       context.registerCommand("clone", async (input) => {
         const url = assertAllowedCloneSource(requiredString(input, "repositoryUrl"));
         // A client without a folder picker (headless or remote host) names the parent itself.

@@ -19,7 +19,7 @@ async function workspace(): Promise<string> {
   return path;
 }
 
-async function client(cwd: string) {
+async function activated(cwd: string) {
   const services: Partial<HostExtensionServices> = {
     cwd: () => cwd,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
@@ -56,11 +56,20 @@ async function client(cwd: string) {
     presentUi: () => () => undefined,
     callClient: async () => { throw new Error("no window half in this test"); },
   };
-  const registry = await activateHostKit(createWorkspaceHostExtension(), services);
+  return activateHostKit(createWorkspaceHostExtension(), services);
+}
+
+async function client(cwd: string) {
+  const registry = await activated(cwd);
   return createWorkspaceHostClient((command, input) => registry.invoke("tau.workspace", command, input));
 }
 
 describe("Workspace Kit host extension", () => {
+  it("waits on the folder dialog as long as the user does", async () => {
+    const registry = await activated(await workspace());
+    expect(registry.longCommands()).toContain("tau.workspace/pick-folder");
+  });
+
   it("shows the .scratch directory and lets the viewer load its contents", async () => {
     const cwd = await workspace();
     await mkdir(join(cwd, ".scratch", "feature", "issues"), { recursive: true });
