@@ -140,7 +140,9 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       });
       // Asks the CLI itself (version, login, models); a process is spawned, so this is on demand.
       context.registerCommand("probe", async (input) => {
-        const probe = await adapter.probe({ fresh: Boolean(input && typeof input === "object" && (input as { fresh?: unknown }).fresh) });
+        // A CLI that will not start or is not signed in is a missing prerequisite, not a broken kit.
+        const probe = await adapter.probe({ fresh: Boolean(input && typeof input === "object" && (input as { fresh?: unknown }).fresh) })
+          .catch((error: unknown) => { throw new HostCommandError(error instanceof Error ? error.message : String(error)); });
         const command = claudeCommand();
         return {
           // The probe learns the version only from a turn's init frame; the binary always knows it.
