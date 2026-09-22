@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Type } from "typebox";
 import type { AgentToolResult, ExtensionContext, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+  HostCommandError,
   PARENT_LINK_ENTRY,
   readPersistedJson,
   writePersistedJson,
@@ -17,12 +18,25 @@ import {
   AGENTS_HOST_EXTENSION_ID,
   AGENTS_STATE_EVENT,
   AGENT_CHILD_ENTRY,
+  AGENT_PERSONA_FIELD,
   MAX_AGENT_DEPTH,
   isBusyStatus,
   type AgentThreadLink,
   type AgentWorkspace,
   type AgentWorkspaceMode,
+  type AgentDefinitionsState,
 } from "./protocol.js";
+import { AgentDefinitionReader, findAgentDefinition, summarize, type AgentDefinition } from "./definitions.js";
+import {
+  definitionsSection,
+  firstMessageWithPersona,
+  personaFromEntries,
+  personaOf,
+  personaSection,
+  personaTools,
+  sameTools,
+  type AgentPersona,
+} from "./persona.js";
 // Worktrees are Workspace Kit's, in every kit that needs one: this is the one
 // leaf module it lends, and nothing else of that kit is reachable from here.
 import {
@@ -55,11 +69,16 @@ const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 
 /** IPC input is untrusted, here as everywhere else. */
-const requireThreadId = (input: unknown): string => {
-  const value = record(input).threadId;
-  if (typeof value !== "string" || !value.trim()) throw new Error('This command needs "threadId".');
+const requireText = (input: unknown, field: string): string => {
+  const value = record(input)[field];
+  if (typeof value !== "string" || !value.trim()) throw new HostCommandError(`This command needs "${field}".`);
   return value.trim();
 };
+const requireThreadId = (input: unknown): string => requireText(input, "threadId");
+
+/** Access Kit's command for narrowing one thread; it names this kit as a caller. */
+const ACCESS_KIT_ID = "tau.access";
+const ACCESS_THREAD_LEVEL_COMMAND = "thread-level";
 
 /**
  * How many children of one thread may run at a time is the user's setting, so
@@ -90,7 +109,7 @@ const LINKS_VERSION = 2;
 
 /** A started agent, as the index file keeps it; a queued one has no thread to key on. */
 export type StoredAgentLink =
-  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy" | "startedAt" | "endedAt">
+  Pick<AgentThreadLink, "parentThreadId" | "depth" | "spawnedAt" | "projectPath" | "title" | "spawnedBy" | "startedAt" | "endedAt" | "agent">
   & { threadId: string };
 
 /** A v1 file simply has no times; every other field reads the same. */
@@ -111,6 +130,7 @@ export function decodeStoredLinks(value: unknown): StoredAgentLink[] {
       spawnedBy: typeof item.spawnedBy === "string" ? item.spawnedBy : "tau_spawn_thread",
       ...(typeof item.startedAt === "number" ? { startedAt: item.startedAt } : {}),
       ...(typeof item.endedAt === "number" ? { endedAt: item.endedAt } : {}),
+      ...(typeof item.agent === "string" ? { agent: item.agent } : {}),
     }];
   });
 }
@@ -169,7 +189,7 @@ export function linksFromEntries(sessionId: string, entries: readonly unknown[])
     const spawnedAt = typeof data.spawnedAt === "number" ? data.spawnedAt : 0;
     const projectPath = typeof data.projectPath === "string" ? data.projectPath : "";
     const title = typeof data.title === "string" ? data.title : "Sub-agent";
-    const common = { spawnedBy, spawnedAt, projectPath, depth, title };
+    const common = { spawnedBy, spawnedAt, projectPath, depth, title, ...(typeof data.agent === "string" ? { agent: data.agent } : {}) };
     if (item.customType === PARENT_LINK_ENTRY && typeof data.parentThreadId === "string") {
       links.push({ ...common, id: sessionId, threadId: sessionId, parentThreadId: data.parentThreadId });
     } else if (item.customType === AGENT_CHILD_ENTRY && typeof data.threadId === "string") {
@@ -200,10 +220,11 @@ export function createAgentsHostExtension(options: {
   /** The Git runner the child worktrees use; tests replace it. */
   runGit?: AgentGitRunner;
 } = {}): HostExtension {
+  const definitionReader = new AgentDefinitionReader();
   return {
     id: AGENTS_HOST_EXTENSION_ID,
     name: "Agents",
-    permissions: ["sessions", "runtime:extend", "process"],
+    permissions: ["workspace:read", "sessions", "runtime:extend", "process"],
     async activate(context: HostExtensionContext) {
       const { services } = context;
       const linksPath = options.linksPath ?? agentsLinksPath(services.stateDir);
@@ -236,6 +257,7 @@ export function createAgentsHostExtension(options: {
             spawnedBy: link.spawnedBy,
             ...(link.startedAt ? { startedAt: link.startedAt } : {}),
             ...(link.endedAt ? { endedAt: link.endedAt } : {}),
+            ...(link.agent ? { agent: link.agent } : {}),
           }] : []);
           void writeAgentLinks(links, linksPath)
             .catch((error: unknown) => services.log("agents.links-write-failed", error instanceof Error ? error.message : String(error)));
@@ -314,6 +336,7 @@ export function createAgentsHostExtension(options: {
         projectPath: link.projectPath,
         depth: link.depth,
         title: link.title,
+        ...(link.agent ? { agent: link.agent } : {}),
       });
 
       const remember = (link: AgentThreadLink) => {
@@ -325,6 +348,8 @@ export function createAgentsHostExtension(options: {
       };
 
       const prompts = new Map<string, string>();
+      /** The definition each queued agent was spawned with, until its thread is built. */
+      const definitions = new Map<string, AgentDefinition>();
       /** What each queued agent asked for, until its thread is built. */
       const wanted = new Map<string, AgentWorkspaceMode>();
       const runGit: AgentGitRunner = (cwd, args, gitOptions) => {
@@ -389,12 +414,21 @@ export function createAgentsHostExtension(options: {
             workspace = await openWorktree(agent);
             changed(agent.id, book.noteWorkspace(agent.id, workspace));
           }
+          const definition = definitions.get(agent.id);
+          const prompt = prompts.get(agent.id) ?? agent.title;
+          // Tau's own Pi extension puts a persona into the system prompt; a
+          // runtime it cannot extend reads it at the head of the first message.
+          const piRuntime = (definition?.runtime ?? "pi") === "pi";
           const started = await services.sessions.start({
             cwd: workspace?.path ?? agent.projectPath,
-            prompt: prompts.get(agent.id) ?? agent.title,
+            prompt: definition && !piRuntime ? firstMessageWithPersona(definition, prompt) : prompt,
             title: agent.title,
             ...(agent.model ? { model: parseModel(agent.model) } : {}),
-            parent: { threadId: agent.parentThreadId, details: linkData(agent) },
+            ...(definition?.runtime ? { backend: definition.runtime } : {}),
+            parent: {
+              threadId: agent.parentThreadId,
+              details: { ...linkData(agent), ...(definition && piRuntime ? { [AGENT_PERSONA_FIELD]: personaOf(definition) } : {}) },
+            },
           });
           prompts.delete(agent.id);
           changed(agent.id, book.noteStarted(agent.id, started.sessionId, Date.now()));
@@ -417,6 +451,7 @@ export function createAgentsHostExtension(options: {
           services.log("agents.start-failed", message);
         } finally {
           wanted.delete(agent.id);
+          definitions.delete(agent.id);
         }
       };
 
@@ -441,28 +476,35 @@ export function createAgentsHostExtension(options: {
         return work;
       };
 
-      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined) => {
+      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread") => {
         const request = decodeSpawnRequest(input);
         book.assertCanSpawn(parent.sessionId);
         const projectPath = await resolveProject(request.projectPath, parent.cwd);
-        const model = request.model ?? inheritedModel;
+        // An unknown or broken definition fails this spawn only; the others go on.
+        const definition = request.agent ? findAgentDefinition(await definitionReader.read(projectPath), request.agent) : undefined;
+        // The parent's model belongs to the parent's runtime; another one picks its own.
+        const sameRuntime = (definition?.runtime ?? "pi") === "pi";
+        const model = request.model ?? definition?.model ?? (sameRuntime ? inheritedModel : undefined);
         if (model) parseModel(model);
         const id = randomUUID();
         prompts.set(id, request.prompt);
+        if (definition) definitions.set(id, definition);
         // A child writes by default, and two writers in one checkout collide;
         // a project that is not a repository has nowhere else to go.
-        const mode: AgentWorkspaceMode = request.workspace === "shared" || !(await isRepository(projectPath))
+        const requested = request.workspace ?? definition?.workspace;
+        const mode: AgentWorkspaceMode = requested === "shared" || !(await isRepository(projectPath))
           ? "shared"
-          : request.workspace ?? "worktree";
+          : requested ?? "worktree";
         wanted.set(id, mode);
         book.add({
           id,
           parentThreadId: parent.sessionId,
-          spawnedBy: "tau_spawn_thread",
+          spawnedBy,
           spawnedAt: Date.now(),
           projectPath,
           depth: book.depthOf(parent.sessionId) + 1,
           title: request.title ?? titleFromPrompt(request.prompt),
+          ...(definition ? { agent: definition.name } : {}),
           ...(model ? { model } : {}),
         }, { queued: true });
         publish();
@@ -476,6 +518,8 @@ export function createAgentsHostExtension(options: {
           status: link.status,
           workspace: link.workspace?.mode ?? mode,
           ...(link.workspace?.branch ? { branch: link.workspace.branch } : {}),
+          ...(link.agent ? { agent: link.agent } : {}),
+          ...(link.error ? { error: link.error } : {}),
         };
       };
 
@@ -540,6 +584,48 @@ export function createAgentsHostExtension(options: {
         pi.on("ui_prompt_start", (event) => { changed(threadId, book.notePrompt(threadId, event.title ?? event.kind)); });
         pi.on("ui_prompt_end", () => { changed(threadId, book.notePrompt(threadId, undefined)); });
 
+        // A thread started from a definition carries it in its own link entry;
+        // `null` until that entry was read for this runtime.
+        let persona: AgentPersona | undefined | null = null;
+        let access: "applied" | "narrowed" | undefined;
+        const personaFor = (ctx: ExtensionContext) => {
+          if (persona === null) persona = personaFromEntries(ctx.sessionManager.getEntries());
+          return persona;
+        };
+        const applyPersona = async (ctx: ExtensionContext) => {
+          const current = personaFor(ctx);
+          if (!current) return;
+          if (current.access && current.access !== "full" && access === undefined) {
+            try {
+              await context.invokeHostExtension(ACCESS_KIT_ID, ACCESS_THREAD_LEVEL_COMMAND, { threadId, level: current.access });
+              access = "applied";
+            } catch (error) {
+              // Without Access Kit nothing gates this thread, so it loses the tools that write.
+              access = "narrowed";
+              services.log("agents.access-narrowed", `${threadId.slice(0, 8)} · ${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+          const tools = personaTools(current, pi.getAllTools().map((tool) => tool.name), pi.getActiveTools(), access === "narrowed");
+          if (!sameTools(tools, pi.getActiveTools())) pi.setActiveTools(tools);
+        };
+        pi.on("session_start", async (_event, ctx) => {
+          persona = null;
+          access = undefined;
+          await applyPersona(ctx);
+        });
+        pi.on("before_agent_start", async (event, ctx) => {
+          // Tools set here count for this turn; the prompt's own tool list catches up next turn.
+          await applyPersona(ctx);
+          const sections: string[] = [];
+          const current = personaFor(ctx);
+          if (current) sections.push(personaSection(current));
+          if (pi.getActiveTools().includes("tau_spawn_thread") && book.depthOf(threadId) < MAX_AGENT_DEPTH) {
+            const listing = definitionsSection((await definitionReader.read(session.cwd)).definitions);
+            if (listing) sections.push(listing);
+          }
+          return sections.length > 0 ? { systemPrompt: [event.systemPrompt, ...sections].join("\n\n") } : undefined;
+        });
+
         pi.registerTool({
           name: "tau_spawn_thread",
           label: "Spawn thread",
@@ -549,6 +635,7 @@ export function createAgentsHostExtension(options: {
             "By default it gets its own Git worktree, branched from this thread's current state, so it can write without colliding with this checkout; take its work back with tau_apply_thread_changes.",
             `Returns immediately. Spawns beyond the running budget are queued with status "pending" and start as slots free; sub-agents may nest ${MAX_AGENT_DEPTH} levels deep.`,
             "Read an answer with tau_wait_for_thread or tau_get_thread_status.",
+            "Pass agent to start it from one of the project's agent definitions in .tau/agents/: its instructions, model, runtime, tools and workspace apply.",
           ].join(" "),
           promptSnippet: "tau_spawn_thread: delegate a task to a new background thread in this project",
           parameters: Type.Object({
@@ -559,6 +646,7 @@ export function createAgentsHostExtension(options: {
             workspace: Type.Optional(Type.String({
               description: 'Where it works: "worktree" for its own checkout branched from this thread\'s state (the default in a Git repository), or "shared" to write in this very checkout — only safe for a thread that reads.',
             })),
+            agent: Type.Optional(Type.String({ description: "Name of an agent definition in this project's .tau/agents/; a plain thread when left out." })),
           }),
           execute: async (_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) => {
             const inherited = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
@@ -715,6 +803,21 @@ export function createAgentsHostExtension(options: {
         // The panel's two row actions; the tools do the same from a turn.
         context.registerCommand("apply-changes", (input) => settleWorkspace(requireThreadId(input), "applied"), { long: true }),
         context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded"), { long: true }),
+        context.registerCommand("definitions", async (input): Promise<AgentDefinitionsState> => {
+          const sessionId = record(input).sessionId;
+          const thread = typeof sessionId === "string" && sessionId ? services.thread(sessionId) : undefined;
+          const report = await definitionReader.read(thread?.cwd ?? services.cwd());
+          return { directory: report.directory, definitions: report.definitions.map(summarize), problems: report.problems };
+        }),
+        // The panel's "Start": the user spawns from a definition into the thread they read.
+        context.registerCommand("start", async (input) => {
+          const parentThreadId = requireText(input, "parentThreadId");
+          const agent = requireText(input, "agent");
+          const prompt = requireText(input, "prompt");
+          const parent = services.thread(parentThreadId);
+          if (!parent) throw new HostCommandError("Open the thread this agent should belong to, then start it again.");
+          return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt, agent }, undefined, "agents-panel");
+        }, { long: true }),
       ];
 
       // Both reads finish before the extension is active, so the first thing
