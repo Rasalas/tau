@@ -180,10 +180,22 @@ A binding is window-wide: there is no focus context. A chord that should only
 mean something while your own surface has the keyboard is handled by that
 surface — call `preventDefault()` on the keydown and the window's dispatcher
 leaves it alone. Terminal Kit does this for `mod+d`, `mod+shift+d`, `mod+n`
-and `mod+w` inside a focused shell (`kits/terminal/keys.ts`). An `alt` chord
+and `mod+w` inside a focused shell (`kits/terminal/keys.ts`), and Files Kit for
+`mod+s` inside an editor tab, which saves the file there while the same chord
+stashes the draft everywhere else (`kits/files/keys.ts`). A surface that wants
+the text field's own keys — ⌘Z, ⌥-letters, ⌃A on macOS — calls
+`stopPropagation()` without `preventDefault()`: the field still acts, and no
+binding does. An `alt` chord
 also matches by the physical key, because on macOS Option turns the letter
 into another character. `kits/kit-lifecycle.test.tsx` fails when two shipped
 kits bind the same chord.
+
+`registerCommand({ surfaces })` offers a command in a place besides the
+palette: `thread-title` puts it in the thread title's menu, and `file-tab`
+(new in API 1.10.0) draws it as a button in the header of a file tab on the
+stage. A `file-tab` command reads the file from `actions.activeStageTab()` —
+the tab the stage shows, of any kind — so the same command also works from
+the palette. Files Kit's "Edit file" is the shipped caller.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -587,6 +599,18 @@ for what the ask tool folds into a dialog's title and options —
 `freeTextOption` and `optionForLabel`, with their `OptionParts` and
 `OptionPreview` types.
 
+`actions.shareFile(path)` (new in API 1.10.0) answers with a URL the page
+may load a workspace file from — `{ url, name, size, mimeType }`, the URL
+`tau-ext://files/<token>/<name>` — for an `<iframe>`, `<img>`, `<audio>` or
+`<video>`. The window's own process serves it from this machine's disk, with
+byte ranges so a video seeks, and only for a PDF, an image, audio or video
+inside the workspace the host has open (symlinks resolved first); anything
+else is refused. It is a client-side method (`share-file`, beside the image
+preview), so it is absent — `undefined`, or the action missing — on a client
+whose host's files are not on its own machine: the browser client and a
+window pointed at a remote host. Files Kit shows PDFs and media with it; the
+page's CSP names `tau-ext:` for `img-src`, `media-src` and `frame-src`.
+
 `actions.openFile(path, options?)` puts a document in the stage — `{ line }`
 opens it as source scrolled to that line (1-based) and marks it, and asking for
 the same line again scrolls there again;
@@ -645,6 +669,7 @@ It also exports the renderer's shared state and presentation:
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
+| `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
 | `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
@@ -673,7 +698,26 @@ the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
 the row's `session`. `refresh()` re-reads the project's changes and Git facts
 after another kit changed them. Review Kit fills both with the pull or merge
-request of the branch.
+request of the branch. `registerFileEditor(open)` is the offer to edit a file:
+a double-click in the Files panel calls `open(relPath, actions)` instead of
+pinning the file tab, the last offer wins, and Files Kit is the kit that makes
+it. `openInEditor(relPath?, editorId?, { line?, column? })` opens a file in
+one of the machine's editors at a line, and `chooseEditor(id)` makes one the
+default.
+
+Workspace Kit's host reads and writes the project's files for the kits built
+on it, and checks every path against the workspace (symlinks included):
+`read-file` (with the file's `mtimeMs`), `file-stat` and `write-file`
+(`{ relPath, text, expectedMtimeMs? }`) name `tau.files` as a caller. A write
+that names the mtime the editor last saw is refused as
+`{ status: "conflict" }` when the file changed since, `null` expects no file,
+and no `expectedMtimeMs` writes regardless — that is "keep my version".
+`list-editors` answers every editor the machine has — VS Code, Insiders,
+VSCodium, Cursor, Windsurf, Trae, Kiro, Antigravity, Zed, Sublime Text and the
+JetBrains IDEs, found on the login shell's PATH (`findCommand`), among the
+JetBrains Toolbox scripts and, on macOS, as app bundles — and `file-manager`
+last, called Finder, Explorer or Files, which reveals the file instead of
+opening it (`kits/workspace/editors.ts`).
 
 Two more belong to the rail and to new threads. `registerThreadRailOrganizer(organizer)`
 gives another kit the say over the rail (one at a time, the last wins): its
