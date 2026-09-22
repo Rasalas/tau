@@ -617,6 +617,15 @@ shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`
 `WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage`,
 `DiffLineSlot`, `DiffLineContext` — are exported as types beside them.
 
+Two smaller pieces come with them (new in API 1.10.0). `DiffView` is one
+file's diff — `{ diff, mode, path?, lines?, onLoadMore?, onExpandContext? }`,
+`diff` a `UiFileDiff` — with its own scroll element and the same `lines` seam
+as `ReviewMode`; it loads from the chunk review mode uses and shows "Loading
+diff…" until `diff` is there. `Markdown` is the transcript's renderer (GFM,
+highlighted code, links that open outside), for text a host wrote in
+Markdown. Review Kit's pull-request view draws a request's files and its
+description and comments with them.
+
 `ReviewMode` draws the diffs and knows nothing about what a package does with
 them. What a caller may add, all optional:
 
