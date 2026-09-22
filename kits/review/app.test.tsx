@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, UiFileDiff, UiWorkspaceChanges } from "tau";
@@ -9,6 +11,7 @@ import { workspaceExtension } from "../workspace/desktop.js";
 import composerContext from "../composer-context/desktop.js";
 import { reviewExtension } from "./desktop.js";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_STORE_SERVICE, type WorkspaceStoreApi } from "./protocol.js";
+import { parseGitHubDetail, parseGitHubThreads, parseRequestUrl } from "./pull-request-json.js";
 
 afterEach(cleanup);
 
@@ -205,9 +208,28 @@ describe("Review Kit request lifecycle in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create draft PR" }));
 
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Review every changed file", body: "## Summary\nAll of it.", base: "main", draft: true }));
-    expect(await screen.findByRole("button", { name: /PR #7/u })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "PR #7" })).toBeTruthy();
     expect(screen.getByText("draft")).toBeTruthy();
     expect(screen.getByText("checks 1 pending")).toBeTruthy();
+  });
+
+  it("opens the request as a stage tab from the Changes panel, read through the kit's own host commands", async () => {
+    const fixture = (name: string) => readFileSync(join(import.meta.dirname, "fixtures", name), "utf8");
+    const review = vi.fn(async (command: string) => {
+      if (command === "pr-status") return { ...NO_REQUEST, request: OPEN_REQUEST };
+      if (command === "pr-view") return parseGitHubDetail(parseRequestUrl(OPEN_REQUEST.url)!, fixture("gh-pr-view-discussed.json"));
+      if (command === "pr-checks") return [];
+      if (command === "pr-comments") return parseGitHubThreads(fixture("gh-pr-threads-discussed.json")).threads;
+      return undefined;
+    });
+    renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "PR #7" }));
+
+    expect(await screen.findByRole("heading", { name: "Add the output helper" })).toBeTruthy();
+    expect(review).toHaveBeenCalledWith("pr-view", { url: OPEN_REQUEST.url });
+    expect(await screen.findByText("The offset counts the chunk's end.")).toBeTruthy();
   });
 
   it("asks before merging and merges with the chosen method", async () => {

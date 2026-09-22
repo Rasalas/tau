@@ -12,3 +12,10 @@ const LazyReviewMode = lazy(() => import("./components/ReviewMode").then((module
 export function ReviewMode(props: ComponentProps<typeof LazyReviewMode>) {
   return <Suspense fallback={<LazyFeatureFallback label="review" />}><LazyReviewMode {...props} /></Suspense>;
 }
+
+const LazyDiffView = lazy(() => import("./components/DiffView").then((module) => ({ default: module.DiffView })));
+
+/** One file's diff with its own scroll element and the line seam, from the chunk review mode already loads. */
+export function DiffView(props: ComponentProps<typeof LazyDiffView>) {
+  return <Suspense fallback={<LazyFeatureFallback label="diff" />}><LazyDiffView {...props} /></Suspense>;
+}

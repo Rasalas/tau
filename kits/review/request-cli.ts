@@ -1,16 +1,25 @@
 import { execFile } from "node:child_process";
 import type { MergeMethod, RequestService } from "./protocol.js";
 
-/** Runs a hosting CLI in a checkout and resolves its stdout; rejects with its stderr. */
-export type CliRunner = (command: string, args: string[], cwd: string) => Promise<string>;
+/**
+ * Runs a hosting CLI in a checkout and resolves its stdout; rejects with its
+ * stderr. `input` goes to stdin, so a comment's text never lands in argv.
+ */
+export type CliRunner = (command: string, args: string[], cwd: string, options?: CliRunOptions) => Promise<string>;
+
+export interface CliRunOptions {
+  input?: string;
+  /** Bytes of stdout accepted; 2 MiB unless a caller expects a diff. */
+  maxBuffer?: number;
+}
 
 const CLI_TIMEOUT_MS = 25_000;
 
-export const defaultCliRunner: CliRunner = (command, args, cwd) => new Promise((resolve, reject) => {
-  execFile(command, args, {
+export const defaultCliRunner: CliRunner = (command, args, cwd, options = {}) => new Promise((resolve, reject) => {
+  const child = execFile(command, args, {
     cwd,
     timeout: CLI_TIMEOUT_MS,
-    maxBuffer: 2 * 1024 * 1024,
+    maxBuffer: options.maxBuffer ?? 2 * 1024 * 1024,
     // Neither CLI may stop for a prompt: there is no terminal to answer it.
     env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GLAB_NO_PROMPT: "1", NO_COLOR: "1" },
   }, (error, stdout, stderr) => {
@@ -18,6 +27,7 @@ export const defaultCliRunner: CliRunner = (command, args, cwd) => new Promise((
     const detail = String(stderr || stdout || "").trim() || error.message;
     reject(new Error(detail));
   });
+  if (options.input !== undefined) child.stdin?.end(options.input);
 });
 
 export interface ServiceFacts {

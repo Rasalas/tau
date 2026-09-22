@@ -98,8 +98,136 @@ export interface ReviewCommentChip {
   payload: { source: string; text: string };
 }
 
+/** The pull-request view hands its request over as the chip kind Composer Context has for one. */
+export interface PullRequestChip {
+  kind: "pull-request";
+  payload: { number: number; title: string; url: string; branch?: string };
+}
+
 export interface ComposerContextChips {
   /** Throws when no composer is on screen. */
-  addChip(chip: ReviewCommentChip): string;
+  addChip(chip: ReviewCommentChip | PullRequestChip): string;
   removeChip(id: string): void;
 }
+
+/**
+ * A request the pull-request view addresses by its URL, whichever checkout it
+ * came from: `repo` is `owner/name` on GitHub and the project's full path on GitLab.
+ */
+export interface PullRequestRef {
+  service: RequestService;
+  host: string;
+  repo: string;
+  number: number;
+  url: string;
+}
+
+export interface PullRequestActor {
+  login: string;
+  name?: string;
+  bot?: boolean;
+}
+
+export type PullRequestVerdict = "approved" | "changes-requested" | "commented" | "dismissed" | "pending";
+
+export interface PullRequestReviewer {
+  login: string;
+  /** The latest verdict; "pending" while it was only requested. */
+  verdict: PullRequestVerdict;
+  team?: boolean;
+}
+
+export interface PullRequestLabel {
+  name: string;
+  /** Six hex digits as the host reports it; drawn as a dot, never as a colour of Tau's. */
+  color?: string;
+}
+
+export type PullRequestCheckStatus = "passed" | "failed" | "cancelled" | "pending" | "action-required" | "skipped" | "neutral";
+
+export interface PullRequestCheck {
+  name: string;
+  status: PullRequestCheckStatus;
+  workflow?: string;
+  description?: string;
+  url?: string;
+}
+
+export interface PullRequestComment {
+  id: string;
+  kind: "comment" | "review" | "review-comment";
+  author: PullRequestActor;
+  body: string;
+  createdAt: string;
+  url?: string;
+  /** A review's verdict; absent for plain comments. */
+  verdict?: PullRequestVerdict;
+}
+
+export interface PullRequestCommit {
+  oid: string;
+  headline: string;
+  author?: string;
+  committedAt: string;
+}
+
+export interface PullRequestDetail {
+  ref: PullRequestRef;
+  /** The host's own id, which GitHub's GraphQL mutations take. */
+  nodeId?: string;
+  title: string;
+  body: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  author?: PullRequestActor;
+  createdAt?: string;
+  updatedAt?: string;
+  mergedAt?: string;
+  closedAt?: string;
+  baseRef: string;
+  headRef?: string;
+  headSha?: string;
+  /** GitLab's position anchors for a new line comment. */
+  diffRefs?: { base: string; head: string; start: string };
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  reviewers: PullRequestReviewer[];
+  labels: PullRequestLabel[];
+  checks: PullRequestCheck[];
+  comments: PullRequestComment[];
+  commits: PullRequestCommit[];
+}
+
+export interface PullRequestThread {
+  id: string;
+  path: string;
+  line?: number;
+  /** Which side of the diff `line` counts on: after the change, or before it. */
+  side: "new" | "old";
+  resolved: boolean;
+  outdated: boolean;
+  comments: PullRequestComment[];
+}
+
+/** "dismissed": marked viewed, then the file changed again. */
+export type PullRequestViewedState = "viewed" | "unviewed" | "dismissed";
+
+export interface PullRequestFile {
+  path: string;
+  previousPath?: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  added: number;
+  removed: number;
+  viewed: PullRequestViewedState;
+}
+
+export interface PullRequestFiles {
+  files: PullRequestFile[];
+  diffs: UiFileDiff[];
+  /** Where the viewed marks live: on the host, or only in this Tau. */
+  viewedOn: "host" | "local";
+}
+
+/** Ids of Review Kit's pull-request view: the stage-tab kind and its commands. */
+export const PULL_REQUEST_TAB = "review.pull-request";

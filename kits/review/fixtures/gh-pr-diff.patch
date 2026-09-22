@@ -1,0 +1,65 @@
+diff --git a/README.md b/README.md
+index 610d5f0..6073325 100644
+--- a/README.md
++++ b/README.md
+@@ -263,7 +263,7 @@ A package Tau has not seen before, or one whose permission list changed, does no
+ 
+ `source: { url, commit? }` records where a package came from and is shown in Settings → Inspector. It proves nothing on its own; a `tau-extension.sig` from a publisher you trust does.
+ 
+-The host half of a package runs in a worker thread by default. Its bundle is loaded there, not in the main process, so no line of it — not even its top-level code — runs beside the workbench. The worker has a 256 MB heap cap, no Electron (`import "electron"` throws with the reason), and reaches the host only through a message port: `context.registerCommand`, `context.emit` and a `services` facade whose members are all asynchronous and carry plain data. It offers `cwd`, `log`, `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `projectName`, `rememberProjectName`, `describeProjects`, `runtimeOwner`, `thread` (a snapshot), `transcript`, `setThreadTitle`, `noteSubprocess`, `findCommand`, `sessions.list`, `sessions.read`, `sessions.exclusive`, `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork` and `pinTranscriptEntries`. It does not offer what would hand out a live object: `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension`, `decorateUiPrompt`, `setPermissionLevel`, `presentUi`, `attachedRuntime`, `sessions.open`, `sessions.prepare`, `installPackage`, `updatePackages`, `removePackage` and `listPackages`. A package that needs one of those declares `"isolation": "in-process"`, which the approval box lists like a permission ("runs inside the host process") and the grant records — flipping it later asks the user again. `examples/desktop-extensions/hello-host.ts` is a worker host half to copy. The worker entry itself ships as one CommonJS bundle, `dist-electron/main/host-extension-worker.cjs`, written by `scripts/build-host-worker.mjs`.
++The host half of a package runs in a worker thread by default. Its bundle is loaded there, not in the main process, so no line of it — not even its top-level code — runs beside the workbench. The worker has a 256 MB heap cap, no Electron (`import "electron"` throws with the reason), and reaches the host only through a message port: `context.registerCommand`, `context.emit` and a `services` facade whose members are all asynchronous and carry plain data. It offers `cwd`, `log`, `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `projectName`, `rememberProjectName`, `describeProjects`, `runtimeOwner`, `thread` (a snapshot), `transcript`, `setThreadTitle`, `noteSubprocess`, `findCommand`, `sessions.list`, `sessions.read`, `sessions.exclusive`, `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork` and `pinTranscriptEntries`. It does not offer what would hand out a live object: `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension`, `loadDependency`, `decorateUiPrompt`, `setPermissionLevel`, `presentUi`, `attachedRuntime`, `sessions.open`, `sessions.prepare`, `installPackage`, `updatePackages`, `removePackage` and `listPackages`. A package that needs one of those declares `"isolation": "in-process"`, which the approval box lists like a permission ("runs inside the host process") and the grant records — flipping it later asks the user again. `examples/desktop-extensions/hello-host.ts` is a worker host half to copy. The worker entry itself ships as one CommonJS bundle, `dist-electron/main/host-extension-worker.cjs`, written by `scripts/build-host-worker.mjs`.
+ 
+ Permission checks stay in the main process, on the facade the worker's calls are dispatched into, so isolation adds no way around a grant. A worker that throws, exits, exceeds its heap or does not answer a command within the timeout is terminated: the package is deactivated with the reason on its settings page, and the workbench keeps running. A synchronous infinite loop in a packaged command is survivable for the same reason.
+ 
+diff --git a/docs/CORE.md b/docs/CORE.md
+index 4f1bf64..3e0bc2b 100644
+--- a/docs/CORE.md
++++ b/docs/CORE.md
+@@ -124,6 +124,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
+ | Model for a kit's small job | `HostExtensionServices.complete` (`src/main/host-completion.ts`): one short answer on the user's own `~/.pi/agent` model configuration, for a title, a branch name or a commit message. Core neither writes those prompts nor picks the model; the kit names one or takes the user's default | Title generator, Worktree Names, Review Kit |
+ | Antigravity backend | Gemini through Google's own agent: `kits/antigravity/` registers a runtime backend that downloads Google's Antigravity ACP server from the official registry URL (or takes `TAU_ANTIGRAVITY_ACP_COMMAND`), speaks the Agent Client Protocol to it over stdio, lets the user sign in with Google inside that server, forwards the user's own MCP servers and skills, and owns its Settings page; the same `onEvent` and `ask` routes | Antigravity kit, shipped by default |
+ | Project sources: folder browsing, native folder picker, Git clone | Workspace Kit host entry (`kits/workspace/host.ts`) and its two sources in `kits/workspace/navigation.tsx`; core keeps the sources modal as the placement for `registerProjectSource`, and `assertAllowedCloneSource` stays core's because the package installer clones too | Workspace Kit |
++| Terminals: a shell per workspace or thread, in the dock, on desktop and web | Terminal Kit: `kits/terminal/`, a package Tau ships (ADR 0014). Its host half holds one `node-pty` session per terminal (`kits/terminal/host.ts`), loaded through `loadDependency` so the native addon stays where npm put it, filed under the workspace the host has open and, when a thread asked, started in that thread's worktree; input and resize are commands, output and exit are pushes with byte offsets, so a reloaded client replays without drawing twice. Terminals die with the workspace (`beforeWorkspace`) or the kit, never with the window. Its desktop half is the Terminal dock panel over xterm.js, grouped by the thread on screen; a shell that belongs to another thread is marked, not killed | Terminal Kit |
+ | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
+ 
+ **Runtime Controls is core, not a kit.** The Settings modal shell with its
+@@ -188,6 +189,7 @@ when only a kit ever mounts that component.
+ | The prompt frame: `.extension-prompt*`, `.extension-option*`, `.option-row` | `ExtensionPromptFrame` and `OptionRow` on `tau`. Only Questionnaires' own pager (`.extension-pager`) moved. |
+ | Review and diff: `.review-*`, `.diff-*`, `.changes-tree-*`, `.commit-proposal*`, `.source-*`, `.stat-add`, `.stat-del` | `ReviewMode`, `ChangesTree` and `DiffView` are core components published on `tau`; Review Kit mounts core's overlay rather than drawing one. Workspace Kit's own dock around them (`.changed-file*`, `.commit-box`) moved, including the rules that resize core's `.stat-add`/`.stat-del` inside it. |
+ | The Settings modal: `.settings-modal`, `.settings-nav`, `.settings-field`, `.settings-note`, `.settings-page`, `.install-extension`, `.extension-grant-box`, `.inspector-*`, `.keybinding-row` | Core keeps the modal and the three pages safe mode needs. Only `.packages-*` — the install form, its log and its actions — moved to Packages Kit. |
++| Terminal Kit's `.terminal-*` and the xterm.js rules under `.terminal-view` | Terminal Kit's own panel and the stylesheet xterm.js needs, scoped under the kit's surface; its colors come from the tokens (`--sunken`, `--ink`) so a theme reaches the shell too. |
+ | The status line and the regions: `.status-line`, `.status-item`, `.status-side`, `.workbench-region`, `.region-*` | Placements core publishes. Only what Pi extensions draw inside them (`.pi-ui-*`) moved. |
+ | Transcript, composer, palette and modals: `.transcript*`, `.message*`, `.markdown`, `.hljs-*`, `.tool-*`, `.work-fold*`, `.work-live*`, `.task-progress*`, `.composer-*`, `.command-palette`, `.model-picker`, `.approval`, `.toast`, `.reload-*`, `.project-picker`, `.project-modal`, `.thread-tree*` | Core's own surfaces, on the list above. |
+ | The tokens (now `tokens.css`), `.spinner` and the keyframes | The palette and the animations every kit's own rules refer to (`var(--ink-2)`, `blink`, `spin`). A kit stylesheet uses them and defines none. |
+diff --git a/kits/package.json b/kits/package.json
+index 7b0d97c..b4997ac 100644
+--- a/kits/package.json
++++ b/kits/package.json
+@@ -6,7 +6,7 @@
+   "type": "module",
+   "description": "The extension distribution Tau ships: every kit under this folder, built into dist-kits/.",
+   "engines": {
+-    "api": "^1.6.0"
++    "api": "^1.7.0"
+   },
+   "files": [
+     "manifest.json",
+diff --git a/kits/terminal/output.ts b/kits/terminal/output.ts
+new file mode 100644
+index 0000000..19d3de8
+--- /dev/null
++++ b/kits/terminal/output.ts
+@@ -0,0 +1,13 @@
++import type { TerminalDataEvent } from "./protocol.js";
++
++/**
++ * What of a pushed chunk a client still has to draw. The host numbers output
++ * by byte offset; a client that replayed up to `drawn` skips the overlap when a
++ * live push and the replay covered the same bytes, and ignores a chunk it has
++ * fully seen.
++ */
++export function unseenOutput(event: TerminalDataEvent, drawn: number): string {
++  if (event.offset <= drawn) return "";
++  const start = event.offset - event.data.length;
++  return event.data.slice(Math.max(0, drawn - start));
++}

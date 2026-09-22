@@ -26,7 +26,9 @@ export {
   splitPromptTitle,
 } from "../shared/extension-prompt-options";
 export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
-export { ReviewMode } from "./extension-components";
+export { DiffView, ReviewMode } from "./extension-components";
+// The transcript's own Markdown renderer: GFM, highlighted code, links that open outside.
+export { Markdown } from "./components/Markdown";
 export { ChangesTree } from "./components/ChangesTree";
 export { usePreferences } from "./renderer-services-context";
 export { useClientStorage } from "./client-storage-context";

@@ -1,0 +1,12 @@
+[
+  {
+    "old_path": "kits/terminal/output.ts",
+    "new_path": "kits/terminal/output.ts",
+    "a_mode": "0",
+    "b_mode": "100644",
+    "new_file": true,
+    "renamed_file": false,
+    "deleted_file": false,
+    "diff": "@@ -0,0 +1,13 @@\n+import type { TerminalDataEvent } from \"./protocol.js\";\n+\n+/**\n+ * What of a pushed chunk a client still has to draw. The host numbers output\n+ * by byte offset; a client that replayed up to `drawn` skips the overlap when a\n+ * live push and the replay covered the same bytes, and ignores a chunk it has\n+ * fully seen.\n+ */\n+export function unseenOutput(event: TerminalDataEvent, drawn: number): string {\n+  if (event.offset <= drawn) return \"\";\n+  const start = event.offset - event.data.length;\n+  return event.data.slice(Math.max(0, drawn - start));\n+}\n"
+  }
+]

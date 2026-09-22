@@ -4,6 +4,7 @@ import { errorMessage, type DesktopExtensionContext, type UiReviewRequest } from
 import { commitMessageModel } from "./commit-messages.js";
 import type { ChangesSectionProps, MergeMethod, ReviewRequestStatus, WorkspaceStoreApi } from "./protocol.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
+import { openPullRequest } from "./pull-request-tab.js";
 
 type Mode = "idle" | "create" | "merge" | "edit";
 
@@ -121,7 +122,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       <div className="request-section" aria-label="Pull request">
         <div className="request-line">
           <GitPullRequest size={13} aria-hidden="true" />
-          {request ? <RequestSummary request={request} onOpen={() => void actions.openExternal(request.url)} /> : (
+          {request ? <RequestSummary request={request} onOpen={() => openPullRequest(actions, request, cwd)} onBrowse={() => actions.openExternal(request.url)} /> : (
             <small className="request-none">{status ? (branch ? `No ${short} for ${branch}` : `No ${short}`) : "Checking…"}</small>
           )}
           <span className="spacer" />
@@ -195,13 +196,17 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
   };
 }
 
-function RequestSummary({ request, onOpen }: { request: UiReviewRequest; onOpen(): void }) {
+function RequestSummary({ request, onOpen, onBrowse }: { request: UiReviewRequest; onOpen(): void; onBrowse(): void }) {
   const state = requestStateLabel(request);
   const checks = checksLabel(request.checks);
+  const short = requestShort(request);
   return (
     <>
-      <button className="request-link" title={`${request.title} · opens in the browser`} onClick={onOpen}>
-        {requestShort(request)} #{request.number}<ExternalLink size={10} aria-hidden="true" />
+      <button className="request-link" title={`${request.title} · opens the ${short} view`} onClick={onOpen}>
+        {short} #{request.number}
+      </button>
+      <button className="icon-button compact" aria-label={`Open ${short} #${request.number} in the browser`} title="Open in the browser" onClick={onBrowse}>
+        <ExternalLink size={10} />
       </button>
       <span className={`request-state state-${state}`}>{state}</span>
       {checks ? <span className={`request-checks ${checksTone(request.checks)}`}>checks {checks}</span> : null}

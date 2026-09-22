@@ -278,7 +278,8 @@ middle button and Escape close, `mod+w` closes the active tab, `ctrl+tab` and
 `ctrl+shift+tab` move through them, and the right-click menu offers close,
 close others, close to the right and pin/unpin. `examples/desktop-extensions/hello-stage-tab.tsx`
 is the whole of the above as one file; Terminal Kit's "open as tab" is the
-shipped caller.
+shipped caller, and Review Kit's pull-request view (`review.pull-request`,
+params `{ url, number, service, workspace? }`) the second.
 
 #### Context in the composer
 
@@ -616,6 +617,15 @@ shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`
 `UiDiffHunk`, `UiDiffLine`, `DiffLoadOptions`, `WorkspaceChangesQuery`,
 `WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage`,
 `DiffLineSlot`, `DiffLineContext` — are exported as types beside them.
+
+Two smaller pieces come with them (new in API 1.10.0). `DiffView` is one
+file's diff — `{ diff, mode, path?, lines?, onLoadMore?, onExpandContext? }`,
+`diff` a `UiFileDiff` — with its own scroll element and the same `lines` seam
+as `ReviewMode`; it loads from the chunk review mode uses and shows "Loading
+diff…" until `diff` is there. `Markdown` is the transcript's renderer (GFM,
+highlighted code, links that open outside), for text a host wrote in
+Markdown. Review Kit's pull-request view draws a request's files and its
+description and comments with them.
 
 `ReviewMode` draws the diffs and knows nothing about what a package does with
 them. What a caller may add, all optional:

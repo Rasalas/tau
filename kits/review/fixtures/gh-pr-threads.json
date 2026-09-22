@@ -1,0 +1,49 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "id": "PR_kwDOUIZxU88AAAABD5tuPA",
+        "headRefOid": "d3d07dddc7c34ff3aecb4434d446871d074d6720",
+        "reviewThreads": {
+          "nodes": []
+        },
+        "files": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "MzE"
+          },
+          "nodes": [
+            {
+              "path": "README.md",
+              "additions": 1,
+              "deletions": 1,
+              "changeType": "MODIFIED",
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "docs/CORE.md",
+              "additions": 2,
+              "deletions": 0,
+              "changeType": "MODIFIED",
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "kits/package.json",
+              "additions": 1,
+              "deletions": 1,
+              "changeType": "MODIFIED",
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "kits/terminal/output.ts",
+              "additions": 13,
+              "deletions": 0,
+              "changeType": "ADDED",
+              "viewerViewedState": "UNVIEWED"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "additions": 1437,
+  "assignees": [],
+  "author": {
+    "id": "MDQ6VXNlcjc0ODM1NjU=",
+    "is_bot": false,
+    "login": "Rasalas",
+    "name": "Torben Buck"
+  },
+  "baseRefName": "main",
+  "body": "## What changed\n\nCloses ticket 02 of the T3-parity set (`.scratch/t3-parity/issues/02-terminal-kit.md`, local, not committed). The draft's seven blockers are resolved.\n\n**Host seam.** `HostExtensionServices.loadDependency(packageName)` resolves a module from Tau's own npm dependencies, the way `loadRuntimeExtension` already does for Pi extensions. A bundled kit's host half runs from a cache file under userData, from which `createRequire` cannot see the app's `node_modules`, and node-pty finds its `spawn-helper` beside its own binary only where npm put it, so bundling is not an option either. No permission (an in-process package could reach the module anyway); denied in a worker like every live object. Extension API 1.7.0; `@tau/kits` requires `^1.7.0`. Documented in `docs/EXTENSIONS.md` and the README's worker table.\n\n**Terminal Kit** (`kits/terminal/`, host + desktop, in-process):\n- pty sessions filed under the workspace the host has open; a thread's own worktree is where its shell starts when that thread is open. Capacity (8 per workspace) counts by that root.\n- terminals die with the workspace: `beforeWorkspace` names the root the host moves to, every shell of another root is closed then. They survive a client reload (replay by byte offset, no double drawing) and a thread's runtime closing.\n- an exited shell stays listed with its exit code until the user closes or restarts it; `restart` puts a fresh shell in the same place under a new id. Killing a running shell and dropping an ended one are the same command.\n- the panel groups terminals by the thread on screen and marks the ones running in another thread (\"another thread\", plus a status line) instead of killing them. xterm takes its colors from the workbench tokens and is rebuilt only when the session changes, not on every resize.\n- Windows keeps `ComSpec` instead of falling back to `/bin/sh`.\n- xterm moves to devDependencies: it is bundled into the kit's desktop half; only node-pty ships.\n- registered in `kits/kit-lifecycle.test.tsx` and the `docs/CORE.md` kit and stylesheet tables.\n\n**Not a stage tab.** The ticket prefers a stage document; the stage's tab kinds are core-owned (`src/workbench/stage.ts`) and there is no contribution seam for an interactive document, so the kit uses the dock panel the ticket also allows. A stage seam would be a separate core change.\n\n## Verification\n\n- `npm run lint`: pass (11 pre-existing warnings)\n- `npm run typecheck`: pass\n- `npm test`: 315 files, 2201 tests pass\n- `npm run build`: pass; `dist-kits/tau.terminal/host.cjs` references node-pty only through `loadDependency`\n- node-pty's darwin-arm64 prebuild spawns a real shell under plain Node\n- Isolated instance (`npm run dev:instance --fresh`, driven over CDP): a real zsh prints what was typed; `exit 5` shows \"shell exited with 5\" and Restart opens a fresh prompt; a renderer reload replays the scrollback; opening a new thread marks the first thread's terminal as \"another thread\" with the status note. Instance stopped afterwards, nothing touched the real Tau data.\n\n## Not verified here\n\n- Web client in a browser (the panel declares the `web` profile and the lifecycle test activates it there; the host-event path is the same transport).\n- Packaged installer, Linux and Windows.",
+  "changedFiles": 31,
+  "closedAt": "2026-09-17T22:07:05Z",
+  "comments": [],
+  "commits": [
+    {
+      "authoredDate": "2026-09-17T19:06:08Z",
+      "authors": [
+        {
+          "email": "rasalas@users.noreply.github.com",
+          "id": "MDQ6VXNlcjc0ODM1NjU=",
+          "login": "Rasalas",
+          "name": "Torben Buck"
+        }
+      ],
+      "committedDate": "2026-09-17T21:21:57Z",
+      "messageBody": "…endencies\n\nA user opens a shell in the workspace the agent works in, from the dock, on\ndesktop and web, on any runtime backend. The kit was a draft with seven\nlisted blockers; this closes them.\n\nHost seam: `HostExtensionServices.loadDependency(packageName)` resolves a\nmodule from Tau's own npm dependencies, the way `loadRuntimeExtension`\nalready does for Pi extensions. A bundled kit's host half runs from a cache\nfile under userData, from which `createRequire` cannot see the app's\n`node_modules`, and node-pty finds its `spawn-helper` beside its own binary\nonly where npm put it, so bundling is not an option either. The member needs\nno permission (an in-process package could reach the module anyway) and is\ndenied in a worker like every live object. API version 1.7.0; the kits\ndistribution requires it.\n\nTerminal Kit:\n- pty sessions filed under the workspace the host has open; a thread's own\n  worktree is where its shell starts when the thread is open. Capacity\n  counts by that root, not by the client's string.\n- terminals die with the workspace: `beforeWorkspace` names the root the\n  host moves to, and every shell of another root is closed then. They\n  survive a client reload (replay by byte offset, no double drawing) and a\n  thread's runtime closing.\n- an exited shell stays listed with its exit code until the user closes or\n  restarts it; `restart` puts a fresh shell in the same place under a new\n  id, so a client redraws from zero. Killing a running shell and dropping\n  an ended one are the same command.\n- the panel groups terminals by the thread on screen and marks the ones\n  running in another thread instead of killing them; xterm takes its colors\n  from the workbench tokens and is rebuilt only when the session changes,\n  not on every resize.\n- Windows keeps `ComSpec` instead of falling back to /bin/sh.\n- tests: host round trip (open, write, resize, replay, exit, restart, kill),\n  workspace close, capacity, missing node-pty, disposal; panel with a fake\n  host (grouping, exit and restart, close, refusal); output reconciliation;\n  the kit in the lifecycle and profile checks; the seam's name validation.\n- xterm moves to devDependencies: it is bundled into the kit's desktop half.\n\nVerified in the isolated instance: a real zsh under node-pty prints what was\ntyped, `exit 5` shows in the status and Restart opens a fresh prompt, a\nrenderer reload replays the scrollback, and opening a new thread marks the\nfirst thread's terminal as running elsewhere.",
+      "messageHeadline": "feat(terminal): ship the Terminal Kit with a host seam for native dep…",
+      "oid": "d3d07dddc7c34ff3aecb4434d446871d074d6720"
+    }
+  ],
+  "createdAt": "2026-09-17T09:23:52Z",
+  "deletions": 10,
+  "files": [
+    {
+      "path": "README.md",
+      "additions": 1,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "docs/CORE.md",
+      "additions": 2,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "kits/package.json",
+      "additions": 1,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "kits/terminal/output.ts",
+      "additions": 13,
+      "deletions": 0,
+      "changeType": "ADDED"
+    }
+  ],
+  "headRefName": "t3/02-terminal-kit",
+  "headRefOid": "d3d07dddc7c34ff3aecb4434d446871d074d6720",
+  "id": "PR_kwDOUIZxU88AAAABD5tuPA",
+  "isDraft": false,
+  "labels": [],
+  "latestReviews": [],
+  "mergeStateStatus": "UNKNOWN",
+  "mergeable": "UNKNOWN",
+  "mergedAt": "2026-09-17T22:07:05Z",
+  "number": 14,
+  "reviewDecision": "",
+  "reviewRequests": [],
+  "reviews": [],
+  "state": "MERGED",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-17T21:49:23Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/Rasalas/tau/actions/runs/35276254187/job/105387514379",
+      "name": "fast",
+      "startedAt": "2026-09-17T21:34:21Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-17T21:54:39Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/Rasalas/tau/actions/runs/35276254178/job/105387513389",
+      "name": "performance",
+      "startedAt": "2026-09-17T21:49:25Z",
+      "status": "COMPLETED",
+      "workflowName": "Performance gates"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-17T22:06:24Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/Rasalas/tau/actions/runs/35276254187/job/105395647870",
+      "name": "smoke",
+      "startedAt": "2026-09-17T21:54:41Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    }
+  ],
+  "title": "feat(terminal): ship the Terminal Kit with a host seam for native dependencies",
+  "updatedAt": "2026-09-17T22:07:18Z",
+  "url": "https://github.com/Rasalas/tau/pull/14"
+}
