@@ -150,6 +150,11 @@ export interface HostThreadStartOptions {
   /** Model the thread starts with; the host's own default otherwise. */
   model?: { provider: string; id: string };
   /**
+   * Runtime backend the thread runs on (`"pi"` or a registered kind); Pi when
+   * absent. A kind nobody registered is refused before anything is created.
+   */
+  backend?: ThreadBackendKind;
+  /**
    * The thread this one is spawned from. The host records the link in the new
    * session before its first prompt, so the thread index knows the child's
    * parent without opening either thread; `details` is stored beside it for
