@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { derivePort, findFreePort, parseArgs, seedConfigFile } from "./dev-instance.mjs";
+import { derivePort, findFreePort, parseArgs, prepareCodexHome, seedConfigFile } from "./dev-instance.mjs";
 
 describe("derivePort", () => {
   it("is deterministic for the same seed", () => {
@@ -130,5 +130,26 @@ describe("seedConfigFile", () => {
     const own = join(dir, "tau-config.json");
     seedConfigFile(own, join(dir, "missing.json"));
     expect(JSON.parse(readFileSync(own, "utf8"))).toEqual({});
+  });
+});
+
+describe("prepareCodexHome", () => {
+  it("links only the user's login into the instance's Codex home, once", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-dev-codex-"));
+    const real = join(dir, "real");
+    mkdirSync(real);
+    writeFileSync(join(real, "auth.json"), "{}");
+    writeFileSync(join(real, "config.toml"), "model = 'x'");
+    const own = join(dir, "dev", "codex-home");
+    prepareCodexHome(own, real);
+    prepareCodexHome(own, real);
+    expect(readdirSync(own)).toEqual(["auth.json"]);
+    expect(readlinkSync(join(own, "auth.json"))).toBe(join(real, "auth.json"));
+  });
+
+  it("creates an empty home when the user never signed in", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-dev-codex-"));
+    prepareCodexHome(join(dir, "home"), join(dir, "missing"));
+    expect(readdirSync(join(dir, "home"))).toEqual([]);
   });
 });

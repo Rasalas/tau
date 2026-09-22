@@ -78,8 +78,8 @@ export interface ClaudeSessionInput {
 }
 
 export interface ClaudeCodeRuntimeOptions {
-  /** The CLI to run: a name on the login shell's PATH or a path. */
-  command?: string;
+  /** The CLI to run: a name on the login shell's PATH or a path; a function is asked each time. */
+  command?: string | (() => string);
   /** Resolves a bare command name to its path; the name is passed through otherwise. */
   resolveCommand?(name: string): string | undefined;
   /** The SDK's `query`; tests script it. */
@@ -203,7 +203,7 @@ interface RunningTurn {
  * session.
  */
 export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions): ClaudeCodeAgentRuntimeAdapter {
-  const command = options.command ?? process.env.TAU_CLAUDE_CODE_COMMAND ?? "claude";
+  const commandName = (): string => (typeof options.command === "function" ? options.command() : options.command) ?? process.env.TAU_CLAUDE_CODE_COMMAND ?? "claude";
   const query = options.query ?? sdkQuery;
   const env = options.env ?? process.env;
   const sessionStore = new ClaudeRuntimeSessionStore({ filePath: options.storePath });
@@ -218,7 +218,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   function probe(probeOptions: { fresh?: boolean } = {}): Promise<ClaudeProbe> {
     const now = Date.now();
     if (!probeOptions.fresh && probeCache && now - probeCache.at < PROBE_TTL_MS) return probeCache.result;
-    const result = probeClaude({ query, executable: options.resolveCommand?.(command) ?? command, cwd: homedir(), env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
+    const result = probeClaude({ query, executable: options.resolveCommand?.(commandName()) ?? commandName(), cwd: homedir(), env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
     probeCache = { at: now, result };
     // A failed probe is not remembered; the next caller tries again.
     result.catch(() => { if (probeCache?.result === result) probeCache = undefined; });
@@ -233,7 +233,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     let stderr = "";
     const plan: ClaudeQueryPlan = {
       cwd: input.cwd,
-      executable: options.resolveCommand?.(command) ?? command,
+      executable: options.resolveCommand?.(commandName()) ?? commandName(),
       claudeSessionId,
       started,
       policy,
@@ -344,7 +344,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     const policy = runtimePermissionPolicy(input.permissionLevel);
     const queryOptions = claudeQueryOptions({
       cwd: input.cwd,
-      executable: options.resolveCommand?.(command) ?? command,
+      executable: options.resolveCommand?.(commandName()) ?? commandName(),
       claudeSessionId: input.claudeSessionId,
       started: input.started,
       policy,

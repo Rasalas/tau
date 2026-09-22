@@ -37,6 +37,19 @@ By default `dev-instance.mjs` sets `PI_CODING_AGENT_SESSION_DIR=<worktree>/.tau-
 
 Tau's own settings get the same treatment: `TAU_CONFIG_FILE=<worktree>/.tau-dev/tau-config.json`, seeded once as a copy of the user's `~/.tau/config.json` (read, never written), `TAU_WORKTREES_DIR=<worktree>/.tau-dev/worktrees` for the worktrees its threads create, and `TAU_HOST_TOKEN_FILE=<worktree>/.tau-dev/host-token` for the secret its host process and window share. A setting toggled in the instance — `hostBackground`, `threads.continueAfterRestart` — stays in the instance. `--fresh` reseeds the config.
 
+### Codex gets a shadow home
+
+The Codex CLI keeps its sessions, config, logs and caches under `CODEX_HOME` (`~/.codex` by default), and a Codex thread writes there from its first turn. `dev-instance.mjs` therefore sets `CODEX_HOME=<worktree>/.tau-dev/codex-home` and prepares that directory the way the keybindings shadow above is prepared, with one difference: only `auth.json` is linked from `~/.codex`, nothing else, so the instance signs in as the user while every rollout, `config.toml` and SQLite file Codex writes lands under `.tau-dev`. A `CODEX_HOME` already set in the calling shell is kept as it is. By hand, for a test that drives `codex app-server` without an instance:
+
+```
+mkdir -p .tau-dev/codex-home
+ln -s ~/.codex/auth.json .tau-dev/codex-home/auth.json
+printf 'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"\n' > .tau-dev/codex-home/config.toml
+CODEX_HOME=$PWD/.tau-dev/codex-home codex app-server
+```
+
+The `config.toml` is the shadow's own and pins the cheapest model, so a new Codex thread's first turn does not run on the account's default. List the models first (`model/list` on the app server, or the Codex page in Settings) and pick the smallest; ask for one-word answers. Never write into the real `~/.codex`.
+
 ## Keeping an instance alive across turns
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.

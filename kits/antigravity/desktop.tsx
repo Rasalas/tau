@@ -52,6 +52,9 @@ export function AntigravityStatus({ snapshot, actions }: RegionProps) {
 
 export interface AntigravityStatusReport {
   installed: boolean;
+  /** The server's path when one was named, and by whom; absent for Tau's own install or the PATH. */
+  command?: string;
+  commandSource?: "env" | "setting";
   source?: "override" | "managed" | "path";
   version?: string;
   path?: string;
@@ -64,7 +67,7 @@ export interface AntigravityStatusReport {
 
 const SOURCE_LABELS: Record<string, string> = {
   managed: "downloaded by Tau",
-  override: "TAU_ANTIGRAVITY_ACP_COMMAND",
+  override: "the path set below",
   path: "found on your PATH",
 };
 
@@ -81,8 +84,32 @@ function installLabel(event: AntigravityInstallEvent | undefined): string | unde
   return event.message;
 }
 
-/** Where the runtime comes from, whether it is signed in, and what of the user's own configuration reaches it. */
-export function AntigravitySettingsPage({ onNotify, host }: SettingsPageProps & { host: HostExtensionClient }) {
+/** The server's path, saved when the field is left or Enter is pressed; empty goes back to Tau's own install. */
+function CommandPathField({ status, onSave }: { status: AntigravityStatusReport | undefined; onSave(command: string): Promise<void> }) {
+  const saved = status?.commandSource === "setting" ? status.command ?? "" : "";
+  const [draft, setDraft] = useState(saved);
+  useEffect(() => { setDraft(saved); }, [saved]);
+  const fromEnv = status?.commandSource === "env";
+  const commit = () => { if (draft.trim() !== saved) void onSave(draft.trim()); };
+  return (
+    <>
+      <input
+        className="settings-search-input antigravity-path"
+        aria-label="Antigravity server executable"
+        value={fromEnv ? status!.command ?? "" : draft}
+        placeholder="The server Tau installs"
+        disabled={fromEnv || !status}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
+      />
+      <p className="settings-note">{fromEnv ? <>Set by <code>TAU_ANTIGRAVITY_ACP_COMMAND</code> in Tau's environment.</> : <>Google's <code>agy_acp_server</code> of your own; leave it empty to use the one Tau installs.</>}</p>
+    </>
+  );
+}
+
+/** Antigravity's card on the Providers page: where the runtime comes from, whether it is signed in, and what of the user's own configuration reaches it. */
+export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & { host: HostExtensionClient }) {
   const [status, setStatus] = useState<AntigravityStatusReport>();
   const [busy, setBusy] = useState<"install" | "logout">();
   const [progress, setProgress] = useState<AntigravityInstallEvent>();
@@ -98,6 +125,17 @@ export function AntigravitySettingsPage({ onNotify, host }: SettingsPageProps & 
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => host.onEvent(ANTIGRAVITY_INSTALL_EVENT, (payload) => setProgress(payload as AntigravityInstallEvent)), [host]);
+
+  const saveCommand = async (command: string) => {
+    setError(undefined);
+    try {
+      await host.invoke("set-command", { command });
+      onNotify(command ? `Antigravity runs from ${command}.` : "Antigravity runs the server Tau installs.");
+      await refresh();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  };
 
   const run = async (command: "install" | "logout", done: string) => {
     setBusy(command);
@@ -122,9 +160,8 @@ export function AntigravitySettingsPage({ onNotify, host }: SettingsPageProps & 
   const label = installLabel(progress);
 
   return (
-    <div className="settings-page">
-      <h3>Antigravity</h3>
-      <p className="lede">
+    <>
+      <p className="settings-note">
         Gemini through Google's own agent. Tau downloads Google's Antigravity server, checks it against the release it
         expects, and runs it with your Google account. The sign-in happens in that server, in your browser; Tau never
         sees a token.
@@ -166,15 +203,18 @@ export function AntigravitySettingsPage({ onNotify, host }: SettingsPageProps & 
         from <code>~/.gemini</code> is your skills, linked into that home, and your MCP servers:{" "}
         {status?.mcpServers?.length ? status.mcpServers.join(", ") : "none configured"}.
       </p>
+
+      <div className="settings-label">PATH</div>
+      <CommandPathField status={status} onSave={saveCommand} />
       {error ? <p className="settings-note" data-level="error">{error}</p> : null}
-    </div>
+    </>
   );
 }
 
 /**
  * Antigravity's desktop half: marks its threads, opens the Google sign-in link
- * the host half reports, and owns the Settings page for the runtime and the
- * account.
+ * the host half reports, and fills its card on the Providers page: the runtime
+ * and the account.
  */
 export const antigravityExtension: DesktopExtension = {
   id: ANTIGRAVITY_HOST_EXTENSION_ID,
@@ -186,9 +226,9 @@ export const antigravityExtension: DesktopExtension = {
         id: "antigravity.settings",
         label: "Antigravity",
         profiles: ["desktop", "web"],
-        Icon: Orbit,
-        order: 26,
-        Component: (props: SettingsPageProps) => <AntigravitySettingsPage {...props} host={plugin.host} />,
+        runtime: ANTIGRAVITY_BACKEND_KIND,
+        order: 27,
+        Component: (props: SettingsPageProps) => <AntigravityProviderCard {...props} host={plugin.host} />,
       }),
       plugin.host.onEvent(ANTIGRAVITY_SIGN_IN_EVENT, (payload) => {
         const event = payload as Partial<AntigravitySignInEvent> | undefined;

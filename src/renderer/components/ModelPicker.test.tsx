@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiModel } from "../../shared/contracts";
+import type { UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import { ModelPicker } from "./ModelPicker";
 import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
@@ -19,7 +19,7 @@ function renderPicker(options: {
   preferences?: PreferencesStore;
   onSelect?: (model: UiModel) => void;
   catalogRuntime?: string;
-  runtimeBackends?: { kind: string; label: string }[];
+  runtimeBackends?: UiRuntimeBackend[];
   onSelectRuntime?: (kind: string) => void;
   onNewThreadOnRuntime?: (kind: string) => void;
 } = {}) {
@@ -57,6 +57,20 @@ describe("ModelPicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start this thread on Claude Code" }));
     expect(onSelectRuntime).toHaveBeenCalledWith("claude-code");
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("says on a runtime's tab that its program has an update, and how to install it", () => {
+    const codex = { kind: "codex", label: "Codex", version: { tool: "codex", installed: "0.154.0", latest: "0.155.1", updateCommand: "brew upgrade --cask codex" } };
+    renderPicker({ runtime: "pi", runtimeBackends: [...backends, codex], onSelectRuntime: vi.fn() });
+    const tab = screen.getByRole("button", { name: "Codex" });
+    expect(tab.getAttribute("title")).toBe("Codex · update available");
+    expect(screen.queryByText(/is out/u)).toBeNull();
+    fireEvent.click(tab);
+    expect(screen.getByRole("status").textContent).toBe("Codex 0.155.1 is out; 0.154.0 is installed. Update with brew upgrade --cask codex.");
+    cleanup();
+    renderPicker({ runtime: "pi", runtimeBackends: [...backends, { ...codex, version: { ...codex.version, installed: "0.155.1" } }], onSelectRuntime: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("opens a draft bound for another runtime on that runtime's tab, with Pi's models a click away", () => {

@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
-import type { HostBackendThreadRecord, HostExtension, HostExtensionServices, HostRuntimeBackendProvider } from "tau/host-extension";
+import { join } from "node:path";
+import { HostCommandError, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
 import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
+import { CommandOverride } from "./command-override.js";
 import { installAntigravity, resolveAntigravity, type AntigravityExecutable } from "./install.js";
 import { geminiConfigDirectory, readMcpServers } from "./mcp.js";
 import { browserCommand, linkUserSkills, prepareProfile, type AntigravityProfile } from "./profile.js";
@@ -24,7 +26,7 @@ export interface AntigravityHostExtensionOptions {
   geminiDir?: string;
 }
 
-const overrideCommand = (env: NodeJS.ProcessEnv) => env.TAU_ANTIGRAVITY_ACP_COMMAND;
+export const ANTIGRAVITY_COMMAND_VARIABLE = "TAU_ANTIGRAVITY_ACP_COMMAND";
 
 /**
  * Gemini through Google's own agent (ADR 0005): threads of this kind drive
@@ -45,7 +47,8 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const geminiDir = options.geminiDir ?? geminiConfigDirectory();
       const adapter = createAntigravityRuntimeAdapter();
       const store = new AntigravitySessionStore({ filePath: AntigravitySessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir) });
-      const resolveExecutable = () => resolveAntigravity({ override: overrideCommand(env), stateDir: services.stateDir, platform, arch, findCommand: services.findCommand });
+      const override = new CommandOverride(join(services.stateDir, "settings.json"), ANTIGRAVITY_COMMAND_VARIABLE, env);
+      const resolveExecutable = (command = override.current()?.command) => resolveAntigravity({ override: command, stateDir: services.stateDir, platform, arch, findCommand: services.findCommand });
 
       /** The private home the agent runs in, with the user's own skills linked into it. */
       const prepare = async (): Promise<AntigravityProfile> => {
@@ -118,16 +121,30 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           return backend;
         },
         composerCommands: () => [],
+        // Tau installs the release it pins; one on the PATH or named by the override is the user's to keep current.
+        version: async () => {
+          const executable = await resolveExecutable().catch(() => undefined);
+          if (!executable) return undefined;
+          const managed = executable.source === "managed" && releaseAssetFor(platform, arch) !== undefined;
+          return {
+            tool: "Antigravity",
+            ...(executable.version ? { installed: executable.version } : {}),
+            ...(managed ? { latest: ANTIGRAVITY_RELEASE_VERSION, updateCommand: "Settings → Providers → Antigravity → Update" } : {}),
+          };
+        },
       };
 
       context.registerCommand("status", async () => {
         const release = releaseAssetFor(platform, arch);
         const available = release ? ANTIGRAVITY_RELEASE_VERSION : undefined;
+        const chosen = override.current();
+        const command = chosen ? { command: chosen.command, commandSource: chosen.source } : {};
         try {
           const executable = await resolveExecutable();
           const profile = await prepareProfile(services.stateDir);
           return {
             kind: ANTIGRAVITY_BACKEND_KIND,
+            ...command,
             installed: true,
             source: executable.source,
             version: executable.version,
@@ -138,8 +155,18 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             models: (await store.listModels()).length,
           };
         } catch (error) {
-          return { kind: ANTIGRAVITY_BACKEND_KIND, installed: false, available, message: error instanceof Error ? error.message : String(error) };
+          return { kind: ANTIGRAVITY_BACKEND_KIND, ...command, installed: false, available, message: error instanceof Error ? error.message : String(error) };
         }
+      });
+      // The server's path from the Providers card; empty goes back to the release Tau installs.
+      context.registerCommand("set-command", async (input) => {
+        const requested = typeof (input as { command?: unknown } | undefined)?.command === "string" ? (input as { command: string }).command.trim() : "";
+        if (override.current()?.source === "env") throw new HostCommandError(`${ANTIGRAVITY_COMMAND_VARIABLE} is set in Tau's environment and decides the path.`);
+        if (requested) {
+          try { await resolveExecutable(requested); } catch (error) { throw new HostCommandError(error instanceof Error ? error.message : String(error)); }
+        }
+        await override.set(requested || undefined);
+        return { command: requested || undefined };
       });
       // Several hundred megabytes from Google; the client runs it as a host job.
       context.registerCommand("install", async () => {

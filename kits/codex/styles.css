@@ -1,0 +1,10 @@
+/* The one control this page adds; everything else is core's settings style. */
+.codex-field { align-items: center; }
+.codex-action {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line-strong); border-radius: 7px; background: transparent;
+  color: var(--ink-3); font: 500 12px var(--sans); padding: 6px 11px; cursor: pointer;
+}
+.codex-action:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.codex-action:disabled { color: var(--faint); cursor: default; }
+.codex-path { max-width: 420px; width: 100%; }

@@ -466,6 +466,11 @@ export interface SettingsPageContribution extends ProfileScoped {
   order?: number;
   /** Words the Settings search and the palette find this page by, besides its label. */
   keywords?: readonly string[];
+  /**
+   * The runtime backend this page is about. Such a page gets no nav entry of
+   * its own: it is that runtime's card on the Providers page, in `order`.
+   */
+  runtime?: ThreadBackendKind;
   Component: ComponentType<SettingsPageProps>;
 }
 

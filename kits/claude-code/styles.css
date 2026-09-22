@@ -7,3 +7,4 @@
 }
 .claude-code-action:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
 .claude-code-action:disabled { color: var(--faint); cursor: default; }
+.claude-code-path { max-width: 420px; width: 100%; }

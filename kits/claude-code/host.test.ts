@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,11 +13,14 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function harness(findCommand: (name: string) => string | undefined) {
+const offline = (async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof globalThis.fetch;
+
+async function harness(findCommand: (name: string) => string | undefined, fetch: typeof globalThis.fetch = offline) {
   const agentDir = await mkdtemp(join(tmpdir(), "tau-claude-host-"));
   directories.push(agentDir);
   const backends: HostRuntimeBackendProvider[] = [];
-  const registry = await activateHostKit(createClaudeCodeHostExtension(), {
+  const registry = await activateHostKit(createClaudeCodeHostExtension({ fetch, env: {} }), {
+    stateDir: join(agentDir, "state"),
     findCommand,
     agentDir,
     sessionsDir: join(agentDir, "sessions"),
@@ -56,6 +59,29 @@ describe("Claude Code host half", () => {
       projectName: "repo",
       permissionLevel: () => "full",
     } as never)).rejects.toThrow("was not found on the PATH");
+  });
+
+  it("reports the installed CLI's version, the newest release and how the native install updates", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-claude-cli-"));
+    directories.push(directory);
+    const cli = join(directory, "claude");
+    await writeFile(cli, "#!/bin/sh\necho '2.1.280 (Claude Code)'\n", { mode: 0o755 });
+    const fetch = async () => ({ ok: true, json: async () => ({ version: "2.1.300" }) }) as Response;
+    const { backends } = await harness((name) => name === "claude" ? cli : undefined, fetch);
+    await expect(backends[0]!.version!()).resolves.toEqual({ tool: "claude", installed: "2.1.280", latest: "2.1.300", updateCommand: "claude update" });
+    const { backends: none } = await harness(() => undefined, fetch);
+    await expect(none[0]!.version!()).resolves.toBeUndefined();
+  });
+
+  it("keeps a path set on the Providers card and refuses one that is no executable", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-claude-cli-"));
+    directories.push(directory);
+    const cli = join(directory, "claude");
+    await writeFile(cli, "#!/bin/sh\necho '2.1.280 (Claude Code)'\n", { mode: 0o755 });
+    const { registry } = await harness((name) => name === cli ? cli : undefined);
+    await expect(registry.invoke("tau.claude-code", "set-command", { command: join(directory, "nothing") })).rejects.toThrow("No executable");
+    await expect(registry.invoke("tau.claude-code", "set-command", { command: cli })).resolves.toEqual({ command: cli });
+    await expect(registry.invoke("tau.claude-code", "status")).resolves.toEqual({ kind: "claude-code", command: cli, path: cli, commandSource: "setting" });
   });
 
   it("hands each thread's running total to the Usage kit and to no other kit", async () => {

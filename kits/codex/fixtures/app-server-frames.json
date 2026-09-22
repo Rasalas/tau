@@ -1,0 +1,1367 @@
+{
+ "models": [
+  {
+   "id": "gpt-6-astra",
+   "model": "gpt-6-astra",
+   "displayName": "GPT-6-Astra",
+   "description": "Our most capable model for complex, demanding work.",
+   "hidden": false,
+   "isDefault": true,
+   "defaultReasoningEffort": "medium",
+   "supportedReasoningEfforts": [
+    {
+     "reasoningEffort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "reasoningEffort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "reasoningEffort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "reasoningEffort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
+   ],
+   "inputModalities": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-5.6-sol",
+   "model": "gpt-5.6-sol",
+   "displayName": "GPT-5.6-Sol",
+   "description": "Reliable agentic workhorse for everyday tasks.",
+   "hidden": false,
+   "isDefault": false,
+   "defaultReasoningEffort": "low",
+   "supportedReasoningEfforts": [
+    {
+     "reasoningEffort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "reasoningEffort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "reasoningEffort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "reasoningEffort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
+   ],
+   "inputModalities": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-5.6-terra",
+   "model": "gpt-5.6-terra",
+   "displayName": "GPT-5.6-Terra",
+   "description": "Balanced agentic coding model for everyday work.",
+   "hidden": false,
+   "isDefault": false,
+   "defaultReasoningEffort": "medium",
+   "supportedReasoningEfforts": [
+    {
+     "reasoningEffort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "reasoningEffort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "reasoningEffort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "reasoningEffort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
+   ],
+   "inputModalities": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-5.6-luna",
+   "model": "gpt-5.6-luna",
+   "displayName": "GPT-5.6-Luna",
+   "description": "Fast and affordable agentic coding model.",
+   "hidden": false,
+   "isDefault": false,
+   "defaultReasoningEffort": "medium",
+   "supportedReasoningEfforts": [
+    {
+     "reasoningEffort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "reasoningEffort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "reasoningEffort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    }
+   ],
+   "inputModalities": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-5.5",
+   "model": "gpt-5.5",
+   "displayName": "GPT-5.5",
+   "description": "Proven previous-generation model for coding and general work.",
+   "hidden": false,
+   "isDefault": false,
+   "defaultReasoningEffort": "medium",
+   "supportedReasoningEfforts": [
+    {
+     "reasoningEffort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "reasoningEffort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "reasoningEffort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "reasoningEffort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    }
+   ],
+   "inputModalities": [
+    "text",
+    "image"
+   ]
+  }
+ ],
+ "scenarios": {
+  "plain": [
+   {
+    "method": "turn/started",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "inProgress",
+      "error": null,
+      "startedAt": 1790103933,
+      "completedAt": null,
+      "durationMs": null
+     }
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "userMessage",
+      "id": "01a0ca82-5bae-7963-a937-fddb09fc30c4",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Reply with exactly one word: hello.",
+        "text_elements": []
+       }
+      ]
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103935918
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "userMessage",
+      "id": "01a0ca82-5bae-7963-a937-fddb09fc30c4",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Reply with exactly one word: hello.",
+        "text_elements": []
+       }
+      ]
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103935918
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_0822466dd6bd0862016ab2d180d65887d2b801983127282994",
+      "text": "",
+      "phase": "final_answer",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103936876
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_0822466dd6bd0862016ab2d180d65887d2b801983127282994",
+     "delta": "hello"
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_0822466dd6bd0862016ab2d180d65887d2b801983127282994",
+      "text": "hello",
+      "phase": "final_answer",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103937196
+    }
+   },
+   {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "tokenUsage": {
+      "total": {
+       "totalTokens": 11849,
+       "inputTokens": 11844,
+       "cachedInputTokens": 9984,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 5,
+       "reasoningOutputTokens": 0
+      },
+      "last": {
+       "totalTokens": 11849,
+       "inputTokens": 11844,
+       "cachedInputTokens": 9984,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 5,
+       "reasoningOutputTokens": 0
+      },
+      "modelContextWindow": 258400
+     }
+    }
+   },
+   {
+    "method": "turn/completed",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [
+       {
+        "type": "agentMessage",
+        "id": "msg_0822466dd6bd0862016ab2d180d65887d2b801983127282994",
+        "text": "hello",
+        "phase": "final_answer",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null
+       }
+      ],
+      "itemsView": "summary",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1790103933,
+      "completedAt": 1790103937,
+      "durationMs": 3273
+     }
+    }
+   }
+  ],
+  "command": [
+   {
+    "method": "turn/started",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "inProgress",
+      "error": null,
+      "startedAt": 1790104687,
+      "completedAt": null,
+      "durationMs": null
+     }
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "userMessage",
+      "id": "01a0ca8d-da1e-78a2-83b5-2d7b18c597f7",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Run the shell command `echo tau-ok > out.txt && cat out.txt` and then reply with one word: the output.",
+        "text_elements": []
+       }
+      ]
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790104689182
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "userMessage",
+      "id": "01a0ca8d-da1e-78a2-83b5-2d7b18c597f7",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Run the shell command `echo tau-ok > out.txt && cat out.txt` and then reply with one word: the output.",
+        "text_elements": []
+       }
+      ]
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790104689182
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "reasoning",
+      "id": "rs_0bac3822dd273377016ab2d47207ec87d2ae1f4a5bdb3cf072",
+      "summary": [],
+      "content": []
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790104690043
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "reasoning",
+      "id": "rs_0bac3822dd273377016ab2d47207ec87d2ae1f4a5bdb3cf072",
+      "summary": [],
+      "content": []
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790104690370
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_0bac3822dd273377016ab2d4725cac87d2b5081379292ecb27",
+      "text": "",
+      "phase": "commentary",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790104690374
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_0bac3822dd273377016ab2d4725cac87d2b5081379292ecb27",
+      "text": "",
+      "phase": "commentary",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790104690585
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "commandExecution",
+      "id": "exec-7aa43da1-5728-4221-b95b-b2aeb2ef011d",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/bin/zsh -lc 'echo tau-ok > out.txt && cat out.txt'",
+      "cwd": "{cwd}",
+      "processId": null,
+      "source": "agent",
+      "status": "inProgress",
+      "commandActions": [
+       {
+        "type": "unknown",
+        "command": "echo tau-ok > out.txt && cat out.txt"
+       }
+      ],
+      "aggregatedOutput": null,
+      "exitCode": null,
+      "durationMs": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790104691888
+    }
+   },
+   {
+    "method": "item/commandExecution/requestApproval",
+    "id": 0,
+    "params": {
+     "kind": "command",
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "exec-7aa43da1-5728-4221-b95b-b2aeb2ef011d",
+     "startedAtMs": 1790104691885,
+     "environmentId": "local",
+     "command": "/bin/zsh -lc 'echo tau-ok > out.txt && cat out.txt'",
+     "cwd": "{cwd}",
+     "commandActions": [
+      {
+       "type": "unknown",
+       "command": "echo tau-ok > out.txt && cat out.txt"
+      }
+     ],
+     "proposedExecpolicyAmendment": [
+      "/bin/zsh",
+      "-lc",
+      "echo tau-ok > out.txt && cat out.txt"
+     ],
+     "availableDecisions": [
+      "accept",
+      {
+       "acceptWithExecpolicyAmendment": {
+        "execpolicy_amendment": [
+         "/bin/zsh",
+         "-lc",
+         "echo tau-ok > out.txt && cat out.txt"
+        ]
+       }
+      },
+      "cancel"
+     ]
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "commandExecution",
+      "id": "exec-7aa43da1-5728-4221-b95b-b2aeb2ef011d",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/bin/zsh -lc 'echo tau-ok > out.txt && cat out.txt'",
+      "cwd": "{cwd}",
+      "processId": "38507",
+      "source": "unifiedExecStartup",
+      "status": "completed",
+      "commandActions": [
+       {
+        "type": "unknown",
+        "command": "echo tau-ok > out.txt && cat out.txt"
+       }
+      ],
+      "aggregatedOutput": "tau-ok\n",
+      "exitCode": 0,
+      "durationMs": 0
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790104691940
+    }
+   },
+   {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "tokenUsage": {
+      "total": {
+       "totalTokens": 12127,
+       "inputTokens": 12043,
+       "cachedInputTokens": 9984,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 84,
+       "reasoningOutputTokens": 15
+      },
+      "last": {
+       "totalTokens": 12127,
+       "inputTokens": 12043,
+       "cachedInputTokens": 9984,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 84,
+       "reasoningOutputTokens": 15
+      },
+      "modelContextWindow": 258400
+     }
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_0bac3822dd273377016ab2d4754dc887d282c5d4e5d9a26d06",
+      "text": "",
+      "phase": "final_answer",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790104693315
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_0bac3822dd273377016ab2d4754dc887d282c5d4e5d9a26d06",
+     "delta": "tau"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_0bac3822dd273377016ab2d4754dc887d282c5d4e5d9a26d06",
+     "delta": "-ok"
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_0bac3822dd273377016ab2d4754dc887d282c5d4e5d9a26d06",
+      "text": "tau-ok",
+      "phase": "final_answer",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790104693430
+    }
+   },
+   {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "tokenUsage": {
+      "total": {
+       "totalTokens": 24286,
+       "inputTokens": 24196,
+       "cachedInputTokens": 19968,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 90,
+       "reasoningOutputTokens": 15
+      },
+      "last": {
+       "totalTokens": 12159,
+       "inputTokens": 12153,
+       "cachedInputTokens": 9984,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 6,
+       "reasoningOutputTokens": 0
+      },
+      "modelContextWindow": 258400
+     }
+    }
+   },
+   {
+    "method": "turn/completed",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [
+       {
+        "type": "agentMessage",
+        "id": "msg_0bac3822dd273377016ab2d4754dc887d282c5d4e5d9a26d06",
+        "text": "tau-ok",
+        "phase": "final_answer",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null
+       }
+      ],
+      "itemsView": "summary",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1790104687,
+      "completedAt": 1790104693,
+      "durationMs": 5518
+     }
+    }
+   }
+  ],
+  "edit": [
+   {
+    "method": "turn/started",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "inProgress",
+      "error": null,
+      "startedAt": 1790103899,
+      "completedAt": null,
+      "durationMs": null
+     }
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "userMessage",
+      "id": "01a0ca81-d33b-7690-b325-64f74c939e14",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Create a file named note.txt containing the single word tau, using your file editing tool (not the shell). Then reply with one word: done.",
+        "text_elements": []
+       }
+      ]
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103900987
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "userMessage",
+      "id": "01a0ca81-d33b-7690-b325-64f74c939e14",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Create a file named note.txt containing the single word tau, using your file editing tool (not the shell). Then reply with one word: done.",
+        "text_elements": []
+       }
+      ]
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103900987
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "reasoning",
+      "id": "rs_03b89ec649997391016ab2d16782b087d2bc6bd05e7a98833e",
+      "summary": [],
+      "content": []
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103911559
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "reasoning",
+      "id": "rs_03b89ec649997391016ab2d16782b087d2bc6bd05e7a98833e",
+      "summary": [],
+      "content": []
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103913458
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+      "text": "",
+      "phase": "commentary",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103913462
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": "I"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": "’ll"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " create"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " `"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": "note"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": ".txt"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": "`"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " with"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " the"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " requested"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " content"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " using"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " the"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " file"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " editing"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": " tool"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+     "delta": "."
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_03b89ec649997391016ab2d1696b1487d28f86fc22d8e160e4",
+      "text": "I’ll create `note.txt` with the requested content using the file editing tool.",
+      "phase": "commentary",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103916635
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "fileChange",
+      "id": "exec-ba61670e-172a-45da-b157-4dae1fbf249e",
+      "changes": [
+       {
+        "path": "{cwd}/note.txt",
+        "kind": {
+         "type": "add"
+        },
+        "diff": "tau\n"
+       }
+      ],
+      "status": "inProgress"
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103919147
+    }
+   },
+   {
+    "method": "item/fileChange/requestApproval",
+    "id": 0,
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "exec-ba61670e-172a-45da-b157-4dae1fbf249e",
+     "startedAtMs": 1790103919149,
+     "reason": null,
+     "grantRoot": null
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "fileChange",
+      "id": "exec-ba61670e-172a-45da-b157-4dae1fbf249e",
+      "changes": [
+       {
+        "path": "{cwd}/note.txt",
+        "kind": {
+         "type": "add"
+        },
+        "diff": "tau\n"
+       }
+      ],
+      "status": "completed"
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103919208
+    }
+   },
+   {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "tokenUsage": {
+      "total": {
+       "totalTokens": 12136,
+       "inputTokens": 12047,
+       "cachedInputTokens": 9984,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 89,
+       "reasoningOutputTokens": 16
+      },
+      "last": {
+       "totalTokens": 12136,
+       "inputTokens": 12047,
+       "cachedInputTokens": 9984,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 89,
+       "reasoningOutputTokens": 16
+      },
+      "modelContextWindow": 258400
+     }
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_03b89ec649997391016ab2d170bc5887d296ae02475275596c",
+      "text": "",
+      "phase": "final_answer",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103920779
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_03b89ec649997391016ab2d170bc5887d296ae02475275596c",
+     "delta": "done"
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_03b89ec649997391016ab2d170bc5887d296ae02475275596c",
+      "text": "done",
+      "phase": "final_answer",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103920818
+    }
+   },
+   {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "tokenUsage": {
+      "total": {
+       "totalTokens": 24301,
+       "inputTokens": 24207,
+       "cachedInputTokens": 19968,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 94,
+       "reasoningOutputTokens": 16
+      },
+      "last": {
+       "totalTokens": 12165,
+       "inputTokens": 12160,
+       "cachedInputTokens": 9984,
+       "cacheWriteInputTokens": 0,
+       "outputTokens": 5,
+       "reasoningOutputTokens": 0
+      },
+      "modelContextWindow": 258400
+     }
+    }
+   },
+   {
+    "method": "turn/completed",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [
+       {
+        "type": "agentMessage",
+        "id": "msg_03b89ec649997391016ab2d170bc5887d296ae02475275596c",
+        "text": "done",
+        "phase": "final_answer",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null
+       }
+      ],
+      "itemsView": "summary",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1790103899,
+      "completedAt": 1790103920,
+      "durationMs": 21069
+     }
+    }
+   }
+  ],
+  "interrupt": [
+   {
+    "method": "turn/started",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "inProgress",
+      "error": null,
+      "startedAt": 1790103924,
+      "completedAt": null,
+      "durationMs": null
+     }
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "userMessage",
+      "id": "01a0ca82-3595-7d03-bcfa-f4171f60fec6",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Run the shell command `sleep 3; echo tau-ok > out.txt; cat out.txt` and then reply with one word: the output.",
+        "text_elements": []
+       }
+      ]
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103926165
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "userMessage",
+      "id": "01a0ca82-3595-7d03-bcfa-f4171f60fec6",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Run the shell command `sleep 3; echo tau-ok > out.txt; cat out.txt` and then reply with one word: the output.",
+        "text_elements": []
+       }
+      ]
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103926165
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "reasoning",
+      "id": "rs_0afa1278a91dbd91016ab2d177284487d294a1768e5358f1f6",
+      "summary": [],
+      "content": []
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103927274
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "reasoning",
+      "id": "rs_0afa1278a91dbd91016ab2d177284487d294a1768e5358f1f6",
+      "summary": [],
+      "content": []
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103927582
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_0afa1278a91dbd91016ab2d17776f087d29d1b67363b1dd4c2",
+      "text": "",
+      "phase": "commentary",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103927584
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_0afa1278a91dbd91016ab2d17776f087d29d1b67363b1dd4c2",
+     "delta": "Running"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_0afa1278a91dbd91016ab2d17776f087d29d1b67363b1dd4c2",
+     "delta": " the"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_0afa1278a91dbd91016ab2d17776f087d29d1b67363b1dd4c2",
+     "delta": " requested"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_0afa1278a91dbd91016ab2d17776f087d29d1b67363b1dd4c2",
+     "delta": " command"
+    }
+   },
+   {
+    "method": "item/agentMessage/delta",
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "msg_0afa1278a91dbd91016ab2d17776f087d29d1b67363b1dd4c2",
+     "delta": "."
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg_0afa1278a91dbd91016ab2d17776f087d29d1b67363b1dd4c2",
+      "text": "Running the requested command.",
+      "phase": "commentary",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "completedAtMs": 1790103927883
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "commandExecution",
+      "id": "exec-4598697c-b688-4431-837c-44efe88b4c06",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/bin/zsh -lc 'sleep 3; echo tau-ok > out.txt; cat out.txt'",
+      "cwd": "{cwd}",
+      "processId": null,
+      "source": "agent",
+      "status": "inProgress",
+      "commandActions": [
+       {
+        "type": "unknown",
+        "command": "sleep 3; echo tau-ok > out.txt; cat out.txt"
+       }
+      ],
+      "aggregatedOutput": null,
+      "exitCode": null,
+      "durationMs": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "startedAtMs": 1790103928994
+    }
+   },
+   {
+    "method": "item/commandExecution/requestApproval",
+    "id": 0,
+    "params": {
+     "kind": "command",
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "exec-4598697c-b688-4431-837c-44efe88b4c06",
+     "startedAtMs": 1790103928987,
+     "environmentId": "local",
+     "command": "/bin/zsh -lc 'sleep 3; echo tau-ok > out.txt; cat out.txt'",
+     "cwd": "{cwd}",
+     "commandActions": [
+      {
+       "type": "unknown",
+       "command": "sleep 3; echo tau-ok > out.txt; cat out.txt"
+      }
+     ],
+     "proposedExecpolicyAmendment": [
+      "/bin/zsh",
+      "-lc",
+      "sleep 3; echo tau-ok > out.txt; cat out.txt"
+     ],
+     "availableDecisions": [
+      "accept",
+      {
+       "acceptWithExecpolicyAmendment": {
+        "execpolicy_amendment": [
+         "/bin/zsh",
+         "-lc",
+         "sleep 3; echo tau-ok > out.txt; cat out.txt"
+        ]
+       }
+      },
+      "cancel"
+     ]
+    }
+   }
+  ]
+ }
+}

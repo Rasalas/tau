@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { AntigravitySettingsPage, antigravityExtension, signInLinks } from "./desktop.js";
+import { AntigravityProviderCard, antigravityExtension, signInLinks } from "./desktop.js";
 import { ANTIGRAVITY_INSTALL_EVENT, type AntigravityInstallEvent } from "./protocol.js";
 
 afterEach(() => { cleanup(); signInLinks.clear(); });
@@ -23,7 +23,8 @@ describe("Antigravity desktop extension", () => {
     registry.activate(antigravityExtension);
     const [item] = registry.getStatusItems();
     expect(item?.id).toBe("antigravity.runtime");
-    expect(registry.getSettingsPages().map((page) => page.id)).toContain("antigravity.settings");
+    // Antigravity has no page of its own: it is a card on Providers.
+    expect(registry.getSettingsPages().find((page) => page.id === "antigravity.settings")?.runtime).toBe("antigravity");
     const Component = item!.Component;
     const actions = { openExternal: vi.fn(), notify: vi.fn() } as never;
     const { rerender } = render(<Component snapshot={{ backendKind: "antigravity", model: { provider: "google", id: "g", name: "Gemini 3.8 Flash (Low)" } } as HostSnapshot} actions={actions} />);
@@ -52,7 +53,7 @@ describe("Antigravity desktop extension", () => {
     });
     const { host, emit } = hostStub(invoke);
     const onNotify = vi.fn();
-    render(<AntigravitySettingsPage onNotify={onNotify} host={host} />);
+    render(<AntigravityProviderCard onNotify={onNotify} host={host} />);
     // The page says "Checking…" until the host answers, so this waits for a real state.
     expect(screen.getAllByText("Checking…")).toHaveLength(2);
     fireEvent.click(await screen.findByRole("button", { name: /Install agy_acp_server_1\.1\.1/u }));
@@ -76,7 +77,7 @@ describe("Antigravity desktop extension", () => {
       return status;
     });
     const { host } = hostStub(invoke);
-    render(<AntigravitySettingsPage onNotify={vi.fn()} host={host} />);
+    render(<AntigravityProviderCard onNotify={vi.fn()} host={host} />);
     await waitFor(() => expect(screen.getByText("Signed in")).toBeTruthy());
     expect(screen.getByText(/pencil/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
@@ -86,7 +87,7 @@ describe("Antigravity desktop extension", () => {
 
   it("says so when the page cannot reach its host half", async () => {
     const { host } = hostStub(async () => { throw new Error("host is gone"); });
-    render(<AntigravitySettingsPage onNotify={vi.fn()} host={host} />);
+    render(<AntigravityProviderCard onNotify={vi.fn()} host={host} />);
     await waitFor(() => expect(screen.getByText("host is gone")).toBeTruthy());
   });
 });

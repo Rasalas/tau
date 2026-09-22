@@ -46,4 +46,10 @@ describe("ProviderIconStack", () => {
     expect(stack.classList).toContain("stacked");
   });
 
+  it("gives the Codex runtime a mark of its own beside OpenAI's", () => {
+    const { getByLabelText } = render(<ProviderIconStack modelProvider="openai" runtimeProvider="codex" />);
+    const stack = getByLabelText("OpenAI via Codex");
+    expect(stack.querySelector(".provider-family-codex img.provider-mark")).toBeTruthy();
+    expect(stack.querySelector(".provider-family-openai .provider-mark")).toBeTruthy();
+  });
 });

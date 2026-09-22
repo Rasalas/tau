@@ -40,6 +40,10 @@ npm run dev:instance -- --build --agent-dir /tmp/tau-shadow-agent
 
 Symlink whatever the test needs from the real dir (auth, settings, the `npm` extension cache, …) so models and extensions keep working; write `keybindings.json` itself as a plain file so the instance reads your test's bindings. Never write into the real `~/.pi/agent` — the shadow directory is the only thing that ever changes.
 
+### Codex runs in a shadow home
+
+`dev-instance` sets `CODEX_HOME=.tau-dev/codex-home`, which links only `auth.json` from `~/.codex`; every session and config file Codex writes stays there. Never start Codex against the real `~/.codex`. Pin the cheapest model in that shadow's own `config.toml` (`model = "gpt-5.6-luna"`, `model_reasoning_effort = "low"`) before a Codex thread's first prompt; `docs/agents/testing-the-app.md` has the recipe.
+
 ## Keep it alive across turns
 
 Treat the verification loop, not one assistant turn, as the instance's lifetime. Do not stop it because one pass finished — a follow-up turn may reuse it. Before starting another one, check whether a live instance already answers: `npm run cdp -- pid` succeeds only while one is running, and `.tau-dev/instance.json` (written by `dev-instance.mjs`) names its port and userData.
