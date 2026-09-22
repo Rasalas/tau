@@ -3,9 +3,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-/** Where the shared secret of a listening host lives, readable only by its owner. */
-export function hostTokenPath(home: string = homedir()): string {
-  return join(home, ".tau", "host-token");
+/** Where the shared secret of a listening host lives, readable only by its owner; `TAU_HOST_TOKEN_FILE` moves it. */
+export function hostTokenPath(home: string = homedir(), env: { TAU_HOST_TOKEN_FILE?: string } = process.env): string {
+  return env.TAU_HOST_TOKEN_FILE?.trim() || join(home, ".tau", "host-token");
 }
 
 /** Reads an existing token; a client must never invent the secret of its host. */

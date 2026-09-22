@@ -149,7 +149,7 @@ async function main() {
   // shadow-dir recipe in docs/agents/testing-the-app.md.
   const agentDir = options.agentDir ? resolve(options.agentDir) : undefined;
   // Settings the instance toggles land in its own copy of ~/.tau/config.json,
-  // and its agent worktrees under .tau-dev, never in the user's real ~/.tau.
+  // its agent worktrees and host token under .tau-dev, never in the user's real ~/.tau.
   const configFile = join(DEV_DIR, "tau-config.json");
   const worktreesDir = join(DEV_DIR, "worktrees");
 
@@ -191,6 +191,7 @@ async function main() {
     TAU_WORKSPACE: workspace,
     TAU_CONFIG_FILE: configFile,
     TAU_WORKTREES_DIR: worktreesDir,
+    TAU_HOST_TOKEN_FILE: join(DEV_DIR, "host-token"),
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
