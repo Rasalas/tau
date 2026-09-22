@@ -278,7 +278,8 @@ middle button and Escape close, `mod+w` closes the active tab, `ctrl+tab` and
 `ctrl+shift+tab` move through them, and the right-click menu offers close,
 close others, close to the right and pin/unpin. `examples/desktop-extensions/hello-stage-tab.tsx`
 is the whole of the above as one file; Terminal Kit's "open as tab" is the
-shipped caller.
+shipped caller, and Review Kit's pull-request view (`review.pull-request`,
+params `{ url, number, service, workspace? }`) the second.
 
 #### Context in the composer
 
