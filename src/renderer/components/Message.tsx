@@ -106,6 +106,7 @@ export const Message = memo(function Message({
         ) : null}
       </article>
       {onCopy ? <MessageActions
+        message={message}
         onCopy={() => onCopy(message)}
         onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
       /> : null}

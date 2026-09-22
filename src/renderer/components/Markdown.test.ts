@@ -1,6 +1,9 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   HIGHLIGHT_CACHE_LIMIT,
+  Markdown,
   clearHighlightCache,
   highlightCacheSize,
   highlightedCode,
@@ -30,5 +33,13 @@ describe("streaming markdown cache", () => {
       .toBe(true);
     expect(isInlineMarkdown("Review this:\n    preserve code"))
       .toBe(false);
+  });
+
+  it("renders every GFM extension with the parse-only plugin", () => {
+    const html = renderToStaticMarkup(createElement(Markdown, null, "~~gone~~ https://example.com\n\n- [x] done\n\nNote[^1]\n\n[^1]: Footnote\n"));
+    expect(html).toContain("<del>gone</del>");
+    expect(html).toContain('href="https://example.com"');
+    expect(html).toContain("md-check on");
+    expect(html).toContain("data-footnotes");
   });
 });

@@ -311,6 +311,7 @@ plugin.registerComposerInline({
 | `hasContent`, `subscribe` | Whether the draft has something worth sending with no text at all; Send enables on it. |
 | `prepareSend` | Runs once per prompt, after `beginSubmission` captured the draft. `context` is put before the user's text (after it when a skill is selected, which reads its instruction first); `attachments` join the images. A throw refuses the send and keeps the draft. A `/command` never asks. |
 | `settleSend` | The prompt `prepareSend` contributed to was accepted (clear what went) or refused (put it back). |
+| `keyDown` | A key in the text field, asked before core's own handling while no trigger menu is open. It gets the key, its modifiers and the field's text and selection as plain data, plus `setText(text)`, which replaces the draft's text with the caret at the end; answering `true` claims the key and core does nothing else with it. Prompt Tools recalls earlier prompts this way. |
 
 `scope` is the draft key core persists the text under; a new thread's draft
 gets a new one once the thread exists, so a contribution keeps its state by
@@ -367,12 +368,34 @@ paste from 32 KiB on becomes `pasted-text-<n>.txt` with a chip — removing the
 chip is the undo. A file travels to the host in 4 MiB pieces, so a 50 MB one
 stays under the host socket's 64 MiB frame.
 
+#### Actions on a message
+
+`registerMessageAction` puts a button on the action bar of a transcript message,
+beside Copy and Fork:
+
+```tsx
+plugin.registerMessageAction({
+  id: "example.cite",
+  label: "Cite",
+  Icon: Quote,
+  roles: ["assistant"],
+  profiles: ["desktop"],
+  run: (message, { selection }, actions) => actions.setComposerDraft?.(`> ${selection ?? message.text}`),
+});
+```
+
+`roles` says which messages carry it (assistant replies when absent). `run`
+gets the `UiMessage`, `selection` — the text the user had selected inside that
+message when the button was pressed, if any; core keeps the selection alive
+through the click — and the workbench's actions. A throw is shown as a notice.
+Prompt Tools' "Cite" is the shipped caller.
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, stage tabs,
 regions, status items, overlays, composer controls, composer inlines, the sidebar, project
-sources, prompt renderers, the document source, transcript rows, tool renderers
-and tool cards — takes an optional `profiles`:
+sources, prompt renderers, the document source, transcript rows, tool renderers,
+tool cards and message actions — takes an optional `profiles`:
 
 ```ts
 context.registerPanel({ id: "agents", label: "Agents", profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
@@ -605,6 +628,24 @@ picker offers this only while the composer is a draft whose thread does not
 exist yet, and only while an extension registered one; the last registered
 wins. What to do with the set is the extension's own business — Thread Rail
 reads it in its `claimNewThread`.
+A third member, `streamingDelivery()`, says what the send chord does while a
+turn runs: `"followUp"` queues the message behind the turn, `"steer"` hands it
+to the turn now, and the alternate chord (⌘↵, or ⌘⇧↵ when ⌘↵ is the send
+chord) does the other. The first hook that answers wins; without one the send
+chord queues, which is what core does on its own. It is asked on every render
+of the composer, so answer from state you already hold. Prompt Tools answers it
+from its "While a turn runs" option. Which chord sends at all is not an
+extension's to decide: it is core's `sendShortcut` preference (Settings →
+Defaults → Send with — ↵, ⌘↵ once the draft has several lines, or ⌘↵), because
+a window in safe mode has to be able to send.
+
+A composer control (`registerComposerControl`) receives `actions` beside
+`snapshot`, the same `WorkbenchActions` a panel gets. Among them, a package
+that works on the whole draft — Prompt Tools' stash — reads and replaces its
+text with `composerDraft()` and `setComposerDraft(text)` (which also persists
+it) and its images with `composerImages()` and `setComposerImages(images)`, the
+`UiPromptImageAttachment` shape a prompt sends. Chips belong to whoever drew
+them; Composer Context's are reached through its chip service.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,

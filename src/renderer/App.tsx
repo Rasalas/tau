@@ -475,7 +475,7 @@ export default function App() {
     () => ({ snapshot: liveSnapshot, tools, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
     [liveSnapshot, tools, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
   );
-  const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry }), [liveSnapshot, registry]);
+  const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry, actions }), [actions, liveSnapshot, registry]);
   const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, tools, registry }), [events, liveSnapshot, tools, registry]);
   // The stage shows documents; whoever registered the document source loads them.
   const documentSource = registry.getDocumentSource();
