@@ -2,32 +2,17 @@
 import { getClientStorage } from "../workbench/client-storage";
 import { reviewStateKey } from "../workbench/storage-keys";
 
-export interface ReviewComment {
-  id: string;
-  path: string;
-  line?: number;
-  body: string;
-  createdAt: number;
-  resolved?: boolean;
-}
-
+/** Which files of a review were marked viewed. Line comments belong to whoever fills the line seam. */
 export interface PersistedReviewState {
   readPaths: string[];
-  comments: ReviewComment[];
 }
-
-const EMPTY_REVIEW_STATE: PersistedReviewState = { readPaths: [], comments: [] };
 
 export function readReviewState(workspace: string, scope: string): PersistedReviewState {
   try {
     const parsed = JSON.parse(getClientStorage()?.get(reviewStateKey(workspace, scope)) ?? "null") as Partial<PersistedReviewState> | null;
-    return {
-      readPaths: Array.isArray(parsed?.readPaths) ? parsed.readPaths.filter((path): path is string => typeof path === "string") : [],
-      comments: Array.isArray(parsed?.comments) ? parsed.comments.filter((comment): comment is ReviewComment => Boolean(comment)
-        && typeof comment.id === "string" && typeof comment.path === "string" && typeof comment.body === "string") : [],
-    };
+    return { readPaths: Array.isArray(parsed?.readPaths) ? parsed.readPaths.filter((path): path is string => typeof path === "string") : [] };
   } catch {
-    return EMPTY_REVIEW_STATE;
+    return { readPaths: [] };
   }
 }
 

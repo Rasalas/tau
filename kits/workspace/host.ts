@@ -441,6 +441,10 @@ export function createWorkspaceHostExtension(): HostExtension {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.restore(sessionId, checkpointId);
       });
+      context.registerCommand("rewind", (input) => {
+        const { sessionId, checkpointId } = checkpointRef(input);
+        return checkpoints.rewind(sessionId, checkpointId);
+      });
       context.registerCommand("turn-file-diff", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.turnFileDiff(sessionId, checkpointId, relativePath(input), record(input).options as DiffLoadOptions | undefined);

@@ -55,6 +55,10 @@ export type {
   ExtensionEvent,
   ComposerControlContribution,
   ComposerControlProps,
+  ComposerGateContext,
+  ComposerGateContribution,
+  ComposerGateProps,
+  ModelBadgeContribution,
   ComposerInlineContext,
   ComposerInlineContribution,
   ComposerInlineProps,
@@ -117,6 +121,8 @@ export type { PreferencesStore } from "./preferences";
 export type { PlatformAttention, SystemNotification, SystemNotificationOutcome } from "../workbench/platform";
 export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity } from "./components/ThreadRow";
+/** The line seam of `ReviewMode`'s diffs. */
+export type { DiffLineContext, DiffLineSlot } from "./components/DiffView";
 export type { HostActionResult, NewThreadResult } from "../shared/host-protocol";
 export type { WorkspaceRef } from "../shared/workspace-identity";
 export type * from "../shared/workspace-kit-types";

@@ -7,6 +7,7 @@ import openCodeIcon from "@lobehub/icons-static-svg/icons/opencode.svg?no-inline
 import piIcon from "@lobehub/icons-static-svg/icons/pi.svg?no-inline";
 import vertexAiIcon from "@lobehub/icons-static-svg/icons/vertexai-color.svg?no-inline";
 import kiConnectIcon from "../assets/providers/ki-connect.png";
+import { providerMarks } from "../runtime-marks";
 
 interface ProviderIdentity {
   family: string;
@@ -49,9 +50,11 @@ function ProviderIcon({ identity, layer }: { identity: ProviderIdentity; layer: 
   );
 }
 
-export function ProviderIconStack({ modelProvider, runtimeProvider = "pi", className }: { modelProvider?: string; runtimeProvider?: string; className?: string }) {
-  const model = providerIdentity(modelProvider);
-  const runtime = providerIdentity(runtimeProvider);
+/** A model provider's mark, with the runtime's beside it where `providerMarks` says it tells something apart. */
+export function ProviderIconStack({ modelProvider, runtimeProvider, className }: { modelProvider?: string; runtimeProvider?: string; className?: string }) {
+  const marks = providerMarks(modelProvider, runtimeProvider);
+  const model = providerIdentity(marks.model);
+  const runtime = providerIdentity(marks.runtime);
   // Keep the runtime and model provider as a pair unless both identify the same program.
   const distinctRuntime = model && runtime && (runtime.family !== model.family || runtime.label !== model.label) ? runtime : undefined;
   if (!model && !runtime) return null;

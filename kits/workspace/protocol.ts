@@ -177,6 +177,8 @@ export interface WorkspaceHostCommands {
   /** Exact live-workspace delta that restoring a checkpoint would replace. */
   "restore-preview": { input: { sessionId: string; checkpointId: string }; output: UiWorkspaceChanges };
   "restore": { input: { sessionId: string; checkpointId: string }; output: HostActionResult };
+  /** Conversation only: a new branch at the checkpoint, files untouched. Its own command, so an older host refuses rather than restores. */
+  "rewind": { input: { sessionId: string; checkpointId: string }; output: HostActionResult };
   /** Immutable diff captured for one completed turn; never the live workspace. */
   "turn-file-diff": { input: { sessionId: string; checkpointId: string; relPath: string; options?: DiffLoadOptions }; output: UiFileDiff };
   "turn-files": { input: { sessionId: string; checkpointId: string; cursor?: string; limit?: number }; output: UiWorkspaceChangesPage };
@@ -218,6 +220,7 @@ export interface WorkspaceHostClient {
   canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<boolean>;
   getRestorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
   restoreCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
+  rewindCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
   getTurnFileDiff(sessionId: string, checkpointId: string, relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
 }
@@ -258,6 +261,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     canRestoreCheckpoint: (sessionId, checkpointId) => call("can-restore", { sessionId, checkpointId }),
     getRestorePreview: (sessionId, checkpointId) => call("restore-preview", { sessionId, checkpointId }),
     restoreCheckpoint: (sessionId, checkpointId) => call("restore", { sessionId, checkpointId }),
+    rewindCheckpoint: (sessionId, checkpointId) => call("rewind", { sessionId, checkpointId }),
     getTurnFileDiff: (sessionId, checkpointId, relPath, options) => call("turn-file-diff", { sessionId, checkpointId, relPath, options }),
     getTurnFiles: (sessionId, checkpointId, cursor, limit) => call("turn-files", { sessionId, checkpointId, cursor, limit }),
   };

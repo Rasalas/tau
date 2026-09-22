@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { AlertTriangle, RotateCcw } from "lucide-react";
+import { FileClock, History, RotateCcw } from "lucide-react";
 import type {
   ChangeStatus,
   UiWorkspaceChanges,
@@ -12,7 +12,8 @@ export interface RestoreCheckpointDialogProps {
   workspaceChanges: UiWorkspaceChanges;
   busy?: boolean;
   onCancel(): void;
-  onConfirm(): void;
+  /** `files` also puts the workspace back; without it only the conversation goes back. */
+  onConfirm(files: boolean): void;
 }
 
 function restoreAction(status: ChangeStatus): string {
@@ -22,7 +23,7 @@ function restoreAction(status: ChangeStatus): string {
   return "replace";
 }
 
-/** Explicit confirmation for the destructive workspace/conversation restore. */
+/** Asks which way back to a checkpoint: the conversation only, or the files too. */
 export function RestoreCheckpointDialog({
   checkpoint,
   laterTurns,
@@ -37,9 +38,10 @@ export function RestoreCheckpointDialog({
         event.preventDefault();
         onCancel();
       }
+      // The shortcut takes the way that touches no file.
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !busy) {
         event.preventDefault();
-        onConfirm();
+        onConfirm(false);
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -53,22 +55,19 @@ export function RestoreCheckpointDialog({
     <div className="modal-scrim urgent restore-dialog-scrim">
       <section className="restore-dialog" role="dialog" aria-modal="true" aria-labelledby="restore-dialog-title">
         <header>
-          <span className="restore-dialog-mark"><AlertTriangle size={15} /></span>
+          <span className="restore-dialog-mark"><History size={15} /></span>
           <span>
-            <strong id="restore-dialog-title">Restore this checkpoint?</strong>
+            <strong id="restore-dialog-title">Rewind to this checkpoint?</strong>
             <small>Turn {checkpoint.turnId.slice(0, 12)}</small>
           </span>
         </header>
         <div className="restore-dialog-body">
-          <p>This creates a recoverable backup thread first, then replaces the active conversation branch and workspace with this checkpoint.</p>
-          <p>The workspace list compares the live files with the selected checkpoint.</p>
+          <p>The thread continues from the end of this turn on a new branch. The current branch, with its {laterTurns} later {laterTurns === 1 ? "turn" : "turns"}, stays in its own thread.</p>
+          <p><strong>Keep changes</strong> rewinds only the conversation; every file stays as it is now.</p>
+          <p><strong>Revert files too</strong> also puts the workspace back to this checkpoint. Tau first saves the current workspace, uncommitted work included, in a backup thread.</p>
           <dl>
             <div>
-              <dt>Later turns removed from the active branch</dt>
-              <dd>{laterTurns}</dd>
-            </div>
-            <div>
-              <dt>Workspace paths changed by restore</dt>
+              <dt>Workspace paths the file revert changes</dt>
               <dd>{fileCount}</dd>
             </div>
           </dl>
@@ -78,14 +77,17 @@ export function RestoreCheckpointDialog({
               {fileCount > files.length ? <li className="restore-dialog-more">…and {fileCount - files.length} more</li> : null}
             </ul>
           ) : <p className="restore-dialog-muted">The live workspace already matches this checkpoint.</p>}
-          <p className="restore-dialog-note">Use Fork instead if you want to explore this checkpoint without changing the current thread or workspace.</p>
+          <p className="restore-dialog-note">Use Fork instead to explore this checkpoint without leaving the current thread.</p>
         </div>
         <footer>
-          <span>⌘↵ restore</span>
+          <span>⌘↵ keep changes</span>
           <span className="spacer" />
           <button type="button" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button type="button" className="primary" onClick={onConfirm} disabled={busy} autoFocus>
-            <RotateCcw size={13} />{busy ? "Restoring…" : "Restore checkpoint"}
+          <button type="button" className="restore-dialog-files" onClick={() => onConfirm(true)} disabled={busy}>
+            <RotateCcw size={13} />Revert files too
+          </button>
+          <button type="button" className="primary" onClick={() => onConfirm(false)} disabled={busy} autoFocus>
+            <FileClock size={13} />{busy ? "Rewinding…" : "Keep changes"}
           </button>
         </footer>
       </section>

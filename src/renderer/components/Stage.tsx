@@ -2,7 +2,7 @@ import { useMemo, type KeyboardEvent, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activeTab, type StageExtensionTab, type StageState, type StageView } from "../../workbench/stage";
-import type { ExtensionRegistry } from "../extension-system";
+import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
 import { StageTabs, type ChatTab } from "./StageTabs";
@@ -21,10 +21,11 @@ function isEditable(target: EventTarget | null): boolean {
  * params and its handle; a kind that went away leaves the frame with a note,
  * because the tab itself is closed by the controller, not by this render.
  */
-function ExtensionPane({ tab, registry, stageTabs }: {
+function ExtensionPane({ tab, registry, stageTabs, actions }: {
   tab: StageExtensionTab;
   registry?: ExtensionRegistry;
   stageTabs?: StageTabController;
+  actions: WorkbenchActions;
 }) {
   const contribution = registry?.getStageTabKind(tab.tabKind);
   if (!contribution || !stageTabs) {
@@ -33,12 +34,12 @@ function ExtensionPane({ tab, registry, stageTabs }: {
     </section>;
   }
   return <section className="stage-pane" aria-label={tab.title}>
-    {contribution.render(tab.params, stageTabs.handle(tab.id))}
+    {contribution.render(tab.params, stageTabs.handle(tab.id), actions)}
   </section>;
 }
 
 export function Stage({
-  stage, cwd, changes, editor, chatTab, focusRef, registry, stageTabs,
+  stage, cwd, changes, editor, chatTab, focusRef, registry, stageTabs, actions,
   loadFile, loadDiff, loadThread,
   onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread,
 }: {
@@ -52,6 +53,8 @@ export function Stage({
   /** Who offers the stage tab kinds, and who holds their handles. */
   registry?: ExtensionRegistry;
   stageTabs?: StageTabController;
+  /** Handed to an extension tab's content, as a panel gets them. */
+  actions: WorkbenchActions;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   /** The transcript of a thread the composer is not addressing. */
@@ -103,6 +106,7 @@ export function Stage({
         tab={current}
         {...(registry ? { registry } : {})}
         {...(stageTabs ? { stageTabs } : {})}
+        actions={actions}
       />
     ) : current.kind === "thread" ? (
       <ThreadDocument

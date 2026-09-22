@@ -10,7 +10,7 @@ import { PreferencesStore } from "../preferences";
 import { RendererServicesProvider } from "../renderer-services-context";
 import { ObservatoryContext, WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
 
-export const KIT_REGION_PLACEMENTS: RegionPlacement[] = ["title-bar", "composer-above", "composer-below", "transcript-header", "transcript-footer"];
+export const KIT_REGION_PLACEMENTS: RegionPlacement[] = ["title-bar", "thread-title", "composer-above", "composer-below", "transcript-header", "transcript-footer"];
 
 const KIT_SNAPSHOT = {
   sessionId: "s1", cwd: "/project", isStreaming: false, models: [], thinkingLevel: "medium",
@@ -72,7 +72,7 @@ export async function expectKitActivatesCleanly(
   const leftovers = [
     ...registry.getPanels(), ...registry.getSidebarContributions(), ...registry.getProjectSources(), ...registry.getCommands(),
     ...registry.getSlashCommands(), ...registry.getKeybindings(), ...registry.getComposerControls(), ...registry.getStatusItems(),
-    ...registry.getSettingsPages(), ...registry.getStageTabKinds(), ...registry.getMessageActions(), ...registry.getComposerInlines(),
+    ...registry.getSettingsPages(), ...registry.getStageTabKinds(), ...registry.getMessageActions(), ...registry.getComposerInlines(), ...registry.getComposerGates(), ...registry.getModelBadges(),
     ...KIT_REGION_PLACEMENTS.flatMap((placement) => registry.getRegions(placement)),
   ];
   if (leftovers.length > 0) throw new Error(`${extension.id} left ${leftovers.length} contributions behind`);

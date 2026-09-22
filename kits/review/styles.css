@@ -1,4 +1,4 @@
-/* Review Kit: the request section in the Changes panel and the rail-row badge. */
+/* Review Kit: the request section in the Changes panel, the rail-row badge and line comments in the review. */
 .request-section {
   flex: none; display: flex; flex-direction: column; gap: 6px;
   padding: 8px 10px; border-bottom: 1px solid var(--line);
@@ -42,3 +42,32 @@
 .request-checks-dot.passed { background: var(--acid); }
 .request-checks-dot.failed { background: var(--danger); }
 .request-checks-dot.pending { background: var(--warn); }
+
+/* Line comments: the one being written and the saved ones sit under their last line. */
+.review-comment-editor, .review-comment-note { margin: 4px 10px 6px 34px; border: 1px solid var(--line-control); border-radius: 7px; background: var(--field); }
+.review-comment-editor { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.review-comment-editor small { color: var(--muted); font: 9.5px var(--mono); }
+.review-comment-editor textarea {
+  min-height: 52px; resize: vertical; border: 1px solid var(--line-control); border-radius: 6px;
+  background: var(--sunken); color: var(--ink); padding: 6px 9px; font: 12px/1.45 var(--sans); outline: none;
+}
+.review-comment-editor textarea:focus { border-color: var(--line-float); }
+.review-comment-editor footer { display: flex; align-items: center; gap: 6px; }
+.review-comment-editor footer > span { flex: 1; color: var(--fainter); font-size: 10px; }
+.review-comment-note { display: flex; align-items: flex-start; gap: 8px; padding: 7px 8px; border-left: 2px solid var(--acid-line); }
+.review-comment-note > svg { flex: none; margin-top: 3px; color: var(--acid-text); }
+.review-comment-note p { flex: 1; margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
+.review-comments { width: min(330px, 36vw); flex: none; display: flex; flex-direction: column; overflow: auto; border-left: 1px solid var(--line); background: var(--chrome); }
+.review-comments > header { position: sticky; top: 0; display: flex; align-items: center; gap: 8px; padding: 11px 12px; border-bottom: 1px solid var(--line); background: var(--chrome); }
+.review-comments > header strong { flex: 1; font-size: 11px; }
+.review-comments > p { padding: 14px; color: var(--faint); font-size: 11px; line-height: 1.5; }
+.review-comments article { margin: 9px 9px 0; padding: 10px; border: 1px solid var(--line-control); border-radius: 7px; background: var(--field); }
+.review-comments article small { color: var(--acid-text); font: 9.5px var(--mono); }
+.review-comments article p { margin: 7px 0; color: var(--ink-2); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; }
+.review-comments > footer { position: sticky; bottom: 0; margin-top: auto; padding: 10px 9px; background: var(--chrome); }
+.review-comments > footer .primary { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.review-toolbar > .review-comments-action.active { color: var(--ink); }
+@media (max-width: 1200px) {
+  .review-toolbar > .review-comments-action, .review-toolbar > .review-comments-send { font-size: 0; gap: 0; }
+  .review-toolbar > .review-comments-action svg, .review-toolbar > .review-comments-send svg { width: 13px; height: 13px; }
+}

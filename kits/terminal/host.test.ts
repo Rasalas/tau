@@ -75,10 +75,13 @@ describe("terminal host commands", () => {
       expect(events).toContainEqual(expect.objectContaining({ name: TERMINAL_DATA_EVENT, payload: { id: session.id, data: "hi\r\n", offset: 4 } }));
       expect(await client.replay({ id: session.id })).toEqual({ data: "hi\r\n", offset: 4 });
 
-      // Scrollback is bounded; the offset keeps counting so a client never redraws.
-      const burst = "x".repeat(300_000);
+      // Scrollback keeps the last 5,000 lines; the offset keeps counting so a client never redraws.
+      const burst = Array.from({ length: 6_000 }, (_, index) => `line ${index}\n`).join("");
       processes[0].output(burst);
-      expect(await client.replay({ id: session.id })).toEqual({ data: burst.slice(-256 * 1024), offset: 300_004 });
+      const replayed = await client.replay({ id: session.id });
+      expect(replayed?.offset).toBe(4 + burst.length);
+      expect(replayed?.data.split("\n")).toHaveLength(5_001);
+      expect(replayed?.data.startsWith("line 1000\n")).toBe(true);
 
       await client.resize({ id: session.id, cols: 120, rows: 40 });
       expect(processes[0].resize).toHaveBeenCalledWith(120, 40);
@@ -106,6 +109,39 @@ describe("terminal host commands", () => {
       await client.kill({ id: running.id });
       expect(processes[2].kill).toHaveBeenCalledOnce();
       expect(await client.list()).toEqual([]);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("names a program running in a shell's foreground, and not the shell itself", async () => {
+    const { spawn, processes } = fakePtys();
+    const registry = await activateHostKit(createTerminalHostExtension(spawn), services());
+    const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+    try {
+      const session = await client.open({});
+      const shell = String(session.shell);
+      let foreground: string | undefined = shell;
+      processes[0].pty.foreground = () => foreground;
+      expect(await client.foreground({ id: session.id })).toEqual({});
+      foreground = "top";
+      expect(await client.foreground({ id: session.id })).toEqual({ process: "top" });
+      foreground = `-${shell}`;
+      expect(await client.foreground({ id: session.id })).toEqual({});
+      processes[0].exit(0);
+      foreground = "top";
+      expect(await client.foreground({ id: session.id })).toEqual({});
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("answers with the Ghostty font the host reads", async () => {
+    const defaults = { families: ["JetBrains Mono"], size: 16, files: ["/config"], problems: [] };
+    const registry = await activateHostKit(createTerminalHostExtension(fakePtys().spawn, { fontDefaults: () => defaults }), services());
+    const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+    try {
+      expect(await client.font()).toEqual(defaults);
     } finally {
       await registry.dispose();
     }

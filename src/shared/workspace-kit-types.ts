@@ -116,6 +116,8 @@ export interface DiffLoadOptions {
   hunkLimit?: number;
   /** Git context lines around each hunk. The host clamps this value. */
   contextLines?: number;
+  /** Leave out changes that only move whitespace (`git diff -w`). */
+  ignoreWhitespace?: boolean;
   scope?: WorkspaceDiffScope;
   baseRef?: string;
   baseCommit?: string;

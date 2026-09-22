@@ -176,6 +176,15 @@ with it. Keybindings Kit uses it for the actions the user rebound in
 that key, not that key and Tau's default too. Without `replaces`, a binding is
 additive, which is what a package adding a chord of its own wants.
 
+A binding is window-wide: there is no focus context. A chord that should only
+mean something while your own surface has the keyboard is handled by that
+surface — call `preventDefault()` on the keydown and the window's dispatcher
+leaves it alone. Terminal Kit does this for `mod+d`, `mod+shift+d`, `mod+n`
+and `mod+w` inside a focused shell (`kits/terminal/keys.ts`). An `alt` chord
+also matches by the physical key, because on macOS Option turns the letter
+into another character. `kits/kit-lifecycle.test.tsx` fails when two shipped
+kits bind the same chord.
+
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
 the workbench itself uses, and core no longer keeps a table of names it would
@@ -244,7 +253,11 @@ with), and they are what a restored tab comes back with. Put an id in them, not
 an object. An extension tab opens pinned, because it is opened by a deliberate
 action; pass `preview: true` to take the stage's one preview slot instead.
 
-`render` is given the params and a **handle**, the tab's own:
+`render` is given the params, a **handle** — the tab's own — and the
+workbench's `actions`, the same object a panel receives in its props, so a
+tab's content can open a panel, a file or a URL without its kit keeping a
+copy from elsewhere (new in API 1.9.0; Terminal Kit opens a link's Preview
+this way). The handle:
 
 | Member | What it does |
 |---|---|
@@ -377,12 +390,62 @@ message when the button was pressed, if any; core keeps the selection alive
 through the click — and the workbench's actions. A throw is shown as a notice.
 Prompt Tools' "Cite" is the shipped caller.
 
+#### Policy around the model: gates, badges, the thread title
+
+Three seams let a package hold an opinion about models without core having
+one. Subscription Login Warning (`kits/subscription-login/`) uses all three;
+switching it off removes every trace of its warning.
+
+`registerComposerGate({ id, order?, check, Component })` asks the user before
+the composer acts. `check(context)` is called when a model is picked in the
+model picker or added to a new thread's model set with Shift-click
+(`action: "model"`), and when a prompt is about to go to the thread's model,
+the ⌘↵ alternate send included (`action: "prompt"`); `context` carries the `model`, the
+`runtime` the thread runs on (or a new thread will start on) and the
+`snapshot`. `model` is absent when a new thread will start on another
+runtime's default. Answer `true` and core draws `Component` over a backdrop,
+with `proceed()` and `cancel()`; a click outside or Escape cancels. Gates run
+in `order`, and a proceeded gate hands on to the next one that asks. A
+cancelled model choice reopens the picker; a cancelled prompt stays in the
+composer. A `/command`, a `!` shell command and an answer to a question are not
+prompts and pass no gate. Keep `check` cheap and free of side effects: it runs
+on every choice and every send, and whatever the user decides belongs in the
+dialog.
+
+```tsx
+plugin.registerComposerGate({
+  id: "example.expensive",
+  profiles: ["desktop", "web", "compact"],
+  check: ({ model }) => model?.id === "big-and-expensive" && !confirmed(),
+  Component: ({ proceed, cancel }) => (
+    <section role="dialog" aria-label="Expensive model">
+      <p>This model costs ten times as much.</p>
+      <button onClick={cancel}>Pick another model</button>
+      <button onClick={() => { confirm(); proceed(); }}>Use it</button>
+    </section>
+  ),
+});
+```
+
+`registerModelBadge({ id, applies, label, title?, tone?, note? })` marks
+models in the picker. `applies(model, runtime)` runs for every listed row, and
+a model it answers `true` for wears `label` after its name (`tone: "warning"`
+draws it in the caution colours, `title` is its hover text). `note` is one line
+under the list, shown while any listed model wears the badge.
+
+`registerRegion({ placement: "thread-title", … })` draws before the thread's
+title in the conversation header — a mark about the thread on screen, which
+reads the `snapshot` it is given. The other placements are `title-bar`,
+`composer-above`, `composer-below`, `transcript-header` and
+`transcript-footer`.
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, stage tabs,
-regions, status items, overlays, composer controls, composer inlines, the sidebar, project
-sources, prompt renderers, the document source, transcript rows, tool renderers,
-tool cards and message actions — takes an optional `profiles`:
+regions, status items, overlays, composer controls, composer inlines, composer
+gates, model badges, the sidebar, project sources, prompt renderers, the
+document source, transcript rows, tool renderers, tool cards and message
+actions — takes an optional `profiles`:
 
 ```ts
 context.registerPanel({ id: "agents", label: "Agents", profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
@@ -499,14 +562,31 @@ usual; the members that need a live runtime (`complete`, `appendEntry`) throw,
 and a provider that throws simply contributes no pins for that thread.
 
 It also lends two document surfaces core owns: `ReviewMode`, the full-workbench
-review of a set of changes (file tree, diffs, line notes, commit box), and
+review of a set of changes (file tree, diffs, commit box), and
 `ChangesTree`, the changed files of a workspace with stage, unstage and revert.
 Both load as their own chunk the first time they are rendered and bring their
 own loading state, so an extension renders them like any other component. The
 shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`,
 `UiDiffHunk`, `UiDiffLine`, `DiffLoadOptions`, `WorkspaceChangesQuery`,
-`WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage` —
-are exported as types beside them.
+`WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage`,
+`DiffLineSlot`, `DiffLineContext` — are exported as types beside them.
+
+`ReviewMode` draws the diffs and knows nothing about what a package does with
+them. What a caller may add, all optional:
+
+| Prop | What core does with it |
+|---|---|
+| `lines` | A `DiffLineSlot`: `onAction(line, { shiftKey })` puts a button in each line's gutter (named by `actionLabel(line)`, "Comment on line N" by default), `count(line)` writes a number on it and keeps it visible, `selected(line)` marks the line, `render(line)` draws a node under the line across the full width. `line` is `{ path, line: UiDiffLine }`, so a removed line is told apart from an added one by its `oldLine`. Without it there is no gutter button. |
+| `layout`, `onLayoutChange` | Split or unified. Given a handler, the caller owns the choice and the toolbar toggle asks it; otherwise the toggle keeps its own. A window too narrow for split draws unified either way. |
+| `ignoreWhitespace`, `onIgnoreWhitespaceChange` | The flag goes to `loadDiff` as `DiffLoadOptions.ignoreWhitespace`; the toolbar offers the toggle only with a handler. Workspace Kit answers it with `git diff --ignore-all-space` and says "Only whitespace changed." for a file with nothing else. |
+| `filesStartCollapsed` | Every file opens folded to its header. Each header folds its file, the toolbar folds or unfolds all, and a file opened from the tree unfolds. |
+| `toolbar`, `aside` | A node in the toolbar, before core's own controls, and a panel beside the diffs. |
+
+Review Kit fills all of them: line comments under the lines, their list in
+the aside and a "Send to composer" that hands them over as `text-excerpt` chips
+through the chip service above (source `Review comment on src/a.ts:12-14`, the
+comment and the lines it covers as a `diff` block), and three settings — split view, hidden whitespace, files that start
+collapsed — which the toolbar toggles write back.
 
 It also exports the renderer's shared state and presentation:
 

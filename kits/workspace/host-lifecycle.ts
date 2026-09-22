@@ -66,6 +66,8 @@ export interface WorkspaceKitLifecycle {
   canRestore(sessionId: string, checkpointId: string): Promise<boolean>;
   restorePreview(sessionId: string, checkpointId: string): Promise<UiWorkspaceChanges>;
   restore(sessionId: string, checkpointId: string): Promise<HostActionResult>;
+  /** Back to a checkpoint in the conversation only; the files stay as they are. */
+  rewind(sessionId: string, checkpointId: string): Promise<HostActionResult>;
   turnFileDiff(sessionId: string, checkpointId: string, path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   turnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
 }
@@ -431,8 +433,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     }
   };
 
-  /** Shared trust boundary used by both the restore action and its UI offer. */
-  const verifiedRestoreCheckpoint = async (sessionId: string, checkpointId: string) => {
+  /** What both ways back to a checkpoint need: an idle local Pi thread whose saved branch still has the checkpoint's answer. */
+  const verifiedAnchor = (sessionId: string, checkpointId: string) => {
     if (services.attachedRuntime()) throw new Error("Restore is unavailable while Pi owns this thread.");
     const source = services.thread();
     if (!source) throw new Error("Pi runtime is not ready");
@@ -447,9 +449,6 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     const sourceCheckpoints = checkpointsOf(sourceBranch, sessionId);
     const checkpoint = sourceCheckpoints.find((entry) => entry.id === checkpointId);
     if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
-    if (checkpoint.completeness === "partial") {
-      throw new Error("This checkpoint is incomplete and cannot be restored safely. Use Fork instead.");
-    }
     const anchor = sourceBranch.find((entry) => {
       if (!entry || typeof entry !== "object") return false;
       const item = entry as { id?: unknown; type?: unknown; message?: unknown };
@@ -459,6 +458,15 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     });
     if (!anchor || typeof (anchor as { id?: unknown }).id !== "string") {
       throw new Error("This checkpoint has no completed assistant anchor and cannot be restored.");
+    }
+    return { source, sourceFile, sourceCheckpoints, checkpoint };
+  };
+
+  /** Shared trust boundary used by both the restore action and its UI offer. */
+  const verifiedRestoreCheckpoint = async (sessionId: string, checkpointId: string) => {
+    const { source, sourceFile, sourceCheckpoints, checkpoint } = verifiedAnchor(sessionId, checkpointId);
+    if (checkpoint.completeness === "partial") {
+      throw new Error("This checkpoint is incomplete and cannot be restored safely. Use Fork instead.");
     }
     await workspaceGit.validateRestorableWorkspaceSnapshotRefs(
       source.cwd,
@@ -692,6 +700,47 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     }
     return kept;
   };
+  /**
+   * Rewinds the conversation and leaves every file alone: a branch that ends
+   * at the checkpoint's answer becomes the thread on screen, like a fork, and
+   * the source thread stays as it was, so nothing needs a backup.
+   */
+  const rewind = async (sessionId: string, checkpointId: string): Promise<HostActionResult> => {
+    if (services.attachedRuntime()) throw new Error("Rewind is unavailable while Pi owns this thread. Use Fork instead.");
+    return services.sessions.exclusive(async () => {
+      const { source, sourceFile, sourceCheckpoints, checkpoint } = verifiedAnchor(sessionId, checkpointId);
+      const target = services.sessions.open(sourceFile).branch(checkpoint.anchorMessageId);
+      if (!target) throw new Error("Failed to create the rewound thread.");
+      let prepared: Awaited<ReturnType<typeof services.sessions.prepare>> | undefined;
+      let activated: HostActionResult;
+      try {
+        const inherited = await withSnapshotRefs(source.cwd, checkpointsForBranch(target.entries(), sourceCheckpoints));
+        if (inherited.length > 0) {
+          await maintenance.rehomeFork({
+            cwd: source.cwd,
+            sourceSessionId: source.sessionId,
+            targetSessionId: target.sessionId,
+            checkpoints: inherited,
+            appendEntry: (customType, data) => { target.appendEntry(customType, data); },
+            committedCheckpoints: () => checkpointsOf(target.entries(), target.sessionId),
+          });
+        }
+        prepared = await services.sessions.prepare(target, { previousSessionFile: sourceFile });
+        activated = await prepared.activate();
+        prepared = undefined;
+      } catch (error) {
+        await prepared?.discard().catch(() => undefined);
+        await workspaceGit.cleanupTurnCheckpointSessionRefs(source.cwd, target.sessionId).catch(() => undefined);
+        await rm(target.path, { force: true }).catch(() => undefined);
+        throw new Error(`Rewind failed; the thread was kept unchanged. ${errorMessage(error)}`, { cause: error });
+      }
+      target.appendInfo(`Rewound to turn ${checkpoint.turnId.slice(0, 12)}; files kept as they were`);
+      services.log("rewind.completed", checkpoint.turnId);
+      const index = await services.sessions.refreshIndex();
+      return { ...activated, updates: [index, ...activated.updates] };
+    });
+  };
+
   const lifecycle: HostThreadLifecycle = {
     beforeWorkspace: (cwd) => recoverPendingRestoreTransactions(cwd),
     beforeOpen: async (session) => {
@@ -849,6 +898,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       });
     },
     restore,
+    rewind,
     turnFileDiff: async (sessionId, checkpointId, path, diffOptions) => {
       if (services.attachedRuntime(sessionId)) {
         await workspaceGit.assertWorkspacePath(services.cwd(), path);

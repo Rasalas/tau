@@ -54,7 +54,7 @@ describe("Workspace Kit desktop extension", () => {
     expect(openInEditorSpy).toHaveBeenCalled();
   });
 
-  it("registers workspace.open-terminal command with mod+j keybinding and /terminal and /term slash commands", async () => {
+  it("registers workspace.open-terminal command with mod+alt+j keybinding and /terminal and /term slash commands", async () => {
     const invoke = vi.fn(async (_extensionId: string, command: string, _input?: unknown) => {
       if (command === "list-terminals") return [{ id: "ghostty", name: "Ghostty" }, { id: "terminal", name: "Terminal" }];
       if (command === "open-terminal") return undefined;
@@ -70,7 +70,8 @@ describe("Workspace Kit desktop extension", () => {
 
     const keybinding = registry.getKeybindings().find((kb) => kb.commandId === "workspace.open-terminal");
     expect(keybinding).toBeDefined();
-    expect(keybinding?.keys).toBe("mod+j");
+    // mod+j is Terminal Kit's embedded terminal, as in T3 Code.
+    expect(keybinding?.keys).toBe("mod+alt+j");
 
     const slashTerminal = registry.getSlashCommands().find((sc) => sc.name === "terminal");
     expect(slashTerminal).toBeDefined();
