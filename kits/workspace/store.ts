@@ -26,7 +26,9 @@ import {
   type WorkspaceHostClient,
   type WorkspaceKitState,
   type WorkspaceMode,
+  type ThreadRailOrganizer,
   type ThreadRowAccessoryProps,
+  type ThreadWorktreeRequest,
   type WorkspaceStoreApi,
   type WorktreeNamer,
 } from "./protocol.js";
@@ -463,15 +465,13 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    * Anything that goes wrong leaves the thread in the checkout it was started
    * from: a prompt is never lost to a worktree that could not be made.
    */
-  async prepareThreadWorktree(event: {
-    prompt: string;
-    preparing(message: string): void;
-  }): Promise<{ workspace?: { workspaceId: string; displayPath: string } }> {
-    if (this.workspaceMode() !== "worktree" || !this.state.workspace?.isRepo || !hostAvailable()) return {};
+  async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string } }> {
+    if ((!event.force && this.workspaceMode() !== "worktree") || !this.state.workspace?.isRepo || !hostAvailable()) return {};
     this.update({ preparingWorktree: true });
     try {
       event.preparing("Setting up worktree…");
-      const branch = await this.threadBranchName(event.prompt);
+      const named = await this.threadBranchName(event.prompt);
+      const branch = event.branchSuffix ? `${named}-${event.branchSuffix}` : named;
       const created = await this.host.createWorktree(branch, { startFromOrigin: this.startFromOrigin() }, this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath } };
     } catch (error) {
@@ -554,6 +554,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void {
     this.update({ threadRowAccessories: [...this.state.threadRowAccessories, accessory] });
     return () => this.update({ threadRowAccessories: this.state.threadRowAccessories.filter((entry) => entry !== accessory) });
+  }
+
+  registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {
+    this.update({ threadRailOrganizer: organizer });
+    return () => { if (this.state.threadRailOrganizer === organizer) this.update({ threadRailOrganizer: undefined }); };
   }
 
   registerCommitMessageSuggester(suggester: CommitMessageSuggester): () => void {

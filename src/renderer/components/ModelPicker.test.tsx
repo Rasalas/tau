@@ -144,5 +144,41 @@ describe("ModelPicker", () => {
     fireEvent.keyDown(searchInput, { key: "ArrowLeft" });
     expect(screen.getByText("Claude Fable 5.1")).toBeTruthy();
   });
-});
 
+  it("hands Shift-clicks to the model selection an extension registered, and a plain pick resets it", () => {
+    let chosen: string[] = [];
+    const listeners = new Set<() => void>();
+    const selection = {
+      id: "test.selection",
+      selected: () => chosen,
+      subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+      toggle: vi.fn((model: UiModel, current: UiModel | undefined) => {
+        chosen = [...(chosen.length === 0 && current ? [`${current.provider}/${current.id}`] : chosen), `${model.provider}/${model.id}`];
+        listeners.forEach((listener) => listener());
+      }),
+      reset: vi.fn(() => { chosen = []; listeners.forEach((listener) => listener()); }),
+    };
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    render(<TestProviders>
+      <ModelPicker models={models} activeKey="anthropic/claude-sonnet-4-5" onSelect={onSelect} onClose={onClose} multiSelect={selection} />
+    </TestProviders>);
+
+    fireEvent.click(screen.getByText("Claude Opus 5"), { shiftKey: true });
+    expect(selection.toggle).toHaveBeenCalledWith(models[1], models[3]);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getAllByText("added")).toHaveLength(2);
+    expect(screen.getByText("2 models chosen")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Claude Opus 4.1"));
+    expect(selection.reset).toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith(models[2]);
+  });
+
+  it("treats a Shift-click as a plain pick when nobody keeps a model set", () => {
+    const onSelect = renderPicker();
+    fireEvent.click(screen.getByText("Claude Opus 5"), { shiftKey: true });
+    expect(onSelect).toHaveBeenCalledWith(models[1]);
+  });
+});

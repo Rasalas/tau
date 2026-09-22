@@ -143,6 +143,7 @@ export function Composer({
   onNotify,
   onOpenPromptEditor,
   onRunShellAction,
+  newThread = false,
 }: {
   snapshot?: HostSnapshot;
   scopeStore: ComposerScopeStore;
@@ -158,7 +159,7 @@ export function Composer({
   controlRef?: RefObject<ComposerControlHandle | null>;
   attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
   onChange?(value: string): void;
-  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: UiSkillDraft): Promise<SubmitResult>;
+  onSubmit(text?: string, attachments?: UiPromptAttachment[], delivery?: ComposerDelivery, skillDraft?: UiSkillDraft): Promise<SubmitResult>;
   onAbort(): void;
   onCancelQueued(id: string): void;
   /** Sends one queued message now, ahead of the rest of the queue. */
@@ -183,6 +184,8 @@ export function Composer({
   onOpenPromptEditor?(): void;
   /** Direct shell execution for `! <command>` inputs. */
   onRunShellAction?(command: string, includeInContext?: boolean): Promise<unknown>;
+  /** The composer is a draft whose thread does not exist yet. */
+  newThread?: boolean;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
   const clientStorage = useClientStorage();
@@ -921,7 +924,7 @@ export function Composer({
                 onSteerQueued(queue[0].id);
                 return;
               }
-              const delivery = streaming ? (now ? "steer" : "followUp") : undefined;
+              const delivery = streaming ? (now ? "steer" : "followUp") : now ? "alternate" : undefined;
               submitCurrent(delivery);
             }
           }}
@@ -1129,6 +1132,7 @@ export function Composer({
           onSelectRuntime={runtimeChoice?.onSelect}
           onNewThreadOnRuntime={onNewThreadOnRuntime}
           badges={registry?.getModelBadges?.()}
+          multiSelect={newThread ? registry?.getModelSelection?.() : undefined}
         />
       ) : null}
       {openGate ? (

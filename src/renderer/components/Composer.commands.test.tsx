@@ -129,6 +129,15 @@ describe("Composer command menu", () => {
     expect(onSubmit).toHaveBeenLastCalledWith("adjust now", [], "steer");
   });
 
+  it("sends with the modifier held as the alternate send while idle", async () => {
+    const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })));
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "start it elsewhere", selectionStart: 18 } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(onSubmit).toHaveBeenLastCalledWith("start it elsewhere", [], "alternate");
+  });
+
   it("releases the head of the queue with Command-Enter on an empty field", () => {
     const onSteerQueued = vi.fn();
     const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })), true, snapshot, {

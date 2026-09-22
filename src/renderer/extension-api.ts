@@ -91,6 +91,8 @@ export type {
   ProjectSourceProps,
   CommandContribution,
   CommandSurface,
+  ModelSelectionContribution,
+  NewThreadClaimEvent,
   NewThreadPromptEvent,
   NewThreadPromptGate,
   PromptHookContribution,

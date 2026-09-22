@@ -454,3 +454,43 @@ describe("client profiles", () => {
     await expect(registry.executeCommand("unknown.id", mockActions)).rejects.toThrow("Command \"unknown.id\" is not registered.");
   });
 });
+
+describe("new-thread claims and model selections", () => {
+  const event = { prompt: "go", projectPath: "/project", preparing: () => undefined, alternate: true, runtime: "pi", attachments: 0 };
+
+  it("asks claim hooks in order, reports one that throws and stops at the first that takes the prompt", async () => {
+    const registry = new ExtensionRegistry();
+    const later = vi.fn(async () => true);
+    registry.activate({ id: "broken", name: "Broken", activate(context) {
+      context.registerPromptHook({ id: "broken.claim", claimNewThread: async () => { throw new Error("no"); } });
+    } });
+    registry.activate({ id: "declines", name: "Declines", activate(context) {
+      context.registerPromptHook({ id: "declines.claim", claimNewThread: async () => false });
+    } });
+    registry.activate({ id: "takes", name: "Takes", activate(context) {
+      context.registerPromptHook({ id: "takes.claim", claimNewThread: async () => true });
+      context.registerPromptHook({ id: "takes.later", claimNewThread: later });
+    } });
+    const notify = vi.fn();
+    const actions = { notify } as unknown as import("./extension-system").WorkbenchActions;
+
+    await expect(registry.claimNewThread(event, actions)).resolves.toBe(true);
+    expect(notify).toHaveBeenCalledWith("broken.claim: no");
+    expect(later).not.toHaveBeenCalled();
+
+    registry.deactivate("takes");
+    await expect(registry.claimNewThread(event, actions)).resolves.toBe(false);
+  });
+
+  it("offers the model selection the last extension registered, and forgets it on deactivation", () => {
+    const registry = new ExtensionRegistry();
+    const selection = (id: string) => ({ id, selected: () => [], subscribe: () => () => undefined, toggle: () => undefined, reset: () => undefined });
+    registry.activate({ id: "first", name: "First", activate(context) { context.registerModelSelection(selection("first.models")); } });
+    registry.activate({ id: "second", name: "Second", activate(context) { context.registerModelSelection(selection("second.models")); } });
+    expect(registry.getModelSelection()?.id).toBe("second.models");
+    registry.deactivate("second");
+    expect(registry.getModelSelection()?.id).toBe("first.models");
+    registry.deactivate("first");
+    expect(registry.getModelSelection()).toBeUndefined();
+  });
+});

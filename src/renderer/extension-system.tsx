@@ -19,6 +19,7 @@ import type {
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { StageTab } from "../workbench/stage";
 import { PreferencesStore } from "./preferences";
+import { errorMessage } from "../workbench/error-message";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 
 /**
@@ -535,8 +536,27 @@ export interface NewThreadPromptGate {
   workspace?: { workspaceId: string; displayPath: string; name?: string };
 }
 
+/** A new thread's first prompt, offered to an extension that may start the thread itself. */
+export interface NewThreadClaimEvent extends NewThreadPromptEvent {
+  /** Sent with the modifier held (⌘↵ on macOS, Ctrl+↵ elsewhere). */
+  alternate: boolean;
+  /** The model the thread would start with; absent when the runtime picks its own. */
+  model?: { provider: string; id: string };
+  /** The runtime backend the thread would be created on. */
+  runtime: string;
+  /** Images and files attached to the prompt. */
+  attachments: number;
+}
+
 export interface PromptHookContribution {
   id: string;
+  /**
+   * Runs first when a pending draft's first prompt leaves the composer.
+   * Answering `true` takes the prompt: core creates no thread, the composer
+   * empties and the draft stays open for the next one. A hook that throws is
+   * reported and the prompt goes on as if nobody had claimed it.
+   */
+  claimNewThread?(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean | void>;
   /**
    * Runs before a pending draft's first prompt leaves the composer. It may move
    * the thread to another project; a failure is reported and the draft stays
@@ -544,6 +564,21 @@ export interface PromptHookContribution {
    */
   beforeNewThread?(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | void>;
   afterPrompt?(event: PromptSubmittedEvent, actions: WorkbenchActions): void | Promise<void>;
+}
+
+/**
+ * A set of models a new thread's picker builds with Shift-click, kept by the
+ * extension that knows what to do with more than one. Keys are `provider/id`;
+ * a key appears once per time it was chosen.
+ */
+export interface ModelSelectionContribution {
+  id: string;
+  selected(): readonly string[];
+  subscribe(listener: () => void): () => void;
+  /** Shift-click on a row; `current` is the model the draft has now. */
+  toggle(model: UiModel, current: UiModel | undefined): void;
+  /** A plain pick: back to one model. */
+  reset(): void;
 }
 
 /** Who loads the stage's documents and knows which are changed. One at a time. */
@@ -690,6 +725,8 @@ export interface DesktopExtensionContext {
   /** Binds a chord to a command of any extension; core dispatches window keydown. */
   registerKeybinding(binding: KeybindingContribution): () => void;
   registerPromptHook(hook: PromptHookContribution): () => void;
+  /** Lets a new thread's model picker hold several models; one extension at a time, the last one wins. */
+  registerModelSelection(selection: ModelSelectionContribution): () => void;
   registerPromptRenderer(renderer: PromptRendererContribution): () => void;
   /** The stage shows documents; one extension says how to load them and which are changed. */
   registerDocumentSource(source: DocumentSourceContribution): () => void;
@@ -842,6 +879,7 @@ export class ExtensionRegistry {
   /** Commands whose default chords are shadowed, and by how many live bindings. */
   private shadowedCommands = new Map<string, number>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
+  private modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   /** Values one extension published for another; core only routes them by id. */
@@ -1153,6 +1191,10 @@ export class ExtensionRegistry {
       registerPromptHook: (hook) => {
         note("prompt hooks");
         return this.register(this.promptHooks, hook.id, { ...hook, ...owner }, disposers);
+      },
+      registerModelSelection: (selection) => {
+        note("model selection");
+        return this.register(this.modelSelections, selection.id, { ...selection, ...owner }, disposers);
       },
       registerDocumentSource: (source) => {
         if (!this.scopeToProfile(owner, "document source", source.id, undefined, source)) return noContribution;
@@ -1541,10 +1583,31 @@ export class ExtensionRegistry {
         const result = await hook.beforeNewThread(event, actions);
         if (result?.workspace) return result;
       } catch (error) {
-        actions.notify(`${hook.id}: ${error instanceof Error ? error.message : String(error)}`);
+        actions.notify(`${hook.id}: ${errorMessage(error)}`);
       }
     }
     return undefined;
+  }
+
+  /**
+   * Offers a new thread's first prompt to every hook that may start it itself,
+   * in registration order; the first that answers `true` has taken it.
+   */
+  async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean> {
+    for (const hook of this.promptHooks.values()) {
+      if (!hook.claimNewThread) continue;
+      try {
+        if (await hook.claimNewThread(event, actions)) return true;
+      } catch (error) {
+        actions.notify(`${hook.id}: ${errorMessage(error)}`);
+      }
+    }
+    return false;
+  }
+
+  /** The model set a new thread's picker builds, from the extension that registered last. */
+  getModelSelection(): Owned<ModelSelectionContribution> | undefined {
+    return [...this.modelSelections.values()].at(-1);
   }
 
   async notifyPromptSubmitted(event: PromptSubmittedEvent, actions: WorkbenchActions): Promise<void> {
@@ -1552,7 +1615,7 @@ export class ExtensionRegistry {
       try {
         await hook.afterPrompt?.(event, actions);
       } catch (error) {
-        actions.notify(`${hook.id}: ${error instanceof Error ? error.message : String(error)}`);
+        actions.notify(`${hook.id}: ${errorMessage(error)}`);
       }
     }
   }

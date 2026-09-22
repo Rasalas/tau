@@ -39,6 +39,7 @@ function harness(options: {
   hostSessionApplied?: boolean;
   slash?: ReturnType<ExtensionRegistry["findSlashCommand"]>;
   prepareNewThread?: ExtensionRegistry["prepareNewThread"];
+  claimNewThread?: ExtensionRegistry["claimNewThread"];
 } = {}) {
   const client = createFakeHostClient(options.client);
   const view = new ThreadViewStore(options.snapshot ?? SESSION_SNAPSHOT);
@@ -53,6 +54,7 @@ function harness(options: {
     findSlashCommand: () => options.slash,
     notifyPromptSubmitted: promptHooks,
     prepareNewThread,
+    claimNewThread: options.claimNewThread ?? vi.fn(async () => false),
   } as unknown as ExtensionRegistry;
   const state = {
     pending: options.pending,
@@ -353,6 +355,30 @@ describe("SubmissionController", () => {
     const untouched = harness({ pending: DRAFT, client: { newSession: async () => ({ version: 1, submission: { accepted: true }, sessionId: "created2", updates: [] }) } });
     await untouched.submission.submit({ text: "fix the queue" });
     expect(untouched.client.calls.find((call) => call.method === "newSession")?.args[2]).toBe("/project");
+  });
+
+  it("lets an extension take a new thread's first prompt, and keeps the draft for the next one", async () => {
+    const claimNewThread = vi.fn(async (event: { alternate: boolean; runtime: string; model?: unknown; attachments: number }) => event.alternate) as unknown as ExtensionRegistry["claimNewThread"];
+    const snapshot = { ...SESSION_SNAPSHOT, model: { provider: "openai", id: "gpt-5.6-luna", name: "Luna" } } as HostSnapshot;
+    const { submission, client, state, view } = harness({ pending: DRAFT, claimNewThread, snapshot });
+
+    await expect(submission.submit({ text: "in the background", delivery: "alternate" })).resolves.toEqual({ accepted: true });
+    expect(claimNewThread).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "in the background",
+      projectPath: "/project",
+      alternate: true,
+      runtime: "pi",
+      model: expect.objectContaining({ provider: "openai", id: "gpt-5.6-luna" }),
+      attachments: 0,
+    }), expect.anything());
+    expect(client.calls.some((call) => call.method === "newSession" || call.method === "preparePrompt")).toBe(false);
+    expect(state.pending?.draftId).toBe(DRAFT.draftId);
+    expect(view.getOptimisticMessages()).toEqual([]);
+
+    // Unclaimed, the modifier is a plain send.
+    const plain = harness({ pending: DRAFT, snapshot, client: { newSession: async () => ({ version: 1, submission: { accepted: true }, sessionId: "created", updates: [] }) } });
+    await plain.submission.submit({ text: "on screen" });
+    expect(plain.client.calls.some((call) => call.method === "newSession")).toBe(true);
   });
 
   it("puts a rejected first message back into the draft it came from", async () => {

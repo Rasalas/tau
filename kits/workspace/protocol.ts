@@ -6,6 +6,7 @@ import type {
   DiffLoadOptions,
   FileNode,
   HostActionResult,
+  MenuSection,
   UiEditor,
   UiTerminal,
   UiFileContent,
@@ -303,6 +304,8 @@ export interface WorkspaceKitState {
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
   /** Marks other kits add to rail rows. */
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
+  /** Another kit's say over the rail's sections, menus and drops. */
+  threadRailOrganizer?: ThreadRailOrganizer;
 }
 
 export interface WorktreeNameRequest {
@@ -329,6 +332,60 @@ export interface ChangesSectionProps {
 /** A small mark another kit draws on a thread's rail row, e.g. its request status. */
 export interface ThreadRowAccessoryProps {
   session: UiSession;
+}
+
+/** One run of the rail: a heading and its threads, in the order they are drawn. */
+export interface ThreadRailSection {
+  id: string;
+  /** Drawn above the threads; the one section without a label is the rail's main, paged list. */
+  label?: string;
+  threads: readonly UiSession[];
+  /** A shelf folds away under its label and draws compact rows. */
+  shelf?: boolean;
+  /** A shelf that starts folded. */
+  collapsed?: boolean;
+  /** Rows drawn the settled way, with the button that brings them back. */
+  settled?: boolean;
+}
+
+/** Where a dragged thread would land: a section, and the thread it would go before. */
+export interface ThreadRailDrop {
+  sectionId: string;
+  /** Absent means the end of the section. */
+  beforeThreadId?: string;
+}
+
+/**
+ * Another kit's say over the rail: which section a thread is in and in what
+ * order, what a row's menu offers and what a drop means. The rail keeps the
+ * search, the paging, the rows and the gestures. One at a time; the last wins.
+ */
+export interface ThreadRailOrganizer {
+  subscribe(listener: () => void): () => void;
+  /** Moves whenever `sections` would answer differently for the same threads. */
+  getVersion(): number;
+  /** `threads` is what the rail would show, searched and newest first. */
+  sections(threads: readonly UiSession[]): ThreadRailSection[];
+  /** A row's right-click menu. */
+  menu(session: UiSession): MenuSection[];
+  runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
+  /** The row's own settle button. */
+  toggleSettled(session: UiSession): void;
+  /** What dropping the thread there does, in a word; undefined when it may not land there. */
+  dropLabel(threadId: string, drop: ThreadRailDrop): string | undefined;
+  drop(threadId: string, drop: ThreadRailDrop): void;
+  /** Drawn once inside the rail, for the organizer's own dialogs. */
+  Layer?: ComponentType<{ actions: WorkbenchActions }>;
+}
+
+/** What a kit asks of `prepareThreadWorktree` beyond what the pending draft already says. */
+export interface ThreadWorktreeRequest {
+  prompt: string;
+  preparing(message: string): void;
+  /** Make one even when the draft runs in the current checkout. */
+  force?: boolean;
+  /** Appended to the branch name, so several worktrees for one prompt do not collide. */
+  branchSuffix?: string;
 }
 
 export type CommitMessageSuggester = (request: {
@@ -367,4 +424,13 @@ export interface WorkspaceStoreApi {
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
   /** A mark drawn on every thread row of the rail. */
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
+  /** Sections, row menus and drops of the rail. */
+  registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void;
+  /**
+   * The worktree a new thread of the followed project runs in, created the way
+   * the new-thread gate creates one: named by the naming kit when there is one.
+   * Answers nothing, with a notice, when the project is no repository or the
+   * worktree could not be made.
+   */
+  prepareThreadWorktree(request: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string } }>;
 }

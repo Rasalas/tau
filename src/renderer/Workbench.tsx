@@ -225,7 +225,7 @@ export interface WorkbenchComposer {
   queue: readonly QueuedFollowUp[];
   holds: number;
   prompts: ExtensionUiPrompt[];
-  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
+  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer" | "alternate", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
   abort(sessionId?: string): void;
   cancelQueued(id: string): void;
   steerQueued(id: string): void;
@@ -730,6 +730,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}
     onNewThreadOnRuntime={actions ? (kind) => { preferences.setNewThreadRuntime(kind); actions.newSession(); } : undefined}
+    newThread={pendingNewThread}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}
     onAnswerPrompt={(value, typed) => {

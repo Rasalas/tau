@@ -6,6 +6,8 @@ export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export const WORKSPACE_CHANGES_PANEL = "changes";
 export const REVIEW_OVERLAY = "review.workspace";
+/** The kit that asks `pr-status` about a thread's checkout to settle it. */
+export const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
 
 export interface WorkspaceStoreApi {
   getSnapshot(): {

@@ -41,8 +41,8 @@ import { shouldQueueSubmission, formatQueuedFollowUp } from "./submission-queue"
 export interface SubmissionInput {
   text: string;
   attachments?: UiPromptAttachment[];
-  /** Where the message goes; a plain prompt when absent. */
-  delivery?: "followUp" | "steer";
+  /** Where the message goes; a plain prompt when absent. `alternate` is a plain prompt sent with the modifier held. */
+  delivery?: "followUp" | "steer" | "alternate";
   skillDraft?: UiSkillDraft;
 }
 
@@ -99,18 +99,62 @@ export class SubmissionController {
    * one of them names. A gate that fails or that the user left behind changes
    * nothing: the prompt goes to the project the draft already had.
    */
+  /** The line a draft's transcript shows while an extension works on its first prompt. */
+  private preparingNotice(pending: NewThreadDraft, scope: DraftKey): { preparing(message: string): void; clear(): void } {
+    const { view } = this.ports;
+    const noticeId = `local-preparing-${pending.draftId}`;
+    return {
+      preparing: (message) => {
+        view.setOptimisticMessages((current) => [
+          ...current.filter((entry) => entry.message.id !== noticeId),
+          { scope, message: { id: noticeId, role: "notice", text: message, timestamp: Date.now() } },
+        ]);
+      },
+      clear: () => view.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== noticeId)),
+    };
+  }
+
+  /**
+   * The runtime a draft's thread is created on and the model it starts with.
+   * An unchanged model chip is still a choice: the shown Pi model is carried
+   * into the new runtime instead of silently falling back to host defaults.
+   */
+  private newThreadStart(pending: NewThreadDraft) {
+    const snapshot = this.ports.view.getSnapshot();
+    const runtime = effectiveNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
+    const inherited = (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
+    return { runtime, model: runtime === "pi" ? pending.model ?? inherited : undefined };
+  }
+
+  /** Offers the first prompt to an extension that starts the thread itself; true when one took it. */
+  private claimNewThread = async (pending: NewThreadDraft, prompt: string, alternate: boolean, attachments: number): Promise<boolean> => {
+    const actions = this.ports.actions();
+    const scope = draftKey(undefined, pending);
+    if (!actions || !scope) return false;
+    const { runtime, model } = this.newThreadStart(pending);
+    const notice = this.preparingNotice(pending, scope);
+    try {
+      return await this.ports.registry.claimNewThread({
+        prompt,
+        projectPath: pending.projectPath,
+        workspaceId: pending.workspaceId,
+        preparing: notice.preparing,
+        alternate,
+        model,
+        runtime,
+        attachments,
+      }, actions);
+    } finally {
+      notice.clear();
+    }
+  };
+
   private prepareNewThreadWorkspace = async (pending: NewThreadDraft, prompt: string): Promise<NewThreadDraft> => {
-    const { registry, newThread, view } = this.ports;
+    const { registry, newThread } = this.ports;
     const actions = this.ports.actions();
     const scope = draftKey(undefined, pending);
     if (!actions || !scope) return pending;
-    const noticeId = `local-preparing-${pending.draftId}`;
-    const preparing = (message: string) => {
-      view.setOptimisticMessages((current) => [
-        ...current.filter((entry) => entry.message.id !== noticeId),
-        { scope, message: { id: noticeId, role: "notice", text: message, timestamp: Date.now() } },
-      ]);
-    };
+    const { preparing, clear } = this.preparingNotice(pending, scope);
     try {
       const gate = await registry.prepareNewThread(
         { prompt, projectPath: pending.projectPath, ...(pending.workspaceId ? { workspaceId: pending.workspaceId } : {}), preparing },
@@ -128,13 +172,15 @@ export class SubmissionController {
       newThread.set(next);
       return next;
     } finally {
-      view.setOptimisticMessages((current) => current.filter((entry) => entry.message.id !== noticeId));
+      clear();
     }
   };
 
   submit = async (input: SubmissionInput): Promise<SubmitResult> => {
     const { client: getClient, view, threads, scopes, registry, newThread, turn, host } = this.ports;
-    const { skillDraft, delivery } = input;
+    const { skillDraft } = input;
+    const alternate = input.delivery === "alternate";
+    const delivery = input.delivery === "alternate" ? undefined : input.delivery;
     const attachments = input.attachments ?? [];
     const text = skillDraft ? input.text : input.text.trim();
     const commandText = text.trim();
@@ -173,6 +219,9 @@ export class SubmissionController {
     }
     const client = getClient();
     let pendingNewThread = newThread.current();
+    if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments.length)) {
+      return { accepted: true };
+    }
     const snapshot = view.getSnapshot();
     const visibleStreaming = threads.getActivity().isStreaming;
     // Enter during a run parks the message above the composer. It is prepared
@@ -329,9 +378,7 @@ export class SubmissionController {
         // The draft's project is named by identity; its path is only for display.
         // An unchanged model chip is still a choice. Carry the shown Pi model
         // into the new runtime instead of silently falling back to host defaults.
-        const backend = effectiveNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
-        const inheritedModel = (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
-        const requestedModel = backend === "pi" ? pending.model ?? inheritedModel : undefined;
+        const requestedModel = this.newThreadStart(pending).model;
         const result = requestedModel
           ? await client.newSession(
             text,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronRight, Plus, Search, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
-import type { ModelBadgeContribution } from "../extension-system";
+import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
 import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
@@ -13,6 +13,8 @@ import { VirtualList } from "./VirtualList";
 const ROW_HEIGHT = 54;
 /** ⌘1 to ⌘9 reach the first nine favourites, in the order they were starred. */
 const JUMP_KEYS = 9;
+const NO_SELECTION: readonly string[] = [];
+const noSubscription = () => () => undefined;
 
 export function modelKey(model: { provider: string; id: string }): string {
   return `${model.provider}/${model.id}`;
@@ -31,6 +33,12 @@ interface Entry {
 type Row =
   | { kind: "model"; key: string; entry: Entry }
   | { kind: "legacy"; key: string; group: string; count: number; expanded: boolean };
+
+/** "added", or "×2" for a model chosen twice. */
+function selectedLabel(chosen: readonly string[], key: string): string {
+  const count = chosen.filter((entry) => entry === key).length;
+  return count > 1 ? `×${count}` : "added";
+}
 
 function matches(entry: Entry, needle: string): boolean {
   if (!needle) return true;
@@ -59,6 +67,7 @@ export function ModelPicker({
   onSelectRuntime,
   onNewThreadOnRuntime,
   badges = NO_BADGES,
+  multiSelect,
 }: {
   models: readonly UiModel[];
   activeKey?: string;
@@ -76,6 +85,8 @@ export function ModelPicker({
   onNewThreadOnRuntime?(kind: ThreadBackendKind): void;
   /** Marks extensions put on model rows (`registerModelBadge`). */
   badges?: readonly ModelBadgeContribution[];
+  /** Shift-click builds a set of models here instead of picking one; a new thread's picker only. */
+  multiSelect?: ModelSelectionContribution;
 }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -87,6 +98,11 @@ export function ModelPicker({
   const inputRef = useRef<HTMLInputElement>(null);
   const draft = onSelectRuntime !== undefined;
   const threadRuntime = runtime ?? catalogRuntime ?? DEFAULT_RUNTIME;
+  const chosen = useSyncExternalStore(
+    multiSelect?.subscribe ?? noSubscription,
+    () => multiSelect?.selected() ?? NO_SELECTION,
+    () => NO_SELECTION,
+  );
 
   const entries = useMemo<Entry[]>(
     () => models.map((model) => {
@@ -182,12 +198,20 @@ export function ModelPicker({
       : onNewThreadOnRuntime ? { label: `New thread on ${elsewhere.label}`, run: () => { onNewThreadOnRuntime(elsewhere.kind); onClose(); } } : undefined
     : undefined;
 
-  const choose = (entry: Entry) => { onSelect(entry.model); onClose(); };
-  const activate = (row: Row | undefined, alt: boolean) => {
+  const choose = (entry: Entry, add = false) => {
+    if (multiSelect && add) {
+      multiSelect.toggle(entry.model, entries.find((candidate) => candidate.key === activeKey)?.model);
+      return;
+    }
+    multiSelect?.reset();
+    onSelect(entry.model);
+    onClose();
+  };
+  const activate = (row: Row | undefined, alt: boolean, add = false) => {
     if (!row) return;
     if (row.kind === "legacy") { toggleLegacy(row.group); return; }
     if (alt) preferences.toggleFavouriteModel(row.key);
-    else choose(row.entry);
+    else choose(row.entry, add);
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
@@ -221,7 +245,7 @@ export function ModelPicker({
     if (event.key === "Enter" && event.target === inputRef.current) {
       event.preventDefault();
       if (paneAction) paneAction.run();
-      else activate(rows[cursor], event.altKey);
+      else activate(rows[cursor], event.altKey, event.shiftKey);
     }
   };
 
@@ -322,7 +346,7 @@ export function ModelPicker({
                   className={`model-row ${index === cursor ? "selected" : ""} ${inUse(row.key) ? "current" : ""}`}
                   onMouseMove={() => setCursor(index)}
                 >
-                  <button className="model-choose" onClick={() => choose(row.entry)}>
+                  <button className="model-choose" onClick={(event) => choose(row.entry, event.shiftKey)}>
                     <span className="model-line">
                       <strong>{row.entry.model.name}</strong>
                       {row.entry.presentation.badge === "new" ? <span className="model-badge model-badge-new">NEW</span> : null}
@@ -338,7 +362,8 @@ export function ModelPicker({
                       <span className="model-id">{row.entry.model.id}</span>
                     </small>
                   </button>
-                  {inUse(row.key) ? <em>in use</em> : null}
+                  {inUse(row.key) && chosen.length === 0 ? <em>in use</em> : null}
+                  {chosen.includes(row.key) ? <em className="model-chosen">{selectedLabel(chosen, row.key)}</em> : null}
                   {row.entry.jump ? <kbd className="model-kbd">⌘{row.entry.jump}</kbd> : null}
                   <button className={`model-star ${row.entry.favourite ? "on" : ""}`} aria-label={row.entry.favourite ? `Unfavourite ${row.entry.model.name}` : `Favourite ${row.entry.model.name}`} aria-pressed={row.entry.favourite} onClick={() => preferences.toggleFavouriteModel(row.key)}><Star size={14} fill={row.entry.favourite ? "currentColor" : "none"} /></button>
                 </div>}
@@ -353,6 +378,7 @@ export function ModelPicker({
           <span>↵ select</span>
           <span>⌥↵ favourite</span>
           <span>⌘1–9 favourite n</span>
+          {multiSelect ? <span>{chosen.length > 1 ? `${chosen.length} models chosen` : "⇧click add a model"}</span> : null}
           <span className="spacer" />
           <span>{entries.length} models · {new Set(entries.map((entry) => entry.model.provider)).size} providers</span>
         </footer>

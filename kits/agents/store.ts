@@ -5,6 +5,7 @@ import {
   isBusyStatus,
   type AgentDefinitionsState,
   type AgentsState,
+  type ThreadSiblingsService,
 } from "./protocol.js";
 
 /**
@@ -109,3 +110,23 @@ export function createDefinitionsStore(host: { invoke?(command: string, input?: 
 }
 
 export const definitionsStore = createDefinitionsStore(agentsHost);
+
+/** Thread Rail's sibling groups while that kit is on; the panel reads them through this. */
+export const siblingsSource = (() => {
+  const listeners = new Set<() => void>();
+  let service: ThreadSiblingsService | undefined;
+  let stop: (() => void) | undefined;
+  let version = 0;
+  const changed = () => { version += 1; for (const listener of [...listeners]) listener(); };
+  return {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    getVersion: () => version,
+    siblingsOf: (threadId: string): readonly string[] => service?.siblingsOf(threadId) ?? [],
+    set(next: ThreadSiblingsService | undefined) {
+      stop?.();
+      service = next;
+      stop = next?.subscribe(changed);
+      changed();
+    },
+  };
+})();
