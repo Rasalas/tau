@@ -209,4 +209,19 @@ describe("useWorkbenchActions", () => {
     expect(cycled).toBe(true);
     expect(setComposerModel).toHaveBeenCalledWith("google", "gemini-2.5-flash");
   });
+
+  it("reads and replaces the draft's images, and writes a draft it sets through to storage", () => {
+    const attachments = [{ id: 7, kind: "image", name: "a.png", mimeType: "image/png", data: "AAA", size: 3, previewUrl: "data:image/png;base64,AAA" }];
+    const setAttachments = vi.fn();
+    const storage = { get: vi.fn(() => undefined), set: vi.fn(), remove: vi.fn() };
+    const { result } = renderHook(() => useWorkbenchActions(createMockOptions({
+      platform: { storage } as any,
+      composerScopeStore: { getSnapshot: () => ({ draft: "", attachments }), setDraft: vi.fn(), setAttachments } as any,
+    })));
+    expect(result.current.composerImages?.()).toEqual([{ kind: "image", name: "a.png", mimeType: "image/png", data: "AAA", size: 3 }]);
+    result.current.setComposerImages?.([{ kind: "image", name: "b.gif", mimeType: "image/gif", data: "BBB", size: 3 }]);
+    expect(setAttachments).toHaveBeenCalledWith("draft-1", [expect.objectContaining({ name: "b.gif", previewUrl: "data:image/gif;base64,BBB" })]);
+    result.current.setComposerDraft?.("stashed away");
+    expect(storage.set).toHaveBeenCalledWith("tau.composer-drafts.v1", JSON.stringify({ "draft-1": "stashed away" }));
+  });
 });

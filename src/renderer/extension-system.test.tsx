@@ -454,3 +454,31 @@ describe("client profiles", () => {
     await expect(registry.executeCommand("unknown.id", mockActions)).rejects.toThrow("Command \"unknown.id\" is not registered.");
   });
 });
+
+describe("ExtensionRegistry prompt tools seams", () => {
+  it("asks prompt hooks for the running-turn delivery, the first answer winning", () => {
+    const registry = new ExtensionRegistry();
+    expect(registry.streamingDelivery()).toBeUndefined();
+    registry.activate({ id: "quiet", name: "Quiet", activate(context) { context.registerPromptHook({ id: "quiet", streamingDelivery: () => undefined }); } });
+    registry.activate({ id: "steer", name: "Steer", activate(context) { context.registerPromptHook({ id: "steer", streamingDelivery: () => "steer" }); } });
+    registry.activate({ id: "queue", name: "Queue", activate(context) { context.registerPromptHook({ id: "queue", streamingDelivery: () => "followUp" }); } });
+    expect(registry.streamingDelivery()).toBe("steer");
+    registry.deactivate("steer");
+    expect(registry.streamingDelivery()).toBe("followUp");
+  });
+
+  it("keeps a message action off a client it does not claim and names it there", () => {
+    const cite = { id: "cite", name: "Cite", activate(context: Parameters<Parameters<ExtensionRegistry["activate"]>[0]["activate"]>[0]) {
+      context.registerMessageAction({ id: "cite", label: "Cite", run: () => undefined });
+    } };
+    const desktop = new ExtensionRegistry();
+    desktop.activate(cite);
+    expect(desktop.getMessageActions().map((action) => action.id)).toEqual(["cite"]);
+    desktop.deactivate("cite");
+    expect(desktop.getMessageActions()).toEqual([]);
+    const web = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile: "web" });
+    web.activate(cite);
+    expect(web.getMessageActions()).toEqual([]);
+    expect(web.getUnrenderedContributions().map((entry) => `${entry.kind}:${entry.id}`)).toEqual(["message action:cite"]);
+  });
+});

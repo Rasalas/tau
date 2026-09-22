@@ -100,6 +100,7 @@ export function UserMessage({
             {compactTimestamp(message.timestamp)}
           </time>
           {onCopy ? <MessageActions
+            message={message}
             onCopy={() => onCopy(copyableMessage(message))}
             onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
           /> : null}
