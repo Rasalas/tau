@@ -3,8 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerInlineContext, HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import composerContext, { parseFileQuery } from "./desktop.js";
-import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, type ComposerContextChips } from "./protocol.js";
+import composerContext, { parseFileQuery, storeInChunks } from "./desktop.js";
+import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, UPLOAD_CHUNK_BYTES, type ComposerContextChips } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -119,6 +119,22 @@ describe("Composer Context desktop", () => {
     expect(Reloaded).not.toBe(Strip);
     render(<Reloaded {...inline()} draftState={{ read: () => saved.value, write: () => undefined }} />);
     await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
+  });
+
+  it("sends a file larger than one chunk in pieces, each continuing the first", async () => {
+    const calls: Array<{ bytes: number; into?: string }> = [];
+    const host = (async (_command: string, input: { data: string; into?: string }) => {
+      calls.push({ bytes: atob(input.data).length, ...(input.into ? { into: input.into } : {}) });
+      return { path: "/state/a.bin", size: calls.reduce((sum, call) => sum + call.bytes, 0) };
+    }) as never;
+    const size = UPLOAD_CHUNK_BYTES * 2 + 3;
+    const stored = await storeInChunks(host, { scope: SCOPE, name: "a.bin", mimeType: "", size }, async (start, end) => new Uint8Array(end - start));
+    expect(calls).toEqual([
+      { bytes: UPLOAD_CHUNK_BYTES },
+      { bytes: UPLOAD_CHUNK_BYTES, into: "/state/a.bin" },
+      { bytes: 3, into: "/state/a.bin" },
+    ]);
+    expect(stored).toEqual({ path: "/state/a.bin", size });
   });
 
   it("reads a file query's line range", () => {

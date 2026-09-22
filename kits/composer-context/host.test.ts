@@ -39,6 +39,16 @@ describe("Composer Context host", () => {
     await expect(invoke("store-attachment", { scope: "s", name: "a", mimeType: "", data: "" })).rejects.toThrow(/empty/u);
   });
 
+  it("appends later chunks to a file it started, and to no other", async () => {
+    const { invoke, project } = await setup();
+    const first = await invoke("store-attachment", { scope: "session:t", name: "big.bin", mimeType: "", data: Buffer.from("abc").toString("base64") }) as { path: string };
+    const second = await invoke("store-attachment", { scope: "session:t", name: "big.bin", mimeType: "", data: Buffer.from("def").toString("base64"), into: first.path });
+    expect(second).toEqual({ path: first.path, size: 6 });
+    expect(await readFile(first.path, "utf8")).toBe("abcdef");
+    await expect(invoke("store-attachment", { scope: "s", name: "x", mimeType: "", data: "eA==", into: join(project, "README.md") })).rejects.toThrow(/not this kit's/u);
+    expect(await readFile(join(project, "README.md"), "utf8")).toBe("Banana split\n");
+  });
+
   it("reads a file chip's lines inside the project and nothing outside it", async () => {
     const { invoke } = await setup();
     const results = await invoke("read-files", { files: [

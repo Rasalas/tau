@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readdir, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { HostCommandError, gitExecutable, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import {
@@ -136,7 +136,21 @@ export function createComposerContextHostExtension(): HostExtension {
         const data = text(fields.data);
         const bytes = Buffer.from(data, "base64");
         if (bytes.length === 0) throw new HostCommandError("The attachment is empty.");
-        if (bytes.length > MAX_FILE_BYTES) throw new HostCommandError(`Attachments must be ${MAX_FILE_BYTES / 1024 / 1024} MB or smaller.`);
+        const tooLarge = () => new HostCommandError(`Attachments must be ${MAX_FILE_BYTES / 1024 / 1024} MB or smaller.`);
+        if (bytes.length > MAX_FILE_BYTES) throw tooLarge();
+        const into = text(fields.into);
+        if (into) {
+          // Only a file this kit started itself takes more chunks.
+          const target = resolve(into);
+          if (!isAbsolute(into) || !target.startsWith(attachmentsRoot + sep)) throw new HostCommandError("The attachment to continue is not this kit's.");
+          const before = (await stat(target)).size;
+          if (before + bytes.length > MAX_FILE_BYTES) {
+            await rm(target, { force: true });
+            throw tooLarge();
+          }
+          await appendFile(target, bytes);
+          return { path: target, size: before + bytes.length };
+        }
         const folder = join(attachmentsRoot, attachmentFolder(text(fields.scope)));
         await mkdir(folder, { recursive: true });
         const path = join(folder, `${randomUUID().slice(0, 8)}-${safeFileName(text(fields.name))}`);

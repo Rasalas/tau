@@ -21,6 +21,7 @@ import {
   type DescribedAttachment,
   type PullRequestSummary,
   type ReadFileResult,
+  UPLOAD_CHUNK_BYTES,
 } from "./protocol.js";
 
 type Commands = ComposerContextHostCommands;
@@ -34,18 +35,34 @@ function base64OfBytes(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function readBase64(file: File): Promise<string> {
+function readBytes(blob: Blob, name: string): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`${file.name} could not be read.`));
+    reader.onerror = () => reject(new Error(`${name} could not be read.`));
     reader.onload = () => {
-      const url = typeof reader.result === "string" ? reader.result : "";
-      const comma = url.indexOf(",");
-      if (comma < 0) reject(new Error(`${file.name} could not be read.`));
-      else resolve(url.slice(comma + 1));
+      if (reader.result instanceof ArrayBuffer) resolve(new Uint8Array(reader.result));
+      else reject(new Error(`${name} could not be read.`));
     };
-    reader.readAsDataURL(file);
+    reader.readAsArrayBuffer(blob);
   });
+}
+
+/** Sends a file's bytes in chunks, the first creating it on the host; answers with where it landed. */
+export async function storeInChunks(
+  host: HostApi,
+  target: { scope: string; name: string; mimeType: string; size: number },
+  read: (start: number, end: number) => Promise<Uint8Array>,
+): Promise<{ path: string; size: number }> {
+  const chunk = async (start: number, into?: string) => host("store-attachment", {
+    scope: target.scope,
+    name: target.name,
+    mimeType: target.mimeType,
+    data: base64OfBytes(await read(start, Math.min(start + UPLOAD_CHUNK_BYTES, target.size))),
+    ...(into ? { into } : {}),
+  });
+  let stored = await chunk(0);
+  for (let start = UPLOAD_CHUNK_BYTES; start < target.size; start += UPLOAD_CHUNK_BYTES) stored = await chunk(start, stored.path);
+  return stored;
 }
 
 /** `src/a.ts:10-20` into a path and its lines. */
@@ -155,10 +172,9 @@ const composerContext: DesktopExtension = {
     });
     const cwdFor = (inline: ComposerInlineContext) => workspace?.getSnapshot().cwd ?? inline.snapshot?.cwd;
 
-    const upload = (scope: string, name: string, mimeType: string, size: number, read: () => Promise<string>) => {
+    const upload = (scope: string, name: string, mimeType: string, size: number, read: (start: number, end: number) => Promise<Uint8Array>) => {
       const chip = store.add(scope, { kind: "attachment", payload: { name, mimeType, size } });
-      const uploading = read()
-        .then((data) => host("store-attachment", { scope, name, mimeType, data }))
+      const uploading = storeInChunks(host, { scope, name, mimeType, size }, read)
         .then((stored) => store.update(scope, chip.id, { payload: { name, mimeType, size: stored.size, path: stored.path }, uploading: undefined }))
         .catch((error: unknown) => store.update(scope, chip.id, { error: error instanceof Error ? error.message : String(error), uploading: undefined }));
       store.update(scope, chip.id, { uploading });
@@ -223,13 +239,13 @@ const composerContext: DesktopExtension = {
         if (!shouldFoldPaste(text)) return false;
         const bytes = new TextEncoder().encode(text);
         const name = `pasted-text-${store.nextPasteNumber(inline.scope)}.txt`;
-        upload(inline.scope, name, "text/plain", bytes.length, async () => base64OfBytes(bytes));
+        upload(inline.scope, name, "text/plain", bytes.length, async (start, end) => bytes.subarray(start, end));
         return true;
       },
       takeFiles: (files, inline) => {
         const { take, leave, error } = selectFiles(files, store.list(inline.scope), inline.imageInput);
         store.setError(inline.scope, error);
-        for (const file of take) upload(inline.scope, file.name, file.type, file.size, () => readBase64(file));
+        for (const file of take) upload(inline.scope, file.name, file.type, file.size, (start, end) => readBytes(file.slice(start, end), file.name));
         return leave;
       },
       hasContent: (scope) => store.has(scope),
