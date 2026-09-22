@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronRight, Plus, Search, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
-import { isRestrictedSubscriptionLogin, SUBSCRIPTION_LOGIN_NOTE } from "../../shared/subscription-login";
 import type { ModelBadgeContribution } from "../extension-system";
 import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
@@ -346,8 +345,6 @@ export function ModelPicker({
             />}
           </div>
         </div>
-
-        {rows.some((row) => row.kind === "model" && row.entry.model.login === "subscription" && isRestrictedSubscriptionLogin(row.entry.model.provider)) ? <p className="model-picker-note">{SUBSCRIPTION_LOGIN_NOTE}</p> : null}
 
         {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
 

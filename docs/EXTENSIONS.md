@@ -357,8 +357,8 @@ stays under the host socket's 64 MiB frame.
 #### Policy around the model: gates, badges, the thread title
 
 Three seams let a package hold an opinion about models without core having
-one. Subscription Login (`kits/subscription-login/`) uses all three; switching
-it off removes every trace of its warning.
+one. Subscription Login Warning (`kits/subscription-login/`) uses all three;
+switching it off removes every trace of its warning.
 
 `registerComposerGate({ id, order?, check, Component })` asks the user before
 the composer acts. `check(context)` is called when a model is picked in the

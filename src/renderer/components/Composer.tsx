@@ -19,7 +19,6 @@ import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
 import { ModelPicker, modelKey } from "./ModelPicker";
-import { SubscriptionLoginPrompt } from "./SubscriptionLoginPrompt";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
@@ -39,7 +38,6 @@ import { useComposerHistorySearch } from "./useComposerHistorySearch";
 import { useComposerVim } from "./useComposerVim";
 import {
   classifyComposerInput,
-  requiresSubscriptionAcknowledgement,
   useComposerSubmission,
   type ComposerDelivery,
 } from "./useComposerSubmission";
@@ -422,8 +420,6 @@ export function Composer({
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const preferences = usePreferences();
-  // A model behind a subscription login is used only after its warning was read once (per provider).
-  const [subscriptionAsk, setSubscriptionAsk] = useState<{ model?: UiModel; resubmit?: ComposerDelivery | "prompt" }>();
   const gates = registry?.getComposerGates?.() ?? NO_GATES;
   const gatesRef = useRef(gates);
   gatesRef.current = gates;
@@ -441,18 +437,12 @@ export function Composer({
   }, []);
   const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
   const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
-  const needsSubscriptionAck = useCallback((model: UiModel | undefined): boolean => requiresSubscriptionAcknowledgement(
-    model,
-    snapshot?.backendKind,
-    (provider) => preferences.hasAcknowledgedSubscriptionLogin(provider),
-  ), [preferences, snapshot?.backendKind]);
   // A model of the visible catalog brings a draft bound elsewhere back to that catalog's runtime.
   const applyModel = (model: UiModel) => {
     if (runtimeChoice && snapshot?.backendKind && runtimeChoice.kind !== snapshot.backendKind) runtimeChoice.onSelect(snapshot.backendKind);
     onSetModel(model.provider, model.id);
   };
   const chooseModel = (model: UiModel) => {
-    if (needsSubscriptionAck(model)) { setSubscriptionAsk({ model }); return; }
     passGates(
       { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
       () => applyModel(model),
@@ -575,10 +565,6 @@ export function Composer({
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
     if (held) return;
     if (activeScopeSnapshot.submissionPending) return;
-    if (needsSubscriptionAck(snapshot?.model)) {
-      setSubscriptionAsk({ resubmit: delivery ?? "prompt" });
-      return;
-    }
     const intent = classifyComposerInput({
       text,
       answerable: Boolean(answerable),
@@ -619,7 +605,6 @@ export function Composer({
     activeScopeSnapshot.submissionPending,
     answerable,
     held,
-    needsSubscriptionAck,
     onAnswerPrompt,
     onNotify,
     onRunShellAction,
@@ -1161,24 +1146,6 @@ export function Composer({
             </LazyFeatureBoundary>
           </div>
         </div>
-      ) : null}
-      {subscriptionAsk ? (
-        <SubscriptionLoginPrompt
-          provider={(subscriptionAsk.model ?? snapshot?.model)?.provider ?? ""}
-          onAccept={() => {
-            const provider = (subscriptionAsk.model ?? snapshot?.model)?.provider;
-            if (provider) preferences.acknowledgeSubscriptionLogin(provider);
-            const { model, resubmit } = subscriptionAsk;
-            setSubscriptionAsk(undefined);
-            if (model) applyModel(model);
-            if (resubmit) submitCurrent(resubmit === "prompt" ? undefined : resubmit);
-          }}
-          onDecline={() => {
-            const { model } = subscriptionAsk;
-            setSubscriptionAsk(undefined);
-            if (model) setModelPickerOpen(true);
-          }}
-        />
       ) : null}
 
       {composerControls.filter((control) => control.placement === "footer").map((control) => (

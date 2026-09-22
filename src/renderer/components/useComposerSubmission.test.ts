@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiModel } from "../../shared/contracts";
 import { createMemoryStorage } from "../../workbench/client-storage";
 import { createDraftKey, ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { readComposerDraft } from "../../workbench/draft-store";
 import {
   classifyComposerInput,
-  requiresSubscriptionAcknowledgement,
   useComposerSubmission,
 } from "./useComposerSubmission";
 import { expandFileMentions } from "../file-mention-expander.js";
@@ -80,20 +78,6 @@ describe("classifyComposerInput", () => {
       promptActionAvailable: false,
       shellActionAvailable: false,
     })).toEqual({ kind: "noop" });
-  });
-});
-
-describe("requiresSubscriptionAcknowledgement", () => {
-  const model: UiModel = { provider: "anthropic", id: "opus", name: "Opus", login: "subscription" };
-
-  it("requires acknowledgement only for the Pi subscription runtimes", () => {
-    const acknowledged = vi.fn(() => false);
-    expect(requiresSubscriptionAcknowledgement(model, "claude-code", acknowledged)).toBe(true);
-    expect(requiresSubscriptionAcknowledgement(model, "antigravity", acknowledged)).toBe(true);
-    expect(requiresSubscriptionAcknowledgement(model, "pi", acknowledged)).toBe(false);
-    expect(requiresSubscriptionAcknowledgement({ ...model, login: undefined }, "claude-code", acknowledged)).toBe(false);
-    expect(requiresSubscriptionAcknowledgement(model, "claude-code", () => true)).toBe(false);
-    expect(requiresSubscriptionAcknowledgement({ ...model, provider: "openai-codex" }, "claude-code", acknowledged)).toBe(false);
   });
 });
 

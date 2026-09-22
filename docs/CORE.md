@@ -118,14 +118,22 @@ the composer at the bottom edge, agent supervision as the start screen — throu
 component tree.
 
 The model picker (`src/renderer/components/ModelPicker.tsx`) keys everything on
-what the catalog says: a rail of provider icons, each the `ProviderIconStack`
-the thread rows use (the runtime's logo behind the model provider's when they
-differ), a search across every provider, favourites reachable with ⌘1–9, and
-per provider one fold for legacy generations. What the catalog does not say —
-which generations are legacy, which model wears a "new" badge for a while —
-lives in `src/renderer/model-manifest.ts`, hand maintained and dated; an
-unmatched model is current. A model behind a subscription login the runtime
-performs (`UiModel.login`) is tagged there and asked about once.
+what the catalog says: a rail with Pi's catalog split by model provider and
+every other runtime the host offers as one tab of its own
+(`model-picker-rail.ts`), a search across the catalog on hand, favourites
+reachable with ⌘1–9, and per tab one fold for legacy generations. A runtime's
+models are known once a thread of it runs, so another runtime's tab says what
+choosing it means instead: a new thread's draft switches to it, and a thread
+that exists offers a new thread on it, because a thread keeps its runtime. Pi
+is the default and wears no mark: the rail, the rows, the composer chip and the
+thread rows draw a runtime's logo beside the model provider's only when the
+runtime is not Pi (`providerMarks` in `src/renderer/runtime-marks.ts`). What the
+catalog does not say — which generations are legacy, which model wears a "new"
+badge for a while — lives in `src/renderer/model-manifest.ts`, hand maintained
+and dated; an unmatched model is current. A model behind a subscription login
+the runtime performs (`UiModel.login`) is tagged "subscription login"; whether
+that is worth a warning is a policy, and policies reach the picker and the
+composer through `registerModelBadge` and `registerComposerGate`.
 
 ### The stage
 
@@ -194,6 +202,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Pull and merge requests: create (generated title and body, draft, template), edit, merge, status and checks on the rail row | Review Kit: `kits/review/requests-host.ts` drives `gh` or `glab`, found with `findCommand`; the Git it needs (push with upstream, branch context, template from the base tree, the request detector) is Workspace Kit's, reached through commands that name `tau.review` as caller (ADR 0020). The desktop half fills the Changes section and the rail-row mark Workspace Kit's store lends; core lends only `ThreadRow`'s `accessory` | Review Kit |
 | Chips in the composer — files by `@`, pull requests by `#`, excerpts other kits hand over — file attachments of any type, and large pastes folded into a text file | Composer Context: `kits/composer-context/`, a package Tau ships (ADR 0014). Its desktop half fills core's inline slot (`registerComposerInline`) and publishes the chip service `tau.composer-context/chips` for the kits that have context to give; its host half stores attachments in `<userData>/kit-state/tau.composer-context/attachments/<thread>/`, reads what a file chip points at and lists files and pull requests (`gh`, `glab` through `findCommand`). A chip becomes text before the prompt when it is sent; an attachment goes as a file to a runtime that opens files and as text or a path to one that does not | Composer Context |
 | Usage overview: what the threads Tau ran have used, by period, project, runtime and model | Usage: `kits/usage/`, a package Tau ships (ADR 0014). Its host half runs in a worker and reads only what runtimes wrote down: every response in Pi's session files under `services.sessionsDir` (a response a fork copied counts once), cached per file by size and mtime in `services.stateDir`, and the running total per thread that Claude Code and Antigravity keep, through a `usage` command each of them grants to `tau.usage` (ADR 0020). A backend that does not answer is shown as not available. No provider is asked. Its desktop half is the Settings → Usage page and the "Show usage" command. Core lends nothing new | Usage |
+| The warning before a subscription login a vendor forbids outside its own apps (Anthropic, Google) | Subscription Login Warning: `kits/subscription-login/`, a package Tau ships (ADR 0014) with a desktop half and no host half. A shield before the thread title (`thread-title` region), a badge and a line in the model picker (`registerModelBadge`), and one question per provider before such a model is first chosen or sent to (`registerComposerGate`); the acknowledgements are the kit's own preference value. Core keeps only the `UiModel.login` fact and the neutral "subscription login" tag | Subscription Login Warning |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
 Defaults, Pi, Keybindings and Inspector pages, and the contributions that reach

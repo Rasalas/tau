@@ -1,8 +1,5 @@
-import { useId, useState } from "react";
 import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
-import { ShieldAlert } from "lucide-react";
-import { isRestrictedSubscriptionLogin, subscriptionLoginWarning } from "../../shared/subscription-login";
-import type { DesktopExtension, RegionProps, WorkbenchActions } from "../extension-system";
+import type { DesktopExtension, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
 import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from "../theme";
 
@@ -45,38 +42,6 @@ function applyTheme(preferences: PreferencesStore, app: WorkbenchActions, theme:
  * the Keybindings kit (`kits/keybindings/`) adds whatever `keybindings.json`
  * and Pi extension shortcuts put beside them. The id stays `tau.runtime-settings`.
  */
-/** Keeps the subscription warning visible at the thread title without turning it into another label. */
-export function SubscriptionLoginIndicator({ snapshot }: Pick<RegionProps, "snapshot">) {
-  const [open, setOpen] = useState(false);
-  const tooltipId = useId();
-  const model = snapshot?.model;
-  if (model?.login !== "subscription" || !isRestrictedSubscriptionLogin(model.provider)) return null;
-  const warning = subscriptionLoginWarning(model.provider);
-  return (
-    <span
-      className="subscription-login-indicator"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
-    >
-      <button
-        type="button"
-        aria-label="Subscription login warning"
-        aria-describedby={open ? tooltipId : undefined}
-      >
-        <ShieldAlert size={21} strokeWidth={1.8} />
-      </button>
-      {open ? (
-        <span className="subscription-login-popover" id={tooltipId} role="tooltip">
-          <strong>{warning.title}</strong>
-          <span>{warning.message}</span>
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
 export const runtimeControls: DesktopExtension = {
   id: "tau.runtime-settings",
   name: "Runtime Controls",

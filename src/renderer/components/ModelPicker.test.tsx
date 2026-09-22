@@ -121,10 +121,10 @@ describe("ModelPicker", () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "claude-opus-5" }));
   });
 
-  it("tags models behind a subscription login and explains the tag once per list", () => {
+  it("tags models behind a subscription login, and leaves any warning about it to an extension", () => {
     renderPicker();
     expect(screen.getAllByText("subscription login")).toHaveLength(1);
-    expect(screen.getByText(/asks once before the first use/u)).toBeTruthy();
+    expect(document.querySelector(".model-picker-note")).toBeNull();
   });
 
   it("switches providers via ArrowLeft and ArrowRight", () => {
