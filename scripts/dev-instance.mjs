@@ -4,7 +4,8 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 // Required from plain Node (not from inside Electron itself), the "electron"
 // package's default export is the real binary's path, not the app API.
@@ -23,6 +24,15 @@ export function derivePort(seed, { base = PORT_BASE, range = PORT_RANGE } = {}) 
     hash = Math.imul(hash, 0x01000193);
   }
   return base + ((hash >>> 0) % range);
+}
+
+/** Starts the instance's config as a copy of the user's, so favourites and defaults match; the real file is only read. */
+export function seedConfigFile(configFile, realConfig = join(homedir(), ".tau", "config.json")) {
+  if (existsSync(configFile)) return;
+  let seed = "{}\n";
+  try { seed = readFileSync(realConfig, "utf8"); } catch { /* no config of the user's yet */ }
+  mkdirSync(dirname(configFile), { recursive: true });
+  writeFileSync(configFile, seed);
 }
 
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
@@ -138,6 +148,10 @@ async function main() {
   // keybindings.json, say) without touching the real ~/.pi/agent; see the
   // shadow-dir recipe in docs/agents/testing-the-app.md.
   const agentDir = options.agentDir ? resolve(options.agentDir) : undefined;
+  // Settings the instance toggles land in its own copy of ~/.tau/config.json,
+  // and its agent worktrees under .tau-dev, never in the user's real ~/.tau.
+  const configFile = join(DEV_DIR, "tau-config.json");
+  const worktreesDir = join(DEV_DIR, "worktrees");
 
   if (options.fresh) {
     assertUnderDevDir(userData);
@@ -147,6 +161,9 @@ async function main() {
       rmSync(sessionsDir, { recursive: true, force: true });
     }
   }
+
+  if (options.fresh) rmSync(configFile, { force: true });
+  seedConfigFile(configFile);
 
   if (!options.workspace) initScratchWorkspace(workspace);
   else if (!existsSync(workspace)) throw new Error(`--workspace ${workspace} does not exist`);
@@ -172,6 +189,8 @@ async function main() {
     ...process.env,
     TAU_USER_DATA: userData,
     TAU_WORKSPACE: workspace,
+    TAU_CONFIG_FILE: configFile,
+    TAU_WORKTREES_DIR: worktreesDir,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
