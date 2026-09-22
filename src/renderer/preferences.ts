@@ -124,6 +124,8 @@ export class PreferencesStore {
   private listeners = new Set<() => void>();
   private hostClient?: HostClient;
   private activeWorkspaceId?: string;
+  /** The effective config the host answered with last; see `applyConfig`. */
+  private lastHostConfig?: TauConfig;
 
   bindHost(client: HostClient, workspaceId?: string): void {
     this.hostClient = client;
@@ -152,22 +154,38 @@ export class PreferencesStore {
   }
 
   applyConfig(config: TauConfig): void {
+    const previous = this.lastHostConfig;
+    this.lastHostConfig = config;
+    // What the host said last time and no longer says is gone from every level
+    // (a cleared override, another project's value), so it is forgotten here too.
+    const record = <T,>(local: Readonly<Record<string, T>>, before: Record<string, T> | undefined, now: Record<string, T> | undefined) => {
+      const kept = { ...local };
+      for (const key of Object.keys(before ?? {})) if (!now || !(key in now)) delete kept[key];
+      return { ...kept, ...(now ?? {}) };
+    };
+    const gone = (key: keyof TauConfig) => previous?.[key] !== undefined && config[key] === undefined;
     const patch: Partial<PreferencesState> = {};
     if (config.theme && isThemePreference(config.theme)) patch.theme = config.theme;
+    else if (gone("theme")) patch.theme = DEFAULTS.theme;
     if (config.transcriptDetail && isTranscriptDetail(config.transcriptDetail)) patch.transcriptDetail = config.transcriptDetail;
+    else if (gone("transcriptDetail")) patch.transcriptDetail = DEFAULTS.transcriptDetail;
     if (config.showCosts !== undefined) patch.showCosts = config.showCosts;
+    else if (gone("showCosts")) patch.showCosts = DEFAULTS.showCosts;
     if (config.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = config.threads.continueAfterRestart;
+    else if (previous?.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = DEFAULTS.continueThreadsAfterRestart;
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
     if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
-    if (config.options) patch.extensionOptions = { ...this.state.extensionOptions, ...config.options };
-    if (config.values) patch.extensionValues = { ...this.state.extensionValues, ...config.values };
-    if (config.keybindings) patch.keybindings = { ...(this.state.keybindings ?? {}), ...config.keybindings };
-    if (config.fontFamily !== undefined) patch.fontFamily = config.fontFamily;
-    if (config.fontSize !== undefined) patch.fontSize = config.fontSize;
-    if (config.temperature !== undefined) patch.temperature = config.temperature;
-    if (config.maxTokens !== undefined) patch.maxTokens = config.maxTokens;
+    if (config.options || previous?.options) patch.extensionOptions = record(this.state.extensionOptions, previous?.options, config.options);
+    if (config.values || previous?.values) patch.extensionValues = record(this.state.extensionValues, previous?.values, config.values);
+    if (config.keybindings || previous?.keybindings) patch.keybindings = record(this.state.keybindings ?? {}, previous?.keybindings, config.keybindings);
+    if (config.fontFamily !== undefined || gone("fontFamily")) patch.fontFamily = config.fontFamily;
+    if (config.fontSize !== undefined || gone("fontSize")) patch.fontSize = config.fontSize;
+    if (config.temperature !== undefined || gone("temperature")) patch.temperature = config.temperature;
+    if (config.maxTokens !== undefined || gone("maxTokens")) patch.maxTokens = config.maxTokens;
     if (config.vimMode !== undefined) patch.vimMode = config.vimMode;
+    else if (gone("vimMode")) patch.vimMode = DEFAULTS.vimMode;
     if (config.hostBackground !== undefined) patch.hostBackground = config.hostBackground;
+    else if (gone("hostBackground")) patch.hostBackground = DEFAULTS.hostBackground;
     this.update(patch, false);
   }
 
@@ -245,9 +263,8 @@ export class PreferencesStore {
   }
 
   setOption(extensionId: string, optionId: string, value: boolean): void {
-    this.update({
-      extensionOptions: { ...this.state.extensionOptions, [`${extensionId}.${optionId}`]: value },
-    });
+    const key = `${extensionId}.${optionId}`;
+    this.update({ extensionOptions: { ...this.state.extensionOptions, [key]: value } }, true, { options: { [key]: value } });
   }
 
   value(extensionId: string, key: string): string | undefined {
@@ -255,8 +272,10 @@ export class PreferencesStore {
   }
 
   setValue(extensionId: string, key: string, value: string): void {
-    if (this.state.extensionValues[`${extensionId}.${key}`] === value) return;
-    this.update({ extensionValues: { ...this.state.extensionValues, [`${extensionId}.${key}`]: value } });
+    const entry = `${extensionId}.${key}`;
+    if (this.state.extensionValues[entry] === value) return;
+    // Only the entry travels: the whole record would copy a project's own values into the host's file.
+    this.update({ extensionValues: { ...this.state.extensionValues, [entry]: value } }, true, { values: { [entry]: value } });
   }
 
   isExtensionEnabled(extensionId: string): boolean {
@@ -313,7 +332,7 @@ export class PreferencesStore {
     });
   }
 
-  private update(patch: Partial<PreferencesState>, syncHost = true): void {
+  private update(patch: Partial<PreferencesState>, syncHost = true, explicitHostPatch?: Partial<TauConfig>): void {
     this.state = { ...this.state, ...patch };
     try {
       const { transcriptDetailOverride: _ephemeral, ...persisted } = this.state;
@@ -321,7 +340,9 @@ export class PreferencesStore {
     } catch {
       // Preferences are a convenience; a full or blocked store is not worth surfacing.
     }
-    if (syncHost && this.hostClient) {
+    if (syncHost && this.hostClient && explicitHostPatch) {
+      void this.hostClient.updateConfig(explicitHostPatch, "global", this.activeWorkspaceId).catch(() => {});
+    } else if (syncHost && this.hostClient) {
       const hostPatch: Partial<TauConfig> = {};
       if (patch.theme) hostPatch.theme = patch.theme;
       if (patch.transcriptDetail) hostPatch.transcriptDetail = patch.transcriptDetail;
