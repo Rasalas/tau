@@ -3,6 +3,10 @@ import { DEFAULT_RUNTIME } from "../runtime-marks";
 
 export const FAVOURITES_ENTRY = "\u0000favourites";
 
+export function modelKey(model: { provider: string; id: string }): string {
+  return `${model.provider}/${model.id}`;
+}
+
 /**
  * One tab of the picker's rail. Pi's catalog is split by model provider; any
  * other runtime is one tab, whose models are listed only when the catalog on

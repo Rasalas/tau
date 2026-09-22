@@ -6,7 +6,7 @@ import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { AddModelProviderModal } from "./AddModelProviderModal";
-import { pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
+import { modelKey, pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { VirtualList } from "./VirtualList";
 
@@ -16,9 +16,7 @@ const JUMP_KEYS = 9;
 const NO_SELECTION: readonly string[] = [];
 const noSubscription = () => () => undefined;
 
-export function modelKey(model: { provider: string; id: string }): string {
-  return `${model.provider}/${model.id}`;
-}
+export { modelKey };
 
 interface Entry {
   key: string;

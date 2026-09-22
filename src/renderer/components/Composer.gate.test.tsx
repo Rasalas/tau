@@ -71,9 +71,9 @@ function send(text = "hello") {
   fireEvent.click(screen.getByLabelText("Send"));
 }
 
-function pick(name: string) {
+async function pick(name: string) {
   fireEvent.click(screen.getByLabelText(/^Select model:/u));
-  const input = screen.getByRole("textbox", { name: "Search models" });
+  const input = await screen.findByRole("textbox", { name: "Search models" });
   fireEvent.change(input, { target: { value: name } });
   fireEvent.keyDown(input, { key: "Enter" });
 }
@@ -132,20 +132,20 @@ describe("composer gates", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it("hold a model choice, and reopen the picker when it is cancelled", () => {
+  it("hold a model choice, and reopen the picker when it is cancelled", async () => {
     const { onSetModel } = renderComposer(plain, [asksFor("acme")]);
-    pick("Acme");
+    await pick("Acme");
     expect(onSetModel).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("No"));
-    expect(screen.getByRole("dialog", { name: "Select model" })).toBeTruthy();
-    pick("Acme");
+    expect(await screen.findByRole("dialog", { name: "Select model" })).toBeTruthy();
+    await pick("Acme");
     fireEvent.click(screen.getByText("Yes"));
     expect(onSetModel).toHaveBeenCalledWith("acme", "big");
   });
 });
 
 describe("model badges", () => {
-  it("mark the models they apply to and explain themselves once under the list", () => {
+  it("mark the models they apply to and explain themselves once under the list", async () => {
     renderComposer(plain, [], [{
       id: "test.badge",
       profiles: ["desktop"],
@@ -156,7 +156,7 @@ describe("model badges", () => {
       note: "Acme models are risky.",
     }]);
     fireEvent.click(screen.getByLabelText(/^Select model:/u));
-    fireEvent.click(screen.getByRole("button", { name: /^acme/u }));
+    fireEvent.click(await screen.findByRole("button", { name: /^acme/u }));
     const badge = screen.getByText("risky");
     expect(badge.getAttribute("title")).toBe("Acme says no");
     expect(badge.classList).toContain("model-badge-warning");

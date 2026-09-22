@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, Terminal, X } from "lucide-react";
 import type {
@@ -18,7 +18,7 @@ import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
-import { ModelPicker, modelKey } from "./ModelPicker";
+import { modelKey } from "./model-picker-rail";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
@@ -82,6 +82,8 @@ const noVersion = () => 0;
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 const NO_INLINES: readonly never[] = [];
 const NO_GATES: readonly ComposerGateContribution[] = [];
+// The picker is its own chunk: nothing of it is drawn until it opens.
+const ModelPicker = lazy(() => import("./ModelPicker").then((module) => ({ default: module.ModelPicker })));
 
 /** A gate that asked: where the run stopped, and what finishes it. */
 interface OpenGate {
@@ -1121,19 +1123,21 @@ export function Composer({
       ) : null}
 
       {modelPickerOpen ? (
-        <ModelPicker
-          models={runtimeOwnsModel ? [] : snapshot?.models ?? []}
-          activeKey={snapshot?.model && !draftOnOtherRuntime ? modelKey(snapshot.model) : undefined}
-          onSelect={chooseModel}
-          onClose={() => setModelPickerOpen(false)}
-          runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
-          catalogRuntime={snapshot?.backendKind}
-          runtimeBackends={runtimeChoice?.backends ?? snapshot?.runtimeBackends}
-          onSelectRuntime={runtimeChoice?.onSelect}
-          onNewThreadOnRuntime={onNewThreadOnRuntime}
-          badges={registry?.getModelBadges?.()}
-          multiSelect={newThread ? registry?.getModelSelection?.() : undefined}
-        />
+        <Suspense fallback={null}>
+          <ModelPicker
+            models={runtimeOwnsModel ? [] : snapshot?.models ?? []}
+            activeKey={snapshot?.model && !draftOnOtherRuntime ? modelKey(snapshot.model) : undefined}
+            onSelect={chooseModel}
+            onClose={() => setModelPickerOpen(false)}
+            runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
+            catalogRuntime={snapshot?.backendKind}
+            runtimeBackends={runtimeChoice?.backends ?? snapshot?.runtimeBackends}
+            onSelectRuntime={runtimeChoice?.onSelect}
+            onNewThreadOnRuntime={onNewThreadOnRuntime}
+            badges={registry?.getModelBadges?.()}
+            multiSelect={newThread ? registry?.getModelSelection?.() : undefined}
+          />
+        </Suspense>
       ) : null}
       {openGate ? (
         <div className="palette-backdrop composer-gate" onMouseDown={cancelGate} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); cancelGate(); } }}>

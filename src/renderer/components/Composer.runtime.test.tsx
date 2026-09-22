@@ -55,23 +55,23 @@ const piThread: HostSnapshot = {
 afterEach(cleanup);
 
 describe("composer runtime choice", () => {
-  it("shows a Pi thread's model without Pi's mark, and offers other runtimes as new threads", () => {
+  it("shows a Pi thread's model without Pi's mark, and offers other runtimes as new threads", async () => {
     const onNewThreadOnRuntime = vi.fn();
     renderComposer(undefined, piThread, vi.fn(), onNewThreadOnRuntime);
     const chip = screen.getByLabelText("Select model: GPT-5.6 Luna");
     expect(chip.querySelector(".provider-family-openai")).toBeTruthy();
     expect(chip.querySelector(".provider-family-pi")).toBeNull();
     fireEvent.click(chip);
-    fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Claude Code" }));
     fireEvent.click(screen.getByRole("button", { name: "New thread on Claude Code" }));
     expect(onNewThreadOnRuntime).toHaveBeenCalledWith("claude-code");
   });
 
-  it("brings a draft bound elsewhere back to Pi when one of Pi's models is picked", () => {
+  it("brings a draft bound elsewhere back to Pi when one of Pi's models is picked", async () => {
     const onSelect = vi.fn();
     const onSetModel = renderComposer({ kind: "claude-code", backends: piThread.runtimeBackends ?? [], onSelect }, piThread);
     fireEvent.click(screen.getByLabelText("Select runtime and model: Claude Code"));
-    fireEvent.click(screen.getByRole("button", { name: "OpenAI (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "OpenAI (1)" }));
     fireEvent.click(screen.getByText("GPT-5.6 Luna"));
     expect(onSelect).toHaveBeenCalledWith("pi");
     expect(onSetModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-luna");
@@ -111,12 +111,12 @@ describe("composer runtime choice", () => {
     expect(screen.getByLabelText("Reasoning controls unavailable").textContent).toBe("—");
   });
 
-  it("offers runtime choices inside the model picker", () => {
+  it("offers runtime choices inside the model picker", async () => {
     const onSelect = vi.fn();
     renderComposer({ kind: "acme", backends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme Agent" }], onSelect });
     expect(screen.queryByLabelText(/^Runtime:/u)).toBeNull();
     fireEvent.click(screen.getByLabelText("Select runtime and model: Acme Agent"));
-    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pi" }));
     fireEvent.click(screen.getByRole("button", { name: "Start this thread on Pi" }));
     expect(onSelect).toHaveBeenCalledWith("pi");
   });
