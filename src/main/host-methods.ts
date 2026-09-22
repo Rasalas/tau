@@ -44,8 +44,8 @@ export type HostMethodTable = Record<string, HostMethod>;
 
 /** What a method needs from the machine the host runs on. */
 export interface HostMethodPlatform {
-  copyText(text: string): void;
-  copyImage(dataUrl: string): void;
+  copyText(text: string): Promise<void>;
+  copyImage(dataUrl: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   /** A URL the page may load a workspace file from; absent where no window serves files. */
   shareFile?(path: string): Promise<UiSharedFile>;
@@ -70,8 +70,8 @@ export interface HostMethodPlatform {
  * rather than travelling to the host process (ADR 0021).
  */
 export interface ClientHostPlatform {
-  copyText(text: string): void;
-  copyImage(dataUrl: string): void;
+  copyText(text: string): Promise<void>;
+  copyImage(dataUrl: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   shareFile?(path: string): Promise<UiSharedFile>;
   /** `cwd` is passed on as the client received it; only a host resolves an id. */

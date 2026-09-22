@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, Notification, session, shell } from "electron";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -131,6 +131,13 @@ const hostOptions = {
     },
   },
 };
+
+/** The clipboard takes W3C `ClipboardItem`s since Electron 44; an image goes on it as PNG. */
+async function copyImageToClipboard(dataUrl: string): Promise<void> {
+  const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
+  if (image.isEmpty()) throw new Error("Invalid image data.");
+  await clipboard.write([new ClipboardItem({ "image/png": new Blob([new Uint8Array(image.toPNG())], { type: "image/png" }) })]);
+}
 
 async function rendererImagePreview(path: string) {
   const preview = await readBoundedImagePreview(path);
@@ -429,11 +436,7 @@ function createLocalHostMethods(): HostMethodTable {
     jobs,
     platform: {
       copyText: (text) => clipboard.writeText(text),
-      copyImage: (dataUrl) => {
-        const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
-        if (image.isEmpty()) throw new Error("Invalid image data.");
-        clipboard.writeImage(image);
-      },
+      copyImage: copyImageToClipboard,
       readImagePreview: rendererImagePreview,
       shareFile: (path) => sharedFiles.share(path),
       // The kits Tau ships are listed beside the installed packages, marked
@@ -493,11 +496,7 @@ function serveBundles(result: WorkbenchDesktopExtensions, only?: readonly string
 function createWindowPlatform(): ClientHostPlatform {
   return {
     copyText: (text) => clipboard.writeText(text),
-    copyImage: (dataUrl) => {
-      const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
-      if (image.isEmpty()) throw new Error("Invalid image data.");
-      clipboard.writeImage(image);
-    },
+    copyImage: copyImageToClipboard,
     readImagePreview: rendererImagePreview,
     shareFile: (path) => sharedFiles.share(path),
     loadDesktopExtensions: async (cwd, sharedExports, only) =>
