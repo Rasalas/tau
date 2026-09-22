@@ -33,6 +33,9 @@ import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { resolveStartupWorkspace } from "./startup-workspace.js";
 import { WindowHost } from "./window-host.js";
+import { trustRemoteHost, type RemoteHostTrust } from "./remote-host-trust.js";
+import { resolveHostTls } from "./host-tls.js";
+import { parseListen } from "./host-listen.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { createWindowAttention } from "./window-attention.js";
 import { defaultHostConfigManager } from "./host-config.js";
@@ -157,6 +160,8 @@ let host: PiHost | undefined;
 let hostReady: Promise<unknown> | undefined;
 /** The host this window is a client of, when it does not run one in process. */
 let windowHost: WindowHost | undefined;
+/** How the window trusts the host `TAU_HOST_URL` names; unset for a supervised one. */
+let remoteTrust: RemoteHostTrust | undefined;
 /** Set when the last window closed: quitting then leaves the host running. */
 let quitAfterWindowClosed = false;
 let projectHistory: ProjectHistory;
@@ -366,9 +371,19 @@ async function startHostProcess(): Promise<void> {
       // rather than serving code the user switched off.
       if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId);
     },
+    onCertificateRefused: (error) => remoteTrust?.refuse(error.presented),
   });
   if (remoteHostUrl) {
-    windowHost.attach(remoteHostUrl, clientHostToken());
+    remoteTrust = await trustRemoteHost(remoteHostUrl, {
+      userData: app.getPath("userData"),
+      ...(process.env.TAU_HOST_FINGERPRINT ? { fingerprint: process.env.TAU_HOST_FINGERPRINT } : {}),
+      session: session.defaultSession,
+      logger: hostLog,
+      // A host this window cannot trust leaves it nothing to show.
+      onRefused: (title, message) => { dialog.showErrorBox(title, message); app.exit(1); },
+    });
+    if (!remoteTrust) return;
+    windowHost.attach(remoteHostUrl, clientHostToken(), remoteTrust.fingerprint);
     await loadWindowHalves();
     return;
   }
@@ -546,6 +561,9 @@ function installTransport(): void {
   // A second transport for a client that is not this window; off unless asked for.
   const listen = process.env.TAU_HOST_LISTEN;
   if (!listen) return;
+  let tls: ReturnType<typeof resolveHostTls>;
+  try { tls = resolveHostTls(process.env, { userData: app.getPath("userData"), bindHost: parseListen(listen).host }); }
+  catch (error: unknown) { hostLog.error("host-transport-socket.tls.failed", error); return; }
   void startSocketHostTransport({
     listen,
     methods,
@@ -554,6 +572,7 @@ function installTransport(): void {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token: readOrCreateHostToken(),
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
+    ...(tls ? { tls } : {}),
     clients: hostClients,
     logger: hostLog,
   }).then((started) => { socketTransport = started; })

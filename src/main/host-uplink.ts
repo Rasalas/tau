@@ -1,4 +1,4 @@
-import { WebSocket } from "ws";
+import { WebSocket, type ClientOptions } from "ws";
 import {
   HOST_TRANSPORT_VERSION,
   decodeHostServerFrame,
@@ -6,6 +6,7 @@ import {
   type HostPush,
 } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
+import { HostCertificateRefusedError, pinnedTlsConnect } from "./host-tls-trust.js";
 
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
@@ -21,6 +22,10 @@ export interface HostUplinkOptions {
   onHello?(reply: HostHelloReply): void;
   logger?: HostLogger;
   requestTimeoutMs?: number;
+  /** A `wss:` host's pinned SHA-256 fingerprint; any other certificate ends the uplink. */
+  fingerprint?: string;
+  /** The pinned host presented another certificate. The uplink does not retry. */
+  onCertificateRefused?(error: HostCertificateRefusedError): void;
 }
 
 interface Pending {
@@ -115,7 +120,10 @@ export class HostUplink {
 
   private connect(): void {
     if (this.closed) return;
-    const socket = new WebSocket(this.options.url);
+    const pin = this.options.fingerprint;
+    const socket = pin && this.options.url.startsWith("wss:")
+      ? new WebSocket(this.options.url, { createConnection: pinnedTlsConnect(pin) as unknown as ClientOptions["createConnection"] })
+      : new WebSocket(this.options.url);
     this.socket = socket;
     socket.on("open", () => {
       this.delayMs = RECONNECT_MIN_MS;
@@ -124,7 +132,12 @@ export class HostUplink {
       for (const text of this.outbox.splice(0)) socket.send(text);
     });
     socket.on("message", (data) => this.receive(String(data)));
-    socket.on("error", () => undefined);
+    socket.on("error", (error) => {
+      if (!(error instanceof HostCertificateRefusedError) || this.closed) return;
+      this.closed = true;
+      this.options.logger?.error("host-uplink.certificate-refused", { url: this.options.url, presented: error.presented, expected: error.expected });
+      this.options.onCertificateRefused?.(error);
+    });
     socket.on("close", (code: number) => {
       this.failPending("The host connection dropped.");
       if (this.closed) return;

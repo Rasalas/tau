@@ -6,6 +6,7 @@ import type { HostPush } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
 import { HostProcessSupervisor, type RunningHost } from "./host-process-supervisor.js";
 import { HostUplink } from "./host-uplink.js";
+import type { HostCertificateRefusedError } from "./host-tls-trust.js";
 import { WindowExtensionRegistry } from "./window-extensions.js";
 
 /** Compiling every kit on a cold cache takes longer than a click does. */
@@ -27,6 +28,8 @@ export interface WindowHostOptions {
   onUrlChanged(url: string): void;
   /** Pushes the window process itself acts on, not the ones the renderer reads. */
   onEvent?(event: HostEvent): void;
+  /** An attached host's certificate is not the pinned one; the uplink has stopped. */
+  onCertificateRefused?(error: HostCertificateRefusedError): void;
 }
 
 /**
@@ -41,6 +44,7 @@ export class WindowHost {
   private uplink: HostUplink | undefined;
   private url = "";
   private token = "";
+  private fingerprint: string | undefined;
   private workspace: string;
   /** The halves of the kits that need this process; the host calls into them. */
   readonly extensions: WindowExtensionRegistry;
@@ -83,10 +87,14 @@ export class WindowHost {
     return running;
   }
 
-  /** Attaches to a host somebody else runs (`TAU_HOST_URL`). Nothing is supervised. */
-  attach(url: string, token: string | undefined): void {
+  /**
+   * Attaches to a host somebody else runs (`TAU_HOST_URL`). Nothing is
+   * supervised. `fingerprint` pins a `wss:` host's certificate.
+   */
+  attach(url: string, token: string | undefined, fingerprint?: string): void {
     this.url = url;
     this.token = token ?? "";
+    this.fingerprint = fingerprint;
     this.connect();
   }
 
@@ -144,6 +152,8 @@ export class WindowHost {
       logger: this.options.logger,
       requestTimeoutMs: UPLINK_TIMEOUT_MS,
       onPush: (push) => this.receive(push),
+      ...(this.fingerprint ? { fingerprint: this.fingerprint } : {}),
+      ...(this.options.onCertificateRefused ? { onCertificateRefused: this.options.onCertificateRefused } : {}),
     });
   }
 
