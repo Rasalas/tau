@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,13 @@ function workingDirectory(): string {
   return directory;
 }
 
-function supervisor(userData: string, options: { version?: string; crash?: boolean; onFatal?: (failure: { message: string }) => void } = {}) {
+function supervisor(userData: string, options: {
+  version?: string;
+  crash?: boolean;
+  onFatal?: (failure: { message: string }) => void;
+  extraEnv?: NodeJS.ProcessEnv;
+  spawnProcess?: (command: string, args: string[], env: NodeJS.ProcessEnv) => ReturnType<typeof spawn>;
+} = {}) {
   const instance = new HostProcessSupervisor({
     entry: STUB,
     execPath: process.execPath,
@@ -28,8 +35,10 @@ function supervisor(userData: string, options: { version?: string; crash?: boole
     startTimeoutMs: 20_000,
     restartDelayMs: 10,
     ...(options.onFatal ? { onFatal: options.onFatal } : {}),
+    ...(options.spawnProcess ? { spawnProcess: options.spawnProcess } : {}),
     env: {
       ...process.env,
+      ...options.extraEnv,
       STUB_VERSION: options.version ?? "1.0.0",
       STUB_TOKEN_PATH: join(userData, "token"),
       // The stub resolves `ws` from this repository, wherever its temp copy runs.
@@ -66,6 +75,24 @@ describe("the host process supervisor", () => {
     const descriptor = await readHostDescriptor(userData);
     expect(descriptor).toMatchObject({ pid: running.pid, url: running.url, version: "1.0.0" });
     expect(readdirSync(join(userData, "logs")).some((name) => name.startsWith("host-out-"))).toBe(true);
+  }, 30_000);
+
+  it("keeps its own host plaintext on loopback even when the window was started with TLS settings", async () => {
+    const userData = workingDirectory();
+    let childEnv: NodeJS.ProcessEnv = {};
+    const running = await supervisor(userData, {
+      extraEnv: { TAU_HOST_TLS: "1", TAU_HOST_TLS_CERT: "/nowhere/cert.pem", TAU_HOST_TLS_KEY: "/nowhere/key.pem" },
+      spawnProcess: (command, args, env) => {
+        childEnv = env;
+        return spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+      },
+    }).start();
+
+    expect(running.url).toMatch(/^ws:\/\/127\.0\.0\.1:/u);
+    expect(childEnv.TAU_HOST_LISTEN).toMatch(/^127\.0\.0\.1:/u);
+    expect(childEnv).not.toHaveProperty("TAU_HOST_TLS");
+    expect(childEnv).not.toHaveProperty("TAU_HOST_TLS_CERT");
+    expect(childEnv).not.toHaveProperty("TAU_HOST_TLS_KEY");
   }, 30_000);
 
   it("adopts a host that is already running instead of starting a second one", async () => {

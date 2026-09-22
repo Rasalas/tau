@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { isLoopbackHost } from "./host-listen.js";
@@ -63,6 +64,8 @@ export interface WebClientServerOptions {
   token: string;
   codeTtlMs?: number;
   now?(): number;
+  /** Serve over HTTPS; the socket transport then upgrades on the same TLS port. */
+  tls?: { cert: string; key: string };
 }
 
 export interface WebClientServer {
@@ -93,9 +96,12 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
     return expiresAt !== undefined && expiresAt > now() ? options.token : undefined;
   };
 
-  const server = createServer((request, response) => {
+  const listener = (request: IncomingMessage, response: ServerResponse): void => {
     void handle(request, response).catch(() => send(response, 500, "text/plain; charset=utf-8", "internal error"));
-  });
+  };
+  const server: Server = options.tls
+    ? createHttpsServer({ cert: options.tls.cert, key: options.tls.key, minVersion: "TLSv1.2" }, listener)
+    : createServer(listener);
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");

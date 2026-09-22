@@ -220,6 +220,10 @@ export class HostProcessSupervisor {
     };
     delete env.TAU_HOST_URL;
     delete env.TAU_HOST_INPROCESS;
+    // The window's own host stays on loopback in plaintext; TLS is for a listener beyond it.
+    delete env.TAU_HOST_TLS;
+    delete env.TAU_HOST_TLS_CERT;
+    delete env.TAU_HOST_TLS_KEY;
 
     const child = (this.options.spawnProcess ?? defaultSpawn)(this.options.execPath, [this.options.entry], env);
     this.child = child;

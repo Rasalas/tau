@@ -17,16 +17,31 @@ export function isLoopbackHost(host: string): boolean {
   return LOOPBACK_NAMES.has(bare.toLowerCase()) || /^127\.\d+\.\d+\.\d+$/u.test(bare);
 }
 
+export interface ListenPolicy {
+  /** The listener speaks TLS, so the token never crosses the network in clear text. */
+  encrypted: boolean;
+  /** `TAU_HOST_INSECURE=1`: the operator accepts a plaintext listener beyond loopback. */
+  insecure: boolean;
+}
+
 /**
- * The socket carries its bearer token in clear text, so a public interface
- * would hand it to everyone on the path. Loopback plus an SSH tunnel is the
- * supported way to reach a host on another machine; `TAU_HOST_INSECURE=1` is
- * the deliberate exception for a network the operator already trusts.
+ * The socket carries its bearer token in every hello, so a plaintext listener
+ * beyond loopback would hand it to everyone on the path. TLS makes any
+ * interface acceptable; `TAU_HOST_INSECURE=1` is the deliberate exception for
+ * a network the operator already trusts, and it is answered with a warning to
+ * print, never silently.
  */
-export function assertListenAllowed(address: ListenAddress, allowNonLoopback: boolean): void {
-  if (allowNonLoopback || isLoopbackHost(address.host)) return;
+export function assertListenAllowed(address: ListenAddress, policy: ListenPolicy): { warning?: string } {
+  if (policy.encrypted || isLoopbackHost(address.host)) return {};
+  if (policy.insecure) {
+    return {
+      warning: `TAU_HOST_INSECURE=1: listening on ${address.host} without TLS. The host token travels in clear text, `
+        + "and whoever reads it controls this host. Set TAU_HOST_TLS=1 instead.",
+    };
+  }
   throw new Error(
-    `Refusing to listen on ${address.host}: the host protocol is unencrypted. `
-    + "Bind 127.0.0.1 and forward the port over SSH, or set TAU_HOST_INSECURE=1 to bind anyway.",
+    `Refusing to listen on ${address.host} without TLS: the host token would travel in clear text. `
+    + "Set TAU_HOST_TLS=1 (a self-signed certificate clients pin by fingerprint) or TAU_HOST_TLS_CERT and TAU_HOST_TLS_KEY, "
+    + "bind 127.0.0.1 and forward the port over SSH, or set TAU_HOST_INSECURE=1 to bind anyway.",
   );
 }

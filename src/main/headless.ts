@@ -16,6 +16,7 @@ import { HostClientRegistry } from "./host-clients.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
 import { parseListen } from "./host-listen.js";
+import { resolveHostTls } from "./host-tls.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
@@ -167,9 +168,14 @@ async function main(): Promise<void> {
   };
 
   const token = readOrCreateHostToken();
+  const { host: boundHost } = parseListen(listen);
+  // TAU_HOST_TLS=1, or a certificate of the operator's own; the key stays under userData.
+  const tls = resolveHostTls(process.env, { userData, bindHost: boundHost });
   // A built client turns this host into something a browser can open. Without
   // one the host is exactly what it was: a socket and nothing else.
-  const web = existsSync(join(webRoot, "index.html")) ? createWebClientServer({ dir: webRoot, token }) : undefined;
+  const web = existsSync(join(webRoot, "index.html"))
+    ? createWebClientServer({ dir: webRoot, token, ...(tls ? { tls } : {}) })
+    : undefined;
   socket = await startSocketHostTransport({
     listen,
     methods,
@@ -178,18 +184,26 @@ async function main(): Promise<void> {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
+    ...(tls ? { tls } : {}),
     ...(web ? { attachTo: web.server } : {}),
     clients,
     logger: hostLog,
   });
-  const { host: boundHost } = parseListen(listen);
   // The smoke test reads this line to learn the port when it asked for 0.
-  console.log(`tau-host listening on ws://${boundHost}:${socket.port}`);
+  console.log(`tau-host listening on ${socket.scheme}://${boundHost}:${socket.port}`);
   console.log(`token: ${hostTokenPath()} (copy it to the client machine, or pass it as TAU_HOST_TOKEN)`);
+  if (tls) {
+    const origin = tls.source === "self-signed" ? `self-signed, ${tls.created ? "created now" : "kept"} in ${tls.certPath}` : `from ${tls.certPath}`;
+    console.log(`tls: certificate ${origin}`);
+    console.log(`tls fingerprint: SHA256 ${tls.fingerprint} (a client pins it as TAU_HOST_FINGERPRINT)`);
+    for (const warning of tls.warnings) console.warn(`tls warning: ${warning}`);
+    hostLog.info("host.tls", { source: tls.source, fingerprint: tls.fingerprint, created: tls.created });
+  }
+  if (socket.warning) console.warn(`\nWARNING: ${socket.warning}\n`);
   if (web) {
     // The code lives in the fragment: no proxy, no access log and no Referer
     // ever carries it, and the page drops it before it renders anything.
-    console.log(`web client: http://${boundHost}:${socket.port}/#pair=${web.issueCode()} (single use, 10 minutes)`);
+    console.log(`web client: ${tls ? "https" : "http"}://${boundHost}:${socket.port}/#pair=${web.issueCode()} (single use, 10 minutes)`);
   } else {
     console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
   }

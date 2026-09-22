@@ -1,4 +1,6 @@
 import type { Server } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { Server as TlsServer } from "node:tls";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   HOST_ERROR,
@@ -30,10 +32,13 @@ export interface SocketHostTransportOptions {
   token: string;
   /** `TAU_HOST_INSECURE=1`: bind a public interface although nothing is encrypted. */
   allowNonLoopback?: boolean;
+  /** Speak TLS with this certificate; any interface may then be bound. */
+  tls?: { cert: string; key: string };
   /**
    * An HTTP server to upgrade on instead of a socket of its own. A host that
    * also serves the web client gives its one here, so the browser reaches the
-   * page and the protocol at the same origin and the same port.
+   * page and the protocol at the same origin and the same port. With `tls` it
+   * must be an HTTPS server built from the same certificate.
    */
   attachTo?: Server;
   /** Where attached clients are reported; without one the host counts nobody. */
@@ -43,6 +48,10 @@ export interface SocketHostTransportOptions {
 
 export interface SocketHostTransport {
   readonly port: number;
+  /** `wss:` or `ws:`, whichever this listener speaks. */
+  readonly scheme: "wss" | "ws";
+  /** Set when the listener runs without TLS beyond loopback; the caller prints it. */
+  readonly warning?: string;
   deliver(push: HostPush): void;
   close(): Promise<void>;
 }
@@ -50,15 +59,19 @@ export interface SocketHostTransport {
 /**
  * The same method table over a local socket. Nothing runs before the hello is
  * accepted, so an unauthenticated peer can neither call a method nor observe
- * a push. Confidentiality is the tunnel's job (see ADR 0010): this is a
- * loopback listener with a shared secret, not a TLS endpoint, and it refuses a
- * public interface unless the operator asked for one.
+ * a push. Without `tls` confidentiality is a tunnel's job (ADR 0010) and a
+ * public interface is refused unless the operator insists; with it, the
+ * listener is an HTTPS server and the token never travels in clear text.
  */
 export async function startSocketHostTransport(options: SocketHostTransportOptions): Promise<SocketHostTransport> {
   const bind = parseListen(options.listen);
-  assertListenAllowed(bind, options.allowNonLoopback === true);
+  const { warning } = assertListenAllowed(bind, { encrypted: options.tls !== undefined, insecure: options.allowNonLoopback === true });
+  if (warning) options.logger?.warn("host-transport-socket.insecure", { host: bind.host });
+  if (options.tls && options.attachTo && !(options.attachTo instanceof TlsServer)) {
+    throw new Error("A TLS listener cannot attach to a plain HTTP server; build the web client's server with the same certificate.");
+  }
   const { host, port } = bind;
-  const http = options.attachTo;
+  const http = options.attachTo ?? (options.tls ? createTlsUpgradeServer(options.tls) : undefined);
   const server = http
     ? new WebSocketServer({ server: http, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES })
     : new WebSocketServer({ host, port, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES });
@@ -137,10 +150,13 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   });
   const address = (http ?? server).address();
   const boundPort = typeof address === "object" && address ? address.port : port;
-  options.logger?.info("host-transport-socket.listening", { host, port: boundPort });
+  const scheme = options.tls ? "wss" : "ws";
+  options.logger?.info("host-transport-socket.listening", { host, port: boundPort, scheme });
 
   return {
     port: boundPort,
+    scheme,
+    ...(warning ? { warning } : {}),
     deliver: (push) => {
       for (const socket of authenticated) send(socket, { type: "push", push });
     },
@@ -150,4 +166,12 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       if (http) await new Promise<void>((resolve) => http.close(() => resolve()));
     },
   };
+}
+
+/** An HTTPS server with nothing to serve but the upgrade to the protocol. */
+function createTlsUpgradeServer(tls: { cert: string; key: string }): Server {
+  return createHttpsServer({ cert: tls.cert, key: tls.key, minVersion: "TLSv1.2" }, (_request, response) => {
+    response.writeHead(426, { "content-type": "text/plain; charset=utf-8", connection: "close" });
+    response.end("This port speaks the Tau host protocol over WebSocket.");
+  });
 }
