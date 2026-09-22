@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Bot } from "lucide-react";
 import { useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
 import type { AgentThreadStatus } from "./protocol.js";
-import { agentsHost, agentsStore } from "./store.js";
+import { agentsHost, agentsStore, siblingsSource } from "./store.js";
 import {
   activityLine,
   agentsPanelModel,
@@ -122,9 +122,16 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
   const navigation = useSyncExternalStore(threadStore.subscribe, threadStore.getSnapshot);
   const activeThreadId = snapshot?.sessionId;
 
+  const siblingsVersion = useSyncExternalStore(siblingsSource.subscribe, siblingsSource.getVersion);
+  const activity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
+  const siblingIds = useMemo(
+    () => (activeThreadId ? siblingsSource.siblingsOf(activeThreadId) : []),
+    // siblingsVersion moves when Thread Rail's groups change.
+    [activeThreadId, siblingsVersion],
+  );
   const model = useMemo(
-    () => agentsPanelModel(state, activeThreadId, navigation.threads),
-    [state, activeThreadId, navigation.threads],
+    () => agentsPanelModel(state, activeThreadId, navigation.threads, { ids: siblingIds, running: activity.runningThreadIds }),
+    [state, activeThreadId, navigation.threads, siblingIds, activity.runningThreadIds],
   );
   const rows = useMemo(() => panelRows(model), [model]);
 

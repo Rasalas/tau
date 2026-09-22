@@ -9,6 +9,18 @@ export const AGENTS_HOST_EXTENSION_ID = "tau.agents";
 /** Pushed whenever an agent appears, changes status or goes away. */
 export const AGENTS_STATE_EVENT = "state";
 
+/**
+ * Thread Rail's threads started together from one prompt. The panel shows a
+ * thread's siblings the way it shows its agents; without Thread Rail there are none.
+ */
+export const THREAD_SIBLINGS_SERVICE = "tau.thread-rail/siblings";
+
+export interface ThreadSiblingsService {
+  /** The whole group, the thread itself included, or `[]`. */
+  siblingsOf(threadId: string): readonly string[];
+  subscribe(listener: () => void): () => void;
+}
+
 /** Commands the panel's two row actions send to the host half. */
 export interface AgentsHostCommands {
   "state": { input: undefined; output: AgentsState };
