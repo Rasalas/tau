@@ -1742,6 +1742,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 }
 .provider-card > header { display: flex; align-items: center; gap: 8px; }
 .provider-card > header strong { font-size: 13px; font-weight: 700; }
+.provider-card > header .provider-card-icon { margin-left: 0; }
 .provider-card .settings-label:first-of-type { margin-top: 12px; }
 .provider-card .settings-note { margin-top: 10px; }
 
