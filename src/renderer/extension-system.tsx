@@ -11,6 +11,8 @@ import type {
   ShellActionResult,
   UiModel,
   UiMessage,
+  UiProject,
+  UiSession,
   UiPromptAttachment,
   UiPromptImageAttachment,
   UiToolRun,
@@ -410,7 +412,40 @@ export interface SettingsPageContribution extends ProfileScoped {
   /** The nav glyph, the way a panel passes one. */
   Icon?: PanelIconComponent;
   order?: number;
+  /** Words the Settings search and the palette find this page by, besides its label. */
+  keywords?: readonly string[];
   Component: ComponentType<SettingsPageProps>;
+}
+
+/** One row a palette source answers with. */
+export interface PaletteItem {
+  /** Unique within its source. */
+  id: string;
+  label: string;
+  /** Context after the label: a project, a path, the line that matched. */
+  detail?: string;
+  run(actions: WorkbenchActions): void | Promise<void>;
+}
+
+/** What the palette hands a source with every query. */
+export interface PaletteSearchContext {
+  actions: WorkbenchActions;
+  /** The thread index as this window holds it. */
+  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string };
+  /** Aborted when the query changes or the palette closes; a late answer is dropped either way. */
+  signal: AbortSignal;
+}
+
+/**
+ * Rows the palette asks for as the user types, beside the commands: threads,
+ * projects, anything a query finds. Asked only for a non-empty query.
+ */
+export interface PaletteSourceContribution {
+  id: string;
+  /** What the rows are, shown beside each: "Threads", "Projects". */
+  label: string;
+  order?: number;
+  search(query: string, context: PaletteSearchContext): readonly PaletteItem[] | Promise<readonly PaletteItem[]>;
 }
 
 export type CommandSurface = "thread-title";
@@ -707,6 +742,8 @@ export interface DesktopExtensionContext {
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
+  /** Rows the command palette asks for as the user types, beside the commands. */
+  registerPaletteSource(source: PaletteSourceContribution): () => void;
   /** Slash commands show in the composer's `/` menu next to the runtime's own. */
   registerSlashCommand(command: SlashCommandContribution): () => void;
   /** Binds a chord to a command of any extension; core dispatches window keydown. */
@@ -859,6 +896,7 @@ export class ExtensionRegistry {
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
+  private paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
   private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
   private keybindings = new Map<string, ResolvedKeybinding>();
   private keybindingConflicts: KeybindingConflict[] = [];
@@ -1113,6 +1151,10 @@ export class ExtensionRegistry {
       },
       registerCommand: (command) =>
         this.register(this.commands, command.id, { ...command, ...owner }, disposers),
+      registerPaletteSource: (source) => {
+        note("palette sources");
+        return this.register(this.paletteSources, source.id, { ...source, ...owner }, disposers);
+      },
       registerKeybinding: (binding) => {
         const chord = parseKeyChord(binding.keys);
         const id = normalizeKeyChord(binding.keys);
@@ -1384,6 +1426,11 @@ export class ExtensionRegistry {
 
   getCommands(): Array<Owned<CommandContribution>> {
     return this.sorted("commands", this.commands, false);
+  }
+
+  /** The palette's sources, in `order`. */
+  getPaletteSources(): Array<Owned<PaletteSourceContribution>> {
+    return this.sorted("palette-sources", this.paletteSources);
   }
 
   getCommandsFor(surface: CommandSurface): Array<Owned<CommandContribution>> {

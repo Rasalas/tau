@@ -1,0 +1,49 @@
+import { describe, expect, it } from "vitest";
+import { paletteRows, type PaletteCommand, type PaletteRow } from "./palette-results";
+
+const command = (id: string, label: string, group = "Runtime", extensionName = "Runtime Controls"): PaletteCommand =>
+  ({ id, label, group, extensionId: "core", extensionName, run: () => undefined });
+
+const item = (id: string, label = id) => ({ id, label, run: () => undefined });
+
+const keys = (rows: PaletteRow[]) => rows.map((row) => row.key);
+
+const commands = [
+  command("thread.rename", "Rename thread", "Thread", "Thread Rail"),
+  command("runtime.model", "Set model…"),
+  command("project.open", "Open project…", "Project", "Workspace Kit"),
+  command("thread.settle", "Settle thread", "Thread", "Thread Rail"),
+];
+
+describe("palette results", () => {
+  it("lists the commands alone for an empty query, grouped in their order", () => {
+    expect(keys(paletteRows(commands, "", [{ id: "threads", label: "Threads", items: [item("t1")] }]))).toEqual([
+      "command:thread.rename", "command:thread.settle", "command:runtime.model", "command:project.open",
+    ]);
+  });
+
+  it("puts label matches first, then every source in its order, then commands matched only by group", () => {
+    const rows = paletteRows(commands, "thread", [
+      { id: "threads", label: "Threads", items: [item("t1", "Fix the thread rail"), item("t2")] },
+      { id: "projects", label: "Projects", items: [item("p1")] },
+    ]);
+    expect(keys(rows)).toEqual([
+      "command:thread.rename", "command:thread.settle",
+      "threads:t1", "threads:t2", "projects:p1",
+    ]);
+    expect(rows[2]).toMatchObject({ kind: "item", source: "Threads" });
+
+    expect(keys(paletteRows(commands, "project", [{ id: "threads", label: "Threads", items: [item("t9")] }]))).toEqual([
+      "command:project.open", "threads:t9",
+    ]);
+    expect(keys(paletteRows(commands, "runtime", [{ id: "threads", label: "Threads", items: [item("t9")] }]))).toEqual([
+      "threads:t9", "command:runtime.model",
+    ]);
+  });
+
+  it("caps each source and drops a row a source answered twice", () => {
+    const many = Array.from({ length: 12 }, (_, index) => item(`t${index}`));
+    const rows = paletteRows([], "x", [{ id: "threads", label: "Threads", items: [item("t0"), ...many] }], 5);
+    expect(keys(rows)).toEqual(["threads:t0", "threads:t1", "threads:t2", "threads:t3", "threads:t4"]);
+  });
+});

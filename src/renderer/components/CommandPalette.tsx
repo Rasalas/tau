@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { CommandContribution, ContributionOwner, WorkbenchActions } from "../extension-system";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ExtensionRegistry, PaletteItem, PaletteSearchContext, WorkbenchActions } from "../extension-system";
+import { paletteRows, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
+import { searchSettings, settingsSearchEntries } from "../settings/settings-search";
+import { ThreadStoreContext } from "../workbench-context";
+import { errorMessage } from "../../workbench/error-message";
 import { VirtualList } from "./VirtualList";
 
-type Command = CommandContribution & ContributionOwner;
+/** Core's own source: the Settings pages and rows, found by the words Settings search uses. */
+const SETTINGS_SOURCE = { id: "core.settings", label: "Settings" };
+const SETTINGS_LIMIT = 5;
+const NO_RESULTS: PaletteSourceResult[] = [];
 
-/** Underline the matched run so the reason a command ranked is visible. */
+/** Underline the matched run so the reason a row ranked is visible. */
 function highlight(label: string, query: string): ReactNode {
   if (!query) return label;
   const index = label.toLowerCase().indexOf(query.toLowerCase());
@@ -18,13 +25,17 @@ function highlight(label: string, query: string): ReactNode {
   );
 }
 
-function score(command: Command, query: string): number {
-  if (!query) return 1;
-  const label = command.label.toLowerCase();
-  const index = label.indexOf(query);
-  if (index === 0) return 3;
-  if (index > 0) return 2;
-  return `${command.group} ${command.extensionName}`.toLowerCase().includes(query) ? 1 : 0;
+function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem[] {
+  const entries = settingsSearchEntries({
+    pages: registry.getSettingsPages().map((page) => ({ id: page.id, label: page.label, keywords: page.keywords, extensionName: page.extensionName })),
+    extensions: registry.getExtensionSummaries(),
+  });
+  return searchSettings(entries, needle, SETTINGS_LIMIT).map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    detail: entry.section,
+    run: (actions) => actions.openSettings(entry.page),
+  }));
 }
 
 export function CommandPalette({
@@ -32,58 +43,90 @@ export function CommandPalette({
   commands,
   extensionCount,
   actions,
+  registry,
   shortcutFor,
   onClose,
 }: {
   open: boolean;
-  commands: Command[];
+  commands: PaletteCommand[];
   extensionCount: number;
   actions: WorkbenchActions;
+  /** Where the palette's sources and the Settings pages come from; without it, commands only. */
+  registry?: ExtensionRegistry;
   /** The chord label bound to a command, from the registry's keybindings. */
   shortcutFor?: (commandId: string) => string | undefined;
   onClose(): void;
 }) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  const [found, setFound] = useState<{ needle: string; results: PaletteSourceResult[] }>({ needle: "", results: [] });
   const input = useRef<HTMLInputElement>(null);
+  const threads = useContext(ThreadStoreContext);
+  // The workbench hands a new actions object on some renders; that is no reason to search again.
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
 
   const needle = query.trim().toLowerCase();
-  const matches = useMemo(
-    () => commands
-      .map((command) => ({ command, rank: score(command, needle) }))
-      .filter((entry) => entry.rank > 0)
-      .sort((left, right) => right.rank - left.rank)
-      .map((entry) => entry.command),
-    [commands, needle],
-  );
 
-  // Group in first-appearance order so the ranking above still drives the layout.
-  const groups = useMemo(() => {
-    const byGroup = new Map<string, Command[]>();
-    for (const command of matches) {
-      const existing = byGroup.get(command.group);
-      if (existing) existing.push(command);
-      else byGroup.set(command.group, [command]);
+  // Every source is asked again for every query; an answer that arrives after
+  // the next keystroke is dropped, and the source sees its signal abort.
+  useEffect(() => {
+    if (!open || !needle || !registry) return;
+    const controller = new AbortController();
+    const snapshot = threads?.getSnapshot();
+    const context: PaletteSearchContext = {
+      actions: actionsRef.current,
+      index: { projects: snapshot?.projects ?? [], threads: snapshot?.threads ?? [], ...(snapshot?.activeThreadId ? { activeThreadId: snapshot.activeThreadId } : {}) },
+      signal: controller.signal,
+    };
+    const sources = registry.getPaletteSources();
+    const answers = new Map<string, PaletteSourceResult>();
+    const publish = () => {
+      if (controller.signal.aborted) return;
+      const results = sources.flatMap((source) => answers.get(source.id) ?? []);
+      const settings = answers.get(SETTINGS_SOURCE.id);
+      setFound({ needle, results: settings ? [...results, settings] : results });
+    };
+    answers.set(SETTINGS_SOURCE.id, { ...SETTINGS_SOURCE, items: settingsItems(registry, needle) });
+    for (const source of sources) {
+      let answer: ReturnType<typeof source.search>;
+      try {
+        answer = source.search(needle, context);
+      } catch (error) {
+        console.warn(`Palette source ${source.id} failed`, error);
+        continue;
+      }
+      if (Array.isArray(answer)) {
+        answers.set(source.id, { id: source.id, label: source.label, items: answer });
+        continue;
+      }
+      void Promise.resolve(answer).then(
+        (items) => { answers.set(source.id, { id: source.id, label: source.label, items }); publish(); },
+        (error: unknown) => { if (!controller.signal.aborted) console.warn(`Palette source ${source.id} failed`, error); },
+      );
     }
-    return [...byGroup.entries()];
-  }, [matches]);
-  const ordered = useMemo(() => groups.flatMap(([, entries]) => entries), [groups]);
+    publish();
+    return () => controller.abort();
+  }, [needle, open, registry, threads]);
+
+  const results = found.needle === needle ? found.results : NO_RESULTS;
+  const rows = useMemo(() => paletteRows(commands, needle, results), [commands, needle, results]);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setCursor(0);
+    setFound({ needle: "", results: [] });
     requestAnimationFrame(() => input.current?.focus());
   }, [open]);
 
   useEffect(() => setCursor(0), [needle]);
 
-
-
   if (!open) return null;
 
-  const run = (command: Command) => {
-    void command.run(actions);
+  const run = (row: PaletteRow) => {
+    const done = row.kind === "command" ? row.command.run(actions) : row.item.run(actions);
+    void Promise.resolve(done).catch((error: unknown) => actions.notify(errorMessage(error)));
     onClose();
   };
 
@@ -91,13 +134,13 @@ export function CommandPalette({
     if (event.key === "Escape") { onClose(); return; }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setCursor((value) => (ordered.length ? (value + 1) % ordered.length : 0));
+      setCursor((value) => (rows.length ? (value + 1) % rows.length : 0));
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setCursor((value) => (ordered.length ? (value - 1 + ordered.length) % ordered.length : 0));
+      setCursor((value) => (rows.length ? (value - 1 + rows.length) % rows.length : 0));
     }
-    if (event.key === "Enter" && ordered[cursor]) run(ordered[cursor]);
+    if (event.key === "Enter" && rows[cursor]) run(rows[cursor]);
   };
 
   return (
@@ -116,25 +159,33 @@ export function CommandPalette({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Run a command…"
+            placeholder={registry ? "Run a command, find a thread, a project or a setting…" : "Run a command…"}
             aria-label="Command"
           />
           <kbd>esc</kbd>
         </div>
         <VirtualList
-          items={ordered}
+          items={rows}
           itemHeight={38}
           className="palette-results"
           scrollToIndex={cursor}
-          empty={<p className="palette-empty">No commands match “{query}”.</p>}
-          renderItem={(command, index) => <button
-            key={command.id}
+          empty={<p className="palette-empty">Nothing matches “{query}”.</p>}
+          renderItem={(row, index) => row.kind === "command" ? <button
+            key={row.key}
             className={index === cursor ? "selected" : ""}
-            data-group={command.group}
+            data-group={row.command.group}
             onMouseMove={() => setCursor(index)}
-            onClick={() => run(command)}
+            onClick={() => run(row)}
           >
-            <span>{highlight(command.label, needle)}</span><small>{command.extensionName.toLowerCase()}</small>{(() => { const shortcut = shortcutFor?.(command.id); return shortcut ? <kbd>{shortcut}</kbd> : null; })()}
+            <span>{highlight(row.command.label, needle)}</span><small>{row.command.extensionName.toLowerCase()}</small>{(() => { const shortcut = shortcutFor?.(row.command.id); return shortcut ? <kbd>{shortcut}</kbd> : null; })()}
+          </button> : <button
+            key={row.key}
+            className={index === cursor ? "selected" : ""}
+            data-source={row.source}
+            onMouseMove={() => setCursor(index)}
+            onClick={() => run(row)}
+          >
+            <span>{highlight(row.item.label, needle)}{row.item.detail ? <em>{row.item.detail}</em> : null}</span><small>{row.source.toLowerCase()}</small>
           </button>}
         />
         <footer>

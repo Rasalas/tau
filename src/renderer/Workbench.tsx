@@ -413,6 +413,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           commands={commands}
           extensionCount={registry.getExtensionNames().length}
           actions={actions}
+          registry={registry}
           onClose={closePalette}
         />
       </Suspense>
