@@ -30,7 +30,6 @@ import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
-import { SubscriptionLoginIndicator } from "./settings/runtime-controls";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
@@ -536,7 +535,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             {!showStartScreen ? <>
               <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
               <header className="conversation-header">
-                <SubscriptionLoginIndicator snapshot={snapshot} />
+                <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
                 <ThreadTitleMenu
                   title={conversationSnapshot?.sessionTitle || "Untitled thread"}
                   label={snapshot?.projectLabel}
@@ -738,6 +737,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}
+    onNewThreadOnRuntime={actions ? (kind) => { preferences.setNewThreadRuntime(kind); actions.newSession(); } : undefined}
     newThread={pendingNewThread}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}

@@ -1,14 +1,11 @@
 import { useCallback } from "react";
 import type {
   SubmissionResult,
-  ThreadBackendKind,
-  UiModel,
   UiPromptAttachment,
   UiSkillDraft,
 } from "../../shared/contracts";
 import { errorMessage } from "../../workbench/error-message";
 import { writeComposerDraft } from "../../workbench/draft-store";
-import { isRestrictedSubscriptionLogin } from "../../shared/subscription-login";
 import type { ClientStorage } from "../../workbench/client-storage";
 import type {
   ComposerScope,
@@ -68,17 +65,6 @@ export function classifyComposerInput({
   }
 
   return { kind: "prompt", delivery };
-}
-
-/** Pi subscription warnings apply only to the runtimes that present Pi's login. */
-export function requiresSubscriptionAcknowledgement(
-  model: UiModel | undefined,
-  backendKind: ThreadBackendKind | undefined,
-  hasAcknowledged: (provider: string) => boolean,
-): boolean {
-  if (model?.login !== "subscription" || !isRestrictedSubscriptionLogin(model.provider)) return false;
-  if (backendKind !== "antigravity" && backendKind !== "claude-code") return false;
-  return !hasAcknowledged(model.provider);
 }
 
 interface InlineSend {

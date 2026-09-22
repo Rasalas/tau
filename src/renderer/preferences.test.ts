@@ -87,11 +87,9 @@ describe("new thread runtime", () => {
 });
 
 describe("subscription login acknowledgements", () => {
-  it("remember each provider once, across reloads", () => {
-    expect(preferences.hasAcknowledgedSubscriptionLogin("anthropic")).toBe(false);
-    preferences.acknowledgeSubscriptionLogin("anthropic");
-    preferences.acknowledgeSubscriptionLogin("anthropic");
-    expect(new PreferencesStore().getSnapshot().acknowledgedSubscriptionLogins).toEqual(["anthropic"]);
+  it("move to the kit that owns the warning now", () => {
+    storage.set(STORAGE_KEYS.preferences, JSON.stringify({ acknowledgedSubscriptionLogins: ["anthropic", "google"] }));
+    expect(new PreferencesStore().value("tau.subscription-login", "acknowledged")).toBe("anthropic,google");
   });
 });
 

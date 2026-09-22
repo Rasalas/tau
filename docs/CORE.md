@@ -119,16 +119,24 @@ the composer at the bottom edge, agent supervision as the start screen — throu
 component tree.
 
 The model picker (`src/renderer/components/ModelPicker.tsx`) keys everything on
-what the catalog says: a rail of provider icons, each the `ProviderIconStack`
-the thread rows use (the runtime's logo behind the model provider's when they
-differ), a search across every provider, favourites reachable with ⌘1–9, and
-per provider one fold for legacy generations. In a new thread's picker,
-Shift-click hands the model to the set an extension keeps
-(`registerModelSelection`) instead of choosing it; without one it chooses. What the catalog does not say —
-which generations are legacy, which model wears a "new" badge for a while —
-lives in `src/renderer/model-manifest.ts`, hand maintained and dated; an
-unmatched model is current. A model behind a subscription login the runtime
-performs (`UiModel.login`) is tagged there and asked about once.
+what the catalog says: a rail with Pi's catalog split by model provider and
+every other runtime the host offers as one tab of its own
+(`model-picker-rail.ts`), a search across the catalog on hand, favourites
+reachable with ⌘1–9, and per tab one fold for legacy generations. A runtime's
+models are known once a thread of it runs, so another runtime's tab says what
+choosing it means instead: a new thread's draft switches to it, and a thread
+that exists offers a new thread on it, because a thread keeps its runtime. Pi
+is the default and wears no mark: the rail, the rows, the composer chip and the
+thread rows draw a runtime's logo beside the model provider's only when the
+runtime is not Pi (`providerMarks` in `src/renderer/runtime-marks.ts`). What the
+catalog does not say — which generations are legacy, which model wears a "new"
+badge for a while — lives in `src/renderer/model-manifest.ts`, hand maintained
+and dated; an unmatched model is current. A model behind a subscription login
+the runtime performs (`UiModel.login`) is tagged "subscription login"; whether
+that is worth a warning is a policy, and policies reach the picker and the
+composer through `registerModelBadge` and `registerComposerGate`. In a new
+thread's picker, Shift-click hands the model to the set an extension keeps
+(`registerModelSelection`) instead of choosing it; without one it chooses.
 
 ### The stage
 
@@ -200,6 +208,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Organising the rail: pinned, active, snoozed and settled threads, dragging them between sections and within one, snooze until a time, auto-settle rules (quiet for N days, request merged or closed), the thread commands and chords, starting a new thread in the background (⌘↵) and one prompt to several models | Thread Rail: `kits/thread-rail/`, a package Tau ships (ADR 0014). Its host half keeps the meta per thread in `<userData>/kit-state/tau.thread-rail/thread-meta.json`, pushes each change and sweeps every five minutes, while no window is open too: a snooze that ran out wakes, and an idle thread settles by the rules in its Settings page, the request state asked of Review Kit's `pr-status` (callers `tau.thread-rail`) for a thread that has its worktree to itself. Its desktop half is the organizer Workspace Kit's rail lends (`registerThreadRailOrganizer`), claims a new thread's prompt through `claimNewThread` for ⌘↵ and for a model set built with `registerModelSelection`, starts those threads with `services.sessions.start` in worktrees `prepareThreadWorktree` makes, and publishes the sibling groups as `tau.thread-rail/siblings` for the Agents panel. Core's old pin and settle lists in the preferences are handed over once and then mirrored, so the title menu's Pin and Settle keep working | Thread Rail |
 | Prompt tools: stashing a draft, recalling earlier prompts, citing a reply, queue or steer while a turn runs | Prompt Tools: `kits/prompt-tools/`, a package Tau ships (ADR 0014). Its desktop half binds `mod+s` to "Stash the draft" and draws the Stash control with its count in the composer toolbar: an entry keeps the text, Composer Context's chips (through `tau.composer-context/chips`) and the images, per project, twenty at most, and restoring one stashes what the composer held first. ↑ in an empty composer recalls the thread's prompts, then the project's other threads' (`keyDown` on `registerComposerInline`); "Cite" on an assistant reply (`registerMessageAction`) puts the selection, or the reply, into the composer as a quote chip, or as a `>` block without Composer Context; its "While a turn runs" option answers `streamingDelivery`. Its host half runs in a worker and keeps the stash in `<userData>/kit-state/tau.prompt-tools/stash/`, and reads the project's prompts from the session files `sessions.list` names. Core lends those three seams, `actions` for a composer control and a draft's images (`composerImages`, `setComposerImages`) | Prompt Tools |
 | Line comments on a diff as context for the next prompt, split or unified diffs, hidden whitespace, files that start collapsed; rewinding to a checkpoint with or without its files | Review Kit fills the seams core's `ReviewMode` lends (`lines`, `layout`, `ignoreWhitespace`, `filesStartCollapsed`, `toolbar`, `aside`; `DiffView` takes the same line seam): a comment opens under the line its gutter button belongs to, the kit keeps them per workspace in client storage, lists them beside the diffs and hands them to Composer Context's chip service as `text-excerpt` chips — as text in the draft when that kit is off. Core draws the gutter button and the row under a line and knows no comment; its own review notes are gone, and the kit takes over the ones a user left once. Workspace Kit answers `ignoreWhitespace` with `git diff --ignore-all-space`, and its checkpoint card asks how to rewind: "Keep changes" branches the conversation at the checkpoint's answer through its own `rewind` command and touches no file, "Revert files too" is the restore above, backup thread first | Review Kit, Workspace Kit |
+| The warning before a subscription login a vendor forbids outside its own apps (Anthropic, Google) | Subscription Login Warning: `kits/subscription-login/`, a package Tau ships (ADR 0014) with a desktop half and no host half. A shield before the thread title (`thread-title` region), a badge and a line in the model picker (`registerModelBadge`), and one question per provider before such a model is first chosen or sent to (`registerComposerGate`); the acknowledgements are the kit's own preference value. Core keeps only the `UiModel.login` fact and the neutral "subscription login" tag | Subscription Login Warning |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
 Defaults, Pi, Keybindings and Inspector pages, and the contributions that reach
