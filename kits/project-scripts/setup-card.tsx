@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, ChevronRight, Circle, Minus, Play, X } from "lucide-react";
-import { errorMessage, type RegionProps, type WorkbenchActions } from "tau";
+import { errorMessage, useThreadStore, type RegionProps, type ThreadStore, type WorkbenchActions } from "tau";
 import type { ProjectScriptsHostClient, UiSetupStage, UiWorktreeSetup } from "./protocol.js";
 
 /** Worktree setups the host pushes, newest first. One per activation. */
@@ -47,12 +47,12 @@ export function worthShowing(setup: UiWorktreeSetup): boolean {
  * prompt waits, the running setup of the checkout it was started from; once
  * the thread runs in its worktree, that worktree's.
  */
-export function setupsOnScreen(setups: readonly UiWorktreeSetup[], screen: { cwd?: string; draftPending: boolean }): UiWorktreeSetup[] {
+export function setupsOnScreen(setups: readonly UiWorktreeSetup[], screen: { cwd?: string; threadCwd?: string; draftPending: boolean }): UiWorktreeSetup[] {
   const cwd = trimmed(screen.cwd);
-  if (!cwd) return [];
+  const threadCwd = trimmed(screen.threadCwd) ?? cwd;
   return setups.filter((setup) => worthShowing(setup) && (screen.draftPending
-    ? setup.phase === "running" && !setup.released && trimmed(setup.project) === cwd
-    : trimmed(setup.worktree) === cwd));
+    ? Boolean(cwd) && setup.phase === "running" && !setup.released && trimmed(setup.project) === cwd
+    : Boolean(threadCwd) && trimmed(setup.worktree) === threadCwd));
 }
 
 export function formatElapsed(ms: number): string {
@@ -173,7 +173,7 @@ export function createSetupCards(store: SetupStore, host: ProjectScriptsHostClie
   };
   return function WorktreeSetupCards({ actions, snapshot }: RegionProps) {
     const setups = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-    const visible = setupsOnScreen(setups, screenOf(actions, snapshot));
+    const visible = setupsOnScreen(setups, screenOf(actions, snapshot, useThreads()));
     if (visible.length === 0) return null;
     return (
       <div className="project-scripts-setups">
@@ -183,8 +183,20 @@ export function createSetupCards(store: SetupStore, host: ProjectScriptsHostClie
   };
 }
 
-function screenOf(actions: WorkbenchActions, snapshot: RegionProps["snapshot"]): { cwd?: string; draftPending: boolean } {
+/** The index is where a thread's own checkout is written; outside a workbench there is none. */
+function useThreads(): ThreadStore | undefined {
+  try {
+    return useThreadStore();
+  } catch {
+    return undefined;
+  }
+}
+
+function screenOf(actions: WorkbenchActions, snapshot: RegionProps["snapshot"], threads: ThreadStore | undefined) {
   const active = actions.activeThread();
   const cwd = active?.cwd ?? snapshot?.cwd;
-  return { ...(cwd ? { cwd } : {}), draftPending: active?.draftPending ?? false };
+  // The host's workspace may stay the checkout a worktree thread was started from.
+  const thread = active?.sessionId ? threads?.getThread(active.sessionId) : undefined;
+  const threadCwd = thread?.projectDisplayPath ?? thread?.projectPath;
+  return { ...(cwd ? { cwd } : {}), ...(threadCwd ? { threadCwd } : {}), draftPending: active?.draftPending ?? false };
 }

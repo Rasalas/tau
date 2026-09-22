@@ -31,6 +31,8 @@ describe("which setups the screen shows", () => {
     expect(setupsOnScreen([running], { cwd: "/repo/", draftPending: true })).toEqual([running]);
     expect(setupsOnScreen([running], { cwd: "/repo", draftPending: false })).toEqual([]);
     expect(setupsOnScreen([running], { cwd: "/repo-worktrees/tau-x", draftPending: false })).toEqual([running]);
+    // The host's workspace may stay the checkout; the thread's own path decides.
+    expect(setupsOnScreen([running], { cwd: "/repo", threadCwd: "/repo-worktrees/tau-x", draftPending: false })).toEqual([running]);
     // Once the thread may start, the draft no longer waits on the setup.
     expect(setupsOnScreen([setup({ released: true })], { cwd: "/repo", draftPending: true })).toEqual([]);
   });
