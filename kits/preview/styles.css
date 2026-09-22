@@ -31,7 +31,10 @@
 .preview-suggestion small { color: var(--muted-2); font: 10px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Pick, annotate, record and the profile; the same row carries each mode's own controls. */
-.preview-tools { flex: none; display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 3px 8px; border-bottom: 1px solid var(--line); }
+/* A flex item of the dock's panel: without this the widest row would widen the panel past the dock. */
+.preview-panel { min-width: 0; }
+.preview-tools { flex: none; display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 3px 8px; border-bottom: 1px solid var(--line); overflow: hidden; }
+.preview-tools > button, .preview-tools > select { flex: none; }
 .preview-tools .spacer { flex: 1; }
 .preview-tools.picking, .preview-tools.annotating { background: var(--acid-bg); }
 .preview-tools .icon-button.active { background: var(--acid-chip); color: var(--acid-text); }
