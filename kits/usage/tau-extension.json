@@ -1,0 +1,15 @@
+{
+  "id": "tau.usage",
+  "name": "Usage",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.6.0"
+  },
+  "permissions": [
+    "sessions"
+  ],
+  "isolation": "worker",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}
