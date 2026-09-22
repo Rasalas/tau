@@ -835,7 +835,8 @@ describe("Agents Kit definitions", () => {
     bench.setProject(dir);
     bench.open("parent");
     await bench.activate({ linksPath: join(dir, "links.json") });
-    return { dir, bench, cleanup: () => rm(dir, { recursive: true, force: true }) };
+    // The kit's links file is written after a spawn settles; a slow machine can still be writing it.
+    return { dir, bench, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
   };
 
   /** What Pi hands an extension handler: the session's own entries, and a cwd. */
