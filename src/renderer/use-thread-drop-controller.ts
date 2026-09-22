@@ -5,6 +5,7 @@ export function useThreadDropController(
   supportsImageInput: boolean,
   addFiles: (files: FileList | readonly File[]) => void,
   existingAttachments: readonly { size: number }[] = [],
+  acceptsAnyFile = false,
 ) {
   const [state, setState] = useState<ThreadDropState>("idle");
   const depthRef = useRef(0);
@@ -23,8 +24,9 @@ export function useThreadDropController(
       supportsImageInput,
       existingAttachments.length,
       existingAttachments.reduce((total, attachment) => total + attachment.size, 0),
+      acceptsAnyFile,
     );
-  }, [existingAttachments, supportsImageInput]);
+  }, [acceptsAnyFile, existingAttachments, supportsImageInput]);
 
   const cancel = useCallback(() => {
     depthRef.current = 0;

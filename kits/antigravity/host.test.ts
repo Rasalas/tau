@@ -53,7 +53,7 @@ describe("Antigravity host half", () => {
     const { backends, openSession, registry } = await harness(true);
     const [provider] = backends;
     expect(provider).toMatchObject({ kind: "antigravity", label: "Antigravity", modelProvider: "google" });
-    expect(provider?.adapter.capabilities).toEqual({ skillInvocationDialect: "antigravity", ownsModelSelection: false, interactiveApprovals: true });
+    expect(provider?.adapter.capabilities).toEqual({ skillInvocationDialect: "antigravity", ownsModelSelection: false, interactiveApprovals: true, fileAttachments: true });
     const backend = await provider!.open("thread-1", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) });
     await backend.prompt({ text: "hi", delivery: "prompt" });
     expect(openSession).toHaveBeenCalledTimes(1);

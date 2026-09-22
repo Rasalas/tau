@@ -9,11 +9,13 @@ export interface ComposerArgMatch {
 }
 
 export interface ComposerTrigger {
-  kind: "/" | "$" | "@" | "arg";
+  kind: "/" | "$" | "@" | "arg" | "extension";
   query: string;
   start: number;
   end: number;
   command?: string;
+  /** The character an extension registered, for `kind: "extension"`. */
+  char?: string;
 }
 
 export interface SelectedSkill {
@@ -28,9 +30,23 @@ export function skillName(command: UiComposerCommand): string {
   return command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name;
 }
 
-/** Editor-only autocomplete trigger; submitted text is never classified or rewritten here. */
-export function composerTrigger(text: string, caret: number): ComposerTrigger | undefined {
+const escapeCharacter = (char: string) => char.replace(/[\\^$.*+?()[\]{}|]/gu, "\\$&");
+
+/**
+ * Editor-only autocomplete trigger; submitted text is never classified or
+ * rewritten here. An extension's character wins over core's own `@`.
+ */
+export function composerTrigger(text: string, caret: number, extensionChars: readonly string[] = []): ComposerTrigger | undefined {
   const before = text.slice(0, caret);
+  if (extensionChars.length > 0) {
+    const pattern = new RegExp(`(?:^|\\s)(${extensionChars.map(escapeCharacter).join("|")})([^\\s]*)$`, "u");
+    const extensionMatch = pattern.exec(before);
+    if (extensionMatch) {
+      const char = extensionMatch[1]!;
+      const query = extensionMatch[2] ?? "";
+      return { kind: "extension", char, query, start: caret - query.length - char.length, end: caret };
+    }
+  }
   // Match @file anywhere in the prompt preceded by start or whitespace
   const atMatch = /(?:^|\s)(@)([^\s]*)$/u.exec(before);
   if (atMatch) {
@@ -84,6 +100,10 @@ export interface ComposerAutocompleteMenuProps {
   onSelectCommand(command: UiComposerCommand): void;
   onSelectFile(file: string): void;
   onSelectArg?(arg: ComposerArgMatch): void;
+  /** Rows of an extension's trigger menu, and what the menu lists. */
+  extensionMatches?: readonly ComposerArgMatch[];
+  extensionLabel?: string;
+  onSelectExtension?(item: ComposerArgMatch): void;
 }
 
 export function ComposerAutocompleteMenu({
@@ -95,7 +115,34 @@ export function ComposerAutocompleteMenu({
   onSelectCommand,
   onSelectFile,
   onSelectArg,
+  extensionMatches = [],
+  extensionLabel,
+  onSelectExtension,
 }: ComposerAutocompleteMenuProps): ReactNode {
+  if (trigger.kind === "extension") {
+    return (
+      <div className="composer-command-menu" role="listbox" aria-label={extensionLabel ?? "Suggestions"}>
+        {extensionMatches.length > 0 ? extensionMatches.map((item, index) => (
+          <button
+            type="button"
+            role="option"
+            aria-selected={index === cursor}
+            className={index === cursor ? "selected" : ""}
+            key={item.id}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelectExtension?.(item)}
+          >
+            <span className="composer-command-mark">{trigger.char}</span>
+            <span className="composer-command-copy">
+              <strong>{item.label}{item.hint ? <i>{item.hint}</i> : null}</strong>
+              {item.description ? <small>{item.description}</small> : null}
+            </span>
+          </button>
+        )) : <div className="composer-command-empty">Nothing matches “{trigger.query}”.</div>}
+      </div>
+    );
+  }
+
   if (trigger.kind === "@") {
     return (
       <div className="composer-command-menu" role="listbox" aria-label="Files">

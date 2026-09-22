@@ -1,0 +1,59 @@
+/* Composer Context: the chip strip inside the composer's input frame. */
+.composer-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+
+.composer-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  background: var(--chip);
+  color: var(--ink-2);
+  font: 12px/1 var(--mono);
+  transition: background var(--motion-fast) var(--ease);
+}
+
+.composer-context-chip:hover { background: var(--chip-hover); }
+.composer-context-chip.uploading { color: var(--muted); }
+.composer-context-chip.uploading svg:first-child { animation: blink 1.2s var(--ease) infinite; }
+.composer-context-chip.failed { border-color: var(--danger-line); color: var(--danger); }
+.composer-context-chip.pull-request svg:first-child { color: var(--ready); }
+
+.composer-context-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-context-chip button,
+.composer-context-error button {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.composer-context-chip button:hover,
+.composer-context-error button:hover { background: var(--raised-hover); color: var(--ink); }
+
+.composer-context-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+  font-size: 12px;
+}

@@ -1174,7 +1174,7 @@ export class PiHost {
         if (!this.isCurrentActivation(activationEpoch)) return this.staleNewThreadResult(requestId);
         const ownedRequestId = requestId ?? createNewThreadRequestId(randomUUID());
         try {
-          this.prompts.assertImageInput(owner, attachments);
+          this.prompts.assertAttachmentInput(owner, attachments);
         } catch (error) {
           return this.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, ownedRequestId);
         }
@@ -1236,7 +1236,7 @@ export class PiHost {
         }
         // Decode and validate attachment data before promoting a prepared
         // runtime, so malformed input cannot leave an adopted blank thread.
-        this.prompts.assertImageInput(thread, attachments);
+        this.prompts.assertAttachmentInput(thread, attachments);
         lifecycle = "adopting";
         await this.adoptThread(thread);
         lifecycle = "adopted";
@@ -1576,7 +1576,7 @@ export class PiHost {
       this.log("prompt.accepted", text.slice(0, 80));
       return;
     }
-    this.prompts.assertImageInput(thread, attachments);
+    this.prompts.assertAttachmentInput(thread, attachments);
     // Resolve the runtime spelling once at the backend boundary. The same
     // prepared object is then used for marker correlation and delivery, so a
     // resource-registry change cannot cause host and backend to normalize

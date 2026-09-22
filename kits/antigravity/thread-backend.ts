@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import {
   clientMessageFingerprint,
   knownSkillNames,
@@ -101,11 +102,22 @@ function derivedTitle(text: string): string | undefined {
   return title ? title.slice(0, 80) : undefined;
 }
 
-/** Text first, then images as native content; the agent reads a slash command from the leading text. */
+/**
+ * Text first, then images as native content and files as links the agent
+ * opens itself; the agent reads a slash command from the leading text.
+ */
 export function promptBlocks(text: string, attachments: readonly UiPromptAttachment[] | undefined): AcpContentBlock[] {
   const blocks: AcpContentBlock[] = text.trim() ? [{ type: "text", text }] : [];
-  for (const attachment of attachments ?? []) blocks.push({ type: "image", data: attachment.data, mimeType: attachment.mimeType });
+  for (const attachment of attachments ?? []) {
+    blocks.push(attachment.kind === "image"
+      ? { type: "image", data: attachment.data, mimeType: attachment.mimeType }
+      : { type: "resource_link", uri: pathToFileURL(attachment.path).href, name: attachment.name, mimeType: attachment.mimeType });
+  }
   return blocks;
+}
+
+function imagesOf(attachments: readonly UiPromptAttachment[] | undefined): Array<{ mimeType: string; data: string }> {
+  return (attachments ?? []).flatMap((attachment) => attachment.kind === "image" ? [{ mimeType: attachment.mimeType, data: attachment.data }] : []);
 }
 
 /**
@@ -273,7 +285,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
       ...(input.identity?.clientTurnId ? { clientTurnId: input.identity.clientTurnId } : {}),
       role: "user",
       text: prepared.visibleText,
-      ...(input.attachments?.length ? { images: input.attachments.map((attachment) => ({ mimeType: attachment.mimeType, data: attachment.data })) } : {}),
+      ...(imagesOf(input.attachments).length ? { images: imagesOf(input.attachments) } : {}),
       timestamp: this.now(),
     };
     this.messages.push(user);

@@ -23,6 +23,7 @@ only what a reader toggled.
 Composer
 
 - text, images, queued steering and follow-up messages, abort
+- the slot inside the input frame that extensions fill with typed context (`registerComposerInline`), and file attachments beside images for a runtime whose adapter declares them
 - Pi commands: extension commands, `/skill:` and prompt templates, as Pi reports them
 - model, thinking level, context usage and compaction; what the thread has spent so far
 
@@ -191,6 +192,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
 | Project scripts: quick actions a repository checks in, the worktree setup, a script's preview | Project Scripts: `kits/project-scripts/`, a package Tau ships (ADR 0014). Its host half reads `.tau/project.json` per checkout ([project-file.md](project-file.md), schema in `docs/schemas/`), runs a script with `/bin/sh -c` as a job whose output and exit code are pushes, runs the `runOnWorktreeCreate` scripts Workspace Kit asks for (`worktree-created`, callers `tau.workspace`) and watches the file itself, because core watches only what the host reads. Its desktop half is the bar above the composer with run cards, one `script.<id>.run` command and chord per script, problems through `setProblems`, the preview through Preview Kit's `tau.preview/browser` service and "run in a terminal" through Terminal Kit's host commands | Project Scripts |
 | Pull and merge requests: create (generated title and body, draft, template), edit, merge, status and checks on the rail row | Review Kit: `kits/review/requests-host.ts` drives `gh` or `glab`, found with `findCommand`; the Git it needs (push with upstream, branch context, template from the base tree, the request detector) is Workspace Kit's, reached through commands that name `tau.review` as caller (ADR 0020). The desktop half fills the Changes section and the rail-row mark Workspace Kit's store lends; core lends only `ThreadRow`'s `accessory` | Review Kit |
+| Chips in the composer — files by `@`, pull requests by `#`, excerpts other kits hand over — file attachments of any type, and large pastes folded into a text file | Composer Context: `kits/composer-context/`, a package Tau ships (ADR 0014). Its desktop half fills core's inline slot (`registerComposerInline`) and publishes the chip service `tau.composer-context/chips` for the kits that have context to give; its host half stores attachments in `<userData>/kit-state/tau.composer-context/attachments/<thread>/`, reads what a file chip points at and lists files and pull requests (`gh`, `glab` through `findCommand`). A chip becomes text before the prompt when it is sent; an attachment goes as a file to a runtime that opens files and as text or a path to one that does not | Composer Context |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
 Defaults, Pi, Keybindings and Inspector pages, and the contributions that reach

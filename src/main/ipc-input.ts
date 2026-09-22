@@ -70,7 +70,16 @@ function decodeNumber(channel: string, field: string, value: unknown): number {
 
 function decodeUiPromptAttachment(channel: string, field: string, value: unknown): UiPromptAttachment {
   const item = record(channel, field, value);
-  if (item.kind !== "image") fail(channel, `${field}.kind`, 'must be "image"');
+  if (item.kind === "file") {
+    return {
+      kind: "file",
+      name: decodeString(channel, `${field}.name`, item.name),
+      mimeType: decodeString(channel, `${field}.mimeType`, item.mimeType),
+      path: decodeString(channel, `${field}.path`, item.path),
+      size: decodeNumber(channel, `${field}.size`, item.size),
+    };
+  }
+  if (item.kind !== "image") fail(channel, `${field}.kind`, 'must be "image" or "file"');
   return {
     kind: "image",
     name: decodeString(channel, `${field}.name`, item.name),

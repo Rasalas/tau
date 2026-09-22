@@ -53,9 +53,10 @@ function derivedClaudeTitle(text: string): string | undefined {
 
 /** Images go before the text: the CLI reads a slash command only from a trailing text block. */
 export function promptContent(text: string, attachments: readonly UiPromptAttachment[] | undefined): UserContent {
-  if (!attachments?.length) return text;
+  const images = (attachments ?? []).flatMap((attachment) => attachment.kind === "image" ? [attachment] : []);
+  if (!images.length) return text;
   return [
-    ...attachments.map((attachment) => ({
+    ...images.map((attachment) => ({
       type: "image" as const,
       source: { type: "base64" as const, media_type: attachment.mimeType as "image/png", data: attachment.data },
     })),
@@ -323,7 +324,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       role: "user",
       text: prepared.visibleText,
       ...(prepared.skill ? { skill: prepared.skill } : {}),
-      ...(input.attachments?.length ? { images: input.attachments.map((attachment) => ({ mimeType: attachment.mimeType, data: attachment.data })) } : {}),
+      ...(input.attachments?.some((attachment) => attachment.kind === "image")
+        ? { images: input.attachments.flatMap((attachment) => attachment.kind === "image" ? [{ mimeType: attachment.mimeType, data: attachment.data }] : []) }
+        : {}),
       timestamp: this.now(),
     };
     this.messages.push(user);

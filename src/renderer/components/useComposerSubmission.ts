@@ -15,11 +15,13 @@ import type {
   SubmissionHandle,
 } from "../../workbench/composer-scope-store";
 import { expandFileMentions } from "../file-mention-expander.js";
-import type { DocumentSourceContribution } from "../extension-system";
+import type { ComposerInlineContext, ComposerInlineContribution, DocumentSourceContribution } from "../extension-system";
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
 
 export type ComposerDelivery = "followUp" | "steer";
+
+const NO_INLINES: readonly ComposerInlineContribution[] = [];
 
 export interface ComposerSubmissionInput {
   text: string;
@@ -77,6 +79,50 @@ export function requiresSubscriptionAcknowledgement(
   return !hasAcknowledged(model.provider);
 }
 
+interface InlineSend {
+  context: string;
+  attachments: UiPromptAttachment[];
+  /** Every contribution that was asked, and so has to hear how the prompt fared. */
+  asked: ComposerInlineContribution[];
+}
+
+/** Asks each inline contribution what it adds; one that throws rejects the whole send. */
+export async function collectInlineSend(
+  inlines: readonly ComposerInlineContribution[],
+  context: ComposerInlineContext & { text: string },
+): Promise<InlineSend> {
+  const send: InlineSend = { context: "", attachments: [], asked: [] };
+  const parts: string[] = [];
+  try {
+    for (const inline of inlines) {
+      if (!inline.prepareSend) continue;
+      send.asked.push(inline);
+      const result = await inline.prepareSend(context);
+      if (result?.context?.trim()) parts.push(result.context.trim());
+      if (result?.attachments?.length) send.attachments.push(...result.attachments);
+    }
+  } catch (error) {
+    settleInlineSend(send.asked, context.scope, false);
+    throw error;
+  }
+  send.context = parts.join("\n\n");
+  return send;
+}
+
+export function settleInlineSend(asked: readonly ComposerInlineContribution[], scope: string, accepted: boolean): void {
+  for (const inline of asked) {
+    try { inline.settleSend?.(scope, accepted); } catch (error) { console.error(`Composer inline ${inline.id} failed to settle`, error); }
+  }
+}
+
+/** Context goes before the user's text; a skill reads its instruction first, so there it follows. */
+export function withInlineContext(text: string, context: string, skillDraft?: UiSkillDraft): { text: string; skillDraft?: UiSkillDraft } {
+  if (!context) return { text, skillDraft };
+  if (!skillDraft) return { text: text.trim() ? `${context}\n\n${text}` : context };
+  const append = (value: string) => value ? `${value}\n\n${context}` : context;
+  return { text: append(text), skillDraft: { ...skillDraft, visibleText: append(skillDraft.visibleText) } };
+}
+
 export interface UseComposerSubmissionOptions {
   scopeStore: ComposerScopeStore;
   scope: ComposerScope;
@@ -85,6 +131,9 @@ export interface UseComposerSubmissionOptions {
   clientStorage: ClientStorage;
   documentSource?: DocumentSourceContribution;
   selectedSkill?: SelectedSkill;
+  /** Typed context the composer's extensions hold for this draft. */
+  inlines?: readonly ComposerInlineContribution[];
+  inlineContext?: Omit<ComposerInlineContext, "scope">;
   onSubmit(
     text?: string,
     attachments?: UiPromptAttachment[],
@@ -112,6 +161,8 @@ export function useComposerSubmission({
   clientStorage,
   documentSource,
   selectedSkill,
+  inlines = NO_INLINES,
+  inlineContext,
   onSubmit,
   recordPrompt,
   clearPreviewForScope,
@@ -121,7 +172,25 @@ export function useComposerSubmission({
     if ("busy" in submission) return;
 
     const sendSubmission = async (handle: SubmissionHandle) => {
-      if (!handle.text.trim() && handle.attachments.length === 0) {
+      // A `/command` is not a prompt the context belongs to; it stays for the next one.
+      const isCommand = !selectedSkillDraft(handle.text, selectedSkill) && handle.text.trimStart().startsWith("/");
+      let inline: InlineSend = { context: "", attachments: [], asked: [] };
+      if (!isCommand && inlines.length > 0) {
+        try {
+          inline = await collectInlineSend(inlines, {
+            scope,
+            fileAttachments: inlineContext?.fileAttachments ?? false,
+            imageInput: inlineContext?.imageInput ?? false,
+            ...(inlineContext?.snapshot ? { snapshot: inlineContext.snapshot } : {}),
+            text: handle.text,
+          });
+        } catch (error) {
+          handle.settle({ accepted: false, message: errorMessage(error) });
+          return;
+        }
+      }
+      if (!handle.text.trim() && handle.attachments.length === 0 && !inline.context && inline.attachments.length === 0) {
+        settleInlineSend(inline.asked, scope, false);
         handle.cancel();
         return;
       }
@@ -136,7 +205,7 @@ export function useComposerSubmission({
       };
       try {
         const submittedText = handle.text;
-        const skillDraft = selectedSkillDraft(submittedText, selectedSkill);
+        let skillDraft = selectedSkillDraft(submittedText, selectedSkill);
         let promptToSend = submittedText;
         let attachmentsToSend = [...handle.attachments];
 
@@ -147,6 +216,11 @@ export function useComposerSubmission({
             attachmentsToSend = [...attachmentsToSend, ...expanded.attachments];
           }
         }
+        // After the mentions, so text a chip carries is never read as one.
+        const withContext = withInlineContext(promptToSend, inline.context, skillDraft);
+        promptToSend = withContext.text;
+        skillDraft = withContext.skillDraft;
+        attachmentsToSend = [...attachmentsToSend, ...inline.attachments];
 
         // beginSubmission clears the live editor before the host round trip. Keep
         // the persisted copy in step so a reload cannot resurrect a sent prompt.
@@ -157,6 +231,7 @@ export function useComposerSubmission({
       } catch (error) {
         // Preparation failures are submission failures. Settling here releases
         // the scope and restores the captured draft for a retry.
+        settleInlineSend(inline.asked, scope, false);
         handle.settle({ accepted: false, message: errorMessage(error) });
         return;
       }
@@ -174,6 +249,7 @@ export function useComposerSubmission({
       }
 
       handle.settle(result);
+      settleInlineSend(inline.asked, scope, result?.accepted === true);
       try {
         // Settling empties an accepted draft in the scope store. The persisted
         // copy is written per keystroke and has to follow it, or the next start
@@ -212,6 +288,8 @@ export function useComposerSubmission({
     clientStorage,
     documentSource,
     draftStorageKey,
+    inlineContext,
+    inlines,
     onSubmit,
     recordPrompt,
     scope,

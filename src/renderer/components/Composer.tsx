@@ -32,7 +32,7 @@ import {
 } from "../../workbench/composer-scope-store";
 import { errorMessage } from "../../workbench/error-message";
 import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
-import { readComposerDraft, writeComposerDraft } from "../../workbench/draft-store";
+import { readComposerDraft, readComposerDraftState, writeComposerDraft, writeComposerDraftState } from "../../workbench/draft-store";
 import { PromptHistory, loadStoredPromptHistory, saveStoredPromptHistory } from "../../workbench/prompt-history";
 import { handleComposerReadlineKey } from "./useComposerReadline";
 import { useComposerHistorySearch } from "./useComposerHistorySearch";
@@ -56,6 +56,7 @@ import {
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
 import { ComposerAttachmentsList } from "./ComposerAttachments";
+import type { ComposerInlineContext, ComposerTriggerItem } from "../extension-system";
 
 export {
   type ComposerTrigger,
@@ -80,6 +81,8 @@ export interface ComposerControlHandle {
 
 const noSubscribe = () => () => {};
 const noVersion = () => 0;
+const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
+const NO_INLINES: readonly never[] = [];
 
 /** Pi's out-of-the-box reasoning level; shown as the Default badge. */
 const DEFAULT_THINKING = "medium";
@@ -213,7 +216,14 @@ export function Composer({
     }
     return merged;
   }, [desktopCommands, runtimeCommands]);
-  const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret);
+  const inlines = registry?.getComposerInlines() ?? NO_INLINES;
+  const extensionTriggers = useMemo(() => {
+    const byChar = new Map<string, NonNullable<(typeof inlines)[number]["triggers"]>[number]>();
+    for (const inline of inlines) for (const entry of inline.triggers ?? []) if (!byChar.has(entry.char)) byChar.set(entry.char, entry);
+    return byChar;
+  }, [inlines]);
+  const extensionChars = useMemo(() => [...extensionTriggers.keys()], [extensionTriggers]);
+  const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret, extensionChars);
   const commandMatches = useMemo(() => {
     if (!trigger) return [];
     const query = trigger.query.toLowerCase();
@@ -371,6 +381,20 @@ export function Composer({
     });
   };
 
+  const selectExtension = (item: ComposerTriggerItem) => {
+    if (trigger?.kind !== "extension" || !extensionTrigger) return;
+    const next = `${text.slice(0, trigger.start)}${text.slice(trigger.end)}`;
+    const nextCaret = trigger.start;
+    updateDraft(next);
+    setCaret(nextCaret);
+    setCommandMenuDismissed(true);
+    try { extensionTrigger.select(item, trigger.query, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error)); }
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
   const selectArg = (arg: ComposerArgMatch) => {
     if (!trigger || trigger.kind !== "arg") return;
     const next = `${text.slice(0, trigger.start)}${arg.id} ${text.slice(trigger.end)}`;
@@ -410,6 +434,52 @@ export function Composer({
   const draftOnOtherRuntime = runtimeChoice !== undefined && snapshot?.backendKind !== undefined && runtimeChoice.kind !== snapshot.backendKind;
   const modelSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.models.length ?? 0) > 0;
   const modelPickerAvailable = modelSelectionAvailable || runtimeChoice !== undefined;
+  const fileAttachments = !draftOnOtherRuntime && snapshot?.runtimeCapabilities?.fileAttachments === true;
+  const inlineContext = useMemo<ComposerInlineContext>(() => ({
+    scope: attachmentScope,
+    ...(snapshot ? { snapshot } : {}),
+    fileAttachments,
+    imageInput: supportsImageInput,
+  }), [attachmentScope, fileAttachments, snapshot, supportsImageInput]);
+  // Handlers read the context at the moment they run, not the render they were made in.
+  const inlineContextRef = useRef(inlineContext);
+  inlineContextRef.current = inlineContext;
+  const subscribeInlines = useCallback((listener: () => void) => {
+    const unsubscribers = inlines.map((inline) => inline.subscribe?.(listener));
+    return () => { for (const unsubscribe of unsubscribers) unsubscribe?.(); };
+  }, [inlines]);
+  const readInlineContent = useCallback(
+    () => inlines.some((inline) => inline.hasContent?.(attachmentScope) === true),
+    [attachmentScope, inlines],
+  );
+  const inlineHasContent = useSyncExternalStore(subscribeInlines, readInlineContent, readInlineContent);
+  const inlineTakesFiles = inlines.some((inline) => inline.takeFiles !== undefined);
+  const takeFiles = useCallback((files: readonly File[]) => {
+    let left = files;
+    for (const inline of inlines) {
+      if (!inline.takeFiles || left.length === 0) continue;
+      try { left = inline.takeFiles(left, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error)); }
+    }
+    return left;
+  }, [inlines, onNotify]);
+  const pasteText = (pasted: string): boolean => inlines.some((inline) => {
+    try { return inline.pasteText?.(pasted, inlineContextRef.current) === true; } catch (error) { onNotify?.(errorMessage(error)); return false; }
+  });
+  const draftStates = useMemo(() => new Map(inlines.map((inline) => [inline.extensionId, {
+    read: () => draftStorageKey === undefined ? undefined : readComposerDraftState(clientStorage, draftStorageKey, inline.extensionId),
+    write: (state: unknown) => { if (draftStorageKey !== undefined) writeComposerDraftState(clientStorage, draftStorageKey, inline.extensionId, state); },
+  }])), [clientStorage, draftStorageKey, inlines]);
+  const extensionTrigger = trigger?.kind === "extension" && trigger.char ? extensionTriggers.get(trigger.char) : undefined;
+  const [extensionMatches, setExtensionMatches] = useState<readonly ComposerTriggerItem[]>([]);
+  const extensionQuery = extensionTrigger ? trigger?.query : undefined;
+  useEffect(() => {
+    if (!extensionTrigger || extensionQuery === undefined) return;
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => extensionTrigger.search(extensionQuery, inlineContextRef.current))
+      .then((items) => { if (!cancelled) setExtensionMatches(items.slice(0, 15)); }, () => { if (!cancelled) setExtensionMatches([]); });
+    return () => { cancelled = true; };
+  }, [extensionQuery, extensionTrigger]);
   useImperativeHandle(controlRef, () => ({
     openModelPicker: () => {
       if (modelPickerAvailable) setModelPickerOpen(true);
@@ -438,6 +508,7 @@ export function Composer({
     attachments,
     supportsImageInput,
     attachmentRef,
+    ...(inlineTakesFiles ? { takeFiles } : {}),
   });
 
   const { submit: submitPrompt } = useComposerSubmission({
@@ -447,6 +518,8 @@ export function Composer({
     clientStorage,
     documentSource: shellContext?.registry.getDocumentSource?.(),
     selectedSkill,
+    inlines,
+    inlineContext,
     onSubmit,
     recordPrompt,
     clearPreviewForScope,
@@ -649,7 +722,11 @@ export function Composer({
           void addFiles(event.dataTransfer.files);
         }}
         onPaste={(event) => {
-          if (event.clipboardData.files.length === 0) return;
+          if (event.clipboardData.files.length === 0) {
+            const pasted = event.clipboardData.getData("text/plain");
+            if (pasted && pasteText(pasted)) event.preventDefault();
+            return;
+          }
           event.preventDefault();
           void addFiles(event.clipboardData.files);
         }}
@@ -659,6 +736,18 @@ export function Composer({
           onPreview={(id) => setPreviewId(id)}
           onRemove={(id) => removeAttachment(id)}
         />
+        {inlines.map((inline) => inline.Component ? (
+          <LazyFeatureBoundary
+            key={inline.id}
+            label={inline.id}
+            extensionId={inline.extensionId}
+            extensionName={inline.extensionName}
+            registry={registry}
+            onNotify={onNotify}
+          >
+            <inline.Component {...inlineContext} draftState={draftStates.get(inline.extensionId)!} />
+          </LazyFeatureBoundary>
+        ) : null)}
         {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
         {trigger ? (
           <ComposerAutocompleteMenu
@@ -670,6 +759,9 @@ export function Composer({
             onSelectCommand={selectCommand}
             onSelectFile={selectFile}
             onSelectArg={selectArg}
+            extensionMatches={extensionMatches}
+            extensionLabel={extensionTrigger?.label}
+            onSelectExtension={selectExtension}
           />
         ) : null}
         {historySearch.isSearching ? (
@@ -714,7 +806,9 @@ export function Composer({
             if (vim.handleVimKeyDown(event)) {
               return;
             }
-            const totalMatches = trigger?.kind === "@"
+            const totalMatches = trigger?.kind === "extension"
+              ? extensionMatches.length
+              : trigger?.kind === "@"
               ? fileMatches.length
               : trigger?.kind === "arg"
                 ? argMatches.length
@@ -732,7 +826,10 @@ export function Composer({
               }
               if (event.key === "Enter" || event.key === "Tab") {
                 event.preventDefault();
-                if (trigger.kind === "@") {
+                if (trigger.kind === "extension") {
+                  const item = extensionMatches[commandCursor];
+                  if (item) selectExtension(item);
+                } else if (trigger.kind === "@") {
                   const file = fileMatches[commandCursor];
                   if (file) selectFile(file);
                 } else if (trigger.kind === "arg") {
@@ -776,7 +873,7 @@ export function Composer({
               event.preventDefault();
               const now = event.metaKey || event.ctrlKey;
               // ⌘↵ on an empty field releases the message at the head of the queue.
-              if (now && !text.trim() && attachments.length === 0 && queue[0] && !answerable) {
+              if (now && !text.trim() && attachments.length === 0 && !inlineHasContent && queue[0] && !answerable) {
                 onSteerQueued(queue[0].id);
                 return;
               }
@@ -913,7 +1010,7 @@ export function Composer({
             <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />
           ) : null}
 
-          <button className="attach-button" type="button" title={supportsImageInput ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE} aria-label="Attach files" disabled={!supportsImageInput} onClick={() => fileInputRef.current?.click()}>
+          <button className="attach-button" type="button" title={supportsImageInput || inlineTakesFiles ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE} aria-label="Attach files" disabled={!supportsImageInput && !inlineTakesFiles} onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={17} />
           </button>
           <input
@@ -921,8 +1018,8 @@ export function Composer({
             className="attachment-input"
             aria-label="Choose attachment files"
             type="file"
-            disabled={!supportsImageInput}
-            accept="image/png,image/jpeg,image/gif,image/webp"
+            disabled={!supportsImageInput && !inlineTakesFiles}
+            accept={inlineTakesFiles ? undefined : IMAGE_ACCEPT}
             multiple
             onChange={(event) => {
               if (event.target.files) void addFiles(event.target.files);
@@ -956,7 +1053,7 @@ export function Composer({
               title="Send"
               aria-label="Send"
               aria-busy={activeScopeSnapshot.submissionPending}
-              disabled={held || activeScopeSnapshot.submissionPending || (text.trim().length === 0 && attachments.length === 0)}
+              disabled={held || activeScopeSnapshot.submissionPending || (text.trim().length === 0 && attachments.length === 0 && !inlineHasContent)}
               onClick={() => submitCurrent()}
             >
               <ArrowUp size={16} />

@@ -1,0 +1,16 @@
+{
+  "id": "tau.composer-context",
+  "name": "Composer Context",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.9.0"
+  },
+  "permissions": [
+    "workspace:read",
+    "process"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}
