@@ -1,0 +1,44 @@
+/* Review Kit: the request section in the Changes panel and the rail-row badge. */
+.request-section {
+  flex: none; display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px; border-bottom: 1px solid var(--line);
+}
+.request-line { display: flex; align-items: center; gap: 6px; min-height: 22px; color: var(--muted); }
+.request-line .spacer { flex: 1; }
+.request-none { color: var(--faint); font: 10.5px var(--mono); }
+.request-link {
+  display: inline-flex; align-items: center; gap: 3px; border: 0; padding: 0; background: transparent;
+  color: var(--ink); font: 600 11px var(--mono); cursor: pointer;
+}
+.request-link:hover { text-decoration: underline; }
+.request-state, .request-checks { font: 10px var(--mono); color: var(--muted-2); }
+.request-state.state-open { color: var(--acid-text); }
+.request-state.state-merged { color: var(--ink-3); }
+.request-checks.failed { color: var(--danger); }
+.request-checks.pending { color: var(--warn); }
+.request-problem, .request-error, .request-busy, .request-confirm { margin: 0; font: 11px/1.45 var(--sans); }
+.request-problem { color: var(--muted); }
+.request-error { color: var(--danger); }
+.request-busy { color: var(--faint); }
+.request-actions { margin-top: 0; }
+.request-form { display: flex; flex-direction: column; gap: 6px; }
+.request-form input:not([type="checkbox"]), .request-form textarea {
+  width: 100%; border: 1px solid var(--line-control); border-radius: 7px;
+  background: var(--sunken); color: var(--ink); padding: 6px 9px; font: 12px/1.45 var(--sans); outline: none;
+}
+.request-form textarea { resize: vertical; min-height: 110px; }
+.request-form input:focus, .request-form textarea:focus { border-color: var(--line-float); }
+.request-base { display: flex; align-items: center; gap: 6px; color: var(--faint); font: 10.5px var(--mono); }
+.request-base input { flex: 1; font-family: var(--mono) !important; }
+.request-draft { display: flex; align-items: center; gap: 5px; color: var(--muted); font: 11px var(--sans); }
+.request-form .toggle-group > button.active { background: var(--raised); color: var(--ink); }
+
+.request-badge {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  font: 10px var(--mono); color: var(--muted-2);
+}
+.request-badge.state-open { color: var(--acid-text); }
+.request-checks-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.request-checks-dot.passed { background: var(--acid); }
+.request-checks-dot.failed { background: var(--danger); }
+.request-checks-dot.pending { background: var(--warn); }

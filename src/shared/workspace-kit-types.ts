@@ -43,6 +43,20 @@ export interface UiReviewRequest {
   /** Branch the request merges into; the branch diff uses it as base. */
   baseRef: string;
   headRef?: string;
+  /** What the tool reported; absent when it did not say. */
+  state?: "open" | "closed" | "merged";
+  draft?: boolean;
+  checks?: UiReviewRequestChecks;
+  /** The request's description, for editing it. */
+  body?: string;
+}
+
+/** CI results on a request's head: check runs on GitHub, the pipeline on GitLab. */
+export interface UiReviewRequestChecks {
+  passed: number;
+  failed: number;
+  pending: number;
+  total: number;
 }
 
 export interface UiWorkspaceChanges {

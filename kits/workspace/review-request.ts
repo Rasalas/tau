@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { UiReviewRequest } from "tau/host-extension";
+import type { UiReviewRequest, UiReviewRequestChecks } from "tau/host-extension";
 
 /** Runs a host tool in a checkout and resolves its stdout; rejects on any failure. */
 export type ToolRunner = (command: string, args: string[], cwd: string) => Promise<string>;
@@ -37,6 +37,53 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
+
+const PASSED = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
+const FAILED = new Set(["FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
+
+/** `statusCheckRollup` mixes check runs (status + conclusion) and commit statuses (state). */
+export function summarizeGitHubChecks(rollup: unknown): UiReviewRequestChecks | undefined {
+  if (!Array.isArray(rollup) || rollup.length === 0) return undefined;
+  const checks = { passed: 0, failed: 0, pending: 0, total: rollup.length };
+  for (const entry of rollup.map(record)) {
+    const outcome = (asString(entry.conclusion) ?? asString(entry.state) ?? "").toUpperCase();
+    if (PASSED.has(outcome)) checks.passed += 1;
+    else if (FAILED.has(outcome)) checks.failed += 1;
+    else checks.pending += 1;
+  }
+  return checks;
+}
+
+/** GitLab reports one pipeline per request rather than a list of checks. */
+export function summarizeGitLabPipeline(pipeline: unknown): UiReviewRequestChecks | undefined {
+  const status = asString(record(pipeline).status)?.toLowerCase();
+  if (!status) return undefined;
+  if (status === "success" || status === "skipped") return { passed: 1, failed: 0, pending: 0, total: 1 };
+  if (status === "failed" || status === "canceled") return { passed: 0, failed: 1, pending: 0, total: 1 };
+  return { passed: 0, failed: 0, pending: 1, total: 1 };
+}
+
+function requestState(value: string | undefined): UiReviewRequest["state"] {
+  const state = value?.toLowerCase();
+  if (state === "open" || state === "opened") return "open";
+  if (state === "merged") return "merged";
+  if (state === "closed" || state === "locked") return "closed";
+  return undefined;
+}
+
+/** The optional status fields, without keys for what the tool did not say. */
+function statusFields(state: string | undefined, draft: unknown, checks: UiReviewRequestChecks | undefined, body: unknown): Partial<UiReviewRequest> {
+  const parsedState = requestState(state);
+  const text = typeof body === "string" ? body : undefined;
+  return {
+    ...(parsedState ? { state: parsedState } : {}),
+    ...(typeof draft === "boolean" ? { draft } : {}),
+    ...(checks ? { checks } : {}),
+    ...(text !== undefined ? { body: text } : {}),
+  };
+}
+
 /** `gh pr view --json …` for the current branch. */
 export function parseGitHubPullRequest(output: string): UiReviewRequest | undefined {
   const raw = JSON.parse(output) as Record<string, unknown>;
@@ -44,7 +91,11 @@ export function parseGitHubPullRequest(output: string): UiReviewRequest | undefi
   const baseRef = asString(raw.baseRefName);
   const url = asString(raw.url);
   if (number === undefined || !baseRef || !url) return undefined;
-  return { provider: "github", number, title: asString(raw.title) ?? `#${number}`, url, baseRef, ...(asString(raw.headRefName) ? { headRef: asString(raw.headRefName) } : {}) };
+  return {
+    provider: "github", number, title: asString(raw.title) ?? `#${number}`, url, baseRef,
+    ...(asString(raw.headRefName) ? { headRef: asString(raw.headRefName) } : {}),
+    ...statusFields(asString(raw.state), raw.isDraft, summarizeGitHubChecks(raw.statusCheckRollup), raw.body),
+  };
 }
 
 /** `glab mr view -F json` for the current branch. */
@@ -54,11 +105,15 @@ export function parseGitLabMergeRequest(output: string): UiReviewRequest | undef
   const baseRef = asString(raw.target_branch);
   const url = asString(raw.web_url);
   if (number === undefined || !baseRef || !url) return undefined;
-  return { provider: "gitlab", number, title: asString(raw.title) ?? `!${number}`, url, baseRef, ...(asString(raw.source_branch) ? { headRef: asString(raw.source_branch) } : {}) };
+  return {
+    provider: "gitlab", number, title: asString(raw.title) ?? `!${number}`, url, baseRef,
+    ...(asString(raw.source_branch) ? { headRef: asString(raw.source_branch) } : {}),
+    ...statusFields(asString(raw.state), typeof raw.draft === "boolean" ? raw.draft : raw.work_in_progress, summarizeGitLabPipeline(raw.head_pipeline ?? raw.pipeline), raw.description),
+  };
 }
 
 const PROVIDERS = {
-  github: { tool: "gh", args: ["pr", "view", "--json", "number,title,url,baseRefName,headRefName"], parse: parseGitHubPullRequest },
+  github: { tool: "gh", args: ["pr", "view", "--json", "number,title,url,baseRefName,headRefName,state,isDraft,statusCheckRollup,body"], parse: parseGitHubPullRequest },
   gitlab: { tool: "glab", args: ["mr", "view", "-F", "json"], parse: parseGitLabMergeRequest },
 } as const;
 
@@ -74,9 +129,10 @@ export function providerOrder(remoteUrl: string | undefined): Array<keyof typeof
  * Finds the pull or merge request of a checkout's current branch through the
  * installed `gh` or `glab`. A missing tool, a branch without a request, a
  * remote the CLI does not serve or a missing login all answer undefined; the
- * caller falls back to plain Git. Results are cached briefly per branch.
+ * caller falls back to plain Git. Results are cached briefly per branch;
+ * `fresh` asks again, e.g. right after a request was created or merged.
  */
-export function createReviewRequestDetector(tools: ReviewRequestTools): { detect(cwd: string): Promise<UiReviewRequest | undefined> } {
+export function createReviewRequestDetector(tools: ReviewRequestTools): { detect(cwd: string, options?: { fresh?: boolean }): Promise<UiReviewRequest | undefined> } {
   const run: ToolRunner = tools.run ?? defaultRunner;
   const now = tools.now ?? Date.now;
   const cacheMs = tools.cacheMs ?? 30_000;
@@ -88,12 +144,12 @@ export function createReviewRequestDetector(tools: ReviewRequestTools): { detect
   };
 
   return {
-    async detect(cwd) {
+    async detect(cwd, options = {}) {
       const branch = await git(cwd, ["branch", "--show-current"]);
       if (!branch) return undefined;
       const key = `${cwd}\0${branch}`;
       const cached = cache.get(key);
-      if (cached && now() - cached.at < cacheMs) return cached.value;
+      if (cached && !options.fresh && now() - cached.at < cacheMs) return cached.value;
       const remote = await git(cwd, ["remote", "get-url", "origin"]);
       let value: UiReviewRequest | undefined;
       for (const provider of providerOrder(remote)) {

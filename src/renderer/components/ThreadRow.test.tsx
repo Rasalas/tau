@@ -159,3 +159,22 @@ describe("ThreadRow cost", () => {
     expect(unknown.container.querySelector(".thread-cost-meta")).toBeNull();
   });
 });
+
+describe("ThreadRow accessory", () => {
+  it("draws a kit's mark in both the full and the compact row", () => {
+    for (const compact of [false, true]) {
+      const { container, unmount } = render(<ThreadRow
+        activity="idle"
+        active={false}
+        age="now"
+        compact={compact}
+        session={{ ...session, projectLabel: "feature/pr" }}
+        accessory={<span className="kit-mark">PR #4</span>}
+        onSelect={() => {}}
+        onToggleSettled={() => {}}
+      />);
+      expect(container.querySelector(".kit-mark")?.textContent).toBe("PR #4");
+      unmount();
+    }
+  });
+});

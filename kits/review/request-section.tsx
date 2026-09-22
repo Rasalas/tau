@@ -1,0 +1,210 @@
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ExternalLink, GitPullRequest, RefreshCw } from "lucide-react";
+import { errorMessage, type DesktopExtensionContext, type UiReviewRequest } from "tau";
+import { commitMessageModel } from "./commit-messages.js";
+import type { ChangesSectionProps, MergeMethod, ReviewRequestStatus, WorkspaceStoreApi } from "./protocol.js";
+import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
+
+type Mode = "idle" | "create" | "merge" | "edit";
+
+interface Form {
+  title: string;
+  body: string;
+  base: string;
+  draft: boolean;
+}
+
+const EMPTY_FORM: Form = { title: "", body: "", base: "", draft: false };
+
+const METHODS: Array<{ value: MergeMethod; label: string }> = [
+  { value: "squash", label: "Squash" },
+  { value: "merge", label: "Merge commit" },
+  { value: "rebase", label: "Rebase" },
+];
+
+/**
+ * Review Kit's part of the Changes panel: where the branch's pull or merge
+ * request stands, and the steps after a commit — create (with a generated
+ * title and body), edit, merge. Each step shows its form or question first;
+ * nothing reaches the hosting service before the user confirms it there.
+ */
+export function createRequestSection(plugin: DesktopExtensionContext, store: WorkspaceStoreApi, client: RequestClient, rows: RowRequests) {
+  return function RequestSection({ actions, message, committed }: ChangesSectionProps) {
+    const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+    const cwd = snapshot.cwd;
+    const branch = snapshot.workspace?.branch;
+    const [status, setStatus] = useState<ReviewRequestStatus>();
+    const [mode, setMode] = useState<Mode>("idle");
+    const [form, setForm] = useState<Form>(EMPTY_FORM);
+    const [method, setMethod] = useState<MergeMethod>("squash");
+    const [busy, setBusy] = useState<string>();
+    const [error, setError] = useState<string>();
+    const latest = useRef(0);
+
+    const publish = useCallback((next: ReviewRequestStatus) => {
+      setStatus(next);
+      if (cwd) rows.set(cwd, next.request);
+    }, [cwd]);
+
+    const refresh = useCallback(async (fresh = false) => {
+      const request = ++latest.current;
+      try {
+        const next = await client.status(fresh);
+        if (request === latest.current) { publish(next); setError(undefined); }
+      } catch (reason) {
+        if (request === latest.current) setError(errorMessage(reason));
+      }
+    }, [publish]);
+
+    useEffect(() => { setMode("idle"); void refresh(); }, [cwd, branch, refresh]);
+
+    const run = async (label: string, step: () => Promise<void>) => {
+      setBusy(label);
+      setError(undefined);
+      try { await step(); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(undefined); }
+    };
+
+    const request = status?.request;
+    const open = request && (request.state === undefined || request.state === "open") ? request : undefined;
+    const short = status?.service === "gitlab" ? "MR" : "PR";
+    const hasChanges = snapshot.changes.files.length > 0;
+
+    const startCreate = () => run("Writing title and description…", async () => {
+      if (hasChanges) {
+        if (!message.trim()) throw new Error("Write a commit message first.");
+        if (!await store.commit(message, false)) return;
+        committed();
+      }
+      setForm({ ...EMPTY_FORM, base: status?.base ?? "" });
+      setMode("create");
+      await generate();
+    });
+
+    const generate = async () => {
+      const model = commitMessageModel(actions.activeThread()?.model, plugin.preferences);
+      const draft = await client.draft(model, form.base || status?.base);
+      setForm((current) => ({ ...current, title: draft.title, body: draft.body, base: current.base || draft.base }));
+    };
+
+    const create = () => run(`Creating ${short}…`, async () => {
+      const result = await client.create(form);
+      publish(result.status);
+      setMode("idle");
+      void store.refresh();
+      const created = result.status.request;
+      actions.notify(created ? `${requestShort(created)} #${created.number} created${form.draft ? " as draft" : ""}.` : `${short} created.`);
+    });
+
+    const merge = () => run(`Merging ${short}…`, async () => {
+      const next = await client.merge(method);
+      publish(next);
+      setMode("idle");
+      void store.refresh();
+      actions.notify(`${short} #${open?.number ?? ""} merged.`);
+    });
+
+    const save = () => run(`Saving ${short}…`, async () => {
+      if (!open) return;
+      const next = await client.edit({
+        ...(form.title !== open.title ? { title: form.title } : {}),
+        ...(form.body !== (open.body ?? "") ? { body: form.body } : {}),
+        ...(form.draft !== Boolean(open.draft) ? { draft: form.draft } : {}),
+      });
+      publish(next);
+      setMode("idle");
+      actions.notify(`${short} #${open.number} updated.`);
+    });
+
+    const field = (key: keyof Form) => (event: { target: { value: string } }) => setForm((current) => ({ ...current, [key]: event.target.value }));
+
+    return (
+      <div className="request-section" aria-label="Pull request">
+        <div className="request-line">
+          <GitPullRequest size={13} aria-hidden="true" />
+          {request ? <RequestSummary request={request} onOpen={() => void actions.openExternal(request.url)} /> : (
+            <small className="request-none">{status ? (branch ? `No ${short} for ${branch}` : `No ${short}`) : "Checking…"}</small>
+          )}
+          <span className="spacer" />
+          <button className="icon-button compact" title="Refresh request status" aria-label="Refresh request status" disabled={Boolean(busy)} onClick={() => void refresh(true)}>
+            <RefreshCw size={12} />
+          </button>
+        </div>
+        {status?.problem ? <p className="request-problem" role="note">{status.problem}</p> : null}
+        {error ? <p className="request-error" role="alert">{error}</p> : null}
+        {busy ? <p className="request-busy">{busy}</p> : null}
+
+        {mode === "idle" && status && !status.problem && !busy ? (
+          <div className="commit-actions request-actions">
+            {!open ? (
+              <button className="primary" disabled={hasChanges && !message.trim()} onClick={() => void startCreate()}>
+                {hasChanges ? `Commit & create ${short}…` : `Create ${short}…`}
+              </button>
+            ) : (
+              <>
+                <button onClick={() => { setForm({ title: open.title, body: open.body ?? "", base: open.baseRef, draft: Boolean(open.draft) }); setMode("edit"); }}>Edit…</button>
+                <button className="primary" onClick={() => setMode("merge")}>Merge…</button>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {mode === "create" || mode === "edit" ? (
+          <div className="request-form">
+            <input aria-label={`${short} title`} placeholder="Title" value={form.title} onChange={field("title")} />
+            <textarea aria-label={`${short} description`} placeholder="Description" value={form.body} onChange={field("body")} />
+            {mode === "create" ? (
+              <label className="request-base">into <input aria-label="Base branch" value={form.base} onChange={field("base")} /></label>
+            ) : null}
+            <label className="request-draft">
+              <input type="checkbox" checked={form.draft} onChange={(event) => setForm((current) => ({ ...current, draft: event.target.checked }))} /> Draft
+            </label>
+            <div className="commit-actions">
+              {mode === "create" ? (
+                <button className="primary" disabled={Boolean(busy) || !form.title.trim()} onClick={() => void create()}>
+                  {form.draft ? `Create draft ${short}` : `Create ${short}`}
+                </button>
+              ) : (
+                <button className="primary" disabled={Boolean(busy) || !form.title.trim()} onClick={() => void save()}>Save</button>
+              )}
+              {mode === "create" ? <button disabled={Boolean(busy)} onClick={() => void run("Writing title and description…", generate)}>Regenerate</button> : null}
+              <button disabled={Boolean(busy)} onClick={() => { setMode("idle"); setError(undefined); }}>Cancel</button>
+            </div>
+          </div>
+        ) : null}
+
+        {mode === "merge" && open ? (
+          <div className="request-form" role="group" aria-label={`Merge ${short} #${open.number}`}>
+            <div className="toggle-group" role="radiogroup" aria-label="Merge method">
+              {METHODS.map((entry) => (
+                <button key={entry.value} role="radio" aria-checked={method === entry.value} className={method === entry.value ? "active" : ""} onClick={() => setMethod(entry.value)}>{entry.label}</button>
+              ))}
+            </div>
+            <p className="request-confirm">
+              Merge {short} #{open.number} into <code>{open.baseRef}</code> ({METHODS.find((entry) => entry.value === method)?.label.toLowerCase()})?
+              {open.draft ? " It is still a draft." : ""}
+              {open.checks && open.checks.failed > 0 ? ` ${open.checks.failed} check${open.checks.failed === 1 ? " is" : "s are"} failing.` : ""}
+            </p>
+            <div className="commit-actions">
+              <button className="primary" disabled={Boolean(busy)} onClick={() => void merge()}>Merge {short} #{open.number}</button>
+              <button disabled={Boolean(busy)} onClick={() => setMode("idle")}>Cancel</button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+}
+
+function RequestSummary({ request, onOpen }: { request: UiReviewRequest; onOpen(): void }) {
+  const state = requestStateLabel(request);
+  const checks = checksLabel(request.checks);
+  return (
+    <>
+      <button className="request-link" title={`${request.title} · opens in the browser`} onClick={onOpen}>
+        {requestShort(request)} #{request.number}<ExternalLink size={10} aria-hidden="true" />
+      </button>
+      <span className={`request-state state-${state}`}>{state}</span>
+      {checks ? <span className={`request-checks ${checksTone(request.checks)}`}>checks {checks}</span> : null}
+    </>
+  );
+}

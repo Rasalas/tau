@@ -1,5 +1,6 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
+import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
   conventional: "Write one excellent Conventional Commit message for the supplied Git diff. Use an accurate type and an optional short scope. The imperative subject must explain the intent, not list files. Keep the subject under 72 characters. Add a short body only when it explains important behavior or migration details. Return only the commit message, without quotes or Markdown fences.",
@@ -29,14 +30,14 @@ export function buildCommitPrompt(input: {
 }
 
 /**
- * Review Kit's host entry: one command that turns a diff into a commit message
- * with the model the desktop side chose.
+ * Review Kit's host entry: a commit message from a diff with the model the
+ * desktop side chose, and the pull or merge request lifecycle after it.
  */
-export function createReviewHostExtension(): HostExtension {
+export function createReviewHostExtension(options: RequestCommandOptions = {}): HostExtension {
   return {
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
-    permissions: ["sessions"],
+    permissions: ["sessions", "process"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       // Review's desktop half reaches the Workspace read API through this
@@ -44,6 +45,7 @@ export function createReviewHostExtension(): HostExtension {
       // tau.review, so this proxy cannot be widened by renderer input.
       context.registerCommand("changes", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "changes", input));
       context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input));
+      registerRequestCommands(context, options);
       context.registerCommand("suggest-commit-message", async (input) => {
         const fields = record(input);
         const provider = text(fields.provider);

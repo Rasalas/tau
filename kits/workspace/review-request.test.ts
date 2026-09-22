@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createReviewRequestDetector, parseGitHubPullRequest, parseGitLabMergeRequest, providerOrder } from "./review-request.js";
+import { createReviewRequestDetector, parseGitHubPullRequest, parseGitLabMergeRequest, providerOrder, summarizeGitHubChecks } from "./review-request.js";
 
 const ghOutput = JSON.stringify({ number: 42, title: "Add review bases", url: "https://github.com/acme/tau/pull/42", baseRefName: "main", headRefName: "feature/bases" });
 const glabOutput = JSON.stringify({ iid: 7, title: "Merge me", web_url: "https://gitlab.com/acme/tau/-/merge_requests/7", target_branch: "develop", source_branch: "topic" });
@@ -53,5 +53,34 @@ describe("review request detection", () => {
 
     const nothing = createReviewRequestDetector({ findCommand: () => undefined, run });
     expect(await nothing.detect("/repo")).toBeUndefined();
+  });
+
+  it("reads state, draft, checks and body when the tool reports them", () => {
+    const gh = JSON.stringify({
+      number: 9, title: "Draft it", url: "https://github.com/acme/tau/pull/9", baseRefName: "main", headRefName: "topic",
+      state: "OPEN", isDraft: true, body: "Why",
+      statusCheckRollup: [
+        { __typename: "CheckRun", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", status: "COMPLETED", conclusion: "FAILURE" },
+        { __typename: "CheckRun", status: "IN_PROGRESS", conclusion: "" },
+        { __typename: "StatusContext", state: "SUCCESS" },
+      ],
+    });
+    expect(parseGitHubPullRequest(gh)).toMatchObject({ state: "open", draft: true, body: "Why", checks: { passed: 2, failed: 1, pending: 1, total: 4 } });
+    expect(summarizeGitHubChecks([])).toBeUndefined();
+    const glab = JSON.stringify({ iid: 3, title: "MR", web_url: "https://gitlab.com/a/b/-/merge_requests/3", target_branch: "main", state: "merged", draft: false, head_pipeline: { status: "running" } });
+    expect(parseGitLabMergeRequest(glab)).toMatchObject({ state: "merged", draft: false, checks: { pending: 1, total: 1 } });
+  });
+
+  it("asks again when the caller wants a fresh answer", async () => {
+    const run = vi.fn(async (command: string, args: string[]) => {
+      if (command === "git" && args[0] === "branch") return "feature/bases\n";
+      if (command === "git") return "https://github.com/acme/tau.git\n";
+      return ghOutput;
+    });
+    const detector = createReviewRequestDetector({ findCommand: (name) => (name === "gh" ? "/bin/gh" : name === "git" ? "git" : undefined), run });
+    await detector.detect("/repo");
+    await detector.detect("/repo", { fresh: true });
+    expect(run.mock.calls.filter(([command]) => command === "/bin/gh")).toHaveLength(2);
   });
 });

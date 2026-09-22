@@ -16,14 +16,17 @@ import {
   type UiWorkspaceChanges,
   type WorkbenchActions,
 } from "tau";
+import type { ComponentType } from "react";
 import {
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_REVIEW_OVERLAY,
+  type ChangesSectionProps,
   type CommitMessageSuggester,
   type ProjectDefaults,
   type WorkspaceHostClient,
   type WorkspaceKitState,
   type WorkspaceMode,
+  type ThreadRowAccessoryProps,
   type WorkspaceStoreApi,
   type WorktreeNamer,
 } from "./protocol.js";
@@ -47,6 +50,8 @@ const INITIAL: WorkspaceKitState = {
   canNameWorktrees: false,
   workspaceMode: "current",
   preparingWorktree: false,
+  changesSections: [],
+  threadRowAccessories: [],
 };
 
 /** The user's global answer for where a new thread runs. */
@@ -535,6 +540,20 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.notify(errorMessage(error));
       return undefined;
     }
+  }
+
+  async refresh(): Promise<void> {
+    await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
+  }
+
+  registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void {
+    this.update({ changesSections: [...this.state.changesSections, section] });
+    return () => this.update({ changesSections: this.state.changesSections.filter((entry) => entry !== section) });
+  }
+
+  registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void {
+    this.update({ threadRowAccessories: [...this.state.threadRowAccessories, accessory] });
+    return () => this.update({ threadRowAccessories: this.state.threadRowAccessories.filter((entry) => entry !== accessory) });
   }
 
   registerCommitMessageSuggester(suggester: CommitMessageSuggester): () => void {
