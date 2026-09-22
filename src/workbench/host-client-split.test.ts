@@ -52,6 +52,11 @@ describe("a client with a host in another process", () => {
     expect(log).toEqual(["host:copy-text"]);
   });
 
+  it("reports the platform of its own machine, not the socket's", () => {
+    expect(split().client.platform).toBe("local");
+    expect(createHostClient(new HostConnection(recordingTransport("host", []))).platform).toBe("host");
+  });
+
   it("routes every client-side method name", () => {
     expect([...CLIENT_SIDE_METHODS]).toContain("desktop-extensions");
   });

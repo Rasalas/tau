@@ -94,6 +94,15 @@ export function writeDockState(storage: ClientStorage, workspace: string, state:
   write(storage, dockStateKey(workspace), state);
 }
 
+/**
+ * The panel the dock shows: the chosen one once a kit offers it, the first
+ * offered panel until then. The choice itself is left alone, so a panel
+ * restored before its kit activates comes back when the kit does.
+ */
+export function shownPanel(chosen: string | undefined, offered: readonly string[]): string {
+  return chosen && offered.includes(chosen) ? chosen : offered[0] ?? "";
+}
+
 export interface StagePruneOptions {
   /** The workspace the window is on; a file outside it belongs to another one. */
   workspacePath?: string;

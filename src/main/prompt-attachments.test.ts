@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UiPromptAttachment } from "../shared/contracts.js";
 import { selectAttachmentCandidates } from "../shared/prompt-attachment-limits.js";
-import { promptImages } from "./prompt-attachments.js";
+import { promptFiles, promptImages } from "./prompt-attachments.js";
 
 const image: UiPromptAttachment = {
   kind: "image",
@@ -30,5 +30,12 @@ describe("prompt image adapter", () => {
     ]);
     expect(result.accepted.map((item) => item.name)).toEqual(["valid.png"]);
     expect(result.rejected[0]?.reason).toBe("unsupported-type");
+  });
+
+  it("keeps images and files apart: Pi never sees a file, and a file is checked for its path", () => {
+    const file: UiPromptAttachment = { kind: "file", name: "spec.pdf", mimeType: "application/pdf", path: "/state/spec.pdf", size: 10 };
+    expect(promptImages([image, file])).toHaveLength(1);
+    expect(promptFiles([image, file])).toEqual([file]);
+    expect(() => promptFiles([{ ...file, path: "../spec.pdf" }])).toThrow(/absolute path/u);
   });
 });

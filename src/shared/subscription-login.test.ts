@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { subscriptionLoginWarning, subscriptionProviderName } from "./subscription-login.js";
+import { isRestrictedSubscriptionLogin, subscriptionLoginWarning, subscriptionProviderName } from "./subscription-login.js";
 
 describe("subscription login warning", () => {
   it("names the vendor's own statement for Anthropic", () => {
@@ -14,5 +14,14 @@ describe("subscription login warning", () => {
     expect(warning.message).toContain("OpenAI");
     expect(warning.source).toBeUndefined();
     expect(subscriptionProviderName("something-else")).toBe("something-else");
+  });
+
+  it("warns only for vendors that allow subscription logins in their own apps alone", () => {
+    expect(isRestrictedSubscriptionLogin("anthropic")).toBe(true);
+    expect(isRestrictedSubscriptionLogin("google")).toBe(true);
+    expect(isRestrictedSubscriptionLogin("google-antigravity")).toBe(true);
+    expect(isRestrictedSubscriptionLogin("openai-codex")).toBe(false);
+    expect(isRestrictedSubscriptionLogin("github-copilot")).toBe(false);
+    expect(subscriptionLoginWarning("google").message).toMatch(/Antigravity/u);
   });
 });

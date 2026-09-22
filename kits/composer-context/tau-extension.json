@@ -1,12 +1,12 @@
 {
-  "id": "tau.review",
-  "name": "Review Kit",
+  "id": "tau.composer-context",
+  "name": "Composer Context",
   "version": "1.0.0",
   "engines": {
     "api": "^1.9.0"
   },
   "permissions": [
-    "sessions",
+    "workspace:read",
     "process"
   ],
   "isolation": "in-process",

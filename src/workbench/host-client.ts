@@ -212,7 +212,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     listUserThemes: (workspaceId) => call<UserTheme[]>("list-user-themes", [workspaceId]),
     openExternalEditor: (text) => call<ExternalEditorResult>("open-external-editor", [text]),
 
-    platform: connection.platform,
+    // The machine the window runs on, not the host's transport: macOS window chrome keys on it.
+    platform: local?.platform ?? connection.platform,
     copyText: (text) => call<void>("copy-text", [text]),
     copyImage: (dataUrl) => call<void>("copy-image", [dataUrl]),
     onHostEvent: (listener) => connection.onEvent(listener),

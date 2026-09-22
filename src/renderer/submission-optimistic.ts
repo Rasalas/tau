@@ -50,7 +50,7 @@ export function buildOptimisticMessage(input: BuildOptimisticMessageInput): Buil
     role: "user",
     text: optimisticText,
     ...(optimisticSkill ? { skill: optimisticSkill } : {}),
-    images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
+    images: attachments.flatMap((attachment) => attachment.kind === "image" ? [{ mimeType: attachment.mimeType, data: attachment.data }] : []),
     timestamp: submittedAt,
   };
 

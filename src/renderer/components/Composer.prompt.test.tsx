@@ -76,6 +76,7 @@ describe("prompt controls in the composer", () => {
               getPromptRenderer: () => ({ id: "custom", match: () => true, Component: CustomPrompt }),
               getSlashCommands: () => [],
               getComposerControls: () => [],
+              getComposerInlines: () => [],
               subscribe: () => () => {},
               getVersion: () => 1,
             } as never,

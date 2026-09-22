@@ -330,11 +330,11 @@ export class SubmissionController {
           requestId: newThreadRequestId,
           scopeRef: scopes.createScopeReference(submittedDraftKey),
           draft: text,
-          attachments: attachments.map((attachment) => ({
+          attachments: attachments.flatMap((attachment) => attachment.kind !== "image" ? [] : [{
             ...attachment,
             id: allocateAttachmentId(),
             previewUrl: `data:${attachment.mimeType};base64,${attachment.data}`,
-          })),
+          }]),
           optimistic,
           ipcPending: true,
         }

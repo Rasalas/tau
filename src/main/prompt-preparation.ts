@@ -3,7 +3,7 @@ import type { PreparedPrompt, ThreadBackendKind, UiComposerCommand, UiPromptAtta
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import type { HostRuntimeBackendProvider } from "./host-extensions.js";
-import { promptImages } from "./prompt-attachments.js";
+import { promptFiles, promptImages } from "./prompt-attachments.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import { prepareSkillPrompt } from "./skill-invocation.js";
 import { ThreadRuntime, threadBackendKind } from "./thread-runtime.js";
@@ -81,10 +81,18 @@ export class PromptPreparation {
     });
   }
 
-  /** Images travel to a runtime only when it says its model takes them. */
-  assertImageInput(thread: ThreadRuntime, attachments: readonly UiPromptAttachment[]): void {
+  /**
+   * Images travel to a runtime only when it says its model takes them, files
+   * only when its adapter declares `fileAttachments`.
+   */
+  assertAttachmentInput(thread: ThreadRuntime, attachments: readonly UiPromptAttachment[]): void {
     if (attachments.length === 0) return;
-    if (!thread.state.supportsImageInput) throw new Error("The active model does not support image input.");
-    promptImages(attachments);
+    if (attachments.some((attachment) => attachment.kind === "image")) {
+      if (!thread.state.supportsImageInput) throw new Error("The active model does not support image input.");
+      promptImages(attachments);
+    }
+    if (promptFiles(attachments).length > 0 && thread.runtimeAdapter.capabilities.fileAttachments !== true) {
+      throw new Error("This thread's runtime does not take file attachments; embed them in the prompt instead.");
+    }
   }
 }

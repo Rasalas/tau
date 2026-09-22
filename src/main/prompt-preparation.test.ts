@@ -10,10 +10,12 @@ function makePrompts(assertPromptAllowed?: (level: string) => void) {
   });
 }
 
-function piThread(threadId = "session", supportsImageInput = false) {
+function piThread(threadId = "session", supportsImageInput = false, fileAttachments = false) {
   const backend = {
     kind: "pi" as const,
-    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
+    runtimeAdapter: fileAttachments
+      ? { ...PI_AGENT_RUNTIME_ADAPTER, capabilities: { ...PI_AGENT_RUNTIME_ADAPTER.capabilities, fileAttachments: true } }
+      : PI_AGENT_RUNTIME_ADAPTER,
     threadId,
     providerSessionId: threadId,
     cwd: "/repo",
@@ -86,9 +88,18 @@ describe("PromptPreparation", () => {
   it("refuses images for a model that does not take them", () => {
     const prompts = makePrompts();
     const attachment = { kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "iVBORw==", size: 4 };
-    expect(() => prompts.assertImageInput(piThread(), [attachment])).toThrow("does not support image input");
-    expect(() => prompts.assertImageInput(piThread("session", true), [attachment])).not.toThrow();
+    expect(() => prompts.assertAttachmentInput(piThread(), [attachment])).toThrow("does not support image input");
+    expect(() => prompts.assertAttachmentInput(piThread("session", true), [attachment])).not.toThrow();
     // No attachment is always allowed, whatever the model says.
-    expect(() => prompts.assertImageInput(piThread(), [])).not.toThrow();
+    expect(() => prompts.assertAttachmentInput(piThread(), [])).not.toThrow();
+  });
+
+  it("takes files only from a runtime that declares them, and only by absolute path", () => {
+    const prompts = makePrompts();
+    const file = { kind: "file" as const, name: "spec.pdf", mimeType: "application/pdf", path: "/state/spec.pdf", size: 2048 };
+    expect(() => prompts.assertAttachmentInput(piThread(), [file])).toThrow("does not take file attachments");
+    expect(() => prompts.assertAttachmentInput(piThread("session", false, true), [file])).not.toThrow();
+    expect(() => prompts.assertAttachmentInput(piThread("session", false, true), [{ ...file, path: "spec.pdf" }])).toThrow("absolute path");
+    expect(() => prompts.assertAttachmentInput(piThread("session", false, true), [{ ...file, size: 51 * 1024 * 1024 }])).toThrow("50 MB");
   });
 });

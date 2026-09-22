@@ -7,6 +7,7 @@ import {
   pruneStageState,
   readDockState,
   readStageState,
+  shownPanel,
   writeDockState,
   writeStageState,
 } from "./workbench-layout-state";
@@ -116,5 +117,17 @@ describe("dock persistence", () => {
 
   it("starts closed for a workspace it has not seen", () => {
     expect(readDockState(createMemoryStorage(), workspace)).toEqual(EMPTY_DOCK);
+  });
+});
+
+describe("shownPanel", () => {
+  it("shows the chosen panel once a kit offers it", () => {
+    expect(shownPanel("terminal", ["agents", "terminal"])).toBe("terminal");
+  });
+
+  it("stands in with the first offered panel while the chosen one is missing", () => {
+    expect(shownPanel("terminal", ["agents"])).toBe("agents");
+    expect(shownPanel(undefined, ["agents"])).toBe("agents");
+    expect(shownPanel("terminal", [])).toBe("");
   });
 });

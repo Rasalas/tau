@@ -21,7 +21,6 @@ import { ThreadSupervisor } from "./components/ThreadSupervisor";
 import type { ClientProfile } from "../workbench/client-profile";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import { ThreadTreeModal, type ThreadTreeMode } from "./components/ThreadTreeModal";
-import { SystemPromptModal } from "./components/SystemPromptModal";
 import { TitleBar } from "./components/TitleBar";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
@@ -73,6 +72,7 @@ function storedDockWidth(storage: ClientStorage): number {
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 const LazySettingsModal = lazy(() => import("./components/SettingsModal").then(({ SettingsModal }) => ({ default: SettingsModal })));
+const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal").then(({ SystemPromptModal }) => ({ default: SystemPromptModal })));
 
 /** One frozen empty list for both contribution kinds the compact layout leaves out. */
 const EMPTY_CONTRIBUTIONS: never[] = [];
@@ -397,7 +397,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       tree={threadTreeModal.tree} mode={threadTreeModal.mode} busy={threadTreeModal.busy} error={threadTreeModal.error}
       onClose={closeThreadTree} onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)} onFork={(entryId) => void forkFromTree(entryId)}
     /> : null}
-    {systemPromptOpen ? <SystemPromptModal threadId={snapshot?.sessionId} onClose={() => setSystemPromptOpen(false)} /> : null}
+    {systemPromptOpen ? (
+      <Suspense fallback={<LazyFeatureFallback label="system prompt" />}>
+        <LazySystemPromptModal threadId={snapshot?.sessionId} onClose={() => setSystemPromptOpen(false)} />
+      </Suspense>
+    ) : null}
     <LazyFeatureBoundary label="command palette">
       <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
         <LazyCommandPalette

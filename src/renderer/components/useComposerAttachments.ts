@@ -24,6 +24,8 @@ export interface UseComposerAttachmentsOptions {
   attachments: readonly PendingAttachment[];
   supportsImageInput: boolean;
   attachmentRef?: RefObject<ComposerAttachmentHandle | null>;
+  /** Lets extensions take files first; answers with the ones left for core's images. */
+  takeFiles?(files: readonly File[]): readonly File[];
 }
 
 export interface UseComposerAttachmentsResult {
@@ -41,6 +43,7 @@ export function useComposerAttachments({
   attachments,
   supportsImageInput,
   attachmentRef,
+  takeFiles,
 }: UseComposerAttachmentsOptions): UseComposerAttachmentsResult {
   const [previewId, setPreviewId] = useState<number | undefined>(undefined);
   const activeAttachmentScopeRef = useRef<ComposerScope>(scope);
@@ -89,7 +92,9 @@ export function useComposerAttachments({
   const addFiles = useCallback((files: FileList | readonly File[]) => {
     // DataTransfer.files is a live FileList and may be emptied once the drop
     // event returns. Snapshot it before entering the asynchronous queue.
-    const fileSnapshot = Array.from(files);
+    const offered = Array.from(files);
+    const fileSnapshot = takeFiles && offered.length > 0 ? [...takeFiles(offered)] : offered;
+    if (offered.length > 0 && fileSnapshot.length === 0) return Promise.resolve();
     const scopeRef = scopeStore.createScopeReference(scope);
     const state = scopeStore.getSnapshot(scope);
     const previous = state.attachmentProcessing;
@@ -99,7 +104,7 @@ export function useComposerAttachments({
       .finally(() => scopeStore.releaseScopeReference(scopeRef));
     generation = scopeStore.setAttachmentProcessing(scope, operation);
     return operation;
-  }, [scope, processFiles, scopeStore, supportsImageInput]);
+  }, [scope, processFiles, scopeStore, supportsImageInput, takeFiles]);
 
   useImperativeHandle(attachmentRef, () => ({ addFiles }), [addFiles]);
 

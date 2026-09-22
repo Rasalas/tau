@@ -64,7 +64,7 @@ export class TurnDelivery {
         await this.toRuntime(thread, text, attachments, delivery, identity, prepared);
         return;
       }
-      this.port.prompts.assertImageInput(thread, attachments);
+      this.port.prompts.assertAttachmentInput(thread, attachments);
       const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
       this.port.prompts.assertBound(thread, text, resolvedPrepared, this.port.projection.composerCommands(thread));
       if (identity) this.port.clientTurns.enqueue(thread.threadId, identity, resolvedPrepared.sourceFingerprint);
@@ -111,7 +111,7 @@ export class TurnDelivery {
       await this.throughAdapter(thread, text, attachments, delivery, identity, prepared);
       return;
     }
-    this.port.prompts.assertImageInput(thread, attachments);
+    this.port.prompts.assertAttachmentInput(thread, attachments);
     if (prepared) this.port.prompts.assertBound(thread, text, prepared, this.port.projection.composerCommands(thread));
     // An external runtime owns the turn, but the observers still bracket it: a
     // checkpoint or a status watcher does not care which program answers. An
@@ -222,7 +222,7 @@ export class TurnDelivery {
     thread.adapterAbortControllers ??= new Set<AbortController>();
     thread.adapterAbortControllers.add(abortController);
     try {
-      if (attachments.length > 0) throw new Error("Image attachments are not supported by the selected runtime adapter.");
+      if (attachments.length > 0) throw new Error("Attachments are not supported by the selected runtime adapter.");
       await thread.backend.prompt({ text, delivery, ...(identity ? { identity } : {}), ...(prepared ? { prepared } : {}), signal: abortController.signal });
       thread.adapterMessages = await thread.backend.transcript();
       const state = thread.state;
