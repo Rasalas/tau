@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
 import { ArrowRight, Bot, Check, Copy, FolderPlus, GitMerge, GitPullRequest, Sparkles, SquareTerminal } from "lucide-react";
 import { useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
 import { defaultProjects, defaultSessions, type AgentStatus, type FlowState, type WelcomeFlow } from "./flow.js";
@@ -185,7 +185,7 @@ function AgentsStep({ state, flow, actions }: { state: FlowState; flow: WelcomeF
       <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} />)}</div>
       <div className="onboarding-actions">
         <button type="button" className="onboarding-button ghost" onClick={() => flow.checkAgents()}>Check again</button>
-        <button type="button" className="onboarding-button primary" autoFocus onClick={() => flow.goTo(1)}>Continue <ArrowRight size={14} /></button>
+        <button type="button" className="onboarding-button primary" onClick={() => flow.goTo(1)}>Continue <ArrowRight size={14} /></button>
       </div>
     </StepShell>
   );
@@ -222,7 +222,7 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
       <div className="onboarding-actions">
         <button type="button" className="onboarding-button ghost leading" disabled={busy} onClick={() => actions.openProjectSources()}><FolderPlus size={14} /> Add a folder…</button>
         <button type="button" className="onboarding-button ghost" disabled={busy} onClick={skip}>Do not add projects</button>
-        <button type="button" className="onboarding-button primary" autoFocus disabled={busy || chosen.length === 0} onClick={() => void flow.addProjects(actions, chosen.map((project) => project.path))}>
+        <button type="button" className="onboarding-button primary" disabled={busy || chosen.length === 0} onClick={() => void flow.addProjects(actions, chosen.map((project) => project.path))}>
           {busy ? "Adding…" : `Add ${plural(chosen.length, "project")}`}
         </button>
       </div>
@@ -278,7 +278,7 @@ function ConversationsStep({ state, flow, actions, known, finish }: { state: Flo
       {state.error ? <p className="onboarding-error" role="alert">{state.error}</p> : null}
       <div className="onboarding-actions">
         <button type="button" className="onboarding-button ghost" disabled={importing} onClick={finish}>{state.error ? "Continue without the rest" : "Do not import"}</button>
-        <button type="button" className="onboarding-button primary" autoFocus disabled={importing || chosen.length === 0} onClick={() => void run()}>
+        <button type="button" className="onboarding-button primary" disabled={importing || chosen.length === 0} onClick={() => void run()}>
           {importing && state.progress ? `Importing… ${state.progress.done} of ${state.progress.total}` : `Import ${plural(chosen.length, "conversation")}`}
         </button>
       </div>
@@ -300,6 +300,9 @@ export function createWelcomeWizard(flow: WelcomeFlow) {
       if (pending?.length) void flow.addProjects(actions, pending);
     }, []);
     const finish = () => { void flow.finish().then(onClose); };
+    // The dialog, not a button, takes focus: the Enter that opened the wizard would press it.
+    const dialog = useRef<HTMLElement>(null);
+    useEffect(() => { dialog.current?.focus(); }, [state.step]);
     useEffect(() => {
       const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !flow.get().busy) finish(); };
       window.addEventListener("keydown", key);
@@ -307,7 +310,7 @@ export function createWelcomeWizard(flow: WelcomeFlow) {
     });
     return (
       <div className="onboarding-screen">
-        <section className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-heading">
+        <section ref={dialog} tabIndex={-1} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-heading">
           <header className="onboarding-header">
             <h1 id="onboarding-heading" className="onboarding-sr">Set up Tau</h1>
             <div className="onboarding-identity" aria-hidden="true"><span className="onboarding-mark">τ</span>Tau</div>
