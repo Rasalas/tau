@@ -23,6 +23,8 @@ export interface UiTerminalSession {
   /** Absolute path on the host the shell started in; for the user's eyes only. */
   cwd?: string;
   label: string;
+  /** The shell's program name (`zsh`), for an excerpt to say where it came from. */
+  shell?: string;
   cols: number;
   rows: number;
   /** The shell ended on its own; the entry stays listed until the user closes or restarts it. */
@@ -50,6 +52,8 @@ export interface TerminalHostCommands {
   "list": { input: undefined; output: UiTerminalSession[] };
   /** One session's scrollback, so a reloaded renderer can redraw where it was. */
   "replay": { input: { id: string }; output: { data: string; offset: number } | undefined };
+  /** A program other than the shell running in its foreground; closing would interrupt it. */
+  "foreground": { input: { id: string }; output: { process?: string } };
   /** The font the user's Ghostty config names on the host, read and never written. */
   "font": { input: undefined; output: TerminalFontDefaults };
 }
@@ -83,6 +87,7 @@ export function createTerminalHostClient(invoke: (command: string, input?: unkno
     list: call("list"),
     replay: call("replay"),
     font: call("font"),
+    foreground: call("foreground"),
   } as TerminalHostClient;
 }
 

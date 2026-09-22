@@ -13,6 +13,7 @@ import {
 } from "./protocol.js";
 import { defaultShell, shellArgs, shellAvailable } from "./shell.js";
 import { ghosttyFontDefaults } from "./ghostty-config.js";
+import { Scrollback } from "./retention.js";
 
 /**
  * The pty the host half drives, as a shape. `node-pty` arrives through the
@@ -25,6 +26,8 @@ export interface PtyProcess {
   kill(): void;
   onData(listener: (data: string) => void): void;
   onExit(listener: (exitCode: number) => void): void;
+  /** The program in the foreground of the pty, where the platform can say. */
+  foreground?(): string | undefined;
 }
 
 export interface PtySpawnOptions {
@@ -40,8 +43,6 @@ export type PtyFactory = (options: PtySpawnOptions) => PtyProcess;
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
-/** Scrollback one session keeps for a client that reattaches. */
-const REPLAY_BYTES = 256 * 1024;
 /** Sessions per workspace: a project terminal and a few thread terminals. */
 export const MAX_SESSIONS_PER_WORKSPACE = 8;
 export const NO_PTY = "Terminals need node-pty, which this host does not have.";
@@ -64,7 +65,7 @@ interface Session {
   /** Gone once the shell exited; the record stays so the user can read the end and restart. */
   pty?: PtyProcess;
   /** Recent output, so a reloaded client can redraw where it was. */
-  scrollback: string;
+  scrollback: Scrollback;
   offset: number;
 }
 
@@ -111,10 +112,11 @@ export class TerminalSessions {
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       cwd: input.cwd,
       label: input.label?.trim() || `${basename(input.cwd) || "workspace"} — shell`,
+      shell: basename(file),
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
     };
-    const session: Session = { record, root: input.root, pty, scrollback: "", offset: 0 };
+    const session: Session = { record, root: input.root, pty, scrollback: new Scrollback(), offset: 0 };
     this.sessions.set(id, session);
     pty.onData((data) => this.recordData(id, data));
     pty.onExit((exitCode) => this.exited(id, exitCode));
@@ -171,7 +173,20 @@ export class TerminalSessions {
   /** Output since the client last listened, or everything if it never did. */
   replay(id: string): { data: string; offset: number } | undefined {
     const session = this.sessions.get(id);
-    return session ? { data: session.scrollback, offset: session.offset } : undefined;
+    return session ? { data: session.scrollback.text(), offset: session.offset } : undefined;
+  }
+
+  /**
+   * What runs in the foreground of a shell other than the shell itself — the
+   * thing closing it would interrupt. `undefined` when only the shell is there,
+   * it has ended, or the platform cannot say.
+   */
+  foreground(id: string): string | undefined {
+    const session = this.sessions.get(id);
+    const name = session?.pty?.foreground?.()?.trim();
+    if (!session || !name) return undefined;
+    const shell = (session.record.shell ?? "").replace(/^-/u, "");
+    return basename(name.replace(/^-/u, "")) === shell ? undefined : name;
   }
 
   /** Closes every session of one workspace root: the workspace closed. */
@@ -220,7 +235,7 @@ export class TerminalSessions {
     const session = this.sessions.get(id);
     if (!session) return;
     session.offset += data.length;
-    session.scrollback = `${session.scrollback}${data}`.slice(-REPLAY_BYTES);
+    session.scrollback.append(data);
     this.pending.set(id, (this.pending.get(id) ?? "") + data);
     if (this.flushScheduled) return;
     this.flushScheduled = true;
@@ -264,6 +279,7 @@ function clampSize(value: number, fallback: number): number {
 /** The slice of node-pty the factory uses; the module is loaded by name, so its shape is checked here. */
 interface NodePtyModule {
   spawn(file: string, args: string[], options: { name: string; cols: number; rows: number; cwd: string; env: Record<string, string> }): {
+    readonly process?: string;
     write(data: string): void;
     resize(cols: number, rows: number): void;
     kill(): void;
@@ -304,6 +320,13 @@ export async function loadNodePty(loadDependency: (name: string) => Promise<unkn
       kill: () => term.kill(),
       onData: (listener) => { term.onData(listener); },
       onExit: (listener) => { term.onExit(({ exitCode }) => listener(exitCode)); },
+      foreground: () => {
+        try {
+          return term.process;
+        } catch {
+          return undefined;
+        }
+      },
     };
   };
 }
@@ -384,6 +407,10 @@ export function createTerminalHostExtension(
       context.registerCommand("list", () => sessions.list());
       context.registerCommand("replay", (raw) => sessions.replay(String(fields(raw).id)));
       context.registerCommand("font", () => fontDefaults());
+      context.registerCommand("foreground", (raw) => {
+        const process = sessions.foreground(String(fields(raw).id));
+        return process ? { process } : {};
+      });
 
       // Terminals die with the workspace they belong to, and with the thread
       // that opened them — both are the host's own word, not a guess from the
