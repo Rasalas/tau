@@ -19,7 +19,8 @@ import type { DocumentSourceContribution } from "../extension-system";
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
 
-export type ComposerDelivery = "followUp" | "steer";
+/** `alternate` is a plain send with the modifier held, which an extension may claim for a new thread. */
+export type ComposerDelivery = "followUp" | "steer" | "alternate";
 
 export interface ComposerSubmissionInput {
   text: string;
