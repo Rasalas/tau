@@ -531,24 +531,82 @@ is an esbuild alias onto Tau's own compiled module, which is why
 `HostCommandError` thrown from a package is the same class the registry checks.
 
 `DesktopExtensionContext` additionally offers `registerSettingsPage` — a page
-of the Settings modal with its own nav entry, typed `SettingsPageContribution`
-(`id`, `label`, an optional `Icon` the way panels pass theirs, an optional
-`order`, optional `keywords` — the words the Settings search field and the
-palette find the page by besides its label — and a `Component` receiving
-`SettingsPageProps`: `cwd` and `onNotify`) — and `inspectPackages(cwd)`, which answers core's own scan of the
-`order`, and a `Component` receiving `SettingsPageProps`: `cwd` and
-`onNotify`; a page that also names a `runtime` — a backend kind — gets no
-nav entry: core draws it as that runtime's card on its Providers page, under
-the runtime's mark and `label`, in `order`, and opens Providers for its `id`.
-The backend kits Tau ships put the CLI, its version and update, the login and
-a path override there) — and `inspectPackages(cwd)`, which answers core's own scan of the
-package folders and the shipped kits (`ExtensionInspection`) without loading
-any code — including `distribution`, the name and version of the set the
-`bundled` entries came in, absent in safe mode, which loads none. Core keeps Defaults, Keybindings and the Inspector; every other page
-is a contribution and is gone with its extension. The search field above the
-nav finds core's own rows, a contributed page by its label and `keywords`, an
-extension's page by its name and its options, and every live keybinding — which
-opens the Keybindings page filtered to its command.
+of Settings with its own nav entry, typed `SettingsPageContribution` (`id`,
+`label`, an optional `Icon` the way panels pass theirs, an optional `order`,
+optional `keywords` — the words the Settings search field and the palette find
+the page by besides its label — an optional `scope` (below) and a `Component`
+receiving `SettingsPageProps`: `cwd` and `onNotify`). A page that also names a
+`runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
+card on its Providers page, under the runtime's mark and `label`, in `order`,
+and opens Providers for its `id`. The backend kits Tau ships put the CLI, its
+version and update, the login and a path override there. `inspectPackages(cwd)`
+answers core's own scan of the package folders and the shipped kits
+(`ExtensionInspection`) without loading any code — including `distribution`,
+the name and version of the set the `bundled` entries came in, absent in safe
+mode, which loads none. Core keeps Defaults, Pi, Keybindings and the Inspector;
+every other page is a contribution and is gone with its extension. The search
+field at the top of the Settings column finds core's own rows (and scrolls to
+the row), a contributed page by its label and `keywords`, an extension's page
+by its name and its options, and every live keybinding — which opens the
+Keybindings page filtered to its command.
+
+#### Settings pages: the full page, the levels and the rows
+
+Settings is a page of its own that covers the whole window (T3 Code's layout):
+the section column on the left with the search and a Back button, a bar with
+the breadcrumb `Settings / <page> / <scope>`, and the page below at a readable
+width. Escape, Back and `mod+,` return to the workbench, which stays mounted
+underneath (`inert`). `actions.openSettings(page)` opens a page by id.
+
+A page is built from the same pieces core builds its own with, all on `tau`:
+
+| Export | What it is |
+|---|---|
+| `SettingsSection({ title, id?, headerAction?, plain?, children })` | A muted heading over one card of rows. `plain` drops the card, for content that draws its own (a table). |
+| `SettingRow({ id?, title, description?, status?, control?, setting?, children? })` | One setting: what it is on the left, its control on the right. `id` is the anchor a search result scrolls to. |
+| `useSetting(key, options)` | One key of Tau's config read across the levels, as a `SettingHandle`. |
+| `userThemes()` | The user themes (`UserTheme`) the last preferences sync registered — the files in the themes folders. Read-only; the preferences store emits when they change. |
+
+A setting has three levels: the built-in **default**, the **host** (this
+machine's `~/.tau/config.json`) and the **project** (`<project>/.tau/config.json`);
+the first level that sets a key wins, top-down from the project. `key` is a
+config path: a top-level key (`showCosts`, `theme`) or an entry of a record —
+`values.<extension>.<name>`, `options.<extension>.<name>`,
+`threads.continueAfterRestart`. A package's own settings are entries of
+`values` (strings) or `options` (booleans), the records `context.preferences`
+reads and writes too.
+
+```tsx
+const density = useSetting<Density>("values.acme.layout.density", {
+  defaultValue: "normal",
+  scope: "both",                       // "host" (default), "project" or "both"
+  read: (raw) => (isDensity(raw) ? raw : undefined),
+  format: (value) => LABELS[value],    // how a value reads in the origin popover
+});
+<SettingRow title="Density" setting={density} control={<Segmented value={density.value} onChange={density.set} />} />
+```
+
+The handle carries `value` (for the level being edited), `origin` (`default`,
+`host` or `project`), the `chain` of levels, `projectOverride` (what the project
+holds while the host is edited), `writable`, and `set`, `reset`, `editProject`
+and `editHost`. `set` writes to the level being edited; `reset` removes the key
+from it so the level below shows through. `SettingRow` with a `setting` draws a
+layers glyph beside the title — faint for the default, muted for the host,
+accent for a project override — whose popover shows the chain with the value
+that applies checked, offers "Override for <project>" or "Edit override" while
+the host is edited and "Reset to inherited value" on an override; a reset arrow
+appears while the edited level holds the key, and the control turns inert (with
+the reason as its title) where the edited level cannot hold a key of that
+`scope`.
+
+Which level is edited is the page's: a page whose `scope` is `"project"` or
+`"both"` gets the scope menu as the breadcrumb's last crumb — "This machine" or
+a project from the project list — and a page without one always edits this
+machine. Pi's own keys (the startup model, compaction, retry, delivery modes,
+tools, shell, trust) are Pi's: they have Pi's global and project files, the Pi
+page writes them there, and they take no part in these levels. The host methods
+underneath are `get-config-layers` (both files without Pi's keys) and
+`clear-config` (remove keys from one level) beside `update-config`.
 
 `context.setProblems(problems)` is how a package says that something it reads
 is wrong — a project file that does not parse, an entry it had to skip. Each
@@ -988,6 +1046,13 @@ its link index there. What belongs in the *user's* `~/.tau` instead is
 configuration the user edits: Agents Kit reads its running budget from
 `~/.tau/agents.json` and never writes it.
 
+`services.themesDir` is the folder of the user's own themes — `~/.tau/themes`,
+or what `TAU_THEMES_DIR` names (a dev instance points it under `.tau-dev/`). It
+is ungated like the other three, a worker gets it in its bootstrap, and a
+`.css` file written there is listed and applied like one the user put there:
+the host watches the folder and every client re-reads its themes. Appearance
+Kit's theme editor saves there.
+
 A package with no `permissions` field asks for nothing, and a list that is
 there is checked even when it is empty. A kit Tau ships declares its list like
 any other package and is guarded like one — being bundled decides who has to
@@ -1411,9 +1476,16 @@ ever needs `!important` or a deeper selector.
 `light-dark(light, dark)`; the used `color-scheme` picks the side. `data-theme`
 on `<html>` sets that: `system` (the default, and what the document ships with,
 so the OS decides the first paint), `dark` or `light`. The preference lives in
-Settings → Defaults → Appearance and in the palette ("Theme: …", "Cycle the
-theme"); the client writes it onto `<html>` and nothing else in the client ever
-reads a colour.
+Settings → Defaults → Theme (and Settings → Appearance → Mode) and in the
+palette ("Theme: …", "Cycle the theme"); the client writes it onto `<html>` and
+nothing else in the client ever reads a colour.
+
+Besides theme packages, a **user theme** is a `.css` (or `.json`) file in
+`~/.tau/themes/` or a project's `.tau/themes/`; choosing it as the preference
+applies it whole. Appearance Kit adds a theme per scheme on top: under System,
+Light and Dark it lays the chosen light theme's tokens over the light scheme and
+the dark theme's over the dark one, and its theme editor and VS Code importer
+write such files.
 
 A theme writes `light-dark()` too if it means both schemes, or a single colour
 if it means one:
@@ -1602,6 +1674,40 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 | `--elevation-1` | a small float | `0 5px 18px var(--shadow-soft)` |
 | `--elevation-2` | a menu, a toast, a popover | `0 16px 40px var(--shadow)` |
 | `--elevation-3` | a modal | `0 40px 100px var(--shadow-strong)` |
+
+**Spacing**
+
+One scale, multiplied by `--density` (`1` in `tokens.css`). A client may set
+`--density` on `<html>` — Appearance Kit does through `data-density`: compact
+`.8`, comfortable `1.2` — and every step follows; unset, each step is its pixel
+value. A value between two steps is written `calc(Npx * var(--density))`.
+
+| Token | Role | Value |
+|---|---|---|
+| `--density` | the multiplier | `1` |
+| `--space-1` | a hairline gap | `2px` |
+| `--space-2` | between a glyph and its label | `4px` |
+| `--space-3` | inside a chip | `6px` |
+| `--space-4` | between rows of a list | `8px` |
+| `--space-5` | inside a row | `12px` |
+| `--space-6` | inside a card | `16px` |
+| `--space-7` | around a page | `24px` |
+| `--space-8` | between sections | `32px` |
+
+So far the structural spacing reads the scale: the thread rail and its search
+(Workspace Kit), the thread row, the transcript's padding, the conversation and
+panel headers, the composer, and the whole Settings screen. Detail rules keep
+their pixels until a visual pass moves them.
+
+**Set on `<html>` by a client, not by a theme**
+
+| Name | What reads it | Unset |
+|---|---|---|
+| `--font-family-override`, `--font-size-override` | the interface face and size (core's preferences) | the system sans, `13px` |
+| `--prompt-font-family`, `--prompt-font-size` | the composer's text | the interface face, `13px` |
+| `--code-font-family`, `--code-font-scale` | code blocks, tool output, the file view and diffs | `--mono`, `1` |
+| `data-density` | Appearance Kit's stylesheet, into `--density` | normal |
+| `data-timestamps` | message and tool timestamps: `12h`, `24h` or `locale` | 24-hour |
 
 `--project-hue` is not a token: the thread row sets it per project, and
 `--project-tint` and `--project-ink` say how deep that hue reads. The same goes
