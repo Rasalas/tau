@@ -50,6 +50,10 @@ CODEX_HOME=$PWD/.tau-dev/codex-home codex app-server
 
 The `config.toml` is the shadow's own and pins the cheapest model, so a new Codex thread's first turn does not run on the account's default. List the models first (`model/list` on the app server, or the Codex page in Settings) and pick the smallest; ask for one-word answers. Never write into the real `~/.codex`.
 
+### Earlier sessions to import come from fixtures
+
+Onboarding lists and imports the conversations the agent CLIs kept in their own homes. `dev-instance.mjs` sets `TAU_IMPORT_ROOTS=<worktree>/.tau-dev/import-roots` (a caller's own value is kept), and with it set the backend kits read only `<root>/<backend kind>/…` — laid out like the CLI's own home — and never the user's. Put small synthetic sessions there to test the wizard; an instance with an empty folder finds nothing to import.
+
 ## Keeping an instance alive across turns
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.

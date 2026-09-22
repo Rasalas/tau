@@ -167,6 +167,8 @@ async function main() {
   // Codex keeps its sessions under CODEX_HOME; a caller's own value is kept.
   const codexHome = process.env.CODEX_HOME ?? join(DEV_DIR, "codex-home");
   if (!process.env.CODEX_HOME) prepareCodexHome(codexHome);
+  // Onboarding imports the agent CLIs' earlier sessions; an instance reads fixtures only, never the user's history.
+  const importRoots = process.env.TAU_IMPORT_ROOTS ?? join(DEV_DIR, "import-roots");
 
   if (options.fresh) {
     assertUnderDevDir(userData);
@@ -208,6 +210,7 @@ async function main() {
     TAU_WORKTREES_DIR: worktreesDir,
     TAU_HOST_TOKEN_FILE: join(DEV_DIR, "host-token"),
     CODEX_HOME: codexHome,
+    TAU_IMPORT_ROOTS: importRoots,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
