@@ -2747,6 +2747,8 @@ export interface CreateWorktreeOptions {
   baseRef?: string;
   /** Fetch and start from the remote-tracking commit; on by default, as in T3 Code. */
   startFromOrigin?: boolean;
+  /** Told when a step begins, for a setup card that follows it. */
+  onStep?(step: "fetch" | "checkout"): void;
 }
 
 /** Creates a branch and a worktree for it, and returns the new worktree path. */
@@ -2769,15 +2771,18 @@ export async function createWorktree(
   const destination = join(info.worktreeParent, worktreeSlug(name));
   await mkdir(info.worktreeParent, { recursive: true });
   if (existing) {
+    options.onStep?.("checkout");
     await runGit(cwd, ["worktree", "add", destination, name]);
     return destination;
   }
+  options.onStep?.("fetch");
   const base = await resolveWorktreeBase(cwd, {
     ...(options.baseRef || info.branch ? { requested: options.baseRef || info.branch } : {}),
     ...(options.startFromOrigin === undefined ? {} : { startFromOrigin: options.startFromOrigin }),
   }, runGit);
   // The commit, not the ref: a worktree started at `origin/main` would follow
   // that ref's next move, and the base recorded below would stop describing it.
+  options.onStep?.("checkout");
   await runGit(cwd, ["worktree", "add", "-b", name, destination, base.commit || base.ref]);
   await runGit(cwd, ["config", branchBaseConfigKey(name), base.ref]).catch(() => "");
   return destination;

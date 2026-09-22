@@ -181,12 +181,23 @@ export function createWorkspaceHostExtension(): HostExtension {
       /**
        * The project's own setup, run once in the new worktree. Project Scripts
        * owns it when it is on (scripts with `runOnWorktreeCreate`, the old
-       * string among them); without it the old string runs here as it always did.
-       * A setup that fails is reported and does not undo the worktree.
+       * string among them) and draws its steps as a card; without it the old
+       * string runs here as it always did. A setup that fails is reported and
+       * does not undo the worktree.
        */
-      const runWorktreeSetup = async (project: string, worktree: string): Promise<void> => {
+      const setupCall = (command: string, input: Record<string, unknown>) =>
+        context.invokeHostExtension(PROJECT_SCRIPTS_HOST_EXTENSION_ID, command, input);
+      const beginSetup = async (project: string, branch: string): Promise<string | undefined> => {
         try {
-          await context.invokeHostExtension(PROJECT_SCRIPTS_HOST_EXTENSION_ID, "worktree-created", { project, worktree });
+          const begun = await setupCall("worktree-setup-begin", { project, branch }) as { setupId?: unknown };
+          return typeof begun?.setupId === "string" ? begun.setupId : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      const runWorktreeSetup = async (project: string, worktree: string, setupId: string | undefined): Promise<void> => {
+        try {
+          await setupCall("worktree-created", { project, worktree, ...(setupId ? { setupId } : {}) });
           return;
         } catch (error) {
           services.log("git.worktree.setup-fallback", error instanceof Error ? error.message : String(error));
@@ -342,19 +353,22 @@ export function createWorkspaceHostExtension(): HostExtension {
         const branch = requiredString(input, "branch");
         const baseRef = optionalString(input, "baseRef");
         const startFromOrigin = record(input).startFromOrigin;
+        const setupId = await beginSetup(project, branch);
         try {
           const destination = await workspaceGit.createWorktree(project, branch, {
             ...(baseRef ? { baseRef } : {}),
             ...(startFromOrigin === undefined ? {} : { startFromOrigin: startFromOrigin !== false }),
+            ...(setupId ? { onStep: (stage) => void setupCall("worktree-setup-step", { setupId, stage }).catch(() => undefined) } : {}),
           }, (path) => git.getWorkspaceInfo(path));
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
           await worktrees.storage.remember(destination, project, branch).catch(noteFailure("git.worktree.record-failed"));
-          await runWorktreeSetup(project, destination);
+          await runWorktreeSetup(project, destination, setupId);
           return services.workspaceRef(destination);
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
+          if (setupId) await setupCall("worktree-setup-failed", { setupId, error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
           throw error;
         }
       }, { long: true });
