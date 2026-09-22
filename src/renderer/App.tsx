@@ -159,6 +159,8 @@ export default function App() {
   const workspaceCwd = safeMode ? undefined : (pendingNewThread?.projectPath ?? snapshot?.cwd);
   const activeWorkspaceId = pendingNewThread?.workspaceId ?? snapshot?.workspaceId;
   const knownThreadIds = useSyncExternalStore(threadStore.subscribeToIds, threadStore.getThreadIds);
+  const panels = registry.getPanels();
+  const panelIds = useMemo(() => panels.map((panel) => panel.id), [panels]);
   // The stage and the dock belong to the workspace, and outlive the window.
   const {
     stage, setStage, dockOpen, setDockOpen, activePanel, setActivePanel,
@@ -170,6 +172,7 @@ export default function App() {
     workspaceKey: activeWorkspaceId ?? workspaceCwd,
     workspacePath: workspaceCwd,
     knownThreadIds,
+    panelIds,
   });
   useEffect(() => { resetStageRef.current = resetStage; }, [resetStage]);
   const openedPanelIds = useMemo(() => new Set(openedPanels), [openedPanels]);
@@ -392,14 +395,6 @@ export default function App() {
     const timer = window.setTimeout(() => setNotice(undefined), 5000);
     return () => window.clearTimeout(timer);
   }, [notice]);
-
-  const panels = registry.getPanels();
-  useEffect(() => {
-    // No panels yet is a kit that has not activated, not an empty dock: a
-    // restored panel keeps its place until the contributions have arrived.
-    if (panels.length === 0) return;
-    if (!panels.some((panel) => panel.id === activePanel)) setActivePanel(panels[0].id);
-  }, [activePanel, panels, setActivePanel]);
 
   const openPanel = useCallback((id: string) => {
     setActivePanel(id);
