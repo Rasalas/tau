@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Columns2, Plus, Rows2 } from "lucide-react";
 import { errorMessage, type PanelProps, type WorkbenchActions } from "tau";
 import { TerminalView } from "./view.js";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
@@ -108,9 +109,9 @@ export function TerminalPanel({ actions, active }: PanelProps) {
     <header className="panel-header">
       <h2>Terminal</h2>
       <span className="terminal-panel-actions">
-        <button className="text-button" disabled={busy} onClick={() => run(() => openTerminal(actions))}>New terminal</button>
-        <button className="text-button" disabled={busy || !target} title="Split right (⌘D in a terminal)" onClick={() => run(() => openTerminal(actions, { direction: "right" }))}>Split</button>
-        <button className="text-button" disabled={busy || !target} title="Split down (⌘⇧D in a terminal)" onClick={() => run(() => openTerminal(actions, { direction: "down" }))}>Split down</button>
+        <button className="icon-button" aria-label="New terminal" title="New terminal (⌘N in a terminal)" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={14} /></button>
+        <button className="icon-button" aria-label="Split right" title="Split right (⌘D in a terminal)" disabled={busy || !target} onClick={() => run(() => openTerminal(actions, { direction: "right" }))}><Columns2 size={14} /></button>
+        <button className="icon-button" aria-label="Split down" title="Split down (⌘⇧D in a terminal)" disabled={busy || !target} onClick={() => run(() => openTerminal(actions, { direction: "down" }))}><Rows2 size={14} /></button>
       </span>
     </header>
     {running > 0 && <p className="terminal-note" role="status">{running === 1 ? "A shell is still running in another thread." : `${running} shells are still running in other threads.`}</p>}

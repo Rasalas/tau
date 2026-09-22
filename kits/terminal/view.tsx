@@ -195,8 +195,10 @@ export function TerminalView({ session, place, focused = false, onChord }: Termi
       const onFocus = () => { if (place === "panel") terminalStore.updateLayout((layout) => focusPane(layout, id)); };
       instance.textarea?.addEventListener("focus", onFocus);
       const takeFocus = () => {
-        const request = terminalStore.getSnapshot().focusRequest;
+        const { focusRequest: request, layout } = terminalStore.getSnapshot();
         if (!ready || request?.id !== id) return;
+        // A panel pane about to hand its shell to the stage must leave the request to the tab.
+        if ((place === "stage") !== layout.onStage.includes(id)) return;
         instance.focus();
         terminalStore.focusDone(request.seq);
       };

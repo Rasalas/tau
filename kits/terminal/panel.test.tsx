@@ -187,8 +187,11 @@ describe("TerminalPanel", () => {
       render(<TerminalPanel {...panelProps()} />);
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
+      // The buttons stay disabled until the open has settled.
+      const split = screen.getByRole("button", { name: "Split down" }) as HTMLButtonElement;
+      await waitFor(() => expect(split.disabled).toBe(false));
 
-      fireEvent.click(screen.getByRole("button", { name: "Split down" }));
+      fireEvent.click(split);
       await waitFor(() => expect(screen.getByRole("tab", { name: /shell 1 \+1/u })).toBeTruthy());
       // One tab with two panes, the new one focused, and no stray tab from the host's list push.
       expect(screen.getAllByRole("tab")).toHaveLength(1);
@@ -300,8 +303,10 @@ describe("TerminalPanel", () => {
       await waitFor(() => expect(screen.queryByRole("tab")).toBeNull());
       expect(confirm).not.toHaveBeenCalled();
 
+      const add = screen.getByRole("button", { name: "New terminal" }) as HTMLButtonElement;
+      await waitFor(() => expect(add.disabled).toBe(false));
       fake.invoke.mockRejectedValueOnce(new Error("Terminals need node-pty, which this host does not have."));
-      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      fireEvent.click(add);
       expect((await screen.findByRole("alert")).textContent).toContain("node-pty");
     } finally {
       disconnect();

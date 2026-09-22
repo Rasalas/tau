@@ -176,6 +176,15 @@ with it. Keybindings Kit uses it for the actions the user rebound in
 that key, not that key and Tau's default too. Without `replaces`, a binding is
 additive, which is what a package adding a chord of its own wants.
 
+A binding is window-wide: there is no focus context. A chord that should only
+mean something while your own surface has the keyboard is handled by that
+surface — call `preventDefault()` on the keydown and the window's dispatcher
+leaves it alone. Terminal Kit does this for `mod+d`, `mod+shift+d`, `mod+n`
+and `mod+w` inside a focused shell (`kits/terminal/keys.ts`). An `alt` chord
+also matches by the physical key, because on macOS Option turns the letter
+into another character. `kits/kit-lifecycle.test.tsx` fails when two shipped
+kits bind the same chord.
+
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
 the workbench itself uses, and core no longer keeps a table of names it would
