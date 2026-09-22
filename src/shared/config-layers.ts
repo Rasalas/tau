@@ -120,7 +120,7 @@ export interface ResolvedSetting<T> {
   /** Top-down, as far as the level being edited reaches. */
   chain: SettingLayerValue[];
   /** What the project holds while the host level is being edited: it hides the host's value there. */
-  projectOverride?: unknown;
+  projectOverride?: T;
 }
 
 /**
