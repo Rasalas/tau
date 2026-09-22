@@ -15,7 +15,7 @@ import {
 } from "./protocol.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./dock.js";
-import { CloneProjectSource, LocalFolderSource, WorkspaceSidebar } from "./navigation.js";
+import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
@@ -151,6 +151,7 @@ export const workspaceExtension: DesktopExtension = {
         app.notify(errorMessage(error));
       }
     } });
+    context.registerCommand({ id: "workspace.switch-project", label: "Switch project…", group: "Project", run: () => requestProjectSwitcher() });
     context.registerCommand({
       id: "workspace.open-in-editor",
       label: "Open in external editor",

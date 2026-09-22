@@ -209,6 +209,13 @@ export function findProjectForSession(
   return undefined;
 }
 
+const switcherRequests = new Set<() => void>();
+
+/** Opens the rail's project switcher; the kit's `workspace.switch-project` command, which no chord is bound to by default. */
+export function requestProjectSwitcher(): void {
+  for (const open of switcherRequests) open();
+}
+
 export function ProjectSwitcherPopover({
   activePath,
   open,
@@ -299,13 +306,9 @@ function ProjectScope({ actions }: SidebarContributionProps) {
   });
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "p") return;
-      event.preventDefault();
-      setSearchOpen(true);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    const open = () => setSearchOpen(true);
+    switcherRequests.add(open);
+    return () => { switcherRequests.delete(open); };
   }, []);
 
   return (
