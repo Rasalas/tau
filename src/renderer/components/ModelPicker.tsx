@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronRight, Plus, Search, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
 import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
-import { AddModelProviderModal } from "./AddModelProviderModal";
 import { modelKey, pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { VirtualList } from "./VirtualList";
+
+const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
 
 const ROW_HEIGHT = 54;
 /** ⌘1 to ⌘9 reach the first nine favourites, in the order they were starred. */
@@ -382,14 +383,16 @@ export function ModelPicker({
         </footer>
       </section>
       {addProviderOpen ? (
-        <AddModelProviderModal
-          onClose={() => setAddProviderOpen(false)}
-          onProviderAdded={(newModels) => {
-            setAddProviderOpen(false);
-            const latest = newModels[newModels.length - 1];
-            if (latest) setTab(railKeyForModel(latest.provider, catalogRuntime));
-          }}
-        />
+        <Suspense fallback={null}>
+          <LazyAddModelProviderModal
+            onClose={() => setAddProviderOpen(false)}
+            onProviderAdded={(newModels) => {
+              setAddProviderOpen(false);
+              const latest = newModels[newModels.length - 1];
+              if (latest) setTab(railKeyForModel(latest.provider, catalogRuntime));
+            }}
+          />
+        </Suspense>
       ) : null}
     </div>
   );

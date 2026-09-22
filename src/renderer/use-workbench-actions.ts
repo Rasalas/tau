@@ -5,7 +5,8 @@ import type { HostClient } from "../workbench/host-client";
 import type { Platform } from "../workbench/platform";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
-import type { ComposerScopeStore, DraftKey } from "../workbench/composer-scope-store";
+import { allocateAttachmentId, type ComposerScopeStore, type DraftKey } from "../workbench/composer-scope-store";
+import { writeComposerDraft } from "../workbench/draft-store";
 import type { ThreadCommands } from "../workbench/thread-commands";
 import type { NewThreadDraft } from "../workbench/draft-store";
 import type { WorkbenchActions } from "./extension-system";
@@ -159,8 +160,18 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     setComposerDraft: (text: string) => {
       if (activeDraftKey) {
         options.composerScopeStore.setDraft(activeDraftKey, text);
+        writeComposerDraft(options.platform.storage, activeDraftKey, text);
       }
       options.setComposerSeed(text);
+    },
+    composerImages: () => activeDraftKey
+      ? options.composerScopeStore.getSnapshot(activeDraftKey).attachments.map(({ id: _id, previewUrl: _url, ...image }) => image)
+      : [],
+    setComposerImages: (images) => {
+      if (!activeDraftKey) return;
+      options.composerScopeStore.setAttachments(activeDraftKey, images.map((image) => ({
+        ...image, id: allocateAttachmentId(), previewUrl: `data:${image.mimeType};base64,${image.data}`,
+      })));
     },
     openPromptEditor: async () => {
       if (!client) return;

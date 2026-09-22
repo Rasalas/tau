@@ -4,6 +4,7 @@ import { isTranscriptDetail, type TranscriptDetail } from "../workbench/transcri
 import type { HostClient } from "../workbench/host-client";
 import type { TauConfig } from "../shared/contracts";
 import { DEFAULT_THEME, isThemePreference, registerUserThemes, applyTheme, type ThemePreference } from "./theme";
+import { SEND_SHORTCUTS, type SendShortcut } from "./components/composer-send-keys";
 
 export interface PreferencesState {
   /** How much of a turn's work the transcript shows; see `TranscriptDetail`. */
@@ -34,6 +35,8 @@ export interface PreferencesState {
   temperature?: number;
   maxTokens?: number;
   vimMode?: boolean;
+  /** Which chord sends from the composer; this client's own, like its keys. */
+  sendShortcut: SendShortcut;
   /** Leave the host process running when the app quits; its threads keep going. */
   hostBackground?: boolean;
 }
@@ -50,6 +53,7 @@ const DEFAULTS: PreferencesState = {
   extensionValues: {},
   disabledExtensions: [],
   vimMode: false,
+  sendShortcut: "enter",
   hostBackground: false,
 };
 
@@ -108,6 +112,7 @@ function load(): PreferencesState {
       temperature: typeof raw.temperature === "number" ? raw.temperature : undefined,
       maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
       vimMode: typeof raw.vimMode === "boolean" ? raw.vimMode : false,
+      sendShortcut: SEND_SHORTCUTS.includes(raw.sendShortcut as SendShortcut) ? raw.sendShortcut as SendShortcut : "enter",
     };
   } catch {
     return DEFAULTS;
@@ -221,6 +226,10 @@ export class PreferencesStore {
 
   setVimMode(vimMode: boolean): void {
     this.update({ vimMode });
+  }
+
+  setSendShortcut(sendShortcut: SendShortcut): void {
+    this.update({ sendShortcut });
   }
 
   setTemperature(temperature: number | undefined): void {

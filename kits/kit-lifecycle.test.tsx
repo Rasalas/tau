@@ -19,6 +19,7 @@ import usage from "./usage/desktop.js";
 import claudeCode from "./claude-code/desktop.js";
 import piUi from "./pi-ui/desktop.js";
 import projectScripts from "./project-scripts/desktop.js";
+import promptTools from "./prompt-tools/desktop.js";
 import { workspaceHostStub } from "../src/renderer/test-support/workspace-host-stub.js";
 import threadRail from "./thread-rail/desktop.js";
 import titleGenerator from "./thread-titles/desktop.js";
@@ -28,7 +29,7 @@ import worktreeNames from "./worktree-names/desktop.js";
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [access, agents, claudeCode, composerContext, computerUse, keybindings, packages, piUi, preview, projectScripts, questionnaire, review, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames];
+const kits = [access, agents, claudeCode, composerContext, computerUse, keybindings, packages, piUi, preview, projectScripts, promptTools, questionnaire, review, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames];
 
 afterEach(cleanup);
 

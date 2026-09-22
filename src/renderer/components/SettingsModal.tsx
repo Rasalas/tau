@@ -15,6 +15,13 @@ import { PackageProvenance } from "./PackageProvenance";
 import { PanelIcon } from "./PanelIcon";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { PiSettingsPage } from "./PiSettingsPage";
+import type { SendShortcut } from "./composer-send-keys";
+
+const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
+  ["enter", "↵"],
+  ["mod-enter-multiline", "⌘↵ for several lines"],
+  ["mod-enter", "⌘↵"],
+];
 
 function DefaultsPage({
   snapshot,
@@ -28,7 +35,7 @@ function DefaultsPage({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
-  const { showCosts, continueThreadsAfterRestart, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, temperature, maxTokens, hostBackground } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { showCosts, continueThreadsAfterRestart, transcriptDetail, theme, newThreadRuntime: runtimePreference, fontSize, fontFamily, vimMode, sendShortcut, temperature, maxTokens, hostBackground } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   return (
@@ -242,6 +249,18 @@ function DefaultsPage({
       </div>
       <p className="settings-note">
         Standard provides Readline / Emacs shortcuts. Vim mode enables modal editing in the composer with Normal and Insert modes.
+      </p>
+
+      <div className="settings-label">SEND WITH</div>
+      <div className="segmented" role="group" aria-label="Send with">
+        {SEND_SHORTCUT_LABELS.map(([value, label]) => (
+          <button key={value} className={value === sendShortcut ? "active" : ""} aria-pressed={value === sendShortcut} onClick={() => preferences.setSendShortcut(value)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="settings-note">
+        While a turn runs the send chord queues a follow-up and ⌘↵ steers the turn (⌘⇧↵ when ⌘↵ sends); an extension may swap the two.
       </p>
 
       <div className="settings-label">MODEL PARAMETERS</div>

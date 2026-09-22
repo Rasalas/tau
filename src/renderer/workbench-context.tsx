@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { HostEvent, HostSnapshot, UiToolRun } from "../shared/contracts";
-import type { ExtensionRegistry } from "./extension-system";
+import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import type { ThreadStore } from "../workbench/thread-store";
 export type { TimelineEvent } from "../workbench/thread-view-store";
 import type { TimelineEvent } from "../workbench/thread-view-store";
@@ -20,6 +20,7 @@ export interface WorkbenchContextValue {
 export interface WorkbenchShellContextValue {
   snapshot?: HostSnapshot;
   registry: ExtensionRegistry;
+  actions?: WorkbenchActions;
 }
 
 export interface ObservatoryContextValue {

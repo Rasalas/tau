@@ -11,7 +11,9 @@ import type {
   ShellActionResult,
   ThreadBackendKind,
   UiModel,
+  UiMessage,
   UiPromptAttachment,
+  UiPromptImageAttachment,
   UiToolRun,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -79,6 +81,10 @@ export interface WorkbenchActions {
   composerDraft(): string;
   /** Sets what is typed into the visible composer. */
   setComposerDraft?(text: string): void;
+  /** The images attached to the visible composer's draft. */
+  composerImages?(): readonly UiPromptImageAttachment[];
+  /** Replaces the images attached to the visible composer's draft. */
+  setComposerImages?(images: readonly UiPromptImageAttachment[]): void;
   /** Opens the current prompt draft in the external editor ($VISUAL/$EDITOR). */
   openPromptEditor?(): Promise<void>;
   /** Applies a host action result the way core actions do, refreshing what it touched. */
@@ -243,6 +249,7 @@ export interface WorkbenchEvents {
 /** A control rendered in the composer's toolbar row, beside model and thinking. */
 export interface ComposerControlProps {
   snapshot?: HostSnapshot;
+  actions?: WorkbenchActions;
 }
 
 export interface ComposerControlContribution extends ProfileScoped {
@@ -290,6 +297,19 @@ export interface ComposerTriggerContribution {
   select(item: ComposerTriggerItem, query: string, context: ComposerInlineContext): void;
 }
 
+/** A key pressed in the composer's text field, before core acts on it. */
+export interface ComposerKeyEvent {
+  key: string;
+  shiftKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  /** The field's text and selection as the key went down. */
+  text: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
 /** What an inline contribution adds to a prompt that is being sent. */
 export interface ComposerSendContribution {
   /** Text core puts before the user's (after it, for a skill). */
@@ -318,6 +338,11 @@ export interface ComposerInlineContribution extends ProfileScoped {
   prepareSend?(context: ComposerInlineContext & { text: string }): ComposerSendContribution | void | Promise<ComposerSendContribution | void>;
   /** The prompt `prepareSend` contributed to was accepted or refused. */
   settleSend?(scope: string, accepted: boolean): void;
+  /**
+   * A key in the text field, asked before core's own handling while no menu is
+   * open; `true` claims it. `setText` replaces the draft's text, caret at the end.
+   */
+  keyDown?(event: ComposerKeyEvent, context: ComposerInlineContext & { setText(text: string): void }): boolean;
 }
 
 /** What a composer gate is asked about, before core does it. */
@@ -564,6 +589,22 @@ export interface PromptHookContribution {
    */
   beforeNewThread?(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | void>;
   afterPrompt?(event: PromptSubmittedEvent, actions: WorkbenchActions): void | Promise<void>;
+  /**
+   * What a message sent while a turn runs becomes; the modified chord sends the
+   * other. The first hook that answers wins; without one it queues as a follow-up.
+   */
+  streamingDelivery?(): "followUp" | "steer" | void;
+}
+
+/** A button on a transcript message's action bar, beside Copy and Fork. */
+export interface MessageActionContribution extends ProfileScoped {
+  id: string;
+  label: string;
+  Icon?: PanelIconComponent;
+  /** The messages that carry it; assistant replies when absent. */
+  roles?: readonly ("user" | "assistant")[];
+  /** `selection` is the text selected inside this message when the button was pressed. */
+  run(message: UiMessage, context: { selection?: string }, actions: WorkbenchActions): void | Promise<void>;
 }
 
 /**
@@ -727,6 +768,7 @@ export interface DesktopExtensionContext {
   registerPromptHook(hook: PromptHookContribution): () => void;
   /** Lets a new thread's model picker hold several models; one extension at a time, the last one wins. */
   registerModelSelection(selection: ModelSelectionContribution): () => void;
+  registerMessageAction(action: MessageActionContribution): () => void;
   registerPromptRenderer(renderer: PromptRendererContribution): () => void;
   /** The stage shows documents; one extension says how to load them and which are changed. */
   registerDocumentSource(source: DocumentSourceContribution): () => void;
@@ -880,6 +922,7 @@ export class ExtensionRegistry {
   private shadowedCommands = new Map<string, number>();
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
+  private messageActions = new Map<string, Owned<MessageActionContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   /** Values one extension published for another; core only routes them by id. */
@@ -1195,6 +1238,11 @@ export class ExtensionRegistry {
       registerModelSelection: (selection) => {
         note("model selection");
         return this.register(this.modelSelections, selection.id, { ...selection, ...owner }, disposers);
+      },
+      registerMessageAction: (action) => {
+        if (!this.scopeToProfile(owner, "message action", action.id, action.label, action)) return noContribution;
+        note("message actions");
+        return this.register(this.messageActions, action.id, { ...action, ...owner }, disposers);
       },
       registerDocumentSource: (source) => {
         if (!this.scopeToProfile(owner, "document source", source.id, undefined, source)) return noContribution;
@@ -1608,6 +1656,18 @@ export class ExtensionRegistry {
   /** The model set a new thread's picker builds, from the extension that registered last. */
   getModelSelection(): Owned<ModelSelectionContribution> | undefined {
     return [...this.modelSelections.values()].at(-1);
+  }
+
+  streamingDelivery(): "followUp" | "steer" | undefined {
+    for (const hook of this.promptHooks.values()) {
+      const delivery = hook.streamingDelivery?.();
+      if (delivery) return delivery;
+    }
+    return undefined;
+  }
+
+  getMessageActions(): Array<Owned<MessageActionContribution>> {
+    return this.sorted("message-actions", this.messageActions, false);
   }
 
   async notifyPromptSubmitted(event: PromptSubmittedEvent, actions: WorkbenchActions): Promise<void> {

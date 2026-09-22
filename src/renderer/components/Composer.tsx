@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, Terminal, X } from "lucide-react";
 import type {
@@ -54,6 +54,7 @@ import {
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
 import { ComposerAttachmentsList } from "./ComposerAttachments";
+import { composerEnter, sendHint } from "./composer-send-keys";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem } from "../extension-system";
 
 export {
@@ -649,6 +650,21 @@ export function Composer({
 
   const prefSnapshot = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
   const isVimEnabled = Boolean(prefSnapshot.vimMode);
+  const sendShortcut = prefSnapshot.sendShortcut ?? "enter";
+  const streamingBase = registry?.streamingDelivery() ?? "followUp";
+  const inlineKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const { key, shiftKey, altKey, metaKey, ctrlKey, currentTarget } = event;
+    const keyEvent = { key, shiftKey, altKey, metaKey, ctrlKey, text, selectionStart: currentTarget.selectionStart, selectionEnd: currentTarget.selectionEnd };
+    const setText = (next: string) => {
+      updateDraft(next);
+      setCaret(next.length);
+      setCommandMenuDismissed(true);
+      requestAnimationFrame(() => textareaRef.current?.setSelectionRange(next.length, next.length));
+    };
+    return inlines.some((inline) => {
+      try { return inline.keyDown?.(keyEvent, { ...inlineContextRef.current, setText }) === true; } catch (error) { onNotify?.(errorMessage(error)); return false; }
+    });
+  };
 
   const historySearch = useComposerHistorySearch({
     promptHistory: promptHistoryRef.current,
@@ -896,6 +912,10 @@ export function Composer({
               setCommandMenuDismissed(true);
               return;
             }
+            if (!trigger && inlineKeyDown(event)) {
+              event.preventDefault();
+              return;
+            }
             if (!trigger && event.key === "Escape" && !snapshot?.isStreaming) {
               textareaRef.current?.blur();
               (document.querySelector<HTMLElement>(".virtual-transcript") ?? document.querySelector<HTMLElement>(".transcript-viewport"))?.focus();
@@ -918,16 +938,17 @@ export function Composer({
                 return;
               }
             }
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
+            if (event.key === "Enter") {
               const now = event.metaKey || event.ctrlKey;
+              const enter = composerEnter({ shift: event.shiftKey, mod: now, shortcut: sendShortcut, text, streaming, base: streamingBase });
+              if (enter === "newline") return;
+              event.preventDefault();
               // ⌘↵ on an empty field releases the message at the head of the queue.
               if (now && !text.trim() && attachments.length === 0 && !inlineHasContent && queue[0] && !answerable) {
                 onSteerQueued(queue[0].id);
                 return;
               }
-              const delivery = streaming ? (now ? "steer" : "followUp") : now ? "alternate" : undefined;
-              submitCurrent(delivery);
+              submitCurrent(enter.delivery);
             }
           }}
           placeholder={
@@ -939,9 +960,7 @@ export function Composer({
                 ? text.trimStart().startsWith("!!")
                   ? "Silent shell mode — runs command without LLM context"
                   : "Shell mode — runs command and shares output with agent"
-                : streaming
-                  ? "Queue after this turn — ↵ queues, ⌘↵ steers now, ⌥↑ dequeues"
-                  : "Direct the agent — $ skills, / commands, @ files, ⇧↵ newline"
+                : sendHint(sendShortcut, streaming, streamingBase)
           }
         />
 
@@ -1027,7 +1046,7 @@ export function Composer({
               registry={registry}
               onNotify={onNotify}
             >
-              <control.Component snapshot={snapshot} />
+              <control.Component snapshot={snapshot} actions={shellContext?.actions} />
             </LazyFeatureBoundary>
           ))}
 
@@ -1165,7 +1184,7 @@ export function Composer({
           registry={registry}
           onNotify={onNotify}
         >
-          <control.Component snapshot={snapshot} />
+          <control.Component snapshot={snapshot} actions={shellContext?.actions} />
         </LazyFeatureBoundary>
       ))}
       </div>

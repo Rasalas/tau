@@ -77,6 +77,7 @@ describe("prompt controls in the composer", () => {
               getSlashCommands: () => [],
               getComposerControls: () => [],
               getComposerInlines: () => [],
+              streamingDelivery: () => undefined,
               subscribe: () => () => {},
               getVersion: () => 1,
             } as never,
