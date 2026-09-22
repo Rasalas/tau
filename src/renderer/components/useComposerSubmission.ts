@@ -8,6 +8,7 @@ import type {
 } from "../../shared/contracts";
 import { errorMessage } from "../../workbench/error-message";
 import { writeComposerDraft } from "../../workbench/draft-store";
+import { isRestrictedSubscriptionLogin } from "../../shared/subscription-login";
 import type { ClientStorage } from "../../workbench/client-storage";
 import type {
   ComposerScope,
@@ -74,7 +75,7 @@ export function requiresSubscriptionAcknowledgement(
   backendKind: ThreadBackendKind | undefined,
   hasAcknowledged: (provider: string) => boolean,
 ): boolean {
-  if (model?.login !== "subscription") return false;
+  if (model?.login !== "subscription" || !isRestrictedSubscriptionLogin(model.provider)) return false;
   if (backendKind !== "antigravity" && backendKind !== "claude-code") return false;
   return !hasAcknowledged(model.provider);
 }

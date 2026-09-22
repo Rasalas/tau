@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
 import { ShieldAlert } from "lucide-react";
-import { subscriptionLoginWarning } from "../../shared/subscription-login";
+import { isRestrictedSubscriptionLogin, subscriptionLoginWarning } from "../../shared/subscription-login";
 import type { DesktopExtension, RegionProps, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
 import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from "../theme";
@@ -50,7 +50,7 @@ export function SubscriptionLoginIndicator({ snapshot }: Pick<RegionProps, "snap
   const [open, setOpen] = useState(false);
   const tooltipId = useId();
   const model = snapshot?.model;
-  if (model?.login !== "subscription") return null;
+  if (model?.login !== "subscription" || !isRestrictedSubscriptionLogin(model.provider)) return null;
   const warning = subscriptionLoginWarning(model.provider);
   return (
     <span

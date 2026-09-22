@@ -93,6 +93,7 @@ describe("requiresSubscriptionAcknowledgement", () => {
     expect(requiresSubscriptionAcknowledgement(model, "pi", acknowledged)).toBe(false);
     expect(requiresSubscriptionAcknowledgement({ ...model, login: undefined }, "claude-code", acknowledged)).toBe(false);
     expect(requiresSubscriptionAcknowledgement(model, "claude-code", () => true)).toBe(false);
+    expect(requiresSubscriptionAcknowledgement({ ...model, provider: "openai-codex" }, "claude-code", acknowledged)).toBe(false);
   });
 });
 

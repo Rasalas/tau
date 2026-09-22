@@ -13,11 +13,24 @@ export interface SubscriptionLoginWarning {
 
 const PROVIDER_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
+  google: "Google",
+  "google-antigravity": "Google",
   "openai-codex": "OpenAI",
   "github-copilot": "GitHub Copilot",
   "kimi-coding": "Kimi",
   xai: "xAI",
 };
+
+/**
+ * Vendors whose terms allow a subscription login only in their own apps.
+ * OpenAI allows it in third-party tools, so its models carry no warning.
+ * `google` is the Antigravity Kit's provider.
+ */
+const RESTRICTED_PROVIDERS = new Set(["anthropic", "google", "google-antigravity"]);
+
+export function isRestrictedSubscriptionLogin(provider: string): boolean {
+  return RESTRICTED_PROVIDERS.has(provider);
+}
 
 export function subscriptionProviderName(provider: string): string {
   return PROVIDER_NAMES[provider] ?? provider;
@@ -34,6 +47,14 @@ export function subscriptionLoginWarning(provider: string): SubscriptionLoginWar
       source: "https://code.claude.com/docs/en/legal-and-compliance",
     };
   }
+  if (provider === "google" || provider === "google-antigravity") {
+    return {
+      title: "Antigravity subscription login",
+      message: "This signs in to Google with your Antigravity subscription. Google allows that login only in its own apps "
+        + "and has restricted accounts that used it elsewhere. Your account may be restricted or banned. "
+        + "To stay within the terms, use a Gemini API key.",
+    };
+  }
   return {
     title: "Subscription login through Pi",
     message: `Pi signs in to ${subscriptionProviderName(provider)} with your subscription rather than an API key. `
@@ -43,4 +64,4 @@ export function subscriptionLoginWarning(provider: string): SubscriptionLoginWar
 }
 
 /** One line for lists that mark such models. */
-export const SUBSCRIPTION_LOGIN_NOTE = "Models marked \u201csubscription login\u201d go through a subscription Pi signs in with. Its vendor may not allow that outside its own apps; Tau asks once before the first use.";
+export const SUBSCRIPTION_LOGIN_NOTE = "Anthropic and Google allow their subscription logins only in their own apps; Tau asks once before the first use of such a model.";
