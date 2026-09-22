@@ -210,8 +210,8 @@ button > svg { pointer-events: none; }
 .thread-row:hover { background: var(--hover); }
 .thread-row.active { border-color: var(--edge-line); background: var(--thread-active); }
 .thread-main {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px;
-  border: 0; background: transparent; padding: 11px 12px;
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(7px * var(--density));
+  border: 0; background: transparent; padding: calc(11px * var(--density)) var(--space-5);
   text-align: left; cursor: pointer;
 }
 .thread-project-line { display: flex; align-items: center; gap: 8px; }
@@ -316,7 +316,7 @@ button > svg { pointer-events: none; }
 
 .thread-row.compact { opacity: .62; }
 .thread-row.compact:hover { opacity: 1; }
-.thread-row.compact .thread-main { flex-direction: row; align-items: center; gap: 9px; padding: 7px 10px; }
+.thread-row.compact .thread-main { flex-direction: row; align-items: center; gap: calc(9px * var(--density)); padding: calc(7px * var(--density)) calc(10px * var(--density)); }
 .thread-row.compact .thread-project-icon { width: 16px; height: 16px; font-size: 9px; }
 .thread-row.compact .thread-title {
   flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--ink-3);
@@ -435,7 +435,7 @@ button > svg { pointer-events: none; }
 }
 .conversation-header {
   flex: none; display: flex; align-items: center; gap: 12px;
-  height: 52px; padding: 0 24px; border-bottom: 1px solid var(--line);
+  height: 52px; padding: 0 var(--space-7); border-bottom: 1px solid var(--line);
 }
 .thread-title-control { min-width: 0; }
 .thread-title-trigger {
@@ -469,7 +469,7 @@ button > svg { pointer-events: none; }
 }
 .transcript {
   position: relative; flex: 1; min-height: 0; overflow: auto; overflow-anchor: none;
-  padding: 26px 32px 12px; outline: none;
+  padding: calc(26px * var(--density)) var(--space-8) var(--space-5); outline: none;
 }
 .transcript-overlay {
   position: absolute; z-index: 4; inset: 0; pointer-events: none;
@@ -1112,12 +1112,12 @@ button > svg { pointer-events: none; }
 .composer-command-empty { padding: 18px 14px; color: var(--faint); font: 11px var(--sans); text-align: center; }
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
-  color: var(--ink); padding: 13px 16px 6px; line-height: 1.55;
+  color: var(--ink); padding: calc(13px * var(--density)) var(--space-6) var(--space-3); line-height: 1.55;
   font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, 13px);
   outline: none; min-height: 46px; max-height: 220px; overflow-y: hidden;
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
-.composer-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px 10px 12px; }
+.composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) calc(10px * var(--density)) calc(10px * var(--density)) var(--space-5); }
 /* Chips wrap among themselves; attach and send keep their place on the right. */
 .composer-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .runtime-chip {
@@ -1261,7 +1261,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .panel-header {
   flex: none; display: flex; align-items: center; gap: 9px;
-  height: 52px; padding: 0 16px; border-bottom: 1px solid var(--line);
+  height: 52px; padding: 0 var(--space-6); border-bottom: 1px solid var(--line);
 }
 .panel-header > h2 { margin: 0; font-size: 13.5px; font-weight: 700; }
 .panel-header > small { font: 10px var(--mono); color: var(--faint); }
@@ -1857,7 +1857,8 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 .settings-field.compact { width: 260px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--field); }
 .settings-field:hover { border-color: var(--line-field); }
 .settings-field > svg { color: var(--acid-text); }
-.settings-field > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.settings-field > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.settings-field > .provider-icon-stack { margin-left: 0; }
 .settings-field strong { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-field small { font: 10px var(--mono); color: var(--faint); }
 .settings-field > b { display: grid; place-items: center; color: var(--faint); }
