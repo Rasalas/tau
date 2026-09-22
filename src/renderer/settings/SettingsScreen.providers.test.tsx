@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry } from "../extension-system";
 import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
-import { SettingsModal } from "./SettingsModal";
+import { SettingsScreen } from "./SettingsScreen";
 
 afterEach(cleanup);
 
@@ -22,17 +22,17 @@ function registryWithCards(): ExtensionRegistry {
   return registry;
 }
 
-function renderModal(page: string, onSetPage = vi.fn()) {
+function renderScreen(page: string, onSetPage = vi.fn()) {
   render(<TestProviders>
-    <SettingsModal page={page} registry={registryWithCards()} onSetPage={onSetPage} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
+    <SettingsScreen page={page} registry={registryWithCards()} onSetPage={onSetPage} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
   </TestProviders>);
   return onSetPage;
 }
 
 describe("Settings → Providers", () => {
   it("collects every page that names a runtime into one Providers page, a card each in order", () => {
-    const onSetPage = renderModal("defaults");
-    const nav = screen.getByRole("navigation");
+    const onSetPage = renderScreen("defaults");
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
     expect(within(nav).queryByText("Early")).toBeNull();
     expect(within(nav).queryByText("Late")).toBeNull();
     expect(within(nav).getByText("Plain")).toBeTruthy();
@@ -40,14 +40,14 @@ describe("Settings → Providers", () => {
     expect(onSetPage).toHaveBeenCalledWith("providers");
     cleanup();
 
-    renderModal("providers");
+    renderScreen("providers");
     const cards = screen.getAllByRole("region");
     expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual(["Early", "Late"]);
     expect(within(cards[0]!).getByText("early body")).toBeTruthy();
   });
 
   it("opens Providers for a card's own id, so an old link to the page still lands", () => {
-    renderModal("late.card");
+    renderScreen("late.card");
     expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
   });
 });

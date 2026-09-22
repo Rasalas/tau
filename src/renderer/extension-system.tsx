@@ -26,6 +26,7 @@ import type { StageTab } from "../workbench/stage";
 import type { Platform, PlatformAttention } from "../workbench/platform";
 import { PreferencesStore } from "./preferences";
 import { errorMessage } from "../workbench/error-message";
+import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 
 /**
@@ -465,7 +466,7 @@ export interface SettingsPageProps {
 }
 
 /**
- * A page of the Settings modal an extension owns. Core keeps the modal, its
+ * A page of Settings an extension owns. Core keeps the Settings screen, its
  * navigation and the pages that must survive safe mode; a page like this one is
  * gone with its extension.
  */
@@ -482,6 +483,12 @@ export interface SettingsPageContribution extends ProfileScoped {
    * its own: it is that runtime's card on the Providers page, in `order`.
    */
   runtime?: ThreadBackendKind;
+  /**
+   * The levels this page's settings may be written to. With "project" or
+   * "both" the Settings bar offers the project a change applies to, and a row
+   * built with `useSetting` follows it; "host", the default, edits this machine.
+   */
+  scope?: SettingScope;
   Component: ComponentType<SettingsPageProps>;
 }
 

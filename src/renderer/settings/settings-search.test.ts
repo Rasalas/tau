@@ -18,7 +18,8 @@ const ids = (query: string) => searchSettings(entries, query).map((entry) => ent
 describe("settings search", () => {
   it("finds a core row by a word it does not carry in its label", () => {
     expect(ids("vim")).toEqual(["defaults:Composer editing mode"]);
-    expect(searchSettings(entries, "dark")[0]).toMatchObject({ page: "defaults", label: "Theme", section: "Defaults" });
+    expect(searchSettings(entries, "dark")[0]).toMatchObject({ page: "defaults", label: "Theme", section: "Defaults", target: "setting-theme" });
+    expect(searchSettings(entries, "vim")[0]?.target).toBe("setting-composer-editing-mode");
   });
 
   it("finds a contributed page by its keywords and an extension's page by an option", () => {
@@ -41,8 +42,8 @@ describe("settings search", () => {
   });
 
   it("needs every word of the query and answers nothing for an empty one", () => {
-    expect(ids("font size")).toEqual(["defaults:Font size"]);
-    expect(ids("font nothing")).toEqual([]);
+    expect(ids("show costs")).toEqual(["defaults:Show costs"]);
+    expect(ids("costs nothing")).toEqual([]);
     expect(ids("   ")).toEqual([]);
   });
 

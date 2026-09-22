@@ -13,6 +13,7 @@ import {
   decodeOptionalBoolean,
   decodeOptionalString,
   decodePreparedPrompt,
+  decodeSettingKeys,
   decodeSharedExports,
   decodeString,
   decodeStringOrClientTurnIdentity,
@@ -338,6 +339,19 @@ describe("decodeConfigPatch", () => {
     const result = decodeConfigPatch(CH, "patch", { theme: "dark", showCosts: true });
     expect(result.theme).toBe("dark");
     expect(result.showCosts).toBe(true);
+  });
+
+  it("carries vim mode and the restart setting, which it used to drop", () => {
+    const result = decodeConfigPatch(CH, "patch", { vimMode: true, threads: { continueAfterRestart: true } });
+    expect(result).toEqual({ vimMode: true, threads: { continueAfterRestart: true } });
+    expect(() => decodeConfigPatch(CH, "patch", { threads: { continueAfterRestart: "yes" } }))
+      .toThrow("update-config: patch.threads.continueAfterRestart must be a boolean");
+  });
+
+  it("decodes the keys clear-config removes", () => {
+    expect(decodeSettingKeys("clear-config", "keys", ["showCosts", "values.tau.x"])).toEqual(["showCosts", "values.tau.x"]);
+    expect(() => decodeSettingKeys("clear-config", "keys", [])).toThrow("clear-config: keys must be a list of 1 to 100 setting keys");
+    expect(() => decodeSettingKeys("clear-config", "keys", [""])).toThrow("clear-config: keys must hold non-empty setting keys");
   });
 
   it("silently drops unknown keys", () => {

@@ -20,6 +20,8 @@ export interface WorkerBootstrap {
   sessionsDir: string;
   /** This package's own state folder, as `HostExtensionServices.stateDir` reports it. */
   stateDir: string;
+  /** The user's themes folder, as `HostExtensionServices.themesDir` reports it. */
+  themesDir: string;
   safeMode: boolean;
   /** Host-issued identity for this worker activation; the supervisor binds it to the worker. */
   invocationContextId: string;
@@ -112,6 +114,7 @@ export interface WorkerHostServices {
   readonly agentDir: string;
   readonly sessionsDir: string;
   readonly stateDir: string;
+  readonly themesDir: string;
   readonly safeMode: boolean;
   cwd(): Promise<string>;
   /** Fire and forget: the host log never answers. */

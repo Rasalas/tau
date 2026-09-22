@@ -24,6 +24,7 @@ import {
   decodeHostTranscriptCursor,
   decodeNavigateOptions,
   decodeNewThreadConfiguration,
+  decodeSettingKeys,
   decodeOptionalBoolean,
   decodeOptionalExtensionIds,
   decodeOptionalString,
@@ -281,6 +282,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const patch = decodeConfigPatch("update-config", "patch", params[0]);
       const scope = params[1] === "project" ? "project" : "global";
       return defaultHostConfigManager.update(patch, scope, await optionalWorkspace("update-config", "workspace", params[2]));
+    },
+    "get-config-layers": async (params) => defaultHostConfigManager.readLayers(await optionalWorkspace("get-config-layers", "workspace", params[0])),
+    "clear-config": async (params) => {
+      const keys = decodeSettingKeys("clear-config", "keys", params[0]);
+      const scope = params[1] === "project" ? "project" : "global";
+      return defaultHostConfigManager.clear(keys, scope, await optionalWorkspace("clear-config", "workspace", params[2]));
     },
     "get-models-config": async () => (await host()).modelsConfig(),
     "add-model-provider": async (params) => (await host()).addModelProvider(decodeCustomProviderInput("add-model-provider", "input", params[0])),

@@ -89,6 +89,7 @@ function harness() {
   complete: async () => "",
     sessionsDir: "/agent/sessions",
     stateDir: "/state",
+    themesDir: "/themes",
     safeMode: false,
     log: vi.fn(),
     refreshExtensionPackages: async () => undefined,

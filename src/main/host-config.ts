@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TauConfig } from "../shared/contracts.js";
+import { PI_OWNED_CONFIG_KEYS, isPiOwnedSetting, withoutPiOwned, withoutSetting, type ConfigLayers } from "../shared/config-layers.js";
 
 export interface HostConfigPaths {
   globalFilePath?: string;
@@ -16,19 +17,11 @@ export interface HostConfigPaths {
 }
 
 /**
- * The settings Pi reads from its own `settings.json` and applies itself.
- *
- * Tau mirrors them so a client can read what the user configured, but it never
- * stores them in `~/.tau/config.json`: a value written there would be accepted,
- * persisted and never applied. `HostConfigManager.update` routes these keys to
- * Pi's file, which both Pi and Tau read.
+ * Tau mirrors the keys Pi owns (`PI_OWNED_CONFIG_KEYS`) so a client can read
+ * what the user configured, but never stores them in `~/.tau/config.json`: a
+ * value written there would be accepted, persisted and never applied.
+ * `HostConfigManager.update` routes them to Pi's file, which both Pi and Tau read.
  */
-const PI_OWNED_CONFIG_KEYS = [
-  "models", "compaction", "retry", "steeringMode", "followUpMode",
-  "defaultTools", "shellPath", "shellCommandPrefix", "npmCommand",
-  "quietStartup", "defaultProjectTrust",
-] as const satisfies readonly (keyof TauConfig)[];
-
 const PI_OWNED = new Set<string>(PI_OWNED_CONFIG_KEYS);
 
 export function defaultGlobalConfigPath(home = homedir()): string {
@@ -246,6 +239,31 @@ export class HostConfigManager {
   }
 
   /**
+   * The host and project files as they are, without Pi's keys: what the
+   * Settings levels show a value's origin from. Defaults are the client's.
+   */
+  async readLayers(cwd?: string): Promise<ConfigLayers> {
+    const host = withoutPiOwned((await readJson<TauConfig>(this.globalPath)) ?? {});
+    if (!cwd) return { host };
+    const project = withoutPiOwned((await readJson<TauConfig>(this.projectPathResolver(cwd))) ?? {});
+    return { host, project, projectPath: cwd };
+  }
+
+  /**
+   * Removes keys from one level so the next one down shows through again.
+   * A key Pi owns is never cleared here: its levels are Pi's files.
+   */
+  async clear(keys: readonly string[], scope: "global" | "project" = "global", cwd?: string): Promise<ConfigLayers> {
+    const targetPath = scope === "project" && cwd ? this.projectPathResolver(cwd) : this.globalPath;
+    const existing = await readJson<TauConfig>(targetPath);
+    if (existing) {
+      const next = keys.filter((key) => !isPiOwnedSetting(key)).reduce(withoutSetting, existing);
+      if (JSON.stringify(next) !== JSON.stringify(existing)) await writeJson(targetPath, next);
+    }
+    return this.readLayers(cwd);
+  }
+
+  /**
    * Writes the keys Pi owns into Pi's own settings file, merging into whatever
    * is already there so unrelated Pi settings and unknown keys survive. A
    * project write lands in `<cwd>/.pi/settings.json`, exactly where Pi looks.
@@ -267,8 +285,7 @@ export class HostConfigManager {
     const KNOWN_KEYS = new Set<keyof TauConfig>([
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
-      "temperature", "maxTokens",
-      "vimMode",
+      "temperature", "maxTokens", "vimMode", "hostBackground", "threads",
     ]);
     const result: Partial<TauConfig> = {};
     for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
@@ -282,7 +299,7 @@ export class HostConfigManager {
         case "defaultProjectTrust":
           if (typeof val === "string") result[key] = val as never;
           break;
-        case "showCosts": case "prewarm": case "quietStartup": case "vimMode":
+        case "showCosts": case "prewarm": case "quietStartup": case "vimMode": case "hostBackground":
           if (typeof val === "boolean") result[key] = val as never;
           break;
         case "fontSize": case "temperature": case "maxTokens":
@@ -296,6 +313,11 @@ export class HostConfigManager {
           break;
         case "values": case "keybindings":
           if (val && typeof val === "object" && !Array.isArray(val)) result[key] = val as never;
+          break;
+        case "threads":
+          if (val && typeof val === "object" && typeof (val as { continueAfterRestart?: unknown }).continueAfterRestart === "boolean") {
+            result.threads = { continueAfterRestart: (val as { continueAfterRestart: boolean }).continueAfterRestart };
+          }
           break;
       }
     }
@@ -318,6 +340,9 @@ export class HostConfigManager {
     }
     if (base.keybindings || override.keybindings) {
       result.keybindings = { ...(base.keybindings ?? {}), ...(override.keybindings ?? {}) };
+    }
+    if (base.threads || override.threads) {
+      result.threads = { ...(base.threads ?? {}), ...(override.threads ?? {}) };
     }
     if (override.favouriteModels !== undefined || base.favouriteModels !== undefined) {
       result.favouriteModels = override.favouriteModels ?? base.favouriteModels;

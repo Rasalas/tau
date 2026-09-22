@@ -90,3 +90,10 @@ body[data-profile="compact"] .diff-pane.split > * + * { border-left: 0; }
   border: 1px solid var(--line-control); border-radius: 9px; padding: 9px;
   background: var(--raised); color: var(--ink-2); font: 550 12px var(--sans); cursor: pointer;
 }
+
+/* Settings: the section column sits above the page and scrolls on its own. */
+body[data-profile="compact"] .settings-screen { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+body[data-profile="compact"] .settings-nav { max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }
+body[data-profile="compact"] .settings-nav-header { display: none; }
+body[data-profile="compact"] .settings-nav-search { margin-top: 8px; }
+body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }
