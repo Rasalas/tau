@@ -1,0 +1,53 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ExtensionRegistry } from "../extension-system";
+import { PreferencesStore } from "../preferences";
+import { TestProviders } from "../test-support/test-providers";
+import { SettingsModal } from "./SettingsModal";
+
+afterEach(cleanup);
+
+function registryWithCards(): ExtensionRegistry {
+  const registry = new ExtensionRegistry({ invoke: async () => undefined }, { preferences: new PreferencesStore() });
+  registry.activate({
+    id: "acme.runtimes",
+    name: "Runtimes",
+    activate(plugin) {
+      plugin.registerSettingsPage({ id: "late.card", label: "Late", runtime: "antigravity", order: 27, Component: () => <p>late body</p> });
+      plugin.registerSettingsPage({ id: "early.card", label: "Early", runtime: "claude-code", order: 25, Component: () => <p>early body</p> });
+      plugin.registerSettingsPage({ id: "plain.page", label: "Plain", order: 30, Component: () => <p>plain body</p> });
+    },
+  });
+  return registry;
+}
+
+function renderModal(page: string, onSetPage = vi.fn()) {
+  render(<TestProviders>
+    <SettingsModal page={page} registry={registryWithCards()} onSetPage={onSetPage} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
+  </TestProviders>);
+  return onSetPage;
+}
+
+describe("Settings → Providers", () => {
+  it("collects every page that names a runtime into one Providers page, a card each in order", () => {
+    const onSetPage = renderModal("defaults");
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).queryByText("Early")).toBeNull();
+    expect(within(nav).queryByText("Late")).toBeNull();
+    expect(within(nav).getByText("Plain")).toBeTruthy();
+    fireEvent.click(within(nav).getByText("Providers"));
+    expect(onSetPage).toHaveBeenCalledWith("providers");
+    cleanup();
+
+    renderModal("providers");
+    const cards = screen.getAllByRole("region");
+    expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual(["Early", "Late"]);
+    expect(within(cards[0]!).getByText("early body")).toBeTruthy();
+  });
+
+  it("opens Providers for a card's own id, so an old link to the page still lands", () => {
+    renderModal("late.card");
+    expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
+  });
+});

@@ -461,6 +461,11 @@ export interface SettingsPageContribution extends ProfileScoped {
   /** The nav glyph, the way a panel passes one. */
   Icon?: PanelIconComponent;
   order?: number;
+  /**
+   * The runtime backend this page is about. Such a page gets no nav entry of
+   * its own: it is that runtime's card on the Providers page, in `order`.
+   */
+  runtime?: ThreadBackendKind;
   Component: ComponentType<SettingsPageProps>;
 }
 

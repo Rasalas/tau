@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Command, Cpu, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
+import { ChevronDown, Command, Cpu, Plus, Puzzle, Server, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
-import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
+import type { ExtensionRegistry, ExtensionSummary, SettingsPageContribution } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE } from "../../shared/extension-permissions";
 import { TRANSCRIPT_DETAIL_LEVELS } from "../../workbench/transcript-folding";
 import { allAvailableThemes, getUserTheme } from "../theme";
@@ -725,6 +725,25 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   );
 }
 
+/** One card per runtime backend a kit describes, in the order the kits gave. */
+function ProvidersPage({ cards, cwd, onNotify }: { cards: readonly SettingsPageContribution[]; cwd?: string; onNotify(message: string): void }) {
+  return (
+    <div className="settings-page">
+      <h3>Providers</h3>
+      <p className="lede">The programs that run threads besides Pi: whether each is installed and current, who it is signed in as, and where Tau finds it.</p>
+      {cards.map((card) => (
+        <section key={card.id} className="provider-card" aria-label={card.label}>
+          <header>
+            <ProviderIconStack runtimeProvider={card.runtime} className="provider-card-icon" />
+            <strong>{card.label}</strong>
+          </header>
+          <card.Component cwd={cwd} onNotify={onNotify} />
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function KeybindingsPage({ registry }: { registry: ExtensionRegistry }) {
   const [filter, setFilter] = useState("");
   const [showAllCommands, setShowAllCommands] = useState(false);
@@ -907,7 +926,10 @@ export function SettingsModal({
   const active = summaries.find((summary) => summary.id === page);
   // Pages extensions own. Core keeps Defaults, Keybindings and the Inspector,
   // so safe mode still has a model picker and a way to see what is loaded.
-  const pages = registry.getSettingsPages();
+  const contributions = registry.getSettingsPages();
+  // A page about a runtime is a card on Providers, not a page of its own.
+  const providers = contributions.filter((entry) => entry.runtime);
+  const pages = contributions.filter((entry) => !entry.runtime);
   const contributed = pages.find((entry) => entry.id === page);
   const installer = pages.find((entry) => entry.id === "packages");
 
@@ -942,6 +964,11 @@ export function SettingsModal({
             <button className={page === "pi" ? "active" : ""} onClick={() => onSetPage("pi")}>
               <Cpu size={14} /><span>Pi</span>
             </button>
+            {providers.length > 0 ? (
+              <button className={page === "providers" || providers.some((card) => card.id === page) ? "active" : ""} onClick={() => onSetPage("providers")}>
+                <Server size={14} /><span>Providers</span>
+              </button>
+            ) : null}
             <button className={page === "keybindings" ? "active" : ""} onClick={() => onSetPage("keybindings")}>
               <Command size={14} /><span>Keybindings</span>
             </button>
@@ -997,6 +1024,8 @@ export function SettingsModal({
             <KeybindingsPage registry={registry} />
           ) : page === "pi" ? (
             <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
+          ) : providers.length > 0 && (page === "providers" || providers.some((card) => card.id === page)) ? (
+            <ProvidersPage cards={providers} cwd={snapshot?.cwd} onNotify={onNotify} />
           ) : contributed ? (
             <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
           ) : page === "inspector" ? (
