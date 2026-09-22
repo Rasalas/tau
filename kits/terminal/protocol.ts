@@ -111,3 +111,28 @@ export const TERMINAL_STAGE_TAB = "terminal";
 
 /** Order the panel is drawn in the dock rail, after Files and Changes. */
 export const TERMINAL_PANEL_ORDER = 25;
+
+/** Commands in the palette; `terminal.toggle` is also `mod+j`. */
+export const TERMINAL_COMMANDS = {
+  toggle: "terminal.toggle",
+  new: "terminal.new",
+  split: "terminal.split",
+  splitDown: "terminal.splitDown",
+  close: "terminal.close",
+  focusNext: "terminal.focusNext",
+} as const;
+
+// Mirrors of other kits' contracts. They are named here, not imported: a kit
+// never imports another kit, and each use degrades when the other kit is off.
+
+/** Composer Context's chip service (`kits/composer-context/protocol.ts`); only the excerpt this kit hands over. */
+export const COMPOSER_CONTEXT_CHIPS_SERVICE = "tau.composer-context/chips";
+export interface ComposerContextChips {
+  addChip(chip: { kind: "text-excerpt"; label?: string; payload: { source: string; text: string } }): string;
+}
+
+/** Preview Kit's desktop service (`kits/preview/protocol.ts`). */
+export const PREVIEW_BROWSER_SERVICE = "tau.preview/browser";
+export interface PreviewBrowserService {
+  open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
+}

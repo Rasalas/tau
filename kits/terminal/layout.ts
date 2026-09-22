@@ -124,6 +124,20 @@ export function splitAt(layout: TerminalLayout, target: string | undefined, id: 
   return { ...detached, groups: detached.groups.map((entry) => entry.id === group.id ? next : entry), active: group.id };
 }
 
+/** A restarted shell takes its predecessor's place, in the panel or on the stage. */
+export function replacePane(layout: TerminalLayout, from: string, to: string): TerminalLayout {
+  const swap = (node: PaneNode): PaneNode => node.kind === "pane"
+    ? node.id === from ? pane(to) : node
+    : { ...node, children: node.children.map(swap) };
+  return {
+    ...layout,
+    groups: layout.groups.map((group) => hasPane(group.root, from)
+      ? { ...group, root: swap(group.root), focused: group.focused === from ? to : group.focused }
+      : group),
+    onStage: layout.onStage.map((id) => id === from ? to : id),
+  };
+}
+
 /** The pane that has the keyboard, and its tab active. */
 export function focusPane(layout: TerminalLayout, id: string): TerminalLayout {
   const group = groupOf(layout, id);

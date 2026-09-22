@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addGroup, detachPane, EMPTY_LAYOUT, focusedPane, focusNext, focusPane, moveToStage, nextPane, pane, paneIds,
-  parseLayout, reconcileLayout, removePane, returnFromStage, splitAt, splitPane, type PaneNode,
+  parseLayout, reconcileLayout, removePane, replacePane, returnFromStage, splitAt, splitPane, type PaneNode,
 } from "./layout.js";
 
 const row = (...children: PaneNode[]): PaneNode => ({ kind: "split", direction: "right", children });
@@ -96,6 +96,13 @@ describe("terminal layout", () => {
     expect(layout.onStage).toEqual([]);
     expect(layout.groups.map((group) => paneIds(group.root))).toEqual([["a"], ["b"]]);
     expect(returnFromStage(layout, "b")).toBe(layout);
+  });
+
+  it("puts a restarted shell where the ended one was", () => {
+    let layout = splitAt(addGroup(EMPTY_LAYOUT, "a"), "a", "b", "down");
+    layout = replacePane(layout, "b", "b2");
+    expect(layout.groups[0]).toMatchObject({ root: column(pane("a"), pane("b2")), focused: "b2" });
+    expect(replacePane(moveToStage(layout, "a"), "a", "a2").onStage).toEqual(["a2"]);
   });
 
   it("reconciles with the host: gone shells leave, unplaced ones get tabs unless held", () => {

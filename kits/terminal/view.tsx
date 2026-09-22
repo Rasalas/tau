@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "tau";
-import type { ITheme, Terminal } from "@xterm/xterm";
-import { terminalFont, terminalKit, onTerminalEvent, useTerminalFont } from "./store.js";
+import type { ILink, ITheme, Terminal } from "@xterm/xterm";
+import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, useTerminalFont } from "./store.js";
 import { unseenOutput } from "./output.js";
 import { terminalFontStack, type ResolvedTerminalFont } from "./font.js";
-import { TERMINAL_DATA_EVENT, type TerminalDataEvent } from "./protocol.js";
+import { classifyTerminalLink, findTerminalLinks, positionIn, wrappedLineAt } from "./links.js";
+import { terminalKeyOutcome, type TerminalChordAction } from "./keys.js";
+import { focusPane } from "./layout.js";
+import { addExcerptToPrompt, openTerminalLink } from "./controller.js";
+import { TERMINAL_DATA_EVENT, type TerminalDataEvent, type UiTerminalSession } from "./protocol.js";
 
 /** Lines a view keeps; the host retains as many for a view that reattaches. */
 const SCROLLBACK_LINES = 5_000;
+
+const MAC = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
 
 /** xterm draws with its own palette; the tokens the workbench theme sets are read once per mount. */
 function themeFrom(element: HTMLElement): ITheme {
@@ -44,18 +50,43 @@ function monospaceStack(font: ResolvedTerminalFont): string {
   return Math.abs(narrow - wide) < 0.5 ? font.family : terminalFontStack();
 }
 
+function linkHint(text: string): string {
+  const target = classifyTerminalLink(text);
+  const key = MAC ? "⌘" : "Ctrl";
+  return target?.kind === "preview" ? `${key}-click to open in the Preview` : `${key}-click to open in the browser`;
+}
+
+const activatesLink = (event: MouseEvent) => MAC ? event.metaKey : event.ctrlKey;
+
+export interface TerminalViewProps {
+  session: UiTerminalSession;
+  /** In the panel the terminal answers split and close chords; on the stage the tab owns them. */
+  place: "panel" | "stage";
+  /** Draws the focus ring; only meaningful beside other panes. */
+  focused?: boolean;
+  onChord?(action: TerminalChordAction): void;
+}
+
 /**
  * One xterm over one host session. The session's output arrives as pushes
  * numbered by byte offset; the replay on mount and the live pushes are
  * reconciled by that number, so nothing is drawn twice or lost in between.
+ * A view takes the keyboard only when asked to (`requestFocus`), so a pane
+ * that remounts never steals it.
  */
-export function TerminalView({ id, cols, rows, exitCode }: { id: string; cols: number; rows: number; exitCode?: number }) {
+export function TerminalView({ session, place, focused = false, onChord }: TerminalViewProps) {
+  const { id, exitCode } = session;
   const surface = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const running = useRef(exitCode === undefined);
-  const initialSize = useRef({ cols, rows });
+  const initialSize = useRef({ cols: session.cols, rows: session.rows });
   const refitRef = useRef<() => void>(() => undefined);
+  const chordRef = useRef(onChord);
+  chordRef.current = onChord;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
   const [error, setError] = useState("");
+  const [selection, setSelection] = useState("");
   const font = useTerminalFont().resolved;
 
   useEffect(() => {
@@ -81,6 +112,7 @@ export function TerminalView({ id, cols, rows, exitCode }: { id: string; cols: n
     const initialFont = terminalFont.getSnapshot().resolved;
     void Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit"), loadFont(initialFont)]).then(async ([xterm, fit]) => {
       if (disposed || !surface.current) return;
+      const element = surface.current;
       const current = terminalFont.getSnapshot().resolved;
       const instance = new xterm.Terminal({
         ...initialSize.current,
@@ -90,14 +122,50 @@ export function TerminalView({ id, cols, rows, exitCode }: { id: string; cols: n
         fontFamily: monospaceStack(current),
         lineHeight: 1,
         scrollback: SCROLLBACK_LINES,
-        theme: themeFrom(surface.current),
+        theme: themeFrom(element),
         screenReaderMode: true,
+        // OSC 8 hyperlinks a program prints go the same way as a URL in the text.
+        linkHandler: {
+          activate: (event, text) => { if (activatesLink(event)) void openTerminalLink(text); },
+          hover: (_event, text) => { element.title = linkHint(text); },
+          leave: () => { element.title = ""; },
+        },
       });
       terminal.current = instance;
       const addon = new fit.FitAddon();
       instance.loadAddon(addon);
-      instance.open(surface.current);
+      instance.open(element);
+      instance.attachCustomKeyEventHandler((event) => {
+        const outcome = terminalKeyOutcome(event, MAC, place);
+        if (outcome === undefined) return true;
+        if (outcome !== "pass") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (outcome !== "ignore") chordRef.current?.(outcome);
+        }
+        return false;
+      });
+      const links = instance.registerLinkProvider({
+        provideLinks: (row, callback) => {
+          const line = wrappedLineAt(row, (index) => instance.buffer.active.getLine(index));
+          if (!line) return callback(undefined);
+          const found: ILink[] = findTerminalLinks(line.text)
+            .filter((match) => positionIn(line, match.start).y <= row && positionIn(line, match.end - 1).y >= row)
+            .map((match) => ({
+              text: match.url,
+              range: { start: positionIn(line, match.start), end: positionIn(line, match.end - 1) },
+              activate: (event, text) => { if (activatesLink(event)) void openTerminalLink(text); },
+              hover: (_event, text) => { element.title = linkHint(text); },
+              leave: () => { element.title = ""; },
+            }));
+          callback(found.length > 0 ? found : undefined);
+        },
+      });
+      const selected = instance.onSelectionChange(() => setSelection(instance.hasSelection() ? instance.getSelection() : ""));
       let ready = false;
+      // Replayed output may hold a program's terminal queries; xterm's answers
+      // to those must not reach today's shell as typed input.
+      let replaying = false;
       let drawn = 0;
       const pending: TerminalDataEvent[] = [];
       const write = (event: TerminalDataEvent) => {
@@ -114,31 +182,64 @@ export function TerminalView({ id, cols, rows, exitCode }: { id: string; cols: n
       });
       const report = (problem: unknown) => { if (!disposed) setError(errorMessage(problem)); };
       const input = instance.onData((data) => {
-        if (!disposed && running.current) void terminalKit.input({ id, data }).catch(report);
+        if (!disposed && running.current && !replaying) void terminalKit.input({ id, data }).catch(report);
       });
       const refit = () => {
-        if (disposed || !surface.current?.clientWidth || !surface.current.clientHeight) return;
+        if (disposed || !element.clientWidth || !element.clientHeight) return;
         addon.fit();
         if (running.current) void terminalKit.resize({ id, cols: instance.cols, rows: instance.rows }).catch(report);
       };
       refitRef.current = refit;
       const observer = new ResizeObserver(refit);
-      observer.observe(surface.current);
-      cleanup = () => { stop(); input.dispose(); observer.disconnect(); instance.dispose(); terminal.current = null; refitRef.current = () => undefined; };
+      observer.observe(element);
+      const onFocus = () => { if (place === "panel") terminalStore.updateLayout((layout) => focusPane(layout, id)); };
+      instance.textarea?.addEventListener("focus", onFocus);
+      const takeFocus = () => {
+        const request = terminalStore.getSnapshot().focusRequest;
+        if (!ready || request?.id !== id) return;
+        instance.focus();
+        terminalStore.focusDone(request.seq);
+      };
+      const stopFocus = terminalStore.subscribe(takeFocus);
+      cleanup = () => {
+        stop(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); observer.disconnect();
+        instance.textarea?.removeEventListener("focus", onFocus);
+        instance.dispose();
+        terminal.current = null;
+        refitRef.current = () => undefined;
+      };
       const replay = await terminalKit.replay({ id });
       if (disposed) return;
       if (replay) {
-        instance.write(replay.data);
+        replaying = true;
+        instance.write(replay.data, () => { replaying = false; });
         drawn = replay.offset;
       }
       ready = true;
       pending.forEach(write);
       pending.length = 0;
       refit();
-      instance.focus();
+      takeFocus();
     }).catch((problem: unknown) => { if (!disposed) setError(errorMessage(problem)); });
     return () => { disposed = true; cleanup(); };
-  }, [id]);
+  }, [id, place]);
 
-  return <>{error && <p role="alert" className="terminal-error">{error}</p>}<div className="terminal-view" ref={surface} /></>;
+  const addSelection = () => {
+    if (addExcerptToPrompt(sessionRef.current, selection, terminalServices.actions)) {
+      terminal.current?.clearSelection();
+      setSelection("");
+    }
+  };
+
+  return <div className={`terminal-pane-body${focused ? " focused" : ""}`}>
+    {error && <p role="alert" className="terminal-error">{error}</p>}
+    {selection.trim() && terminalServices.chips ? <button
+      type="button"
+      className="text-button terminal-excerpt"
+      // Keep the selection: a press on the button must not move focus into xterm first.
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={addSelection}
+    >Add to prompt</button> : null}
+    <div className="terminal-view" ref={surface} data-terminal-id={id} />
+  </div>;
 }
