@@ -400,7 +400,7 @@ export default function App() {
     setActivePanel(id);
     setDockOpen(true);
   }, [setActivePanel, setDockOpen]);
-  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
+  const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean }) => { setStage((current) => openThreadTab(current, sessionId, options)); setChatFocused(false); }, []);
   useEffect(() => {
     threadStore.setWaiting(uiPrompts.map((entry) => entry.sessionId));

@@ -93,6 +93,16 @@ function storeWith(session?: UiSession, running = false): ThreadStore {
 }
 
 describe("Stage", () => {
+  it("marks the line a file was opened at, and the last line for one past the end", async () => {
+    render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`, { line: 7 })} />);
+    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+    expect(document.querySelector(".source-line-mark")?.getAttribute("data-line")).toBe("1");
+    cleanup();
+    render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} />);
+    expect(await screen.findByText("const a = 1;")).toBeTruthy();
+    expect(document.querySelector(".source-line-mark")).toBeNull();
+  });
+
   it("shows the active file with its relative path and line numbers", async () => {
     render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} />);
 

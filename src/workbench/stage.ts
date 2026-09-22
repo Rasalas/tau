@@ -17,6 +17,9 @@ export interface StageFileTab extends StageTabBase {
   /** Absolute path inside the workspace. */
   path: string;
   view: StageView;
+  /** The line to bring into view, 1-based; `reveal` counts the requests so the same line can be asked for again. */
+  line?: number;
+  reveal?: number;
 }
 
 /** A thread read beside the conversation; the composer keeps addressing the active one. */
@@ -106,13 +109,17 @@ function reopen(state: StageState, existing: StageTab, next: StageTab): StageSta
   return { tabs: state.tabs.map((tab) => tab.id === existing.id ? next : tab), activeId: existing.id };
 }
 
-export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean } = {}): StageState {
+export function openFileTab(state: StageState, path: string, options: { view?: StageView; pin?: boolean; line?: number } = {}): StageState {
   const id = fileTabId(path);
   const existing = state.tabs.find((tab) => tab.id === id);
+  const line = options.line !== undefined && Number.isSafeInteger(options.line) && options.line > 0 ? options.line : undefined;
+  // A line is always shown as source: a diff has no line of the file to go to.
+  const view = line ? "source" : options.view;
   if (existing?.kind === "file") {
-    return reopen(state, existing, { ...existing, view: options.view ?? existing.view, preview: existing.preview && !options.pin });
+    const reveal = line ? { line, reveal: (existing.reveal ?? 0) + 1 } : {};
+    return reopen(state, existing, { ...existing, view: view ?? existing.view, preview: existing.preview && !options.pin, ...reveal });
   }
-  return openTab(state, { id, kind: "file", path, view: options.view ?? "source", preview: !options.pin });
+  return openTab(state, { id, kind: "file", path, view: view ?? "source", preview: !options.pin, ...(line ? { line, reveal: 1 } : {}) });
 }
 
 export function openThreadTab(state: StageState, sessionId: string, options: { pin?: boolean } = {}): StageState {

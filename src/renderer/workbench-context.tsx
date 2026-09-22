@@ -12,7 +12,7 @@ export interface WorkbenchContextValue {
   registry: ExtensionRegistry;
   /** Absolute path of the document shown in the active stage tab. */
   activeDocumentPath?: string;
-  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff" }): void;
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
   applySnapshot(snapshot: HostSnapshot): void;
   handleHostEvent(event: HostEvent): void;
 }

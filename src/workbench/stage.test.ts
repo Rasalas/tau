@@ -58,6 +58,17 @@ describe("stage tabs", () => {
     expect(state).toEqual({ tabs: [], activeId: undefined });
   });
 
+  it("asks for a line as source and asks again when the same file is opened at a line once more", () => {
+    let state = openFileTab(EMPTY_STAGE, A, { view: "diff", pin: true });
+    state = openFileTab(state, A, { line: 42 });
+    expect(activeTab(state)).toMatchObject({ view: "source", line: 42, reveal: 1 });
+    state = openFileTab(state, A, { line: 42 });
+    expect(activeTab(state)).toMatchObject({ line: 42, reveal: 2 });
+    state = openFileTab(state, A, { pin: true });
+    expect(activeTab(state)).toMatchObject({ line: 42, reveal: 2 });
+    expect(activeTab(openFileTab(EMPTY_STAGE, B, { line: 0 }))).not.toHaveProperty("line");
+  });
+
   it("closing an inactive tab leaves the selection alone", () => {
     let state = openFileTab(EMPTY_STAGE, A, { pin: true });
     state = openFileTab(state, B, { pin: true });

@@ -58,8 +58,8 @@ export interface WorkbenchActions {
    * whether that draft is still pending.
    */
   activeThread(): { sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; backendKind?: string; draftPending: boolean } | undefined;
-  /** Opens a document in the stage, as source or as its working-tree diff. */
-  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff" }): void;
+  /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
+  openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
   /** Opens a thread in the stage as a read-only tab, leaving the active thread alone. */
   openThread(sessionId: string, options?: { pin?: boolean }): void;
   /**
