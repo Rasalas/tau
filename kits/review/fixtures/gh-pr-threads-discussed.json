@@ -1,0 +1,39 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "id": "PR_kwDOAcme0000000007",
+        "reviewThreads": {
+          "nodes": [
+            {
+              "id": "PRRT_1",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "kits/terminal/output.ts",
+              "line": 10,
+              "originalLine": 10,
+              "diffSide": "RIGHT",
+              "comments": {
+                "nodes": [
+                  { "id": "PRRC_1", "body": "Why `<=` and not `<`?", "createdAt": "2026-09-20T12:00:00Z", "url": "https://github.com/acme/tau/pull/7#discussion_r1", "author": { "login": "mona" } },
+                  { "id": "PRRC_2", "body": "The offset counts the chunk's end.", "createdAt": "2026-09-20T13:00:00Z", "url": "https://github.com/acme/tau/pull/7#discussion_r2", "author": { "login": "octo" } }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_2",
+              "isResolved": true,
+              "isOutdated": true,
+              "path": "kits/terminal/output.ts",
+              "line": null,
+              "originalLine": 3,
+              "diffSide": "RIGHT",
+              "comments": { "nodes": [{ "id": "PRRC_3", "body": "Typo.", "createdAt": "2026-09-20T12:05:00Z", "url": "https://github.com/acme/tau/pull/7#discussion_r3", "author": null }] }
+            }
+          ]
+        },
+        "files": { "nodes": [{ "path": "kits/terminal/output.ts", "viewerViewedState": "DISMISSED" }] }
+      }
+    }
+  }
+}

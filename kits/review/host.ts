@@ -1,5 +1,6 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
+import { registerPullRequestCommands } from "./pull-request-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
@@ -31,7 +32,8 @@ export function buildCommitPrompt(input: {
 
 /**
  * Review Kit's host entry: a commit message from a diff with the model the
- * desktop side chose, and the pull or merge request lifecycle after it.
+ * desktop side chose, the pull or merge request lifecycle after it, and the
+ * reads and writes of the pull-request view.
  */
 export function createReviewHostExtension(options: RequestCommandOptions = {}): HostExtension {
   return {
@@ -46,6 +48,7 @@ export function createReviewHostExtension(options: RequestCommandOptions = {}): 
       context.registerCommand("changes", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "changes", input));
       context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input));
       registerRequestCommands(context, options);
+      registerPullRequestCommands(context, options);
       context.registerCommand("suggest-commit-message", async (input) => {
         const fields = record(input);
         const provider = text(fields.provider);

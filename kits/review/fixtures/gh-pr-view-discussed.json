@@ -1,0 +1,48 @@
+{
+  "id": "PR_kwDOAcme0000000007",
+  "number": 7,
+  "title": "Add the output helper",
+  "body": "## Why\n\nThe terminal replays output twice after a reload.\n\n- [x] tests",
+  "url": "https://github.com/acme/tau/pull/7",
+  "state": "OPEN",
+  "isDraft": false,
+  "author": { "id": "U_1", "is_bot": false, "login": "octo", "name": "Octo Cat" },
+  "createdAt": "2026-09-20T08:00:00Z",
+  "updatedAt": "2026-09-21T10:00:00Z",
+  "mergedAt": null,
+  "closedAt": null,
+  "baseRefName": "main",
+  "headRefName": "feat/output",
+  "headRefOid": "0123456789abcdef0123456789abcdef01234567",
+  "additions": 13,
+  "deletions": 0,
+  "changedFiles": 1,
+  "labels": [
+    { "id": "LA_1", "name": "enhancement", "description": "New feature", "color": "a2eeef" },
+    { "id": "LA_2", "name": "terminal", "description": "", "color": "not-a-colour" }
+  ],
+  "reviewRequests": [
+    { "__typename": "User", "login": "hubot" },
+    { "__typename": "Team", "name": "Core", "slug": "core" }
+  ],
+  "latestReviews": [
+    { "id": "PRR_2", "author": { "login": "mona" }, "authorAssociation": "MEMBER", "body": "Please name the offset.", "submittedAt": "2026-09-21T09:00:00Z", "state": "CHANGES_REQUESTED" }
+  ],
+  "reviews": [
+    { "id": "PRR_1", "author": { "login": "mona" }, "authorAssociation": "MEMBER", "body": "", "submittedAt": "2026-09-20T12:00:00Z", "state": "COMMENTED" },
+    { "id": "PRR_2", "author": { "login": "mona" }, "authorAssociation": "MEMBER", "body": "Please name the offset.", "submittedAt": "2026-09-21T09:00:00Z", "state": "CHANGES_REQUESTED" }
+  ],
+  "comments": [
+    { "id": "IC_1", "author": { "login": "octo" }, "authorAssociation": "OWNER", "body": "Ready for a look.", "createdAt": "2026-09-20T09:00:00Z", "url": "https://github.com/acme/tau/pull/7#issuecomment-1" },
+    { "id": "IC_2", "author": { "login": "ci-bot[bot]" }, "authorAssociation": "NONE", "body": "Coverage 91%.", "createdAt": "2026-09-20T09:30:00Z", "url": "https://github.com/acme/tau/pull/7#issuecomment-2" }
+  ],
+  "commits": [
+    { "authoredDate": "2026-09-20T07:55:00Z", "authors": [{ "email": "octo@users.noreply.github.com", "id": "U_1", "login": "octo", "name": "Octo Cat" }], "committedDate": "2026-09-20T07:56:00Z", "messageBody": "", "messageHeadline": "feat(terminal): add the output helper", "oid": "0123456789abcdef0123456789abcdef01234567" }
+  ],
+  "statusCheckRollup": [
+    { "__typename": "CheckRun", "completedAt": "2026-09-20T08:10:00Z", "conclusion": "SUCCESS", "detailsUrl": "https://github.com/acme/tau/actions/runs/1/job/1", "name": "fast", "startedAt": "2026-09-20T08:01:00Z", "status": "COMPLETED", "workflowName": "CI" },
+    { "__typename": "CheckRun", "completedAt": "2026-09-20T08:20:00Z", "conclusion": "FAILURE", "detailsUrl": "https://github.com/acme/tau/actions/runs/1/job/2", "name": "smoke", "startedAt": "2026-09-20T08:11:00Z", "status": "COMPLETED", "workflowName": "CI" },
+    { "__typename": "CheckRun", "completedAt": null, "conclusion": "", "detailsUrl": "https://github.com/acme/tau/actions/runs/2/job/3", "name": "performance", "startedAt": "2026-09-20T08:02:00Z", "status": "IN_PROGRESS", "workflowName": "Performance gates" },
+    { "__typename": "StatusContext", "context": "coverage", "description": "91% covered", "state": "SUCCESS", "targetUrl": "https://coverage.example/7", "startedAt": "2026-09-20T08:05:00Z" }
+  ]
+}
