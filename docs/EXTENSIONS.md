@@ -476,14 +476,31 @@ usual; the members that need a live runtime (`complete`, `appendEntry`) throw,
 and a provider that throws simply contributes no pins for that thread.
 
 It also lends two document surfaces core owns: `ReviewMode`, the full-workbench
-review of a set of changes (file tree, diffs, line notes, commit box), and
+review of a set of changes (file tree, diffs, commit box), and
 `ChangesTree`, the changed files of a workspace with stage, unstage and revert.
 Both load as their own chunk the first time they are rendered and bring their
 own loading state, so an extension renders them like any other component. The
 shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`,
 `UiDiffHunk`, `UiDiffLine`, `DiffLoadOptions`, `WorkspaceChangesQuery`,
-`WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage` —
-are exported as types beside them.
+`WorkspaceDiffScope`, `ChangeStatus`, `UiEditor`, `UiWorkspaceChangesPage`,
+`DiffLineSlot`, `DiffLineContext` — are exported as types beside them.
+
+`ReviewMode` draws the diffs and knows nothing about what a package does with
+them. What a caller may add, all optional:
+
+| Prop | What core does with it |
+|---|---|
+| `lines` | A `DiffLineSlot`: `onAction(line, { shiftKey })` puts a button in each line's gutter (named by `actionLabel(line)`, "Comment on line N" by default), `count(line)` writes a number on it and keeps it visible, `selected(line)` marks the line, `render(line)` draws a node under the line across the full width. `line` is `{ path, line: UiDiffLine }`, so a removed line is told apart from an added one by its `oldLine`. Without it there is no gutter button. |
+| `layout`, `onLayoutChange` | Split or unified. Given a handler, the caller owns the choice and the toolbar toggle asks it; otherwise the toggle keeps its own. A window too narrow for split draws unified either way. |
+| `ignoreWhitespace`, `onIgnoreWhitespaceChange` | The flag goes to `loadDiff` as `DiffLoadOptions.ignoreWhitespace`; the toolbar offers the toggle only with a handler. Workspace Kit answers it with `git diff --ignore-all-space` and says "Only whitespace changed." for a file with nothing else. |
+| `filesStartCollapsed` | Every file opens folded to its header. Each header folds its file, the toolbar folds or unfolds all, and a file opened from the tree unfolds. |
+| `toolbar`, `aside` | A node in the toolbar, before core's own controls, and a panel beside the diffs. |
+
+Review Kit fills all of them: line comments under the lines, their list in
+the aside and a "Send to composer" that hands them over as `text-excerpt` chips
+through the chip service above (source `Review comment on src/a.ts:12-14`, the
+comment and the lines it covers as a `diff` block), and three settings — split view, hidden whitespace, files that start
+collapsed — which the toolbar toggles write back.
 
 It also exports the renderer's shared state and presentation:
 
