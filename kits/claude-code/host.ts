@@ -2,7 +2,8 @@ import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { HostCommandError, npmLatestVersion, packageUpdateCommand, skillInvocationCommand, updateAvailable, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider, type UiComposerCommand } from "tau/host-extension";
 import { CommandOverride } from "./command-override.js";
-import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID, USAGE_KIT_ID } from "./protocol.js";
+import { claudeProjectDirs, importClaudeSessions, scanClaudeSessions } from "./history-import.js";
+import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID, ONBOARDING_KIT_ID, USAGE_KIT_ID } from "./protocol.js";
 import { describeAccount, readClaudeVersion } from "./probe.js";
 import { createClaudeCodeRuntimeAdapter, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -163,6 +164,16 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           };
         }),
       }), { callers: [USAGE_KIT_ID] });
+      // Sessions the CLI ran on its own, for Onboarding to list and import as threads.
+      const importDirs = () => claudeProjectDirs(options.env ?? process.env);
+      context.registerCommand("import-scan", async () => {
+        const held = await store.claudeSessionIds();
+        return { source: CLAUDE_CODE_BACKEND_KIND, ...await scanClaudeSessions(importDirs(), (id) => held.has(id)) };
+      }, { long: true, callers: [ONBOARDING_KIT_ID] });
+      context.registerCommand("import-sessions", async (input) => {
+        const outcome = await importClaudeSessions(importDirs(), (input as { paths?: unknown } | undefined)?.paths, store);
+        return { ...outcome, ...(outcome.imported.length ? { update: await services.sessions.refreshIndex() } : {}) };
+      }, { long: true, callers: [ONBOARDING_KIT_ID] });
       return services.registerRuntimeBackend(provider);
     },
   };
