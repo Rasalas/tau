@@ -506,11 +506,14 @@ travels between them: one publishes under an id its own protocol file names,
 the others use it. `use` runs as soon as the value exists — before or after
 the user's own activation — and whatever it returns is disposed when the
 provider withdraws or either side deactivates, so activation order does not
-matter. The shipped kits publish two: Workspace Kit's store as
+matter. The shipped kits publish, among others, Workspace Kit's store as
 `tau.workspace/store`, and Preview Kit's `tau.preview/browser`, whose
 `open(url, actions)` brings the Preview panel forward and navigates — Project
 Scripts opens a script's `previewUrl` through it, and falls back to
-`actions.openExternal` when Preview Kit is off. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
+`actions.openExternal` when Preview Kit is off. Thread Rail publishes
+`tau.thread-rail/siblings`: `siblingsOf(threadId)` answers the threads started
+together from one prompt on several models (the thread itself included, or
+`[]`), and the Agents panel lists them beside a thread's agents. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
 
 Workspace Kit's store (`tau.workspace/store`, typed in
 `kits/workspace/protocol.ts`) is such a service, and besides reading the
@@ -523,6 +526,28 @@ the row's `session`. `refresh()` re-reads the project's changes and Git facts
 after another kit changed them. Review Kit fills both with the pull or merge
 request of the branch.
 
+Two more belong to the rail and to new threads. `registerThreadRailOrganizer(organizer)`
+gives another kit the say over the rail (one at a time, the last wins): its
+`sections(threads)` splits what the rail would show — searched, newest first —
+into sections `{ id, label?, threads, shelf?, collapsed?, settled? }` in draw
+order, where the one section without a label is the main, paged list and a
+`shelf` folds away under its label with compact rows; `menu(session)` and
+`runMenu(session, itemId, actions)` are a row's right-click menu;
+`toggleSettled(session)` answers the row's own settle button; and
+`dropLabel(threadId, { sectionId, beforeThreadId? })` / `drop(…)` say what a
+pointer drag of a row onto a section or between two rows does — the rail draws
+the gesture, the word ("Pin", "Settle") beside the pointer and the insertion
+line, and calls `drop` when a label was given. An optional `Layer` component is
+drawn once inside the rail for the organizer's own dialogs. Without an
+organizer the rail keeps its own order: pins first, then newest, settled
+threads on their shelf. Thread Rail is the organizer Tau ships.
+`prepareThreadWorktree({ prompt, preparing, force?, branchSuffix? })` makes the
+worktree a new thread of the followed project runs in, the way the new-thread
+gate does and named by the same naming kit; `force` makes one although the
+draft runs in the current checkout, and `branchSuffix` keeps several worktrees
+for one prompt apart. It answers `{}` (with a notice) for a project that is no
+repository or a worktree that could not be made.
+
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a
 pending draft's first prompt is sent, while the thread still does not exist. It
@@ -533,6 +558,30 @@ thread to another project. The first hook that names one wins; a hook that
 throws is reported and the draft stays where it was, so a prompt is never lost
 to a workspace that could not be prepared. Workspace Kit uses it to create the
 worktree a new thread runs in ([ADR 0017](adr/0017-worktrees-for-threads-and-agents.md)).
+
+A third half runs before both: `claimNewThread(event, actions)` is offered a
+pending draft's first prompt, and answering `true` takes it — core creates no
+thread, the composer empties and the draft stays open for the next prompt; the
+hook starts whatever it wants itself (usually through its host half and
+`services.sessions.start`). Hooks are asked in registration order and the first
+`true` wins; one that throws is reported and the prompt goes on as if nobody had
+claimed it. The event is `beforeNewThread`'s plus `alternate` (the prompt was
+sent with the modifier held: ⌘↵ on macOS, Ctrl+↵ elsewhere — a plain send
+otherwise), `model` (what the thread would start with, absent when its runtime
+chooses), `runtime` (the backend kind) and `attachments` (how many images and
+files ride along). Thread Rail claims ⌘↵ to start a thread in the background,
+and a prompt with several models chosen to start one thread per model.
+
+`registerModelSelection({ id, selected, subscribe, toggle, reset })` lets a new
+thread's model picker hold more than one model. Shift-click (or Shift+↵) on a
+row calls `toggle(model, current)` instead of choosing — `current` is the model
+the draft has now — and the picker stays open, marking every key `selected()`
+answers (`provider/id`, once per time chosen, so a model may be in the set
+twice); a plain pick calls `reset()` first and then chooses as always. The
+picker offers this only while the composer is a draft whose thread does not
+exist yet, and only while an extension registered one; the last registered
+wins. What to do with the set is the extension's own business — Thread Rail
+reads it in its `claimNewThread`.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
