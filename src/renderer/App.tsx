@@ -433,7 +433,7 @@ export default function App() {
   const actions = useWorkbenchActions({
     client, platform, threadStore, viewStore, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
-    composerRef, transcriptRef, openPanel, openPalette, setSettingsPage, openNewThreadPicker,
+    composerRef, transcriptRef, openPanel, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
     switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,

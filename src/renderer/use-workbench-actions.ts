@@ -1,5 +1,5 @@
 import { useMemo, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type { HostSnapshot } from "../shared/contracts";
+import type { HostSnapshot, UiProject } from "../shared/contracts";
 import type { HostActionResult } from "../shared/host-protocol";
 import type { HostClient } from "../workbench/host-client";
 import type { Platform } from "../workbench/platform";
@@ -33,6 +33,8 @@ export interface UseWorkbenchActionsOptions {
   openPalette: () => void;
   setSettingsPage: (page?: string) => void;
   openNewThreadPicker: () => void;
+  /** Puts a new thread's draft in a project without the picker. */
+  createThreadInProject?: (project: UiProject) => void;
   switchSession: WorkbenchActions["switchSession"];
   settleActiveThread: () => void;
   isVisibleThreadRunning: () => boolean;
@@ -75,7 +77,12 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     openPanel,
     openCommandPalette: options.openPalette,
     openSettings: (page) => options.setSettingsPage(page ?? "defaults"),
-    newSession: options.openNewThreadPicker,
+    newSession: (request?: { workspace?: string }) => {
+      const workspace = request?.workspace;
+      const project = workspace ? options.threadStore.getProjects().find((candidate) => candidate.workspaceId === workspace || candidate.path === workspace) : undefined;
+      if (!workspace) options.openNewThreadPicker();
+      else if (project) options.createThreadInProject?.(project);
+    },
     switchSession,
     settleActiveThread,
     // Escape is bound to this; only a visibly running thread has anything to stop.

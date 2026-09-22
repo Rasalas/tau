@@ -224,4 +224,21 @@ describe("useWorkbenchActions", () => {
     result.current.setComposerDraft?.("stashed away");
     expect(storage.set).toHaveBeenCalledWith("tau.composer-drafts.v1", JSON.stringify({ "draft-1": "stashed away" }));
   });
+
+  it("starts a new thread in a named project without the picker, and leaves an unknown one alone", () => {
+    const project = { path: "/work/app", workspaceId: "ws1_app", name: "app", lastOpenedAt: 1 };
+    const createThreadInProject = vi.fn();
+    const options = createMockOptions({
+      threadStore: { getSnapshot: () => ({ activeThreadId: "thread-1" }), getProjects: () => [project] } as any,
+      createThreadInProject,
+    });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+    result.current.newSession({ workspace: "ws1_app" });
+    expect(createThreadInProject).toHaveBeenCalledWith(project);
+    result.current.newSession({ workspace: "ws1_unknown" });
+    expect(createThreadInProject).toHaveBeenCalledTimes(1);
+    expect(options.openNewThreadPicker).not.toHaveBeenCalled();
+    result.current.newSession();
+    expect(options.openNewThreadPicker).toHaveBeenCalledTimes(1);
+  });
 });

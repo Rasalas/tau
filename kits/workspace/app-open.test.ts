@@ -78,7 +78,7 @@ describe("tau app in the window", () => {
     const order: string[] = [];
     const actions = {
       openWorkspace: vi.fn(async (id: string) => { order.push(`open ${id}`); return true; }),
-      newSession: () => order.push("new thread"),
+      newSession: (options?: { workspace?: string }) => order.push(`new thread in ${options?.workspace}`),
       focusComposer: () => order.push("focus"),
       notify: () => undefined,
     } as unknown as WorkbenchActions;
@@ -87,6 +87,6 @@ describe("tau app in the window", () => {
     requests.receive("not a request");
     expect(order).toEqual([]);
     requests.bind(actions);
-    await vi.waitFor(() => expect(order).toEqual(["open ws1_a", "new thread", "focus"]));
+    await vi.waitFor(() => expect(order).toEqual(["open ws1_a", "new thread in ws1_a", "focus"]));
   });
 });
