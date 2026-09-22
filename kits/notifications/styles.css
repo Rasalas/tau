@@ -1,5 +1,6 @@
 /* Notifications: the in-window toasts above the composer and the settings page's extra rows. */
-.notifications-toasts { display: flex; flex-direction: column; gap: 6px; }
+/* As wide as the composer it sits on. */
+.notifications-toasts { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 780px; margin: 0 auto; }
 .notifications-toast {
   display: flex; align-items: center; gap: 10px;
   border: 1px solid var(--line-float); border-radius: 9px;
