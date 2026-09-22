@@ -1,7 +1,7 @@
 import type { TauDesktopApi } from "../shared/contracts";
 import { createHostClient, type HostClient } from "../workbench/host-client";
 import { HostConnection, type HostTransport } from "../workbench/host-connection";
-import type { Platform } from "../workbench/platform";
+import type { Platform, PlatformAttention } from "../workbench/platform";
 import type { ClientPlatformPorts } from "./client-platform";
 
 /**
@@ -44,5 +44,14 @@ export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
     get files() { return ports.hasLocalFiles() ? files : undefined; },
     storage: ports.storage,
     importModule: (url) => import(/* @vite-ignore */ url),
+    // The window's own process draws both: the page itself holds no permission to.
+    ...(ports.client ? { attention: electronAttention(ports.client) } : {}),
+  };
+}
+
+function electronAttention(client: HostClient): PlatformAttention {
+  return {
+    notify: (notification) => client.showNotification(notification).catch(() => "unavailable" as const),
+    setBadge: (count) => { void client.setBadge(count).catch(() => undefined); },
   };
 }

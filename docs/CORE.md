@@ -88,9 +88,10 @@ Workbench
 The workbench is always a client of a host in another process. The window
 starts that host, watches it and connects the renderer to its socket; the
 threads belong to the host, so the window may close, crash or reload without
-stopping one ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)). Eight
+stopping one ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)). Ten
 methods stay on this side — clipboard, image preview, the kit bundles the
-renderer imports, the workbench rebuild, relaunch and update — and a kit that
+renderer imports, the workbench rebuild, relaunch and update, a system
+notification and the app icon's badge — and a kit that
 needs the window's process for a native view ships a `window` half the host
 calls with `callClient`.
 
@@ -105,9 +106,14 @@ Where it needs the view side it names a port, never a class.
 `src/renderer/` is the React binding of that client, and `Platform`
 (`src/workbench/platform.ts`) is what the client needs of the machine it runs
 on: clipboard, `openExternal`, `files` (only where the host's paths are this
-machine's), storage and `importModule`. Electron answers it in
+machine's), storage, `importModule` and `attention` — a notification the OS
+draws and a count on the app's icon, absent where the client has neither.
+Electron answers it in
 `src/renderer/platform-electron.ts` and a browser tab in
-`src/web/platform-web.ts`. `App.tsx` is bootstrap, store wiring and layout; the
+`src/web/platform-web.ts`. The sandboxed Electron renderer holds no permission
+to notify, so its `attention` asks the window's own process
+(`src/main/window-attention.ts`: `Notification`, `app.setBadgeCount`); a tab
+uses the page's Notification API and draws the count into its icon. `App.tsx` is bootstrap, store wiring and layout; the
 three facts it cannot work out for itself — which client this is, whether kits
 were left out, and how to build the platform — arrive as a `ClientEnvironment`
 from the entry point.
@@ -214,6 +220,7 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Line comments on a diff as context for the next prompt, split or unified diffs, hidden whitespace, files that start collapsed; rewinding to a checkpoint with or without its files | Review Kit fills the seams core's `ReviewMode` lends (`lines`, `layout`, `ignoreWhitespace`, `filesStartCollapsed`, `toolbar`, `aside`; `DiffView` takes the same line seam): a comment opens under the line its gutter button belongs to, the kit keeps them per workspace in client storage, lists them beside the diffs and hands them to Composer Context's chip service as `text-excerpt` chips — as text in the draft when that kit is off. Core draws the gutter button and the row under a line and knows no comment; its own review notes are gone, and the kit takes over the ones a user left once. Workspace Kit answers `ignoreWhitespace` with `git diff --ignore-all-space`, and its checkpoint card asks how to rewind: "Keep changes" branches the conversation at the checkpoint's answer through its own `rewind` command and touches no file, "Revert files too" is the restore above, backup thread first | Review Kit, Workspace Kit |
 | The warning before a subscription login a vendor forbids outside its own apps (Anthropic, Google) | Subscription Login Warning: `kits/subscription-login/`, a package Tau ships (ADR 0014) with a desktop half and no host half. A shield before the thread title (`thread-title` region), a badge and a line in the model picker (`registerModelBadge`), and one question per provider before such a model is first chosen or sent to (`registerComposerGate`); the acknowledgements are the kit's own preference value. Core keeps only the `UiModel.login` fact and the neutral "subscription login" tag | Subscription Login Warning |
 | Search: the project's files by content, a file by name, threads and projects from the palette | Search: `kits/search/`, a package Tau ships (ADR 0014). Its host half runs in a worker: ⇧⌘F's content search runs the machine's `rg` found with `findCommand` (`--json`, `.gitignore` honoured in a Git checkout or not, hidden files but never `.git`, 500 hits) and stops the running search when the next query arrives, and without ripgrep it walks the project itself, reading each folder's `.gitignore`; ⌘P ranks the project's file list, cached per project and forgotten when Workspace Kit's store reports a new Git status, with its own fuzzy scorer; the palette's thread search reads the user and assistant text of the newest session files, and the thread on screen through `services.transcript` when it has none. Its desktop half draws both dialogs from a title-bar region over the window, opens a hit with `openFile(path, { line })`, and registers three palette sources: threads by title, threads by what was said in them, projects. Core lends `registerPaletteSource`, the settings `keywords` and the file tab's line | Search |
+| Notifications: a system notification, a sound and the app icon's badge when a thread finishes, fails or asks something while nobody looks at it | Notifications: `kits/notifications/`, a package Tau ships (ADR 0014). Its host half follows turns through the turn observer and questions through `decorateUiPrompt` (so `runtime:extend`, in-process), skips sub-agents, and keeps the threads with unseen news in memory (`attention.ts`); each client reports whether its window has focus and which thread it shows, a thread on screen in a focused window counts nothing, and otherwise one client hears of it — the one that had focus last. News that finds no client waits for the first one to report; a thread's second piece of news within five seconds notifies nobody. Its desktop half draws it through `context.attention` (core's `Platform.attention`), synthesises its two sounds with Web Audio, toasts above the composer when opted in and owns Settings → Notifications; the choices are the client's | Notifications |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
 Defaults, Pi, Keybindings and Inspector pages and its search field, and the contributions that reach

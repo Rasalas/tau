@@ -80,6 +80,8 @@ function defaults(): HostClient {
     platform: "test",
     copyText: async () => undefined,
     copyImage: async () => undefined,
+    showNotification: async () => "dismissed",
+    setBadge: async () => undefined,
     onHostEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

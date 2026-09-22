@@ -2,6 +2,7 @@ import { render } from "@testing-library/react";
 import { ExtensionRegistry, type DesktopExtension, type HostExtensionBridge, type RegionPlacement, type WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ClientProfile } from "../../workbench/client-profile";
+import type { Platform } from "../../workbench/platform";
 import { Region, StatusLine } from "../components/Regions";
 import { createMemoryStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
@@ -26,9 +27,13 @@ export interface KitHarness {
  * Kits live outside `src/`, so this, `workspaceHostStub` and
  * `createFakeHostClient` are the only renderer modules their tests reach for.
  */
-export function createKitHarness(invoke?: HostExtensionBridge["invoke"], profile?: ClientProfile): KitHarness {
+export function createKitHarness(invoke?: HostExtensionBridge["invoke"], profile?: ClientProfile, platform?: Partial<Platform>): KitHarness {
   const preferences = new PreferencesStore();
-  const registry = new ExtensionRegistry({ invoke: invoke ?? (async () => undefined) }, { preferences, ...(profile ? { profile } : {}) });
+  const registry = new ExtensionRegistry({ invoke: invoke ?? (async () => undefined) }, {
+    preferences,
+    ...(profile ? { profile } : {}),
+    ...(platform ? { platform: () => platform as Platform } : {}),
+  });
   return { registry, preferences };
 }
 

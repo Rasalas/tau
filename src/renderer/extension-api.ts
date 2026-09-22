@@ -120,6 +120,8 @@ export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from ".
 /** The shape of a stage tab, as `actions.stageTabs()` hands it over. */
 export type { StageExtensionTab, StageFileTab, StageState, StageTab, StageThreadTab, StageView } from "../workbench/stage";
 export type { PreferencesStore } from "./preferences";
+/** What `context.attention` offers: a system notification and the app icon's badge. */
+export type { PlatformAttention, SystemNotification, SystemNotificationOutcome } from "../workbench/platform";
 export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity } from "./components/ThreadRow";
 /** The line seam of `ReviewMode`'s diffs. */

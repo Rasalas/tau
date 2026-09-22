@@ -31,6 +31,7 @@ import type { HostActionResult, NewThreadResult, TranscriptPage } from "../share
 import type { HostBootstrap } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
+import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
 /**
@@ -110,6 +111,10 @@ export interface HostClient {
   readonly platform: string;
   copyText(text: string): Promise<void>;
   copyImage(dataUrl: string): Promise<void>;
+  /** A notification the client's OS draws; resolves when it was clicked or dismissed. */
+  showNotification(notification: SystemNotification): Promise<SystemNotificationOutcome>;
+  /** The count on the client's app icon; 0 clears it. */
+  setBadge(count: number): Promise<void>;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
   /**
    * Whether the host announced a capability in its hello. `local-files` means
@@ -216,6 +221,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     platform: local?.platform ?? connection.platform,
     copyText: (text) => call<void>("copy-text", [text]),
     copyImage: (dataUrl) => call<void>("copy-image", [dataUrl]),
+    showNotification: (notification) => call<SystemNotificationOutcome>("notify", [notification]),
+    setBadge: (count) => call<void>("set-badge", [count]),
     onHostEvent: (listener) => connection.onEvent(listener),
     hasCapability: connection.hasCapability,
     getConnectionState: connection.getState,

@@ -16,7 +16,8 @@ export const HOST_PUSH_BUFFER_SIZE = 500;
 
 /**
  * Methods the machine a client runs on answers for itself: its clipboard, the
- * files it can preview, the workbench build it started from. A host in another
+ * files it can preview, the workbench build it started from, the notifications
+ * and the icon badge its OS draws. A host in another
  * process — or on another machine — has none of that, so a client that speaks
  * to one routes these to its own transport instead (ADR 0021).
  */
@@ -29,6 +30,8 @@ export const CLIENT_SIDE_METHODS = [
   "workbench-source",
   "relaunch-workbench",
   "install-update",
+  "notify",
+  "set-badge",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>

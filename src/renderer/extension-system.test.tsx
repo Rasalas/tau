@@ -2,8 +2,22 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PanelIcon } from "./components/PanelIcon";
-import { ExtensionRegistry } from "./extension-system";
+import { ExtensionRegistry, type DesktopExtensionContext } from "./extension-system";
+import type { Platform } from "../workbench/platform";
 import { PreferencesStore } from "./preferences";
+
+describe("what an extension may ask of the client's machine", () => {
+  it("reads the platform's attention when used, not when the extension activated", () => {
+    let platform: Platform | undefined;
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), platform: () => platform });
+    let context: DesktopExtensionContext | undefined;
+    registry.activate({ id: "test", name: "Test", activate(given) { context = given; } });
+    expect(context?.attention).toBeUndefined();
+    const attention = { notify: vi.fn(), setBadge: vi.fn() };
+    platform = { attention } as unknown as Platform;
+    expect(context?.attention).toBe(attention);
+  });
+});
 
 describe("ExtensionRegistry contribution selectors", () => {
   it("keeps sorted contribution references stable between reads", () => {
