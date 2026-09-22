@@ -14,6 +14,8 @@ export interface WindowAttentionPorts {
   reveal(): boolean;
   /** `app.setBadgeCount`: the dock on macOS, the launcher on Linux. */
   setBadgeCount(count: number): boolean;
+  /** What the OS was asked and what came of it, for the window's log. */
+  log?(label: string, detail?: unknown): void;
 }
 
 /**
@@ -27,13 +29,20 @@ export function createWindowAttention(ports: WindowAttentionPorts) {
   let next = 0;
   return {
     notify(input: SystemNotification): Promise<SystemNotificationOutcome> {
-      if (!ports.isSupported()) return Promise.resolve("unavailable");
+      if (!ports.isSupported()) {
+        ports.log?.("window-attention.notification", { tag: input.tag, outcome: "unavailable" });
+        return Promise.resolve("unavailable");
+      }
       const key = input.tag ?? `untagged-${next += 1}`;
       live.get(key)?.notification.close();
       return new Promise((resolve) => {
         const notification = ports.create({ title: input.title, ...(input.body ? { body: input.body } : {}) });
+        let settled = false;
         const settle = (outcome: SystemNotificationOutcome) => {
+          if (settled) return;
+          settled = true;
           if (live.get(key)?.notification === notification) live.delete(key);
+          ports.log?.("window-attention.notification", { tag: input.tag, outcome });
           resolve(outcome);
         };
         live.set(key, { notification, settle });
@@ -41,10 +50,12 @@ export function createWindowAttention(ports: WindowAttentionPorts) {
         notification.on("close", () => settle("dismissed"));
         notification.on("failed", () => settle("unavailable"));
         notification.show();
+        ports.log?.("window-attention.notification", { tag: input.tag, outcome: "shown" });
       });
     },
     setBadge(count: number): void {
-      ports.setBadgeCount(count);
+      const set = ports.setBadgeCount(count);
+      ports.log?.("window-attention.badge", { count, set });
     },
   };
 }

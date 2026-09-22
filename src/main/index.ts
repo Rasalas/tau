@@ -193,6 +193,7 @@ const windowAttention = createWindowAttention({
     return true;
   },
   setBadgeCount: (count) => app.setBadgeCount(count),
+  log: (label, detail) => hostLog.info(label, { ...detail as object, ...(app.dock ? { dock: app.dock.getBadge() } : {}) }),
 });
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
