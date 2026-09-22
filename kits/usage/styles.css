@@ -1,0 +1,40 @@
+/*
+ * Usage Kit's own rules: the controls row, the total tiles, the numeric
+ * columns and the source list. The page frame, the segmented control and the
+ * table are core's.
+ */
+
+.usage-controls { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+.usage-controls .segmented { flex: 1; }
+.usage-refresh {
+  border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2);
+  border-radius: var(--radius-sm); padding: 7px 12px; font-size: 11.5px; cursor: pointer; white-space: nowrap;
+}
+.usage-refresh:disabled { opacity: .5; cursor: default; }
+
+.usage-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.usage-tile { padding: 10px 12px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--inset); min-width: 0; }
+.usage-tile-label { font: 500 9.5px var(--mono); letter-spacing: .1em; color: var(--faint); }
+.usage-tile-value { margin-top: 4px; font: 600 18px var(--mono); color: var(--ink); }
+.usage-tile-detail { margin-top: 2px; font: 10px var(--mono); color: var(--muted-2); line-height: 1.5; }
+
+.usage-table-head { display: flex; align-items: center; gap: 10px; }
+.usage-table-head .segmented { flex: 1; max-width: 340px; letter-spacing: 0; }
+.usage-table-head .segmented > button { padding: 5px 0; font-size: 11px; }
+/* Fixed layout: the name column takes what the numbers leave, and a long path ellipsizes inside it. */
+.usage-table { table-layout: fixed; }
+.usage-table th.usage-number { width: 66px; }
+.usage-table td small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-table .usage-number { text-align: right; font-family: var(--mono); white-space: nowrap; padding-left: 8px; }
+
+.usage-sources { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.usage-sources > li { display: grid; grid-template-columns: 110px 90px 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line-soft); color: var(--ink-2); }
+.usage-sources > li > strong { font-weight: 500; }
+.usage-sources > li > span { color: var(--muted); word-break: break-word; }
+.usage-status {
+  justify-self: start; align-self: start; padding: 1px 6px; border-radius: var(--radius-xs);
+  font: 600 9px var(--mono); font-style: normal; letter-spacing: .06em; text-transform: uppercase;
+  background: var(--chip); color: var(--muted);
+}
+.usage-sources > li[data-status="ok"] .usage-status { background: var(--acid-chip); color: var(--acid-text); }
+.usage-sources > li[data-status="unavailable"] .usage-status { background: var(--warn-chip); color: var(--warn); }

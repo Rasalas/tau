@@ -523,6 +523,16 @@ the row's `session`. `refresh()` re-reads the project's changes and Git facts
 after another kit changed them. Review Kit fills both with the pull or merge
 request of the branch.
 
+A host half reaches another kit's host half with `context.invokeHostExtension(id,
+command, input)`, and only for a command the target registered with
+`{ callers: [<caller id>] }` (ADR 0020). Usage Kit (`kits/usage/`) is such a caller: a
+runtime backend that keeps its own per-thread totals answers a `usage` command
+granted to `tau.usage` with `{ threads: [{ threadId, cwd, model?, updatedAt, usage? }] }`,
+`usage` being a `UiThreadUsage`, read from the kit's own store and never from the
+provider. Claude Code and Antigravity answer it; a backend that adds it also adds
+its row to `BACKEND_USAGE_SOURCES` in `kits/usage/protocol.ts`, and one that does
+not answer is listed as not available.
+
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a
 pending draft's first prompt is sent, while the thread still does not exist. It

@@ -4,7 +4,7 @@ import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
 import { installAntigravity, resolveAntigravity, type AntigravityExecutable } from "./install.js";
 import { geminiConfigDirectory, readMcpServers } from "./mcp.js";
 import { browserCommand, linkUserSkills, prepareProfile, type AntigravityProfile } from "./profile.js";
-import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, type AntigravitySignInEvent } from "./protocol.js";
+import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, USAGE_KIT_ID, type AntigravitySignInEvent } from "./protocol.js";
 import { ANTIGRAVITY_RELEASE_VERSION, releaseAssetFor } from "./release.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
@@ -166,6 +166,19 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         }
         return { signedOut: true };
       }, { long: true });
+      // Each thread's running total, for the Usage kit; read from the store, never from Google.
+      context.registerCommand("usage", async () => ({
+        threads: (await store.list()).map((entry) => {
+          const model = entry.observedModel ?? entry.model;
+          return {
+            threadId: entry.tauThreadId,
+            cwd: entry.cwd,
+            updatedAt: entry.updatedAt,
+            ...(model ? { model } : {}),
+            ...(entry.usage ? { usage: { ...entry.usage } } : {}),
+          };
+        }),
+      }), { callers: [USAGE_KIT_ID] });
       return services.registerRuntimeBackend(provider);
     },
   };
