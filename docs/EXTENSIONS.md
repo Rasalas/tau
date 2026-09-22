@@ -657,7 +657,7 @@ command, input)`, and only for a command the target registered with
 runtime backend that keeps its own per-thread totals answers a `usage` command
 granted to `tau.usage` with `{ threads: [{ threadId, cwd, model?, updatedAt, usage? }] }`,
 `usage` being a `UiThreadUsage`, read from the kit's own store and never from the
-provider. Claude Code and Antigravity answer it; a backend that adds it also adds
+provider. Claude Code, Antigravity and Codex answer it; a backend that adds it also adds
 its row to `BACKEND_USAGE_SOURCES` in `kits/usage/protocol.ts`, and one that does
 not answer is listed as not available.
 
@@ -775,7 +775,8 @@ the live turn state, closes the fold of a turn, and brackets the turn with the
 turn observers, so checkpoints and status watchers do not care which program
 answers. `ask(prompt)` puts a blocking question on the workbench's dialog
 surface (the one Pi's extension dialogs use); aborting the thread answers it as
-cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005).
+cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005);
+`kits/codex/` shows the same seam over a CLI's own JSON-RPC server.
 
 `complete(request, model?)` asks a model for one short answer — a thread
 title, a branch name, a commit message. It runs on the user's own model
@@ -793,6 +794,23 @@ thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
 it defaults to the kind. The host publishes every installed backend, Pi first,
 as `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
 naming the one a client gets when it names none.
+
+A backend that drives a program the user installed may say which version that
+is: `version()` on the provider answers `{ tool, installed?, latest?,
+updateCommand? }` (`RuntimeToolVersion`), or `undefined` when it cannot tell.
+The host asks each backend once a day, never while a snapshot waits for it,
+and publishes the answer as `version` on that backend's `runtimeBackends` entry;
+the picker's runtime tab and Settings → Defaults then say that an update is
+out, with `updateCommand`, whenever `installed` is older than `latest`
+(`compareVersions`). `updateCommand` is what the user runs — a shell command,
+or where in Tau to click. For a CLI that npm publishes, `tau/host-extension`
+has the pieces: `npmLatestVersion(packageName, { cacheFile })` reads the
+registry's `latest` tag with one GET a day, cached in a file of the caller's
+(under `services.stateDir`), and never throws; `packageUpdateCommand(realPath,
+packageName)` names the Homebrew, npm, pnpm or bun command that owns an
+executable's resolved path, or `undefined` for the program's own updater. The
+registry request needs the `network` permission. Claude Code and Codex use
+both; Antigravity reports the release it pins.
 
 `services.sessions.start(options)` (`sessions`) creates a thread off screen:
 `cwd`, the first `prompt`, and optionally `title`, `model`, `parent` and

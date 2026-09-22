@@ -144,4 +144,39 @@ composer gate before a model is chosen or a prompt is sent, a model badge in
 the picker, and a region before the thread title. Switching the kit off
 removes the shield, the badge and the question.
 
+
+## Amendment, 2026-09-22: Codex, and the version of a runtime's program
+
+OpenAI's Codex CLI is the third external backend, `kits/codex/`. It speaks
+`codex app-server`, the JSON-RPC protocol over stdio that OpenAI's own
+editor integrations use, not `codex exec --json`: the app server keeps a
+thread across turns and processes (`thread/start`, `thread/resume` by Codex's
+thread id), streams items and deltas, and asks its client for approvals as
+requests (`item/commandExecution/requestApproval`,
+`item/fileChange/requestApproval`, `item/tool/requestUserInput`) that the kit
+answers through `ask`. `exec` has no such channel: it would run either
+unsandboxed without asking or sandboxed without a way to allow, and it
+resumes only by re-running a rollout. The protocol is marked experimental and
+its schema moves between releases, so the kit names the release it was built
+and tested against, codex-cli 0.154.0, and refuses an older CLI with the
+command that updates it. One app-server process runs per live thread; abort is
+`turn/interrupt`, a steer is `turn/steer` into the running turn. Tau's access
+levels map onto Codex's own policy: `read-only` is the read-only sandbox with
+approvals `never`, `ask` is `untrusted` in the workspace-write sandbox (every
+command outside Codex's known-safe list and every edit asks first), `full` is
+`never` without a sandbox, which is what a Pi thread at full access does. The
+login is the CLI's, `codex login` with a ChatGPT plan or an API key, and
+`CODEX_HOME` passes through, so the sessions land where the user's Codex keeps
+them. OpenAI allows the ChatGPT login in third-party tools, so no model is
+marked `login: "subscription"`.
+
+With three backends driving programs the user installs and updates, the seam
+gained `version()`: a backend reports `{ tool, installed, latest?,
+updateCommand }` and core asks once a day and publishes it on
+`runtimeBackends`, where the picker's runtime tab and Settings → Defaults say
+an update is out. The versions are the kits' to find — npm's `latest` for
+Claude Code and Codex, the pinned release for Antigravity — through two leaf
+helpers on `tau/host-extension` (`npmLatestVersion`, `packageUpdateCommand`).
+Nothing is ever updated by Tau; the hint names the command.
+
 Still open: the kit's status page.
