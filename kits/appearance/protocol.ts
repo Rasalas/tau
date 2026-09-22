@@ -12,6 +12,7 @@ export const SETTING_KEYS = {
   promptFontSize: "prompt-font-size",
   codeFontFamily: "code-font-family",
   codeFontSize: "code-font-size",
+  timestamps: "timestamps",
 } as const;
 
 export type Appearance = "light" | "dark";

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Upload, Wand2 } from "lucide-react";
 import { SettingRow, SettingsSection, useSetting, userThemes, type PreferencesStore, type SettingHandle, type SettingsPageProps, type UserTheme } from "tau";
-import { DENSITIES, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, cleanFontFamily, readContrast, readDensity, readSize, type Density } from "./apply.js";
+import { DENSITIES, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readContrast, readDensity, readSize, readTimestamps, type Density, type TimestampFormat } from "./apply.js";
 import { currentToken, draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./editor.js";
 import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance } from "./protocol.js";
 import { parseThemeCss } from "./theme-css.js";
@@ -9,6 +9,7 @@ import { importVsCodeTheme } from "./vscode-import.js";
 
 const DENSITY_LABELS: Record<Density, string> = { compact: "Compact", normal: "Normal", comfortable: "Comfortable" };
 const MODE_LABELS: Record<string, string> = { system: "System", light: "Light", dark: "Dark" };
+const TIMESTAMP_LABELS: Record<TimestampFormat, string> = { locale: "Locale", "12h": "12-hour", "24h": "24-hour" };
 const value = (key: string) => `values.${ID}.${key}`;
 const readString = (raw: unknown) => (typeof raw === "string" ? raw : undefined);
 
@@ -117,6 +118,7 @@ export function AppearancePage({ onNotify, preferences, editor }: SettingsPagePr
   const codeFamily = useSetting<string>(value(SETTING_KEYS.codeFontFamily), { defaultValue: "", read: readString, format: (next) => next || "System monospace" });
   const codeSize = useSetting<number | undefined>(value(SETTING_KEYS.codeFontSize), { defaultValue: undefined, read: readSize, write: String, format: (next) => (next ? `${next}px` : `${DEFAULT_CODE_FONT_SIZE}px`) });
 
+  const timestamps = useSetting<TimestampFormat>(value(SETTING_KEYS.timestamps), { defaultValue: "24h", read: readTimestamps, format: (next) => TIMESTAMP_LABELS[next] });
   const modes = ["system", "light", "dark", ...(MODE_LABELS[mode.value] ? [] : [mode.value])];
   const [contrastDraft, setContrastDraft] = useState(contrast.value);
   useEffect(() => setContrastDraft(contrast.value), [contrast.value]);
@@ -190,6 +192,17 @@ export function AppearancePage({ onNotify, preferences, editor }: SettingsPagePr
               onPointerUp={() => { if (contrastDraft !== contrast.value) contrast.set(contrastDraft); }}
               onKeyUp={() => { if (contrastDraft !== contrast.value) contrast.set(contrastDraft); }} />
           </span>}
+        />
+        <SettingRow
+          id="setting-appearance-timestamps"
+          title="Timestamps"
+          description="The clock message and tool times are written in; Locale follows this machine's region. Rows already on screen change when they are drawn again."
+          setting={timestamps}
+          control={<div className="segmented" role="group" aria-label="Timestamps">
+            {TIMESTAMP_FORMATS.map((next) => (
+              <button key={next} type="button" className={timestamps.value === next ? "active" : ""} aria-pressed={timestamps.value === next} onClick={() => timestamps.set(next)}>{TIMESTAMP_LABELS[next]}</button>
+            ))}
+          </div>}
         />
       </SettingsSection>
 

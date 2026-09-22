@@ -28,7 +28,7 @@ export const appearanceExtension: DesktopExtension = {
       order: 5,
       profiles: ["desktop", "web", "compact"],
       scope: "both",
-      keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "vs code", "colors", "colours"],
+      keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour"],
       Component: (props: SettingsPageProps) => <AppearancePage {...props} preferences={plugin.preferences} editor={editor} />,
     });
     // The title bar is always there, so the editor outlives the Settings page it was opened from.

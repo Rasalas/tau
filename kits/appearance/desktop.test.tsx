@@ -27,8 +27,10 @@ describe("the Appearance Kit applies what the preferences say", () => {
     preferences.setValue(ID, "contrast", "40");
     preferences.setValue(ID, "prompt-font-family", "JetBrains Mono; }");
     preferences.setValue(ID, "code-font-size", "15");
+    preferences.setValue(ID, "timestamps", "12h");
     const root = document.documentElement;
     expect(root.dataset.density).toBe("compact");
+    expect(root.dataset.timestamps).toBe("12h");
     expect(root.style.getPropertyValue("--prompt-font-family")).toBe("JetBrains Mono");
     expect(root.style.getPropertyValue("--code-font-scale")).toBe("1.25");
     expect(document.getElementById("tau-appearance")?.textContent).toContain("var(--ink) 14%");
@@ -70,7 +72,7 @@ describe("Settings → Appearance", () => {
     const { page } = renderPage();
     expect(page.scope).toBe("both");
     expect(page.keywords).toContain("density");
-    for (const title of ["Mode", "Light theme", "Dark theme", "Theme editor", "Density", "Contrast", "Interface font", "Prompt font", "Code font"]) {
+    for (const title of ["Mode", "Light theme", "Dark theme", "Theme editor", "Density", "Contrast", "Timestamps", "Interface font", "Prompt font", "Code font"]) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeTruthy();
     }
     expect(within(screen.getByRole("group", { name: "Density" })).getAllByRole("button").map((button) => button.textContent)).toEqual(["Compact", "Normal", "Comfortable"]);

@@ -4,6 +4,12 @@ import { parseThemeCss, runtimeCss } from "./theme-css.js";
 
 export const DENSITIES = ["compact", "normal", "comfortable"] as const;
 export type Density = (typeof DENSITIES)[number];
+export const TIMESTAMP_FORMATS = ["locale", "12h", "24h"] as const;
+export type TimestampFormat = (typeof TIMESTAMP_FORMATS)[number];
+
+export function readTimestamps(raw: unknown): TimestampFormat | undefined {
+  return TIMESTAMP_FORMATS.includes(raw as TimestampFormat) ? raw as TimestampFormat : undefined;
+}
 
 export interface AppearanceValues {
   density: Density;
@@ -14,6 +20,8 @@ export interface AppearanceValues {
   promptFontSize?: number;
   codeFontFamily: string;
   codeFontSize?: number;
+  /** Unset keeps core's 24-hour clock. */
+  timestamps?: TimestampFormat;
 }
 
 export const FONT_SIZE_RANGE = { min: 10, max: 22 } as const;
@@ -47,6 +55,7 @@ export function readAppearance(preferences: PreferencesStore): AppearanceValues 
     promptFontSize: readSize(value(SETTING_KEYS.promptFontSize)),
     codeFontFamily: value(SETTING_KEYS.codeFontFamily) ?? "",
     codeFontSize: readSize(value(SETTING_KEYS.codeFontSize)),
+    timestamps: readTimestamps(value(SETTING_KEYS.timestamps)),
   };
 }
 
@@ -70,6 +79,8 @@ export class AppearanceApplier {
     const root = this.doc.documentElement;
     if (values.density === "normal") delete root.dataset.density;
     else root.dataset.density = values.density;
+    if (values.timestamps) root.dataset.timestamps = values.timestamps;
+    else delete root.dataset.timestamps;
     const set = (name: string, value: string | undefined) => {
       if (value) root.style.setProperty(name, value);
       else root.style.removeProperty(name);
@@ -96,6 +107,7 @@ export class AppearanceApplier {
   dispose(): void {
     const root = this.doc.documentElement;
     delete root.dataset.density;
+    delete root.dataset.timestamps;
     for (const name of ["--prompt-font-family", "--prompt-font-size", "--code-font-family", "--code-font-scale"]) root.style.removeProperty(name);
     this.style?.remove();
     this.style = undefined;
