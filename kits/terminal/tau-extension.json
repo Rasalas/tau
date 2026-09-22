@@ -3,7 +3,7 @@
   "name": "Terminal",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.7.0"
+    "api": "^1.8.0"
   },
   "permissions": [
     "workspace:read",
