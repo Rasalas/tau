@@ -1,5 +1,5 @@
 import { EMPTY_PREVIEW_STATE, type PreviewState } from "./protocol.js";
-import type { PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./host.js";
+import type { PreviewRecordingChunks, PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./host.js";
 
 /** What every call to the window half answers with, so the host stays in step. */
 export interface PreviewSnapshot {
@@ -23,9 +23,15 @@ const EMPTY_SNAPSHOT: PreviewSnapshot = {
  */
 export function createRemotePreviewSurface(
   options: PreviewSurfaceOptions,
-  call: (command: string, input?: unknown) => Promise<unknown>,
-): PreviewSurface {
+  callWindow: (command: string, input?: unknown) => Promise<unknown>,
+): PreviewSurface & { open(): Promise<void> } {
   let snapshot = EMPTY_SNAPSHOT;
+  // Every call says which profile and workspace it is for; the window half has no other way to know.
+  const call = (command: string, input?: unknown): Promise<unknown> => callWindow(command, {
+    ...(input && typeof input === "object" ? input : {}),
+    partition: options.partition,
+    workspaceRoot: options.workspaceRoot(),
+  });
   const apply = (answer: unknown): PreviewSnapshot => {
     const next = answer as Partial<PreviewSnapshot> | undefined;
     if (next?.state) snapshot = { ...EMPTY_SNAPSHOT, ...next, state: next.state };
@@ -44,6 +50,7 @@ export function createRemotePreviewSurface(
   };
 
   return {
+    open: async () => { await run("open-view"); },
     accept: (next: PreviewSnapshot) => { apply(next); },
     zoomFactor: () => snapshot.zoomFactor,
     place: (rect: PreviewRect, visible: boolean) => send("place", { rect, visible }),
@@ -51,8 +58,9 @@ export function createRemotePreviewSurface(
     navigate: (action) => send("navigate", { action }),
     state: () => snapshot.state,
     viewport: () => snapshot.viewport,
-    evaluate: (expression: string) => run("evaluate", { expression }),
-    capture: async (maxWidth: number) => await run("capture", { maxWidth }) as { base64: string; width: number; height: number },
+    evaluate: (expression: string, isolated?: boolean) => run("evaluate", { expression, ...(isolated ? { isolated } : {}) }),
+    capture: async (maxWidth: number, rect?: PreviewRect) => await run("capture", { maxWidth, ...(rect ? { rect } : {}) }) as { base64: string; width: number; height: number },
+    record: async (action) => await run("record", { action }) as PreviewRecordingChunks,
     pressKey: (key: string) => send("press-key", { key }),
     destroy: () => send("destroy"),
   };

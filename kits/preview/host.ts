@@ -1,14 +1,37 @@
 import { Type, type TSchema } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { sep } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdir, open, type FileHandle } from "node:fs/promises";
+import { join, sep } from "node:path";
 import type { HostExtension, HostExtensionContext, RuntimeExtensionFactory } from "tau/host-extension";
 import {
   EMPTY_PREVIEW_STATE,
   PREVIEW_HOST_EXTENSION_ID,
   PREVIEW_STATE_EVENT,
   type PreviewBounds,
+  type PreviewImage,
+  type PreviewProfiles,
+  type PreviewRecording,
+  type PreviewServer,
   type PreviewState,
 } from "./protocol.js";
+import {
+  previewAnnotateCollect,
+  previewAnnotateEnd,
+  previewAnnotateStart,
+  previewDescribe,
+  previewPickArm,
+  previewPickCancel,
+  previewPickPoll,
+  previewSelector,
+  type PreviewAnnotationResult,
+  type PreviewAnnotationTool,
+  type PreviewPickPoll,
+  type PreviewPickedElement,
+} from "./page-overlay.js";
+import { pickCrop, readAnnotationResult, readPickedElement } from "./picks.js";
+import { probeHttp, scanPorts } from "./ports.js";
+import { PreviewProfileStore, profilePartition } from "./profiles.js";
 import {
   isPreviewRef,
   pageCall,
@@ -56,13 +79,24 @@ export interface PreviewSurface {
   navigate(action: "back" | "forward" | "reload"): void;
   state(): PreviewState;
   viewport(): { width: number; height: number };
-  evaluate(expression: string): Promise<unknown>;
-  capture(maxWidth: number): Promise<{ base64: string; width: number; height: number }>;
+  /** `isolated` runs it in a world of its own, where the page's scripts cannot reach its state. */
+  evaluate(expression: string, isolated?: boolean): Promise<unknown>;
+  /** `rect`, in the page's CSS pixels, cuts the capture to that part of the view. */
+  capture(maxWidth: number, rect?: PreviewRect): Promise<{ base64: string; width: number; height: number }>;
+  /** A webm recording of the view: `take` answers the chunks since the last call, base64. */
+  record(action: "start" | "take" | "stop"): Promise<PreviewRecordingChunks>;
   pressKey(key: string): void;
   destroy(): void;
 }
 
+export interface PreviewRecordingChunks {
+  chunks: string[];
+  mimeType: string;
+}
+
 export interface PreviewSurfaceOptions {
+  /** The session partition of the profile in use. */
+  partition: string;
   onChange(): void;
   /** Workspace of the thread being previewed; the only place `file://` may point into. */
   workspaceRoot(): string;
@@ -78,6 +112,41 @@ const TOOL_TIMEOUT_MS = 30_000;
 const SCREENSHOT_MAX_WIDTH = 1_280;
 const EVALUATE_MAX_CHARS = 20_000;
 const NO_DESKTOP = "Preview needs the Tau desktop app on this host";
+const PICK_POLL_MS = 200;
+const PICK_TIMEOUT_MS = 5 * 60_000;
+const PICK_IMAGE_MAX_WIDTH = 1_200;
+const RECORDING_DRAIN_MS = 1_000;
+const RECORDING_MAX_MS = 10 * 60_000;
+const RECORDING_MAX_BYTES = 500 * 1024 * 1024;
+const PORTS_FRESH_MS = 2_000;
+
+const delay = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
+
+/** A read-only probe of the machine; a tool that fails or is missing answers nothing. */
+function runReadOnly(command: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve) => {
+    execFile(command, [...args], { timeout: 5_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (_error, stdout) => {
+      // `lsof` exits 1 when one of several pids has nothing to show; its output still counts.
+      resolve(typeof stdout === "string" ? stdout : "");
+    });
+  });
+}
+
+const image = (shot: { base64: string; width: number; height: number }): PreviewImage =>
+  ({ data: shot.base64, width: shot.width, height: shot.height });
+
+interface ActiveRecording {
+  surface: PreviewSurface;
+  path: string;
+  name: string;
+  file: FileHandle;
+  since: number;
+  bytes: number;
+  mimeType: string;
+  timer: ReturnType<typeof setInterval>;
+  /** Writes happen in order; each drain waits for the one before. */
+  queue: Promise<void>;
+}
 
 /** A tool result that also carries Pi's error flag. */
 type ToolAnswer = AgentToolResult<unknown> & { isError?: boolean };
@@ -186,10 +255,27 @@ class PreviewController {
   /** False once this host proved it has no window to draw in. */
   private available = true;
 
+  private readonly profiles: PreviewProfileStore;
+
+  private mode: PreviewState["mode"];
+
+  /** Bumped whenever a pick is superseded, so its poll loop knows to stop. */
+  private pickToken = 0;
+
+  private recording: ActiveRecording | undefined;
+
+  private recordingNotice: string | undefined;
+
+  private shownUrl = "";
+
+  private portScan: { at: number; cwd: string; servers: Promise<PreviewServer[]> } | undefined;
+
   constructor(
     private readonly createSurface: PreviewSurfaceFactory,
     private readonly context: HostExtensionContext,
-  ) {}
+  ) {
+    this.profiles = new PreviewProfileStore(context.services.stateDir);
+  }
 
   /** The workspace of the thread whose runtime asked, which gates `file://`. */
   noteWorkspace(cwd: string): void {
@@ -199,7 +285,10 @@ class PreviewController {
   /** The view, created on first use; a host without a window has none. */
   async surface(): Promise<PreviewSurface> {
     if (this.view) return this.view;
+    const { active } = await this.profiles.read();
+    if (this.view) return this.view;
     const created = await this.createSurface({
+      partition: profilePartition(active),
       onChange: () => this.publish(),
       workspaceRoot: () => this.workspaceRoot,
       log: (label, detail) => this.context.services.log(label, detail),
@@ -215,7 +304,14 @@ class PreviewController {
   }
 
   state(): PreviewState {
-    return this.view?.state() ?? { ...EMPTY_PREVIEW_STATE, available: this.available };
+    const page = this.view?.state() ?? { ...EMPTY_PREVIEW_STATE, available: this.available };
+    return {
+      ...page,
+      profile: this.profiles.snapshot().active,
+      ...(this.mode ? { mode: this.mode } : {}),
+      ...(this.recording ? { recordingSince: this.recording.since } : {}),
+      ...(this.recordingNotice ? { recordingNotice: this.recordingNotice } : {}),
+    };
   }
 
   setBounds(bounds: PreviewBounds): void {
@@ -223,7 +319,10 @@ class PreviewController {
     if (this.view) this.view.place(previewRect(bounds, this.view.zoomFactor()), previewVisible(bounds));
   }
 
-  close(): PreviewState {
+  async close(): Promise<PreviewState> {
+    this.pickToken += 1;
+    this.mode = undefined;
+    await this.recordStop().catch(() => null);
     this.view?.destroy();
     this.view = undefined;
     this.publish();
@@ -239,6 +338,14 @@ class PreviewController {
 
   publish(): void {
     const state = this.state();
+    // A navigation took the annotation layer with the page it was drawn on.
+    if (state.url !== this.shownUrl) {
+      this.shownUrl = state.url;
+      if (this.mode === "annotate") {
+        this.mode = undefined;
+        return this.publish();
+      }
+    }
     const encoded = JSON.stringify(state);
     if (encoded === this.lastPublished) return;
     this.lastPublished = encoded;
@@ -267,6 +374,202 @@ class PreviewController {
   /** Runs a snippet in the page; the tools never touch the surface directly. */
   async evaluate(expression: string): Promise<unknown> {
     return (await this.surface()).evaluate(expression);
+  }
+
+  private async page(verb: string): Promise<PreviewSurface> {
+    const surface = await this.surface();
+    if (!surface.state().url) throw new Error(`Open a page before ${verb}.`);
+    return surface;
+  }
+
+  /**
+   * Arms pick mode and waits for the user: the element they clicked with an
+   * image of it, or `null` when they gave up, navigated or picked again.
+   */
+  async pick(): Promise<{ element: PreviewPickedElement; image?: PreviewImage } | null> {
+    const surface = await this.page("picking an element");
+    await this.annotateCancel();
+    const token = ++this.pickToken;
+    this.mode = "pick";
+    this.publish();
+    try {
+      await surface.evaluate(pageCall(previewPickArm, previewDescribe, previewSelector), true);
+      const deadline = Date.now() + PICK_TIMEOUT_MS;
+      for (;;) {
+        if (token !== this.pickToken || this.view !== surface) return null;
+        const poll = await surface.evaluate(pageCall(previewPickPoll), true) as PreviewPickPoll | undefined;
+        if (poll?.state === "done") {
+          const element = readPickedElement(poll.element);
+          if (!element) throw new Error("The page answered the pick with something that is not an element.");
+          const crop = pickCrop(element.rect, element.viewport);
+          const shot = crop ? await surface.capture(PICK_IMAGE_MAX_WIDTH, crop).catch(() => undefined) : undefined;
+          return { element, ...(shot ? { image: image(shot) } : {}) };
+        }
+        if (poll?.state !== "armed") return null;
+        if (Date.now() >= deadline) {
+          await surface.evaluate(pageCall(previewPickCancel), true).catch(() => undefined);
+          return null;
+        }
+        await delay(PICK_POLL_MS);
+      }
+    } finally {
+      if (token === this.pickToken) {
+        this.mode = undefined;
+        this.publish();
+      }
+    }
+  }
+
+  async cancelPick(): Promise<void> {
+    this.pickToken += 1;
+    if (this.mode === "pick") {
+      this.mode = undefined;
+      this.publish();
+    }
+    await this.view?.evaluate(pageCall(previewPickCancel), true).catch(() => undefined);
+  }
+
+  /** Starts annotate mode, or switches its tool. */
+  async annotate(tool: unknown): Promise<void> {
+    if (tool !== "rect" && tool !== "arrow" && tool !== "note") throw new Error("Annotate with rect, arrow or note.");
+    const surface = await this.page("annotating it");
+    if (this.mode === "pick") await this.cancelPick();
+    await surface.evaluate(pageCall(previewAnnotateStart, tool satisfies PreviewAnnotationTool), true);
+    this.mode = "annotate";
+    this.publish();
+  }
+
+  async annotateCancel(): Promise<void> {
+    if (this.mode !== "annotate") return;
+    this.mode = undefined;
+    this.publish();
+    await this.view?.evaluate(pageCall(previewAnnotateEnd), true).catch(() => undefined);
+  }
+
+  /** The marks and their notes, and the page with them drawn on it; the layer goes afterwards. */
+  async annotateSend(): Promise<{ annotations: PreviewAnnotationResult; image?: PreviewImage } | null> {
+    const surface = await this.page("annotating it");
+    try {
+      const annotations = readAnnotationResult(await surface.evaluate(pageCall(previewAnnotateCollect), true));
+      if (!annotations) return null;
+      const shot = await surface.capture(SCREENSHOT_MAX_WIDTH).catch(() => undefined);
+      return { annotations, ...(shot ? { image: image(shot) } : {}) };
+    } finally {
+      await surface.evaluate(pageCall(previewAnnotateEnd), true).catch(() => undefined);
+      this.mode = undefined;
+      this.publish();
+    }
+  }
+
+  async recordStart(): Promise<PreviewState> {
+    if (this.recording) return this.state();
+    const surface = await this.page("recording it");
+    const directory = join(this.context.services.stateDir, "recordings");
+    await mkdir(directory, { recursive: true });
+    const name = `preview-${new Date().toISOString().replace(/[:.]/gu, "-")}.webm`;
+    const path = join(directory, name);
+    const file = await open(path, "w");
+    let started: PreviewRecordingChunks;
+    try {
+      started = await surface.record("start");
+    } catch (error) {
+      await file.close();
+      throw error;
+    }
+    const timer = setInterval(() => this.drain(), RECORDING_DRAIN_MS);
+    timer.unref?.();
+    this.recordingNotice = undefined;
+    this.recording = { surface, path, name, file, since: Date.now(), bytes: 0, mimeType: started.mimeType || "video/webm", timer, queue: Promise.resolve() };
+    await this.write(this.recording, started.chunks);
+    this.publish();
+    return this.state();
+  }
+
+  private async write(recording: ActiveRecording, chunks: readonly string[]): Promise<void> {
+    for (const chunk of chunks) {
+      const bytes = Buffer.from(chunk, "base64");
+      await recording.file.write(bytes);
+      recording.bytes += bytes.length;
+    }
+  }
+
+  /** Moves what the recorder holds into the file; stops at the caps. */
+  private drain(): void {
+    const recording = this.recording;
+    if (!recording) return;
+    recording.queue = recording.queue.then(async () => {
+      if (this.recording !== recording) return;
+      try {
+        await this.write(recording, (await recording.surface.record("take")).chunks);
+      } catch (error) {
+        this.recordingNotice = `Recording stopped: ${error instanceof Error ? error.message : String(error)}`;
+        await this.recordStop().catch(() => null);
+        return;
+      }
+      const tooLong = Date.now() - recording.since >= RECORDING_MAX_MS;
+      if (tooLong || recording.bytes >= RECORDING_MAX_BYTES) {
+        const stopped = await this.recordStop().catch(() => null);
+        if (stopped) this.recordingNotice = `Recording stopped at ${tooLong ? "10 minutes" : "500 MB"}; saved to ${stopped.path}`;
+        this.publish();
+      }
+    });
+  }
+
+  async recordStop(): Promise<PreviewRecording | null> {
+    const recording = this.recording;
+    if (!recording) return null;
+    this.recording = undefined;
+    clearInterval(recording.timer);
+    try {
+      await recording.queue;
+      await this.write(recording, (await recording.surface.record("stop").catch(() => ({ chunks: [] as string[] }))).chunks);
+    } finally {
+      await recording.file.close();
+      this.publish();
+    }
+    return { path: recording.path, name: recording.name, size: recording.bytes, durationMs: Date.now() - recording.since, mimeType: recording.mimeType.split(";")[0] || "video/webm" };
+  }
+
+  async profileList(): Promise<PreviewProfiles> {
+    return this.profiles.read();
+  }
+
+  /** Another profile means another session, so the view is built again and the page reloaded in it. */
+  async useProfile(name: unknown): Promise<PreviewProfiles> {
+    const before = (await this.profiles.read()).active;
+    const profiles = await this.profiles.use(name);
+    if (profiles.active === before) return profiles;
+    const url = this.view?.state().url ?? "";
+    if (this.view) await this.close();
+    if (url && url !== "about:blank") await this.open(url).catch(() => undefined);
+    this.publish();
+    return profiles;
+  }
+
+  /** Local servers for the address bar; a scan a moment old is answered again. */
+  ports(cwd: unknown): Promise<PreviewServer[]> {
+    const root = typeof cwd === "string" && cwd ? cwd : this.workspaceRoot;
+    const cached = this.portScan;
+    if (cached && cached.cwd === root && Date.now() - cached.at < PORTS_FRESH_MS) return cached.servers;
+    const { services } = this.context;
+    const servers = scanPorts({
+      workspaceRoot: root,
+      platform: process.platform,
+      ownPids: new Set([process.pid, process.ppid]),
+      findCommand: (name) => services.findCommand(name),
+      run: (command, args) => {
+        services.noteSubprocess();
+        return runReadOnly(command, args);
+      },
+      probe: (url) => probeHttp(url),
+    }).catch(() => []);
+    this.portScan = { at: Date.now(), cwd: root, servers };
+    return servers;
+  }
+
+  dispose(): void {
+    this.pickToken += 1;
+    void this.close();
   }
 }
 
@@ -474,7 +777,7 @@ const electronSurface: PreviewSurfaceFactory = async (options) => {
   const call = options.callClient;
   const surface = createRemotePreviewSurface(options, (command, input) => call(command, input));
   // The view exists once the window half made it; a refused call means no window.
-  await call("open-view");
+  await surface.open();
   return surface;
 };
 
@@ -487,7 +790,7 @@ export function createPreviewHostExtension(createSurface: PreviewSurfaceFactory 
   return {
     id: PREVIEW_HOST_EXTENSION_ID,
     name: "Preview",
-    permissions: ["runtime:extend"],
+    permissions: ["runtime:extend", "process", "network"],
     activate(context: HostExtensionContext) {
       const controller = new PreviewController(createSurface, context);
       context.registerCommand("open", (input) => controller.open((input as { url?: unknown } | undefined)?.url));
@@ -497,13 +800,24 @@ export function createPreviewHostExtension(createSurface: PreviewSurfaceFactory 
       context.registerCommand("state", () => controller.state());
       // The window half reports what the page did; core only routes it here.
       context.registerCommand("view-changed", (input) => controller.acceptRemoteState(input));
+      const field = (input: unknown, key: string): unknown => input && typeof input === "object" ? (input as Record<string, unknown>)[key] : undefined;
+      context.registerCommand("ports", (input) => controller.ports(field(input, "cwd")));
+      context.registerCommand("pick", () => controller.pick());
+      context.registerCommand("pick-cancel", () => controller.cancelPick());
+      context.registerCommand("annotate", (input) => controller.annotate(field(input, "tool")));
+      context.registerCommand("annotate-cancel", () => controller.annotateCancel());
+      context.registerCommand("annotate-send", () => controller.annotateSend());
+      context.registerCommand("record-start", () => controller.recordStart());
+      context.registerCommand("record-stop", () => controller.recordStop());
+      context.registerCommand("profiles", () => controller.profileList());
+      context.registerCommand("use-profile", (input) => controller.useProfile(field(input, "name")));
 
       const factory: RuntimeExtensionFactory = (pi, session) => {
         controller.noteWorkspace(session.cwd);
         for (const tool of previewTools(controller)) pi.registerTool(tool);
       };
       const release = context.services.registerRuntimeExtension("tau-preview", factory);
-      return () => { release(); controller.close(); };
+      return () => { release(); controller.dispose(); };
     },
   };
 }

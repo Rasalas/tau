@@ -3,10 +3,12 @@
   "name": "Preview",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.8.0"
+    "api": "^1.9.0"
   },
   "permissions": [
-    "runtime:extend"
+    "runtime:extend",
+    "process",
+    "network"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

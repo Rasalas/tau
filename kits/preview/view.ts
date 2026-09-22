@@ -1,13 +1,16 @@
 import { BrowserWindow, WebContentsView, session, shell } from "electron";
 import { sep } from "node:path";
-import type { PreviewState } from "./protocol.js";
+import { EMPTY_PREVIEW_STATE, type PreviewState } from "./protocol.js";
 import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
 import type { PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./host.js";
 import type { PreviewSnapshot } from "./remote-surface.js";
+import { PreviewRecorder } from "./recorder.js";
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
-const PARTITION = "persist:tau-preview";
+const DEFAULT_PARTITION = "persist:tau-preview";
 const MAX_ERRORS = 50;
+/** Pick and annotate run here, apart from the page's own scripts. */
+const ISOLATED_WORLD = 1_022;
 
 /** A preview may read the workspace it belongs to, and nothing else on the disk. */
 export function fileUrlAllowed(url: string, workspaceRoot: string): boolean {
@@ -32,7 +35,9 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
   const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   if (!window || window.isDestroyed()) return undefined;
 
-  const previewSession = session.fromPartition(PARTITION);
+  // A profile is a partition: its own cookies, storage and cache.
+  const partition = options.partition || DEFAULT_PARTITION;
+  const previewSession = session.fromPartition(partition);
   previewSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   previewSession.setPermissionCheckHandler(() => false);
   previewSession.webRequest.onBeforeRequest({ urls: ["file://*/*"] }, (details, callback) =>
@@ -40,7 +45,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
 
   const view = new WebContentsView({
     webPreferences: {
-      partition: PARTITION,
+      partition,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -58,6 +63,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
 
   const errors: string[] = [];
   let destroyed = false;
+  let recorder: PreviewRecorder | undefined;
   const note = (message: string): void => {
     errors.push(message.slice(0, 400));
     if (errors.length > MAX_ERRORS) errors.splice(0, errors.length - MAX_ERRORS);
@@ -122,8 +128,9 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       else contents.navigationHistory.goForward();
     },
     state(): PreviewState {
-      if (destroyed) return { url: "", title: "", loading: false, canGoBack: false, canGoForward: false, consoleErrors: [], available: true };
+      if (destroyed) return { ...EMPTY_PREVIEW_STATE };
       return {
+        ...EMPTY_PREVIEW_STATE,
         url: contents.getURL(),
         title: contents.getTitle(),
         loading: contents.isLoading(),
@@ -138,15 +145,29 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       const zoom = surface.zoomFactor();
       return { width: Math.round(bounds.width / zoom), height: Math.round(bounds.height / zoom) };
     },
-    evaluate: (expression: string) => contents.executeJavaScript(expression, true),
-    async capture(maxWidth: number) {
-      const image = await contents.capturePage();
+    evaluate: (expression: string, isolated?: boolean) => isolated
+      ? contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: expression }], true)
+      : contents.executeJavaScript(expression, true),
+    async capture(maxWidth: number, rect?: PreviewRect) {
+      const image = rect ? await contents.capturePage(rect) : await contents.capturePage();
       const size = image.getSize();
       const scaled = size.width > maxWidth
         ? image.resize({ width: maxWidth, height: Math.max(1, Math.round(size.height * (maxWidth / size.width))), quality: "good" })
         : image;
       const final = scaled.getSize();
       return { base64: scaled.toPNG().toString("base64"), width: final.width, height: final.height };
+    },
+    async record(action) {
+      if (destroyed) throw new Error("The preview is closed.");
+      if (action === "start") {
+        recorder ??= new PreviewRecorder(contents);
+        return recorder.start();
+      }
+      const active = recorder;
+      if (!active) return { chunks: [], mimeType: "video/webm" };
+      if (action === "take") return active.take();
+      recorder = undefined;
+      return active.stop();
     },
     pressKey(key: string) {
       contents.focus();
@@ -157,14 +178,24 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      recorder?.dispose();
+      recorder = undefined;
       window.off("closed", closeWithWindow);
       if (!window.isDestroyed()) window.contentView.removeChildView(view);
       if (!contents.isDestroyed()) contents.close();
       options.log("preview.closed");
     },
   };
-  options.log("preview.opened", PARTITION);
+  options.log("preview.opened", partition);
   return surface;
+}
+
+function readRect(value: unknown): PreviewRect | undefined {
+  const rect = value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+  if (!rect) return undefined;
+  const [x, y, width, height] = [rect.x, rect.y, rect.width, rect.height].map((part) => typeof part === "number" && Number.isFinite(part) ? Math.round(part) : Number.NaN);
+  if ([x, y, width, height].some(Number.isNaN) || width! < 1 || height! < 1) return undefined;
+  return { x: x!, y: y!, width: width!, height: height! };
 }
 
 /** What the window half answers with: the state the host caches between calls. */
@@ -185,11 +216,13 @@ function snapshot(surface: PreviewSurface, result?: unknown): PreviewSnapshot {
  */
 export default function activatePreviewWindowHalf(context: WindowExtensionContext): WindowExtension {
   let surface: PreviewSurface | undefined;
+  let partition = DEFAULT_PARTITION;
   let workspaceRoot = "";
 
   const open = (): PreviewSurface => {
     if (surface) return surface;
     const created = createElectronPreviewSurface({
+      partition,
       onChange: () => {
         if (surface) void context.invokeHost("view-changed", snapshot(surface)).catch(() => undefined);
       },
@@ -208,6 +241,12 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
     handle(command: string, input?: unknown): unknown {
       const options = fields(input);
       if (typeof options.workspaceRoot === "string") workspaceRoot = options.workspaceRoot;
+      // Another profile needs a view in another session; the host reloads the page in it.
+      if (typeof options.partition === "string" && options.partition && options.partition !== partition) {
+        partition = options.partition;
+        surface?.destroy();
+        surface = undefined;
+      }
       switch (command) {
         case "open-view":
           return snapshot(open());
@@ -220,9 +259,13 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
           open().navigate(options.action as "back" | "forward" | "reload");
           return snapshot(open());
         case "evaluate":
-          return open().evaluate(String(options.expression ?? "")).then((result) => snapshot(surface!, result));
+          return open().evaluate(String(options.expression ?? ""), options.isolated === true).then((result) => snapshot(surface!, result));
         case "capture":
-          return open().capture(Number(options.maxWidth ?? 1_280)).then((result) => snapshot(surface!, result));
+          return open().capture(Number(options.maxWidth ?? 1_280), readRect(options.rect)).then((result) => snapshot(surface!, result));
+        case "record": {
+          const action = options.action === "start" || options.action === "stop" ? options.action : "take";
+          return open().record(action).then((result) => snapshot(surface!, result));
+        }
         case "press-key":
           open().pressKey(String(options.key ?? ""));
           return snapshot(open());

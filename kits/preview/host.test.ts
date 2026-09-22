@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { GlobalHostEvent, RuntimeExtensionContribution } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
-import { PREVIEW_HOST_EXTENSION_ID } from "./protocol.js";
+import { EMPTY_PREVIEW_STATE, PREVIEW_HOST_EXTENSION_ID, type PreviewRecording, type PreviewState } from "./protocol.js";
 import {
   createPreviewHostExtension,
   normalizePreviewUrl,
@@ -11,6 +14,7 @@ import {
   readPreviewBounds,
   type PreviewRect,
   type PreviewSurface,
+  type PreviewSurfaceOptions,
 } from "./host.js";
 
 function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
@@ -22,10 +26,11 @@ function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
     place: (rect, visible) => { placed.push({ rect, visible }); },
     load: async (url) => { loaded.push(url); },
     navigate: () => undefined,
-    state: () => ({ url: loaded.at(-1) ?? "", title: "Fixture", loading: false, canGoBack: false, canGoForward: false, consoleErrors: [], available: true }),
+    state: () => ({ ...EMPTY_PREVIEW_STATE, url: loaded.at(-1) ?? "", title: "Fixture" }),
     viewport: () => ({ width: 800, height: 600 }),
     evaluate: async (expression) => { evaluated.push(expression); return { ok: true, detail: "done" }; },
     capture: async () => ({ base64: "UE5H", width: 800, height: 600 }),
+    record: async () => ({ chunks: [], mimeType: "video/webm" }),
     pressKey: () => undefined,
     destroy: () => undefined,
     ...overrides,
@@ -34,10 +39,13 @@ function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
 }
 
 /** Activates the kit and returns its Pi tools, as a thread's runtime would see them. */
-async function activate(createSurface: () => Promise<PreviewSurface | undefined>, cwd = "/project") {
+async function activate(createSurface: (options: PreviewSurfaceOptions) => Promise<PreviewSurface | undefined>, cwd = "/project", stateDir = "/state") {
   const events: GlobalHostEvent[] = [];
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
   const registry = await activateHostKit(createPreviewHostExtension(createSurface), {
+    stateDir,
+    findCommand: () => undefined,
+    noteSubprocess: () => undefined,
     registerRuntimeExtension: (name: string, factory: RuntimeExtensionContribution["factory"]) => {
       runtimeExtensions.push({ name, factory });
       return () => undefined;
@@ -181,5 +189,138 @@ describe("preview panel commands", () => {
     expect(destroy).not.toHaveBeenCalled();
     await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close", undefined);
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+const scratch: string[] = [];
+afterEach(async () => {
+  await Promise.all(scratch.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+
+async function stateDirectory(): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), "tau-preview-test-"));
+  scratch.push(path);
+  return path;
+}
+
+const PICKED = {
+  url: "http://localhost:8000/",
+  title: "Fixture",
+  selector: "#save",
+  tag: "button",
+  text: "Save",
+  rect: { x: 40, y: 20, width: 80, height: 30 },
+  html: "<button id=\"save\">Save</button>",
+  viewport: { width: 800, height: 600 },
+};
+
+describe("pick mode", () => {
+  it("arms the page, waits for the click and cuts the element out of a capture", async () => {
+    const captured: Array<PreviewRect | undefined> = [];
+    const isolated: boolean[] = [];
+    let polls = 0;
+    const { surface } = fakeSurface({
+      evaluate: async (expression, inWorld) => {
+        isolated.push(inWorld === true);
+        if (expression.includes("previewPickPoll")) return ++polls < 2 ? { state: "armed" } : { state: "done", element: PICKED };
+        return true;
+      },
+      capture: async (_maxWidth, rect) => { captured.push(rect); return { base64: "Q1JPUA==", width: 96, height: 46 }; },
+    });
+    const kit = await activate(async () => surface);
+    await kit.call("preview_open", { url: "http://localhost:8000" });
+    const picked = await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "pick", undefined);
+    expect(picked).toEqual({ element: PICKED, image: { data: "Q1JPUA==", width: 96, height: 46 } });
+    expect(captured).toEqual([{ x: 32, y: 12, width: 96, height: 46 }]);
+    // Pick mode runs apart from the page's own scripts.
+    expect(isolated.every(Boolean)).toBe(true);
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined)).resolves.not.toHaveProperty("mode");
+  });
+
+  it("answers null when the user gave up or the page went away", async () => {
+    const { surface } = fakeSurface({ evaluate: async (expression) => expression.includes("previewPickPoll") ? { state: "missing" } : true });
+    const kit = await activate(async () => surface);
+    await kit.call("preview_open", { url: "http://localhost:8000" });
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "pick", undefined)).resolves.toBeNull();
+  });
+
+  it("refuses what is not an element and needs a page first", async () => {
+    const { surface } = fakeSurface({ evaluate: async (expression) => expression.includes("previewPickPoll") ? { state: "done", element: { tag: 1 } } : true });
+    const kit = await activate(async () => surface);
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "pick", undefined)).rejects.toThrow(/Open a page before picking/u);
+    await kit.call("preview_open", { url: "http://localhost:8000" });
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "pick", undefined)).rejects.toThrow(/not an element/u);
+  });
+});
+
+describe("annotate mode", () => {
+  it("collects the marks, captures the page with them and takes the layer down", async () => {
+    const evaluated: string[] = [];
+    const annotations = { url: "http://localhost:8000/", title: "Fixture", viewport: { width: 800, height: 600 }, items: [{ n: 1, kind: "rect", x: 10, y: 10, width: 100, height: 50, note: "too wide" }] };
+    const { surface } = fakeSurface({
+      evaluate: async (expression) => {
+        evaluated.push(expression);
+        return expression.includes("previewAnnotateCollect") ? annotations : true;
+      },
+    });
+    const kit = await activate(async () => surface);
+    await kit.call("preview_open", { url: "http://localhost:8000" });
+    await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "annotate", { tool: "arrow" });
+    expect(evaluated.at(-1)).toMatch(/previewAnnotateStart[\s\S]*\("arrow"\)$/u);
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined)).resolves.toMatchObject({ mode: "annotate" });
+    const sent = await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "annotate-send", undefined);
+    expect(sent).toEqual({ annotations, image: { data: "UE5H", width: 800, height: 600 } });
+    expect(evaluated.at(-1)).toContain("previewAnnotateEnd");
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "annotate", { tool: "circle" })).rejects.toThrow(/rect, arrow or note/u);
+  });
+});
+
+describe("recording", () => {
+  it("writes the chunks the view hands over into a webm under the kit's state", async () => {
+    const stateDir = await stateDirectory();
+    const record = vi.fn(async (action: "start" | "take" | "stop") => ({
+      chunks: action === "start" ? [] : [Buffer.from(action === "take" ? "one," : "two").toString("base64")],
+      mimeType: "video/webm;codecs=vp9",
+    }));
+    const { surface } = fakeSurface({ record });
+    const kit = await activate(async () => surface, "/project", stateDir);
+    await kit.call("preview_open", { url: "http://localhost:8000" });
+    const started = await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-start", undefined) as PreviewState;
+    expect(started.recordingSince).toEqual(expect.any(Number));
+    const saved = await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-stop", undefined) as PreviewRecording;
+    expect(record.mock.calls.map(([action]) => action)).toEqual(["start", "stop"]);
+    expect(saved.path.startsWith(join(stateDir, PREVIEW_HOST_EXTENSION_ID, "recordings", "preview-"))).toBe(true);
+    expect(saved).toMatchObject({ mimeType: "video/webm", size: 3 });
+    await expect(readFile(saved.path, "utf8")).resolves.toBe("two");
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-stop", undefined)).resolves.toBeNull();
+  });
+});
+
+describe("profiles", () => {
+  it("builds the view again in the new profile's partition and reloads the page there", async () => {
+    const stateDir = await stateDirectory();
+    const partitions: string[] = [];
+    const surfaces: Array<ReturnType<typeof fakeSurface>> = [];
+    const kit = await activate(async (options) => {
+      partitions.push(options.partition);
+      const made = fakeSurface();
+      surfaces.push(made);
+      return made.surface;
+    }, "/project", stateDir);
+    await kit.call("preview_open", { url: "http://localhost:8000" });
+    const profiles = await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: "Logged In" });
+    expect(profiles).toEqual({ profiles: ["default", "logged-in"], active: "logged-in" });
+    expect(partitions).toEqual(["persist:tau-preview", "persist:tau-preview-logged-in"]);
+    expect(surfaces[1]!.loaded).toEqual(["http://localhost:8000/"]);
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined)).resolves.toMatchObject({ profile: "logged-in" });
+    await expect(readFile(join(stateDir, PREVIEW_HOST_EXTENSION_ID, "profiles.json"), "utf8")).resolves.toContain("logged-in");
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: " ! " })).rejects.toThrow(/needs a name/u);
+  });
+});
+
+describe("port discovery", () => {
+  it("answers no servers on a machine without lsof or netstat", async () => {
+    const kit = await activate(async () => undefined);
+    await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "ports", { cwd: "/project" })).resolves.toEqual([]);
   });
 });
