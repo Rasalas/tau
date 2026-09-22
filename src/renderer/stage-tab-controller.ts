@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
+  activeTab,
   closeTab,
   extensionTabId,
   openExtensionTab,
@@ -49,6 +50,8 @@ export class StageTabController {
   constructor(private readonly ports: StageTabPorts) {}
 
   tabs = (): readonly StageTab[] => this.ports.stage().tabs;
+
+  active = (): StageTab | undefined => activeTab(this.ports.stage());
 
   /** The handle a tab's content talks to core through; one per tab, kept while it lives. */
   handle = (id: string): StageTabHandle => {

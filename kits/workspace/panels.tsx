@@ -5,12 +5,14 @@ import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
 interface FlatNode { node: FileNode; depth: number; }
 
-function FileTree({ nodes, changedPaths, activePath, loadFiles, openFile }: {
+function FileTree({ nodes, changedPaths, activePath, loadFiles, openFile, editFile }: {
   nodes: FileNode[];
   changedPaths: Set<string>;
   activePath?: string;
   loadFiles(path: string): Promise<FileNode[]>;
   openFile(path: string, options?: { pin?: boolean }): void;
+  /** A kit that edits files takes the double-click; false leaves it to the stage. */
+  editFile(path: string): boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState<Set<string>>(() => new Set());
@@ -61,7 +63,7 @@ function FileTree({ nodes, changedPaths, activePath, loadFiles, openFile }: {
           style={{ marginLeft: `${depth * 16}px`, width: `calc(100% - ${depth * 16}px)` }}
           aria-current={active ? "true" : undefined}
           onClick={() => void toggle(node)}
-          onDoubleClick={() => { if (node.kind === "file") openFile(node.path, { pin: true }); }}
+          onDoubleClick={() => { if (node.kind === "file" && !editFile(node.path)) openFile(node.path, { pin: true }); }}
           title={node.path}
         >
           <span className="file-disclosure">{node.kind === "directory" ? (pending ? "…" : open ? <ChevronDown size={11} /> : <ChevronRight size={11} />) : null}</span>
@@ -91,7 +93,7 @@ export function FilesPanel({ active, extensionName }: PanelProps) {
       <span className="spacer" />
       <button className="text-button" onClick={() => void refreshFiles()}>refresh</button>
     </header>
-    <FileTree nodes={fileTree} changedPaths={changedPaths} activePath={activePath} loadFiles={loadFiles} openFile={openFile} />
+    <FileTree nodes={fileTree} changedPaths={changedPaths} activePath={activePath} loadFiles={loadFiles} openFile={openFile} editFile={(path) => workspaceStore.editFile(path)} />
   </section>;
 }
 

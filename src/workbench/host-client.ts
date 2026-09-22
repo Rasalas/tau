@@ -9,6 +9,7 @@ import type {
   ShellActionResult,
   ThreadTreeNavigationResult,
   UiImagePreview,
+  UiSharedFile,
   UiPromptAttachment,
   UiSkillDraft,
   UiThreadTree,
@@ -69,6 +70,8 @@ export interface HostClient {
   readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
   copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
+  /** A `tau-ext:` URL for a workspace PDF, image, audio or video; the window's own process serves it. */
+  shareFile(path: string): Promise<UiSharedFile>;
 
   // Model, thinking level, and context for the active thread.
   setModel(provider: string, id: string): Promise<HostActionResult>;
@@ -176,6 +179,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       if (typeof markdown === "string" && markdown) await call<void>("copy-text", [markdown]);
     },
     readImagePreview: (path) => call<UiImagePreview | undefined>("read-image-preview", [path]),
+    shareFile: (path) => call<UiSharedFile>("share-file", [path]),
 
     setModel: (provider, id) => call<HostActionResult>("set-model", [provider, id]),
     setThinkingLevel: (level) => call<HostActionResult>("set-thinking", [level]),

@@ -11,6 +11,7 @@ import { readBoundedImagePreview } from "./image-preview.js";
 import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } from "./extension-bundle-server.js";
+import { SharedFileStore } from "./shared-files.js";
 import { rebuildWorkbench } from "./workbench-build.js";
 import { WorkbenchReloader } from "./workbench-reloader.js";
 import { ManagedWorkbenchSource } from "./managed-workbench-source.js";
@@ -195,6 +196,8 @@ const windowAttention = createWindowAttention({
   setBadgeCount: (count) => app.setBadgeCount(count),
   log: (label, detail) => hostLog.info(label, { ...detail as object, ...(app.dock ? { dock: app.dock.getBadge() } : {}) }),
 });
+/** Workspace files the page loads by URL; only a host on this machine has files here to serve. */
+const sharedFiles = new SharedFileStore(() => remoteHostUrl ? undefined : windowHost?.activeWorkspace || host?.activeWorkspacePath());
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
 
@@ -432,6 +435,7 @@ function createLocalHostMethods(): HostMethodTable {
         clipboard.writeImage(image);
       },
       readImagePreview: rendererImagePreview,
+      shareFile: (path) => sharedFiles.share(path),
       // The kits Tau ships are listed beside the installed packages, marked
       // `bundled`; safe mode loads none of them and reports none.
       inspectExtensions: async (cwd) => {
@@ -495,6 +499,7 @@ function createWindowPlatform(): ClientHostPlatform {
       clipboard.writeImage(image);
     },
     readImagePreview: rendererImagePreview,
+    shareFile: (path) => sharedFiles.share(path),
     loadDesktopExtensions: async (cwd, sharedExports, only) =>
       windowHost!.loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only)),
     rebuildWorkbench: async (context) => runRebuild(context, windowHost?.activeWorkspace ?? requestedWorkspace ?? ""),
@@ -572,7 +577,7 @@ if (primaryInstance) app.whenReady().then(async () => {
   });
   installUpdateMenuItem(() => void updates?.checkForUpdates());
   updates.checkOnStartup();
-  serveDesktopBundles(desktopBundles);
+  serveDesktopBundles(desktopBundles, sharedFiles);
   // Nothing in the workbench asks for a camera, a microphone or a location, and
   // an extension rendering inside it must not be able to ask on its behalf.
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));

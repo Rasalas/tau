@@ -16,7 +16,7 @@ export const HOST_PUSH_BUFFER_SIZE = 500;
 
 /**
  * Methods the machine a client runs on answers for itself: its clipboard, the
- * files it can preview, the workbench build it started from, the notifications
+ * files it can preview or hand the page by URL, the workbench build it started from, the notifications
  * and the icon badge its OS draws. A host in another
  * process — or on another machine — has none of that, so a client that speaks
  * to one routes these to its own transport instead (ADR 0021).
@@ -25,6 +25,7 @@ export const CLIENT_SIDE_METHODS = [
   "copy-text",
   "copy-image",
   "read-image-preview",
+  "share-file",
   "desktop-extensions",
   "rebuild-workbench",
   "workbench-source",

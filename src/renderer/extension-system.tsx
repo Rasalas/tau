@@ -16,6 +16,7 @@ import type {
   UiSession,
   UiPromptAttachment,
   UiPromptImageAttachment,
+  UiSharedFile,
   UiToolRun,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -76,6 +77,8 @@ export interface WorkbenchActions {
   closeStageTab(id: string): void;
   /** Every tab on the stage, in strip order. */
   stageTabs(): readonly StageTab[];
+  /** The tab the stage shows, of any kind; what a `file-tab` command acts on. */
+  activeStageTab?(): StageTab | undefined;
   /** Runs a shell command the way Pi's `!` does; output goes to the thread when asked. */
   runShellAction(command: string, includeInContext: boolean): Promise<ShellActionResult>;
   /** Keeps the composer from submitting until the returned release is called. */
@@ -100,6 +103,13 @@ export interface WorkbenchActions {
   copyText(text: string): Promise<void>;
   /** Opens a URL outside the workbench, in whatever the client calls a browser. */
   openExternal(url: string): void;
+  /**
+   * A URL the page may load a workspace PDF, image, audio or video from, for
+   * an `<iframe>`, `<img>`, `<audio>` or `<video>`. Nothing outside the open
+   * workspace and no other type gets one; undefined on a client whose host's
+   * files are not on its own machine.
+   */
+  shareFile?(path: string): Promise<UiSharedFile | undefined>;
   /** Shows a registered overlay in place of the workbench; `closeOverlay` returns. */
   openOverlay(id: string): void;
   closeOverlay(): void;
@@ -505,7 +515,8 @@ export interface PaletteSourceContribution {
   search(query: string, context: PaletteSearchContext): readonly PaletteItem[] | Promise<readonly PaletteItem[]>;
 }
 
-export type CommandSurface = "thread-title";
+/** `thread-title` is the thread title's menu; `file-tab` a button in a file tab's header, which reads the tab from `actions.activeStageTab()`. */
+export type CommandSurface = "thread-title" | "file-tab";
 
 export interface CommandContribution {
   id: string;

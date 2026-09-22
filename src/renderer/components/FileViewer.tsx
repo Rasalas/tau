@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff } from "../../shared/workspace-kit-types";
 import type { StageFileTab, StageView } from "../../workbench/stage";
+import type { CommandContribution, WorkbenchActions } from "../extension-system";
+import { errorMessage } from "../../workbench/error-message";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
 import { DiffPane } from "./DiffPane";
 
@@ -70,12 +72,15 @@ function SourceView({ content, line, reveal }: { content: UiFileContent; line?: 
   </div>;
 }
 
-export function FileViewer({ tab, relativePath, changed, editor, loadFile, loadDiff, onChangeView, onOpenInEditor }: {
+export function FileViewer({ tab, relativePath, changed, editor, commands = [], actions, loadFile, loadDiff, onChangeView, onOpenInEditor }: {
   tab: StageFileTab;
   relativePath: string;
   /** The working tree differs from HEAD for this file, so a diff exists. */
   changed: boolean;
   editor?: UiEditor;
+  /** Commands an extension offers on the `file-tab` surface; they read the tab from `actions.activeStageTab()`. */
+  commands?: readonly CommandContribution[];
+  actions?: WorkbenchActions;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   onChangeView(view: StageView): void;
@@ -118,6 +123,13 @@ export function FileViewer({ tab, relativePath, changed, editor, loadFile, loadD
           <button className={mode === "split" ? "active" : ""} onClick={() => setMode("split")}>Split</button>
         </div>
       ) : null}
+      {actions ? commands.map((command) => (
+        <button
+          key={command.id}
+          className="text-button"
+          onClick={() => { Promise.resolve(command.run(actions)).catch((reason: unknown) => actions.notify(errorMessage(reason))); }}
+        >{command.label}</button>
+      )) : null}
       {editor ? (
         <button className="text-button" title={`Open in ${editor.name}`} onClick={() => onOpenInEditor(tab.path)}>
           <span>Open in {editor.name}</span> <ExternalLink size={11} />

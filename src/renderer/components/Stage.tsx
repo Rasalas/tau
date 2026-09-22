@@ -122,6 +122,8 @@ export function Stage({
         relativePath={relativeTo(cwd, current.path)}
         changed={changedRelative.has(relativeTo(cwd, current.path))}
         editor={editor}
+        commands={registry?.getCommandsFor("file-tab") ?? []}
+        actions={actions}
         loadFile={loadFile}
         loadDiff={loadDiff}
         onChangeView={(view) => onChangeView(current.id, view)}

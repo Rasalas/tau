@@ -46,6 +46,7 @@ function defaults(): HostClient {
     readToolOutput: async () => undefined,
     copyThreadMarkdown: async () => undefined,
     readImagePreview: async () => undefined,
+    shareFile: async (path: string) => { throw new Error(`No file is shared in a test: ${path}`); },
     openExternalEditor: async (text: string) => ({ text, modified: false }),
 
     setModel: async () => ({ version: 1, updates: [] }),

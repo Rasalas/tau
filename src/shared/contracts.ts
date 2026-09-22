@@ -82,6 +82,15 @@ export interface UiImagePreview {
   dataUrl: string;
 }
 
+/** A workspace file the page may load by URL: a PDF in a frame, an image, audio, video. */
+export interface UiSharedFile {
+  /** `tau-ext://files/<token>/<name>`, served by the window's own process. */
+  url: string;
+  name: string;
+  size: number;
+  mimeType: string;
+}
+
 export interface UiPromptImageAttachment {
   kind: "image";
   name: string;

@@ -75,4 +75,12 @@ describe("tau-ext bundle scheme", () => {
     expect(csp).toContain("style-src 'self' 'unsafe-inline' tau-ext:");
     expect(csp).not.toContain("blob:");
   });
+
+  it("lets a frame, an image and a media element load the workspace files shared over tau-ext", () => {
+    const html = readFileSync(fileURLToPath(new URL("../../index.html", import.meta.url)), "utf8");
+    const csp = /content="([^"]+)"/u.exec(html.split("Content-Security-Policy")[1] ?? "")?.[1] ?? "";
+    expect(csp).toContain("img-src 'self' data: tau-ext:");
+    expect(csp).toContain("media-src 'self' tau-ext:");
+    expect(csp).toContain("frame-src 'self' tau-ext:");
+  });
 });

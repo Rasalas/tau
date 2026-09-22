@@ -1,8 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { languageForFile, MAX_FILE_CONTENT_BYTES, readBoundedFileContent } from "./file-content.js";
+import { languageForFile, MAX_FILE_CONTENT_BYTES, readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 
 const directories: string[] = [];
 
@@ -71,5 +71,46 @@ describe("languageForFile", () => {
     expect(languageForFile("styles.css")).toBe("css");
     expect(languageForFile("Dockerfile")).toBe("bash");
     expect(languageForFile("LICENSE")).toBeUndefined();
+  });
+});
+
+describe("writeTextFile", () => {
+  it("writes when the file is as the editor last saw it and reports the new mtime", async () => {
+    const root = await workspace();
+    const path = join(root, "a.txt");
+    await writeFile(path, "one\n");
+    const read = await readBoundedFileContent(path);
+
+    const result = await writeTextFile(path, "two\n", read.mtimeMs);
+
+    expect(result).toMatchObject({ status: "written", size: 4 });
+    await expect(readFile(path, "utf8")).resolves.toBe("two\n");
+    expect((await statFile(path)).mtimeMs).toBe(result.status === "written" ? result.mtimeMs : -1);
+  });
+
+  it("refuses a write when the file changed on disk since it was read", async () => {
+    const root = await workspace();
+    const path = join(root, "a.txt");
+    await writeFile(path, "one\n");
+    const read = await readBoundedFileContent(path);
+    await writeFile(path, "someone else\n");
+    await utimes(path, new Date(), new Date(Date.now() + 5_000));
+
+    const result = await writeTextFile(path, "mine\n", read.mtimeMs);
+
+    expect(result.status).toBe("conflict");
+    await expect(readFile(path, "utf8")).resolves.toBe("someone else\n");
+    // Keeping one's own version means writing without the check.
+    await expect(writeTextFile(path, "mine\n", undefined)).resolves.toMatchObject({ status: "written" });
+    await expect(readFile(path, "utf8")).resolves.toBe("mine\n");
+  });
+
+  it("treats a file that appeared or vanished as a conflict too", async () => {
+    const root = await workspace();
+    const path = join(root, "new.txt");
+    await writeFile(path, "there\n");
+    await expect(writeTextFile(path, "x", null)).resolves.toMatchObject({ status: "conflict" });
+    await expect(writeTextFile(join(root, "gone.txt"), "x", 123)).resolves.toEqual({ status: "conflict" });
+    await expect(statFile(join(root, "gone.txt"))).resolves.toEqual({ exists: false });
   });
 });

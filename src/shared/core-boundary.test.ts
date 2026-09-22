@@ -81,7 +81,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./runtime-adapters.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
   "./runtime-types.js",   "./runtime-versions.js",   "./session-entries.js",   "./session-events.js",
   "./session-lineage.js",   "./session-model-provider.js",   "./session-usage.js",
-  "./shell-environment.js",   "./single-instance.js",   "./skill-invocation.js",
+  "./shared-files.js",   "./shell-environment.js",   "./single-instance.js",   "./skill-invocation.js",
   "./startup-workspace.js",   "./system-prompt-resolver.js",   "./tau-runtime-owner.js",
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",

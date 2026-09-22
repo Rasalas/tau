@@ -3,6 +3,7 @@ import type {
   ExtensionInspection,
   HostBootstrap,
   UiImagePreview,
+  UiSharedFile,
   WorkbenchBuildResult,
 } from "../shared/contracts.js";
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
@@ -46,6 +47,8 @@ export interface HostMethodPlatform {
   copyText(text: string): void;
   copyImage(dataUrl: string): void;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
+  /** A URL the page may load a workspace file from; absent where no window serves files. */
+  shareFile?(path: string): Promise<UiSharedFile>;
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
   /** `only` narrows the build to those extension ids; the client keeps every other module it has. */
   loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[]): Promise<DesktopExtensionLoadResult>;
@@ -70,6 +73,7 @@ export interface ClientHostPlatform {
   copyText(text: string): void;
   copyImage(dataUrl: string): void;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
+  shareFile?(path: string): Promise<UiSharedFile>;
   /** `cwd` is passed on as the client received it; only a host resolves an id. */
   loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[]): Promise<DesktopExtensionLoadResult>;
   rebuildWorkbench(context: HostMethodContext): Promise<WorkbenchBuildResult>;
@@ -79,6 +83,11 @@ export interface ClientHostPlatform {
   installUpdate(): boolean;
   notify(notification: SystemNotification): Promise<SystemNotificationOutcome>;
   setBadge(count: number): void;
+}
+
+function shareFile(platform: { shareFile?(path: string): Promise<UiSharedFile> }, path: string): Promise<UiSharedFile> {
+  if (!platform.shareFile) throw Object.assign(new Error("This client serves no files to the page."), { code: HOST_ERROR.unsupported });
+  return platform.shareFile(path);
 }
 
 /**
@@ -91,6 +100,7 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
     "copy-text": async (params) => platform.copyText(decodeString("copy-text", "text", params[0])),
     "copy-image": async (params) => platform.copyImage(decodeString("copy-image", "dataUrl", params[0])),
     "read-image-preview": async (params) => platform.readImagePreview(decodeString("read-image-preview", "path", params[0])),
+    "share-file": async (params) => shareFile(platform, decodeString("share-file", "path", params[0])),
     "desktop-extensions": async (params) => platform.loadDesktopExtensions(
       decodeString("desktop-extensions", "cwd", params[0]),
       decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
@@ -238,6 +248,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "copy-thread-markdown": async (params) =>
       (await host()).exportThreadMarkdown(decodeOptionalString("copy-thread-markdown", "expectedSessionId", params[0])),
     "read-image-preview": async (params) => platform.readImagePreview(decodeString("read-image-preview", "path", params[0])),
+    "share-file": async (params) => shareFile(platform, decodeString("share-file", "path", params[0])),
     // Host extensions reach the renderer through this single method; core does
     // not grow a method per feature. `input` stays unknown: the extension owns it.
     "host-extension": invokeExtension,

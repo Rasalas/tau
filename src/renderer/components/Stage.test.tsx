@@ -107,6 +107,34 @@ describe("Stage", () => {
     expect(document.querySelector(".source-line-mark")).toBeNull();
   });
 
+  it("puts a command an extension offers on the file-tab surface into the file's header", async () => {
+    const registry = new ExtensionRegistry();
+    const opened: string[] = [];
+    registry.activate({
+      id: "acme.files",
+      name: "Files",
+      activate: (plugin) => {
+        plugin.registerCommand({
+          id: "acme.edit",
+          label: "Edit",
+          group: "Project",
+          surfaces: ["file-tab"],
+          run: (actions) => {
+            const tab = actions.activeStageTab?.();
+            if (tab?.kind === "file") opened.push(tab.path);
+          },
+        });
+        plugin.registerCommand({ id: "acme.other", label: "Elsewhere", group: "Project", run: () => undefined });
+      },
+    });
+    const stage = openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`);
+    const actions = { ...NO_ACTIONS, activeStageTab: () => stage.tabs[0], notify: vi.fn() } as unknown as WorkbenchActions;
+    render(<Harness initial={stage} registry={registry} actions={actions} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(opened).toEqual([`${CWD}/src/a.ts`]);
+    expect(screen.queryByRole("button", { name: "Elsewhere" })).toBeNull();
+  });
+
   it("shows the active file with its relative path and line numbers", async () => {
     render(<Harness initial={openFileTab(EMPTY_STAGE, `${CWD}/src/a.ts`)} />);
 

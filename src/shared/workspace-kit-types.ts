@@ -138,6 +138,8 @@ export interface UiFileContent {
   path: string;
   name: string;
   size: number;
+  /** When the file was last written, for an editor that must notice a change on disk. */
+  mtimeMs?: number;
   kind: "text" | "image" | "binary";
   /** text only; cut at the host's byte ceiling when `truncated`. */
   text?: string;
@@ -204,6 +206,18 @@ export interface UiEditor {
   id: string;
   name: string;
 }
+
+/** A file as it is on disk now, for an editor comparing it with what it loaded. */
+export interface UiFileStat {
+  exists: boolean;
+  size?: number;
+  mtimeMs?: number;
+}
+
+/** What a write answered: written, or refused because the file changed on disk since it was read. */
+export type UiFileWriteResult =
+  | { status: "written"; size: number; mtimeMs: number }
+  | { status: "conflict"; size?: number; mtimeMs?: number };
 
 export interface UiTerminal {
   id: string;
