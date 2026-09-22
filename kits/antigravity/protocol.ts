@@ -19,3 +19,6 @@ export interface AntigravityInstallEvent {
   totalBytes?: number;
   message?: string;
 }
+
+/** Usage Kit may read each thread's running total through the `usage` command. */
+export const USAGE_KIT_ID = "tau.usage";

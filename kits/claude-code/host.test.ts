@@ -2,9 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HostRuntimeBackendProvider } from "tau/host-extension";
+import type { HostExtension, HostRuntimeBackendProvider } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createClaudeCodeHostExtension from "./host.js";
+import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 const directories: string[] = [];
 
@@ -55,5 +56,31 @@ describe("Claude Code host half", () => {
       projectName: "repo",
       permissionLevel: () => "full",
     } as never)).rejects.toThrow("was not found on the PATH");
+  });
+
+  it("hands each thread's running total to the Usage kit and to no other kit", async () => {
+    const { registry, agentDir } = await harness(() => "/usr/local/bin/claude");
+    const store = new ClaudeRuntimeSessionStore({ filePath: ClaudeRuntimeSessionStore.defaultPath(join(agentDir, "sessions")) });
+    await store.recordUsage("thread-1", "/repo", { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0.3, turns: 1 });
+    await store.setObservedModel("thread-1", "/repo", "claude-haiku-4-5");
+    await store.ensure("thread-2", "/repo");
+    const reader = (id: string): HostExtension & { read?: () => Promise<unknown> } => {
+      const extension: HostExtension & { read?: () => Promise<unknown> } = {
+        id,
+        name: id,
+        activate(context) { extension.read = () => context.invokeHostExtension("tau.claude-code", "usage"); },
+      };
+      return extension;
+    };
+    const usageKit = reader("tau.usage");
+    const stranger = reader("acme.stranger");
+    await registry.activate(usageKit);
+    await registry.activate(stranger);
+    const answer = await usageKit.read!() as { threads: Array<Record<string, unknown>> };
+    expect(answer.threads.find((thread) => thread.threadId === "thread-1")).toMatchObject({
+      cwd: "/repo", model: "claude-haiku-4-5", usage: { totalTokens: 12, costUsd: 0.3, turns: 1 },
+    });
+    expect(answer.threads.find((thread) => thread.threadId === "thread-2")?.usage).toBeUndefined();
+    await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.claude-code/usage.");
   });
 });
