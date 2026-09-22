@@ -114,15 +114,24 @@ export class SubmissionController {
     };
   }
 
+  /**
+   * The runtime a draft's thread is created on and the model it starts with.
+   * An unchanged model chip is still a choice: the shown Pi model is carried
+   * into the new runtime instead of silently falling back to host defaults.
+   */
+  private newThreadStart(pending: NewThreadDraft) {
+    const snapshot = this.ports.view.getSnapshot();
+    const runtime = effectiveNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
+    const inherited = (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
+    return { runtime, model: runtime === "pi" ? pending.model ?? inherited : undefined };
+  }
+
   /** Offers the first prompt to an extension that starts the thread itself; true when one took it. */
   private claimNewThread = async (pending: NewThreadDraft, prompt: string, alternate: boolean, attachments: number): Promise<boolean> => {
     const actions = this.ports.actions();
     const scope = draftKey(undefined, pending);
     if (!actions || !scope) return false;
-    const snapshot = this.ports.view.getSnapshot();
-    const runtime = effectiveNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
-    const inherited = (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
-    const model = runtime === "pi" ? pending.model ?? inherited : undefined;
+    const { runtime, model } = this.newThreadStart(pending);
     const notice = this.preparingNotice(pending, scope);
     try {
       return await this.ports.registry.claimNewThread({
@@ -369,9 +378,7 @@ export class SubmissionController {
         // The draft's project is named by identity; its path is only for display.
         // An unchanged model chip is still a choice. Carry the shown Pi model
         // into the new runtime instead of silently falling back to host defaults.
-        const backend = effectiveNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
-        const inheritedModel = (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
-        const requestedModel = backend === "pi" ? pending.model ?? inheritedModel : undefined;
+        const requestedModel = this.newThreadStart(pending).model;
         const result = requestedModel
           ? await client.newSession(
             text,
