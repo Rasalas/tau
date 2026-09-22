@@ -28,6 +28,7 @@ import type {
   ExternalEditorResult,
 } from "../shared/contracts";
 import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
+import type { ConfigLayers } from "../shared/config-layers";
 import type { HostBootstrap } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
@@ -101,6 +102,10 @@ export interface HostClient {
   // Host configuration as code.
   getConfig(workspaceId?: string): Promise<TauConfig>;
   updateConfig(patch: Partial<TauConfig>, scope?: "global" | "project", workspaceId?: string): Promise<TauConfig>;
+  /** The host and project files apart, for showing where a setting's value comes from. */
+  getConfigLayers(workspaceId?: string): Promise<ConfigLayers>;
+  /** Removes setting keys from one level, so the level below shows through. */
+  clearConfig(keys: readonly string[], scope?: "global" | "project", workspaceId?: string): Promise<ConfigLayers>;
   getModelsConfig(): Promise<CustomProviderConfig[]>;
   addModelProvider(input: CustomProviderInput): Promise<UiModel[]>;
   inspectSystemPrompt(threadId?: string, workspaceId?: string): Promise<SystemPromptInspection>;
@@ -211,6 +216,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     installUpdate: () => call<{ installing: boolean }>("install-update"),
     getConfig: (workspaceId) => call<TauConfig>("get-config", [workspaceId]),
     updateConfig: (patch, scope, workspaceId) => call<TauConfig>("update-config", [patch, scope, workspaceId]),
+    getConfigLayers: (workspaceId) => call<ConfigLayers>("get-config-layers", [workspaceId]),
+    clearConfig: (keys, scope, workspaceId) => call<ConfigLayers>("clear-config", [keys, scope, workspaceId]),
     getModelsConfig: () => call<CustomProviderConfig[]>("get-models-config"),
     addModelProvider: (input) => call<UiModel[]>("add-model-provider", [input]),
     inspectSystemPrompt: (threadId, workspaceId) => call<SystemPromptInspection>("inspect-system-prompt", [threadId, workspaceId]),
