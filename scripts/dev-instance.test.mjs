@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { derivePort, findFreePort, parseArgs } from "./dev-instance.mjs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { derivePort, findFreePort, parseArgs, seedConfigFile } from "./dev-instance.mjs";
 
 describe("derivePort", () => {
   it("is deterministic for the same seed", () => {
@@ -105,5 +108,27 @@ describe("parseArgs", () => {
 
   it("rejects an unknown flag", () => {
     expect(() => parseArgs(["--bogus"])).toThrow(/unknown flag "--bogus"/);
+  });
+});
+
+describe("seedConfigFile", () => {
+  it("copies the user's config once and never writes it back", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-dev-config-"));
+    const real = join(dir, "real.json");
+    const own = join(dir, "dev", "tau-config.json");
+    writeFileSync(real, '{"favouriteModels":["a/b"]}');
+    seedConfigFile(own, real);
+    expect(readFileSync(own, "utf8")).toBe('{"favouriteModels":["a/b"]}');
+    writeFileSync(own, '{"hostBackground":true}');
+    seedConfigFile(own, real);
+    expect(readFileSync(own, "utf8")).toBe('{"hostBackground":true}');
+    expect(readFileSync(real, "utf8")).toBe('{"favouriteModels":["a/b"]}');
+  });
+
+  it("starts empty when the user has no config", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-dev-config-"));
+    const own = join(dir, "tau-config.json");
+    seedConfigFile(own, join(dir, "missing.json"));
+    expect(JSON.parse(readFileSync(own, "utf8"))).toEqual({});
   });
 });

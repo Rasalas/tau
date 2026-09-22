@@ -35,6 +35,8 @@ Pi (the coding agent Tau embeds) keeps every session under `~/.pi/agent/sessions
 
 By default `dev-instance.mjs` sets `PI_CODING_AGENT_SESSION_DIR=<worktree>/.tau-dev/pi-sessions`, so every session the instance creates, opens, or lists lives under that path instead — it never reaches `~/.pi/agent/sessions`, and threads it writes never reach the user's real sidebar. Auth, models, settings, and extensions are unaffected and still come from the real `~/.pi/agent`, so models keep working. `--fresh` wipes `.tau-dev/pi-sessions` along with userData. Pass `--shared-sessions` to skip the override and use the real session store — only for a test that specifically needs the user's existing threads.
 
+Tau's own settings get the same treatment: `TAU_CONFIG_FILE=<worktree>/.tau-dev/tau-config.json`, seeded once as a copy of the user's `~/.tau/config.json` (read, never written), and `TAU_WORKTREES_DIR=<worktree>/.tau-dev/worktrees` for the worktrees its threads create. A setting toggled in the instance — `hostBackground`, `threads.continueAfterRestart` — stays in the instance. `--fresh` reseeds the config.
+
 ## Keeping an instance alive across turns
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.
