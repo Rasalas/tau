@@ -7,3 +7,4 @@
 }
 .codex-action:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
 .codex-action:disabled { color: var(--faint); cursor: default; }
+.codex-path { max-width: 420px; width: 100%; }

@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostExtension, HostRuntimeBackendProvider } from "tau/host-extension";
+import { findExecutable, type HostExtension, type HostRuntimeBackendProvider } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { CodexAppServer } from "./app-server.js";
 import createCodexHostExtension from "./host.js";
@@ -24,14 +24,14 @@ async function caskInstall(root: string): Promise<string> {
   return join(root, "bin", "codex");
 }
 
-async function harness(options: { installed?: string | undefined; found?: boolean } = {}) {
+async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-codex-host-"));
   directories.push(root);
   const path = await caskInstall(root);
   const backends: HostRuntimeBackendProvider[] = [];
   const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
   const extension = createCodexHostExtension({
-    env: {},
+    env: options.env ?? {},
     fetch,
     readVersion: async () => "installed" in options ? options.installed : "0.154.0",
     openSession: (input) => CodexAppServer.open({
@@ -46,7 +46,7 @@ async function harness(options: { installed?: string | undefined; found?: boolea
     }),
   });
   const registry = await activateHostKit(extension, {
-    findCommand: (name) => name === "codex" && options.found !== false ? path : undefined,
+    findCommand: (name) => name === "codex" ? (options.found !== false ? path : undefined) : findExecutable(name),
     sessionsDir: join(root, "agent", "sessions"),
     stateDir: join(root, "state"),
     noteSubprocess: () => undefined,
@@ -78,7 +78,7 @@ describe("Codex host half", () => {
     await expect(old.provider.open("t", "/repo", { resume: false }, context)).rejects.toThrow("Codex 0.150.0 is older than 0.154.0, the oldest release Tau speaks to. Update it with: brew upgrade --cask codex");
     const missing = await harness({ found: false });
     await expect(missing.provider.open("t", "/repo", { resume: false }, context)).rejects.toThrow("was not found on the PATH");
-    await expect(missing.registry.invoke("tau.codex", "status")).resolves.toMatchObject({ command: "codex", message: expect.stringContaining("TAU_CODEX_COMMAND") });
+    await expect(missing.registry.invoke("tau.codex", "status")).resolves.toMatchObject({ command: "codex", message: expect.stringContaining("Settings → Providers") });
   });
 
   it("reports the CLI, its update and the account it is signed in as", async () => {
@@ -95,6 +95,23 @@ describe("Codex host half", () => {
       models: 5,
       codexHome: join(root, "home"),
     });
+  });
+
+  it("keeps a path set on the Providers card, refuses one that is no executable, and lets the environment win", async () => {
+    const { registry, root } = await harness({ found: false });
+    const path = join(root, "bin", "codex");
+    await expect(registry.invoke("tau.codex", "set-command", { command: join(root, "nothing") })).rejects.toThrow("No executable");
+    await expect(registry.invoke("tau.codex", "status")).resolves.toMatchObject({ command: "codex", message: expect.stringContaining("not found") });
+    await chmod(path, 0o755);
+    await expect(registry.invoke("tau.codex", "set-command", { command: path })).resolves.toEqual({ command: path });
+    await expect(registry.invoke("tau.codex", "status")).resolves.toMatchObject({ command: path, commandSource: "setting", version: "0.154.0" });
+    expect(JSON.parse(await readFile(join(root, "state", "tau.codex", "settings.json"), "utf8"))).toEqual({ command: path });
+    await registry.invoke("tau.codex", "set-command", { command: "" });
+    await expect(registry.invoke("tau.codex", "status")).resolves.toMatchObject({ command: "codex" });
+
+    const pinned = await harness({ env: { TAU_CODEX_COMMAND: path } });
+    await expect(pinned.registry.invoke("tau.codex", "status")).resolves.toMatchObject({ command: path, commandSource: "env" });
+    await expect(pinned.registry.invoke("tau.codex", "set-command", { command: "" })).rejects.toThrow("TAU_CODEX_COMMAND is set");
   });
 
   it("hands each thread's running total to the Usage kit and to no other kit", async () => {

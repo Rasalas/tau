@@ -22,12 +22,36 @@ function accountLabel(account: CodexStatusReport["account"]): string | undefined
   return account.kind === "apiKey" ? "API key" : "signed in";
 }
 
+/** The executable's path, saved when the field is left or Enter is pressed; empty goes back to the PATH. */
+export function CommandPathField({ status, onSave }: { status: CodexStatusReport | undefined; onSave(command: string): Promise<void> }) {
+  const saved = status?.commandSource === "setting" ? status.command : "";
+  const [draft, setDraft] = useState(saved);
+  useEffect(() => { setDraft(saved); }, [saved]);
+  const fromEnv = status?.commandSource === "env";
+  const commit = () => { if (draft.trim() !== saved) void onSave(draft.trim()); };
+  return (
+    <>
+      <input
+        className="settings-search-input codex-path"
+        aria-label="Codex executable"
+        value={fromEnv ? status!.command : draft}
+        placeholder="codex, from your login shell's PATH"
+        disabled={fromEnv || !status}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
+      />
+      <p className="settings-note">{fromEnv ? <>Set by <code>TAU_CODEX_COMMAND</code> in Tau's environment.</> : <>A name on the PATH or an absolute path; leave it empty to find <code>codex</code> on the PATH.</>}</p>
+    </>
+  );
+}
+
 /**
- * What the installed CLI is, whether it is current, and who it is signed in
- * as. The binary and the login are the user's: the page reports, it never
- * edits either.
+ * Codex's card on the Providers page: the installed CLI, whether it is
+ * current, who it is signed in as and where Tau finds it. The binary and the
+ * login are the user's: the card reports them and sets only the path.
  */
-export function CodexSettingsPage({ host }: SettingsPageProps & { host: HostExtensionClient }) {
+export function CodexProviderCard({ host, onNotify }: SettingsPageProps & { host: HostExtensionClient }) {
   const [status, setStatus] = useState<CodexStatusReport>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -46,15 +70,25 @@ export function CodexSettingsPage({ host }: SettingsPageProps & { host: HostExte
 
   useEffect(() => { void read(false); }, [read]);
 
+  const saveCommand = async (command: string) => {
+    setError(undefined);
+    try {
+      await host.invoke("set-command", { command });
+      onNotify(command ? `Codex runs from ${command}.` : "Codex is looked up on the PATH again.");
+      await read(true);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  };
+
   const known = status !== undefined;
   const found = Boolean(status?.path);
   const account = accountLabel(status?.account);
   return (
-    <div className="settings-page">
-      <h3>Codex</h3>
-      <p className="lede">
-        Codex threads drive the CLI you installed, through its app server. Its login and its sessions are the ones in
-        your <code>~/.codex</code> (or <code>CODEX_HOME</code>); Tau reads no credential.
+    <>
+      <p className="settings-note">
+        Threads drive the CLI you installed, through its app server, with its login and the sessions in your
+        {" "}<code>~/.codex</code> (or <code>CODEX_HOME</code>). Tau reads no credential.
       </p>
 
       <div className="settings-label">CLI</div>
@@ -62,7 +96,7 @@ export function CodexSettingsPage({ host }: SettingsPageProps & { host: HostExte
         {found && !status?.unsupported ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
           <strong>{!known ? "Checking…" : found ? `Found${status?.version ? ` · ${status.version}` : ""}` : `${status.command} was not found`}</strong>
-          <small>{!known ? "" : found ? status.path : status.message ?? "Install it, or point TAU_CODEX_COMMAND at the executable."}</small>
+          <small>{!known ? "" : found ? status.path : status.message ?? "Install it, or set its path below."}</small>
         </span>
         <button className="codex-action" disabled={busy} onClick={() => void read(true)}>
           <RefreshCw size={13} /> {busy ? "Asking…" : "Check again"}
@@ -80,14 +114,17 @@ export function CodexSettingsPage({ host }: SettingsPageProps & { host: HostExte
         </span>
       </div>
       {status?.codexHome ? <p className="settings-note">Home: <code>{status.codexHome}</code>{status.models ? ` · ${status.models} models; pick one and its reasoning effort per thread in the composer.` : ""}</p> : null}
+
+      <div className="settings-label">PATH</div>
+      <CommandPathField status={status} onSave={saveCommand} />
       {error ? <p className="settings-note" data-level="error">{error}</p> : null}
-    </div>
+    </>
   );
 }
 
 /**
- * Codex's desktop half: it marks Codex threads and owns the page that reports
- * the CLI, its version and its login. The backend itself is the host entry.
+ * Codex's desktop half: it marks Codex threads and fills Codex's card on the
+ * Providers page. The backend itself is the host entry.
  */
 export const codexExtension: DesktopExtension = {
   id: CODEX_HOST_EXTENSION_ID,
@@ -99,9 +136,9 @@ export const codexExtension: DesktopExtension = {
         id: "codex.settings",
         label: "Codex",
         profiles: ["desktop", "web"],
-        Icon: SquareTerminal,
-        order: 27,
-        Component: (props: SettingsPageProps) => <CodexSettingsPage {...props} host={plugin.host} />,
+        runtime: CODEX_BACKEND_KIND,
+        order: 26,
+        Component: (props: SettingsPageProps) => <CodexProviderCard {...props} host={plugin.host} />,
       }),
     ];
     return () => { for (const stop of stops) stop(); };

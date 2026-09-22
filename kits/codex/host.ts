@@ -3,6 +3,7 @@ import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  HostCommandError,
   compareVersions,
   npmLatestVersion,
   packageUpdateCommand,
@@ -16,6 +17,7 @@ import {
 import { CodexAppServer, type CodexAccount, type CodexModel } from "./app-server.js";
 import { CODEX_BACKEND_KIND, CODEX_HOST_EXTENSION_ID, CODEX_NPM_PACKAGE, MIN_CODEX_VERSION, USAGE_KIT_ID, type CodexStatusReport } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
+import { CommandOverride } from "./command-override.js";
 import { CodexSessionStore, type CodexStoredModel } from "./session-store.js";
 import { CodexThreadRuntimeBackend, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
 
@@ -36,7 +38,7 @@ export interface CodexHostExtensionOptions {
 interface Probe { account?: CodexAccount; models: CodexModel[]; codexHome?: string; at: number }
 const PROBE_TTL_MS = 10 * 60 * 1000;
 
-export const codexCommand = (env: NodeJS.ProcessEnv): string => env.TAU_CODEX_COMMAND?.trim() || "codex";
+export const CODEX_COMMAND_VARIABLE = "TAU_CODEX_COMMAND";
 
 export async function readCodexVersion(path: string): Promise<string | undefined> {
   try {
@@ -75,8 +77,10 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const readVersion = options.readVersion ?? readCodexVersion;
       let installed: { path: string; version?: string } | undefined;
       let probe: Promise<Probe> | undefined;
+      const override = new CommandOverride(join(services.stateDir, "settings.json"), CODEX_COMMAND_VARIABLE, env);
+      const codexCommand = (): string => override.current()?.command ?? "codex";
 
-      const locate = (): string | undefined => services.findCommand(codexCommand(env));
+      const locate = (): string | undefined => services.findCommand(codexCommand());
       const updateCommand = async (path: string | undefined): Promise<string> => {
         const real = path ? await realpath(path).catch(() => path) : undefined;
         return (real && packageUpdateCommand(real, CODEX_NPM_PACKAGE)) ?? "codex update";
@@ -84,7 +88,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       /** The CLI on the PATH and its version; read once per path. */
       const cli = async (): Promise<{ path: string; version?: string }> => {
         const path = locate();
-        if (!path) throw new Error(`The Codex CLI "${codexCommand(env)}" was not found on the PATH of your login shell. Install it (brew install --cask codex, or npm install -g ${CODEX_NPM_PACKAGE}) or point TAU_CODEX_COMMAND at the executable.`);
+        if (!path) throw new Error(`The Codex CLI "${codexCommand()}" was not found on the PATH of your login shell. Install it (brew install --cask codex, or npm install -g ${CODEX_NPM_PACKAGE}) or set its path under Settings → Providers.`);
         if (installed?.path !== path) installed = { path, ...(await readVersion(path).then((version) => version ? { version } : {})) };
         return installed;
       };
@@ -190,18 +194,20 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
 
       context.registerCommand("status", async (input): Promise<CodexStatusReport> => {
-        const command = codexCommand(env);
+        const command = codexCommand();
+        const source = override.current()?.source;
         const fresh = Boolean(input && typeof input === "object" && (input as { fresh?: unknown }).fresh);
         let found: { path: string; version?: string };
         try {
           if (fresh) installed = undefined;
           found = await cli();
         } catch (error) {
-          return { command, message: error instanceof Error ? error.message : String(error) };
+          return { command, ...(source ? { commandSource: source } : {}), message: error instanceof Error ? error.message : String(error) };
         }
         const version = await provider.version!().catch(() => undefined);
         const report: CodexStatusReport = {
           command,
+          ...(source ? { commandSource: source } : {}),
           path: found.path,
           ...(found.version ? { version: found.version } : {}),
           ...(version?.latest ? { latest: version.latest } : {}),
@@ -220,6 +226,16 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         } catch (error) {
           return { ...report, message: error instanceof Error ? error.message : String(error) };
         }
+      });
+      // The executable's path from the Providers card; empty clears it.
+      context.registerCommand("set-command", async (input) => {
+        const requested = typeof (input as { command?: unknown } | undefined)?.command === "string" ? (input as { command: string }).command.trim() : "";
+        if (override.current()?.source === "env") throw new HostCommandError(`${CODEX_COMMAND_VARIABLE} is set in Tau's environment and decides the path.`);
+        if (requested && !services.findCommand(requested)) throw new HostCommandError(`No executable at "${requested}".`);
+        await override.set(requested || undefined);
+        installed = undefined;
+        probe = undefined;
+        return { command: codexCommand() };
       });
       // Each thread's running total, for the Usage kit; read from the store, never from OpenAI.
       context.registerCommand("usage", async () => ({

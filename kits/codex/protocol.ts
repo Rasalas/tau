@@ -14,6 +14,8 @@ export const MIN_CODEX_VERSION = "0.154.0";
 /** What the `status` command reports to the Settings page. */
 export interface CodexStatusReport {
   command: string;
+  /** Who chose `command`: the environment variable, or the path set on the card; absent for the PATH lookup. */
+  commandSource?: "env" | "setting";
   path?: string;
   version?: string;
   latest?: string;

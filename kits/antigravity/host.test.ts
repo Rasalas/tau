@@ -50,6 +50,21 @@ async function harness(installed: boolean) {
 }
 
 describe("Antigravity host half", () => {
+  it("takes a server path from the Providers card, checks it, and leaves an environment override alone", async () => {
+    const pinned = await harness(true);
+    await expect(pinned.registry.invoke("tau.antigravity", "set-command", { command: "/elsewhere" })).rejects.toThrow("TAU_ANTIGRAVITY_ACP_COMMAND is set");
+    await expect(pinned.registry.invoke("tau.antigravity", "status")).resolves.toMatchObject({ commandSource: "env", source: "override" });
+
+    const own = await harness(false);
+    await expect(own.registry.invoke("tau.antigravity", "set-command", { command: join(own.directory, "missing", "agy_acp_server.par") })).rejects.toThrow("missing or not executable");
+    await mkdir(join(own.directory, "bin"), { recursive: true });
+    const binary = join(own.directory, "bin", "agy_acp_server.par");
+    await writeFile(binary, "#!/bin/sh\n", { mode: 0o755 });
+    await writeFile(join(own.directory, "bin", "localharness_external"), "#!/bin/sh\n", { mode: 0o755 });
+    await expect(own.registry.invoke("tau.antigravity", "set-command", { command: binary })).resolves.toEqual({ command: binary });
+    await expect(own.registry.invoke("tau.antigravity", "status")).resolves.toMatchObject({ installed: true, source: "override", command: binary, commandSource: "setting" });
+  });
+
   it("offers an update only for the runtime Tau installed itself", async () => {
     const own = await harness(true);
     const version = await own.backends[0]!.version!();

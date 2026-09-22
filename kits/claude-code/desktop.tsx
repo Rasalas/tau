@@ -13,6 +13,9 @@ export function ClaudeCodeStatus({ snapshot }: RegionProps) {
 interface StatusReport {
   command: string;
   path?: string;
+  /** Who chose `command`: the environment variable or the card; absent for the PATH lookup. */
+  commandSource?: "env" | "setting";
+  update?: { installed: string; latest: string; command?: string };
 }
 
 interface ProbeReport {
@@ -27,12 +30,36 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The executable's path, saved when the field is left or Enter is pressed; empty goes back to the PATH. */
+function CommandPathField({ status, onSave }: { status: StatusReport | undefined; onSave(command: string): Promise<void> }) {
+  const saved = status?.commandSource === "setting" ? status.command : "";
+  const [draft, setDraft] = useState(saved);
+  useEffect(() => { setDraft(saved); }, [saved]);
+  const fromEnv = status?.commandSource === "env";
+  const commit = () => { if (draft.trim() !== saved) void onSave(draft.trim()); };
+  return (
+    <>
+      <input
+        className="settings-search-input claude-code-path"
+        aria-label="Claude Code executable"
+        value={fromEnv ? status!.command : draft}
+        placeholder="claude, from your login shell's PATH"
+        disabled={fromEnv || !status}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => { if (event.key === "Enter") commit(); }}
+      />
+      <p className="settings-note">{fromEnv ? <>Set by <code>TAU_CLAUDE_CODE_COMMAND</code> in Tau's environment.</> : <>A name on the PATH or an absolute path; leave it empty to find <code>claude</code> on the PATH.</>}</p>
+    </>
+  );
+}
+
 /**
- * What the installed CLI is and who it is signed in as. Nothing here is Tau's
- * to change: the binary is the user's install and the login is the CLI's own,
- * so the page reports and refreshes, and never edits.
+ * Claude Code's card on the Providers page: what the installed CLI is, whether
+ * it is current and who it is signed in as. The binary and the login are the
+ * user's, so the card reports them and sets only the path.
  */
-export function ClaudeCodeSettingsPage({ host }: SettingsPageProps & { host: HostExtensionClient }) {
+export function ClaudeCodeProviderCard({ host, onNotify }: SettingsPageProps & { host: HostExtensionClient }) {
   const [status, setStatus] = useState<StatusReport>();
   const [probe, setProbe] = useState<ProbeReport>();
   const [busy, setBusy] = useState(false);
@@ -53,14 +80,24 @@ export function ClaudeCodeSettingsPage({ host }: SettingsPageProps & { host: Hos
 
   useEffect(() => { void read(false); }, [read]);
 
+  const saveCommand = async (command: string) => {
+    setError(undefined);
+    try {
+      await host.invoke("set-command", { command });
+      onNotify(command ? `Claude Code runs from ${command}.` : "Claude Code is looked up on the PATH again.");
+      await read(true);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  };
+
   const known = status !== undefined;
   const found = Boolean(status?.path);
   return (
-    <div className="settings-page">
-      <h3>Claude Code</h3>
-      <p className="lede">
-        Claude Code threads drive the CLI you installed, through the Agent SDK. Its login and its settings are the
-        ones in your <code>~/.claude</code>; Tau adds nothing to them and reads no credential.
+    <>
+      <p className="settings-note">
+        Threads drive the CLI you installed, through the Agent SDK, with its login and the settings in your
+        {" "}<code>~/.claude</code>. Tau adds nothing to them and reads no credential.
       </p>
 
       <div className="settings-label">CLI</div>
@@ -68,12 +105,13 @@ export function ClaudeCodeSettingsPage({ host }: SettingsPageProps & { host: Hos
         {found ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
           <strong>{!known ? "Checking…" : found ? `Found${probe?.version ? ` · ${probe.version}` : ""}` : `${status.command} was not found`}</strong>
-          <small>{!known ? "" : found ? status.path : "Install it from claude.ai/code, or point TAU_CLAUDE_CODE_COMMAND at the executable."}</small>
+          <small>{!known ? "" : found ? status.path : "Install it from claude.ai/code, or set its path below."}</small>
         </span>
         <button className="claude-code-action" disabled={busy} onClick={() => void read(true)}>
           <RefreshCw size={13} /> {busy ? "Asking…" : "Check again"}
         </button>
       </div>
+      {status?.update ? <p className="settings-note">Claude Code {status.update.latest} is out; {status.update.installed} is installed.{status.update.command ? <> Update with <code>{status.update.command}</code>.</> : null}</p> : null}
 
       <div className="settings-label">ACCOUNT</div>
       <div className="settings-field claude-code-field">
@@ -85,22 +123,22 @@ export function ClaudeCodeSettingsPage({ host }: SettingsPageProps & { host: Hos
       </div>
 
       {probe?.models?.length ? (
-        <>
-          <div className="settings-label">MODELS</div>
-          <p className="settings-note">
-            {probe.models.length} available{probe.defaultModel ? `, ${probe.defaultModel} by default` : ""}
-            {probe.effort ? `, effort ${probe.effort}` : ""}. Pick one per thread in the composer.
-          </p>
-        </>
+        <p className="settings-note">
+          {probe.models.length} models available{probe.defaultModel ? `, ${probe.defaultModel} by default` : ""}
+          {probe.effort ? `, effort ${probe.effort}` : ""}. Pick one per thread in the composer.
+        </p>
       ) : null}
+
+      <div className="settings-label">PATH</div>
+      <CommandPathField status={status} onSave={saveCommand} />
       {error ? <p className="settings-note" data-level="error">{error}</p> : null}
-    </div>
+    </>
   );
 }
 
 /**
- * Claude Code's desktop half: it marks Claude threads and owns the page that
- * reports the CLI and its login. The backend itself is the host entry.
+ * Claude Code's desktop half: it marks Claude threads and fills Claude Code's
+ * card on the Providers page. The backend itself is the host entry.
  */
 export const claudeCodeExtension: DesktopExtension = {
   id: CLAUDE_CODE_HOST_EXTENSION_ID,
@@ -112,9 +150,9 @@ export const claudeCodeExtension: DesktopExtension = {
         id: "claude-code.settings",
         label: "Claude Code",
         profiles: ["desktop", "web"],
-        Icon: Bot,
+        runtime: CLAUDE_CODE_BACKEND_KIND,
         order: 25,
-        Component: (props: SettingsPageProps) => <ClaudeCodeSettingsPage {...props} host={plugin.host} />,
+        Component: (props: SettingsPageProps) => <ClaudeCodeProviderCard {...props} host={plugin.host} />,
       }),
     ];
     return () => { for (const stop of stops) stop(); };
