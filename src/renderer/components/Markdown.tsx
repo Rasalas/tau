@@ -4,9 +4,16 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
-import hljs from "highlight.js/lib/core";
-import type { LanguageFn } from "highlight.js";
+import type { HLJSApi, LanguageFn } from "highlight.js";
 type LanguageDefinition = LanguageFn;
+
+// The core arrives with the first grammar: nothing highlights before one is loaded anyway.
+let hljs: HLJSApi | undefined;
+let highlighterPromise: Promise<HLJSApi> | undefined;
+function loadHighlighter(): Promise<HLJSApi> {
+  highlighterPromise ??= import("highlight.js/lib/core").then(({ default: core }) => (hljs = core));
+  return highlighterPromise;
+}
 
 const LANGUAGE_LOADERS: Record<string, () => Promise<{ default: LanguageDefinition }>> = {
   bash: () => import("highlight.js/lib/languages/bash"),
@@ -39,9 +46,10 @@ export function canonicalHighlightLanguage(language: string): string {
 
 /** Uncached: file bodies are large one-offs, unlike streamed code fences. */
 export function highlightSource(code: string, language: string): string | undefined {
-  if (!hljs.getLanguage(language)) return undefined;
+  const core = hljs;
+  if (!core?.getLanguage(language)) return undefined;
   try {
-    return hljs.highlight(code, { language, ignoreIllegals: true }).value;
+    return core.highlight(code, { language, ignoreIllegals: true }).value;
   } catch {
     return undefined;
   }
@@ -53,8 +61,8 @@ export function loadHighlightLanguage(language: string): Promise<void> {
   if (existing) return existing;
   const loader = LANGUAGE_LOADERS[canonical];
   if (!loader) return Promise.resolve();
-  const promise = loader().then(({ default: definition }) => {
-    if (!hljs.getLanguage(canonical)) hljs.registerLanguage(canonical, definition);
+  const promise = Promise.all([loadHighlighter(), loader()]).then(([core, { default: definition }]) => {
+    if (!core.getLanguage(canonical)) core.registerLanguage(canonical, definition);
   });
   languagePromises.set(canonical, promise);
   return promise;
@@ -65,7 +73,8 @@ const highlightCache = new Map<string, string>();
 
 /** Bounded syntax cache: streaming responses must not retain every intermediate token. */
 export function highlightedCode(code: string, language?: string): string | undefined {
-  if (!language || !hljs.getLanguage(language)) return undefined;
+  const core = hljs;
+  if (!language || !core?.getLanguage(language)) return undefined;
   const key = `${language}\0${code}`;
   const cached = highlightCache.get(key);
   if (cached !== undefined) {
@@ -74,7 +83,7 @@ export function highlightedCode(code: string, language?: string): string | undef
     return cached;
   }
   try {
-    const highlighted = hljs.highlight(code, { language, ignoreIllegals: true }).value;
+    const highlighted = core.highlight(code, { language, ignoreIllegals: true }).value;
     highlightCache.set(key, highlighted);
     if (highlightCache.size > HIGHLIGHT_CACHE_LIMIT) highlightCache.delete(highlightCache.keys().next().value!);
     return highlighted;
@@ -94,10 +103,10 @@ export function highlightCacheSize(): number {
 function CodeBlock({ code, language }: { code: string; language?: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const canonicalLanguage = language ? (LANGUAGE_ALIASES[language] ?? language) : undefined;
-  const [languageReady, setLanguageReady] = useState(() => Boolean(canonicalLanguage && hljs.getLanguage(canonicalLanguage)));
+  const [languageReady, setLanguageReady] = useState(() => Boolean(canonicalLanguage && hljs?.getLanguage(canonicalLanguage)));
 
   useEffect(() => {
-    if (!canonicalLanguage || hljs.getLanguage(canonicalLanguage)) {
+    if (!canonicalLanguage || hljs?.getLanguage(canonicalLanguage)) {
       setLanguageReady(true);
       return;
     }
