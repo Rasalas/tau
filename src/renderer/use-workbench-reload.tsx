@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
-import { ReloadConflictDialog } from "./components/ReloadConflictDialog";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { ReloadCurtain, type ReloadPhase } from "./components/ReloadCurtain";
 import { errorMessage } from "../workbench/error-message";
 import type { WorkbenchBuildResult } from "../shared/contracts";
 import type { HostClient } from "../workbench/host-client";
+
+const LazyReloadConflictDialog = lazy(() => import("./components/ReloadConflictDialog").then(({ ReloadConflictDialog }) => ({ default: ReloadConflictDialog })));
 
 /**
  * What a build has to be applied with. Only a change the host cannot swap out
@@ -110,12 +111,12 @@ export function useWorkbenchReload(options: {
   }, [applyHeldRoute, client, pendingRoute, setNotice]);
 
   const reloadUi = <>
-    {conflictCount !== undefined ? <ReloadConflictDialog
+    {conflictCount !== undefined ? <Suspense fallback={null}><LazyReloadConflictDialog
       runningThreads={conflictCount}
       onCancel={() => { setConflictCount(undefined); setPendingRoute(undefined); }}
       onWait={() => void continueReload("wait")}
       onAbort={() => void continueReload("abort")}
-    /> : null}
+    /></Suspense> : null}
     {phase ? <ReloadCurtain phase={phase} /> : null}
   </>;
   return { reloadWorkbench, reloadUi };

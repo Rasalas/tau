@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronRight, Plus, Search, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import { isRestrictedSubscriptionLogin, SUBSCRIPTION_LOGIN_NOTE } from "../../shared/subscription-login";
 import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import type { ModelSelectionContribution } from "../extension-system";
-import { AddModelProviderModal } from "./AddModelProviderModal";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { VirtualList } from "./VirtualList";
+
+const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
 
 /** Sentinel for the pinned tab; never rendered verbatim. */
 const FAVOURITES = "\u0000favourites";
@@ -339,14 +340,16 @@ export function ModelPicker({
         </footer>
       </section>
       {addProviderOpen ? (
-        <AddModelProviderModal
-          onClose={() => setAddProviderOpen(false)}
-          onProviderAdded={(newModels) => {
-            setAddProviderOpen(false);
-            const latest = newModels[newModels.length - 1];
-            if (latest) setProvider(latest.provider);
-          }}
-        />
+        <Suspense fallback={null}>
+          <LazyAddModelProviderModal
+            onClose={() => setAddProviderOpen(false)}
+            onProviderAdded={(newModels) => {
+              setAddProviderOpen(false);
+              const latest = newModels[newModels.length - 1];
+              if (latest) setProvider(latest.provider);
+            }}
+          />
+        </Suspense>
       ) : null}
     </div>
   );
