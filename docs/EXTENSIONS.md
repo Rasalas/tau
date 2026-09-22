@@ -351,7 +351,8 @@ the prompt was accepted; a refused prompt puts them back. The kit's own limits
 are T3 Code's: eight attachments a message, 10 MB an image (an image goes to
 core as an image whenever the model sees images), 50 MB any other file, and a
 paste from 32 KiB on becomes `pasted-text-<n>.txt` with a chip — removing the
-chip is the undo.
+chip is the undo. A file travels to the host in 4 MiB pieces, so a 50 MB one
+stays under the host socket's 64 MiB frame.
 
 #### Which clients draw it
 
