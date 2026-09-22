@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import previewExtension from "./desktop.js";
 import { EMPTY_PREVIEW_STATE, PREVIEW_BROWSER_SERVICE, PREVIEW_HOST_EXTENSION_ID, type PreviewBrowserService } from "./protocol.js";
+import { notePanelShown, togglePreviewPanel } from "./store.js";
 
 describe("Preview browser service", () => {
   it("opens the panel and navigates for another kit, and is withdrawn with the kit", async () => {
@@ -29,5 +30,25 @@ describe("Preview browser service", () => {
 
     registry.deactivate(previewExtension.id);
     expect(browser).toBeUndefined();
+  });
+});
+
+describe("Preview toggle", () => {
+  it("binds T3 Code's mod+shift+j to preview.toggle", () => {
+    const { registry } = createKitHarness();
+    registry.activate(previewExtension);
+    expect(registry.getKeybindings().find((binding) => binding.keys === "mod+shift+j")).toMatchObject({ commandId: "preview.toggle" });
+    expect(registry.getKeybindingConflicts()).toEqual([]);
+    registry.deactivate(previewExtension.id);
+  });
+
+  it("opens the panel, and hides the dock while the panel is shown", () => {
+    const actions = { openPanel: vi.fn(), toggleDock: vi.fn() };
+    togglePreviewPanel(actions);
+    expect(actions.openPanel).toHaveBeenCalledWith("preview");
+    notePanelShown(true);
+    togglePreviewPanel(actions);
+    expect(actions.toggleDock).toHaveBeenCalledOnce();
+    notePanelShown(false);
   });
 });

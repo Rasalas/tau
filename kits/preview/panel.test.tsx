@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reservedRegion, type WorkbenchActions } from "tau";
-import type { PreviewBounds } from "./protocol.js";
+import { holdChipService } from "./attach.js";
+import { EMPTY_PREVIEW_STATE, type PreviewBounds, type PreviewChipInput } from "./protocol.js";
 import { PreviewPanel } from "./panel.js";
-import { connectPreviewHost } from "./store.js";
+import { connectPreviewHost, previewStore } from "./store.js";
 
 /** jsdom has no layout, so the panel's rectangle is the one this test dictates. */
 function domRect(box: { left: number; top: number; width: number; height: number }): DOMRect {
@@ -162,5 +163,73 @@ describe("PreviewPanel bounds", () => {
     view.unmount();
     expect(latest()).toEqual({ x: 900, y: 120, width: 360, height: 500, visible: false });
     expect(reservedRegion()).toBeUndefined();
+  });
+});
+
+describe("PreviewPanel tools", () => {
+  const PICKED = {
+    url: "http://localhost:8000/",
+    title: "Home",
+    selector: "#save",
+    tag: "button",
+    text: "Save",
+    rect: { x: 1, y: 2, width: 3, height: 4 },
+    html: "<button id=\"save\">Save</button>",
+    viewport: { width: 800, height: 600 },
+  };
+
+  function connect(answers: Record<string, unknown>) {
+    const calls: Array<[string, unknown]> = [];
+    disconnect();
+    disconnect = connectPreviewHost({
+      invoke: async (command: string, input?: unknown) => {
+        calls.push([command, input]);
+        return answers[command];
+      },
+      onEvent: () => () => undefined,
+    });
+    return calls;
+  }
+
+  afterEach(() => previewStore.set(EMPTY_PREVIEW_STATE));
+
+  it("offers the local servers the host found while nothing is loaded, and opens one", async () => {
+    const calls = connect({ ports: [{ url: "http://localhost:8000/", port: 8000, command: "python3", inWorkspace: true, html: true }] });
+    render(panel());
+    await settle();
+    const suggestion = await screen.findByRole("button", { name: /localhost:8000/u });
+    expect(suggestion.textContent).toContain("python3 · this project");
+    expect(calls).toContainEqual(["ports", {}]);
+    fireEvent.click(suggestion);
+    expect(calls).toContainEqual(["open", { url: "http://localhost:8000/" }]);
+  });
+
+  it("puts a picked element into the composer as a chip and an image", async () => {
+    connect({ pick: { element: PICKED, image: { data: "iVBORw0KGgo=", width: 3, height: 4 } } });
+    previewStore.set({ ...EMPTY_PREVIEW_STATE, url: "http://localhost:8000/", title: "Home" });
+    const chips: PreviewChipInput[] = [];
+    const release = holdChipService({ addChip: (chip) => { chips.push(chip); return "chip-1"; }, removeChip: () => undefined });
+    const images: unknown[] = [];
+    const actions = { composerImages: () => [], setComposerImages: (next: unknown[]) => { images.push(...next); }, focusComposer: vi.fn() } as unknown as WorkbenchActions;
+    render(<PreviewPanel active extensionName="Preview Kit" actions={actions} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Pick an element" })); });
+    await settle();
+    expect(chips).toEqual([expect.objectContaining({ kind: "text-excerpt", label: "<button> · localhost:8000" })]);
+    expect(images).toEqual([expect.objectContaining({ kind: "image", name: "preview-button.png", mimeType: "image/png" })]);
+    expect(actions.focusComposer).toHaveBeenCalled();
+    expect(document.querySelector(".preview-status.error")).toBeNull();
+    release();
+  });
+
+  it("shows each mode's own controls", async () => {
+    const calls = connect({});
+    previewStore.set({ ...EMPTY_PREVIEW_STATE, url: "http://localhost:8000/", mode: "annotate" });
+    render(panel());
+    fireEvent.click(screen.getByRole("button", { name: "Arrow" }));
+    expect(calls).toContainEqual(["annotate", { tool: "arrow" }]);
+    fireEvent.click(screen.getByRole("button", { name: "cancel" }));
+    expect(calls).toContainEqual(["annotate-cancel", undefined]);
+    act(() => previewStore.set({ ...EMPTY_PREVIEW_STATE, url: "http://localhost:8000/", recordingSince: Date.now() }));
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeDefined();
   });
 });

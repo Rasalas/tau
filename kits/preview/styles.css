@@ -19,3 +19,29 @@
 
 /* The page itself is a WebContentsView the host draws over this rectangle. */
 .preview-surface { flex: 1; min-height: 0; background: var(--sunken); }
+
+/* Local servers the host found, offered under the address bar. */
+.preview-suggestions { flex: none; display: flex; flex-wrap: wrap; gap: 4px; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.preview-suggestion {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 22px; padding: 0 7px;
+  border: 1px solid var(--line-control); border-radius: 6px; background: var(--wash);
+  color: var(--ink-2); font: 11px var(--mono); cursor: pointer;
+}
+.preview-suggestion:hover { border-color: var(--acid-line); background: var(--acid-bg); color: var(--ink); }
+.preview-suggestion small { color: var(--muted-2); font: 10px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Pick, annotate, record and the profile; the same row carries each mode's own controls. */
+.preview-tools { flex: none; display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 3px 8px; border-bottom: 1px solid var(--line); }
+.preview-tools .spacer { flex: 1; }
+.preview-tools.picking, .preview-tools.annotating { background: var(--acid-bg); }
+.preview-tools .icon-button.active { background: var(--acid-chip); color: var(--acid-text); }
+.preview-tools .icon-button.recording { color: var(--stop); }
+.preview-tools .text-button { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; }
+.preview-tools .text-button.primary { color: var(--acid-text); }
+.preview-hint { min-width: 0; color: var(--muted); font: 11px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preview-recording-clock { color: var(--stop); font: 10px var(--mono); }
+.preview-profile, .preview-profile-name input {
+  height: 22px; max-width: 120px; padding: 0 4px;
+  border: 1px solid var(--line-control); border-radius: 6px;
+  background: var(--sunken); color: var(--ink-2); font: 11px var(--mono);
+}

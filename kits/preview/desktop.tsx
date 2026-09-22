@@ -1,8 +1,16 @@
 import { Globe } from "lucide-react";
 import { errorMessage, type DesktopExtension, type WorkbenchActions } from "tau";
-import { PREVIEW_BROWSER_SERVICE, PREVIEW_HOST_EXTENSION_ID, PREVIEW_STATE_EVENT, type PreviewBrowserService } from "./protocol.js";
+import { holdChipService } from "./attach.js";
+import {
+  COMPOSER_CONTEXT_CHIPS_SERVICE,
+  PREVIEW_BROWSER_SERVICE,
+  PREVIEW_HOST_EXTENSION_ID,
+  PREVIEW_STATE_EVENT,
+  type ComposerContextChips,
+  type PreviewBrowserService,
+} from "./protocol.js";
 import { PreviewPanel } from "./panel.js";
-import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore } from "./store.js";
+import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore, togglePreviewPanel } from "./store.js";
 
 /**
  * Preview Kit: a browser panel the host draws over, and the tools that let the
@@ -32,7 +40,10 @@ export const previewExtension: DesktopExtension = {
         if (failure) throw new Error(failure);
       },
     });
+    // Picks, annotations and recordings go to the composer as Composer Context's chips.
+    plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, holdChipService);
     plugin.registerCommand({ id: "preview.open", label: "Open preview panel", group: "Extensions", run: (app) => { void open("", app); } });
+    plugin.registerCommand({ id: "preview.toggle", label: "Toggle preview panel", group: "Extensions", run: (app) => togglePreviewPanel(app) });
     plugin.registerSlashCommand({
       name: "preview",
       description: "Open a URL in the preview panel",
@@ -40,6 +51,8 @@ export const previewExtension: DesktopExtension = {
       run: (args, app) => open(args.trim(), app),
     });
     plugin.registerKeybinding({ keys: "mod+shift+b", commandId: "preview.open" });
+    // T3 Code's chord for the same panel.
+    plugin.registerKeybinding({ keys: "mod+shift+j", commandId: "preview.toggle" });
     return disconnect;
   },
 };

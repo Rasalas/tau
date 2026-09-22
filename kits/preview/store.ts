@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { HostUnavailableError, type HostExtensionClient, type RegionProps } from "tau";
+import { HostUnavailableError, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
 import { EMPTY_PREVIEW_STATE, createPreviewHostClient, type PreviewState } from "./protocol.js";
 
 /**
@@ -20,6 +20,18 @@ export const previewKit = createPreviewHostClient((command, input) => connection
   : Promise.reject(new HostUnavailableError()));
 
 export const PREVIEW_PANEL = "preview";
+
+/** Whether the Preview panel is on screen, which decides what `preview.toggle` does. */
+let panelShown = false;
+
+export function notePanelShown(shown: boolean): void {
+  panelShown = shown;
+}
+
+export function togglePreviewPanel(actions: Pick<WorkbenchActions, "openPanel" | "toggleDock">): void {
+  if (panelShown) actions.toggleDock();
+  else actions.openPanel(PREVIEW_PANEL);
+}
 
 /** What the host's browser view currently shows; the panel renders from this. */
 export class PreviewStore {

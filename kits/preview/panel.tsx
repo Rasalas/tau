@@ -2,18 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
 import { errorMessage, reserveRegion, type PanelProps } from "tau";
 import { overlayWatch } from "./overlay-watch.js";
-import { isPreviewState, previewKit, previewStore, usePreviewState } from "./store.js";
+import { isPreviewState, notePanelShown, previewKit, previewStore, usePreviewState } from "./store.js";
+import { PortSuggestions } from "./suggestions.js";
+import { PreviewTools } from "./tools.js";
 
 /**
  * The panel is deliberately empty below its toolbar: the page is a
  * `WebContentsView` the host draws over that rectangle, so the panel's work is
  * to say where the rectangle is and when it is gone.
  */
-export function PreviewPanel({ active, extensionName }: PanelProps) {
+export function PreviewPanel({ active, extensionName, actions }: PanelProps) {
   const surface = useRef<HTMLDivElement>(null);
   const state = usePreviewState();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
+  const [addressFocused, setAddressFocused] = useState(false);
   const editing = useRef(false);
   const covered = useRef(false);
   // React detaches the ref before an unmount effect runs, so the last measured
@@ -40,6 +43,11 @@ export function PreviewPanel({ active, extensionName }: PanelProps) {
   }, []);
 
   useEffect(() => { if (!editing.current) setDraft(state.url); }, [state.url]);
+
+  useEffect(() => {
+    notePanelShown(active);
+    return () => notePanelShown(false);
+  }, [active]);
 
   useEffect(() => {
     if (!surface.current || !active) {
@@ -73,6 +81,12 @@ export function PreviewPanel({ active, extensionName }: PanelProps) {
   const guard = (work: Promise<unknown>) => {
     void work.then(() => setError("")).catch((problem: unknown) => setError(errorMessage(problem)));
   };
+  const openUrl = (url: string) => {
+    editing.current = false;
+    setDraft(url);
+    guard(previewKit.open({ url }));
+  };
+  const cwd = actions?.activeThread?.()?.cwd;
 
   return <section className="panel-body preview-panel">
     <header className="panel-header">
@@ -85,19 +99,22 @@ export function PreviewPanel({ active, extensionName }: PanelProps) {
       <button className="icon-button compact" aria-label="Back" disabled={!state.canGoBack} onClick={() => guard(previewKit.navigate({ action: "back" }))}><ArrowLeft size={13} /></button>
       <button className="icon-button compact" aria-label="Forward" disabled={!state.canGoForward} onClick={() => guard(previewKit.navigate({ action: "forward" }))}><ArrowRight size={13} /></button>
       <button className="icon-button compact" aria-label="Reload" onClick={() => guard(previewKit.navigate({ action: "reload" }))}><RotateCw size={13} /></button>
-      <form onSubmit={(event) => { event.preventDefault(); editing.current = false; guard(previewKit.open({ url: draft })); }}>
+      <form onSubmit={(event) => { event.preventDefault(); openUrl(draft); }}>
         <input
           aria-label="Preview address"
           placeholder="localhost:3000"
           spellCheck={false}
           value={draft}
           onChange={(event) => { editing.current = true; setDraft(event.target.value); }}
-          onBlur={() => { editing.current = false; }}
+          onFocus={() => setAddressFocused(true)}
+          onBlur={() => { editing.current = false; setAddressFocused(false); }}
         />
       </form>
     </div>
+    {active && (addressFocused || !state.url) ? <PortSuggestions cwd={cwd} current={state.url} onOpen={openUrl} /> : null}
+    <PreviewTools state={state} actions={actions} run={(work) => guard(work())} />
     <div className={error ? "preview-status error" : "preview-status"}>
-      {error || (state.loading ? "loading…" : state.title || "nothing loaded")}
+      {error || state.recordingNotice || (state.loading ? "loading…" : state.title || "nothing loaded")}
     </div>
     <div className="preview-surface" ref={surface} />
   </section>;
