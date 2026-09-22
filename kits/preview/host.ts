@@ -189,7 +189,9 @@ export function readPreviewBounds(input: unknown): PreviewBounds {
 export function normalizePreviewUrl(input: unknown, workspaceRoot: string): string {
   const raw = typeof input === "string" ? input.trim() : "";
   if (!raw) throw new Error("Preview needs a URL.");
-  const candidate = raw.startsWith("/") ? `file://${raw}` : /^[a-z][a-z0-9+.-]*:/iu.test(raw) ? raw : `http://${raw}`;
+  // `localhost:3000` is a host and a port, not a scheme.
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/iu.test(raw) && !/^[a-z0-9.-]+:\d+(?:[/?#]|$)/iu.test(raw);
+  const candidate = raw.startsWith("/") ? `file://${raw}` : hasScheme ? raw : `http://${raw}`;
   let url: URL;
   try {
     url = new URL(candidate);
