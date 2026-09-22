@@ -124,7 +124,8 @@ describe("Search Kit: dialogs", () => {
     fireEvent.change(input, { target: { value: "needle" } });
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("3 results in 2 files"));
     expect(host).toHaveBeenCalledWith("content", { cwd: "/repo", query: "needle", regex: false, caseSensitive: true, wholeWord: false, channel: "w" });
-    expect([...document.querySelectorAll(".search-file-row strong")].map((row) => row.textContent)).toEqual(["a.ts", "b.ts"]);
+    // The list widens its window in an effect after the status line renders.
+    await waitFor(() => expect([...document.querySelectorAll(".search-file-row strong")].map((row) => row.textContent)).toEqual(["a.ts", "b.ts"]));
     expect(document.querySelector(".search-match-row mark")?.textContent).toBe("needle");
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
