@@ -117,6 +117,22 @@ describe("Workspace Kit thread worktrees", () => {
     expect(createWorktree.mock.calls[0]?.[0]).toMatch(/^tau\/[0-9a-f]{8}$/u);
   });
 
+  it("makes a worktree on request in the current mode, with a suffix so one prompt can have several", async () => {
+    const createWorktree = vi.fn(async (branch: string) => ({ workspaceId: `ws1_${branch}`, displayPath: `/project-worktrees/${branch}` }));
+    const workspaceStore = storeOver({ createWorktree });
+    workspaceStore.bind(actionsWith());
+    workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: true, workspace: REPO });
+    workspaceStore.registerWorktreeNamer(async () => "fix/queue");
+
+    const request = { prompt: "fix the queue", preparing: () => undefined, force: true };
+    await workspaceStore.prepareThreadWorktree({ ...request, branchSuffix: "1" });
+    await workspaceStore.prepareThreadWorktree({ ...request, branchSuffix: "2" });
+    expect(createWorktree.mock.calls.map((call) => call[0])).toEqual(["fix/queue-1", "fix/queue-2"]);
+
+    workspaceStore.update({ workspace: { ...REPO, isRepo: false } });
+    await expect(workspaceStore.prepareThreadWorktree(request)).resolves.toEqual({});
+  });
+
   it("takes the mode from the project, then from the checked-in default, then from the global one", async () => {
     const preferences = new PreferencesStore();
     const workspaceStore = storeOver({ getProjectDefaults: async () => ({ workspaceMode: "worktree" }) }, preferences);

@@ -70,6 +70,13 @@ describe("Agents Kit lineage", () => {
 describe("the Agents panel model", () => {
   const threads = [session("parent", "Parent thread", 3, 0.5), session("alpha", "Alpha reply", 2, 0.25), session("beta", "Beta reply", 1, 0.25)];
 
+  it("lists the threads started from the same prompt on other models, without the one on screen", () => {
+    const model = agentsPanelModel(undefined, "alpha", threads, { ids: ["alpha", "beta"], running: ["beta"] });
+    expect(model.groups).toEqual([expect.objectContaining({ parentThreadId: "siblings", parentTitle: "Same prompt, other models" })]);
+    expect(model.groups[0]!.rows.map((row) => [row.threadId, row.status])).toEqual([["beta", "running"]]);
+    expect(agentsPanelModel(undefined, "alpha", threads, { ids: [], running: [] }).groups).toEqual([]);
+  });
+
   it("groups the active thread's agents and totals its cost with theirs", () => {
     const model = agentsPanelModel(state, "parent", threads);
     expect(model.groups).toHaveLength(1);

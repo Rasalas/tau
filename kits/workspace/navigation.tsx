@@ -1,7 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
+  Menu,
   ThreadRow,
   usePreferences,
   useThreadStore,
@@ -13,7 +14,8 @@ import {
   type UiProject,
   type UiSession,
 } from "tau";
-import { WORKSPACE_HOST_EXTENSION_ID, type UiDirectoryListing } from "./protocol.js";
+import { WORKSPACE_HOST_EXTENSION_ID, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
+import { useRailDrag } from "./rail-drag.js";
 import { useWorkspaceStore } from "./store-context.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
@@ -357,6 +359,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   modelProvider,
   startedAt,
   onSelect,
+  onToggleSettled,
 }: {
   id: string;
   active: boolean;
@@ -368,6 +371,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   modelProvider?: string;
   startedAt?: number;
   onSelect(path: string): Promise<boolean>;
+  onToggleSettled(session: UiSession): void;
 }) {
   const store = useThreadStore();
   const preferences = usePreferences();
@@ -396,16 +400,38 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       modelProvider={modelProvider}
       startedAt={startedAt}
       onSelect={onSelect}
-      onToggleSettled={(threadId) => preferences.toggleSettled(threadId)}
+      onToggleSettled={() => onToggleSettled(session)}
     />
   );
 });
+
+/** The rail's own split when no organizer says otherwise: pins first, settled threads on their shelf. */
+export function defaultRailSections(
+  threads: readonly UiSession[],
+  pinned: readonly string[],
+  settled: readonly string[],
+  showSettledShelf: boolean,
+): ThreadRailSection[] {
+  const pins = new Set(pinned);
+  const shelved = new Set(showSettledShelf ? settled : []);
+  const sorted = threads.slice().sort((left, right) => Number(pins.has(right.id)) - Number(pins.has(left.id)) || right.modifiedAt - left.modifiedAt);
+  return [
+    { id: "active", threads: sorted.filter((session) => !shelved.has(session.id)) },
+    { id: "settled", label: "SETTLED", shelf: true, settled: true, threads: sorted.filter((session) => shelved.has(session.id)) },
+  ];
+}
+
+const noSubscription = () => () => undefined;
+const noVersion = () => 0;
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
   const { snapshot, registry } = useWorkbenchShell();
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const lineage = registry.getThreadLineage();
   const threadStore = useThreadStore();
+  const workspace = useWorkspaceStore();
+  const organizer = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRailOrganizer);
+  useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
   const [threadQuery, setThreadQuery] = useState("");
   const navigationSnapshot = useSyncExternalStore(
     threadQuery ? threadStore.subscribe : threadStore.subscribeToIds,
@@ -416,9 +442,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [threadLimit, setThreadLimit] = useState(THREAD_PAGE_SIZE);
-  const [settledOpen, setSettledOpen] = useState(true);
-  const [settledLimit, setSettledLimit] = useState(THREAD_PAGE_SIZE);
+  const [shelfOpen, setShelfOpen] = useState<Readonly<Record<string, boolean>>>({});
+  const [shelfLimits, setShelfLimits] = useState<Readonly<Record<string, number>>>({});
   const [navigationIndex, setNavigationIndex] = useState(0);
+  const [menu, setMenu] = useState<{ session: UiSession; x: number; y: number }>();
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLElement>(null);
 
@@ -449,15 +476,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         !needle ||
         `${session.projectName} ${session.title} ${session.projectLabel ?? ""}`.toLocaleLowerCase().includes(needle),
     )
-    .slice()
-    .sort((left, right) => {
-      const pinOrder = Number(settings.pinnedThreadIds.includes(right.id)) - Number(settings.pinnedThreadIds.includes(left.id));
-      return pinOrder || right.modifiedAt - left.modifiedAt;
-    });
-  const settledIds = new Set(settings.settledThreadIds);
-  const activeThreads = matching.filter((session) => !settledIds.has(session.id) || !showSettledShelf);
-  const settledThreads = showSettledShelf ? matching.filter((session) => settledIds.has(session.id)) : [];
-  const visibleActive = activeThreads.slice(0, threadLimit);
+    .sort((left, right) => right.modifiedAt - left.modifiedAt);
+  const sections = organizer
+    ? organizer.sections(matching)
+    : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf);
+  const mainIndex = Math.max(0, sections.findIndex((section) => !section.label));
+  const main = sections[mainIndex] ?? { id: "active", threads: [] };
+  const visibleActive = main.threads.slice(0, threadLimit);
+  const { drag, onPointerDown } = useRailDrag(organizer, sections);
 
   const navigationRows: NavigationRow[] = groupByProject
     ? [...visibleActive.reduce((groups, session) => {
@@ -498,7 +524,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return { activity: "idle", label: "IDLE" };
   };
 
-  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string, hint?: string) => (
+  const toggleSettled = useCallback((session: UiSession) => {
+    if (organizer) organizer.toggleSettled(session);
+    else preferences.toggleSettled(session.id);
+  }, [organizer, preferences]);
+
+  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string, hint?: string, compact = false) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
@@ -506,15 +537,71 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activity={activity}
       activityLabel={label}
       activityHint={hint}
-      compact={compactRows && activity !== "settled"}
+      compact={(compact || compactRows) && activity !== "settled"}
       workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
       onSelect={actions.switchSession}
+      onToggleSettled={toggleSettled}
     />
   );
 
-  const visibleSettled = settledThreads.slice(0, settledLimit);
+  /** A row's wrapper carries what the drag and the menu read; the classes show where a drop lands. */
+  const rowClass = (sectionId: string, id: string, last: boolean): string => {
+    const classes = ["rail-row"];
+    if (drag?.threadId === id) classes.push("dragging");
+    if (drag?.drop?.sectionId === sectionId) {
+      if (drag.drop.beforeThreadId === id) classes.push("drop-before");
+      else if (last && !drag.drop.beforeThreadId) classes.push("drop-after");
+    }
+    return classes.join(" ");
+  };
+
+  const shelfRows = (section: ThreadRailSection) => {
+    const open = !section.shelf || (shelfOpen[section.id] ?? !section.collapsed);
+    const limit = shelfLimits[section.id] ?? THREAD_PAGE_SIZE;
+    return open ? section.threads.slice(0, limit) : [];
+  };
+
+  const renderSection = (section: ThreadRailSection): ReactNode => {
+    // An empty section shows its heading only while a thread could be dropped on it.
+    if (section.threads.length === 0 && !drag) return null;
+    const open = !section.shelf || (shelfOpen[section.id] ?? !section.collapsed);
+    const rows = shelfRows(section);
+    const heading = `${section.label} · ${section.threads.length}`;
+    const target = drag?.drop?.sectionId === section.id ? " drop-target" : "";
+    return (
+      <section key={section.id} className={`${section.shelf ? "settled-shelf" : "rail-section"} rail-section-${section.id}`}>
+        {section.shelf ? (
+          <button
+            className={`settled-shelf-toggle${target}`}
+            data-rail-heading={section.id}
+            aria-expanded={open}
+            onClick={() => setShelfOpen((current) => ({ ...current, [section.id]: !open }))}
+          >
+            {heading}<i />
+            <b>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</b>
+          </button>
+        ) : <div className={`thread-group-label${target}`} data-rail-heading={section.id}>{heading}<i /></div>}
+        {rows.map((session, index) => {
+          const status = section.settled ? { activity: "settled" as const } : activityFor(session.id);
+          return (
+            <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} data-rail-thread={session.id} data-rail-section={section.id}>
+              {renderRow(session, status.activity, status.label, status.hint, Boolean(section.shelf))}
+            </div>
+          );
+        })}
+        {open && rows.length < section.threads.length ? (
+          <ShowMoreThreadRow
+            remaining={section.threads.length - rows.length}
+            onClick={() => setShelfLimits((current) => ({ ...current, [section.id]: Math.min(section.threads.length, rows.length + THREAD_PAGE_SIZE) }))}
+          />
+        ) : null}
+      </section>
+    );
+  };
+
+  const findSession = (id: string) => sections.flatMap((section) => section.threads).find((session) => session.id === id);
 
   return (
     <aside className="session-rail">
@@ -547,26 +634,46 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
       <nav
         ref={listRef}
-        className="session-list"
+        className={`session-list${drag ? " rail-dragging" : ""}`}
         aria-label="Threads"
         tabIndex={0}
+        onPointerDown={onPointerDown}
+        onContextMenu={(event) => {
+          if (!organizer) return;
+          const id = (event.target as Element).closest<HTMLElement>("[data-rail-thread]")?.dataset.railThread;
+          const session = id ? findSession(id) : undefined;
+          if (!session) return;
+          event.preventDefault();
+          setMenu({ session, x: event.clientX, y: event.clientY });
+        }}
         onKeyDown={(event) => {
-          const choices = [...navigationRows.flatMap((row) => row.kind === "thread" ? [row.session] : []), ...(settledOpen ? visibleSettled : [])];
+          const choices = [
+            ...sections.slice(0, mainIndex).flatMap(shelfRows),
+            ...navigationRows.flatMap((row) => row.kind === "thread" ? [row.session] : []),
+            ...sections.slice(mainIndex + 1).flatMap(shelfRows),
+          ];
           if (!choices.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
           event.preventDefault();
           if (event.key === "Enter") { void actions.switchSession(choices[navigationIndex % choices.length].path); return; }
           setNavigationIndex((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + choices.length) % choices.length);
         }}
       >
+        {sections.slice(0, mainIndex).map(renderSection)}
+        {main.label === undefined && drag && sections.length > 1 ? (
+          <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>ACTIVE<i /></div>
+        ) : null}
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", flexShrink: 0 }}>
           {rowVirtualizer.getVirtualItems().map((item) => {
             const row = navigationRows[item.index];
             if (!row) return null;
+            const threadRow = row.kind === "thread";
             return (
               <div
                 key={row.id}
                 ref={rowVirtualizer.measureElement}
                 data-index={item.index}
+                className={threadRow ? rowClass(main.id, row.id, item.index === navigationRows.length - 1) : undefined}
+                {...(threadRow ? { "data-rail-thread": row.id, "data-rail-section": main.id } : {})}
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === "group" ? (
@@ -580,10 +687,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           })}
         </div>
 
-        {visibleActive.length < activeThreads.length ? (
+        {visibleActive.length < main.threads.length ? (
           <ShowMoreThreadRow
-            remaining={activeThreads.length - visibleActive.length}
-            onClick={() => setThreadLimit((limit) => Math.min(activeThreads.length, limit + THREAD_PAGE_SIZE))}
+            remaining={main.threads.length - visibleActive.length}
+            onClick={() => setThreadLimit((limit) => Math.min(main.threads.length, limit + THREAD_PAGE_SIZE))}
           />
         ) : null}
 
@@ -591,26 +698,22 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           <p className="sidebar-empty">{threadQuery ? "No threads found" : "No recent threads"}</p>
         ) : null}
 
-        {settledThreads.length > 0 ? (
-          <section className="settled-shelf">
-            <button
-              className="settled-shelf-toggle"
-              aria-expanded={settledOpen}
-              onClick={() => setSettledOpen((open) => !open)}
-            >
-              SETTLED · {settledThreads.length}<i />
-              <b>{settledOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</b>
-            </button>
-            {settledOpen ? visibleSettled.map((session) => renderRow(session, "settled")) : null}
-            {settledOpen && visibleSettled.length < settledThreads.length ? (
-              <ShowMoreThreadRow
-                remaining={settledThreads.length - visibleSettled.length}
-                onClick={() => setSettledLimit((limit) => Math.min(settledThreads.length, limit + THREAD_PAGE_SIZE))}
-              />
-            ) : null}
-          </section>
-        ) : null}
+        {sections.slice(mainIndex + 1).map(renderSection)}
       </nav>
+
+      {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}
+      {menu && organizer ? (
+        <div className="rail-menu-anchor" style={{ left: menu.x, top: menu.y }}>
+          <Menu
+            placement={menu.y > window.innerHeight - 320 ? "above" : "below"}
+            align="left"
+            sections={organizer.menu(menu.session)}
+            onSelect={(id) => organizer.runMenu(menu.session, id, actions)}
+            onClose={() => setMenu(undefined)}
+          />
+        </div>
+      ) : null}
+      {organizer?.Layer ? <organizer.Layer actions={actions} /> : null}
 
       <div className="sidebar-footer">
         <button title="Settings" aria-label="Settings" onClick={() => actions.openSettings()}>

@@ -11,7 +11,7 @@ import { usePreferences } from "./renderer-services-context";
 export type SubmitPrompt = (
   value: string,
   attachments?: UiPromptAttachment[],
-  delivery?: "followUp" | "steer",
+  delivery?: "followUp" | "steer" | "alternate",
   skillDraft?: UiSkillDraft,
 ) => Promise<SubmitResult>;
 

@@ -109,6 +109,7 @@ export function agentsPanelModel(
   state: AgentsState | undefined,
   activeThreadId: string | undefined,
   threads: readonly UiSession[],
+  siblings: { ids: readonly string[]; running: readonly string[] } = { ids: [], running: [] },
 ): AgentsPanelModel {
   const links = state?.links ?? [];
   const sessions = new Map(threads.map((session) => [session.id, session] as const));
@@ -122,7 +123,12 @@ export function agentsPanelModel(
     if (!session.parentThreadId || linkOf.has(session.id)) continue;
     indexed.set(session.parentThreadId, [...indexed.get(session.parentThreadId) ?? [], session]);
   }
-  if (byParent.size === 0 && indexed.size === 0) return EMPTY_MODEL;
+  // Threads started from the same prompt on other models: siblings without a parent.
+  const siblingRows = siblings.ids.flatMap((id) => {
+    const session = id === activeThreadId ? undefined : sessions.get(id);
+    return session ? [{ ...indexRow(session), status: siblings.running.includes(id) ? "running" as const : "idle" as const }] : [];
+  });
+  if (byParent.size === 0 && indexed.size === 0 && siblingRows.length === 0) return EMPTY_MODEL;
 
   const spawned = (threadId: string) => byParent.has(threadId) || indexed.has(threadId);
   const parentOf = (threadId: string) => linkOf.get(threadId)?.parentThreadId ?? sessions.get(threadId)?.parentThreadId;
@@ -161,6 +167,7 @@ export function agentsPanelModel(
       ],
     }))
     .sort((left, right) => Number(right.active) - Number(left.active) || left.parentTitle.localeCompare(right.parentTitle));
+  if (siblingRows.length > 0) groups.push({ parentThreadId: "siblings", parentTitle: "Same prompt, other models", active: false, rows: siblingRows });
 
   const counts = { running: 0, waiting: 0, completed: 0, failed: 0, pending: 0 };
   let cost = 0;

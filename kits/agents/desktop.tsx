@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from "react";
 import { Bot, CornerUpLeft } from "lucide-react";
 import { HostUnavailableError, useThreadStore, type DesktopExtension, type RegionProps } from "tau";
-import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT } from "./protocol.js";
+import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, THREAD_SIBLINGS_SERVICE, type ThreadSiblingsService } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
 import { SpawnCard } from "./spawn-card.js";
-import { agentsHost, agentsStore, definitionsStore, lineageOf } from "./store.js";
+import { agentsHost, agentsStore, definitionsStore, lineageOf, siblingsSource } from "./store.js";
 
 /** The way back from an agent's thread to the thread that started it. */
 export function SpawnedBy({ snapshot, actions }: RegionProps) {
@@ -73,6 +73,10 @@ export const agentsExtension: DesktopExtension = {
       match: (tool) => tool.name === "tau_spawn_thread",
       profiles: ["desktop", "web", "compact"],
       Component: SpawnCard,
+    });
+    context.useService<ThreadSiblingsService>(THREAD_SIBLINGS_SERVICE, (service) => {
+      siblingsSource.set(service);
+      return () => siblingsSource.set(undefined);
     });
     context.registerCommand({
       id: "agents.open",
