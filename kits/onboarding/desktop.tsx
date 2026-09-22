@@ -1,0 +1,41 @@
+import { useEffect } from "react";
+import type { DesktopExtension, DesktopExtensionContext, RegionProps } from "tau";
+import { WelcomeFlow } from "./flow.js";
+import { ONBOARDING_EXTENSION_ID as ID, WELCOME_OVERLAY, type WelcomeState } from "./protocol.js";
+import { createWelcomeWizard } from "./wizard.js";
+
+/**
+ * Draws nothing: once per window it asks whether this is a first start — no
+ * thread yet and setup never finished — and opens the wizard if so.
+ */
+function createFirstStart(context: DesktopExtensionContext) {
+  let asked = false;
+  // The host counts Pi's sessions; the index also lists other runtimes' threads.
+  let threads: number | undefined;
+  context.events.on("thread-index", (event) => { threads = event.threadIndex.sessions.length; });
+  return function FirstStart({ actions }: RegionProps) {
+    useEffect(() => {
+      if (asked) return;
+      asked = true;
+      void context.host.invoke("state").then((state) => {
+        if ((state as WelcomeState).firstStart && !threads) actions.openOverlay(WELCOME_OVERLAY);
+      }, () => undefined);
+    }, [actions]);
+    return null;
+  };
+}
+
+const onboarding: DesktopExtension = {
+  id: ID,
+  name: "Onboarding",
+  activate(context) {
+    const flow = new WelcomeFlow(context.host, (id) => context.hostExtension(id));
+    const open = (actions: { openOverlay(id: string): void }) => { flow.start(true); actions.openOverlay(WELCOME_OVERLAY); };
+    context.registerOverlay({ id: WELCOME_OVERLAY, profiles: ["desktop"], Component: createWelcomeWizard(flow) });
+    context.registerRegion({ id: "onboarding.first-start", placement: "title-bar", profiles: ["desktop"], Component: createFirstStart(context) });
+    context.registerSlashCommand({ name: "welcome", description: "Set up Tau: agents, projects and earlier conversations", run: (_args, actions) => { open(actions); } });
+    context.registerCommand({ id: "onboarding.welcome", label: "Set up Tau…", group: "Workbench", run: open });
+  },
+};
+
+export default onboarding;
