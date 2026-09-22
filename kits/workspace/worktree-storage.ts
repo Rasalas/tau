@@ -374,10 +374,13 @@ export class WorktreeStorage {
         verdict,
       });
     }
+    const common = (await this.options.runGit(this.options.hostCwd(), ["rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(() => "")).trim();
+    const current = common ? dirname(resolve(this.options.hostCwd(), common)) : undefined;
     return {
       worktrees,
       totalBytes: worktrees.reduce((sum, tree) => sum + (tree.sizeBytes ?? 0), 0),
       policy: this.policy,
+      ...(current ? { currentRepository: { path: current, name: basename(current) } } : {}),
       generatedAt: this.now(),
       ...(this.lastSweep ? { lastSweep: this.lastSweep } : {}),
     };

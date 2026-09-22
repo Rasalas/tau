@@ -1,7 +1,7 @@
 /**
  * Workspace Kit's worktree storage contract: the cleanup rules, the storage
- * report and the `tau app` request. Type-only, like `protocol.ts`, so both
- * halves read it without pulling either one's code.
+ * report and the `tau app` request. It imports nothing, so both halves read it
+ * without pulling either one's code.
  */
 
 /** The four rules T3 Code offers, under Tau's names. Every one is off by default. */
@@ -76,6 +76,8 @@ export interface UiStorageReport {
   worktrees: UiStorageWorktree[];
   totalBytes: number;
   policy: CleanupPolicy;
+  /** The repository the host has open, whose override the page offers. */
+  currentRepository?: { path: string; name: string };
   generatedAt: number;
   /** The last sweep that removed something, on this host. */
   lastSweep?: { at: number; removed: string[] };
