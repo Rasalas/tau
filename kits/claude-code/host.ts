@@ -1,4 +1,6 @@
-import { skillInvocationCommand, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider, type UiComposerCommand } from "tau/host-extension";
+import { realpath } from "node:fs/promises";
+import { join } from "node:path";
+import { npmLatestVersion, packageUpdateCommand, skillInvocationCommand, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider, type UiComposerCommand } from "tau/host-extension";
 import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID, USAGE_KIT_ID } from "./protocol.js";
 import { describeAccount, readClaudeVersion } from "./probe.js";
 import { createClaudeCodeRuntimeAdapter, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
@@ -14,7 +16,11 @@ export interface ClaudeCodeHostExtensionOptions {
   sessionsDir?: string;
   /** Commands offered instead of the shared skill directories (tests). */
   commands?: readonly UiComposerCommand[];
+  /** The npm registry, for the newest release; tests answer it. */
+  fetch?: typeof globalThis.fetch;
 }
+
+const CLAUDE_NPM_PACKAGE = "@anthropic-ai/claude-code";
 
 /** Claude gets only skill metadata from the host's skill catalog; it never sees Pi's resource loader. */
 export function claudeComposerCommands(
@@ -50,7 +56,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
   return {
     id: CLAUDE_CODE_HOST_EXTENSION_ID,
     name: "Claude Code",
-    permissions: ["process", "sessions", "runtime:extend"],
+    permissions: ["process", "sessions", "runtime:extend", "network"],
     activate(context) {
       const services: HostExtensionServices = context.services;
       const storePath = ClaudeRuntimeSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
@@ -96,6 +102,17 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           return backend;
         },
         composerCommands: commands,
+        version: async () => {
+          const path = services.findCommand(claudeCommand());
+          if (!path) return undefined;
+          const [installed, latest, real] = await Promise.all([
+            readClaudeVersion(path),
+            npmLatestVersion(CLAUDE_NPM_PACKAGE, { cacheFile: join(services.stateDir, "latest-version.json"), ...(options.fetch ? { fetch: options.fetch } : {}) }),
+            realpath(path).catch(() => path),
+          ]);
+          // The native installer updates itself; a package manager's install is that manager's to update.
+          return { tool: "claude", ...(installed ? { installed } : {}), ...(latest ? { latest } : {}), updateCommand: packageUpdateCommand(real, CLAUDE_NPM_PACKAGE) ?? "claude update" };
+        },
       };
       context.registerCommand("status", () => {
         const command = claudeCommand();

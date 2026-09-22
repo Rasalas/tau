@@ -50,6 +50,15 @@ async function harness(installed: boolean) {
 }
 
 describe("Antigravity host half", () => {
+  it("offers an update only for the runtime Tau installed itself", async () => {
+    const own = await harness(true);
+    const version = await own.backends[0]!.version!();
+    expect(version?.tool).toBe("Antigravity");
+    // The override is the user's binary; Tau names no release for it.
+    expect(version?.latest).toBeUndefined();
+    await expect((await harness(false)).backends[0]!.version!()).resolves.toBeUndefined();
+  });
+
   it("registers its backend with a label and Google as the model provider, and opens threads through the seam", async () => {
     const { backends, openSession, registry } = await harness(true);
     const [provider] = backends;

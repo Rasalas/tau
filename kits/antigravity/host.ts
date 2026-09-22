@@ -118,6 +118,17 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           return backend;
         },
         composerCommands: () => [],
+        // Tau installs the release it pins; one on the PATH or named by the override is the user's to keep current.
+        version: async () => {
+          const executable = await resolveExecutable().catch(() => undefined);
+          if (!executable) return undefined;
+          const managed = executable.source === "managed" && releaseAssetFor(platform, arch) !== undefined;
+          return {
+            tool: "Antigravity",
+            ...(executable.version ? { installed: executable.version } : {}),
+            ...(managed ? { latest: ANTIGRAVITY_RELEASE_VERSION, updateCommand: "Settings → Antigravity → Update" } : {}),
+          };
+        },
       };
 
       context.registerCommand("status", async () => {
