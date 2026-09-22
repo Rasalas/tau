@@ -137,10 +137,10 @@ export class SubmissionController {
       return await this.ports.registry.claimNewThread({
         prompt,
         projectPath: pending.projectPath,
-        ...(pending.workspaceId ? { workspaceId: pending.workspaceId } : {}),
+        workspaceId: pending.workspaceId,
         preparing: notice.preparing,
         alternate,
-        ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+        model,
         runtime,
         attachments,
       }, actions);

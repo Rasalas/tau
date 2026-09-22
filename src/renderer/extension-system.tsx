@@ -18,6 +18,7 @@ import type {
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { StageTab } from "../workbench/stage";
 import { PreferencesStore } from "./preferences";
+import { errorMessage } from "../workbench/error-message";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 
 /**
@@ -1508,7 +1509,7 @@ export class ExtensionRegistry {
         const result = await hook.beforeNewThread(event, actions);
         if (result?.workspace) return result;
       } catch (error) {
-        actions.notify(`${hook.id}: ${error instanceof Error ? error.message : String(error)}`);
+        actions.notify(`${hook.id}: ${errorMessage(error)}`);
       }
     }
     return undefined;
@@ -1524,7 +1525,7 @@ export class ExtensionRegistry {
       try {
         if (await hook.claimNewThread(event, actions)) return true;
       } catch (error) {
-        actions.notify(`${hook.id}: ${error instanceof Error ? error.message : String(error)}`);
+        actions.notify(`${hook.id}: ${errorMessage(error)}`);
       }
     }
     return false;
@@ -1540,7 +1541,7 @@ export class ExtensionRegistry {
       try {
         await hook.afterPrompt?.(event, actions);
       } catch (error) {
-        actions.notify(`${hook.id}: ${error instanceof Error ? error.message : String(error)}`);
+        actions.notify(`${hook.id}: ${errorMessage(error)}`);
       }
     }
   }

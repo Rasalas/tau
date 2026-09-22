@@ -368,7 +368,7 @@ describe("SubmissionController", () => {
       projectPath: "/project",
       alternate: true,
       runtime: "pi",
-      model: { provider: "openai", id: "gpt-5.6-luna" },
+      model: expect.objectContaining({ provider: "openai", id: "gpt-5.6-luna" }),
       attachments: 0,
     }), expect.anything());
     expect(client.calls.some((call) => call.method === "newSession" || call.method === "preparePrompt")).toBe(false);
