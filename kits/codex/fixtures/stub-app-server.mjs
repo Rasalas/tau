@@ -34,7 +34,7 @@ function fill(value, ids) {
   return JSON.parse(JSON.stringify(value).replaceAll("{thread}", ids.thread).replaceAll("{turn}", ids.turn).replaceAll("{cwd}", ids.cwd));
 }
 function threadInfo(id, cwd) {
-  return { thread: { id, path: null, cwd, cliVersion: "0.154.0" }, model: "gpt-5.6-luna", modelProvider: "openai", cwd, reasoningEffort: null, approvalPolicy: "never", sandbox: { type: "dangerFullAccess" } };
+  return { thread: { id, path: null, cwd, cliVersion: "0.154.0" }, model: "gpt-5.6-luna", modelProvider: "openai", cwd, reasoningEffort: "low", approvalPolicy: "never", sandbox: { type: "dangerFullAccess" } };
 }
 
 async function play(name, ids) {

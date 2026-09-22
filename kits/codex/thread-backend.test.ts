@@ -77,7 +77,8 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect((await backend.transcript()).map((message) => [message.role, message.text])).toEqual([["user", "Reply with exactly one word: hello."], ["assistant", "hello"]]);
     const view = backend.catalogView();
     expect(view.model).toEqual({ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6-Luna" });
-    expect(view.thinkingLevels).toEqual(["default (medium)", "low", "medium", "high", "xhigh", "max"]);
+    // The effort Codex reported for the thread (the user's config) names the default.
+    expect(view.thinkingLevels).toEqual(["default (low)", "low", "medium", "high", "xhigh", "max"]);
     expect(view.usage).toMatchObject({ turns: 1, costUsd: 0 });
     expect(view.usage!.totalTokens).toBeGreaterThan(0);
     const stored = await space.store.get("tau-1");

@@ -152,6 +152,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private chosenModel?: string;
   private chosenEffort?: string;
   private observedModel?: string;
+  /** The effort Codex applies when Tau names none: the thread's own, or the user's config. */
+  private observedEffort?: string;
   private modelList: CodexStoredModel[] = [];
   private persisting: Promise<void> = Promise.resolve();
 
@@ -221,7 +223,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   catalogView(): ThreadCatalogView {
     const info = this.currentModel();
     const id = this.chosenModel ?? this.observedModel ?? info?.id;
-    const fallback = info?.defaultEffort ? `${DEFAULT_EFFORT} (${info.defaultEffort})` : DEFAULT_EFFORT;
+    const applied = this.observedEffort ?? info?.defaultEffort;
+    const fallback = applied ? `${DEFAULT_EFFORT} (${applied})` : DEFAULT_EFFORT;
     return {
       ...(id ? { model: { provider: MODEL_PROVIDER, id, name: info?.name ?? id } } : {}),
       thinkingLevel: this.chosenEffort ?? fallback,
@@ -419,6 +422,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         this.codexThreadId = info.thread.id;
         await this.store.setCodexThread(this.threadId, this.cwd, info.thread.id);
       }
+      if (info.reasoningEffort) this.observedEffort = info.reasoningEffort;
       if (info.model && info.model !== this.observedModel) {
         this.observedModel = info.model;
         await this.store.setObservedModel(this.threadId, this.cwd, info.model);
