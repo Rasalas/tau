@@ -79,6 +79,14 @@ describe("client profiles", () => {
     }
   });
 
+  // Two kits claiming one chord means one of them silently never fires.
+  it("binds no default chord twice across the kits Tau ships", () => {
+    const { registry } = createKitHarness(workspaceHostStub());
+    for (const extension of kits) registry.activate(extension);
+    expect(registry.getKeybindingConflicts().map((conflict) => `${conflict.keys}: ${conflict.commandId} vs ${conflict.boundTo.commandId}`)).toEqual([]);
+    for (const extension of kits) registry.deactivate(extension.id);
+  });
+
   it("leaves the host half of a kit alone when this client draws none of it", () => {
     const invoked: string[] = [];
     const host = async (extensionId: string, command: string) => { invoked.push(`${extensionId}:${command}`); return undefined; };

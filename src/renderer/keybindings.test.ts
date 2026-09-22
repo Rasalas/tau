@@ -33,6 +33,15 @@ describe("key chords", () => {
     expect(chordMatchesEvent(parseKeyChord("ctrl+l")!, event({ key: "l", ctrlKey: true }), true)).toBe(true);
   });
 
+  it("matches an alt chord by its physical key when Option changed the character", () => {
+    const chord = parseKeyChord("mod+alt+j")!;
+    expect(chordMatchesEvent(chord, event({ key: "∆", code: "KeyJ", metaKey: true, altKey: true }), true)).toBe(true);
+    expect(chordMatchesEvent(chord, event({ key: "j", code: "KeyJ", ctrlKey: true, altKey: true }), false)).toBe(true);
+    // Without alt in the chord the character decides, so a layout's own letters still count.
+    expect(chordMatchesEvent(parseKeyChord("mod+j")!, event({ key: "∆", code: "KeyJ", metaKey: true }), true)).toBe(false);
+    expect(chordMatchesEvent(parseKeyChord("alt+1")!, event({ key: "¡", code: "Digit1", altKey: true }), true)).toBe(true);
+  });
+
   it("formats chords the way each platform writes them", () => {
     expect(formatKeyChord(parseKeyChord("mod+shift+s")!, true)).toBe("⇧⌘S");
     expect(formatKeyChord(parseKeyChord("mod+shift+s")!, false)).toBe("Ctrl+Shift+S");
