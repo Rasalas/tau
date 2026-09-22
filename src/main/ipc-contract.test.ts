@@ -90,6 +90,23 @@ describe("host protocol contract", () => {
     expect([...CLIENT_SIDE_METHODS].filter((method) => !methods.has(method))).toEqual([]);
   });
 
+  it("refuses to share a file where the platform serves none", async () => {
+    const unavailable = () => { throw new Error("not available in this test"); };
+    const client = createClientHostMethods({
+      copyText: unavailable, copyImage: unavailable, readImagePreview: unavailable, loadDesktopExtensions: unavailable,
+      rebuildWorkbench: unavailable, workbenchSource: unavailable, relaunchWorkbench: unavailable, installUpdate: unavailable,
+      notify: unavailable, setBadge: unavailable,
+    });
+    await expect(invokeHostMethod(client, "share-file", ["/project/a.pdf"])).rejects.toMatchObject({ code: "unsupported" });
+    const sharing = createClientHostMethods({
+      copyText: unavailable, copyImage: unavailable, readImagePreview: unavailable, loadDesktopExtensions: unavailable,
+      rebuildWorkbench: unavailable, workbenchSource: unavailable, relaunchWorkbench: unavailable, installUpdate: unavailable,
+      notify: unavailable, setBadge: unavailable,
+      shareFile: async (path) => ({ url: "tau-ext://files/x/a.pdf", name: path, size: 1, mimeType: "application/pdf" }),
+    });
+    await expect(invokeHostMethod(sharing, "share-file", ["/project/a.pdf"])).resolves.toMatchObject({ url: "tau-ext://files/x/a.pdf" });
+  });
+
   it("a client of a remote host answers every local method with an unsupported error", async () => {
     const refusing = createUnsupportedHostMethods("no local host here");
     expect(Object.keys(refusing).sort()).toEqual([...methods].sort());

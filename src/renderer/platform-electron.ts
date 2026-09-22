@@ -31,7 +31,11 @@ export function createElectronHostClient(api: TauDesktopApi): { client: HostClie
  * `window.open` is how the renderer reaches the browser.
  */
 export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
-  const files = { openInEditor: ports.openInEditor };
+  const client = ports.client;
+  const files = {
+    openInEditor: ports.openInEditor,
+    ...(client ? { shareFile: (path: string) => client.shareFile(path) } : {}),
+  };
   return {
     clipboard: {
       writeText: async (text) => { await ports.client?.copyText(text); },

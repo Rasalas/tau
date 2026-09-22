@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { protocol } from "electron";
+import type { SharedFileStore } from "./shared-files.js";
 
 export const TAU_EXT_SCHEME = "tau-ext";
 const BUNDLE_PATH = /^\/bundles\/([a-z0-9][a-z0-9.-]*)\/([0-9a-f]{16,64})\.(js|css)$/u;
@@ -7,8 +8,9 @@ const CONTENT_TYPES = { js: "text/javascript", css: "text/css" } as const;
 
 /**
  * Compiled desktop bundles the renderer may import, keyed by extension id and
- * content hash. Nothing else is reachable over `tau-ext:`, so the CSP can name
- * the scheme instead of allowing every blob the renderer can build for itself.
+ * content hash. Nothing else is reachable over `tau-ext:` but the workspace
+ * files `SharedFileStore` hands out, so the CSP can name the scheme instead of
+ * allowing every blob the renderer can build for itself.
  */
 export class DesktopBundleStore {
   private readonly bundles = new Map<string, string>();
@@ -70,13 +72,16 @@ function safeId(extensionId: string): string {
   return cleaned || "extension";
 }
 
-/** Must run before `app.whenReady`, like every privileged scheme. */
+/** Must run before `app.whenReady`, like every privileged scheme; `stream` lets a video seek. */
 export function registerDesktopBundleScheme(): void {
   protocol.registerSchemesAsPrivileged([
-    { scheme: TAU_EXT_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    { scheme: TAU_EXT_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
   ]);
 }
 
-export function serveDesktopBundles(store: DesktopBundleStore): void {
-  protocol.handle(TAU_EXT_SCHEME, (request) => store.respond(request.url));
+/** `tau-ext://bundles/…` are kit bundles, `tau-ext://files/…` the workspace files shared with the page. */
+export function serveDesktopBundles(store: DesktopBundleStore, files?: SharedFileStore): void {
+  protocol.handle(TAU_EXT_SCHEME, (request) => files && new URL(request.url).host === "files"
+    ? files.respond(request.url, request.headers.get("range"))
+    : store.respond(request.url));
 }

@@ -1,5 +1,6 @@
 import type { ClientStorage } from "./client-storage";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
+import type { UiSharedFile } from "../shared/contracts";
 
 export type { SystemNotification, SystemNotificationOutcome };
 
@@ -40,6 +41,8 @@ export interface Platform {
   /** Present only where the host's files are this machine's files. */
   files?: {
     openInEditor(path: string): void;
+    /** A URL the page may load a workspace PDF, image, audio or video from; absent where nothing serves one. */
+    shareFile?(path: string): Promise<UiSharedFile>;
   };
   storage: ClientStorage;
   /** Evaluates a module URL. A page with a strict CSP decides here what it will run. */
