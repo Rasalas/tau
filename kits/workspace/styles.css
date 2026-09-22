@@ -375,6 +375,7 @@
 
 .restore-dialog > footer > button:disabled { color: var(--fainter); border-color: var(--line-soft); cursor: default; }
 .restore-mini-button { color: var(--working); }
+.restore-dialog > footer > .restore-dialog-files { color: var(--working); }
 
 .commit-box {
   flex: none; display: flex; flex-direction: column; gap: 8px;

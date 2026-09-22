@@ -85,3 +85,21 @@ export interface ReviewRequestDraft {
 }
 
 export type CommitMessageStyle = "conventional" | "gitmoji" | "plain";
+
+/**
+ * Composer Context's chip service, copied from `kits/composer-context/protocol.ts`
+ * (a kit never imports another): the slice Review uses to hand comments over.
+ */
+export const COMPOSER_CONTEXT_CHIPS_SERVICE = "tau.composer-context/chips";
+
+export interface ReviewCommentChip {
+  kind: "text-excerpt";
+  label?: string;
+  payload: { source: string; text: string };
+}
+
+export interface ComposerContextChips {
+  /** Throws when no composer is on screen. */
+  addChip(chip: ReviewCommentChip): string;
+  removeChip(id: string): void;
+}

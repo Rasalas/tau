@@ -195,6 +195,29 @@ export function fileDiffRows(path: string, diff: UiFileDiff | undefined, options
   return rows;
 }
 
+/** One line of a diff, as the line seam names it. */
+export interface DiffLineContext {
+  path: string;
+  line: UiDiffLine;
+}
+
+/**
+ * What a package hangs on the lines of a diff: a gutter button and whatever
+ * it draws under a line. Core draws both and knows nothing about them.
+ */
+export interface DiffLineSlot {
+  /** Called by the gutter button; the button is drawn only when this is given. */
+  onAction?(line: DiffLineContext, event: { shiftKey: boolean }): void;
+  /** The button's accessible name; "Comment on line N" by default. */
+  actionLabel?(line: DiffLineContext): string;
+  /** A count on the button; a line with one keeps it visible without hover. */
+  count?(line: DiffLineContext): number;
+  /** Marks the line as part of the package's current selection. */
+  selected?(line: DiffLineContext): boolean;
+  /** Drawn under the line across the diff's full width. */
+  render?(line: DiffLineContext): ReactNode;
+}
+
 export interface DiffStreamHandle {
   /** Aligns the first row of a file with the top of the viewport. */
   scrollToPath(path: string): void;
@@ -209,8 +232,7 @@ export interface DiffStreamProps {
   scrollRef: RefObject<HTMLDivElement | null>;
   languages?: readonly string[];
   activePath?: string;
-  annotationCount?(path: string, line: number): number;
-  onAnnotate?(path: string, line: number): void;
+  lines?: DiffLineSlot;
   onExpandContext?(): void;
   onLoadMore?(path: string): void;
   renderFileHeader?(file: UiChangedFile, diff?: UiFileDiff): ReactNode;
@@ -226,8 +248,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
   scrollRef,
   languages = NO_LANGUAGES,
   activePath,
-  annotationCount,
-  onAnnotate,
+  lines,
   onExpandContext,
   onLoadMore,
   renderFileHeader,
@@ -311,18 +332,24 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
         return null;
       case "line": {
         const lineNumber = row.line.newLine ?? row.line.oldLine;
-        const count = lineNumber === undefined ? 0 : annotationCount?.(row.path, lineNumber) ?? 0;
-        return <div className="diff-row">
-          <div className={`diff-grid ${split ? "split" : ""}`}>
-            <Row line={row.line} split={split} language={row.language} version={version} partner={row.partner} side={row.side} />
+        const context: DiffLineContext = { path: row.path, line: row.line };
+        const count = lines?.count?.(context) ?? 0;
+        const below = lines?.render?.(context);
+        const onAction = lines?.onAction;
+        return <>
+          <div className={`diff-row ${lines?.selected?.(context) ? "selected" : ""}`}>
+            <div className={`diff-grid ${split ? "split" : ""}`}>
+              <Row line={row.line} split={split} language={row.language} version={version} partner={row.partner} side={row.side} />
+            </div>
+            {onAction && lineNumber !== undefined ? <button
+              className={`diff-annotate ${count ? "has-comments" : ""}`}
+              title="Add line comment"
+              aria-label={lines?.actionLabel?.(context) ?? `Comment on line ${lineNumber}`}
+              onClick={(event) => onAction(context, { shiftKey: event.shiftKey })}
+            ><MessageSquarePlus size={12} />{count ? <span>{count}</span> : null}</button> : null}
           </div>
-          {onAnnotate && lineNumber !== undefined ? <button
-            className={`diff-annotate ${count ? "has-comments" : ""}`}
-            title="Add line comment"
-            aria-label={`Comment on line ${lineNumber}`}
-            onClick={() => onAnnotate(row.path, lineNumber)}
-          ><MessageSquarePlus size={12} />{count ? <span>{count}</span> : null}</button> : null}
-        </div>;
+          {below ? <div className="diff-line-slot">{below}</div> : null}
+        </>;
       }
     }
   };
@@ -352,14 +379,13 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
 });
 
 /** One file's diff with its own scroll element; review mode uses `DiffStream` directly. */
-export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onAnnotate, annotationCounts }: {
+export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, lines }: {
   diff?: UiFileDiff;
   mode: "unified" | "split";
   path?: string;
   onLoadMore?(): void;
   onExpandContext?(): void;
-  onAnnotate?(line: number): void;
-  annotationCounts?: ReadonlyMap<number, number>;
+  lines?: DiffLineSlot;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<DiffStreamHandle>(null);
@@ -374,8 +400,6 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onAnno
     () => diff && diff.hunks.length > 0 ? fileDiffRows(filePath, diff, { collapsible }) : [],
     [collapsible, diff, filePath],
   );
-  const annotationCount = useCallback((_path: string, line: number) => annotationCounts?.get(line) ?? 0, [annotationCounts]);
-  const annotate = useCallback((_path: string, line: number) => onAnnotate?.(line), [onAnnotate]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) return;
@@ -418,8 +442,7 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, onAnno
       mode={mode}
       scrollRef={scrollRef}
       languages={languages}
-      annotationCount={annotationCount}
-      {...(onAnnotate ? { onAnnotate: annotate } : {})}
+      {...(lines ? { lines } : {})}
       {...(onExpandContext ? { onExpandContext } : {})}
       {...(onLoadMore ? { onLoadMore } : {})}
     />

@@ -65,7 +65,7 @@ describe("ChangedFiles", () => {
       onRestore={onRestore}
     />);
 
-    fireEvent.click(view.getByText("Restore"));
+    fireEvent.click(view.getByText("Rewind"));
     expect(onRestore).toHaveBeenCalledOnce();
   });
 });

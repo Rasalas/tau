@@ -1,3 +1,6 @@
+import type { PreferencesStore, UiModel } from "tau";
+import { ACKNOWLEDGED_KEY, SUBSCRIPTION_LOGIN_EXTENSION_ID } from "./protocol.js";
+
 /**
  * What Tau says before a model is used through a subscription login Pi
  * performs. Pi offers those logins as a core feature, so Tau offers them too;
@@ -30,6 +33,11 @@ const RESTRICTED_PROVIDERS = new Set(["anthropic", "google", "google-antigravity
 
 export function isRestrictedSubscriptionLogin(provider: string): boolean {
   return RESTRICTED_PROVIDERS.has(provider);
+}
+
+/** A model the vendor allows only in its own apps, reached through the runtime's subscription login. */
+export function warnsAbout(model: UiModel | undefined): model is UiModel {
+  return model?.login === "subscription" && isRestrictedSubscriptionLogin(model.provider);
 }
 
 export function subscriptionProviderName(provider: string): string {
@@ -65,3 +73,20 @@ export function subscriptionLoginWarning(provider: string): SubscriptionLoginWar
 
 /** One line for lists that mark such models. */
 export const SUBSCRIPTION_LOGIN_NOTE = "Anthropic and Google allow their subscription logins only in their own apps; Tau asks once before the first use of such a model.";
+
+type Acknowledgements = Pick<PreferencesStore, "value" | "setValue">;
+
+function acknowledgedProviders(preferences: Acknowledgements): string[] {
+  return (preferences.value(SUBSCRIPTION_LOGIN_EXTENSION_ID, ACKNOWLEDGED_KEY) ?? "").split(",").filter(Boolean);
+}
+
+/** Whether the user read the warning for this provider; it is asked once per provider. */
+export function hasAcknowledged(preferences: Acknowledgements, provider: string): boolean {
+  return acknowledgedProviders(preferences).includes(provider);
+}
+
+export function acknowledge(preferences: Acknowledgements, provider: string): void {
+  const providers = acknowledgedProviders(preferences);
+  if (providers.includes(provider)) return;
+  preferences.setValue(SUBSCRIPTION_LOGIN_EXTENSION_ID, ACKNOWLEDGED_KEY, [...providers, provider].join(","));
+}

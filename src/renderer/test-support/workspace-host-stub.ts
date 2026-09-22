@@ -35,6 +35,7 @@ interface WorkspaceHostClient {
   canRestoreCheckpoint(sessionId: string, checkpointId: string): Promise<unknown>;
   getRestorePreview(sessionId: string, checkpointId: string): Promise<unknown>;
   restoreCheckpoint(sessionId: string, checkpointId: string): Promise<unknown>;
+  rewindCheckpoint(sessionId: string, checkpointId: string): Promise<unknown>;
   getTurnFileDiff(sessionId: string, checkpointId: string, relPath: string, options?: unknown): Promise<unknown>;
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<unknown>;
 }
@@ -86,6 +87,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     canRestoreCheckpoint: async () => false,
     getRestorePreview: unsupported("getRestorePreview"),
     restoreCheckpoint: unsupported("restoreCheckpoint"),
+    rewindCheckpoint: unsupported("rewindCheckpoint"),
     getTurnFileDiff: unsupported("getTurnFileDiff"),
     getTurnFiles: unsupported("getTurnFiles"),
     ...overrides,
@@ -136,6 +138,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "can-restore": return client.canRestoreCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);
       case "restore-preview": return client.getRestorePreview(field(input, "sessionId")!, field(input, "checkpointId")!);
       case "restore": return client.restoreCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);
+      case "rewind": return client.rewindCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);
       case "turn-file-diff": return client.getTurnFileDiff(field(input, "sessionId")!, field(input, "checkpointId")!, field(input, "relPath")!, field(input, "options"));
       case "turn-files": return client.getTurnFiles(field(input, "sessionId")!, field(input, "checkpointId")!, field(input, "cursor"), field(input, "limit"));
       default: throw new Error(`Host extension Workspace Kit has no command "${command}".`);

@@ -181,7 +181,7 @@ export const workspaceExtension: DesktopExtension = {
     } });
     context.registerKeybinding({ keys: "mod+alt+p", commandId: "workspace.open-project" });
     context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
-    context.registerKeybinding({ keys: "mod+j", commandId: "workspace.open-terminal" });
+    context.registerKeybinding({ keys: "mod+alt+j", commandId: "workspace.open-terminal" });
     context.registerKeybinding({ keys: "mod+shift+s", commandId: "workspace.settle" });
     context.registerToolRenderer(
       "workspace.read-renderer",

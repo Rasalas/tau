@@ -65,7 +65,7 @@ describe("ReviewMode", () => {
   beforeEach(() => { storage = createMemoryStorage(); setClientStorage(storage); });
   afterEach(() => { vi.restoreAllMocks(); cleanup(); setClientStorage(undefined); });
 
-  it("switches to branch changes and persists viewed files and line notes", async () => {
+  it("switches to branch changes and persists viewed files", async () => {
     const onSelect = vi.fn();
     const loadChanges = vi.fn(async () => branch);
     render(withStorage(<ReviewMode
@@ -84,16 +84,88 @@ describe("ReviewMode", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Mark viewed src/a.ts" }));
     expect(screen.getByText("1/1 viewed")).toBeTruthy();
-    fireEvent.click(await screen.findByRole("button", { name: "Comment on line 1" }));
-    fireEvent.change(screen.getByPlaceholderText("Leave a review note…"), { target: { value: "Check this line" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
-    expect(await screen.findByText("Check this line")).toBeTruthy();
+    expect(JSON.parse(storage.get("tau.review.v1:/repo:worktree") ?? "{}")).toEqual({ readPaths: ["src/a.ts"] });
 
     fireEvent.click(screen.getByRole("button", { name: "Branch changes" }));
     await waitFor(() => expect(loadChanges).toHaveBeenCalledWith({ scope: "branch" }));
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("src/b.ts"));
     expect(await screen.findByText("from main")).toBeTruthy();
     expect(screen.getByRole("link", { name: "PR #42" }).getAttribute("href")).toBe("https://github.com/acme/tau/pull/42");
+  });
+
+  it("lends its lines, layout, whitespace and folds to the caller", async () => {
+    const onAction = vi.fn();
+    const onLayoutChange = vi.fn();
+    const onIgnoreWhitespaceChange = vi.fn();
+    const loadDiff = vi.fn(async (path: string) => ({ path, added: 1, removed: 1, hunks: [{ header: "@@ -1 +1 @@", lines: [
+      { kind: "removed" as const, oldLine: 1, text: "const old = 1;" },
+      { kind: "added" as const, newLine: 1, text: "const next = 2;" },
+    ] }] }));
+    const props = {
+      changes: worktree,
+      selectedPath: "src/a.ts",
+      busy: false,
+      primaryPush: false,
+      onSelect: () => undefined,
+      onBack: () => undefined,
+      onCommit: () => undefined,
+      onOpenInEditor: () => undefined,
+      loadDiff,
+      layout: "split" as const,
+      onLayoutChange,
+      onIgnoreWhitespaceChange,
+      toolbar: <button>Kit tool</button>,
+      aside: <aside>Kit aside</aside>,
+      lines: {
+        onAction,
+        actionLabel: ({ line }: { line: { oldLine?: number; newLine?: number } }) => line.newLine ? `Note new ${line.newLine}` : `Note old ${line.oldLine}`,
+        count: ({ line }: { line: { newLine?: number } }) => line.newLine === 1 ? 2 : 0,
+        render: ({ line }: { line: { newLine?: number } }) => line.newLine === 1 ? <p>Under the new line</p> : null,
+      },
+    };
+    const view = render(withStorage(<ReviewMode {...props} />));
+
+    expect(await screen.findByText("Under the new line")).toBeTruthy();
+    expect(screen.getByText("Kit tool")).toBeTruthy();
+    expect(screen.getByText("Kit aside")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Note new 1" }).textContent).toBe("2");
+    fireEvent.click(screen.getByRole("button", { name: "Note old 1" }), { shiftKey: true });
+    expect(onAction).toHaveBeenCalledWith({ path: "src/a.ts", line: expect.objectContaining({ kind: "removed", oldLine: 1 }) }, { shiftKey: true });
+
+    expect(screen.getByRole("button", { name: "Split" }).className).toContain("active");
+    fireEvent.click(screen.getByRole("button", { name: "Unified" }));
+    expect(onLayoutChange).toHaveBeenCalledWith("unified");
+
+    fireEvent.click(screen.getByRole("button", { name: "Ignore whitespace" }));
+    expect(onIgnoreWhitespaceChange).toHaveBeenCalledWith(true);
+    view.rerender(withStorage(<ReviewMode {...props} ignoreWhitespace />));
+    await waitFor(() => expect(loadDiff).toHaveBeenLastCalledWith("src/a.ts", expect.objectContaining({ ignoreWhitespace: true })));
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse src/a.ts" }));
+    expect(screen.queryByText("Under the new line")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Expand src/a.ts" }));
+    expect(await screen.findByText("Under the new line")).toBeTruthy();
+  });
+
+  it("starts every file folded when asked and unfolds the one the tree opens", async () => {
+    render(withStorage(<ReviewMode
+      changes={worktree}
+      busy={false}
+      primaryPush={false}
+      onSelect={() => undefined}
+      onBack={() => undefined}
+      onCommit={() => undefined}
+      onOpenInEditor={() => undefined}
+      filesStartCollapsed
+      loadDiff={async (path) => ({ path, added: 1, removed: 0, hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "added", newLine: 1, text: "folded away" }] }] })}
+    />));
+
+    expect(await screen.findByRole("button", { name: "Expand src/a.ts" })).toBeTruthy();
+    expect(screen.queryByText("folded away")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Expand all files" }));
+    await waitFor(() => expect(document.querySelector(".diff-code")?.textContent).toContain("folded away"));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all files" }));
+    expect(document.querySelector(".diff-code")).toBeNull();
   });
 
   it("keeps loaded diffs mounted while a workspace refresh revalidates them", async () => {

@@ -69,6 +69,24 @@ describe("DiffView", () => {
     expect(onExpandContext).toHaveBeenCalledOnce();
   });
 
+  it("draws a package's gutter action, selection and row under a line without knowing what they are", () => {
+    const onAction = vi.fn();
+    const { container } = render(<DiffView path="src/example.ts" diff={contextDiff} mode="unified" lines={{
+      onAction,
+      selected: ({ line }) => line.newLine === 12,
+      render: ({ line }) => line.newLine === 5 ? <em>kit note</em> : undefined,
+    }} />);
+    expect(screen.getByText("kit note").closest(".diff-line-slot")).toBeTruthy();
+    expect(container.querySelectorAll(".diff-row.selected")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Comment on line 12" }));
+    expect(onAction).toHaveBeenCalledWith({ path: "src/example.ts", line: contextDiff.hunks[1]!.lines[0] }, { shiftKey: false });
+  });
+
+  it("draws no gutter action without a line slot", () => {
+    render(<DiffView diff={contextDiff} mode="unified" />);
+    expect(screen.queryByRole("button", { name: /Comment on line/ })).toBeNull();
+  });
+
   it("detects file languages and isolates a one-character edit", () => {
     expect(diffLanguage("src/view.tsx")).toBe("typescript");
     expect(intralineParts("const end = ',';", "const end = ';';")).toEqual([

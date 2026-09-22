@@ -13,6 +13,7 @@ import computerUse from "./computer-use/desktop.js";
 import composerContext from "./composer-context/desktop.js";
 import review from "./review/desktop.js";
 import signals from "./signals/desktop.js";
+import subscriptionLogin from "./subscription-login/desktop.js";
 import terminal from "./terminal/desktop.js";
 import usage from "./usage/desktop.js";
 import claudeCode from "./claude-code/desktop.js";
@@ -29,7 +30,7 @@ import worktreeNames from "./worktree-names/desktop.js";
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [access, agents, claudeCode, composerContext, computerUse, keybindings, packages, piUi, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames];
+const kits = [access, agents, claudeCode, composerContext, computerUse, keybindings, packages, piUi, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames];
 
 afterEach(cleanup);
 
@@ -80,6 +81,18 @@ describe("client profiles", () => {
       expect(nameless.map((entry) => entry.id)).toEqual([]);
       registry.deactivate(extension.id);
     }
+  });
+
+  // Two kits claiming one chord means one of them silently never fires.
+  it("binds no default chord twice across the kits Tau ships", () => {
+    const { registry } = createKitHarness(workspaceHostStub());
+    for (const extension of kits) registry.activate(extension);
+    // A binding that says it `replaces` the other command holds the chord on purpose.
+    const intended = (conflict: ReturnType<typeof registry.getKeybindingConflicts>[number]) => registry.getKeybindings()
+      .some((binding) => binding.commandId === conflict.boundTo.commandId && binding.replaces === conflict.commandId);
+    expect(registry.getKeybindingConflicts().filter((conflict) => !intended(conflict))
+      .map((conflict) => `${conflict.keys}: ${conflict.commandId} vs ${conflict.boundTo.commandId}`)).toEqual([]);
+    for (const extension of kits) registry.deactivate(extension.id);
   });
 
   it("leaves the host half of a kit alone when this client draws none of it", () => {

@@ -71,8 +71,9 @@ export function isMacPlatform(platform = typeof navigator === "undefined" ? "" :
 }
 
 export function chordMatchesEvent(chord: KeyChord, event: KeyboardEvent, mac = isMacPlatform()): boolean {
-  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key.toLowerCase();
-  if (key !== chord.key) return false;
+  const key = event.key.toLowerCase();
+  // On macOS Option turns J into ∆, so an alt chord also matches by the physical key.
+  if (key !== chord.key && !(chord.alt && event.code?.replace(/^Key|^Digit/u, "").toLowerCase() === chord.key)) return false;
   const wantsMeta = chord.meta || (chord.mod && mac);
   const wantsCtrl = chord.ctrl || (chord.mod && !mac);
   return event.metaKey === wantsMeta && event.ctrlKey === wantsCtrl && event.altKey === chord.alt && event.shiftKey === chord.shift;

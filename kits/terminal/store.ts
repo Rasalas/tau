@@ -1,6 +1,9 @@
 import { useSyncExternalStore } from "react";
-import { HostUnavailableError, type HostExtensionClient } from "tau";
-import { createTerminalHostClient, TERMINAL_LIST_EVENT, type UiTerminalSession } from "./protocol.js";
+import { getClientStorage, HostUnavailableError, type HostExtensionClient, type PreferencesStore, type WorkbenchActions } from "tau";
+import { createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, type TerminalFontDefaults, type UiTerminalSession } from "./protocol.js";
+import { EMPTY_LAYOUT, focusPane, paneIds, parseLayout, reconcileLayout, type TerminalLayout } from "./layout.js";
+import type { ComposerContextChips, PreviewBrowserService } from "./protocol.js";
+import { FONT_FAMILY_SETTING, FONT_SIZE_SETTING, resolveTerminalFont, type ResolvedTerminalFont, type TerminalFontSettings } from "./font.js";
 
 let connection: HostExtensionClient | undefined;
 
@@ -12,17 +15,42 @@ export function onTerminalEvent(name: string, listener: (payload: unknown) => vo
   return connection?.onEvent(name, listener) ?? (() => undefined);
 }
 
-/** The host's session list and the thread on screen, for the panel to group by. */
+/** Where the panel's layout is kept between reloads; shell ids are the host's, so one key serves every project. */
+export const LAYOUT_STORAGE_KEY = "tau.terminal.layout.v1";
+
+/** A pane to put the keyboard in once it is drawn; `seq` makes a repeated request for the same pane new. */
+export interface FocusRequest {
+  id: string;
+  seq: number;
+}
+
+/** The host's session list, the thread on screen, and where the panel draws each shell. */
 export interface TerminalKitState {
   sessions: readonly UiTerminalSession[];
   activeSessionId?: string;
-  /** Sessions a stage tab is drawing; the panel leaves those to it. */
-  onStage: readonly string[];
+  layout: TerminalLayout;
+  focusRequest?: FocusRequest;
+  /** The Terminal panel is on screen: mounted and the dock's active panel. */
+  panelVisible: boolean;
+}
+
+function readStoredLayout(): TerminalLayout {
+  try {
+    const raw = getClientStorage()?.get(LAYOUT_STORAGE_KEY);
+    return raw ? parseLayout(JSON.parse(raw)) : EMPTY_LAYOUT;
+  } catch {
+    return EMPTY_LAYOUT;
+  }
 }
 
 export class TerminalStore {
-  private state: TerminalKitState = { sessions: [], onStage: [] };
+  private state: TerminalKitState = { sessions: [], layout: EMPTY_LAYOUT, panelVisible: false };
   private readonly listeners = new Set<() => void>();
+  /** Opens in flight: a shell they create is placed by them, not given a tab by reconcile. */
+  private holds = 0;
+  /** Whether `sessions` is the host's answer yet; until then the stored layout is left alone. */
+  private known = false;
+  private focusSeq = 0;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -31,24 +59,75 @@ export class TerminalStore {
 
   getSnapshot = (): TerminalKitState => this.state;
 
-  setSessions(sessions: UiTerminalSession[]): void {
-    this.publish({ ...this.state, sessions });
+  /** The layout the last session of this client left, before the host has answered. */
+  loadLayout(): void {
+    this.publish({ ...this.state, layout: readStoredLayout() });
   }
 
-  /** A terminal opened as a stage tab, or that tab going away again. */
-  setOnStage(id: string, onStage: boolean): void {
-    const without = this.state.onStage.filter((entry) => entry !== id);
-    if (onStage === this.state.onStage.includes(id)) return;
-    this.publish({ ...this.state, onStage: onStage ? [...without, id] : without });
+  setSessions(sessions: UiTerminalSession[]): void {
+    this.known = true;
+    this.publish({ ...this.state, sessions, layout: this.reconciled(this.state.layout, sessions) });
+  }
+
+  /** The host went away: nothing is drawn, and the stored layout waits for the next answer. */
+  forgetSessions(): void {
+    this.known = false;
+    this.publish({ ...this.state, sessions: [] }, false);
+  }
+
+  /** Holds reconcile back from giving new shells tabs until the returned release runs. */
+  hold(): () => void {
+    this.holds += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.holds -= 1;
+      if (this.known) this.updateLayout((layout) => layout);
+    };
+  }
+
+  updateLayout(change: (layout: TerminalLayout) => TerminalLayout): void {
+    const layout = change(this.state.layout);
+    this.publish({ ...this.state, layout: this.known ? this.reconciled(layout, this.state.sessions) : layout });
+  }
+
+  /** Puts the keyboard in a pane once it is drawn. */
+  requestFocus(id: string): void {
+    this.focusSeq += 1;
+    this.publish({ ...this.state, layout: focusPane(this.state.layout, id), focusRequest: { id, seq: this.focusSeq } }, true);
+  }
+
+  /** A view took the keyboard for `seq`; the request is spent. */
+  focusDone(seq: number): void {
+    if (this.state.focusRequest?.seq !== seq) return;
+    const { focusRequest: _done, ...rest } = this.state;
+    this.publish(rest, false);
+  }
+
+  setPanelVisible(panelVisible: boolean): void {
+    if (panelVisible === this.state.panelVisible) return;
+    this.publish({ ...this.state, panelVisible }, false);
   }
 
   setActiveSession(activeSessionId: string | undefined): void {
     if (activeSessionId === this.state.activeSessionId) return;
-    this.publish({ ...this.state, ...(activeSessionId ? { activeSessionId } : {}) });
+    const { activeSessionId: _previous, ...rest } = this.state;
+    this.publish(activeSessionId ? { ...rest, activeSessionId } : rest, false);
   }
 
-  private publish(next: TerminalKitState): void {
+  private reconciled(layout: TerminalLayout, sessions: readonly UiTerminalSession[]): TerminalLayout {
+    const placed = new Set([...layout.groups.flatMap((group) => paneIds(group.root)), ...layout.onStage]);
+    const held = this.holds > 0 ? new Set(sessions.map((session) => session.id).filter((id) => !placed.has(id))) : new Set<string>();
+    return reconcileLayout(layout, sessions.map((session) => session.id), held);
+  }
+
+  private publish(next: TerminalKitState, persist = true): void {
+    const layoutChanged = next.layout !== this.state.layout;
     this.state = next;
+    if (persist && layoutChanged && this.known) {
+      try { getClientStorage()?.set(LAYOUT_STORAGE_KEY, JSON.stringify(next.layout)); } catch { /* storage is a convenience */ }
+    }
     this.listeners.forEach((listener) => listener());
   }
 }
@@ -67,6 +146,7 @@ export function connectTerminalHost(host: HostExtensionClient): () => void {
   connection = host;
   let revision = 0;
   let disposed = false;
+  terminalStore.loadLayout();
   const stop = host.onEvent(TERMINAL_LIST_EVENT, (payload) => {
     if (isTerminalSessionList(payload)) {
       revision++;
@@ -83,11 +163,86 @@ export function connectTerminalHost(host: HostExtensionClient): () => void {
     stop();
     if (connection === host) {
       connection = undefined;
-      terminalStore.setSessions([]);
+      terminalStore.forgetSessions();
     }
   };
 }
 
 export function useTerminalKit(): TerminalKitState {
   return useSyncExternalStore(terminalStore.subscribe, terminalStore.getSnapshot, terminalStore.getSnapshot);
+}
+
+/**
+ * What the views reach beyond the kit: the chip service, the Preview's
+ * service and the workbench's actions, as the last panel, tab or command
+ * handed them over. Each is absent until something provides it.
+ */
+export const terminalServices: {
+  chips?: ComposerContextChips;
+  preview?: PreviewBrowserService;
+  actions?: WorkbenchActions;
+} = {};
+
+export interface TerminalFontState {
+  settings: TerminalFontSettings;
+  /** What the host read from the user's Ghostty config; absent until it answered. */
+  ghostty?: TerminalFontDefaults;
+  resolved: ResolvedTerminalFont;
+}
+
+/** The font every terminal view draws with: the kit's settings over the user's Ghostty config. */
+export class TerminalFontStore {
+  private state: TerminalFontState = { settings: {}, resolved: resolveTerminalFont({}) };
+  private readonly listeners = new Set<() => void>();
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+
+  getSnapshot = (): TerminalFontState => this.state;
+
+  setSettings(settings: TerminalFontSettings): void {
+    if (settings.family === this.state.settings.family && settings.size === this.state.settings.size) return;
+    this.publish({ ...this.state, settings });
+  }
+
+  setGhostty(ghostty: TerminalFontDefaults | undefined): void {
+    const { ghostty: _previous, ...rest } = this.state;
+    this.publish(ghostty ? { ...rest, ghostty } : rest);
+  }
+
+  private publish(next: Omit<TerminalFontState, "resolved">): void {
+    const resolved = resolveTerminalFont(next.settings, next.ghostty);
+    const same = resolved.family === this.state.resolved.family && resolved.size === this.state.resolved.size
+      && resolved.familySource === this.state.resolved.familySource && resolved.sizeSource === this.state.resolved.sizeSource;
+    this.state = { ...next, resolved: same ? this.state.resolved : resolved };
+    this.listeners.forEach((listener) => listener());
+  }
+}
+
+export const terminalFont = new TerminalFontStore();
+
+function fontSettingsOf(preferences: PreferencesStore): TerminalFontSettings {
+  const family = preferences.value(TERMINAL_HOST_EXTENSION_ID, FONT_FAMILY_SETTING);
+  const size = preferences.value(TERMINAL_HOST_EXTENSION_ID, FONT_SIZE_SETTING);
+  return { ...(family ? { family } : {}), ...(size ? { size } : {}) };
+}
+
+/** Follows the kit's font settings and asks the host once for the Ghostty config. */
+export function connectTerminalFont(preferences: PreferencesStore): () => void {
+  terminalFont.setSettings(fontSettingsOf(preferences));
+  const stop = preferences.subscribe(() => terminalFont.setSettings(fontSettingsOf(preferences)));
+  void refreshGhosttyFont().catch(() => undefined);
+  return stop;
+}
+
+/** Reads the Ghostty config again; the settings page asks when it opens. */
+export async function refreshGhosttyFont(): Promise<void> {
+  const defaults = await terminalKit.font();
+  if (defaults && Array.isArray(defaults.families)) terminalFont.setGhostty(defaults);
+}
+
+export function useTerminalFont(): TerminalFontState {
+  return useSyncExternalStore(terminalFont.subscribe, terminalFont.getSnapshot, terminalFont.getSnapshot);
 }

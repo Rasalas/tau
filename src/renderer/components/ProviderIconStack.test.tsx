@@ -6,11 +6,13 @@ import { ProviderIconStack } from "./ProviderIconStack";
 afterEach(cleanup);
 
 describe("ProviderIconStack", () => {
-  it("shows Pi as the default harness", () => {
-    const { getByLabelText } = render(<ProviderIconStack />);
+  it("shows Pi only where nothing else stands for the thread", () => {
+    const { getByLabelText } = render(<ProviderIconStack runtimeProvider="pi" />);
     const stack = getByLabelText("Pi");
     expect(stack.querySelector(".provider-family-pi .provider-mark-mono")).toBeTruthy();
     expect(stack.classList).toContain("single");
+    cleanup();
+    expect(render(<ProviderIconStack />).container.firstChild).toBeNull();
   });
 
   it.each([
@@ -20,11 +22,12 @@ describe("ProviderIconStack", () => {
     ["vertex-ai", "Vertex AI", "vertex-ai"],
     ["opencode-go", "OpenCode Go", "opencode"],
     ["ki:connect", "KI:connect", "ki-connect"],
-  ])("maps %s to its model-provider mark", (modelProvider, label, family) => {
+  ])("maps %s to its model-provider mark, without Pi's", (modelProvider, label, family) => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider={modelProvider} runtimeProvider="pi" />);
-    const stack = getByLabelText(`${label} via Pi`);
+    const stack = getByLabelText(label);
     expect(stack.querySelector(`.provider-family-${family} .provider-mark`)).toBeTruthy();
-    expect(stack.classList).toContain("stacked");
+    expect(stack.querySelector(".provider-family-pi")).toBeNull();
+    expect(stack.classList).toContain("single");
   });
 
   it("pairs a non-Pi runtime beside the model provider", () => {
