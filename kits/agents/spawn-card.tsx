@@ -34,12 +34,13 @@ export function SpawnCard({ tools, actions }: ToolCardProps) {
               type="button"
               className={`agent-spawn-link status-${row.status}`}
               disabled={!row.threadId}
-              aria-label={`Open ${row.title}, ${row.status}`}
+              aria-label={`Open ${row.title}${row.agent ? ` (${row.agent})` : ""}, ${row.status}`}
               title={`Open ${row.title} in the stage`}
               onClick={() => { if (row.threadId) actions.openThread(row.threadId); }}
             >
               <i className={`agent-dot status-${row.status}`} aria-hidden="true" />
               <span>{row.title}</span>
+              {row.agent ? <small className="agent-spawn-definition">{row.agent}</small> : null}
               <small>{row.status}</small>
             </button>
           </li>

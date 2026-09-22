@@ -137,3 +137,26 @@ describe("PiHost background thread starts", () => {
     await Promise.all(starts);
   });
 });
+
+describe("PiHost background starts on another runtime backend", () => {
+  it("opens the named backend and keeps the parent link in the index", async () => {
+    const bench = hostWithHeldStarts();
+    const opened: Array<{ kind: string; cwd: string; options: unknown }> = [];
+    bench.internals.seam.backends.set("fake", { kind: "fake" });
+    bench.internals.runtimes.openExternal = async (kind: string, threadId: string, cwd: string, options: unknown) => {
+      opened.push({ kind, cwd, options });
+      return fakeThread(threadId, bench.delivered);
+    };
+    const started = await bench.internals.startThread({ cwd: "/repo", prompt: "hello", backend: "fake", parent: { threadId: "active" } });
+    expect(opened).toEqual([{ kind: "fake", cwd: "/repo", options: { resume: false, adopt: false } }]);
+    expect(bench.internals.index.parentOf(started.sessionId)).toBe("active");
+    await vi.waitFor(() => { expect(bench.delivered).toContain(`${started.sessionId}:hello`); });
+  });
+
+  it("refuses a backend nobody registered before it creates anything", async () => {
+    const bench = hostWithHeldStarts();
+    await expect(bench.internals.startThread({ cwd: "/repo", prompt: "hello", backend: "missing" }))
+      .rejects.toThrow('Runtime backend "missing" is not installed');
+    expect(bench.inFlight()).toBe(0);
+  });
+});

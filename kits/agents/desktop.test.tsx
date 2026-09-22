@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import type { UiSession, UiToolRun } from "tau";
-import { createAgentsStore, lineageOf } from "./store.js";
-import { activityLine, agentsPanelModel, formatCost, formatElapsed, spawnCardModel, spawnedThreadId } from "./model.js";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { agentsExtension } from "./desktop.js";
+import { createAgentsStore, createDefinitionsStore, definitionsStore, lineageOf } from "./store.js";
+import { activityLine, agentsPanelModel, definitionRows, formatCost, formatElapsed, spawnCardModel, spawnedThreadId } from "./model.js";
 import { panelRows } from "./panel.js";
 import type { AgentThreadLink, AgentThreadStatus, AgentsState } from "./protocol.js";
 
@@ -194,5 +196,68 @@ describe("the spawn card", () => {
   it("reads the thread out of a result that is not JSON without throwing", () => {
     expect(spawnedThreadId(spawn("call-1", { output: "not json" }))).toBeUndefined();
     expect(spawnedThreadId(spawn("call-1", { output: '{"id":"gamma"}' }))).toBe("gamma");
+  });
+});
+
+describe("agent definitions in the desktop half", () => {
+  const reviewer = { name: "reviewer", description: "Reviews", file: "/project/.tau/agents/reviewer.md", model: "openai/gpt-5.6-luna", access: "read-only" as const, tools: ["read"] };
+
+  it("counts what each definition already runs for the thread on screen", () => {
+    const agents: AgentsState = {
+      maxRunning: 8,
+      links: [
+        link("a", "parent", "running", 1, { agent: "reviewer" }),
+        link("b", "parent", "completed", 2, { agent: "reviewer" }),
+        link("c", "other", "running", 3, { agent: "reviewer" }),
+      ],
+    };
+    expect(definitionRows([reviewer], agents, "parent")).toEqual([
+      { definition: reviewer, open: 1, settings: "openai/gpt-5.6-luna · read-only · 1 tool" },
+    ]);
+  });
+
+  it("names the definition on the spawn card and in the panel row", () => {
+    const card = spawnCardModel([{ id: "call-1", name: "tau_spawn_thread", args: { prompt: "look", agent: "reviewer" }, status: "running", startedAt: 1 }], undefined, []);
+    expect(card.rows[0]).toMatchObject({ agent: "reviewer", title: "look" });
+    const withLink = spawnCardModel(
+      [{ id: "call-1", name: "tau_spawn_thread", args: { prompt: "look" }, status: "done", startedAt: 1, endedAt: 2, output: '{"threadId":"a"}' }],
+      { maxRunning: 8, links: [link("a", "parent", "running", 1, { agent: "reviewer" })] },
+      [],
+    );
+    expect(withLink.rows[0]!.agent).toBe("reviewer");
+    const panel = agentsPanelModel({ maxRunning: 8, links: [link("a", "parent", "running", 1, { agent: "reviewer" })] }, "parent", []);
+    expect(panel.groups[0]!.rows[0]!.agent).toBe("reviewer");
+  });
+
+  it("lands only the latest read of the definitions", async () => {
+    const answers = new Map<string, (value: unknown) => void>();
+    const store = createDefinitionsStore({
+      invoke: (_command, input) => new Promise((resolve) => { answers.set((input as { sessionId?: string }).sessionId ?? "", resolve); }),
+    });
+    const first = store.load("one");
+    const second = store.load("two");
+    answers.get("two")!({ directory: "/two/.tau/agents", definitions: [reviewer], problems: [] });
+    answers.get("one")!({ directory: "/one/.tau/agents", definitions: [], problems: [] });
+    await Promise.all([first, second]);
+    expect(store.getSnapshot()).toEqual({ sessionId: "two", state: { directory: "/two/.tau/agents", definitions: [reviewer], problems: [] } });
+    // A refresh reads again for the thread last asked about.
+    const again = store.refresh();
+    expect([...answers.keys()]).toEqual(["one", "two"]);
+    answers.get("two")!({ directory: "/two/.tau/agents", definitions: [], problems: [] });
+    await again;
+    expect(store.getSnapshot().state?.definitions).toEqual([]);
+  });
+
+  it("lists the files that could not be used in the Inspector and clears them with the kit", async () => {
+    const { registry } = createKitHarness(async (_extensionId, command) => command === "definitions"
+      ? { directory: "/project/.tau/agents", definitions: [], problems: [{ file: "/project/.tau/agents/bad.md", message: '"description" is required.', level: "error" }] }
+      : undefined);
+    registry.activate(agentsExtension);
+    await vi.waitFor(() => expect(registry.getProblems()).toEqual([
+      expect.objectContaining({ source: "/project/.tau/agents/bad.md", message: '"description" is required.', level: "error" }),
+    ]));
+    registry.deactivate(agentsExtension.id);
+    expect(registry.getProblems()).toEqual([]);
+    expect(definitionsStore.getSnapshot()).toEqual({});
   });
 });
