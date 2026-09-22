@@ -2663,3 +2663,19 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   background: color-mix(in srgb, var(--warn) 12%, transparent);
   border-top: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
 }
+.host-connection-status.refused {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-top-color: var(--danger-line);
+}
+.host-connection-status.refused .host-connection-detail {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

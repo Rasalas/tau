@@ -120,6 +120,26 @@ describe("host connection", () => {
     expect(connection.getState()).toBe("connected");
   });
 
+  it("stays refused once refused: no request, no reconnect, the reason kept", async () => {
+    const link = harness();
+    const closed = vi.fn();
+    const connection = new HostConnection({ ...link.transport, close: closed });
+    await connection.start();
+    const states: string[] = [];
+    connection.onState((state) => states.push(state));
+    connection.refuse("certificate changed");
+    connection.refuse("something else");
+    expect(connection.getState()).toBe("refused");
+    expect(connection.getRefusal()).toBe("certificate changed");
+    expect(closed).toHaveBeenCalledTimes(1);
+    const before = link.calls.length;
+    await expect(connection.request("bootstrap")).rejects.toMatchObject({ code: "refused" });
+    link.reopen();
+    await settle();
+    expect(link.calls.length).toBe(before);
+    expect(states).toEqual(["refused"]);
+  });
+
   it("waits for job-done and reports progress on the way", async () => {
     const link = harness();
     const connection = new HostConnection(link.transport);

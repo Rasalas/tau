@@ -12,8 +12,12 @@ import {
   type HostResponse,
 } from "../shared/host-transport";
 
-/** `reconnecting` means pushes are missing; `resyncing` means the state is being refetched. */
-export type HostConnectionState = "connected" | "reconnecting" | "resyncing";
+/**
+ * `reconnecting` means pushes are missing; `resyncing` means the state is being
+ * refetched; `refused` is final: this client will not talk to that host
+ * (its certificate is not the trusted one), and `getRefusal()` says why.
+ */
+export type HostConnectionState = "connected" | "reconnecting" | "resyncing" | "refused";
 
 /** One way of moving frames to a host. Electron IPC is one, a local socket another. */
 export interface HostTransport {
@@ -50,6 +54,7 @@ export class HostConnection {
   /** Which client this is, repeated in every hello so the host can count profiles. */
   private profile?: string;
   private state: HostConnectionState = "connected";
+  private refusal: string | undefined;
   private recovering = false;
   private queued: HostPush[] = [];
   private capabilities = new Set<string>();
@@ -72,6 +77,16 @@ export class HostConnection {
 
   getState = (): HostConnectionState => this.state;
 
+  getRefusal = (): string | undefined => this.refusal;
+
+  /** Stops talking to the host for good; every request after this fails at once. */
+  refuse(reason: string): void {
+    if (this.refusal !== undefined) return;
+    this.refusal = reason;
+    this.setState("refused");
+    this.transport.close?.();
+  }
+
   /** What the host said it can do in its hello; `local-files` is read by the workbench. */
   hasCapability = (capability: string): boolean => this.capabilities.has(capability);
 
@@ -92,6 +107,7 @@ export class HostConnection {
   }
 
   async request<T>(method: string, params: readonly unknown[] = []): Promise<T> {
+    if (this.refusal !== undefined) throw new HostRequestError("Tau refused the connection to this host.", "refused");
     const response = await this.transport.request(method, params);
     if (response.error) throw new HostRequestError(response.error.message, response.error.code);
     return response.result as T;
@@ -233,7 +249,7 @@ export class HostConnection {
   }
 
   private setState(state: HostConnectionState): void {
-    if (this.state === state) return;
+    if (this.state === state || this.state === "refused") return;
     this.state = state;
     for (const listener of this.stateListeners) listener(state);
   }

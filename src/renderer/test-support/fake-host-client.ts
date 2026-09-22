@@ -91,6 +91,7 @@ function defaults(): HostClient {
     },
     hasCapability: () => true,
     getConnectionState: () => "connected",
+    getConnectionRefusal: () => undefined,
     onConnectionState: () => () => undefined,
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.

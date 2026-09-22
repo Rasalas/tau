@@ -27,7 +27,11 @@ function connect(): { client: HostClient; connection: HostConnection } | undefin
   if (remoteHost) {
     const local = window.tau ? new HostConnection(createElectronHostTransport(window.tau)) : undefined;
     void local?.start().catch(() => undefined);
-    return createSocketHostClient(remoteHost, search.get("token") ?? undefined, undefined, local);
+    const socket = createSocketHostClient(remoteHost, search.get("token") ?? undefined, undefined, local);
+    // The window's process refused this host (its certificate is not the trusted one).
+    const refused = search.get("hostRefused");
+    if (refused) socket.connection.refuse(refused);
+    return socket;
   }
   return window.tau ? createElectronHostClient(window.tau) : undefined;
 }

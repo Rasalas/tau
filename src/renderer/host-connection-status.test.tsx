@@ -9,11 +9,12 @@ import { createFakeHostClient } from "./test-support/fake-host-client";
 afterEach(cleanup);
 
 /** A client whose link state the test moves, the way a dropped socket does. */
-function clientWithMovableState() {
+function clientWithMovableState(refusal?: string) {
   const listeners = new Set<(state: HostConnectionState) => void>();
   let state: HostConnectionState = "connected";
   const client = createFakeHostClient({
     getConnectionState: () => state,
+    getConnectionRefusal: () => (state === "refused" ? refusal : undefined),
     onConnectionState: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
   });
   return {
@@ -38,6 +39,16 @@ describe("host connection status", () => {
     expect(screen.getByRole("status").textContent).toBe("Refetching the workbench state…");
 
     link.set("connected");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows a refusal as an alert with the reason in full", () => {
+    const link = clientWithMovableState("Expected SHA-256: AA\nPresented SHA-256: BB");
+    render(<HostClientProvider client={link.client}><HostConnectionStatus /></HostClientProvider>);
+    link.set("refused");
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Tau refused the connection to the host");
+    expect(alert.textContent).toContain("Expected SHA-256: AA\nPresented SHA-256: BB");
     expect(screen.queryByRole("status")).toBeNull();
   });
 });

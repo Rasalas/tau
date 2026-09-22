@@ -130,8 +130,10 @@ export interface HostClient {
    * sense; without it the workbench offers neither.
    */
   hasCapability(capability: string): boolean;
-  /** Whether the link to the host is whole, being repaired, or refetching state. */
+  /** Whether the link to the host is whole, being repaired, refetching state, or refused. */
   getConnectionState(): HostConnectionState;
+  /** Why the connection is `refused`, written for the user; undefined otherwise. */
+  getConnectionRefusal(): string | undefined;
   onConnectionState(listener: (state: HostConnectionState) => void): () => void;
 }
 
@@ -237,6 +239,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     onHostEvent: (listener) => connection.onEvent(listener),
     hasCapability: connection.hasCapability,
     getConnectionState: connection.getState,
+    getConnectionRefusal: connection.getRefusal,
     onConnectionState: (listener) => connection.onState(listener),
   };
 }
