@@ -733,7 +733,7 @@ describe("Workspace Kit in the workbench", () => {
 
     renderApp(client, { extensions: [workspaceExtension] });
     expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
-    expect(screen.queryByText("Restore")).toBeNull();
+    expect(screen.queryByText("Rewind")).toBeNull();
 
     act(() => {
       client.emit({
@@ -750,8 +750,66 @@ describe("Workspace Kit in the workbench", () => {
       });
     });
 
-    expect(await screen.findByText("Restore")).toBeTruthy();
+    expect(await screen.findByText("Rewind")).toBeTruthy();
     expect(checkpoints).toHaveBeenCalledTimes(2);
+  });
+
+  it("rewinds the conversation only or the files too, as the dialog is answered", async () => {
+    const checkpoint = {
+      id: "turn-1",
+      turnId: "turn-1",
+      sessionId: "session",
+      anchorMessageId: "answer-entry",
+      beforeSnapshotId: "refs/tau/checkpoints/session/turn-1/before",
+      afterSnapshotId: "refs/tau/checkpoints/session/turn-1/after",
+      startedAt: 1,
+      endedAt: 3,
+      files: [{ path: "note.txt", name: "note.txt", directory: "", status: "added" as const, added: 1, removed: 0 }],
+      fileCount: 1,
+      added: 1,
+      removed: 0,
+      branch: "main",
+    };
+    const done = { version: 1 as const, updates: [] };
+    const rewindCheckpoint = vi.fn(async () => done);
+    const restoreCheckpoint = vi.fn(async () => done);
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+        detail: {
+          sessionId: "session",
+          messages: [
+            { id: "prompt", role: "user" as const, text: "Write note.txt", timestamp: 1 },
+            { id: "answer", sourceEntryId: "answer-entry", role: "assistant" as const, text: "Done", timestamp: 2 },
+          ],
+          isStreaming: false,
+          activeTools: [],
+        },
+        catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project", branch: "main" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        checkpoints: async () => ({ restoreSupported: true, checkpoints: [checkpoint] }),
+        canRestoreCheckpoint: async () => true,
+        getRestorePreview: async () => ({ files: checkpoint.files, fileCount: 1, added: 1, removed: 0 }),
+        rewindCheckpoint,
+        restoreCheckpoint,
+      }),
+    });
+
+    renderApp(client, { extensions: [workspaceExtension] });
+    fireEvent.click(await screen.findByText("Rewind"));
+    fireEvent.click(await screen.findByRole("button", { name: "Keep changes" }));
+    await waitFor(() => expect(rewindCheckpoint).toHaveBeenCalledWith("session", "turn-1"));
+    expect(restoreCheckpoint).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rewind to this checkpoint?" })).toBeNull());
+
+    fireEvent.click(await screen.findByText("Rewind"));
+    expect(await screen.findByText("note.txt")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Revert files too" }));
+    await waitFor(() => expect(restoreCheckpoint).toHaveBeenCalledWith("session", "turn-1"));
+    expect(rewindCheckpoint).toHaveBeenCalledOnce();
   });
 
   it("re-asks for restore support when a turn without a checkpoint settles", async () => {
@@ -794,7 +852,7 @@ describe("Workspace Kit in the workbench", () => {
 
     renderApp(client, { extensions: [workspaceExtension] });
     expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
-    expect(screen.queryByText("Restore")).toBeNull();
+    expect(screen.queryByText("Rewind")).toBeNull();
 
     act(() => client.emit({
       type: "host-update",
@@ -805,7 +863,7 @@ describe("Workspace Kit in the workbench", () => {
       },
     }));
 
-    expect(await screen.findByText("Restore")).toBeTruthy();
+    expect(await screen.findByText("Rewind")).toBeTruthy();
   });
 
   it("verifies the checkpoint of the running turn again once that turn settles", async () => {
@@ -854,7 +912,7 @@ describe("Workspace Kit in the workbench", () => {
       payload: { type: "turn-checkpoint", sessionId: "session", checkpoint },
     }));
     expect(await screen.findByText("Turn changes · 1 changed file")).toBeTruthy();
-    expect(screen.queryByText("Restore")).toBeNull();
+    expect(screen.queryByText("Rewind")).toBeNull();
 
     act(() => client.emit({
       type: "host-update",
@@ -864,7 +922,7 @@ describe("Workspace Kit in the workbench", () => {
         detail: { sessionId: "session", messages, isStreaming: false, activeTools: [] },
       },
     }));
-    expect(screen.queryByText("Restore")).toBeNull();
+    expect(screen.queryByText("Rewind")).toBeNull();
 
     // Its capture lets go only after that: the host says so on the same channel.
     running = false;
@@ -875,7 +933,7 @@ describe("Workspace Kit in the workbench", () => {
       payload: { type: "turn-checkpoint-status", sessionId: "session", turnId: "turn-1", status: "released" },
     }));
 
-    expect(await screen.findByText("Restore")).toBeTruthy();
+    expect(await screen.findByText("Rewind")).toBeTruthy();
   });
 
   it("keeps a new thread anchored on its prompt while the first answer streams", async () => {

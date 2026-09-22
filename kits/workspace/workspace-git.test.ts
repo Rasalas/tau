@@ -193,6 +193,30 @@ describe("large diff bounds", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("leaves out whitespace-only changes on request, and still diffs an untracked file", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-diff-whitespace-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      await writeFile(join(cwd, "spaces.txt"), "if (a) {\n  run();\n}\n");
+      await writeFile(join(cwd, "mixed.txt"), "one\ntwo\n");
+      execFileSync("git", ["add", "."], { cwd });
+      execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+      await writeFile(join(cwd, "spaces.txt"), "if (a) {\n    run();\n}\n");
+      await writeFile(join(cwd, "mixed.txt"), "one \nthree\n");
+      await writeFile(join(cwd, "new.txt"), "fresh\n");
+
+      expect((await getFileDiff(cwd, "spaces.txt")).hunks).toHaveLength(1);
+      await expect(getFileDiff(cwd, "spaces.txt", { ignoreWhitespace: true })).resolves.toMatchObject({ hunks: [], note: "Only whitespace changed." });
+      const mixed = await getFileDiff(cwd, "mixed.txt", { ignoreWhitespace: true });
+      expect(mixed.hunks.flatMap((hunk) => hunk.lines).filter((line) => line.kind !== "context").map((line) => line.text)).toEqual(["two", "three"]);
+      expect((await getFileDiff(cwd, "new.txt", { ignoreWhitespace: true })).hunks[0]?.lines).toEqual([expect.objectContaining({ kind: "added", text: "fresh" })]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 /**

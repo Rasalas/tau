@@ -2061,22 +2061,10 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-diff-stream .diff-stream-row > .review-file-header { position: static; }
 .review-diff { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .review-diff > .diff-scroll, .review-diff > .diff-empty { flex: 1; }
-.review-comment-composer {
-  position: absolute; z-index: 35; top: 84px; right: 12px; width: min(560px, calc(100% - 24px));
-  display: grid; grid-template-columns: minmax(110px, auto) minmax(180px, 1fr) auto auto; align-items: center; gap: 8px;
-  padding: 10px; border: 1px solid var(--line-float); border-radius: 9px; background: var(--overlay); box-shadow: 0 16px 44px var(--shadow-strong);
-}
-.review-comment-composer strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 9.5px var(--mono); }
-.review-comment-composer textarea { height: 34px; resize: none; border: 1px solid var(--line-control); border-radius: 6px; background: var(--sunken); color: var(--ink); padding: 7px 9px; font: 11px var(--sans); }
-.review-notes { width: min(330px, 36vw); flex: none; overflow: auto; border-left: 1px solid var(--line); background: var(--chrome); }
-.review-notes > header { position: sticky; top: 0; display: flex; align-items: center; gap: 8px; padding: 11px 12px; border-bottom: 1px solid var(--line); background: var(--chrome); }
-.review-notes > header strong { flex: 1; font-size: 11px; }
-.review-notes > p { padding: 14px; color: var(--faint); font-size: 11px; }
-.review-notes article { margin: 9px; padding: 10px; border: 1px solid var(--line-control); border-radius: 7px; background: var(--field); }
-.review-notes article.resolved { opacity: .5; }
-.review-notes article small { color: var(--acid-text); font: 9.5px var(--mono); }
-.review-notes article p { margin: 7px 0; color: var(--ink-2); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; }
 .diff-row { position: relative; min-height: 26px; }
+.diff-row.selected { box-shadow: inset 2px 0 var(--acid-line); }
+.diff-line-slot { font-family: var(--sans); line-height: 1.45; }
+.review-toolbar > .review-whitespace-action.active { color: var(--ink); }
 .diff-annotate { position: absolute; z-index: 2; top: 2px; left: 3px; min-width: 19px; height: 19px; display: none; align-items: center; justify-content: center; gap: 2px; padding: 0 3px; border: 1px solid var(--line-control); border-radius: 4px; background: var(--overlay); color: var(--muted); cursor: pointer; }
 .diff-row:hover .diff-annotate, .diff-annotate.has-comments { display: flex; }
 .diff-annotate.has-comments { color: var(--acid-text); }
@@ -2087,11 +2075,10 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 @media (max-width: 900px) {
   .review-list { max-width: 42vw; }
   .review-scope { margin-left: 6px; }
-  .review-notes { width: 260px; }
 }
 @media (max-width: 1200px) {
-  .review-toolbar > .review-comment-action, .review-toolbar > .review-notes-action, .review-toolbar > .review-editor-action { font-size: 0; gap: 0; }
-  .review-toolbar > .review-comment-action svg, .review-toolbar > .review-notes-action svg, .review-toolbar > .review-editor-action svg { width: 13px; height: 13px; }
+  .review-toolbar > .review-editor-action { font-size: 0; gap: 0; }
+  .review-toolbar > .review-editor-action svg { width: 13px; height: 13px; }
 }
 
 .commit-selection .text-button { font-size: 10px; }
