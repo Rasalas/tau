@@ -164,9 +164,9 @@ host in temp folders.
 
 ### Reach the host over a socket
 
-The renderer talks to the host through one versioned protocol (`docs/adr/0010-host-protocol.md`); Electron IPC is one transport of it. Start a host that also listens on a socket with `TAU_HOST_LISTEN=127.0.0.1:7788 npm start`, and point a client at it by opening the workbench with `?host=ws://127.0.0.1:7788&token=<token>`, where the token is the line in `~/.tau/host-token` (created on the first listen, 0o600). A wrong token closes the connection. Encryption is an SSH tunnel's job.
+The renderer talks to the host through one versioned protocol (`docs/adr/0010-host-protocol.md`); Electron IPC is one transport of it. Start a host that also listens on a socket with `TAU_HOST_LISTEN=127.0.0.1:7788 npm start`, and point a client at it by opening the workbench with `?host=ws://127.0.0.1:7788&token=<token>`, where the token is the line in `~/.tau/host-token` (created on the first listen, 0o600). A wrong token closes the connection. Encryption is TLS's job (`TAU_HOST_TLS=1`, below) or an SSH tunnel's.
 
-`npm run smoke:remote-host` proves the plumbing without a window: it starts `src/main/headless.ts` in a scratch repository, says hello, fetches the bootstrap, sends a prompt, disconnects, reconnects with `lastSeq` and checks that the pushes missed in between are replayed.
+`npm run smoke:remote-host` proves the plumbing without a window: it starts `src/main/headless.ts` in a scratch repository, says hello, fetches the bootstrap, sends a prompt, disconnects, reconnects with `lastSeq` and checks that the pushes missed in between are replayed. It runs twice: in plaintext, and over TLS with the printed fingerprint pinned, where a wrong fingerprint and a plaintext socket must be refused.
 
 ### Run the host on another machine
 
@@ -179,7 +179,7 @@ npm run build
 TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=127.0.0.1:7788 node dist-electron/main/headless.js
 ```
 
-It prints the URL it listens on and the path of its token. The socket is unencrypted and repeats that token in every hello, so the host refuses to bind anything but a loopback address; `TAU_HOST_INSECURE=1` overrides that for a network you already trust. Across machines, forward the port over SSH from the client:
+It prints the URL it listens on and the path of its token. Without TLS the socket is unencrypted and repeats that token in every hello, so the host refuses to bind anything but a loopback address; `TAU_HOST_INSECURE=1` overrides that for a network you already trust, and the host prints a warning when it does. There are two ways across machines: TLS (next section) or an SSH tunnel. For the tunnel, forward the port from the client:
 
 ```bash
 ssh -N -L 7788:127.0.0.1:7788 you@host-machine
@@ -192,6 +192,29 @@ TAU_HOST_URL=ws://127.0.0.1:7788 npm run start:existing
 ```
 
 The main process supervises no host of its own in that mode: it opens the window, which speaks the protocol over the socket, and the kits' code is fetched from the host and served to the renderer from here. What needs this machine — the clipboard, image previews, rebuilding the workbench — is answered in the window process rather than sent to the host. Paths in the workbench (the project's `cwd`, changed files, a tool's output) are the host's paths, so an action that hands a path to a local tool points at a directory that exists only there. The socket transport says so by leaving the `local-files` capability out of its hello, which the Electron transport announces.
+
+#### Without a tunnel: TLS
+
+A host with TLS may listen on any interface, such as its Tailscale address:
+
+```bash
+TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=100.64.0.7:7788 TAU_HOST_TLS=1 node dist-electron/main/headless.js
+```
+
+On first start it creates a self-signed certificate under its userData (`~/.tau/headless/tls/`, key 0600) and keeps it across restarts. Besides the socket and token lines it prints the certificate's fingerprint:
+
+```
+tau-host listening on wss://100.64.0.7:7788
+tls fingerprint: SHA256 6F:AB:DF:…:10:E9:1E (a client pins it as TAU_HOST_FINGERPRINT)
+```
+
+`TAU_HOST_TLS_CERT` and `TAU_HOST_TLS_KEY` use a certificate of your own instead. On the client, copy the token as above and pin the fingerprint:
+
+```bash
+TAU_HOST_URL=wss://100.64.0.7:7788 TAU_HOST_FINGERPRINT=6F:AB:DF:…:10:E9:1E npm run start:existing
+```
+
+Without `TAU_HOST_FINGERPRINT` the window shows the certificate's fingerprint on first connect and asks whether to trust it; compare it with the line the host printed. A yes is remembered in the client's `known-hosts.json`. A host whose certificate a CA vouches for needs neither. If the host ever presents another certificate, the window refuses it before sending the token, and the status line shows both fingerprints. If you replaced the certificate yourself, update the pin or delete the known-hosts entry. `docs/host-protocol.md` has the details.
 
 A dropped link (a suspended machine, a restarted tunnel) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. A strip above the status line reads `Reconnecting to the host…`, then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. Nothing has to be restarted by hand.
 
@@ -211,6 +234,8 @@ Besides the socket line, the host prints a link:
 ```
 web client: http://127.0.0.1:7788/#pair=<code> (single use, 10 minutes)
 ```
+
+With `TAU_HOST_TLS=1` the page and the socket are served over HTTPS on the same port, and the link starts with `https://`. A browser shows a self-signed certificate as a warning; its fingerprint should match the one the host printed.
 
 Open it. The code lives in the URL's fragment, so it reaches neither a proxy nor an
 access log, the page replaces the address before it renders anything, and the code can
@@ -233,9 +258,10 @@ wants — every thread with what it is doing (running, waiting for an answer, fa
 a tap to open it, and a stop button that does not make you open it first. A Pi
 confirm is answered in the composer, the way it is on the desktop.
 
-The socket is unencrypted and the page is served over plain HTTP, so the host refuses to
-bind anything but a loopback address. To reach it from a phone, forward the port over SSH
-or a tunnel you trust; `TAU_HOST_INSECURE=1` is the deliberate exception.
+Without TLS the socket is unencrypted and the page is served over plain HTTP, so the host
+refuses to bind anything but a loopback address. To reach it from a phone, start the host
+with `TAU_HOST_TLS=1`, or forward the port over SSH or a tunnel you trust;
+`TAU_HOST_INSECURE=1` is the deliberate exception.
 
 ### Share a live session with Pi
 
@@ -411,9 +437,6 @@ still open:
   reaching for the Pi TUI for a missing interaction — has not been run.
 - **Windows.** Every verification so far is macOS and Linux. The login-shell environment read
   (`src/main/shell-environment.ts`) and the `findCommand` lookups it feeds assume a POSIX shell.
-- **Encryption for a host reached without a tunnel.** The host refuses a non-loopback bind unless
-  `TAU_HOST_INSECURE=1` says otherwise, and the token then travels in the clear; the supported path
-  is an SSH tunnel.
 - **Kits in a desktop window pointed at a remote host.** A `file://` page may not evaluate the
   bundle the host sends as source, so that window loads no kits. The browser client, served over
   HTTP, has no such problem.

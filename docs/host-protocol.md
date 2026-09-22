@@ -100,23 +100,89 @@ Two transports implement this. Electron IPC uses two channels, `tau:request` and
 method table name the same methods. The socket transport (`ws`) serves the same
 table on `TAU_HOST_LISTEN=host:port`, authenticated by the 32-byte token in
 `~/.tau/host-token` that every hello repeats; a wrong token, or a request before
-a hello, closes the connection. The token is unencrypted on the wire, so a
-listener refuses a non-loopback address unless `TAU_HOST_INSECURE=1` says
-otherwise; across machines the port is forwarded over SSH.
+a hello, closes the connection. Without TLS the token is unencrypted on the
+wire, so a plaintext listener refuses a non-loopback address unless
+`TAU_HOST_INSECURE=1` says otherwise; with TLS (below) any interface is fine.
 
 The token is the connection's whole trust boundary, and it is not scoped: a
 client that holds it may call every method in the table, including the ones that
 open a workspace. A client that still speaks paths rather than a `workspaceId`
 has that path accepted as given, so a token holder can point the host at any
 directory its process can read. Treat the token as "may use this host", not as
-"may read these threads": keep it on loopback or behind an SSH tunnel, and set
-`TAU_HOST_INSECURE=1` only for a network that is trusted for its own reasons.
+"may read these threads": keep it on loopback, behind an SSH tunnel or behind
+TLS, and set `TAU_HOST_INSECURE=1` only for a network that is trusted for its
+own reasons.
+
+## TLS
+
+A host can offer itself on a network without a tunnel. TLS changes the
+transport, not the protocol: the same frames, the same token in every hello,
+the same replay and resync. The web client's pairing code and the token file
+are handled exactly as without TLS.
+
+**Host side.** `TAU_HOST_TLS=1` makes the socket an HTTPS server (`wss:`),
+minimum TLS 1.2. On first start the host creates a self-signed ECDSA P-256
+certificate (`src/main/self-signed-certificate.ts`, `node:crypto` and a small
+DER builder, no dependency) valid for 825 days, and keeps it in
+`<userData>/tls/host-cert.pem` and `host-key.pem`, both 0o600 in a 0o700
+directory; a headless host's userData is `~/.tau/headless` unless
+`TAU_USER_DATA` moves it. A restart reuses the pair, so the fingerprint stays
+the same; a week before it expires, or when the pair is unreadable, a new one
+is made, and every client that pinned the old one refuses it. A certificate
+of the operator's own replaces all of that: `TAU_HOST_TLS_CERT` and
+`TAU_HOST_TLS_KEY` name PEM files (both or neither; the key must belong to
+the certificate, and one readable by other users draws a warning). The
+headless host prints `tau-host listening on wss://…` and
+`tls fingerprint: SHA256 AB:CD:…`, the SHA-256 of the leaf certificate in the
+form browsers and `openssl x509 -fingerprint -sha256` show. The web client
+server upgrades on the same TLS port, and the pairing link becomes `https://`.
+
+The listen rule (`src/main/host-listen.ts`): TLS may bind any interface;
+plaintext may bind loopback; plaintext beyond loopback needs
+`TAU_HOST_INSECURE=1`, and the host then prints a `WARNING:` line saying the
+token travels in clear text. A host a window supervises (ADR 0021) stays
+plaintext on loopback: the supervisor drops the three TLS variables from the
+child's environment.
+
+**Client side.** `TAU_HOST_URL=wss://machine:port` is trusted in this order
+(`src/main/host-tls-trust.ts`):
+
+1. `TAU_HOST_FINGERPRINT`, when set: that certificate and no other. Colons,
+   case and a `sha256:` prefix are optional.
+2. An entry for `host:port` in `<userData>/known-hosts.json` (version 1,
+   `{ hosts: { "host:port": { fingerprint, trustedAt } } }`, 0o600).
+3. A certificate a CA verifies for that name needs no pin (Node's CA store
+   answers the probe; Chromium then verifies it as it would any site).
+4. Anything else is trust on first use: the window opens, reads the
+   certificate without sending anything, and asks on a sheet whether to trust
+   that fingerprint. A yes is written to known-hosts; a no connects to nothing.
+
+A pinned certificate is enforced in both of the window's connections.
+Chromium's (the renderer's socket) goes through `setCertificateVerifyProc`,
+which accepts exactly the pinned fingerprint for that host name and leaves
+every other name to Chromium's own verification. The window process's uplink
+(`ws`) connects through `pinnedTlsConnect`, which destroys the socket in its
+`secureConnect` handler, before the WebSocket opens. Either way the token is
+never sent to a certificate that does not match.
+
+A mismatch is final. The workbench loads (or reloads) with `?hostRefused=`,
+its `HostConnection` enters the `refused` state, every request fails at once,
+nothing reconnects, and the status line shows both fingerprints and how to
+repair a certificate that was replaced on purpose (update
+`TAU_HOST_FINGERPRINT`, or delete the known-hosts entry). A declined or
+unreadable certificate and a malformed `TAU_HOST_FINGERPRINT` end the same
+way. A refused page carries no token.
+
+The browser client has no pin of its own: it meets a self-signed host's
+certificate as a browser warning, and its fingerprint is what the host
+printed.
 
 ## The window is always a client
 
 A desktop window speaks this protocol to a host in another process, which it
 started and watches itself ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)).
-`TAU_HOST_URL=ws://machine:port` points it at a host somebody else runs;
+`TAU_HOST_URL=ws://machine:port` (or `wss://`, see [TLS](#tls)) points it at a
+host somebody else runs;
 `TAU_HOST_INPROCESS=1` restores the old in-process host for one release.
 
 The method table has two halves. `CLIENT_SIDE_METHODS`
@@ -243,6 +309,7 @@ Current stores:
 | --- | --- | --- |
 | `<userData>/projects.json` | `src/main/project-history.ts` | 2 |
 | `<userData>/host-id` | `src/main/workspace-identity.ts` | plain text |
+| `<userData>/known-hosts.json` | `src/main/host-tls-trust.ts` | 1 |
 | `<agentDir>/tau/claude-runtime-sessions.json` | `kits/claude-code/session-store.ts` | 1 |
 
 Two configuration files are not stores of this kind, because Pi owns one of

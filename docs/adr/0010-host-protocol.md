@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule.
+Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule. Amended 2026-09-22: TLS with a pinned certificate.
 
 ## Context
 
@@ -56,6 +56,12 @@ The in-process transport is still installed, so a stray call has somewhere to la
 
 Because the token travels in clear text, a listener is now refused on anything but a loopback address unless `TAU_HOST_INSECURE=1` says otherwise (`host-listen.ts`). Reaching a host on another machine means forwarding the port over SSH. The page's CSP allows `ws:` and `wss:` in `connect-src`, without which a window on `file://` could not open the socket at all.
 
+## Amendment, 2026-09-22: TLS with a pinned certificate
+
+The socket may speak TLS (`TAU_HOST_TLS=1`, or `TAU_HOST_TLS_CERT` and `TAU_HOST_TLS_KEY`), and a TLS listener may bind any interface; the bind rule above now applies to plaintext only, and `TAU_HOST_INSECURE=1` prints a warning. The host's own certificate is self-signed and kept under its userData, so it has no CA to vouch for it. A client therefore pins the SHA-256 fingerprint of the certificate, the way SSH pins a host key: from `TAU_HOST_FINGERPRINT`, from its `known-hosts.json`, or after the user confirms the fingerprint on first use. A certificate a CA verifies needs no pin. A pinned host that presents another certificate is refused before the token leaves the client, and the window stays in a `refused` state instead of reconnecting.
+
+We chose pinning over running a Tau CA, which would need a second secret to protect and a way to distribute its root, and over an ACME certificate, which needs a public name. Tailscale and similar networks give a stable address; the fingerprint gives the identity. Details are in `docs/host-protocol.md` under TLS.
+
 ## Consequences
 
 - `src/main/index.ts` shrank from 430 to about 320 lines and holds no operation of its own: it supplies the platform (clipboard, dialogs, bundles, rebuild) and installs a transport.
@@ -67,6 +73,6 @@ Because the token travels in clear text, a listener is now refused on anything b
 ## Out of scope
 
 - **Editor and reveal actions for a remote host.** Without `local-files` those actions are hidden rather than routed back to the client's own machine. Opening a remote file in a local editor needs a file transfer this protocol does not have.
-- **TLS.** The socket listens on loopback and is meant to be reached through an SSH tunnel. Certificates remain separate work; `TAU_HOST_INSECURE=1` is an escape hatch for a trusted network, not a substitute.
+- **TLS.** Done in the 2026-09-22 amendment. Still open: rotating a self-signed certificate without every client re-pinning it, and pinning in the browser client, which only has the browser's own certificate warning.
 - **Multi-user hosts.** One token means one trust level: whoever has it may do everything the desktop user may do. Per-client identity and permissions build on ticket 17's per-package rights.
 - **A directory of hosts**, and web or mobile clients (ticket 19). A browser client would additionally need the host to serve the built assets and a way to enter a token without a native dialog; none of that exists.
