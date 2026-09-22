@@ -32,8 +32,8 @@ function setup() {
         id: "fixture.content",
         label: "In threads",
         order: 20,
-        search: (query, context: PaletteSearchContext) => {
-          signals.push(context.signal);
+        search: (query, search: PaletteSearchContext) => {
+          signals.push(search.signal);
           const answer = deferred<PaletteItem[]>();
           pending.set(query, answer);
           return answer.promise;
