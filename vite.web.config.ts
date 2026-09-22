@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { dedupeLegalComments } from "./vite.legal-comments";
 
 /**
  * The browser client (`dist-web/`), served by a listening host at its own root.
@@ -8,7 +9,7 @@ import react from "@vitejs/plugin-react";
  * platform and the HTML around it differ, so this config differs only there.
  */
 export default defineConfig(({ mode }) => ({
-  plugins: [react()],
+  plugins: [react(), dedupeLegalComments()],
   base: "/",
   build: {
     outDir: "dist-web",
