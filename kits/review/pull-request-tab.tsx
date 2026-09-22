@@ -21,6 +21,8 @@ export function registerPullRequestTab(plugin: DesktopExtensionContext, requests
   const disposers = [
     plugin.registerStageTab<PullRequestTabParams>({
       kind: PULL_REQUEST_TAB,
+      // Claimed for the one client it was tried on.
+      profiles: ["desktop"],
       title: (params) => `${shortNoun(params.service)} #${params.number}`,
       Icon: GitPullRequest,
       render: (params, handle, actions) => {
