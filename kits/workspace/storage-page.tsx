@@ -319,8 +319,8 @@ export function createStoragePage(host: StorageHost) {
 
         <div className="settings-label workspace-storage-heading">
           <span>WORKTREES{report ? ` · ${formatBytes(report.totalBytes)}` : ""}</span>
-          <button type="button" className="icon-button" aria-label="Measure again" title="Measure again" disabled={loading} onClick={() => void refresh()}>
-            <RefreshCw size={12} />
+          <button type="button" className="text-button" disabled={loading} onClick={() => void refresh()}>
+            <RefreshCw size={11} /> {loading ? "Measuring…" : "Measure again"}
           </button>
         </div>
         {error ? <div className="settings-note" data-level="error">{error}</div> : null}
