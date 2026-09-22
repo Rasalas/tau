@@ -1,10 +1,10 @@
 import { memo, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { HLJSApi, LanguageFn } from "highlight.js";
+import { remarkGfm } from "./remark-gfm-parse";
 type LanguageDefinition = LanguageFn;
 
 // The core arrives with the first grammar: nothing highlights before one is loaded anyway.
