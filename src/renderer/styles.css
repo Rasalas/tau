@@ -422,6 +422,9 @@ button > svg { pointer-events: none; }
 .conversation-column:not(.conversation-start) .conversation-composer-host { order: 3; }
 .conversation-column:not(.conversation-start) .region-composer-below { order: 4; }
 .conversation-column:not(.conversation-start) .conversation-thread { order: 1; }
+/* Pi's footer stays under the composer, and away while no item draws anything. */
+.conversation-column:not(.conversation-start) .status-line { order: 5; }
+.status-line:not(:has(.status-item:not(:empty))) { display: none; }
 @keyframes start-screen-enter {
   from { opacity: 0; transform: translateY(7px); }
   to { opacity: 1; transform: none; }
