@@ -167,7 +167,8 @@ describe("composer inline contributions", () => {
     const { textarea } = renderWith(holder.contribution);
     fireEvent.change(textarea, { target: { value: "see #fix", selectionStart: 8 } });
     await waitFor(() => expect(screen.getByRole("listbox", { name: "Pull requests" })).toBeTruthy());
-    expect(screen.getByRole("option", { name: /#12 fix/u })).toBeTruthy();
+    // The rows are searched asynchronously and can arrive a render after the list.
+    await screen.findByRole("option", { name: /#12 fix/u });
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("see ");
