@@ -15,6 +15,7 @@ import { PackageProvenance } from "./PackageProvenance";
 import { PanelIcon } from "./PanelIcon";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { PiSettingsPage } from "./PiSettingsPage";
+import { runtimeUpdate } from "../runtime-update";
 import type { SendShortcut } from "./composer-send-keys";
 
 const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
@@ -109,6 +110,10 @@ function DefaultsPage({
             ))}
           </div>
           <p className="settings-note">Which program runs a new thread. Threads that already exist keep theirs, and the composer offers the same choice before the first message.</p>
+          {(snapshot?.runtimeBackends ?? []).map((backend) => {
+            const update = runtimeUpdate(backend);
+            return update ? <p key={backend.kind} className="settings-note" role="status">{update.text}{update.command ? <> Update with <code>{update.command}</code>.</> : null}</p> : null;
+          })}
         </>
       ) : null}
 

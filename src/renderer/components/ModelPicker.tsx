@@ -5,6 +5,7 @@ import type { ModelBadgeContribution, ModelSelectionContribution } from "../exte
 import { modelPresentation, type ModelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
+import { runtimeUpdate } from "../runtime-update";
 import { modelKey, pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { VirtualList } from "./VirtualList";
@@ -188,6 +189,8 @@ export function ModelPicker({
     });
   };
 
+  const update = !needle && current?.kind === "runtime" ? runtimeUpdate(current.backend) : undefined;
+
   // A runtime whose models are not on hand: say what choosing it means.
   const elsewhere = !needle && current?.kind === "runtime" && !current.listed ? current.backend : undefined;
   const threadRuntimeName = runtimeName(threadRuntime, runtimeBackends);
@@ -254,6 +257,7 @@ export function ModelPicker({
     return item.listed ? `${item.backend.label} (${entries.length})` : item.backend.label;
   };
   const tabTitle = (item: RailEntry): string => {
+    if (item.kind === "runtime" && runtimeUpdate(item.backend)) return `${tabLabel(item).replace(/ \((\d+)\)$/u, "")} · update available`;
     if (item.kind !== "runtime" || item.listed) return tabLabel(item).replace(/ \((\d+)\)$/u, " · $1");
     if (item.backend.kind === threadRuntime) return `${item.backend.label} · this thread's runtime`;
     return draft ? `${item.backend.label} · run this thread on it` : `${item.backend.label} · starts a new thread`;
@@ -371,6 +375,7 @@ export function ModelPicker({
         </div>
 
         {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
+        {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> Update with <code>{update.command}</code>.</> : null}</p> : null}
 
         <footer>
           <span>↑↓ navigate</span>
