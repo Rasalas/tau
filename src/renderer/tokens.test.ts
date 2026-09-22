@@ -18,6 +18,11 @@ const RUNTIME_PROPERTIES = [
   "--composer-inset",
   "--font-family-override",
   "--font-size-override",
+  // Typography a client sets on <html> beside the two above (Appearance Kit).
+  "--prompt-font-family",
+  "--prompt-font-size",
+  "--code-font-family",
+  "--code-font-scale",
 ];
 
 /** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */

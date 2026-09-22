@@ -809,7 +809,7 @@ button > svg { pointer-events: none; }
 .md-code-head > button.copied { color: var(--ready); }
 .md-code-head > button.failed { color: var(--removed); }
 .md-code pre { margin: 0; padding: 11px 13px; overflow-x: auto; }
-.md-code code { font: 12px/1.4 var(--mono); color: var(--ink-code); white-space: pre; }
+.md-code code { font: calc(12px * var(--code-font-scale, 1))/1.4 var(--code-font-family, var(--mono)); color: var(--ink-code); white-space: pre; }
 
 /* highlight.js tokens, on the workbench palette */
 .hljs-comment, .hljs-quote { color: var(--faint); font-style: italic; }
@@ -931,7 +931,7 @@ button > svg { pointer-events: none; }
 .tool-run-state.running { color: var(--acid-text); }
 .tool-output {
   margin: 0 13px 11px 39px; padding: 9px 11px; background: var(--code-bg);
-  border-radius: 7px; font: 11.5px/1.35 var(--mono); color: var(--muted);
+  border-radius: 7px; font: calc(11.5px * var(--code-font-scale, 1))/1.35 var(--code-font-family, var(--mono)); color: var(--muted);
   max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 .tool-run.running .tool-output { max-height: 104px; }
@@ -1112,7 +1112,8 @@ button > svg { pointer-events: none; }
 .composer-command-empty { padding: 18px 14px; color: var(--faint); font: 11px var(--sans); text-align: center; }
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
-  color: var(--ink); padding: 13px 16px 6px; font-size: 13px; line-height: 1.55;
+  color: var(--ink); padding: 13px 16px 6px; line-height: 1.55;
+  font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, 13px);
   outline: none; min-height: 46px; max-height: 220px; overflow-y: hidden;
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
@@ -2058,7 +2059,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 /* A thread read in the stage: core's transcript, in a column that narrow. */
 .thread-document .transcript { padding: 18px 20px 12px; }
 .thread-document .stage-pane-header > strong { font-family: var(--sans); }
-.source-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: 12px/1.75 var(--mono); }
+.source-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: calc(12px * var(--code-font-scale, 1))/1.75 var(--code-font-family, var(--mono)); }
 .source-grid { display: grid; grid-template-columns: max-content 1fr; min-width: max-content; flex: 1; position: relative; isolation: isolate; }
 .source-line-mark {
   position: absolute; left: 0; right: 0; z-index: -1; pointer-events: none;
@@ -2306,7 +2307,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .toggle-group > button:disabled { opacity: .4; cursor: default; }
 .review-read-only { color: var(--muted); font: 500 11px var(--mono); }
 
-.diff-scroll { flex: 1; min-height: 0; overflow: auto; display: block; font: 12px/26px var(--mono); }
+.diff-scroll { flex: 1; min-height: 0; overflow: auto; display: block; font: calc(12px * var(--code-font-scale, 1))/26px var(--code-font-family, var(--mono)); }
 .diff-stream { min-width: 0; }
 /* Rows are absolutely placed by the virtualizer and measured for wrapped text. */
 .diff-stream-row { overflow: clip; }

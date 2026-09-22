@@ -33,6 +33,8 @@ export { usePreferences } from "./renderer-services-context";
 export { SettingRow, SettingsSection, useSetting } from "./settings/settings-layout";
 export type { SettingHandle, SettingOptions } from "./settings/settings-layout";
 export type { ConfigLayerName, SettingScope } from "../shared/config-layers";
+// Read only: preferences sync them from the host, and emit when they do.
+export { listUserThemes as userThemes } from "./theme";
 export { useClientStorage } from "./client-storage-context";
 export { getClientStorage } from "../workbench/client-storage";
 export { useHostCapabilities, hostHasLocalFiles } from "./use-host-capabilities";
