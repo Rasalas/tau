@@ -3,9 +3,10 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostRuntimeBackendProvider } from "tau/host-extension";
+import type { HostExtension, HostRuntimeBackendProvider } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createAntigravityHostExtension from "./host.js";
+import { AntigravitySessionStore } from "./session-store.js";
 import type { AntigravitySessionLike } from "./thread-backend.js";
 
 const directories: string[] = [];
@@ -90,5 +91,28 @@ describe("Antigravity host half", () => {
     const { backends, registry } = await harness(false);
     expect(await registry.invoke("tau.antigravity", "status")).toMatchObject({ installed: false, message: expect.stringMatching(/not installed/u) });
     await expect(backends[0]!.open("t", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) })).rejects.toThrow(/not installed/u);
+  });
+
+  it("hands each thread's running total to the Usage kit and to no other kit", async () => {
+    const { registry, directory } = await harness(true);
+    const store = new AntigravitySessionStore({ filePath: AntigravitySessionStore.defaultPath(join(directory, "sessions")) });
+    await store.recordUsage("thread-1", "/repo", { inputTokens: 5, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 6, costUsd: 0, turns: 2 });
+    await store.setObservedModel("thread-1", "/repo", "gemini-3.8-flash-low");
+    const reader = (id: string): HostExtension & { read?: () => Promise<unknown> } => {
+      const extension: HostExtension & { read?: () => Promise<unknown> } = {
+        id,
+        name: id,
+        activate(context) { extension.read = () => context.invokeHostExtension("tau.antigravity", "usage"); },
+      };
+      return extension;
+    };
+    const usageKit = reader("tau.usage");
+    const stranger = reader("acme.stranger");
+    await registry.activate(usageKit);
+    await registry.activate(stranger);
+    expect(await usageKit.read!()).toEqual({
+      threads: [expect.objectContaining({ threadId: "thread-1", cwd: "/repo", model: "gemini-3.8-flash-low", usage: expect.objectContaining({ totalTokens: 6, turns: 2 }) })],
+    });
+    await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.antigravity/usage.");
   });
 });

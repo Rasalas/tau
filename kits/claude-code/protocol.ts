@@ -2,3 +2,5 @@
 export const CLAUDE_CODE_HOST_EXTENSION_ID = "tau.claude-code";
 /** The backend kind the host entry registers; threads of this kind carry it as `backendKind`. */
 export const CLAUDE_CODE_BACKEND_KIND = "claude-code";
+/** Usage Kit may read each thread's running total through the `usage` command. */
+export const USAGE_KIT_ID = "tau.usage";

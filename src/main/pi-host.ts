@@ -457,6 +457,8 @@ export class PiHost {
   private async startThread(options: HostThreadStartOptions): Promise<HostStartedThread> {
     this.workbenchReload.assertAvailable();
     const cwd = options.cwd || this.cwd;
+    const backendKind = options.backend ?? "pi";
+    if (backendKind !== "pi") this.requireBackend(backendKind);
     const requestedAt = performance.now();
     // Background starts share the queue's background lane: they build their own
     // thread and touch nothing the thread on screen depends on, so serialising
@@ -464,13 +466,17 @@ export class PiHost {
     const thread = await this.lifecycle.runBackground("start-thread", async () => {
       const marks = new PhaseTimer(requestedAt);
       marks.mark("queue");
-      const manager = SessionManager.create(cwd, this.sessionsDirOverride);
-      if (options.parent) this.index.linkParent(manager, options.parent);
-      const runtime = await this.runtimes.open(
-        manager,
-        { type: "session_start", reason: "new" },
-        { adopt: false, prepared: true },
-      );
+      let runtime: ThreadRuntime;
+      if (backendKind === "pi") {
+        const manager = SessionManager.create(cwd, this.sessionsDirOverride);
+        if (options.parent) this.index.linkParent(manager, options.parent);
+        runtime = await this.runtimes.open(manager, { type: "session_start", reason: "new" }, { adopt: false, prepared: true });
+      } else {
+        // Another backend keeps no Pi session file, so the link lives in the index only.
+        const threadId = randomUUID();
+        if (options.parent) this.index.rememberParent(threadId, options.parent.threadId);
+        runtime = await this.runtimes.openExternal(backendKind, threadId, cwd, { resume: false, adopt: false });
+      }
       marks.mark("open");
       try {
         await this.adoptThread(runtime);

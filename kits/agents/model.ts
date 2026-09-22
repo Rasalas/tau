@@ -1,6 +1,8 @@
 import { formatCost as formatMoney, type UiSession, type UiThreadUsage, type UiToolRun } from "tau";
 import {
   isBusyStatus,
+  isOpenStatus,
+  type AgentDefinitionSummary,
   type AgentThreadLink,
   type AgentThreadStatus,
   type AgentWorkspace,
@@ -15,6 +17,8 @@ export interface AgentRow {
   path?: string;
   title: string;
   status: AgentThreadStatus;
+  /** The agent definition it was started from. */
+  agent?: string;
   model?: string;
   startedAt?: number;
   endedAt?: number;
@@ -63,6 +67,7 @@ function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSession>):
     ...(session?.path ? { path: session.path } : {}),
     title: session?.title || link.title,
     status: link.status,
+    ...(link.agent ? { agent: link.agent } : {}),
     ...(link.model ? { model: link.model } : {}),
     ...(link.startedAt ? { startedAt: link.startedAt } : {}),
     ...(link.endedAt ? { endedAt: link.endedAt } : {}),
@@ -240,6 +245,8 @@ export interface SpawnCardRow {
   path?: string;
   title: string;
   status: AgentThreadStatus;
+  /** The agent definition the call named. */
+  agent?: string;
   costUsd?: number;
 }
 
@@ -316,12 +323,14 @@ export function spawnCardModel(
     const cost = session?.usage?.costUsd;
     const status: AgentThreadStatus = link?.status
       ?? (tool.status === "error" ? "failed" : tool.status === "running" ? "pending" : session ? "idle" : "completed");
+    const agent = link?.agent ?? (typeof tool.args.agent === "string" && tool.args.agent.trim() ? tool.args.agent.trim() : undefined);
     return {
       id: link?.id ?? tool.id,
       ...(threadId ? { threadId } : {}),
       ...(session?.path ? { path: session.path } : {}),
       title: spawnTitle(tool, link, session),
       status,
+      ...(agent ? { agent } : {}),
       ...(cost === undefined ? {} : { costUsd: cost }),
     };
   });
@@ -339,4 +348,32 @@ export function spawnCardModel(
     status: working > 0 ? "running" : failed > 0 ? "failed" : pending > 0 ? "pending" : "completed",
     ...(costs.length > 0 ? { totalCostUsd: costs.reduce((sum, value) => sum + value, 0) } : {}),
   };
+}
+
+/** One definition in the panel: a starting point, with what already runs from it. */
+export interface DefinitionRow {
+  definition: AgentDefinitionSummary;
+  /** Agents of the thread on screen started from it that are not finished. */
+  open: number;
+  /** "anthropic/… · read-only · shared", what the file sets beyond its prompt. */
+  settings: string;
+}
+
+export function definitionRows(
+  definitions: readonly AgentDefinitionSummary[],
+  state: AgentsState | undefined,
+  activeThreadId: string | undefined,
+): DefinitionRow[] {
+  const links = (state?.links ?? []).filter((link) => link.parentThreadId === activeThreadId && isOpenStatus(link.status));
+  return definitions.map((definition) => ({
+    definition,
+    open: links.filter((link) => link.agent === definition.name).length,
+    settings: [
+      definition.runtime,
+      definition.model,
+      definition.access,
+      definition.workspace,
+      definition.tools ? `${definition.tools.length} tool${definition.tools.length === 1 ? "" : "s"}` : undefined,
+    ].filter(Boolean).join(" · "),
+  }));
 }

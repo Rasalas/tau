@@ -117,6 +117,11 @@ export class ThreadIndex {
     this.parents.set(manager.getSessionId(), parent.threadId);
   }
 
+  /** The same link for a thread without a Pi session file; it lasts as long as the index does. */
+  rememberParent(threadId: string, parentThreadId: string): void {
+    this.parents.set(threadId, parentThreadId);
+  }
+
   /**
    * One deduplicated pass over every persisted session. Concurrent callers
    * share it, so the recovery timer can never run a second sweep into the

@@ -1,5 +1,12 @@
 import type { ThreadLineage } from "tau";
-import { isAgentsState, isBusyStatus, type AgentsState, type ThreadSiblingsService } from "./protocol.js";
+import {
+  isAgentDefinitionsState,
+  isAgentsState,
+  isBusyStatus,
+  type AgentDefinitionsState,
+  type AgentsState,
+  type ThreadSiblingsService,
+} from "./protocol.js";
 
 /**
  * What the host half pushed about spawned threads, held once for the panel and
@@ -51,6 +58,58 @@ export function lineageOf(state: AgentsState | undefined): ThreadLineage {
   }
   return { parents, workingChildren };
 }
+
+/** The agent definitions of the checkout on screen, as the host last read them. */
+export interface DefinitionsView {
+  /** The thread they were read for; absent for the open workspace. */
+  sessionId?: string;
+  state?: AgentDefinitionsState;
+}
+
+export interface DefinitionsStore {
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): DefinitionsView;
+  /**
+   * Reads the definitions of a thread's checkout, or of the open workspace,
+   * and keeps following that thread. Only the latest request lands, so
+   * switching threads quickly never shows the one before.
+   */
+  load(sessionId?: string): Promise<void>;
+  /** Reads again for the thread last asked about. */
+  refresh(): Promise<void>;
+  clear(): void;
+}
+
+export function createDefinitionsStore(host: { invoke?(command: string, input?: unknown): Promise<unknown> }): DefinitionsStore {
+  const listeners = new Set<() => void>();
+  let view: DefinitionsView = {};
+  let focus: string | undefined;
+  let latest = 0;
+  const notify = () => { for (const listener of [...listeners]) listener(); };
+  const load = async (sessionId?: string) => {
+    focus = sessionId;
+    if (!host.invoke) return;
+    const request = ++latest;
+    const state = await host.invoke("definitions", sessionId ? { sessionId } : {});
+    if (request !== latest || !isAgentDefinitionsState(state)) return;
+    view = { ...(sessionId ? { sessionId } : {}), state };
+    notify();
+  };
+  return {
+    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    getSnapshot: () => view,
+    load,
+    refresh: () => load(focus),
+    clear: () => {
+      latest += 1;
+      focus = undefined;
+      view = {};
+      notify();
+    },
+  };
+}
+
+export const definitionsStore = createDefinitionsStore(agentsHost);
 
 /** Thread Rail's sibling groups while that kit is on; the panel reads them through this. */
 export const siblingsSource = (() => {

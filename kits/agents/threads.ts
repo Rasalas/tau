@@ -20,6 +20,8 @@ export interface SpawnRequest {
   projectPath?: string;
   /** Where the new thread works; the host decides when the caller says nothing. */
   workspace?: AgentWorkspaceMode;
+  /** An agent definition of the project, by name. */
+  agent?: string;
 }
 
 export interface ThreadLiveness {
@@ -63,6 +65,7 @@ export function decodeSpawnRequest(input: unknown): SpawnRequest {
   const model = optionalText(fields.model, "model", 200);
   const projectPath = optionalText(fields.projectPath, "projectPath", 4_096);
   const workspace = optionalText(fields.workspace, "workspace", 16);
+  const agent = optionalText(fields.agent, "agent", 64);
   if (workspace && workspace !== "shared" && workspace !== "worktree") {
     throw new Error('workspace must be "worktree" or "shared".');
   }
@@ -72,6 +75,7 @@ export function decodeSpawnRequest(input: unknown): SpawnRequest {
     ...(model ? { model } : {}),
     ...(projectPath ? { projectPath } : {}),
     ...(workspace ? { workspace: workspace as AgentWorkspaceMode } : {}),
+    ...(agent ? { agent } : {}),
   };
 }
 

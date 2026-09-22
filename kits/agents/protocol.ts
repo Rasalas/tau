@@ -28,6 +28,49 @@ export interface AgentsHostCommands {
   "apply-changes": { input: { threadId: string }; output: { detail: string } };
   /** Throws the child's worktree away, work and branch included. */
   "discard-changes": { input: { threadId: string }; output: { detail: string } };
+  /** The agent definitions of a thread's checkout, or of the open workspace without one. */
+  "definitions": { input: { sessionId?: string }; output: AgentDefinitionsState };
+  /** The user starts an agent from a definition, as a child of the thread they are reading. */
+  "start": { input: { parentThreadId: string; agent: string; prompt: string }; output: { threadId: string; title: string; status: AgentThreadStatus } };
+}
+
+/** An agent definition's `access`: what Access Kit may narrow its thread to. */
+export type AgentAccessLevel = "read-only" | "ask" | "full";
+
+/** One `.tau/agents/<name>.md`, without its system prompt. */
+export interface AgentDefinitionSummary {
+  name: string;
+  description: string;
+  /** Absolute path of the file it was read from. */
+  file: string;
+  /** `provider/model-id`. */
+  model?: string;
+  /** Runtime backend kind; the kit starts Pi threads when it is absent. */
+  runtime?: string;
+  /** The only tools its thread keeps; Pi only. */
+  tools?: string[];
+  access?: AgentAccessLevel;
+  workspace?: AgentWorkspaceMode;
+}
+
+/** A file that could not be used, or a field that was ignored; Settings → Inspector lists them. */
+export interface AgentDefinitionProblem {
+  file: string;
+  message: string;
+  level: "error" | "warning";
+}
+
+export interface AgentDefinitionsState {
+  /** The `.tau/agents` folder these came from. */
+  directory: string;
+  definitions: AgentDefinitionSummary[];
+  problems: AgentDefinitionProblem[];
+}
+
+export function isAgentDefinitionsState(value: unknown): value is AgentDefinitionsState {
+  return Boolean(value) && typeof value === "object"
+    && Array.isArray((value as AgentDefinitionsState).definitions)
+    && Array.isArray((value as AgentDefinitionsState).problems);
 }
 
 /**
@@ -37,6 +80,13 @@ export interface AgentsHostCommands {
  * `tau/host-extension`.
  */
 export const AGENT_CHILD_ENTRY = "tau.agents/child";
+
+/**
+ * The key under which a child's own link entry carries the definition it was
+ * started from: name, file, system prompt, tools and access. The kit's Pi
+ * extension reads it back on every turn, so the persona outlives a restart.
+ */
+export const AGENT_PERSONA_FIELD = "persona";
 
 /** `pending` is queued behind the parent's running budget; it has no thread yet. */
 export type AgentThreadStatus = "pending" | "running" | "waiting" | "idle" | "completed" | "failed";
@@ -74,6 +124,8 @@ export interface AgentThreadLink {
   /** 1 for a thread a user's thread spawned, 2 for its child. */
   depth: number;
   title: string;
+  /** The agent definition it was started from, by name. */
+  agent?: string;
   /** Model as `provider/id`, when it differs from the host default. */
   model?: string;
   /** The checkout this agent works in; absent while it shares the parent's. */

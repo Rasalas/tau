@@ -1,5 +1,5 @@
 import { skillInvocationCommand, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider, type UiComposerCommand } from "tau/host-extension";
-import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID } from "./protocol.js";
+import { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID, USAGE_KIT_ID } from "./protocol.js";
 import { describeAccount, readClaudeVersion } from "./probe.js";
 import { createClaudeCodeRuntimeAdapter, type ClaudeCodeAgentRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -114,6 +114,19 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           models: probe.models,
         };
       });
+      // Each thread's running total, for the Usage kit; read from the store, never from Anthropic.
+      context.registerCommand("usage", async () => ({
+        threads: (await store.list()).map((entry) => {
+          const model = entry.observedModel ?? entry.model;
+          return {
+            threadId: entry.tauThreadId,
+            cwd: entry.cwd,
+            updatedAt: entry.updatedAt,
+            ...(model ? { model } : {}),
+            ...(entry.usage ? { usage: { ...entry.usage } } : {}),
+          };
+        }),
+      }), { callers: [USAGE_KIT_ID] });
       return services.registerRuntimeBackend(provider);
     },
   };

@@ -3,7 +3,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Bot } from "lucide-react";
 import { useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
 import type { AgentThreadStatus } from "./protocol.js";
-import { agentsHost, agentsStore, siblingsSource } from "./store.js";
+import { agentsHost, agentsStore, definitionsStore, siblingsSource } from "./store.js";
+import { DefinitionsSection } from "./definitions-panel.js";
 import {
   activityLine,
   agentsPanelModel,
@@ -70,6 +71,7 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
       <span className="agent-row-head">
         <i className={`agent-dot status-${row.status}`} aria-hidden="true" />
         <strong>{row.title}</strong>
+        {row.agent ? <span className="agent-row-definition" title={`Started from the agent definition ${row.agent}`}>{row.agent}</span> : null}
         <Elapsed row={row} />
       </span>
       <span className="agent-row-activity">{activityLine(row)}</span>
@@ -135,6 +137,11 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
   );
   const rows = useMemo(() => panelRows(model), [model]);
 
+  // The definitions of the checkout the thread on screen works in.
+  useEffect(() => {
+    definitionsStore.load(activeThreadId).catch(() => undefined);
+  }, [activeThreadId]);
+
   const listRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -161,11 +168,12 @@ export function AgentsPanel({ extensionName, actions }: PanelProps) {
   return (
     <section className="panel-body agents-panel">
       <PanelHeader model={model} extensionName={extensionName} />
+      <DefinitionsSection state={state} activeThreadId={activeThreadId} actions={actions} />
       {rows.length === 0 ? (
         <div className="agents-empty">
           <Bot size={22} aria-hidden="true" />
           <p>No agents yet</p>
-          <small>When this thread spawns sub-agents with tau_spawn_thread, they appear here with live status and their answer.</small>
+          <small>When this thread spawns sub-agents with tau_spawn_thread, or you start one from a definition in .tau/agents/, they appear here with live status and their answer.</small>
         </div>
       ) : (
         <div className="agent-list" ref={listRef}>
