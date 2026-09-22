@@ -176,6 +176,46 @@ describe("the Agents panel", () => {
   });
 });
 
+describe("agent definitions in the Agents panel", () => {
+  it("lists the project's definitions and starts one from the thread on screen", async () => {
+    const commands: Array<{ command: string; input?: unknown }> = [];
+    const agents: AgentsState = { maxRunning: 8, links: [link("alpha", "parent", "running", 1, { agent: "reviewer" })] };
+    renderApp(
+      appWith(agents, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2)], "parent", [], (command, input) => {
+        commands.push({ command, input });
+        if (command === "definitions") {
+          return {
+            directory: "/project/.tau/agents",
+            definitions: [
+              { name: "reviewer", description: "Reviews the change", file: "/project/.tau/agents/reviewer.md", access: "read-only" },
+              { name: "writer", description: "Writes the docs", file: "/project/.tau/agents/writer.md" },
+            ],
+            problems: [{ file: "/project/.tau/agents/bad.md", message: "broken", level: "error" }],
+          };
+        }
+        return { threadId: "beta", title: "Check it", status: "running", agent: "writer" };
+      }),
+      { extensions: [workspaceExtension, agentsExtension] },
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    const section = await screen.findByRole("region", { name: "Agent definitions" });
+    expect(within(section).getByText("Reviews the change")).toBeTruthy();
+    expect(within(section).getByText("1 open")).toBeTruthy();
+    expect(within(section).getByText(/1 file in .tau\/agents could not be used/u)).toBeTruthy();
+    // The running agent names the definition it came from.
+    expect(screen.getByText("reviewer", { selector: ".agent-row-definition" })).toBeTruthy();
+
+    const writer = within(section).getByText("writer").closest("li") as HTMLElement;
+    fireEvent.click(within(writer).getByRole("button", { name: "Start" }));
+    fireEvent.change(within(writer).getByRole("textbox", { name: "Task for writer" }), { target: { value: "Check it" } });
+    fireEvent.click(within(writer).getByRole("button", { name: "Start writer" }));
+    await waitFor(() => expect(commands).toContainEqual({ command: "start", input: { parentThreadId: "parent", agent: "writer", prompt: "Check it" } }));
+    expect(await screen.findByText("Started writer.")).toBeTruthy();
+    expect(commands.filter((entry) => entry.command === "definitions").map((entry) => entry.input)).toContainEqual({ sessionId: "parent" });
+  });
+});
+
 describe("a spawned thread's worktree", () => {
   it("shows the branch it worked in and takes its changes back", async () => {
     const worktree = {
@@ -191,6 +231,7 @@ describe("a spawned thread's worktree", () => {
     const commands: Array<{ command: string; input?: unknown }> = [];
     renderApp(
       appWith(agents, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2)], "parent", [], (command, input) => {
+        if (command === "definitions") return undefined;
         commands.push({ command, input });
         return { detail: "Applied 2 files, +7 −1 from tau/agent-alpha." };
       }),

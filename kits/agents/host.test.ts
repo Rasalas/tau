@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -56,6 +56,7 @@ function harness() {
   const lifecycles: HostThreadLifecycle[] = [];
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
   let nextThread = 0;
+  let projectCwd = "/project";
 
   const open = (threadId: string): FakeThread => {
     const thread: FakeThread = { streaming: false, idle: true, messages: [], entries: [] };
@@ -68,7 +69,7 @@ function harness() {
     if (!found) return undefined;
     return {
       sessionId: threadId,
-      cwd: "/project",
+      cwd: projectCwd,
       backendKind: "pi",
       sessionFile: `/sessions/${threadId}.jsonl`,
       isStreaming: () => found.streaming,
@@ -83,7 +84,7 @@ function harness() {
   let startGate: (() => Promise<void>) | undefined;
 
   const services: HostExtensionServices = {
-    cwd: () => "/project",
+    cwd: () => projectCwd,
     agentDir: "/agent",
   complete: async () => "",
     sessionsDir: "/agent/sessions",
@@ -153,29 +154,36 @@ function harness() {
   };
 
   let invoke: (command: string, input?: unknown) => Promise<unknown> = () => Promise.reject(new Error("the kit is not activated"));
+  let registry: Awaited<ReturnType<typeof activateHostKit>> | undefined;
   const activate = async (options: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner }) => {
     const { stateDir, ...kitOptions } = options;
-    const registry = await activateHostKit(
+    registry = await activateHostKit(
       createAgentsHostExtension(kitOptions),
       stateDir ? { ...services, stateDir } : services,
       (event) => events.push(event),
     );
-    invoke = (command, input) => registry.invoke(AGENTS_HOST_EXTENSION_ID, command, input);
+    invoke = (command, input) => registry!.invoke(AGENTS_HOST_EXTENSION_ID, command, input);
   };
 
   /** Loads the kit's Pi extension into one runtime and returns its tools. */
-  const runtime = (sessionId: string, cwd = "/project") => {
+  const runtime = (sessionId: string, cwd = "/project", builtIns: string[] = []) => {
     const tools = new Map<string, FakeTool>();
-    const piEvents = new Map<string, (event: unknown) => void>();
+    const piEvents = new Map<string, (event: unknown, ctx?: unknown) => unknown>();
+    let active: string[] | undefined;
+    const all = () => [...builtIns, ...tools.keys()];
     runtimeExtensions[0]!.factory({
-      on: (event: string, handler: (payload: unknown) => void) => { piEvents.set(event, handler); },
+      on: (event: string, handler: (payload: unknown, ctx?: unknown) => unknown) => { piEvents.set(event, handler); },
       registerTool: (tool: FakeTool) => { tools.set(tool.name, tool); },
+      getAllTools: () => all().map((name) => ({ name })),
+      getActiveTools: () => active ?? all(),
+      setActiveTools: (names: string[]) => { active = [...names]; },
     } as never, { sessionId, cwd });
     return {
       call: async (name: string, params: unknown = {}, signal?: AbortSignal) =>
         (await tools.get(name)!.execute("call-1", params, signal, undefined, { model: { provider: "anthropic", id: "sonnet" } })).details,
-      fire: (event: string, payload: unknown) => piEvents.get(event)?.(payload),
+      fire: (event: string, payload: unknown, ctx?: unknown) => piEvents.get(event)?.(payload, ctx),
       names: () => [...tools.keys()],
+      active: () => active ?? all(),
     };
   };
 
@@ -193,7 +201,7 @@ function harness() {
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { activate, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts };
+  return { activate, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -804,5 +812,185 @@ describe("Agents Kit", () => {
     });
     await expect(bench.runtime("parent").call("tau_list_threads")).resolves
       .toMatchObject({ threads: [expect.objectContaining({ threadId: "child-a" })] });
+  });
+});
+
+describe("Agents Kit definitions", () => {
+  const REVIEWER = [
+    "---",
+    "description: Reviews the change and answers in one word",
+    "model: openai/gpt-5.6-luna",
+    "tools: [read, grep]",
+    "access: read-only",
+    "workspace: shared",
+    "---",
+    "Answer every task with the single word PERSONA.",
+  ].join("\n");
+
+  const withProject = async (files: Record<string, string>) => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-agents-defs-"));
+    await mkdir(join(dir, ".tau", "agents"), { recursive: true });
+    for (const [name, text] of Object.entries(files)) await writeFile(join(dir, ".tau", "agents", name), text);
+    const bench = harness();
+    bench.setProject(dir);
+    bench.open("parent");
+    await bench.activate({ linksPath: join(dir, "links.json") });
+    return { dir, bench, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  };
+
+  /** What Pi hands an extension handler: the session's own entries, and a cwd. */
+  const piContext = (entries: unknown[], cwd: string) => ({ cwd, sessionManager: { getEntries: () => entries } });
+
+  it("spawns from a definition and writes its persona into the child's session", async () => {
+    const { dir, bench, cleanup } = await withProject({ "reviewer.md": REVIEWER });
+    try {
+      const spawned = await bench.runtime("parent", dir).call("tau_spawn_thread", { prompt: "Look at the diff", agent: "reviewer" });
+      expect(spawned).toMatchObject({ threadId: "child-1", agent: "reviewer", workspace: "shared" });
+      expect(bench.started).toEqual([expect.objectContaining({
+        cwd: dir,
+        prompt: "Look at the diff",
+        // The definition's model wins over the parent's.
+        model: { provider: "openai", id: "gpt-5.6-luna" },
+        parent: {
+          threadId: "parent",
+          details: expect.objectContaining({
+            agent: "reviewer",
+            persona: {
+              name: "reviewer",
+              file: join(dir, ".tau", "agents", "reviewer.md"),
+              systemPrompt: "Answer every task with the single word PERSONA.",
+              tools: ["read", "grep"],
+              access: "read-only",
+            },
+          }),
+        },
+      })]);
+      expect(bench.started[0]!.backend).toBeUndefined();
+      // The child's session carries the persona, and the parent's names the definition.
+      const childEntries = bench.threads.get("child-1")!.entries;
+      expect(childEntries[0]!.data).toMatchObject({ persona: { systemPrompt: "Answer every task with the single word PERSONA." } });
+      expect(bench.threads.get("parent")!.entries[0]!.data).toMatchObject({ agent: "reviewer", threadId: "child-1" });
+      expect((await bench.state()).links).toEqual([expect.objectContaining({ threadId: "child-1", agent: "reviewer" })]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("puts the persona into the child's system prompt and keeps only its tools", async () => {
+    const { dir, bench, cleanup } = await withProject({ "reviewer.md": REVIEWER });
+    try {
+      await bench.runtime("parent", dir).call("tau_spawn_thread", { prompt: "Look", agent: "reviewer" });
+      const child = bench.runtime("child-1", dir, ["read", "grep", "edit", "write", "bash"]);
+      const ctx = piContext(bench.threads.get("child-1")!.entries, dir);
+      await child.fire("session_start", { type: "session_start", reason: "new" }, ctx);
+      // No Access Kit in this bench: the read-only thread also loses what writes.
+      expect(child.active()).toEqual(["read", "grep"]);
+      const result = await child.fire("before_agent_start", { type: "before_agent_start", prompt: "Look", systemPrompt: "BASE" }, ctx) as { systemPrompt: string };
+      expect(result.systemPrompt).toMatch(/^BASE\n\n# Agent definition: reviewer\n/u);
+      expect(result.systemPrompt).toContain("Answer every task with the single word PERSONA.");
+      // The child has no tau_spawn_thread left, so it is not told about definitions.
+      expect(result.systemPrompt).not.toContain("# Agent definitions");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("asks Access Kit to hold the child to the definition's access level", async () => {
+    const { dir, bench, cleanup } = await withProject({ "reviewer.md": REVIEWER.replace("tools: [read, grep]\n", "") });
+    try {
+      const levels: unknown[] = [];
+      await bench.registry().activate({
+        id: "tau.access",
+        name: "Access",
+        activate: (context) => {
+          context.registerCommand("thread-level", (input) => { levels.push(input); return "read-only"; }, { callers: ["tau.agents"] });
+        },
+      });
+      await bench.runtime("parent", dir).call("tau_spawn_thread", { prompt: "Look", agent: "reviewer" });
+      const child = bench.runtime("child-1", dir, ["read", "edit", "bash"]);
+      await child.fire("session_start", { type: "session_start", reason: "new" }, piContext(bench.threads.get("child-1")!.entries, dir));
+      expect(levels).toEqual([{ threadId: "child-1", level: "read-only" }]);
+      // Access Kit gates the writes, so the child keeps its tools.
+      expect(child.active()).toEqual(expect.arrayContaining(["read", "edit", "bash"]));
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("tells a thread that may spawn which definitions exist", async () => {
+    const { dir, bench, cleanup } = await withProject({ "reviewer.md": REVIEWER });
+    try {
+      const parent = bench.runtime("parent", dir);
+      const result = await parent.fire("before_agent_start", { type: "before_agent_start", prompt: "hi", systemPrompt: "BASE" }, piContext([], dir)) as { systemPrompt: string };
+      expect(result.systemPrompt).toBe([
+        "BASE",
+        "",
+        "# Agent definitions",
+        "",
+        "This project defines agents in .tau/agents/. Pass one as `agent` to tau_spawn_thread to start a thread with its instructions, model and tools:",
+        "- reviewer: Reviews the change and answers in one word",
+      ].join("\n"));
+      // A project without definitions leaves the system prompt alone.
+      const bare = harness();
+      bare.open("parent");
+      await bare.activate({ linksPath: join(dir, "bare-links.json") });
+      await expect(bare.runtime("parent", join(dir, "nowhere")).fire("before_agent_start", { systemPrompt: "BASE" }, piContext([], dir))).resolves.toBeUndefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("refuses an unknown or broken definition by name and keeps spawning without one", async () => {
+    const { dir, bench, cleanup } = await withProject({
+      "reviewer.md": REVIEWER,
+      "broken.md": "---\nname: broken\n---\nNo description.",
+    });
+    try {
+      const parent = bench.runtime("parent", dir);
+      await expect(parent.call("tau_spawn_thread", { prompt: "go", agent: "ghost" })).rejects.toThrow('No agent definition "ghost"');
+      await expect(parent.call("tau_spawn_thread", { prompt: "go", agent: "broken" })).rejects.toThrow('"broken"');
+      expect(bench.started).toEqual([]);
+      await expect(parent.call("tau_spawn_thread", { prompt: "plain" })).resolves.toMatchObject({ threadId: "child-1" });
+      expect(bench.started[0]!.parent!.details).not.toHaveProperty("persona");
+
+      const listed = await bench.invoke("definitions", {}) as { definitions: Array<{ name: string }>; problems: Array<{ message: string }> };
+      expect(listed.definitions.map((definition) => definition.name)).toEqual(["reviewer"]);
+      expect(listed.definitions[0]).not.toHaveProperty("systemPrompt");
+      expect(listed.problems).toEqual([expect.objectContaining({ message: expect.stringContaining('"description" is required') })]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("starts a definition on another runtime with the persona at the head of its first message", async () => {
+    const { dir, bench, cleanup } = await withProject({
+      "coder.md": "---\ndescription: Codes elsewhere\nruntime: claude-code\n---\nWrite tests first.",
+    });
+    try {
+      await bench.runtime("parent", dir).call("tau_spawn_thread", { prompt: "Fix it", agent: "coder" });
+      const start = bench.started[0]!;
+      expect(start.backend).toBe("claude-code");
+      // The parent's own model belongs to Pi; the other runtime picks its own.
+      expect(start.model).toBeUndefined();
+      expect(start.prompt).toMatch(/^You are working as the agent "coder"\./u);
+      expect(start.prompt).toContain("Write tests first.");
+      expect(start.prompt.endsWith("Fix it")).toBe(true);
+      expect(start.parent!.details).not.toHaveProperty("persona");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("lets the user start a definition as a child of the thread they read", async () => {
+    const { bench, cleanup } = await withProject({ "reviewer.md": REVIEWER });
+    try {
+      await expect(bench.invoke("start", { parentThreadId: "parent", agent: "reviewer", prompt: "Review it" }))
+        .resolves.toMatchObject({ threadId: "child-1", agent: "reviewer" });
+      expect((await bench.state()).links).toEqual([expect.objectContaining({ parentThreadId: "parent", agent: "reviewer", spawnedBy: "agents-panel" })]);
+      await expect(bench.invoke("start", { parentThreadId: "parent", agent: "reviewer" })).rejects.toThrow('needs "prompt"');
+      await expect(bench.invoke("start", { parentThreadId: "gone", agent: "reviewer", prompt: "x" })).rejects.toThrow("Open the thread");
+    } finally {
+      await cleanup();
+    }
   });
 });

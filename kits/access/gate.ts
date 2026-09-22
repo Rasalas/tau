@@ -49,7 +49,8 @@ export function approvalSummary(toolName: string, input: Record<string, unknown>
 }
 
 export interface AccessControl {
-  level(): AccessLevel;
+  /** The level for one thread; `sessionId` is absent where the runtime did not name one. */
+  level(sessionId?: string): AccessLevel;
   onBlocked(toolName: string, reason: string): void;
 }
 
@@ -59,10 +60,10 @@ export interface AccessControl {
  * one hook allowed to block. Approvals are ordinary `ctx.ui.confirm` questions,
  * so whatever renders Pi's dialogs renders them; stopping the run cancels them.
  */
-export function createAccessExtension(control: AccessControl): ExtensionFactory {
-  return (pi) => {
+export function createAccessExtension(control: AccessControl): (pi: Parameters<ExtensionFactory>[0], session?: { sessionId: string }) => void {
+  return (pi, session) => {
     pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | undefined> => {
-      const level = control.level();
+      const level = control.level(session?.sessionId);
       if (level === "full") return undefined;
       const input = event.input as Record<string, unknown>;
       if (!isMutatingToolCall(event.toolName, input)) return undefined;

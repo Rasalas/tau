@@ -14,6 +14,7 @@ import composerContext from "./composer-context/desktop.js";
 import review from "./review/desktop.js";
 import signals from "./signals/desktop.js";
 import terminal from "./terminal/desktop.js";
+import usage from "./usage/desktop.js";
 import claudeCode from "./claude-code/desktop.js";
 import piUi from "./pi-ui/desktop.js";
 import projectScripts from "./project-scripts/desktop.js";
@@ -25,7 +26,7 @@ import worktreeNames from "./worktree-names/desktop.js";
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [access, agents, claudeCode, composerContext, computerUse, keybindings, packages, piUi, preview, projectScripts, questionnaire, review, serviceTier, signals, terminal, titleGenerator, workspace, worktreeNames];
+const kits = [access, agents, claudeCode, composerContext, computerUse, keybindings, packages, piUi, preview, projectScripts, questionnaire, review, serviceTier, signals, terminal, titleGenerator, usage, workspace, worktreeNames];
 
 afterEach(cleanup);
 

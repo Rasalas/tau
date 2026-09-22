@@ -4,7 +4,7 @@ import { HostUnavailableError, useThreadStore, type DesktopExtension, type Regio
 import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
 import { SpawnCard } from "./spawn-card.js";
-import { agentsHost, agentsStore, lineageOf } from "./store.js";
+import { agentsHost, agentsStore, definitionsStore, lineageOf } from "./store.js";
 
 /** The way back from an agent's thread to the thread that started it. */
 export function SpawnedBy({ snapshot, actions }: RegionProps) {
@@ -51,6 +51,19 @@ export const agentsExtension: DesktopExtension = {
     void context.host.invoke("state").then(apply).catch((error: unknown) => {
       if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the spawned threads", error);
     });
+
+    // A definition that cannot be used is listed in Settings → Inspector, per file.
+    const offDefinitions = definitionsStore.subscribe(() => {
+      const problems = definitionsStore.getSnapshot().state?.problems ?? [];
+      context.setProblems(problems.map(({ file, message, level }) => ({ source: file, message, level })));
+    });
+    const loadDefinitions = (read: Promise<void>) => {
+      read.catch((error: unknown) => {
+        if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the agent definitions", error);
+      });
+    };
+    loadDefinitions(definitionsStore.refresh());
+    const offWorkspace = context.events.on("workspace-changed", () => loadDefinitions(definitionsStore.refresh()));
     context.registerPanel({ id: "agents", label: "Agents", Icon: Bot, order: 40, profiles: ["desktop", "web", "compact"], Component: AgentsPanel });
     context.registerRegion({ id: "agents.parent-link", placement: "transcript-header", order: 20, profiles: ["desktop", "web", "compact"], Component: SpawnedBy });
     // A spawn is not a tool call to skim past: the card is the way into the
@@ -67,7 +80,19 @@ export const agentsExtension: DesktopExtension = {
       group: "Extensions",
       run: (app) => app.openPanel("agents"),
     });
+    context.registerCommand({
+      id: "agents.definitions.reload",
+      label: "Read agent definitions again",
+      group: "Extensions",
+      run: (app) => {
+        const active = app.activeThread();
+        loadDefinitions(definitionsStore.load(active?.draftPending ? undefined : active?.sessionId));
+      },
+    });
     return () => {
+      offWorkspace();
+      offDefinitions();
+      definitionsStore.clear();
       context.setThreadLineage(undefined);
       delete agentsHost.invoke;
       agentsStore.clear();

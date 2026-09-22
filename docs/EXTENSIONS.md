@@ -523,6 +523,16 @@ the row's `session`. `refresh()` re-reads the project's changes and Git facts
 after another kit changed them. Review Kit fills both with the pull or merge
 request of the branch.
 
+A host half reaches another kit's host half with `context.invokeHostExtension(id,
+command, input)`, and only for a command the target registered with
+`{ callers: [<caller id>] }` (ADR 0020). Usage Kit (`kits/usage/`) is such a caller: a
+runtime backend that keeps its own per-thread totals answers a `usage` command
+granted to `tau.usage` with `{ threads: [{ threadId, cwd, model?, updatedAt, usage? }] }`,
+`usage` being a `UiThreadUsage`, read from the kit's own store and never from the
+provider. Claude Code and Antigravity answer it; a backend that adds it also adds
+its row to `BACKEND_USAGE_SOURCES` in `kits/usage/protocol.ts`, and one that does
+not answer is listed as not available.
+
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a
 pending draft's first prompt is sent, while the thread still does not exist. It
@@ -613,6 +623,17 @@ thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
 it defaults to the kind. The host publishes every installed backend, Pi first,
 as `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
 naming the one a client gets when it names none.
+
+`services.sessions.start(options)` (`sessions`) creates a thread off screen:
+`cwd`, the first `prompt`, and optionally `title`, `model`, `parent` and
+`backend`. `backend` is the kind the thread runs on — `"pi"`, the default, or
+any registered kind — and a kind nobody registered is refused before anything
+is created. A model is applied through the runtime's `catalogWrite`
+capability, so a runtime without model selection refuses one. `parent` is
+written into a Pi thread's session file; a thread of another backend has no
+such file, so the host keeps its link in the index for as long as it runs and
+the extension that asked for it is the durable record. Agents Kit starts a
+thread whose agent definition names a runtime this way.
 
 ### Lifecycle hooks a host half may step into
 

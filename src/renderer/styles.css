@@ -422,6 +422,9 @@ button > svg { pointer-events: none; }
 .conversation-column:not(.conversation-start) .conversation-composer-host { order: 3; }
 .conversation-column:not(.conversation-start) .region-composer-below { order: 4; }
 .conversation-column:not(.conversation-start) .conversation-thread { order: 1; }
+/* Pi's footer stays under the composer, and away while no item draws anything. */
+.conversation-column:not(.conversation-start) .status-line { order: 5; }
+.status-line:not(:has(.status-item:not(:empty))) { display: none; }
 @keyframes start-screen-enter {
   from { opacity: 0; transform: translateY(7px); }
   to { opacity: 1; transform: none; }
@@ -1892,8 +1895,9 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 
 /* ---------------------------------------------------------------- stage */
 
+/* No container-type here: the centre's grid/flex switch would leave .stage-pane without a layout box (see stage-styles.test.ts). */
 .stage {
-  display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
   border-left: 1px solid var(--line); background: var(--stage);
 }
 .stage-tabs {

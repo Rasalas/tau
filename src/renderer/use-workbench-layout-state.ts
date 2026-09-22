@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useState, type SetStateAction } from "react";
 import type { ClientStorage } from "../workbench/client-storage";
 import { EMPTY_STAGE, type StageState } from "../workbench/stage";
 import {
@@ -6,6 +6,7 @@ import {
   pruneStageState,
   readDockState,
   readStageState,
+  shownPanel,
   writeDockState,
   writeStageState,
   type DockState,
@@ -26,6 +27,8 @@ export interface WorkbenchLayoutStateOptions {
   workspacePath: string | undefined;
   /** Threads the index knows; empty while it has not arrived. */
   knownThreadIds: readonly string[];
+  /** Panel ids the registry offers now; kits add theirs one by one at startup. */
+  panelIds: readonly string[];
 }
 
 /**
@@ -34,7 +37,7 @@ export interface WorkbenchLayoutStateOptions {
  * that was last restored, so opening one never overwrites another's layout.
  */
 export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
-  const { storage, workspaceKey, workspacePath, knownThreadIds } = options;
+  const { storage, workspaceKey, workspacePath, knownThreadIds, panelIds } = options;
   const [stage, setStage] = useState<StageState>(EMPTY_STAGE);
   const [dock, setDock] = useState<DockState>(EMPTY_DOCK);
   /** Which workspace the state on screen came from; state, so clearing it restores again. */
@@ -79,12 +82,19 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     return { ...current, activePanel, openedPanels };
   }), []);
   const setDockWidth = useCallback((width: number) => setDock((current) => current.width === width ? current : { ...current, width }), []);
+  // The stored panel stays the choice while its kit has not activated; the
+  // stand-in shown meanwhile is never written back.
+  const activePanel = shownPanel(dock.activePanel, panelIds);
+  const openedPanels = useMemo(
+    () => activePanel && !dock.openedPanels.includes(activePanel) ? [...dock.openedPanels, activePanel] : dock.openedPanels,
+    [activePanel, dock.openedPanels],
+  );
 
   return {
     stage, setStage,
     dockOpen: dock.open, setDockOpen,
-    activePanel: dock.activePanel ?? "", setActivePanel,
-    openedPanels: dock.openedPanels,
+    activePanel, setActivePanel,
+    openedPanels,
     dockWidth: dock.width, setDockWidth,
     /**
      * A project switch starts the stage over; the next restore fills it.
