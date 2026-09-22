@@ -1,0 +1,79 @@
+/* Files Kit: the editor tab. Core frames it (.stage-pane, .stage-pane-header); these draw its inside. */
+
+/* Core's .stage-pane around it is the size container; a second one inside trips the compact layout switch. */
+.files-tab { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--stage); outline: none; }
+/* Visible, so the "Open in" menu drops over the body instead of being cut at the header. */
+.stage-pane-header.files-header { gap: 8px; overflow: visible; position: relative; z-index: 2; }
+.files-crumbs {
+  flex: 1 1 auto; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 12.5px var(--mono); color: var(--muted);
+}
+.files-crumb-sep { padding: 0 2px; color: var(--fainter); }
+.files-crumbs > strong { font-weight: 400; color: var(--ink); }
+.stage-pane-header > small.files-status { color: var(--warn); }
+.files-tab[data-dirty] .files-status::before { content: "● "; }
+.files-header > small { flex: none; }
+.files-action {
+  display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer;
+}
+.files-action:hover { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.files-action[aria-pressed="true"] { border-color: var(--line-control); background: var(--raised); color: var(--ink); }
+.files-save:disabled { opacity: .45; cursor: default; }
+.files-open-in .chrome-button { display: inline-flex; align-items: center; gap: 5px; height: 26px; font-size: 11px; }
+.files-open-in .menu { top: 32px; }
+
+.files-conflict {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 16px;
+  background: var(--warn-chip); color: var(--ink-2); border-bottom: 1px solid var(--line);
+  font: 12px var(--sans);
+}
+.files-conflict .spacer { flex: 1; }
+.files-conflict .text-button { flex: none; white-space: nowrap; }
+.files-notice {
+  flex: none; margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--line-soft);
+  background: var(--field); color: var(--muted); font: 11px var(--mono);
+}
+.files-error { color: var(--danger); }
+.files-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* The editor: a transparent textarea over the highlighted <pre>, one font and one box for both. */
+.files-code { flex: 1; min-height: 0; overflow: auto; cursor: text; background: var(--stage); font: 12px/1.75 var(--mono); }
+.files-code-grid { display: grid; grid-template-columns: max-content 1fr; min-width: max-content; min-height: 100%; }
+.files-code-gutter {
+  position: sticky; left: 0; z-index: 1; margin: 0; padding: 12px 12px 12px 16px;
+  text-align: right; color: var(--fainter); user-select: none;
+  background: var(--stage); border-right: 1px solid var(--line-soft);
+  font: inherit;
+}
+.files-code-body { position: relative; min-width: 0; }
+.files-code-text,
+.files-code-input {
+  margin: 0; padding: 12px 24px 12px 16px; border: 0;
+  font: inherit; letter-spacing: normal; white-space: pre; tab-size: 4; overflow-wrap: normal;
+}
+.files-code-text { color: var(--ink-2); pointer-events: none; }
+.files-code-input {
+  position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: hidden;
+  background: transparent; color: transparent; caret-color: var(--ink); outline: none;
+}
+.files-code-input::selection { background: color-mix(in srgb, var(--acid) 28%, transparent); color: transparent; }
+.files-code-input[readonly] { caret-color: transparent; }
+
+.files-markdown { flex: 1; min-height: 0; overflow: auto; padding: 20px 28px 40px; }
+.files-markdown > .markdown { max-width: 860px; margin: 0 auto; color: var(--ink-prose); }
+.files-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--field); }
+.files-media { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 24px; }
+.files-media img, .files-media video { max-width: 100%; max-height: 100%; min-width: 0; min-height: 0; object-fit: contain; }
+.files-media audio { width: min(560px, 100%); }
+
+.files-table-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.files-table-scroll { flex: 1; min-height: 0; overflow: auto; }
+.files-table { min-width: 100%; border-collapse: separate; border-spacing: 0; font: 12px var(--mono); color: var(--ink-2); }
+.files-table th {
+  position: sticky; top: 0; z-index: 1; padding: 6px 12px; text-align: left; vertical-align: bottom;
+  background: var(--chrome); color: var(--ink); font-weight: 500; border-bottom: 1px solid var(--line);
+}
+.files-table td { padding: 6px 12px; vertical-align: top; border-bottom: 1px solid var(--line-inset); }
+.files-table th, .files-table td { max-width: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.files-table tbody tr:nth-child(even) { background: var(--wash); }
