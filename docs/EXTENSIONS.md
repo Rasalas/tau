@@ -601,6 +601,13 @@ not the host still holds a runtime for it: runtimes are capped and idle ones are
 released oldest first, so a released thread's transcript is projected from its
 session file, with the same paging, cursors and client-message correlation.
 
+`actions.newSession()` opens the project picker for a new thread, as the rail's
+button does. `actions.newSession({ workspace })` puts a new thread's draft
+straight into the project that workspace id names, and does nothing for a
+project the window does not know yet (new in API 1.10.0). Workspace Kit's
+`tau app <path>` is the caller: it opens the folder with `openWorkspace` first,
+so a project Tau never saw arrives on its own empty thread.
+
 One consequence for `pinTranscriptEntries`: your provider is now also called
 with a thread the host has only a file for. `sessionId`, `cwd`, `sessionFile`,
 `parentThreadId`, `sessionName()`, `entries()` and `transcript()` answer as

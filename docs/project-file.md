@@ -48,6 +48,20 @@ is already running in that checkout is not started twice. Running scripts stop
 when the host leaves the workspace or the kit goes away. The `…` menu of the bar
 also types a script into a Terminal Kit shell, for one you want to talk to.
 
+## The worktree setup
+
+When Workspace Kit creates a worktree for a new thread, the steps show as one
+card under the thread's transcript, the way T3 Code shows its setup: fetching
+the base branch, creating the worktree, then every `runOnWorktreeCreate`
+script with its elapsed time and its last four lines of output. A blocking
+script (`"async": false`) holds the first prompt; the card offers **Cancel**,
+which stops the setup's scripts and lets the thread start in the worktree
+without them, and **Start now**, which lets it start while the script runs on.
+An `"async": true` script never holds the prompt, and its step keeps running on
+the card while the agent works. A setup that finished cleanly leaves the
+transcript; a failed or cancelled one stays until it is dismissed. The runs
+also appear in the bar above the composer, tagged `setup`.
+
 ## When the file is wrong
 
 A script with a missing `name` or `command`, a bad `id` or a taken one is

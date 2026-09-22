@@ -106,3 +106,26 @@ ever has to move.
 - A parent that never applies a child's work keeps a branch and a checkout. It
   is visible in the picker with its diff, which is the same deal a user gets
   from a worktree they made themselves.
+
+## Amendment, 2026-09-22: worktrees are cleaned up by rules the user sets
+
+The consequence above — "a worktree is cheap to make and easy to forget" —
+now has an answer, and thread deletion exists (`threadDeleted`, ticket 12).
+Workspace Kit writes down every worktree it creates and removes one when a
+rule the user turned on says it is done: inactive for N days, merged into the
+default branch, its last thread deleted, or no commits beyond its base. The
+rules are T3 Code's, off by default, host-wide with a per-repository override,
+and Settings → Storage shows what each rule would remove before it does.
+
+What it never does is decided here, not per rule: it removes only a worktree
+it recorded itself and whose real path lies inside the repository's worktrees
+folder; it goes through `git worktree remove` without `--force`, so Git refuses
+anything with changes once more; it keeps the branch, so a thread can have its
+checkout back (`ensure-worktree`); and uncommitted work, ignored files other
+than `node_modules` (a `.env` is not reproducible, an install is), commits no
+other branch or remote holds, a thread with a live runtime there and the host's
+own workspace each keep a worktree. Removing one of those takes the user's
+hand and a confirmation on the Storage page. Agent worktrees are not recorded
+yet: Agents Kit removes its children's worktrees itself when their work is
+applied or discarded.
+
