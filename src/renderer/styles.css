@@ -374,7 +374,8 @@ button > svg { pointer-events: none; }
 }
 .conversation-start-content {
   width: 100%; max-width: 780px;
-  animation: start-screen-enter 220ms ease-out both;
+  /* Not `both`: a transform kept after the entry would make every fixed overlay inside (the model picker) position against this box. */
+  animation: start-screen-enter 220ms ease-out backwards;
 }
 .conversation-start-content > h1 {
   margin: 0; color: var(--ink); font-size: clamp(25px, 3vw, 34px);
