@@ -1730,6 +1730,16 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
   color: var(--faint); letter-spacing: .1em;
 }
 .settings-nav .spacer { flex: 1; }
+.settings-nav-search {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 8px; padding: 0 9px; height: 30px;
+  border: 1px solid var(--line-control); border-radius: 7px; background: var(--sunken); color: var(--faint);
+}
+.settings-nav-search:focus-within { border-color: var(--line-field); }
+.settings-nav-search > input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 12px var(--sans); outline: none; }
+.settings-nav-search > input::placeholder { color: var(--faint); }
+.settings-nav > button.settings-search-result { flex-direction: column; align-items: stretch; gap: 2px; }
+.settings-nav > button.settings-search-result > small { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-search-empty { margin: 6px 10px; color: var(--faint); font-size: 12px; }
 .settings-nav > button > span.extension-dot,
 .extension-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--acid); }
 .extension-dot.off { background: transparent; border: 1px solid var(--faint); }

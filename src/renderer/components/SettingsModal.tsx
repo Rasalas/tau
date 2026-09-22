@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Command, Cpu, Plus, Puzzle, Sliders, Sparkles, X } from "lucide-react";
+import { ChevronDown, Command, Cpu, Plus, Puzzle, Search, Sliders, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, HostSnapshot, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE } from "../../shared/extension-permissions";
@@ -16,6 +16,7 @@ import { PanelIcon } from "./PanelIcon";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { PiSettingsPage } from "./PiSettingsPage";
 import type { SendShortcut } from "./composer-send-keys";
+import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "../settings/settings-search";
 
 const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
   ["enter", "↵"],
@@ -720,8 +721,8 @@ function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: s
   );
 }
 
-function KeybindingsPage({ registry }: { registry: ExtensionRegistry }) {
-  const [filter, setFilter] = useState("");
+function KeybindingsPage({ registry, initialFilter = "" }: { registry: ExtensionRegistry; initialFilter?: string }) {
+  const [filter, setFilter] = useState(initialFilter);
   const [showAllCommands, setShowAllCommands] = useState(false);
 
   const keybindings = registry.getKeybindings();
@@ -905,6 +906,25 @@ export function SettingsModal({
   const pages = registry.getSettingsPages();
   const contributed = pages.find((entry) => entry.id === page);
   const installer = pages.find((entry) => entry.id === "packages");
+  const [search, setSearch] = useState("");
+  // What a keybinding result filtered the Keybindings page to; a new result remounts it.
+  const [keybindingFilter, setKeybindingFilter] = useState<{ filter: string; seq: number }>({ filter: "", seq: 0 });
+  const commands = registry.getCommands();
+  const found = search.trim() ? searchSettings(settingsSearchEntries({
+    pages: pages.map((entry) => ({ id: entry.id, label: entry.label, keywords: entry.keywords, extensionName: entry.extensionName })),
+    extensions: summaries,
+    keybindings: registry.getKeybindings().map((binding) => ({
+      commandId: binding.commandId,
+      keys: binding.keys,
+      label: binding.label,
+      commandLabel: commands.find((command) => command.id === binding.commandId)?.label,
+    })),
+  }), search) : [];
+  const openFound = (entry: SettingsSearchEntry) => {
+    if (entry.filter !== undefined) setKeybindingFilter((current) => ({ filter: entry.filter!, seq: current.seq + 1 }));
+    setSearch("");
+    onSetPage(entry.page);
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -931,13 +951,36 @@ export function SettingsModal({
         </header>
         <div className="settings-body">
           <nav className="settings-nav">
+            <label className="settings-nav-search">
+              <Search size={13} />
+              <input
+                type="search"
+                value={search}
+                placeholder="Search settings"
+                aria-label="Search settings"
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && found[0]) openFound(found[0]);
+                  if (event.key === "Escape" && search) { event.stopPropagation(); setSearch(""); }
+                }}
+              />
+            </label>
+            {search.trim() ? <>
+              {found.map((entry) => (
+                <button key={entry.id} className="settings-search-result" onClick={() => openFound(entry)}>
+                  <span>{entry.label}</span>
+                  <small>{entry.section}</small>
+                </button>
+              ))}
+              {found.length === 0 ? <p className="settings-search-empty">No setting matches “{search.trim()}”.</p> : null}
+            </> : <>
             <button className={page === "defaults" ? "active" : ""} onClick={() => onSetPage("defaults")}>
               <Sliders size={14} /><span>Defaults</span>
             </button>
             <button className={page === "pi" ? "active" : ""} onClick={() => onSetPage("pi")}>
               <Cpu size={14} /><span>Pi</span>
             </button>
-            <button className={page === "keybindings" ? "active" : ""} onClick={() => onSetPage("keybindings")}>
+            <button className={page === "keybindings" ? "active" : ""} onClick={() => { setKeybindingFilter((current) => ({ filter: "", seq: current.seq + 1 })); onSetPage("keybindings"); }}>
               <Command size={14} /><span>Keybindings</span>
             </button>
             {pages.map((entry) => (
@@ -971,6 +1014,7 @@ export function SettingsModal({
                 <span>{summary.name}</span>
               </button>
             ))}
+            </>}
             <span className="spacer" />
             {installer ? (
               <button
@@ -989,7 +1033,7 @@ export function SettingsModal({
               onSetThinking={onSetThinking}
             />
           ) : page === "keybindings" ? (
-            <KeybindingsPage registry={registry} />
+            <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} />
           ) : page === "pi" ? (
             <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
           ) : contributed ? (
