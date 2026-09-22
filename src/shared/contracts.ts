@@ -224,6 +224,8 @@ export interface UiSession {
   modelProvider?: string;
   /** Tokens and money the thread has used; absent until the host knows them. */
   usage?: UiThreadUsage;
+  /** A turn of this thread was cut short by a restart and was not continued. */
+  interrupted?: boolean;
   /**
    * The thread that spawned this one, as its own session file records it
    * (ADR 0013, amended). Absent for a thread the user started.
@@ -435,6 +437,12 @@ export type GlobalHostEvent =
   /** Published by a host extension for its desktop counterpart; core only routes it. */
   | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; sessionId?: undefined }
   /**
+   * The host asking the client's own process to do something for it: the half
+   * of an extension that needs a window, not a host (ADR 0021). Answered with
+   * the `client-call-result` method; a client that has no such half ignores it.
+   */
+  | { type: "client-call"; callId: string; extensionId: string; command: string; input?: unknown; sessionId?: undefined }
+  /**
    * The set of installed or approved packages moved; a client re-reads its
    * desktop halves. `extensionIds` narrows that to the ones that moved, so a
    * client can swap those modules instead of every one it loaded.
@@ -589,6 +597,11 @@ export interface WorkbenchBuildResult {
   durationMs: number;
   /** The main process or preload changed; only a restart applies that. */
   mainChanged: boolean;
+  /**
+   * A kit's runtime half changed. Those load inside the agent runtime, so the
+   * new code needs a runtime reload; everything else reloads without one.
+   */
+  runtimeChanged: boolean;
   /** Last lines of the build output. */
   output: string;
 }
@@ -667,14 +680,26 @@ export interface TauConfigExtensions {
   watch?: boolean;
 }
 
+/** Settings about threads themselves, rather than about the model they run on. */
+export interface TauThreadsConfig {
+  /**
+   * Whether the host picks a thread back up when a restart cut its turn short.
+   * Off by default: continuing costs a model call nobody asked for.
+   */
+  continueAfterRestart?: boolean;
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
   extensions?: TauConfigExtensions;
+  threads?: TauThreadsConfig;
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];
   disabledExtensions?: string[];
   prewarm?: boolean;
+  /** Leave the host process running after the app quits, so its threads keep going. */
+  hostBackground?: boolean;
   options?: Record<string, boolean>;
   values?: Record<string, string>;
   keybindings?: Record<string, string>;

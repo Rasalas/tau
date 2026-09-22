@@ -53,6 +53,7 @@ function defaults(): HostClient {
     compactContext: async () => ({ version: 1, updates: [] }),
 
     reloadRuntime: async () => undefined,
+    reloadExtensions: async () => undefined,
     answerExtensionUi: async () => undefined,
     syncExtensionUi: async () => undefined,
     loadDesktopExtensions: async () => ({ bundles: [], errors: [], skipped: [] }),
@@ -64,7 +65,7 @@ function defaults(): HostClient {
 
     prepareWorkbenchReload: async () => ({ ready: true, runningThreads: 0 }),
     releaseWorkbenchReload: async () => undefined,
-    rebuildWorkbench: async () => ({ ok: true, durationMs: 0, mainChanged: false, output: "" }),
+    rebuildWorkbench: async () => ({ ok: true, durationMs: 0, mainChanged: false, runtimeChanged: false, output: "" }),
     workbenchSource: async () => ({}),
     relaunchWorkbench: async () => undefined,
     installUpdate: async () => ({ installing: false }),

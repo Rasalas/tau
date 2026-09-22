@@ -32,6 +32,22 @@ Threads
 - the thread index across projects, and one live runtime per open thread
 - new, resume, fork, duplicate, rename, tree navigation, recovery of a broken thread
 - the current project (working directory) as Pi sees it
+- **which threads were mid-turn when the host stopped**: the host writes one
+  marker per thread to `<userData>/turns-in-flight.json` when it accepts a
+  prompt (`{ sessionId, cwd, turnId, backend, startedAt, prompt }`, atomically,
+  never into the session file, which is the runtime's) and drops it when the
+  turn ends or is cancelled. At the next start each marker is dropped before
+  its thread is touched, so nothing is ever continued twice, and then: with
+  **Continue threads after restarts** on (Settings → Defaults,
+  `threads.continueAfterRestart`, **off** by default) the thread is reopened
+  off screen, its dangling tool calls are closed and it is sent "Continue the
+  interrupted work…"; with the setting off it is repaired, told so in its own
+  transcript, and marked `interrupted` in the index until its next prompt. What
+  "continue" means is the runtime's answer: the `resume` capability says
+  whether the continuation can be delivered without reading as the user's own
+  message, and a runtime without that capability is only marked. An external
+  shell a kit owns is always interrupted; the kit says so through its own
+  `closed` hook
 
 Workbench
 
@@ -46,9 +62,34 @@ Workbench
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen
 - the login shell's environment for everything the host spawns, and `findCommand` on the seam for extensions that need a tool from the machine
 - **watching the files the host itself reads** — the package folders, the theme folders, `keybindings.json`, `config.json` — and reloading only what changed: the one package that was edited, the themes, the config. Core re-reads nothing on anyone else's behalf: `observeConfigChanges` on the seam and a `config-changed` push say what moved, and whoever owns those files decides. Off under `extensions.watch: false`, `TAU_NO_WATCH=1` and safe mode (`src/main/config-watcher.ts`, `src/main/workspace-watch.ts`)
-- enough persisted state to restore the workbench
+- enough persisted state to restore the workbench: the window puts the stage
+  and the dock back the way the workspace was left (`tau.stage.v1:<workspace>`
+  and `tau.dock.v1:<workspace>` in `src/workbench/storage-keys.ts`, written
+  through `src/workbench/workbench-layout-state.ts`). Tabs are stored as they
+  are held, so a tab kind a kit adds round-trips and one that cannot be read
+  is dropped; a file of another project and a thread the index has forgotten
+  are dropped silently
+- **applying a rebuild**: `reloadExtensions()` loads kits and packages again
+  and the client reloads its page, without touching a single runtime and
+  without waiting for anything, while `reloadRuntime()` is the heavier path
+  that rediscovers Pi's resources and is the only one that asks about running
+  threads. The build result chooses: a kit's runtime half (`pi.cjs`) takes the
+  runtime path, the main process or preload takes a restart, everything else
+  takes the light one. A package refresh never replaces the runtime extensions
+  of a runtime that is already built — `registerRuntimeExtension` applies to
+  every runtime from then on — so a turn in flight keeps the code it started
+  with while host commands and panels change at once
 
 ### The workbench and its client
+
+The workbench is always a client of a host in another process. The window
+starts that host, watches it and connects the renderer to its socket; the
+threads belong to the host, so the window may close, crash or reload without
+stopping one ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)). Eight
+methods stay on this side — clipboard, image preview, the kit bundles the
+renderer imports, the workbench rebuild, relaunch and update — and a kit that
+needs the window's process for a native view ships a `window` half the host
+calls with `callClient`.
 
 `src/workbench/` is Tau's client without a window: the thread index, the thread
 on screen, transcript pages, composer scopes and drafts, notices and the host
@@ -149,6 +190,8 @@ These were extension work still inside core files when Phase 1b in [PLAN.md](../
 | Project sources: folder browsing, native folder picker, Git clone | Workspace Kit host entry (`kits/workspace/host.ts`) and its two sources in `kits/workspace/navigation.tsx`; core keeps the sources modal as the placement for `registerProjectSource`, and `assertAllowedCloneSource` stays core's because the package installer clones too | Workspace Kit |
 | Terminals: a shell per workspace or thread, in the dock, on desktop and web | Terminal Kit: `kits/terminal/`, a package Tau ships (ADR 0014). Its host half holds one `node-pty` session per terminal (`kits/terminal/host.ts`), loaded through `loadDependency` so the native addon stays where npm put it, filed under the workspace the host has open and, when a thread asked, started in that thread's worktree; input and resize are commands, output and exit are pushes with byte offsets, so a reloaded client replays without drawing twice. Terminals die with the workspace (`beforeWorkspace`) or the kit, never with the window. Its desktop half is the Terminal dock panel over xterm.js, grouped by the thread on screen; a shell that belongs to another thread is marked, not killed, and "open as tab" draws one on the stage through `registerStageTab` while the panel stands down for it | Terminal Kit |
 | Markdown export, clipboard, image preview | `src/main/index.ts`, `PiHost` | core (Pi has /export and /copy) |
+| Project scripts: quick actions a repository checks in, the worktree setup, a script's preview | Project Scripts: `kits/project-scripts/`, a package Tau ships (ADR 0014). Its host half reads `.tau/project.json` per checkout ([project-file.md](project-file.md), schema in `docs/schemas/`), runs a script with `/bin/sh -c` as a job whose output and exit code are pushes, runs the `runOnWorktreeCreate` scripts Workspace Kit asks for (`worktree-created`, callers `tau.workspace`) and watches the file itself, because core watches only what the host reads. Its desktop half is the bar above the composer with run cards, one `script.<id>.run` command and chord per script, problems through `setProblems`, the preview through Preview Kit's `tau.preview/browser` service and "run in a terminal" through Terminal Kit's host commands | Project Scripts |
+| Pull and merge requests: create (generated title and body, draft, template), edit, merge, status and checks on the rail row | Review Kit: `kits/review/requests-host.ts` drives `gh` or `glab`, found with `findCommand`; the Git it needs (push with upstream, branch context, template from the base tree, the request detector) is Workspace Kit's, reached through commands that name `tau.review` as caller (ADR 0020). The desktop half fills the Changes section and the rail-row mark Workspace Kit's store lends; core lends only `ThreadRow`'s `accessory` | Review Kit |
 | Chips in the composer — files by `@`, pull requests by `#`, excerpts other kits hand over — file attachments of any type, and large pastes folded into a text file | Composer Context: `kits/composer-context/`, a package Tau ships (ADR 0014). Its desktop half fills core's inline slot (`registerComposerInline`) and publishes the chip service `tau.composer-context/chips` for the kits that have context to give; its host half stores attachments in `<userData>/kit-state/tau.composer-context/attachments/<thread>/`, reads what a file chip points at and lists files and pull requests (`gh`, `glab` through `findCommand`). A chip becomes text before the prompt when it is sent; an attachment goes as a file to a runtime that opens files and as text or a path to one that does not | Composer Context |
 
 **Runtime Controls is core, not a kit.** The Settings modal shell with its
@@ -196,8 +239,8 @@ names win on order alone. Nothing about a layout class is API.
 
 A kit that draws a surface of its own carries the rules for it: a `styles`
 entry in its manifest, `kits/<name>/styles.css`, linked while the kit is active
-and gone with it (see [EXTENSIONS.md](EXTENSIONS.md)). Seven kits have one —
-Workspace, Agents, Preview, Signals, Packages, Questionnaires and Pi UI. They
+and gone with it (see [EXTENSIONS.md](EXTENSIONS.md)). Workspace, Agents,
+Preview, Signals, Packages, Questionnaires, Pi UI and Review have one. They
 name tokens like everything else and define no colour of their own.
 
 `src/renderer/styles.css` keeps the classes **core itself draws**, which is the

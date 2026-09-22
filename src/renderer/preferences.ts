@@ -12,6 +12,8 @@ export interface PreferencesState {
   transcriptDetailOverride?: { threadId: string; level: TranscriptDetail };
   /** Whether the workbench shows what threads cost. */
   showCosts: boolean;
+  /** Whether the host picks a thread back up when a restart cut its turn short. */
+  continueThreadsAfterRestart: boolean;
   /** Which token set the window paints with; `system` follows the OS. */
   theme: ThemePreference;
   editorId?: string;
@@ -34,11 +36,14 @@ export interface PreferencesState {
   temperature?: number;
   maxTokens?: number;
   vimMode?: boolean;
+  /** Leave the host process running when the app quits; its threads keep going. */
+  hostBackground?: boolean;
 }
 
 const DEFAULTS: PreferencesState = {
   transcriptDetail: "focused",
   showCosts: true,
+  continueThreadsAfterRestart: false,
   theme: DEFAULT_THEME,
   settledThreadIds: [],
   pinnedThreadIds: [],
@@ -48,6 +53,7 @@ const DEFAULTS: PreferencesState = {
   extensionValues: {},
   disabledExtensions: [],
   vimMode: false,
+  hostBackground: false,
 };
 
 function stringList(value: unknown): string[] {
@@ -86,6 +92,7 @@ function load(): PreferencesState {
         ? raw.transcriptDetail
         : raw.showThinking === true ? "detailed" : "focused",
       showCosts: raw.showCosts !== false,
+      continueThreadsAfterRestart: raw.continueThreadsAfterRestart === true,
       theme: isThemePreference(raw.theme) ? raw.theme : DEFAULT_THEME,
       editorId: typeof raw.editorId === "string" ? raw.editorId : undefined,
       settledThreadIds: stringList(raw.settledThreadIds),
@@ -145,6 +152,7 @@ export class PreferencesStore {
     if (config.theme && isThemePreference(config.theme)) patch.theme = config.theme;
     if (config.transcriptDetail && isTranscriptDetail(config.transcriptDetail)) patch.transcriptDetail = config.transcriptDetail;
     if (config.showCosts !== undefined) patch.showCosts = config.showCosts;
+    if (config.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = config.threads.continueAfterRestart;
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
     if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
     if (config.options) patch.extensionOptions = { ...this.state.extensionOptions, ...config.options };
@@ -155,6 +163,7 @@ export class PreferencesStore {
     if (config.temperature !== undefined) patch.temperature = config.temperature;
     if (config.maxTokens !== undefined) patch.maxTokens = config.maxTokens;
     if (config.vimMode !== undefined) patch.vimMode = config.vimMode;
+    if (config.hostBackground !== undefined) patch.hostBackground = config.hostBackground;
     this.update(patch, false);
   }
 
@@ -185,6 +194,14 @@ export class PreferencesStore {
 
   setShowCosts(showCosts: boolean): void {
     this.update({ showCosts });
+  }
+
+  setHostBackground(hostBackground: boolean): void {
+    this.update({ hostBackground });
+  }
+
+  setContinueThreadsAfterRestart(continueThreadsAfterRestart: boolean): void {
+    this.update({ continueThreadsAfterRestart });
   }
 
   setTheme(theme: ThemePreference): void {
@@ -309,6 +326,7 @@ export class PreferencesStore {
       if (patch.theme) hostPatch.theme = patch.theme;
       if (patch.transcriptDetail) hostPatch.transcriptDetail = patch.transcriptDetail;
       if (patch.showCosts !== undefined) hostPatch.showCosts = patch.showCosts;
+      if (patch.continueThreadsAfterRestart !== undefined) hostPatch.threads = { continueAfterRestart: patch.continueThreadsAfterRestart };
       if (patch.favouriteModels) hostPatch.favouriteModels = [...patch.favouriteModels];
       if (patch.disabledExtensions) hostPatch.disabledExtensions = [...patch.disabledExtensions];
       if (patch.extensionOptions) hostPatch.options = { ...patch.extensionOptions };
@@ -318,6 +336,7 @@ export class PreferencesStore {
       if (patch.fontSize !== undefined) hostPatch.fontSize = patch.fontSize;
       if (patch.temperature !== undefined) hostPatch.temperature = patch.temperature;
       if (patch.maxTokens !== undefined) hostPatch.maxTokens = patch.maxTokens;
+      if (patch.hostBackground !== undefined) hostPatch.hostBackground = patch.hostBackground;
       if (patch.vimMode !== undefined) hostPatch.vimMode = patch.vimMode;
       void this.hostClient.updateConfig(hostPatch, "global", this.activeWorkspaceId).catch(() => {});
     }

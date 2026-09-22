@@ -351,6 +351,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   active,
   activity,
   activityLabel,
+  activityHint,
   compact,
   workingChildren,
   modelProvider,
@@ -361,6 +362,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   active: boolean;
   activity: ThreadActivity;
   activityLabel?: string;
+  activityHint?: string;
   compact: boolean;
   workingChildren: number;
   modelProvider?: string;
@@ -375,16 +377,20 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   );
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
   const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
+  const workspace = useWorkspaceStore();
+  const accessories = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowAccessories);
   if (!session) return null;
   return (
     <ThreadRow
       session={session}
+      accessory={accessories.length > 0 ? accessories.map((Accessory, index) => <Accessory key={index} session={session} />) : undefined}
       showCost={showCosts}
       projectIcon={findProjectForSession(projects, session)?.icon}
       active={active}
       age={sessionAge(session.modifiedAt)}
       activity={activity}
       activityLabel={activityLabel}
+      activityHint={activityHint}
       compact={compact}
       workingChildren={workingChildren}
       modelProvider={modelProvider}
@@ -472,12 +478,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     overscan: 6,
   });
 
-  const activityFor = (sessionId: string): { activity: ThreadActivity; label?: string } => {
+  const activityFor = (sessionId: string): { activity: ThreadActivity; label?: string; hint?: string } => {
     // A stalled question outranks every other state: nothing moves until it is answered.
     if (activityState.waitingThreadIds.includes(sessionId)) return { activity: "waiting", label: "NEEDS YOU" };
     // Run state follows the thread, not the tab you happen to be reading.
     if (activityState.runningThreadIds.includes(sessionId)) {
       return { activity: "working", label: "WORKING" };
+    }
+    // A turn the host never finished because it restarted. The next prompt clears it.
+    if (activityState.interruptedThreadIds.includes(sessionId)) {
+      return { activity: "interrupted", label: "INTERRUPTED", hint: "A restart cut this thread's turn short. Send a message to pick it back up." };
     }
     // A tool still marked running while nothing is in flight is a dead turn, not work.
     if (sessionId === activityState.activeThreadId && activityState.runningToolName) {
@@ -488,13 +498,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return { activity: "idle", label: "IDLE" };
   };
 
-  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string) => (
+  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string, hint?: string) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
       active={session.id === activityState.activeThreadId}
       activity={activity}
       activityLabel={label}
+      activityHint={hint}
       compact={compactRows && activity !== "settled"}
       workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
@@ -562,7 +573,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                   <div className="thread-group-label">{row.label.toUpperCase()} · {row.count}<i /></div>
                 ) : (() => {
                   const status = activityFor(row.session.id);
-                  return renderRow(row.session, status.activity, status.label);
+                  return renderRow(row.session, status.activity, status.label, status.hint);
                 })()}
               </div>
             );

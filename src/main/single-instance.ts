@@ -30,10 +30,15 @@ export interface SingleInstanceWindow {
   focus(): void;
 }
 
-/** Keeps one desktop host alive and brings its window forward on later starts. */
+/**
+ * Keeps one desktop app alive and brings its window forward on later starts.
+ * Starting Tau again while it has no window opens one: the host kept running
+ * without it, so the window is the only thing missing (ADR 0021).
+ */
 export function installSingleInstance(
   app: SingleInstanceApp,
   currentWindow: () => SingleInstanceWindow | undefined,
+  openWindow?: () => void,
 ): boolean {
   if (!app.requestSingleInstanceLock()) {
     app.quit();
@@ -41,7 +46,10 @@ export function installSingleInstance(
   }
   app.on("second-instance", () => {
     const window = currentWindow();
-    if (!window || window.isDestroyed()) return;
+    if (!window || window.isDestroyed()) {
+      openWindow?.();
+      return;
+    }
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();

@@ -182,6 +182,7 @@ function services(cwd: string, sessionsDir: string, threads: readonly HostThread
     registerRuntimeBackend: () => () => undefined,
     observeConfigChanges: () => () => undefined,
     presentUi: () => () => undefined,
+    callClient: async () => { throw new Error("no window half in this test"); },
   };
 }
 

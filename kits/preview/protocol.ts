@@ -65,3 +65,14 @@ export const EMPTY_PREVIEW_STATE: PreviewState = {
   consoleErrors: [],
   available: true,
 };
+
+/**
+ * What the kit's desktop half publishes with `context.provideService`, so
+ * another kit can show a page without importing this one: it brings the panel
+ * forward and navigates. The caller passes its own workbench actions.
+ */
+export const PREVIEW_BROWSER_SERVICE = "tau.preview/browser";
+
+export interface PreviewBrowserService {
+  open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
+}

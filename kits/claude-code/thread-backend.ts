@@ -154,6 +154,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         setModel: (_provider, id) => this.setModel(id),
         setThinkingLevel: (level) => this.setEffort(level),
       },
+      // The SDK resumes the stored session itself, so a continuation is an
+      // ordinary turn; there is no message kind the transcript hides.
+      resume: {
+        hiddenPrompt: false,
+        notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
+      },
     };
   }
 

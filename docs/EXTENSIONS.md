@@ -132,6 +132,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
   "source": { "url": "https://github.com/acme/hello", "commit": "0123456789abcdef" },
   "desktop": "./desktop.tsx",
   "host": "./host.ts",
+  "window": "./view.ts",
   "styles": "./styles.css",
   "pi": "./pi.ts"
 }
@@ -147,6 +148,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 | `isolation` | `"worker"` (default) or `"in-process"` (§6). |
 | `source` | `{ url, commit? }`, shown in Settings → Inspector. Provenance only — it proves nothing by itself (§4). |
 | `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, and both may be when `styles` is there instead. |
+| `window` | Relative entry path of the half that runs in the process the user's window lives in (§ below); optional, and only useful together with a `host` entry. |
 | `styles` | Relative path of a stylesheet loaded while the package is active. On its own — no `desktop`, no `host` — it makes the package a **theme** (§8). |
 | `pi` | Relative entry path of the package's half inside a Pi runtime Tau does not own (see above); optional. |
 
@@ -417,6 +419,14 @@ any code — including `distribution`, the name and version of the set the
 `bundled` entries came in, absent in safe mode, which loads none. Core keeps Defaults, Keybindings and the Inspector; every other page
 is a contribution and is gone with its extension.
 
+`context.setProblems(problems)` is how a package says that something it reads
+is wrong — a project file that does not parse, an entry it had to skip. Each
+`ExtensionProblem` is `{ source, message, level? }` (`level` is `"error"`, the
+default, or `"warning"`); Settings → Inspector lists them under PROBLEMS with
+the package's name. A call replaces the package's whole list, `[]` clears it,
+and the list goes with the package when it deactivates. Project Scripts is the
+caller that motivated it: an invalid `.tau/project.json` shows there.
+
 Beyond the contribution types, `tau` exports `useWorkbench`,
 `useWorkbenchShell`, `useObservatory` and `useThreadStore` (the workbench
 hooks), `HostUnavailableError` (thrown when there is no host to route to, e.g.
@@ -485,7 +495,7 @@ It also exports the renderer's shared state and presentation:
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
 
@@ -495,7 +505,22 @@ travels between them: one publishes under an id its own protocol file names,
 the others use it. `use` runs as soon as the value exists — before or after
 the user's own activation — and whatever it returns is disposed when the
 provider withdraws or either side deactivates, so activation order does not
-matter. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
+matter. The shipped kits publish two: Workspace Kit's store as
+`tau.workspace/store`, and Preview Kit's `tau.preview/browser`, whose
+`open(url, actions)` brings the Preview panel forward and navigates — Project
+Scripts opens a script's `previewUrl` through it, and falls back to
+`actions.openExternal` when Preview Kit is off. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
+
+Workspace Kit's store (`tau.workspace/store`, typed in
+`kits/workspace/protocol.ts`) is such a service, and besides reading the
+followed project it lends two places another kit may draw into:
+`registerChangesSection(Component)` puts a section at the top of the Changes
+panel, clean worktree or not, with the panel's `actions`, the commit message as
+the user left it and `committed()` to hand the box back to the proposal; and
+`registerThreadRowAccessory(Component)` draws a mark on every rail row, given
+the row's `session`. `refresh()` re-reads the project's changes and Git facts
+after another kit changed them. Review Kit fills both with the pull or merge
+request of the branch.
 
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a
@@ -633,7 +658,7 @@ without asking the host what changed.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.7.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.8.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only
@@ -706,6 +731,40 @@ refuses `child_process` for itself. For an `in-process` package neither is
 enforced, because a package running in the host process can reach everything
 the host process can; that is what granting `in-process` means, and the
 approval box says so in that many words.
+
+### The window half
+
+The host runs in its own process ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)),
+so it has no window: anything that needs one — a native view over a panel, a
+dialog the OS draws — cannot be done there. A package that needs it names a
+`window` entry. That module is compiled like a host half (CommonJS, `electron`
+external) and loaded by the window's process, and it default-exports a factory:
+
+```ts
+import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
+
+export default function activate(context: WindowExtensionContext): WindowExtension {
+  return {
+    handle(command, input) {
+      if (command === "open") return openSomething(input);
+      throw new Error(`no command "${command}"`);
+    },
+    dispose() { /* let the window's resources go */ },
+  };
+}
+```
+
+The host half reaches it with `services.callClient(command, input)`, which
+resolves with whatever `handle` returned. The extension id is bound by the
+window's registry, so a package can only call its own half. `context.invokeHost`
+goes the other way, into the package's own host commands — that is how a view
+reports that the page changed.
+
+Two limits: an isolated (worker) package cannot use `callClient` at all, and a
+client that has no window half (the browser client, a host nobody is attached
+to) makes the call reject. Treat it as an optional capability and say what is
+missing, the way Preview Kit answers "Preview needs the Tau desktop app on this
+host".
 
 ### Isolation
 

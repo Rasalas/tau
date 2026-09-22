@@ -44,6 +44,11 @@ export interface ExtensionManifest {
   desktop?: string;
   /** Relative path of the host entry (a module default-exporting a HostExtension or `activate`). */
   host?: string;
+  /**
+   * Relative path of the window entry: the half that needs the process the
+   * user's window runs in, because the host runs in its own (ADR 0021).
+   */
+  window?: string;
   /** Relative path of a stylesheet loaded while the package is active; on its own it makes a theme. */
   styles?: string;
   /** Relative path of the Pi entry: the package's half inside a Pi runtime Tau does not own. */
@@ -114,11 +119,11 @@ function parseSource(value: unknown): { url: string; commit?: string } | undefin
 }
 
 /** Parses and validates one manifest; entries are resolved but not read. */
-export function parseExtensionManifest(directory: string, source: string): { manifest: ExtensionManifest; desktopEntry?: string; hostEntry?: string; stylesEntry?: string; piEntry?: string } {
+export function parseExtensionManifest(directory: string, source: string): { manifest: ExtensionManifest; desktopEntry?: string; hostEntry?: string; windowEntry?: string; stylesEntry?: string; piEntry?: string } {
   let raw: unknown;
   try { raw = JSON.parse(source); } catch { throw new Error(`${MANIFEST_FILE} is not valid JSON`); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${MANIFEST_FILE} must be an object`);
-  const { id, name, version, engines, permissions, isolation, source: manifestSource, desktop, host, styles, pi } = raw as Record<string, unknown>;
+  const { id, name, version, engines, permissions, isolation, source: manifestSource, desktop, host, window: windowHalf, styles, pi } = raw as Record<string, unknown>;
   if (typeof id !== "string" || !EXTENSION_ID.test(id)) throw new Error(`"id" must look like "vendor.name" (lowercase letters, digits, dashes, dots)`);
   if (typeof name !== "string" || !name.trim()) throw new Error(`"name" must be a non-empty string`);
   if (version !== undefined && (typeof version !== "string" || !parseVersion(version))) throw new Error(`"version" must be a semver string like "1.2.0"`);
@@ -128,6 +133,7 @@ export function parseExtensionManifest(directory: string, source: string): { man
   const parsedSource = parseSource(manifestSource);
   const desktopEntry = relativeEntry(directory, desktop, "desktop");
   const hostEntry = relativeEntry(directory, host, "host");
+  const windowEntry = relativeEntry(directory, windowHalf, "window");
   const stylesEntry = relativeEntry(directory, styles, "styles");
   const piEntry = relativeEntry(directory, pi, "pi");
   if (!desktopEntry && !hostEntry && !stylesEntry) throw new Error(`${MANIFEST_FILE} names none of a "desktop", a "host" and a "styles" entry`);
@@ -148,11 +154,13 @@ export function parseExtensionManifest(directory: string, source: string): { man
       ...(parsedSource ? { source: parsedSource } : {}),
       ...(typeof desktop === "string" ? { desktop } : {}),
       ...(typeof host === "string" ? { host } : {}),
+      ...(typeof windowHalf === "string" ? { window: windowHalf } : {}),
       ...(typeof styles === "string" ? { styles } : {}),
       ...(typeof pi === "string" ? { pi } : {}),
     },
     ...(desktopEntry ? { desktopEntry } : {}),
     ...(hostEntry ? { hostEntry } : {}),
+    ...(windowEntry ? { windowEntry } : {}),
     ...(stylesEntry ? { stylesEntry } : {}),
     ...(piEntry ? { piEntry } : {}),
   };
@@ -217,7 +225,7 @@ async function readPackageFolder(
   const parsed = parseExtensionManifest(packageDir, await readFile(join(packageDir, MANIFEST_FILE), "utf8"));
   const incompatible = manifestIncompatibility(parsed.manifest, options.versions);
   if (incompatible) throw new Error(incompatible);
-  for (const entry of [parsed.desktopEntry, parsed.hostEntry, parsed.piEntry, parsed.stylesEntry]) {
+  for (const entry of [parsed.desktopEntry, parsed.hostEntry, parsed.windowEntry, parsed.piEntry, parsed.stylesEntry]) {
     if (entry && !await stat(entry).then((s) => s.isFile()).catch(() => false)) throw new Error(`entry ${entry} does not exist`);
   }
   const signature = await verifyExtensionSignature(packageDir, parsed.manifest, publishers);
@@ -440,9 +448,15 @@ export function hostBundleHash(code: string): string {
   return createHash("sha256").update(code).digest("hex").slice(0, 16);
 }
 
-export async function writeHostExtensionBundle(code: string, manifest: ExtensionManifest, cacheDir = join(tmpdir(), "tau-host-extensions")): Promise<string> {
+export async function writeHostExtensionBundle(
+  code: string,
+  manifest: ExtensionManifest,
+  cacheDir = join(tmpdir(), "tau-host-extensions"),
+  /** Which half the file holds; a kit may have a compiled host and window half at once. */
+  half: "host" | "window" = "host",
+): Promise<string> {
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
-  const file = join(cacheDir, `${manifest.id}-${hostBundleHash(code)}.cjs`);
+  const file = join(cacheDir, `${manifest.id}-${half === "host" ? "" : `${half}-`}${hostBundleHash(code)}.cjs`);
   // The content hash in the file name keys Node's module cache and lets an
   // unchanged package reuse its compiled file instead of rewriting it.
   if (!await stat(file).then((info) => info.isFile()).catch(() => false)) {

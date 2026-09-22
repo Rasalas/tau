@@ -21,6 +21,9 @@ import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { PiHost } from "./pi-host.js";
+import { ClientCalls } from "./client-calls.js";
+import { selectDefaultBackend } from "./runtime-adapters.js";
+import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
 
@@ -33,16 +36,21 @@ const workspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless");
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
-const hostVersion = process.env.npm_package_version || "0.0.0";
+// A supervised host is told which version it belongs to; a hand-started one
+// reads npm's environment, as it always did.
+const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || "0.0.0";
 // dist-electron/main/headless.js -> the app root the kits are shipped in.
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 // The built browser client, when there is one; `npm run build:web` writes it.
 const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
-const hostLog = new HostLog({ dir: join(userData, "logs") });
+// Its own file: the window process writes host.log in the same directory.
+const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
 const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
 const pushLog = new HostPushLog();
 const jobs = new HostJobRunner((event) => broadcast(event));
+/** The other direction: what a host extension asks the client's process to do. */
+const clientCalls = new ClientCalls((event) => publish(event));
 let socket: SocketHostTransport | undefined;
 
 function broadcast(event: HostPushEvent): void {
@@ -69,10 +77,12 @@ async function main(): Promise<void> {
   /** The socket transport reports its clients here; the host publishes the count. */
   const clients = new HostClientRegistry();
   const methods = createHostMethods({
+    clientCalls,
     bootstrap: async () => {
       if (!host) {
         primeOpenCodeCatalog();
         host = new PiHost(workspace, publish, projectHistory, safeMode, false, {
+          defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
           hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
           hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
             versions,
@@ -81,7 +91,17 @@ async function main(): Promise<void> {
           logger: hostLog,
           workspaceIdentity,
           clients,
+          appPath: appRoot,
           kitStateDir: join(userData, "kit-state"),
+          turnsInFlightPath: join(userData, "turns-in-flight.json"),
+          // A window half of a kit lives in the client's process; this is the
+          // only way a host without a window of its own reaches one. The folder
+          // picker is the window's own, asked for the same way.
+          platform: {
+            callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input),
+            pickDirectory: async (options) =>
+              await clientCalls.call(WINDOW_SERVICES_ID, "pick-directory", options, 10 * 60_000) as string | undefined,
+          },
           sessionUsageCachePath: join(userData, "session-usage.json"),
           sessionLineageCachePath: join(userData, "session-lineage.json"),
         });
@@ -127,6 +147,23 @@ async function main(): Promise<void> {
     },
   });
 
+  const shutdown = (): void => {
+    void (async () => {
+      clientCalls.dispose();
+      await socket?.close();
+      await host?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
+      process.exit(0);
+    })();
+  };
+  // Not part of the client protocol: the supervisor that started this process
+  // asks for a clean stop here before it reaches for a signal (ADR 0021).
+  methods["host.shutdown"] = async () => {
+    hostLog.info("host.shutdown.requested");
+    // Answer first, leave afterwards.
+    setTimeout(shutdown, 50).unref();
+    return { stopping: true };
+  };
+
   const token = readOrCreateHostToken();
   // A built client turns this host into something a browser can open. Without
   // one the host is exactly what it was: a socket and nothing else.
@@ -155,13 +192,6 @@ async function main(): Promise<void> {
     console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
   }
 
-  const shutdown = () => {
-    void (async () => {
-      await socket?.close();
-      await host?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
-      process.exit(0);
-    })();
-  };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }

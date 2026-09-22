@@ -292,6 +292,7 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
   }
   if (item.showCosts !== undefined) result.showCosts = decodeBoolean(channel, `${field}.showCosts`, item.showCosts);
   if (item.prewarm !== undefined) result.prewarm = decodeBoolean(channel, `${field}.prewarm`, item.prewarm);
+  if (item.hostBackground !== undefined) result.hostBackground = decodeBoolean(channel, `${field}.hostBackground`, item.hostBackground);
   if (item.fontFamily !== undefined) result.fontFamily = decodeString(channel, `${field}.fontFamily`, item.fontFamily);
   if (item.fontSize !== undefined) result.fontSize = decodeNumber(channel, `${field}.fontSize`, item.fontSize);
   if (item.temperature !== undefined) result.temperature = decodeNumber(channel, `${field}.temperature`, item.temperature);

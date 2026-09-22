@@ -18,11 +18,14 @@ import {
 import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent } from "./file-content.js";
-import { CHECKPOINT_EVENT, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
+import { CHECKPOINT_EVENT, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createReviewRequestDetector } from "./review-request.js";
+import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 
 const execFileAsync = promisify(execFile);
+/** The kit built on this one; its host entry may call the commands that name it. */
+const REVIEW_KIT_ID = "tau.review";
 
 export async function listDirectories(requested: string | undefined, identify: (path: string) => WorkspaceRef): Promise<UiDirectoryListing> {
   const candidate = requested?.trim() || homedir();
@@ -172,11 +175,18 @@ export function createWorkspaceHostExtension(): HostExtension {
       };
 
       /**
-       * The project's own `runOnWorktreeCreate`, run once in the new worktree.
-       * A setup that fails is reported and does not undo the worktree: the user
-       * can still work in it, which is what they asked for.
+       * The project's own setup, run once in the new worktree. Project Scripts
+       * owns it when it is on (scripts with `runOnWorktreeCreate`, the old
+       * string among them); without it the old string runs here as it always did.
+       * A setup that fails is reported and does not undo the worktree.
        */
       const runWorktreeSetup = async (project: string, worktree: string): Promise<void> => {
+        try {
+          await context.invokeHostExtension(PROJECT_SCRIPTS_HOST_EXTENSION_ID, "worktree-created", { project, worktree });
+          return;
+        } catch (error) {
+          services.log("git.worktree.setup-fallback", error instanceof Error ? error.message : String(error));
+        }
         const { runOnWorktreeCreate } = await readProjectDefaults(project);
         if (!runOnWorktreeCreate) return;
         services.noteSubprocess();
@@ -235,13 +245,13 @@ export function createWorkspaceHostExtension(): HostExtension {
         const query = (record(input).query ?? {}) as WorkspaceChangesQuery;
         if (query.scope === "branch") return branchChanges(cwd(), query);
         return git.getChanges(cwd());
-      }, { callers: ["tau.review"] });
+      }, { callers: [REVIEW_KIT_ID] });
       context.registerCommand("file-diff", async (input) => {
         const project = cwd();
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
-      }, { callers: ["tau.review"] });
+      }, { callers: [REVIEW_KIT_ID] });
       context.registerCommand("stage-file", (input) => stageThen(relativePath(input), workspaceGit.stageFile));
       context.registerCommand("unstage-file", (input) => stageThen(relativePath(input), workspaceGit.unstageFile));
       context.registerCommand("revert-file", (input) => stageThen(relativePath(input), workspaceGit.revertFile));
@@ -293,7 +303,17 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      });
+      }, { callers: [REVIEW_KIT_ID] });
+      // Review Kit opens, merges and edits requests; the Git it needs is read here.
+      context.registerCommand("review-request-context", (input) => readReviewRequestContext(cwd(), {
+        detail: record(input).detail === true,
+        ...(optionalString(input, "base") ? { base: optionalString(input, "base") } : {}),
+      }), { callers: [REVIEW_KIT_ID] });
+      context.registerCommand("review-request", async (input) => {
+        const named = optionalString(input, "workspace");
+        const project = named ? await services.knownWorkspacePath(named) : cwd();
+        return reviewRequests.detect(project, { fresh: record(input).fresh === true });
+      }, { callers: [REVIEW_KIT_ID] });
       context.registerCommand("workspace-info", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
         return git.getWorkspaceInfo(canonical);

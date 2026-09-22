@@ -64,6 +64,36 @@ core owns and what a distribution owns. Safe mode is neither — it is
 recovery, and loads no extension at all. The kits are Tau's opinion about what
 a coding workbench should have, not a floor you build on.
 
+## Architecture: the window and the host
+
+Tau runs as two processes. The **host** owns the threads: Pi, the runtimes, the
+host halves of the kits, the session files. The **window** is a client of it —
+Electron, the workbench, the kits' desktop halves — and it is the one that
+starts and watches the host ([ADR 0021](docs/adr/0021-host-runs-in-its-own-process.md)).
+
+On start the window reads `<userData>/host.json`. If the host it names is still
+alive and built from this version, the window connects to it and finds its
+threads where they were; otherwise it starts `dist-electron/main/headless.js`
+with Electron's own binary in Node mode, on a loopback socket with the token in
+`~/.tau/host-token`, and records the new `host.json`. A host that crashes is
+restarted (at most three times a minute, then a dialog with the log path);
+`<userData>/logs/host-out-*.log` holds what it printed, `host-process.log` what
+it logged.
+
+What follows from that:
+
+- **Closing the window does not stop a turn.** The host keeps working, on every
+  platform; the next window picks the threads up again, and starting Tau while
+  it has no window opens one.
+- **Quitting stops the host** — unless *Settings → Defaults → "Keep the host
+  running in the background"* is on, in which case it keeps going and the next
+  start adopts it.
+- **The window still owns its own machine.** The clipboard, image previews and
+  the workbench rebuild are answered in the window process, not in the host;
+  everything else is one call over the protocol.
+- `TAU_HOST_INPROCESS=1` runs the old shape (host inside the window's process)
+  for one release cycle, if something in the new one gets in your way.
+
 ## Install
 
 Download the newest build for your platform from the
@@ -93,7 +123,7 @@ npm install
 npm start
 ```
 
-`npm start` performs the minified production build and opens the Electron app. For development, use `npm run dev` (Electron + Vite hot reload) or `npm run dev:web` (browser fixture preview); `npm run start:existing` opens the last production assets without rebuilding. Build and startup measurements are written to `reports/build-report.json` and `reports/start-report.json`; `npm run build:budget` and `npm run start:budget` enforce the local budgets. It uses your existing `~/.pi/agent` models, credentials, skills and extensions, and the tools of your machine (a model behind a subscription login Pi performs is marked in the picker and asks once before its first use, because the vendor may not allow that login outside its own apps): at startup the main process reads your login shell's environment (PATH, SSH agent, locale, Homebrew variables), so `git`, `claude`, editors and everything Pi's tools call resolve the way they do in a terminal, also after a Dock launch. Claude Code threads drive the installed `claude` CLI through the Claude Agent SDK, with its own login (a Claude subscription's Agent SDK credit, or an API key) and `~/.claude` settings; `TAU_CLAUDE_CODE_COMMAND` names a different executable. Antigravity threads drive Google's Antigravity agent through the Agent Client Protocol: Tau downloads Google's ACP server once into its own state folder (from the official registry URL, verified by size and SHA-256) or uses `TAU_ANTIGRAVITY_ACP_COMMAND`, and the sign-in with your Google account happens inside that server, in your browser; Tau never sees the token. Settings → Antigravity installs or updates that server, shows the account and signs out. The agent runs with a Gemini home of Tau's own, so it writes nothing into yours, but your `~/.gemini` skills are linked into it and your MCP servers are passed to it. Which runtime a new thread gets is chosen in the composer before its first message, or in Settings → Defaults; a thread keeps its runtime for life. When `gh` or `glab` is installed and logged in, the Review's branch scope diffs against the base branch of the current branch's pull or merge request and links to it. The initial workspace is this repository; use the project picker in the left sidebar to open another folder. Recent projects persist in Electron's user-data directory.
+`npm start` performs the minified production build and opens the Electron app. For development, use `npm run dev` (Electron + Vite hot reload) or `npm run dev:web` (browser fixture preview); `npm run start:existing` opens the last production assets without rebuilding. Build and startup measurements are written to `reports/build-report.json` and `reports/start-report.json`; `npm run build:budget` and `npm run start:budget` enforce the local budgets. It uses your existing `~/.pi/agent` models, credentials, skills and extensions, and the tools of your machine (a model behind a subscription login Pi performs is marked in the picker and asks once before its first use, because the vendor may not allow that login outside its own apps): at startup the main process reads your login shell's environment (PATH, SSH agent, locale, Homebrew variables), so `git`, `claude`, editors and everything Pi's tools call resolve the way they do in a terminal, also after a Dock launch. Claude Code threads drive the installed `claude` CLI through the Claude Agent SDK, with its own login (a Claude subscription's Agent SDK credit, or an API key) and `~/.claude` settings; `TAU_CLAUDE_CODE_COMMAND` names a different executable. Antigravity threads drive Google's Antigravity agent through the Agent Client Protocol: Tau downloads Google's ACP server once into its own state folder (from the official registry URL, verified by size and SHA-256) or uses `TAU_ANTIGRAVITY_ACP_COMMAND`, and the sign-in with your Google account happens inside that server, in your browser; Tau never sees the token. Settings → Antigravity installs or updates that server, shows the account and signs out. The agent runs with a Gemini home of Tau's own, so it writes nothing into yours, but your `~/.gemini` skills are linked into it and your MCP servers are passed to it. Which runtime a new thread gets is chosen in the composer before its first message, or in Settings → Defaults; a thread keeps its runtime for life. When `gh` or `glab` is installed and logged in, the Review's branch scope diffs against the base branch of the current branch's pull or merge request and links to it; the Changes panel then commits, pushes and opens that request (title and description written by the commit-message model, filled into the repository's template, optionally as a draft), edits and merges it, and the thread's rail row shows its state and checks. Without the CLI, its login or a remote, the panel says which one is missing. The initial workspace is this repository; use the project picker in the left sidebar to open another folder. Recent projects persist in Electron's user-data directory.
 
 For a UI-only browser preview with fixture data:
 
@@ -140,7 +170,7 @@ Then copy the host's `~/.tau/host-token` to the client machine (or pass it as `T
 TAU_HOST_URL=ws://127.0.0.1:7788 npm run start:existing
 ```
 
-The main process starts no `PiHost` and no Pi in that mode: it opens the window, which speaks the protocol over the socket. Everything that needs this machine — the clipboard, image previews, rebuilding the workbench — answers with an `unsupported` error, because the state it would touch lives on the host. Paths in the workbench (the project's `cwd`, changed files, a tool's output) are the host's paths, so an action that hands a path to a local tool points at a directory that exists only there. The socket transport says so by leaving the `local-files` capability out of its hello, which the Electron transport announces.
+The main process supervises no host of its own in that mode: it opens the window, which speaks the protocol over the socket, and the kits' code is fetched from the host and served to the renderer from here. What needs this machine — the clipboard, image previews, rebuilding the workbench — is answered in the window process rather than sent to the host. Paths in the workbench (the project's `cwd`, changed files, a tool's output) are the host's paths, so an action that hands a path to a local tool points at a directory that exists only there. The socket transport says so by leaving the `local-files` capability out of its hello, which the Electron transport announces.
 
 A dropped link (a suspended machine, a restarted tunnel) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. A strip above the status line reads `Reconnecting to the host…`, then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. Nothing has to be restarted by hand.
 
@@ -190,7 +220,7 @@ or a tunnel you trust; `TAU_HOST_INSECURE=1` is the deliberate exception.
 
 Tau can attach to a Pi TUI that already owns the active session instead of opening a second `SessionManager`. Open Pi in the project first. For an already-running Pi session, run `/reload` once so Pi loads `.pi/extensions/tau-session-bridge.ts`, then start or restart Tau. Prompts, steering, aborts, assistant streaming, tool activity, model changes, thinking changes, compaction, and thread renames travel over an authenticated local socket and remain visible in both clients.
 
-The Pi TUI is the sole writer while attached. Tau will not fall back to writing the same session if the owner is alive but unreachable. It retries a lost socket with bounded backoff and resnapshots automatically after Pi reloads or restarts the bridge. Enter `/reload` in Tau, or run “Apply changes and reload Tau” from the command palette. Tau builds its source, reloads Pi resources and desktop extensions, then restarts itself only when the Electron main process or preload changed. Image prompts, Tau project-shell actions, Tau access-policy changes, new-session creation, and automatic title generation remain Pi-side operations in this mode. Safe mode refuses to attach because it cannot enforce safe-mode tool policy on a runtime owned by another process.
+The Pi TUI is the sole writer while attached. Tau will not fall back to writing the same session if the owner is alive but unreachable. It retries a lost socket with bounded backoff and resnapshots automatically after Pi reloads or restarts the bridge. Enter `/reload` in Tau, or run “Apply changes and reload Tau” from the command palette. Tau builds its source first and then picks the shortest way to apply it: a change to kits or to the renderer reloads those and the window while every thread keeps running, so a turn in flight never notices it; a change to a kit's runtime half (`pi.cjs`) reloads Pi's resources too, and that is the only path that still offers to wait for or stop running threads; a change to the Electron main process or preload restarts Tau. Image prompts, Tau project-shell actions, Tau access-policy changes, new-session creation, and automatic title generation remain Pi-side operations in this mode. Safe mode refuses to attach because it cannot enforce safe-mode tool policy on a runtime owned by another process.
 
 ### Extend Tau while it runs
 

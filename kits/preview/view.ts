@@ -1,7 +1,9 @@
 import { BrowserWindow, WebContentsView, session, shell } from "electron";
 import { sep } from "node:path";
 import type { PreviewState } from "./protocol.js";
+import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
 import type { PreviewRect, PreviewSurface, PreviewSurfaceOptions } from "./host.js";
+import type { PreviewSnapshot } from "./remote-surface.js";
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
 const PARTITION = "persist:tau-preview";
@@ -163,4 +165,80 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
   };
   options.log("preview.opened", PARTITION);
   return surface;
+}
+
+/** What the window half answers with: the state the host caches between calls. */
+function snapshot(surface: PreviewSurface, result?: unknown): PreviewSnapshot {
+  return {
+    state: surface.state(),
+    viewport: surface.viewport(),
+    zoomFactor: surface.zoomFactor(),
+    ...(result === undefined ? {} : { result }),
+  };
+}
+
+/**
+ * Preview Kit's window half: the part that needs the process the user's window
+ * runs in, because a `WebContentsView` belongs to a window (ADR 0021). The
+ * host half drives it through `callClient`; every answer carries the page's
+ * state back, and a change between calls is reported with `view-changed`.
+ */
+export default function activatePreviewWindowHalf(context: WindowExtensionContext): WindowExtension {
+  let surface: PreviewSurface | undefined;
+  let workspaceRoot = "";
+
+  const open = (): PreviewSurface => {
+    if (surface) return surface;
+    const created = createElectronPreviewSurface({
+      onChange: () => {
+        if (surface) void context.invokeHost("view-changed", snapshot(surface)).catch(() => undefined);
+      },
+      workspaceRoot: () => workspaceRoot,
+      log: (label, detail) => context.log(label, detail),
+    });
+    if (!created) throw new Error("This window cannot draw a preview.");
+    surface = created;
+    return created;
+  };
+
+  const fields = (input: unknown): Record<string, unknown> =>
+    input && typeof input === "object" ? input as Record<string, unknown> : {};
+
+  return {
+    handle(command: string, input?: unknown): unknown {
+      const options = fields(input);
+      if (typeof options.workspaceRoot === "string") workspaceRoot = options.workspaceRoot;
+      switch (command) {
+        case "open-view":
+          return snapshot(open());
+        case "place":
+          open().place(options.rect as PreviewRect, options.visible === true);
+          return snapshot(open());
+        case "load":
+          return open().load(String(options.url ?? ""), Number(options.timeoutMs ?? 15_000)).then(() => snapshot(surface!));
+        case "navigate":
+          open().navigate(options.action as "back" | "forward" | "reload");
+          return snapshot(open());
+        case "evaluate":
+          return open().evaluate(String(options.expression ?? "")).then((result) => snapshot(surface!, result));
+        case "capture":
+          return open().capture(Number(options.maxWidth ?? 1_280)).then((result) => snapshot(surface!, result));
+        case "press-key":
+          open().pressKey(String(options.key ?? ""));
+          return snapshot(open());
+        case "destroy": {
+          const answer = surface ? snapshot(surface) : undefined;
+          surface?.destroy();
+          surface = undefined;
+          return answer;
+        }
+        default:
+          throw new Error(`Preview's window half has no command "${command}".`);
+      }
+    },
+    dispose() {
+      surface?.destroy();
+      surface = undefined;
+    },
+  };
 }

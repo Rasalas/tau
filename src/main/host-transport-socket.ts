@@ -103,7 +103,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
         send(socket, { type: "hello-reply", id: frame.id, reply: helloReply(options.pushLog, frame.hello, { ...options, capabilities }) });
-        if (options.clients) {
+        if (options.clients && !frame.hello.auxiliary) {
           clientIds.set(socket, options.clients.attached({
             transport: "socket",
             ...(frame.hello.profile ? { profile: frame.hello.profile } : {}),

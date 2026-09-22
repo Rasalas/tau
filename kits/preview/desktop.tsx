@@ -1,6 +1,6 @@
 import { Globe } from "lucide-react";
 import { errorMessage, type DesktopExtension, type WorkbenchActions } from "tau";
-import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_STATE_EVENT } from "./protocol.js";
+import { PREVIEW_BROWSER_SERVICE, PREVIEW_HOST_EXTENSION_ID, PREVIEW_STATE_EVENT, type PreviewBrowserService } from "./protocol.js";
 import { PreviewPanel } from "./panel.js";
 import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore } from "./store.js";
 
@@ -16,7 +16,7 @@ export const previewExtension: DesktopExtension = {
     plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, profiles: ["desktop"], Component: PreviewPanel });
     plugin.registerRegion({ id: "preview.follower", placement: "composer-above", order: 60, profiles: ["desktop"], Component: PreviewFollower });
     plugin.host.onEvent(PREVIEW_STATE_EVENT, (payload) => { if (isPreviewState(payload)) previewStore.set(payload); });
-    const open = async (url: string, app: WorkbenchActions): Promise<string | undefined> => {
+    const open = async (url: string, app: Pick<WorkbenchActions, "openPanel">): Promise<string | undefined> => {
       app.openPanel(PREVIEW_PANEL);
       if (!url) return undefined;
       try {
@@ -26,6 +26,12 @@ export const previewExtension: DesktopExtension = {
       }
       return undefined;
     };
+    plugin.provideService<PreviewBrowserService>(PREVIEW_BROWSER_SERVICE, {
+      open: async (url, app) => {
+        const failure = await open(url, app);
+        if (failure) throw new Error(failure);
+      },
+    });
     plugin.registerCommand({ id: "preview.open", label: "Open preview panel", group: "Extensions", run: (app) => { void open("", app); } });
     plugin.registerSlashCommand({
       name: "preview",

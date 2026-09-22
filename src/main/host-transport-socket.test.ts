@@ -103,6 +103,16 @@ describe("socket host transport", () => {
     expect(seen).toEqual(["+socket:web", "+socket:none", "-"]);
   });
 
+  it("serves a window's own process without counting it as a second client", async () => {
+    const clients = new HostClientRegistry();
+    const { transport: started } = await listen(new HostPushLog(), "127.0.0.1:0", false, clients);
+    const socket = connect(started.port);
+    await opened(socket);
+    socket.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN, auxiliary: true } }));
+    expect((await nextFrame(socket)).type).toBe("hello-reply");
+    expect(clients.count()).toBe(0);
+  });
+
   it("does not count a peer whose token was refused", async () => {
     const clients = new HostClientRegistry();
     const { transport: started } = await listen(new HostPushLog(), "127.0.0.1:0", false, clients);

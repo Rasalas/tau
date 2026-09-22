@@ -55,7 +55,7 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
 const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
-  "./bundled-kits.js",   "./client-message-tracker.js",   "./client-turn-ledger.js",
+  "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-turn-ledger.js",
   "./clone-source.js",   "./config-watcher.js",   "./dangling-tool-calls.js",   "./desktop-extensions.js",
   "./extension-bundle-server.js",   "./extension-grants.js",   "./extension-installer.js",
   "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
@@ -66,7 +66,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-extensions.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
-  "./host-push-log.js",   "./host-report.js",   "./host-text.js",   "./host-token.js",
+  "./host-process-supervisor.js",
+  "./host-push-log.js",   "./host-report.js",   "./host-text.js",   "./host-token.js",   "./host-uplink.js",
   "./host-transcript.js",   "./host-transport-clients.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
@@ -85,9 +86,10 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
-  "./turn-delivery.js",   "./user-themes.js",   "./workbench-build.js",
+  "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",
+  "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
-  "./workspace-identity.js",   "./workspace-watch.js",
+  "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

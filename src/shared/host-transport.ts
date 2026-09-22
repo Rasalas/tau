@@ -14,6 +14,26 @@ export const HOST_TRANSPORT_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 /** How many pushes a host keeps for a reconnecting client. */
 export const HOST_PUSH_BUFFER_SIZE = 500;
 
+/**
+ * Methods the machine a client runs on answers for itself: its clipboard, the
+ * files it can preview, the workbench build it started from. A host in another
+ * process — or on another machine — has none of that, so a client that speaks
+ * to one routes these to its own transport instead (ADR 0021).
+ */
+export const CLIENT_SIDE_METHODS = [
+  "copy-text",
+  "copy-image",
+  "read-image-preview",
+  "desktop-extensions",
+  "rebuild-workbench",
+  "workbench-source",
+  "relaunch-workbench",
+  "install-update",
+] as const;
+
+export const isClientSideMethod = (method: string): boolean =>
+  (CLIENT_SIDE_METHODS as readonly string[]).includes(method);
+
 export interface HostErrorInfo {
   message: string;
   code: string;
@@ -53,6 +73,12 @@ export interface HostHello {
   lastSeq?: number;
   /** Which client this is (`desktop`, `web`, `compact`), for a host extension that counts them. */
   profile?: string;
+  /**
+   * A connection that is not a client of its own: the window process around a
+   * renderer that already said hello, or a supervisor's probe (ADR 0021). The
+   * host serves it but does not count it among its clients.
+   */
+  auxiliary?: boolean;
 }
 
 export interface HostHelloReply {
@@ -140,11 +166,13 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
   if (item.token !== undefined && typeof item.token !== "string") return undefined;
   if (item.lastSeq !== undefined && !Number.isSafeInteger(item.lastSeq)) return undefined;
   if (item.profile !== undefined && typeof item.profile !== "string") return undefined;
+  if (item.auxiliary !== undefined && typeof item.auxiliary !== "boolean") return undefined;
   return {
     protocol: HOST_TRANSPORT_VERSION,
     ...(typeof item.token === "string" ? { token: item.token } : {}),
     ...(typeof item.lastSeq === "number" ? { lastSeq: item.lastSeq } : {}),
     ...(typeof item.profile === "string" ? { profile: item.profile } : {}),
+    ...(item.auxiliary === true ? { auxiliary: true } : {}),
   };
 }
 

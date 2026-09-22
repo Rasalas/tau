@@ -14,7 +14,7 @@ import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } 
 import { rebuildWorkbench } from "./workbench-build.js";
 import { WorkbenchReloader } from "./workbench-reloader.js";
 import { ManagedWorkbenchSource } from "./managed-workbench-source.js";
-import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
+import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, loadBundledKitWindowHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
@@ -23,7 +23,7 @@ import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/ext
 import { HostLog } from "./host-log.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostJobRunner } from "./host-jobs.js";
-import { createHostMethods, createUnsupportedHostMethods, type HostMethodTable } from "./host-methods.js";
+import { createClientHostMethods, createHostMethods, createUnsupportedHostMethods, type ClientHostPlatform, type HostMethodTable } from "./host-methods.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { installElectronHostTransport, type ElectronHostTransport } from "./host-transport-electron.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
@@ -31,6 +31,9 @@ import { clientHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { resolveStartupWorkspace } from "./startup-workspace.js";
+import { WindowHost } from "./window-host.js";
+import { WINDOW_SERVICES_ID } from "./window-extensions.js";
+import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
 
@@ -49,11 +52,13 @@ const appIconPath = existsSync(shippedIconPath) ? shippedIconPath : undefined;
 const requestedWorkspace = process.env.TAU_WORKSPACE;
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 /**
- * `TAU_HOST_URL=ws://machine:7788` turns this process into a client: the window
- * speaks the protocol over that socket and nothing local starts. The renderer
- * takes the same URL through `?host=`, which it already understands.
+ * `TAU_HOST_URL=ws://machine:7788` points this window at a host somebody else
+ * runs. Without it the window starts and supervises a host process of its own
+ * (ADR 0021); either way the renderer reaches it through `?host=`.
  */
 const remoteHostUrl = process.env.TAU_HOST_URL;
+/** `TAU_HOST_INPROCESS=1` keeps the old shape for one release: the host in this process. */
+const inProcessHost = process.env.TAU_HOST_INPROCESS === "1";
 
 // Identity (and so userData) must be set before anything reads app.getPath("userData").
 configureAppIdentity(app, process.env.TAU_USER_DATA);
@@ -111,6 +116,7 @@ const hostOptions = {
   // isolates a dev instance's kit state the way it isolates everything else.
   kitStateDir: join(app.getPath("userData"), "kit-state"),
   sessionUsageCachePath: join(app.getPath("userData"), "session-usage.json"),
+  turnsInFlightPath: join(app.getPath("userData"), "turns-in-flight.json"),
   sessionLineageCachePath: join(app.getPath("userData"), "session-lineage.json"),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
@@ -147,6 +153,10 @@ const pushLog = new HostPushLog();
 const jobs = new HostJobRunner(broadcast);
 let host: PiHost | undefined;
 let hostReady: Promise<unknown> | undefined;
+/** The host this window is a client of, when it does not run one in process. */
+let windowHost: WindowHost | undefined;
+/** Set when the last window closed: quitting then leaves the host running. */
+let quitAfterWindowClosed = false;
 let projectHistory: ProjectHistory;
 let updates: AppUpdates | undefined;
 let shutdownStarted = false;
@@ -172,7 +182,9 @@ const workbenchReloader = new WorkbenchReloader({
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
 
-const primaryInstance = installSingleInstance(app, () => mainWindow);
+const primaryInstance = installSingleInstance(app, () => mainWindow, () => {
+  if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+});
 
 function publish(event: HostEvent): void {
   // Mirrored to the log file so nothing is lost once the window is gone.
@@ -188,6 +200,18 @@ function broadcast(event: HostPushEvent): void {
   const push = pushLog.record(event);
   transport?.deliver(push);
   socketTransport?.deliver(push);
+}
+
+/** What the renderer is told: which host to speak to, and as which client. */
+function workbenchQuery(): Record<string, string> {
+  return {
+    ...(safeMode ? { safeMode: "1" } : {}),
+    // Which client this window claims to be (ADR 0016). Unset is `desktop`;
+    // setting it is how the desktop window shows what a smaller one leaves out.
+    ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
+    ...(windowHost ? { host: windowHost.hostUrl } : {}),
+    ...(windowHost?.hostToken ? { token: windowHost.hostToken } : {}),
+  };
 }
 
 async function createWindow(): Promise<void> {
@@ -242,21 +266,17 @@ async function createWindow(): Promise<void> {
   });
 
   // The token travels in the window's own query string, never on a command line.
-  const remoteToken = remoteHostUrl ? clientHostToken() : undefined;
-  const query: Record<string, string> = {
-    ...(safeMode ? { safeMode: "1" } : {}),
-    // Which client this window claims to be (ADR 0016). Unset is `desktop`;
-    // setting it is how the desktop window shows what a smaller one leaves out.
-    ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
-    ...(remoteHostUrl ? { host: remoteHostUrl } : {}),
-    ...(remoteToken ? { token: remoteToken } : {}),
-  };
+  const query = workbenchQuery();
+  await loadWorkbench(mainWindow, query);
+}
+
+async function loadWorkbench(window: BrowserWindow, query: Record<string, string>): Promise<void> {
   if (process.env.TAU_DEV_SERVER_URL) {
     const url = new URL(process.env.TAU_DEV_SERVER_URL);
     for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
-    await mainWindow.loadURL(url.toString());
+    await window.loadURL(url.toString());
   } else {
-    await mainWindow.loadFile(join(currentDir, "../../dist/index.html"), { query });
+    await window.loadFile(join(currentDir, "../../dist/index.html"), { query });
   }
 }
 
@@ -303,6 +323,76 @@ function startLocalHost(): void {
   hostReady = watchHostStart(host.start());
 }
 
+/**
+ * Starts or adopts the host process this window is a client of, or attaches to
+ * the one `TAU_HOST_URL` names. A host that will not start is fatal: the window
+ * has nothing to show without one.
+ */
+async function startHostProcess(): Promise<void> {
+  windowHost = new WindowHost({
+    userData: app.getPath("userData"),
+    version: app.getVersion(),
+    mainDirectory: currentDir,
+    execPath: process.execPath,
+    ...(requestedWorkspace ? { workspace: requestedWorkspace } : {}),
+    logger: hostLog,
+    onFatal: ({ message, logPath }) => {
+      dialog.showErrorBox("Tau's host stopped", `${message}\n\nDetails were written to:\n${logPath || hostLog.filePath}`);
+    },
+    // A restarted host may have landed on another port; the window's client
+    // only learns the new one by being pointed at it again.
+    onUrlChanged: () => { void pointWindowAtHost(); },
+    onEvent: (event) => {
+      // Drop a deactivated extension's bundle so tau-ext: returns 404 for it
+      // rather than serving code the user switched off.
+      if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId);
+    },
+  });
+  if (remoteHostUrl) {
+    windowHost.attach(remoteHostUrl, clientHostToken());
+    await loadWindowHalves();
+    return;
+  }
+  try {
+    const running = await windowHost.startSupervised();
+    await loadWindowHalves();
+    hostLog.info("host-process.ready", { pid: running.pid, url: running.url, adopted: running.adopted });
+  } catch (error: unknown) {
+    hostLog.error("host-process.start.failed", error);
+    dialog.showErrorBox(
+      "Tau could not start its host",
+      `${error instanceof Error ? error.message : String(error)}\n\nDetails were written to:\n${windowHost.logFile || hostLog.filePath}`,
+    );
+    app.exit(1);
+  }
+}
+
+/** The kits' window halves: compiled here, called by the host over the protocol. */
+async function loadWindowHalves(): Promise<void> {
+  if (!windowHost) return;
+  // Core's own half answers even in safe mode: a host with no window has no folder picker.
+  windowHost.extensions.register(WINDOW_SERVICES_ID, () => ({
+    handle: (command, input) => {
+      if (command !== "pick-directory") throw new Error(`The window has no service "${command}".`);
+      return hostOptions.platform.pickDirectory(input as Parameters<typeof hostOptions.platform.pickDirectory>[0]);
+    },
+  }));
+  if (safeMode) return;
+  const loaded = await loadBundledKitWindowHalves(kitOptions).catch((error: unknown) => {
+    hostLog.error("window-extension.load.failed", error);
+    return undefined;
+  });
+  if (!loaded) return;
+  for (const failure of loaded.errors) hostLog.warn("window-extension.kit.failed", `${failure.path}: ${failure.message}`);
+  windowHost.extensions.load(loaded.halves);
+}
+
+/** Points the open window at the host's current URL; used when a restart moved it. */
+async function pointWindowAtHost(): Promise<void> {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  await loadWorkbench(mainWindow, workbenchQuery());
+}
+
 /** Everything this machine can answer for itself; a client of a remote host has none of it. */
 function createLocalHostMethods(): HostMethodTable {
   return createHostMethods({
@@ -346,31 +436,13 @@ function createLocalHostMethods(): HostMethodTable {
           safeMode ? EMPTY_DESKTOP_EXTENSIONS : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports, ...(only ? { only } : {}) }),
           loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions, ...(only ? { only } : {}) }),
         ]);
-        // Each sync replaces the served set, so an edited extension never keeps
-        // its old URL alive. A narrowed sync drops only what it rebuilds: the
-        // modules the client keeps still have to be reachable.
-        if (only) for (const id of only) desktopBundles.remove(id);
-        else desktopBundles.clear();
-        return {
-          bundles: [...kits.bundles, ...result.bundles].map((bundle) => ({
-            ...bundle,
-            url: desktopBundles.publish(bundle.id, bundle.code),
-            ...(bundle.styles ? { stylesUrl: desktopBundles.publishStyles(bundle.id, bundle.styles) } : {}),
-          })),
+        return serveBundles({
+          bundles: [...kits.bundles, ...result.bundles],
           errors: [...kits.errors, ...result.errors],
           skipped: result.skipped,
-        };
+        }, only);
       },
-      rebuildWorkbench: async (context, activeWorkspace) => {
-        if (rebuild) return rebuild;
-        rebuild = workbenchReloader.rebuild(activeWorkspace, {
-          onOutput: (line) => {
-            context.progress(line);
-            publish({ type: "event-log", label: "workbench.build", detail: line, timestamp: Date.now() });
-          },
-        }).finally(() => { rebuild = undefined; });
-        return rebuild;
-      },
+      rebuildWorkbench: async (context, activeWorkspace) => runRebuild(context, activeWorkspace),
       workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
       relaunchWorkbench: () => workbenchReloader.relaunch(),
       installUpdate: () => updates?.install() ?? false,
@@ -378,9 +450,62 @@ function createLocalHostMethods(): HostMethodTable {
   });
 }
 
+/** Turns the code the host compiled into the `tau-ext:` URLs the renderer imports. */
+function serveBundles(result: WorkbenchDesktopExtensions, only?: readonly string[]): WorkbenchDesktopExtensions {
+  // Each sync replaces the served set, so an edited extension never keeps its
+  // old URL alive. A narrowed sync drops only what it rebuilds: the modules the
+  // client keeps still have to be reachable.
+  if (only) for (const id of only) desktopBundles.remove(id);
+  else desktopBundles.clear();
+  return {
+    ...result,
+    bundles: result.bundles.map((bundle) => ({
+      ...bundle,
+      url: desktopBundles.publish(bundle.id, bundle.code),
+      ...(bundle.styles ? { stylesUrl: desktopBundles.publishStyles(bundle.id, bundle.styles) } : {}),
+    })),
+  };
+}
+
+/** What this machine answers for itself while the host answers for the threads. */
+function createWindowPlatform(): ClientHostPlatform {
+  return {
+    copyText: (text) => clipboard.writeText(text),
+    copyImage: (dataUrl) => {
+      const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
+      if (image.isEmpty()) throw new Error("Invalid image data.");
+      clipboard.writeImage(image);
+    },
+    readImagePreview: rendererImagePreview,
+    loadDesktopExtensions: async (cwd, sharedExports, only) =>
+      windowHost!.loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only)),
+    rebuildWorkbench: async (context) => runRebuild(context, windowHost?.activeWorkspace ?? requestedWorkspace ?? ""),
+    workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
+    relaunchWorkbench: () => workbenchReloader.relaunch(),
+    installUpdate: () => updates?.install() ?? false,
+  };
+}
+
+/** One build at a time, wherever the request came from. */
+function runRebuild(context: { progress(line: string): void }, activeWorkspace: string): Promise<WorkbenchBuildResult> {
+  if (rebuild) return rebuild;
+  rebuild = workbenchReloader.rebuild(activeWorkspace, {
+    onOutput: (line) => {
+      context.progress(line);
+      publish({ type: "event-log", label: "workbench.build", detail: line, timestamp: Date.now() });
+    },
+  }).finally(() => { rebuild = undefined; });
+  return rebuild;
+}
+
 function installTransport(): void {
-  const methods = remoteHostUrl
-    ? createUnsupportedHostMethods(`This window is a client of the host at ${remoteHostUrl}; local operations (clipboard, image previews, workbench rebuild) are not available here.`)
+  // A window whose host lives elsewhere answers only for its own machine; the
+  // host's own methods would have nothing here to answer with.
+  const methods = windowHost
+    ? {
+      ...createUnsupportedHostMethods(`This window is a client of the host at ${windowHost.hostUrl}; only its own machine answers here.`),
+      ...createClientHostMethods(createWindowPlatform()),
+    }
     : createLocalHostMethods();
   transport = installElectronHostTransport({
     ipcMain,
@@ -390,7 +515,7 @@ function installTransport(): void {
     methods,
     pushLog,
     hostVersion: app.getVersion(),
-    capabilities: remoteHostUrl ? [] : [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
+    capabilities: windowHost ? [HOST_CAPABILITY.localFiles] : [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
     send: (channel, payload) => { if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send(channel, payload); },
   });
   // A second transport for a client that is not this window; off unless asked for.
@@ -442,13 +567,18 @@ if (primaryInstance) app.whenReady().then(async () => {
   if (shellEnvironment?.installed.length) console.log(`shell environment: ${shellEnvironment.installed.join(", ")} from ${shellEnvironment.pathSource}`);
   // Prepare the host before creating the renderer so bootstrap is a read of
   // already-started work, not the first expensive lifecycle operation.
+  if (!inProcessHost) await startHostProcess();
   installTransport();
-  if (!remoteHostUrl) startLocalHost();
+  if (inProcessHost) startLocalHost();
   await createWindow();
 });
 
 if (primaryInstance) app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform === "darwin") return;
+  // The window is not the host any more: closing it leaves the threads
+  // running, and the next start adopts them through host.json (ADR 0021).
+  quitAfterWindowClosed = true;
+  app.quit();
 });
 
 // `webviewTag` is off, so this only ever fires on a bug or on injected markup.
@@ -464,15 +594,32 @@ if (primaryInstance) app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
 
+/**
+ * Quitting ends the host too, unless the user asked for it to stay (Settings →
+ * Defaults) or the window merely closed. A host in this process is disposed
+ * the way it always was.
+ */
 if (primaryInstance) app.on("before-quit", (event) => {
-  if (!host || shutdownComplete) return;
+  if (shutdownComplete || (!host && !windowHost)) return;
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
-  void host.dispose()
-    .catch((error) => hostLog.error("host.shutdown.failed", error))
+  void (async () => {
+    if (host) await host.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
+    if (windowHost) await windowHost.stop(quitAfterWindowClosed || await keepHostRunning());
+  })()
+    .catch((error: unknown) => hostLog.error("host.shutdown.failed", error))
     .finally(() => {
       shutdownComplete = true;
       app.quit();
     });
 });
+
+/** The "keep the host running" preference; read from the file, not from the host that is stopping. */
+async function keepHostRunning(): Promise<boolean> {
+  try {
+    return (await defaultHostConfigManager.read()).hostBackground === true;
+  } catch {
+    return false;
+  }
+}

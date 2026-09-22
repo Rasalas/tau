@@ -101,12 +101,18 @@ async function buildKits() {
   };
   const ids = [];
   for (const kit of kits) {
-    const { manifest, hostEntry, desktopEntry, stylesEntry, piEntry } = parseExtensionManifest(kit.directory, kit.source);
+    const { manifest, hostEntry, windowEntry, desktopEntry, stylesEntry, piEntry } = parseExtensionManifest(kit.directory, kit.source);
     await mkdir(join(OUTPUT, manifest.id), { recursive: true });
     const shippedManifest = { ...manifest };
     if (hostEntry) {
       await write(`${manifest.id}/host.cjs`, await bundleHostExtension(hostEntry));
       shippedManifest.host = "./host.cjs";
+    }
+    // The window half runs in the process the user's window lives in, so it
+    // compiles like a host half: CommonJS, Electron external.
+    if (windowEntry) {
+      await write(`${manifest.id}/window.cjs`, await bundleHostExtension(windowEntry));
+      shippedManifest.window = "./window.cjs";
     }
     if (desktopEntry) {
       await write(`${manifest.id}/desktop.js`, await bundleDesktopExtension(desktopEntry, { sharedExports }));

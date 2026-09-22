@@ -112,12 +112,46 @@ directory its process can read. Treat the token as "may use this host", not as
 "may read these threads": keep it on loopback or behind an SSH tunnel, and set
 `TAU_HOST_INSECURE=1` only for a network that is trusted for its own reasons.
 
-A window can be a client only. `TAU_HOST_URL=ws://machine:port` makes the
-Electron main process open the window without starting a `PiHost`, reach the
-host over the socket (the renderer takes the URL as `?host=`, the token from
-`TAU_HOST_TOKEN` or the client machine's `~/.tau/host-token`), and answer every
-local method with an `unsupported` error, because the state those methods touch
-lives on the host.
+## The window is always a client
+
+A desktop window speaks this protocol to a host in another process, which it
+started and watches itself ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)).
+`TAU_HOST_URL=ws://machine:port` points it at a host somebody else runs;
+`TAU_HOST_INPROCESS=1` restores the old in-process host for one release.
+
+The method table has two halves. `CLIENT_SIDE_METHODS`
+(`src/shared/host-transport.ts`) are the eight the client's own machine
+answers — `copy-text`, `copy-image`, `read-image-preview`,
+`desktop-extensions`, `rebuild-workbench`, `workbench-source`,
+`relaunch-workbench`, `install-update` — and they travel over the window's
+Electron bridge (`createClientHostMethods`), which stays installed beside the
+socket. Everything else goes to the host, whose own table refuses the eight.
+`createHostClient(connection, local)` in the renderer does the routing; a
+window without a local side (the browser client) has one connection and sends
+everything to the host. `copy-thread-markdown` answers with the text rather
+than copying it, because the clipboard belongs to the client.
+
+`desktop-extensions` is the one method both sides implement: the host compiles
+the desktop halves and answers with their code, the window publishes that code
+under `tau-ext:` and hands the renderer URLs. That is how a window at a host in
+another process — or on another machine — loads kits at all.
+
+The window's own process keeps a connection to the host beside its renderer's
+(bundles, calls into the window, shutdown). It says hello with
+`auxiliary: true`, so the host serves it without counting it as a second
+client; a supervisor's liveness probe does the same.
+
+Two methods are not part of the client surface:
+
+- `host.shutdown` exists only in the headless host. The supervisor that started
+  the process calls it before it reaches for a signal.
+- `client-call-result` answers a call that went the other way. A host extension
+  that needs the window's process calls `services.callClient(command, input)`;
+  the host publishes a `client-call` push (`{ callId, extensionId, command,
+  input }`) and the window's process runs the extension's window half and
+  answers with `client-call-result [callId, result, error?]`. The renderer
+  ignores the push; a client with no such half answers with an error, which is
+  what a kit falls back on.
 
 ## Workspace identity
 

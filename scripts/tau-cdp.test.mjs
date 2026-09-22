@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSnapshot, keySpec, parseChord, parseCli, pidFromPsOutput, resolvePort, stopProcess } from "./tau-cdp.mjs";
+import { formatSnapshot, instanceHostPid, keySpec, parseChord, parseCli, pidFromPsOutput, resolvePort, stopProcess } from "./tau-cdp.mjs";
 
 describe("parseCli", () => {
   it("splits a leading numeric token as the port", () => {
@@ -39,6 +39,24 @@ describe("resolvePort", () => {
   it("throws when the instance file has no port", () => {
     const readFile = () => JSON.stringify({ pid: 123 });
     expect(() => resolvePort(undefined, { instancePath: "/fake/instance.json", readFile })).toThrow(/no "port"/);
+  });
+});
+
+describe("instanceHostPid", () => {
+  it("prefers the host descriptor, which a restart rewrites", () => {
+    const readFile = () => JSON.stringify({ pid: 99, url: "ws://127.0.0.1:1" });
+    expect(instanceHostPid({ hostPid: 4242, userData: "/instance" }, { readFile })).toBe(99);
+  });
+
+  it("falls back to the pid the instance file recorded", () => {
+    const readFile = () => { throw new Error("no such file"); };
+    expect(instanceHostPid({ hostPid: 4242, userData: "/instance" }, { readFile })).toBe(4242);
+  });
+
+  it("names no pid when the instance has no host", () => {
+    const readFile = () => { throw new Error("no such file"); };
+    expect(instanceHostPid({ userData: "/instance" }, { readFile })).toBeUndefined();
+    expect(instanceHostPid(undefined)).toBeUndefined();
   });
 });
 

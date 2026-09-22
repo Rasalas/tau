@@ -68,6 +68,7 @@ export type {
   RegionContribution,
   StatusItemContribution,
   ThreadLineage,
+  ExtensionProblem,
   OverlayProps,
   OverlayContribution,
   WorkbenchEvent,

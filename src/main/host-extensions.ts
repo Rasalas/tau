@@ -32,6 +32,11 @@ export interface DirectoryPickerOptions {
 /** What the platform (Electron main, later a remote host) lends to extensions. */
 export interface HostPlatform {
   pickDirectory?(options?: DirectoryPickerOptions): Promise<string | undefined>;
+  /**
+   * Calls the window half of an extension. Only a host whose client runs in
+   * its own process has one; a host with a window of its own does not.
+   */
+  callClient?(extensionId: string, command: string, input?: unknown): Promise<unknown>;
 }
 
 /** A thread an external backend persisted, as the index lists it. */
@@ -496,6 +501,12 @@ export interface HostExtensionServices {
    */
   loadDependency(packageName: string): Promise<unknown>;
   /**
+   * Runs a command in this extension's window half — the part of a kit that
+   * needs the process the user's window lives in (ADR 0021). Rejects when the
+   * host has no such client, so a kit can fall back or say so.
+   */
+  callClient(command: string, input?: unknown): Promise<unknown>;
+  /**
    * Follows the files the host watches. The host re-reads none of them for a
    * kit and calls no kit by name: it reports what moved, and whoever owns those
    * files decides what to do — the keybindings kit re-reads `keybindings.json`,
@@ -599,10 +610,17 @@ export function guardedServices(
 /** What one extension sees: the permission guard, with `stateDir` bound to its own folder. */
 export function extensionServices(services: HostExtensionServices, extension: Pick<HostExtension, "id" | "permissions">): HostExtensionServices {
   const guarded = guardedServices(services, extension.permissions, extension.id);
-  if (!services.stateDir) return guarded;
-  const stateDir = join(services.stateDir, extension.id);
+  const stateDir = services.stateDir ? join(services.stateDir, extension.id) : undefined;
+  // `callClient` reaches one extension's own window half: the id is bound
+  // here, never passed by the caller, so no kit can drive another kit's.
+  const callClient = (command: string, input?: unknown): Promise<unknown> =>
+    (services.callClient as unknown as (id: string, command: string, input?: unknown) => Promise<unknown>)(extension.id, command, input);
   return new Proxy(guarded, {
-    get: (target, prop, receiver) => prop === "stateDir" ? stateDir : Reflect.get(target, prop, receiver) as unknown,
+    get: (target, prop, receiver) => {
+      if (prop === "callClient") return callClient;
+      if (prop === "stateDir" && stateDir) return stateDir;
+      return Reflect.get(target, prop, receiver) as unknown;
+    },
   });
 }
 

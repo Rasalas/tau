@@ -168,8 +168,11 @@ describe("thread runtime backends", () => {
       usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, costUsd: 0.2, turns: 2 },
       contextUsage: { tokens: 100, contextWindow: 200000 },
     });
-    // Beside the model and effort pickers, Claude offers no Pi-shaped capability; every such operation is refused in one place.
-    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite"]);
+    // Beside the model and effort pickers and the word it uses to say a turn
+    // was cut short, Claude offers no Pi-shaped capability; every such
+    // operation is refused in one place.
+    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "resume"]);
+    expect(backend.capabilities.resume?.hiddenPrompt).toBe(false);
 
     await backend.dispose();
     expect(sessions[0]?.close).toHaveBeenCalled();

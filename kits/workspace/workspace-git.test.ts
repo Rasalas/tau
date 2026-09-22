@@ -1135,10 +1135,39 @@ describe("workspace publishing", () => {
     const calls: string[][] = [];
     const result = await push("/project", async (_cwd, args) => {
       calls.push(args);
+      if (args.includes("@{u}")) return "origin/feature\n";
       return args[0] === "rev-parse" ? "abc123\n" : "";
     });
-    expect(calls).toEqual([["push"], ["rev-parse", "--short", "HEAD"]]);
+    expect(calls).toEqual([
+      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+      ["push"],
+      ["rev-parse", "--short", "HEAD"],
+    ]);
     expect(result.detail).toBe("Pushed abc123");
+  });
+
+  it("publishes a branch without an upstream to origin and tracks it", async () => {
+    const calls: string[][] = [];
+    await push("/project", async (_cwd, args) => {
+      calls.push(args);
+      if (args.includes("@{u}")) throw new Error("no upstream");
+      if (args[0] === "branch") return "feature/pr\n";
+      if (args[0] === "remote") return "backup\norigin\n";
+      return args[0] === "rev-parse" ? "abc123\n" : "";
+    });
+    expect(calls).toContainEqual(["push", "--set-upstream", "origin", "HEAD:refs/heads/feature/pr"]);
+  });
+
+  it("says what is missing when there is no remote or no branch", async () => {
+    await expect(push("/project", async (_cwd, args) => {
+      if (args.includes("@{u}")) throw new Error("no upstream");
+      if (args[0] === "branch") return "feature/pr\n";
+      return "";
+    })).rejects.toThrow("no remote");
+    await expect(push("/project", async (_cwd, args) => {
+      if (args.includes("@{u}")) throw new Error("no upstream");
+      return "";
+    })).rejects.toThrow("detached");
   });
 });
 

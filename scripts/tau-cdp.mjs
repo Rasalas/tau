@@ -346,6 +346,42 @@ export async function stopProcess(pid, {
   return { pid, escalated: true };
 }
 
+/**
+ * The host of this instance, as `dev-instance.mjs` recorded it. Only a pid
+ * that belongs to the instance file is ever signalled — never one found by
+ * name, which would be somebody else's Tau.
+ */
+export function instanceHostPid(instance, { readFile = (path) => readFileSync(path, "utf8") } = {}) {
+  // host.json is rewritten on every restart, so it wins over the pid the
+  // instance file recorded when the window started.
+  if (typeof instance?.userData === "string") {
+    try {
+      const descriptor = JSON.parse(readFile(join(instance.userData, "host.json")));
+      if (typeof descriptor.pid === "number") return descriptor.pid;
+    } catch {
+      // No descriptor: the host stopped, or never wrote one.
+    }
+  }
+  return typeof instance?.hostPid === "number" ? instance.hostPid : undefined;
+}
+
+function processRuns(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readInstanceFile() {
+  try {
+    return JSON.parse(readFileSync(INSTANCE_PATH, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
 /** /json/version proves the port is actually a live devtools endpoint before ps is trusted. */
 async function findLivePid(port) {
   await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
@@ -389,6 +425,15 @@ async function main() {
       const pid = await findLivePid(port);
       const result = await stopProcess(pid);
       console.log(result.escalated ? `${pid} (SIGTERM was ignored; sent SIGKILL)` : `${pid}`);
+      // The host outlives the window by design, so stopping an instance means
+      // stopping both — its own host, named by its own instance file.
+      const hostPid = instanceHostPid(readInstanceFile());
+      if (hostPid !== undefined && processRuns(hostPid)) {
+        const hostResult = await stopProcess(hostPid);
+        console.log(hostResult.escalated ? `host ${hostPid} (SIGTERM was ignored; sent SIGKILL)` : `host ${hostPid}`);
+      } else if (hostPid !== undefined) {
+        console.log(`host ${hostPid} had already stopped`);
+      }
     } catch (error) {
       console.error(error.message);
       process.exitCode = 1;

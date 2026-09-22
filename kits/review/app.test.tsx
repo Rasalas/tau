@@ -29,7 +29,9 @@ const DIFF: UiFileDiff = {
 
 const WORKSPACE = { root: "/project", isRepo: true, isDirty: true, upstream: "origin/main", branch: "feat/review", worktrees: [], refs: [] };
 
-function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, review: (command: string, input?: unknown) => Promise<unknown> = async () => undefined) {
+const SESSION = { id: "session", path: "session", title: "Review thread", modifiedAt: 1, projectPath: "/project", projectName: "project", projectLabel: "feat/review", messageCount: 1 };
+
+function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, review: (command: string, input?: unknown) => Promise<unknown> = async () => undefined, sessions: unknown[] = []) {
   const workspace = workspaceHostStub({
     getChanges: async () => CHANGES,
     getFileDiff: async () => DIFF,
@@ -41,7 +43,7 @@ function workbench(overrides: Parameters<typeof workspaceHostStub>[0] = {}, revi
   return createFakeHostClient({
     bootstrap: async () => ({
       version: 1,
-      threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+      threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: sessions as never[] },
       detail: { sessionId: "session", messages: [], isStreaming: false, activeTools: [] },
       catalog: {
         sessionId: "session",
@@ -141,5 +143,116 @@ describe("Review Kit in the workbench", () => {
 
     await waitFor(() => expect(commit).toHaveBeenCalledWith("fix(review): restore commit flow", false));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull());
+  });
+});
+
+const NO_REQUEST = { branch: "feat/review", base: "main", remote: "git@github.com:acme/tau.git", service: "github" };
+const OPEN_REQUEST = { provider: "github", number: 7, title: "Review everything", url: "https://github.com/acme/tau/pull/7", baseRef: "main", state: "open", draft: true, body: "Why", checks: { passed: 2, failed: 0, pending: 1, total: 3 } };
+
+/**
+ * The request lifecycle through the kit's own host commands: the section in
+ * Workspace Kit's Changes panel, and the mark on the thread's rail row.
+ */
+describe("Review Kit request lifecycle in the workbench", () => {
+  it("commits, drafts a title and body, and creates a draft pull request after the form is confirmed", async () => {
+    const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: false, detail: "Committed abc1234" }));
+    let status: Record<string, unknown> = NO_REQUEST;
+    const review = vi.fn(async (command: string, input?: unknown) => {
+      if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? { request: status.request } : status;
+      if (command === "pr-draft") return { title: "Review every changed file", body: "## Summary\nAll of it.", base: "main", generated: true };
+      if (command === "pr-create") {
+        status = { ...NO_REQUEST, request: OPEN_REQUEST };
+        return { status, url: OPEN_REQUEST.url };
+      }
+      return undefined;
+    });
+    renderApp(workbench({ commit }, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    expect(await screen.findByText("No PR for feat/review")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Commit & create PR…" }));
+
+    await waitFor(() => expect(commit).toHaveBeenCalledWith("Update a", false));
+    expect(await screen.findByDisplayValue("Review every changed file")).toBeTruthy();
+    expect(review).not.toHaveBeenCalledWith("pr-create", expect.anything());
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Create draft PR" }));
+
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Review every changed file", body: "## Summary\nAll of it.", base: "main", draft: true }));
+    expect(await screen.findByRole("button", { name: /PR #7/u })).toBeTruthy();
+    expect(screen.getByText("draft")).toBeTruthy();
+    expect(screen.getByText("checks 1 pending")).toBeTruthy();
+  });
+
+  it("asks before merging and merges with the chosen method", async () => {
+    let status: Record<string, unknown> = { ...NO_REQUEST, request: { ...OPEN_REQUEST, draft: false } };
+    const review = vi.fn(async (command: string) => {
+      if (command === "pr-status") return status;
+      if (command === "pr-merge") {
+        status = { ...NO_REQUEST, request: { ...OPEN_REQUEST, draft: false, state: "merged" } };
+        return status;
+      }
+      return undefined;
+    });
+    renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge…" }));
+    expect(screen.getByText(/Merge PR #7 into/u)).toBeTruthy();
+    expect(review).not.toHaveBeenCalledWith("pr-merge", expect.anything());
+    fireEvent.click(screen.getByRole("radio", { name: "Rebase" }));
+    fireEvent.click(screen.getByRole("button", { name: "Merge PR #7" }));
+
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-merge", { method: "rebase" }));
+    expect(await screen.findByText("merged")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Merge…" })).toBeNull();
+  });
+
+  it("edits the title and marks the request ready", async () => {
+    const review = vi.fn(async (command: string) => {
+      if (command === "pr-status" || command === "pr-edit") return { ...NO_REQUEST, request: OPEN_REQUEST };
+      return undefined;
+    });
+    renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit…" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Review it all" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-edit", { title: "Review it all", draft: false }));
+  });
+
+  it("says what is missing instead of offering a step that cannot work", async () => {
+    const review = vi.fn(async (command: string) => (command === "pr-status"
+      ? { ...NO_REQUEST, problem: "GitHub CLI (gh) is not installed or not on your PATH." }
+      : undefined));
+    renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    expect(await screen.findByText("GitHub CLI (gh) is not installed or not on your PATH.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /create PR/u })).toBeNull();
+  });
+
+  it("shows the request and its checks on the thread's rail row", async () => {
+    const review = vi.fn(async (command: string, input?: unknown) => {
+      if (command === "pr-status" && (input as { workspace?: string } | undefined)?.workspace === "/project") return { request: OPEN_REQUEST };
+      if (command === "pr-status") return NO_REQUEST;
+      return undefined;
+    });
+    // The rail is virtualized; give it a height so jsdom draws its rows.
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(800);
+    const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(300);
+    try {
+      renderApp(workbench({}, review, [SESSION]), { extensions: [workspaceExtension, reviewExtension] });
+
+      const badge = await screen.findByLabelText("PR #7 draft, checks 1 pending");
+      expect(badge.closest(".thread-row")).not.toBeNull();
+      expect(review.mock.calls.filter(([command, input]) => command === "pr-status" && (input as { workspace?: string } | undefined)?.workspace)).toHaveLength(1);
+    } finally {
+      height.mockRestore();
+      width.mockRestore();
+    }
   });
 });

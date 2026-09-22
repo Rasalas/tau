@@ -309,6 +309,10 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     },
     loadRuntimeExtension: (packageName) => loadRuntimeExtensionPackage(packageName),
     loadDependency: (packageName) => loadDependencyModule(packageName),
+    // `extensionServices` binds the extension id in front of these two.
+    callClient: ((extensionId: string, command: string, input?: unknown) => port.platform.callClient
+      ? port.platform.callClient(extensionId, command, input)
+      : Promise.reject(new Error("This host has no client process that can answer."))) as unknown as HostExtensionServices["callClient"],
     setPermissionLevel: (provider) => { permissionLevelProvider = provider; },
     registerRuntimeBackend: (provider) => {
       if (provider.kind === "pi" || !provider.kind) throw new Error(`Runtime backend kind "${provider.kind}" is reserved.`);

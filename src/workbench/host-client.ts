@@ -30,6 +30,7 @@ import type {
 import type { HostActionResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
 import type { HostBootstrap } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
+import { isClientSideMethod } from "../shared/host-transport";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
 /**
@@ -75,6 +76,8 @@ export interface HostClient {
 
   // Desktop/host extension lifecycle and the generic host-extension channel.
   reloadRuntime(): Promise<void>;
+  /** Kits and packages only; every runtime keeps running. */
+  reloadExtensions(): Promise<void>;
   answerExtensionUi(id: string, answer: ExtensionUiAnswer): Promise<void>;
   syncExtensionUi(): Promise<void>;
   /** `only` asks for just those extension ids, so a client can swap one module instead of all of them. */
@@ -119,9 +122,15 @@ export interface HostClient {
   onConnectionState(listener: (state: HostConnectionState) => void): () => void;
 }
 
-/** Builds the typed host surface over one connection; the method names are the protocol. */
-export function createHostClient(connection: HostConnection): HostClient {
-  const call = <T>(method: string, params: readonly unknown[] = []) => connection.request<T>(method, params);
+/**
+ * Builds the typed host surface; the method names are the protocol. With a
+ * second connection, the methods of `CLIENT_SIDE_METHODS` travel there instead:
+ * a window whose host runs in another process still copies to its own
+ * clipboard and rebuilds its own workbench (ADR 0021).
+ */
+export function createHostClient(connection: HostConnection, local?: HostConnection): HostClient {
+  const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
+  const call = <T>(method: string, params: readonly unknown[] = []) => route(method).request<T>(method, params);
   return {
     bootstrap: async () => {
       const bootstrap = await call<HostBootstrap>("bootstrap");
@@ -156,7 +165,11 @@ export function createHostClient(connection: HostConnection): HostClient {
 
     loadTranscript: (sessionId, cursor) => call<TranscriptPage>("transcript-page", [sessionId, cursor]),
     readToolOutput: (sessionId, toolCallId) => call<UiToolOutputReadResult | undefined>("read-tool-output", [sessionId, toolCallId]),
-    copyThreadMarkdown: (expectedSessionId) => call<void>("copy-thread-markdown", [expectedSessionId]),
+    // The host exports the text, the client's own clipboard takes it.
+    copyThreadMarkdown: async (expectedSessionId) => {
+      const markdown = await call<string | undefined>("copy-thread-markdown", [expectedSessionId]);
+      if (typeof markdown === "string" && markdown) await call<void>("copy-text", [markdown]);
+    },
     readImagePreview: (path) => call<UiImagePreview | undefined>("read-image-preview", [path]),
 
     setModel: (provider, id) => call<HostActionResult>("set-model", [provider, id]),
@@ -164,6 +177,7 @@ export function createHostClient(connection: HostConnection): HostClient {
     compactContext: () => call<HostActionResult>("compact-context"),
 
     reloadRuntime: () => call<void>("reload-runtime"),
+    reloadExtensions: () => call<void>("reload-extensions"),
     answerExtensionUi: (id, answer) => call<void>("answer-extension-ui", [id, answer]),
     syncExtensionUi: () => call<void>("sync-extension-ui"),
     loadDesktopExtensions: (cwd, sharedExports, only) => call<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only]),
@@ -179,9 +193,14 @@ export function createHostClient(connection: HostConnection): HostClient {
 
     prepareWorkbenchReload: (mode) => call<WorkbenchReloadPreparation>("prepare-workbench-reload", [mode]),
     releaseWorkbenchReload: () => call<void>("release-workbench-reload"),
-    rebuildWorkbench: () => connection.isJobMethod("rebuild-workbench")
-      ? connection.runJob<WorkbenchBuildResult>("rebuild-workbench")
-      : call<WorkbenchBuildResult>("rebuild-workbench"),
+    rebuildWorkbench: () => {
+      // A job when the connection that answers it offers jobs; a client-side
+      // rebuild is one plain request instead.
+      const target = route("rebuild-workbench");
+      return target.isJobMethod("rebuild-workbench")
+        ? target.runJob<WorkbenchBuildResult>("rebuild-workbench")
+        : call<WorkbenchBuildResult>("rebuild-workbench");
+    },
     workbenchSource: () => call<{ path?: string }>("workbench-source"),
     relaunchWorkbench: () => call<void>("relaunch-workbench"),
     installUpdate: () => call<{ installing: boolean }>("install-update"),

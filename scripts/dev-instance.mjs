@@ -3,7 +3,7 @@
 // `~/Library/Application Support/tau`. See docs/agents/testing-the-app.md.
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, openSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 // Required from plain Node (not from inside Electron itself), the "electron"
@@ -78,6 +78,20 @@ function assertUnderDevDir(path) {
   const guard = resolve(DEV_DIR) + sep;
   if (resolved !== resolve(DEV_DIR) && !resolved.startsWith(guard)) {
     throw new Error(`refusing to wipe ${resolved}: it is not under ${DEV_DIR}`);
+  }
+}
+
+/**
+ * The host runs in its own process now (ADR 0021); `<userData>/host.json` is
+ * where it says so. Reading it back into `instance.json` is what lets a driver
+ * stop this instance's host without ever guessing at a pid.
+ */
+export function readHostDescriptor(userData, { readFile = (path) => readFileSync(path, "utf8") } = {}) {
+  try {
+    const data = JSON.parse(readFile(join(userData, "host.json")));
+    return typeof data.pid === "number" && typeof data.url === "string" ? { pid: data.pid, url: data.url } : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -173,10 +187,34 @@ async function main() {
     stdio: ["ignore", logFd, logFd],
   });
 
-  writeFileSync(
-    join(DEV_DIR, "instance.json"),
-    `${JSON.stringify({ pid: child.pid, port, userData, workspace, sessionsDir: sessionsDir ?? null, agentDir: agentDir ?? null, logPath, startedAt: new Date().toISOString() }, null, 2)}\n`,
-  );
+  const instancePath = join(DEV_DIR, "instance.json");
+  const describe = (hostDescriptor) => ({
+    pid: child.pid,
+    port,
+    userData,
+    workspace,
+    sessionsDir: sessionsDir ?? null,
+    agentDir: agentDir ?? null,
+    hostPid: hostDescriptor?.pid ?? null,
+    hostUrl: hostDescriptor?.url ?? null,
+    logPath,
+    startedAt: new Date().toISOString(),
+  });
+  writeFileSync(instancePath, `${JSON.stringify(describe(undefined), null, 2)}\n`);
+  // The host process writes host.json once it listens, a moment after the
+  // window starts; the instance file gains its pid and URL as soon as it does.
+  void (async () => {
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline && !child.killed) {
+      const hostDescriptor = readHostDescriptor(userData);
+      if (hostDescriptor) {
+        writeFileSync(instancePath, `${JSON.stringify(describe(hostDescriptor), null, 2)}\n`);
+        console.log(`[dev-instance] host pid=${hostDescriptor.pid} url=${hostDescriptor.url}`);
+        return;
+      }
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+    }
+  })();
   console.log(
     `[dev-instance] pid=${child.pid} port=${port} userData=${userData} workspace=${workspace} `
     + `sessions=${sessionsDir ?? "(shared: ~/.pi/agent/sessions)"} agentDir=${agentDir ?? "(default: ~/.pi/agent)"} log=${logPath}`,

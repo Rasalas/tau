@@ -9,6 +9,7 @@ import type { ThreadBinding } from "./thread-binding.js";
 import type { ThreadIndex } from "./thread-index.js";
 import type { ThreadProjection } from "./thread-projection.js";
 import { isPiBackend, type ThreadRuntime } from "./thread-runtime.js";
+import type { TurnsInFlight } from "./turns-in-flight.js";
 
 export type TurnDeliveryKind = "prompt" | "steer" | "followUp";
 
@@ -16,6 +17,8 @@ export interface TurnDeliveryPort {
   clientTurns: ClientTurnLedger;
   clientMessages: ClientMessageTracker;
   turnObservers: HostTurnObserverSet;
+  /** The host's own record of which threads are mid-turn; a restart reads it. */
+  turnsInFlight: TurnsInFlight;
   projection: ThreadProjection;
   prompts: PromptPreparation;
   binding: ThreadBinding;
@@ -102,6 +105,7 @@ export class TurnDelivery {
     identity?: ClientTurnIdentity,
     prepared?: PreparedPrompt,
     onAdmitted?: (accepted: boolean) => void,
+    hidden?: boolean,
   ): Promise<void> {
     if (thread.backend.turnReporting === "awaited") {
       await this.throughAdapter(thread, text, attachments, delivery, identity, prepared);
@@ -120,6 +124,10 @@ export class TurnDelivery {
     const turnId = randomUUID();
     let admitted = false;
     if (observed) this.port.turnObservers.accepted(thread.threadId, turnId, { deferBefore: wasStreaming, ...(delivery !== "prompt" ? { expectsInput: false } : {}) });
+    if (ownTurn) this.port.turnsInFlight.record({
+      sessionId: thread.threadId, cwd: thread.cwd, turnId, backend: thread.backend.kind,
+      startedAt: Date.now(), prompt: { text, ...(attachments.length ? { images: attachments.length } : {}) },
+    });
     try {
       if (ownTurn && !wasStreaming) await this.port.turnObservers.prepare(thread.threadId, turnId);
       if (identity) this.port.clientTurns.enqueue(thread.threadId, identity, prepared?.sourceFingerprint);
@@ -129,6 +137,7 @@ export class TurnDelivery {
         attachments,
         ...(identity ? { identity } : {}),
         ...(prepared ? { prepared } : {}),
+        ...(hidden ? { hidden: true } : {}),
         onAdmitted: (accepted) => {
           admitted ||= accepted;
           onAdmitted?.(accepted);
@@ -136,12 +145,14 @@ export class TurnDelivery {
       });
       admitted = true;
       if (ownTurn) {
+        this.port.turnsInFlight.clear(thread.threadId, turnId);
         await this.port.turnObservers.ended(thread.threadId, turnId, "completed");
         await this.port.index.refreshShell(thread, true);
       }
     } catch (error) {
       if (identity) this.port.clientTurns.cancel(thread.threadId, identity);
       if (!observed) throw error;
+      if (ownTurn) this.port.turnsInFlight.clear(thread.threadId, turnId);
       if (admitted && ownTurn) await this.port.turnObservers.ended(thread.threadId, turnId, "failed");
       else if (!admitted || !ownTurn) await this.port.turnObservers.cancelled(thread.threadId, turnId);
       throw error;

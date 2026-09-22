@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { HostJobEvent } from "../shared/host-transport.js";
 import { HostJobRunner } from "./host-jobs.js";
-import { createHostMethods, createUnsupportedHostMethods, invokeHostMethod } from "./host-methods.js";
+import { CLIENT_SIDE_METHODS } from "../shared/host-transport.js";
+import { createClientHostMethods, createHostMethods, createUnsupportedHostMethods, invokeHostMethod } from "./host-methods.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import type { PiHost } from "./pi-host.js";
 import { activateHostKit } from "./test-support/host-kit-harness.js";
@@ -18,8 +19,12 @@ const root = join(import.meta.dirname, "..");
 const read = (file: string) => readFileSync(join(root, file), "utf8");
 const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? []);
 
-/** Names the client itself resolves: they never reach the method table. */
-const CLIENT_SIDE = new Set(["hello", "start-job", "cancel-job", "job-methods"]);
+/**
+ * Names the renderer's client never sends: the first four it resolves itself,
+ * and `client-call-result` belongs to the window process around it, which
+ * answers the host's calls into its own machine (ADR 0021).
+ */
+const CLIENT_SIDE = new Set(["hello", "start-job", "cancel-job", "job-methods", "client-call-result"]);
 
 function tableMethods(): Set<string> {
   const unavailable = () => { throw new Error("not available in this test"); };
@@ -61,6 +66,24 @@ describe("host protocol contract", () => {
     const client = clientMethods();
     const unreachable = [...methods].filter((method) => !client.has(method) && !CLIENT_SIDE.has(method)).sort();
     expect(unreachable).toEqual([]);
+  });
+
+  it("the client-side table implements exactly the client-side method names", () => {
+    const unavailable = () => { throw new Error("not available in this test"); };
+    const client = createClientHostMethods({
+      copyText: unavailable,
+      copyImage: unavailable,
+      readImagePreview: unavailable,
+      loadDesktopExtensions: unavailable,
+      rebuildWorkbench: unavailable,
+      workbenchSource: unavailable,
+      relaunchWorkbench: unavailable,
+      installUpdate: unavailable,
+    });
+    expect(Object.keys(client).sort()).toEqual([...CLIENT_SIDE_METHODS].sort());
+    // A window merges its client-side table over the refusing one; every name
+    // it answers must be a name the host knows too.
+    expect([...CLIENT_SIDE_METHODS].filter((method) => !methods.has(method))).toEqual([]);
   });
 
   it("a client of a remote host answers every local method with an unsupported error", async () => {

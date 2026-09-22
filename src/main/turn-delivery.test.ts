@@ -38,6 +38,7 @@ function makeDelivery(thread: ThreadRuntime, overrides: Partial<TurnDeliveryPort
     clientTurns: { enqueue: vi.fn(), cancel: vi.fn() } as never,
     clientMessages: { appendMarker: vi.fn(() => true), failIfUnpersisted: vi.fn() } as never,
     turnObservers: { accepted: vi.fn(), prepare: vi.fn(async () => undefined), ended: vi.fn(async () => undefined), cancelled: vi.fn(async () => undefined) } as never,
+    turnsInFlight: { record: vi.fn(), clear: vi.fn() } as never,
     projection: { composerCommands: () => [], isExtensionCommand: () => false } as never,
     prompts: { assertBound: vi.fn(), assertAttachmentInput: vi.fn() } as never,
     binding: { settle: vi.fn(async () => undefined) } as never,

@@ -172,6 +172,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     registerRuntimeExtension: () => () => undefined,
     loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     loadDependency: async () => { throw new Error("no dependencies in this test"); },
+    callClient: async () => { throw new Error("no client in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     observeConfigChanges: () => () => undefined,
