@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   ExternalLink,
   GitCommitHorizontal,
-  MessageSquare,
-  MessagesSquare,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
@@ -28,7 +29,7 @@ import { readReviewState, writeReviewState, type PersistedReviewState } from "..
 import { useClientStorage } from "../client-storage-context";
 import type { ClientStorage } from "../../workbench/client-storage";
 import { STORAGE_KEYS } from "../../workbench/storage-keys";
-import { DiffStream, diffLanguage, fileDiffRows, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
+import { DiffStream, diffLanguage, fileDiffRows, type DiffLineSlot, type DiffStreamHandle, type DiffStreamRow } from "./DiffView";
 import { FileKindIcon } from "./FileKindIcon";
 import { ReviewFileTree } from "./ReviewFileTree";
 import { WindowControlsInset } from "./WindowControlsInset";
@@ -102,6 +103,14 @@ export function ReviewMode({
   checkpointTitle,
   suggestCommitMessage,
   autoSuggestCommitMessage = true,
+  layout,
+  onLayoutChange,
+  ignoreWhitespace = false,
+  onIgnoreWhitespaceChange,
+  filesStartCollapsed = false,
+  lines,
+  toolbar,
+  aside,
 }: {
   changes: UiWorkspaceChanges;
   selectedPath?: string;
@@ -120,6 +129,20 @@ export function ReviewMode({
   checkpointTitle?: string;
   suggestCommitMessage?(changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]): Promise<string | undefined>;
   autoSuggestCommitMessage?: boolean;
+  /** Split or unified; with `onLayoutChange` the caller owns it, otherwise the toggle does. */
+  layout?: "unified" | "split";
+  onLayoutChange?(layout: "unified" | "split"): void;
+  /** Passed to `loadDiff`; the toolbar offers the toggle only with `onIgnoreWhitespaceChange`. */
+  ignoreWhitespace?: boolean;
+  onIgnoreWhitespaceChange?(ignore: boolean): void;
+  /** Every file starts folded to its header. */
+  filesStartCollapsed?: boolean;
+  /** The line seam: a gutter action and what is drawn under a line. */
+  lines?: DiffLineSlot;
+  /** Controls a caller adds to the toolbar. */
+  toolbar?: ReactNode;
+  /** A panel beside the diffs. */
+  aside?: ReactNode;
 }) {
   const [scope, setScope] = useState<WorkspaceDiffScope>("worktree");
   const [visibleChanges, setVisibleChanges] = useState(changes);
@@ -127,14 +150,15 @@ export function ReviewMode({
   const [scopeError, setScopeError] = useState<string>();
   const [diffs, setDiffs] = useState<Map<string, UiFileDiff>>(() => new Map());
   const [diffErrors, setDiffErrors] = useState<Map<string, string>>(() => new Map());
-  const [mode, setMode] = useState<"unified" | "split">("unified");
+  const [ownMode, setOwnMode] = useState<"unified" | "split">(layout ?? "unified");
+  const mode = onLayoutChange ? layout ?? "unified" : ownMode;
+  const setMode = onLayoutChange ?? setOwnMode;
+  /** Files whose fold differs from `filesStartCollapsed`. */
+  const [toggledFiles, setToggledFiles] = useState<ReadonlySet<string>>(() => new Set());
   const [contextMode, setContextMode] = useState<"collapse" | "expand">("collapse");
   const [message, setMessage] = useState(autoSuggestCommitMessage && suggestCommitMessage ? "" : changes.proposedMessage ?? "");
   const [editingMessage, setEditingMessage] = useState(false);
   const [reviewState, setReviewState] = useState<PersistedReviewState>(() => readReviewState(workspaceKey, scope));
-  const [notesOpen, setNotesOpen] = useState(false);
-  const [draft, setDraft] = useState<{ path: string; line?: number }>();
-  const [draftBody, setDraftBody] = useState("");
   const [filter, setFilter] = useState("");
   const clientStorage = useClientStorage();
   const [sidebarOpen, setSidebarOpenState] = useState(() => storedSidebarOpen(clientStorage));
@@ -152,6 +176,13 @@ export function ReviewMode({
   const paged = usePagedWorkspaceFiles(visibleChanges, readOnly ? loadFiles : undefined);
 
   const contextLines = contextMode === "expand" ? EXPANDED_CONTEXT_LINES : COLLAPSED_CONTEXT_LINES;
+  const whitespace = useMemo<DiffLoadOptions>(() => ignoreWhitespace ? { ignoreWhitespace: true } : {}, [ignoreWhitespace]);
+  const isCollapsed = useCallback((path: string) => filesStartCollapsed !== toggledFiles.has(path), [filesStartCollapsed, toggledFiles]);
+  const toggleCollapsed = useCallback((path: string) => setToggledFiles((current) => {
+    const next = new Set(current);
+    if (!next.delete(path)) next.add(path);
+    return next;
+  }), []);
   const filteredFiles = useMemo(() => {
     const query = filter.trim().toLocaleLowerCase();
     if (!query) return paged.files;
@@ -166,8 +197,8 @@ export function ReviewMode({
   useEffect(() => {
     let cancelled = false;
     const options: DiffLoadOptions = readOnly
-      ? { hunkLimit: 40, contextLines }
-      : { hunkLimit: 40, contextLines, scope, baseRef: visibleChanges.baseRef, baseCommit: visibleChanges.baseCommit };
+      ? { hunkLimit: 40, contextLines, ...whitespace }
+      : { hunkLimit: 40, contextLines, ...whitespace, scope, baseRef: visibleChanges.baseRef, baseCommit: visibleChanges.baseCommit };
     let nextIndex = 0;
     const loadNext = async (): Promise<void> => {
       // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- cancelled flips in the effect cleanup below, which aborts this in-flight loop.
@@ -192,7 +223,7 @@ export function ReviewMode({
     };
     void Promise.all(Array.from({ length: Math.min(4, paged.files.length) }, () => loadNext()));
     return () => { cancelled = true; };
-  }, [contextLines, loadDiff, paged.files, readOnly, scope, visibleChanges.baseCommit, visibleChanges.baseRef]);
+  }, [contextLines, loadDiff, paged.files, readOnly, scope, visibleChanges.baseCommit, visibleChanges.baseRef, whitespace]);
 
   const onVisiblePathChange = useCallback((path: string) => {
     if (path !== selectedPathRef.current) onSelect(path);
@@ -209,6 +240,7 @@ export function ReviewMode({
   useEffect(() => () => resizeCleanupRef.current?.(), []);
 
   const scrollToFile = (path: string) => {
+    if (isCollapsed(path)) toggleCollapsed(path);
     onSelect(path);
     streamRef.current?.scrollToPath(path);
   };
@@ -223,7 +255,7 @@ export function ReviewMode({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !editingMessage && !draft) {
+      if (event.key === "Escape" && !editingMessage && !event.defaultPrevented) {
         onBack();
         return;
       }
@@ -290,6 +322,7 @@ export function ReviewMode({
       setScope(nextScope);
       setVisibleChanges(next);
       setReviewState(readReviewState(workspaceKey, nextScope));
+      setToggledFiles(new Set());
       setFilter("");
       if (next.files[0]) onSelect(next.files[0].path);
     } catch (error) {
@@ -301,20 +334,6 @@ export function ReviewMode({
 
   const readPaths = useMemo(() => new Set(reviewState.readPaths), [reviewState.readPaths]);
   const visibleReadCount = paged.files.filter((file) => readPaths.has(file.path)).length;
-  const annotationsByPath = useMemo(() => {
-    const counts = new Map<string, Map<number, number>>();
-    for (const comment of reviewState.comments) {
-      if (comment.resolved || comment.line === undefined) continue;
-      const lines = counts.get(comment.path) ?? new Map<number, number>();
-      lines.set(comment.line, (lines.get(comment.line) ?? 0) + 1);
-      counts.set(comment.path, lines);
-    }
-    return counts;
-  }, [reviewState.comments]);
-  const annotationCount = useCallback(
-    (path: string, line: number) => annotationsByPath.get(path)?.get(line) ?? 0,
-    [annotationsByPath],
-  );
 
   const toggleRead = (path: string) => updateReviewState((current) => ({
     ...current,
@@ -323,18 +342,6 @@ export function ReviewMode({
       : [...current.readPaths, path],
   }));
 
-  const saveComment = () => {
-    const body = draftBody.trim();
-    if (!draft || !body) return;
-    updateReviewState((current) => ({
-      ...current,
-      comments: [...current.comments, { id: crypto.randomUUID(), ...draft, body, createdAt: Date.now() }],
-    }));
-    setDraft(undefined);
-    setDraftBody("");
-    setNotesOpen(true);
-  };
-
   const loadMore = (path: string) => {
     const diff = diffs.get(path);
     if (!diff?.truncated || diff.nextHunkOffset === undefined) return;
@@ -342,6 +349,7 @@ export function ReviewMode({
       hunkOffset: diff.nextHunkOffset,
       hunkLimit: 40,
       contextLines,
+      ...whitespace,
       ...(readOnly ? {} : { scope, baseRef: visibleChanges.baseRef, baseCommit: visibleChanges.baseCommit }),
     };
     void loadDiff(path, options)
@@ -360,19 +368,25 @@ export function ReviewMode({
     const error = diffErrors.get(file.path);
     return [
       { kind: "file", key: `${file.path}\0header`, path: file.path, file, ...(diff ? { diff } : {}) } satisfies DiffStreamRow,
-      ...fileDiffRows(file.path, diff, { collapsible: true, ...(error ? { error } : {}) }),
+      ...isCollapsed(file.path) ? [] : fileDiffRows(file.path, diff, { collapsible: true, ...(error ? { error } : {}) }),
       { kind: "separator", key: `${file.path}\0end`, path: "" } satisfies DiffStreamRow,
     ];
-  }), [diffErrors, diffs, paged.files]);
+  }), [diffErrors, diffs, isCollapsed, paged.files]);
+  const allCollapsed = paged.files.length > 0 && paged.files.every((file) => isCollapsed(file.path));
+  const setAllCollapsed = (collapsed: boolean) => setToggledFiles(collapsed === filesStartCollapsed
+    ? new Set()
+    : new Set(paged.files.map((file) => file.path)));
   const streamLanguages = useMemo(
     () => [...new Set(paged.files.map((file) => diffLanguage(file.path)).filter((language): language is string => language !== undefined))],
     [paged.files],
   );
-  const annotate = useCallback((path: string, line: number) => {
-    setDraft({ path, line });
-    setDraftBody("");
-  }, []);
   const renderFileHeader = useCallback((file: UiChangedFile, diff?: UiFileDiff) => <header className="review-file-header">
+    <button
+      className="icon-button compact review-file-fold"
+      aria-label={`${isCollapsed(file.path) ? "Expand" : "Collapse"} ${file.path}`}
+      aria-expanded={!isCollapsed(file.path)}
+      onClick={() => toggleCollapsed(file.path)}
+    >{isCollapsed(file.path) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</button>
     <span className={`review-file-status ${file.status}`}>{file.status.charAt(0).toUpperCase()}</span>
     <FileKindIcon name={file.name} />
     <strong>{file.name}</strong>
@@ -381,7 +395,7 @@ export function ReviewMode({
     <span className="stat-add">+{diff?.added ?? file.added}</span>
     <span className="stat-del">−{diff?.removed ?? file.removed}</span>
     {editor ? <button className="icon-button compact" aria-label={`Open ${file.path} in ${editor.name}`} title={`Open in ${editor.name}`} onClick={() => onOpenInEditor(file.path)}><ExternalLink size={12} /></button> : null}
-  </header>, [editor, onOpenInEditor]);
+  </header>, [editor, isCollapsed, onOpenInEditor, toggleCollapsed]);
   const generateCommitMessage = async () => {
     if (!suggestCommitMessage || generatingMessage) return;
     setGeneratingMessage(true);
@@ -457,13 +471,21 @@ export function ReviewMode({
             <button className="icon-button" aria-label="Next changed file" disabled={filteredFiles.length === 0} onClick={() => cycleFile(1)}><ChevronRight size={15} /></button>
           </div>
           <span className="spacer" />
-          {!readOnly && selectedPath ? <button className="text-button review-comment-action" onClick={() => {
-            setDraft({ path: selectedPath });
-            setDraftBody("");
-          }}><MessageSquare size={12} /> Comment</button> : null}
-          {!readOnly ? <button className={`text-button review-notes-action ${notesOpen ? "active" : ""}`} onClick={() => setNotesOpen((open) => !open)}>
-            <MessagesSquare size={12} /> {reviewState.comments.filter((comment) => !comment.resolved).length} notes
-          </button> : null}
+          {toolbar}
+          <button
+            className="icon-button review-fold-all"
+            aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
+            title={allCollapsed ? "Expand all files" : "Collapse all files"}
+            disabled={paged.files.length === 0}
+            onClick={() => setAllCollapsed(!allCollapsed)}
+          >{allCollapsed ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}</button>
+          {onIgnoreWhitespaceChange ? <button
+            className={`text-button review-whitespace-action ${ignoreWhitespace ? "active" : ""}`}
+            aria-pressed={ignoreWhitespace}
+            title={ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
+            disabled={paged.files.length === 0}
+            onClick={() => onIgnoreWhitespaceChange(!ignoreWhitespace)}
+          >Ignore whitespace</button> : null}
           <div className="toggle-group" aria-label="Diff context">
             <button disabled={paged.files.length === 0} className={contextMode === "collapse" ? "active" : ""} onClick={() => setContextMode("collapse")}>Diff only</button>
             <button disabled={paged.files.length === 0} className={contextMode === "expand" ? "active" : ""} onClick={() => setContextMode("expand")}>All lines</button>
@@ -484,21 +506,6 @@ export function ReviewMode({
           >{sidebarOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}</button>
         </header>
 
-        {draft ? <div className="review-comment-composer" role="dialog" aria-label="Add review note">
-          <strong>{draft.line ? `${draft.path}:${draft.line}` : draft.path}</strong>
-          <textarea
-            autoFocus
-            placeholder="Leave a review note…"
-            value={draftBody}
-            onChange={(event) => setDraftBody(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") saveComment();
-            }}
-          />
-          <button className="mini-button" onClick={saveComment}>Add note</button>
-          <button className="icon-button compact" aria-label="Cancel comment" onClick={() => setDraft(undefined)}><X size={13} /></button>
-        </div> : null}
-
         <div className="review-stage-content">
           <div className="review-diff-stream" ref={diffScrollRef}>
             {paged.files.length === 0 ? <div className="diff-empty">No changes in this scope.</div> : <DiffStream
@@ -508,27 +515,14 @@ export function ReviewMode({
               scrollRef={diffScrollRef}
               languages={streamLanguages}
               {...(selectedPath ? { activePath: selectedPath } : {})}
-              annotationCount={annotationCount}
-              {...(readOnly ? {} : { onAnnotate: annotate })}
+              {...(lines ? { lines } : {})}
               onExpandContext={() => setContextMode("expand")}
               onLoadMore={loadMore}
               renderFileHeader={renderFileHeader}
               onVisiblePathChange={onVisiblePathChange}
             />}
           </div>
-          {notesOpen ? <aside className="review-notes">
-            <header><strong>Review notes</strong><button className="icon-button compact" aria-label="Close notes" onClick={() => setNotesOpen(false)}><X size={13} /></button></header>
-            {reviewState.comments.length === 0 ? <p>No notes yet.</p> : reviewState.comments.map((comment) => <article key={comment.id} className={comment.resolved ? "resolved" : ""}>
-              <small>{comment.path}{comment.line ? `:${comment.line}` : ""}</small>
-              <p>{comment.body}</p>
-              <button className="text-button" onClick={() => updateReviewState((current) => ({
-                ...current,
-                comments: current.comments.map((entry) => entry.id === comment.id
-                  ? { ...entry, resolved: !entry.resolved }
-                  : entry),
-              }))}>{comment.resolved ? "Reopen" : "Resolve"}</button>
-            </article>)}
-          </aside> : null}
+          {aside}
         </div>
       </main>
 
