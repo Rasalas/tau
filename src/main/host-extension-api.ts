@@ -46,3 +46,7 @@ export { assistantAnchorForBranch } from "./session-entries.js";
 export { readBoundedImagePreview } from "./image-preview.js";
 export { gitExecutable, findExecutable } from "./shell-environment.js";
 export { assertAllowedCloneSource } from "./clone-source.js";
+
+/** For a backend that drives a CLI: the newest npm release, the package manager's update command, version order. */
+export { npmLatestVersion, packageUpdateCommand, type NpmLatestVersionOptions } from "./cli-versions.js";
+export { compareVersions, updateAvailable } from "../shared/runtime-version.js";

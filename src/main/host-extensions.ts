@@ -6,6 +6,7 @@ import type {
   ExtensionUiPrompt,
   GlobalHostEvent,
   HostExtensionSummary,
+  RuntimeToolVersion,
   ThreadBackendKind,
   UiComposerCommand,
   UiMessage,
@@ -89,6 +90,12 @@ export interface HostRuntimeBackendProvider {
   composerCommands(cwd: string): UiComposerCommand[];
   /** Rejects a prompt the backend cannot serve at this access level. */
   assertPromptAllowed?(level: RuntimePermissionLevel): void;
+  /**
+   * The program the backend drives: its installed and newest version and how
+   * to update it. The host asks once a day and publishes the answer on
+   * `runtimeBackends`; clients show a hint when `installed` is older.
+   */
+  version?(): Promise<RuntimeToolVersion | undefined>;
 }
 
 /**

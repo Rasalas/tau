@@ -100,6 +100,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
 import { buildPiHostComponents } from "./pi-host-components.js";
+import { RuntimeVersions } from "./runtime-versions.js";
 import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
@@ -157,6 +158,7 @@ export class PiHost {
   private readonly completions: HostCompletions;
   private completionModels?: UiModel[];
   private completionModelsPending = false;
+  private readonly runtimeVersions: RuntimeVersions;
   private readonly lifecycleMetrics: HostLifecycleInstrumentation;
   /** Everything host extensions contribute; only the seam writes those registries. */
   private readonly seam: HostExtensionSeam;
@@ -289,6 +291,11 @@ export class PiHost {
     this.index = components.index;
     this.publication = components.publication;
     this.seam = components.seam;
+    this.runtimeVersions = new RuntimeVersions({
+      providers: () => this.seam.backends.values(),
+      onChange: () => void this.publishActiveCatalog().catch(() => undefined),
+      log: (label, detail) => this.log(label, detail),
+    });
     this.hostExtensions = components.hostExtensions;
     this.packages = components.packages;
     this.watch = components.watch;
@@ -1462,7 +1469,10 @@ export class PiHost {
 
   /** The backends a new thread can run on: Pi, then what host extensions registered. */
   private runtimeBackends(): UiRuntimeBackend[] {
-    const registered = [...this.seam.backends.values()].map((provider) => ({ kind: provider.kind, label: provider.label ?? provider.kind }));
+    const registered = [...this.seam.backends.values()].map((provider) => {
+      const version = this.runtimeVersions.get(provider.kind);
+      return { kind: provider.kind, label: provider.label ?? provider.kind, ...(version ? { version } : {}) };
+    });
     return [{ kind: "pi", label: "Pi" }, ...registered];
   }
 
@@ -1848,6 +1858,7 @@ export class PiHost {
 
   async snapshot(): Promise<HostSnapshot> {
     this.ensureCompletionModels();
+    this.runtimeVersions.refresh();
     const models = await this.ensureModels();
     return { ...this.snapshotSync(models), projectLabel: this.projects.label(this.cwd) };
   }

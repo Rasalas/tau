@@ -151,6 +151,19 @@ export interface UiModel {
 export interface UiRuntimeBackend {
   kind: ThreadBackendKind;
   label: string;
+  /** The program the backend drives, once the host asked it; see `RuntimeToolVersion`. */
+  version?: RuntimeToolVersion;
+}
+
+/** What a backend knows of the program it drives, so a client can say an update is out. */
+export interface RuntimeToolVersion {
+  /** The program as the user knows it: `codex`, `claude`. */
+  tool: string;
+  installed?: string;
+  /** The newest release; absent when it is unknown. */
+  latest?: string;
+  /** What updates it: a shell command, or where in Tau to click. */
+  updateCommand?: string;
 }
 
 export interface UiComposerCommand {
