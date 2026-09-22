@@ -1892,8 +1892,9 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 
 /* ---------------------------------------------------------------- stage */
 
+/* No container-type here: the centre's grid/flex switch would leave .stage-pane without a layout box (see stage-styles.test.ts). */
 .stage {
-  display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
   border-left: 1px solid var(--line); background: var(--stage);
 }
 .stage-tabs {
