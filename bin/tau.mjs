@@ -1,0 +1,206 @@
+#!/usr/bin/env node
+// `tau app [path]`: opens a folder in the running Tau, the way `t3 app` does
+// for T3 Code. It reads `<userData>/host.json`, which the window writes for the
+// host process it supervises (ADR 0021), says hello with the host's token and
+// asks Workspace Kit's `app-open`. Without a running host it starts the app.
+// Plain Node, no dependencies: Node 22 has a global WebSocket.
+import { spawn } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+/** `configureAppIdentity` in `src/main/single-instance.ts` names the folder the same way. */
+export const USER_DATA_FOLDER = "tau-pi-desktop-prototype";
+const PROTOCOL = 1;
+const WORKSPACE_KIT = "tau.workspace";
+const TIMEOUT_MS = 15_000;
+
+export const USAGE = `Usage: tau app [path]
+
+Opens a folder in the running Tau with a new thread, and brings its window to
+the front. Without a running Tau it starts the app on that folder.
+
+  path   the folder to open; the current directory when left out
+
+TAU_USER_DATA names the instance, as it does for the app itself.`;
+
+export function parseArgs(argv) {
+  const [command, ...rest] = argv;
+  if (!command || command === "-h" || command === "--help" || command === "help") return { help: true };
+  if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
+  const paths = rest.filter((arg) => arg !== "--");
+  if (paths.some((arg) => arg === "-h" || arg === "--help")) return { help: true };
+  if (paths.length > 1) throw new Error("tau app takes one folder.");
+  return { command, path: paths[0] };
+}
+
+/** Electron's `appData` joined with the folder the app names itself. */
+export function userDataDir(env = process.env, platform = process.platform, home = homedir()) {
+  if (env.TAU_USER_DATA) return resolve(env.TAU_USER_DATA);
+  if (platform === "darwin") return join(home, "Library", "Application Support", USER_DATA_FOLDER);
+  if (platform === "win32") return join(env.APPDATA || join(home, "AppData", "Roaming"), USER_DATA_FOLDER);
+  return join(env.XDG_CONFIG_HOME || join(home, ".config"), USER_DATA_FOLDER);
+}
+
+function alive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+/** The host the window started, if its process still runs: `{ url, token }`. */
+export function readRunningHost(userData, isAlive = alive) {
+  let descriptor;
+  try {
+    descriptor = JSON.parse(readFileSync(join(userData, "host.json"), "utf8"));
+  } catch {
+    return undefined;
+  }
+  if (!descriptor || typeof descriptor.url !== "string" || typeof descriptor.tokenPath !== "string") return undefined;
+  if (!isAlive(descriptor.pid)) return undefined;
+  let token;
+  try {
+    token = readFileSync(descriptor.tokenPath, "utf8").trim();
+  } catch {
+    return undefined;
+  }
+  return token ? { url: descriptor.url, token } : undefined;
+}
+
+/**
+ * One connection: hello with the token, as an auxiliary client so the host
+ * does not count the command line as a window, then one `host-extension` call.
+ */
+export async function askHost({ url, token }, command, input, WebSocketImpl = globalThis.WebSocket, options = {}) {
+  const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
+  if (!WebSocketImpl) throw new Error("This Node has no WebSocket; Tau's command line needs Node 22 or newer.");
+  const socket = new WebSocketImpl(url);
+  const pending = new Map();
+  let failure;
+  const settleAll = (error) => {
+    failure ??= error;
+    for (const waiter of pending.values()) waiter.reject(error);
+    pending.clear();
+  };
+  const timer = setTimeout(() => {
+    settleAll(new Error("Tau did not answer in time."));
+    socket.close();
+  }, timeoutMs);
+  socket.addEventListener("message", (event) => {
+    let frame;
+    try { frame = JSON.parse(String(event.data)); } catch { return; }
+    const id = frame.type === "response" ? frame.response?.id : frame.id;
+    const waiter = pending.get(id);
+    if (!waiter) return;
+    pending.delete(id);
+    if (frame.type === "hello-reply") waiter.resolve(frame.reply);
+    else if (frame.response?.error) waiter.reject(new Error(frame.response.error.message));
+    else waiter.resolve(frame.response?.result);
+  });
+  socket.addEventListener("error", () => settleAll(new Error(`Could not reach Tau at ${url}.`)));
+  // A wrong token is answered by a close.
+  socket.addEventListener("close", () => settleAll(new Error("Tau closed the connection; the token in host.json may be stale.")));
+  const send = (id, frame) => new Promise((resolvePromise, reject) => {
+    if (failure) { reject(failure); return; }
+    pending.set(id, { resolve: resolvePromise, reject });
+    socket.send(JSON.stringify(frame));
+  });
+  try {
+    await new Promise((resolvePromise, reject) => {
+      socket.addEventListener("open", () => resolvePromise());
+      socket.addEventListener("error", () => reject(new Error(`Could not reach Tau at ${url}.`)));
+    });
+    await send("hello", { type: "hello", id: "hello", hello: { protocol: PROTOCOL, token, auxiliary: true } });
+    // A host no client has started yet starts on its first bootstrap, as it would for a window.
+    if (options.bootstrap) await send("bootstrap", { type: "request", request: { id: "bootstrap", method: "bootstrap", params: [] } });
+    return await send("call", { type: "request", request: { id: "call", method: "host-extension", params: [WORKSPACE_KIT, command, input] } });
+  } finally {
+    clearTimeout(timer);
+    pending.clear();
+    failure ??= new Error("closed");
+    socket.close();
+  }
+}
+
+/**
+ * What starts the app: `TAU_APP` when it names a program, the Electron of a
+ * built checkout this file lives in, or the bundle of an installed Tau.
+ */
+export function appLauncher(env = process.env, self = fileURLToPath(import.meta.url)) {
+  if (env.TAU_APP) return { command: env.TAU_APP, args: [], cwd: process.cwd() };
+  const real = realpathSync(self);
+  const root = dirname(dirname(real));
+  const electronPath = join(root, "node_modules", "electron", "path.txt");
+  if (existsSync(electronPath) && existsSync(join(root, "dist-electron", "main", "launcher.js"))) {
+    const binary = join(root, "node_modules", "electron", "dist", readFileSync(electronPath, "utf8").trim());
+    return { command: binary, args: ["."], cwd: root };
+  }
+  const bundle = real.split(sep).findIndex((part) => part.endsWith(".app"));
+  if (process.platform === "darwin" && bundle >= 0) {
+    const app = real.split(sep).slice(0, bundle + 1).join(sep);
+    const macos = join(app, "Contents", "MacOS");
+    const executable = readdirSync(macos).find((name) => !name.startsWith("."));
+    if (executable) return { command: join(macos, executable), args: [], cwd: dirname(app) };
+  }
+  return undefined;
+}
+
+function launch(launcher, env) {
+  const childEnv = { ...process.env, ...env };
+  // Inherited from an agent's shell, this would run Electron as plain Node.
+  delete childEnv.ELECTRON_RUN_AS_NODE;
+  const child = spawn(launcher.command, launcher.args, { cwd: launcher.cwd, env: childEnv, detached: true, stdio: "ignore" });
+  child.on("error", () => undefined);
+  child.unref();
+}
+
+export async function main(argv = process.argv.slice(2), io = {}) {
+  const out = io.out ?? ((line) => process.stdout.write(`${line}\n`));
+  const env = io.env ?? process.env;
+  const start = io.launch ?? launch;
+  const options = parseArgs(argv);
+  if (options.help) { out(USAGE); return 0; }
+  const folder = resolve(io.cwd ?? process.cwd(), options.path ?? ".");
+  if (!existsSync(folder) || !statSync(folder).isDirectory()) throw new Error(`${folder} is not a folder.`);
+  const path = realpathSync(folder);
+  const userData = userDataDir(env);
+  const host = (io.readRunningHost ?? readRunningHost)(userData);
+  let answer;
+  if (host) {
+    try {
+      answer = await askHost(host, "app-open", { path }, io.WebSocket)
+        .catch((error) => /has not started/u.test(error.message) ? askHost(host, "app-open", { path }, io.WebSocket, { bootstrap: true, timeoutMs: 90_000 }) : Promise.reject(error));
+    } catch (error) {
+      if (!/Could not reach/u.test(error.message)) throw error;
+    }
+  }
+  if (answer?.delivered) {
+    out(`Opened ${answer.displayPath} in Tau.`);
+    return 0;
+  }
+  const launcher = io.launcher ?? appLauncher(env);
+  if (!launcher) throw new Error("Tau is not running, and this copy of the command line cannot find the app to start. Start Tau, then run tau app again.");
+  // A running host keeps the request for the window; a new app opens the folder itself.
+  start(launcher, { ...(env.TAU_USER_DATA ? { TAU_USER_DATA: env.TAU_USER_DATA } : {}), ...(answer ? {} : { TAU_WORKSPACE: path }) });
+  out(answer ? `Tau's host runs without a window; opening one for ${basename(path)}.` : `Starting Tau with ${path}.`);
+  return 0;
+}
+
+const invokedDirectly = (() => {
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1] ?? "")).href;
+  } catch {
+    return false;
+  }
+})();
+if (invokedDirectly) {
+  main().then((code) => { process.exitCode = code; }, (error) => {
+    process.stderr.write(`tau: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

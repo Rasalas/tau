@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dmgPattern, parseArgs, pickDmg } from "./install-mac.mjs";
+import { cliPath, dmgPattern, parseArgs, pickDmg } from "./install-mac.mjs";
 
 describe("install-mac", () => {
   it("parses the version and open flags", () => {
@@ -15,5 +15,9 @@ describe("install-mac", () => {
     expect(pickDmg(names, "x64")).toBe("Tau-0.1.2.dmg");
     expect(() => pickDmg(["Tau-0.1.2.AppImage"], "arm64")).toThrow("expected one .dmg");
     expect(dmgPattern("arm64")).toBe("Tau-*-arm64.dmg");
+  });
+
+  it("names the command line inside the installed bundle", () => {
+    expect(cliPath("/Applications/Tau.app")).toBe("/Applications/Tau.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs");
   });
 });

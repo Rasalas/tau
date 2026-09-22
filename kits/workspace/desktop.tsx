@@ -1,4 +1,5 @@
-import { Files, GitCompare } from "lucide-react";
+import { useEffect } from "react";
+import { Files, GitCompare, HardDrive } from "lucide-react";
 import {
   errorMessage,
   type DesktopExtension,
@@ -20,6 +21,9 @@ import { ChangesPanel, FilesPanel } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { WorkspaceTitleActions } from "./title.js";
+import { createStoragePage } from "./storage-page.js";
+import { OPEN_REQUEST_EVENT, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
+import { OpenRequests } from "./open-requests.js";
 
 /** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
 function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChanges; editor?: UiEditor } {
@@ -122,6 +126,37 @@ export const workspaceExtension: DesktopExtension = {
     // workspace contribution. Removing Workspace Kit therefore removes both
     // the card and its diff surface without App knowing their implementation.
     registerCheckpoints(context, store);
+    const storageCall = <K extends keyof WorktreeStorageHostCommands>(command: K, input: WorktreeStorageHostCommands[K]["input"]) =>
+      context.host.invoke(command, input) as Promise<WorktreeStorageHostCommands[K]["output"]>;
+    context.registerSettingsPage({
+      id: "workspace.storage",
+      label: "Storage",
+      Icon: HardDrive,
+      order: 50,
+      keywords: ["worktrees", "cleanup", "disk space", "delete worktree"],
+      profiles: ["desktop", "web"],
+      Component: createStoragePage({
+        report: () => storageCall("storage-report", undefined),
+        setPolicy: (patch) => storageCall("cleanup-policy", patch),
+        cleanUp: (paths) => storageCall("cleanup-run", { paths }),
+        remove: (path, confirm) => storageCall("storage-remove", { path, confirm }),
+        onChanged: (listener) => context.host.onEvent(STORAGE_CHANGED_EVENT, listener),
+      }),
+    });
+    // `tau app <path>`: a request pushed now, or one that waited for this window.
+    const openRequests = new OpenRequests();
+    context.host.onEvent(OPEN_REQUEST_EVENT, (payload) => openRequests.receive(payload));
+    context.host.invoke(TAKE_OPEN_REQUEST_COMMAND).then((request) => openRequests.receive(request), () => undefined);
+    context.registerRegion({
+      id: "workspace.open-requests",
+      placement: "composer-above",
+      order: 1,
+      profiles: ["desktop", "web"],
+      Component: function OpenRequestFollower({ actions }) {
+        useEffect(() => openRequests.bind(actions), [actions]);
+        return null;
+      },
+    });
     // A new thread's worktree is created while its first prompt waits (ADR 0017).
     context.registerPromptHook({
       id: "workspace.new-thread-worktree",

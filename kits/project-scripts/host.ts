@@ -3,13 +3,20 @@ import { HostCommandError, type HostExtension, type HostExtensionContext } from 
 import { readProjectScripts } from "./project-file.js";
 import {
   PROJECT_SCRIPTS_HOST_EXTENSION_ID,
+  RUN_EVENT,
   SCRIPTS_CHANGED_EVENT,
+  SETUP_DISMISSED_EVENT,
+  SETUP_EVENT,
   WORKTREE_CREATED_COMMAND,
+  WORKTREE_SETUP_BEGIN_COMMAND,
+  WORKTREE_SETUP_FAILED_COMMAND,
+  WORKTREE_SETUP_STEP_COMMAND,
   type ProjectScriptsState,
   type ScriptScope,
   type UiScriptRun,
 } from "./protocol.js";
 import { ScriptRuns, spawnScript, type ScriptSpawner, type UrlProbe } from "./runner.js";
+import { SetupTracker } from "./setup.js";
 import { ProjectFileWatch, type WatchFn } from "./watch.js";
 
 export interface ProjectScriptsHostOptions {
@@ -41,9 +48,13 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
     permissions: ["workspace:read", "sessions", "process", "network"],
     activate(context: HostExtensionContext) {
       const { services } = context;
+      const setups = new SetupTracker({ emit: (setup) => context.emit(SETUP_EVENT, setup) });
       const runs = new ScriptRuns({
         spawn: options.spawn ?? spawnScript,
-        emit: context.emit,
+        emit: (name, payload) => {
+          context.emit(name, payload);
+          if (name === RUN_EVENT) setups.runChanged(payload as UiScriptRun);
+        },
         ...(options.probe ? { probe: options.probe } : {}),
         onSpawn: () => services.noteSubprocess(),
       });
@@ -110,8 +121,36 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
       context.registerCommand("dismiss", (raw) => { runs.dismiss(String(fields(raw).runId)); });
       context.registerCommand("runs", () => runs.list());
 
-      // Workspace Kit's worktree setup, on the same script definitions. A
-      // blocking script (`async: false`) holds the new thread until it exits.
+      // Workspace Kit's worktree setup, on the same script definitions, tracked
+      // step by step for the card. A blocking script (`async: false`) holds the
+      // new thread until it exits, the user cancels it or stops waiting.
+      const workspaceOnly = { callers: ["tau.workspace"] };
+      const setupIdOf = (input: Record<string, unknown>) => {
+        const id = text(input.setupId);
+        return id && setups.get(id) ? id : undefined;
+      };
+      context.registerCommand(WORKTREE_SETUP_BEGIN_COMMAND, async (raw) => {
+        const input = fields(raw);
+        const project = text(input.project);
+        if (!project || !isAbsolute(project)) throw new HostCommandError("worktree-setup-begin needs an absolute project path.");
+        const state = await readProjectScripts(project);
+        const setup = setups.begin({
+          project,
+          ...(text(input.branch) ? { branch: text(input.branch) } : {}),
+          scripts: state.scripts.filter((script) => script.runOnWorktreeCreate),
+        });
+        return { setupId: setup.id };
+      }, workspaceOnly);
+      context.registerCommand(WORKTREE_SETUP_STEP_COMMAND, (raw) => {
+        const input = fields(raw);
+        const id = setupIdOf(input);
+        if (id && (input.stage === "fetch" || input.stage === "checkout")) setups.step(id, input.stage, text(input.detail));
+      }, workspaceOnly);
+      context.registerCommand(WORKTREE_SETUP_FAILED_COMMAND, (raw) => {
+        const input = fields(raw);
+        const id = setupIdOf(input);
+        if (id) setups.failed(id, text(input.error) ?? "The worktree could not be created.");
+      }, workspaceOnly);
       context.registerCommand(WORKTREE_CREATED_COMMAND, async (raw) => {
         const input = fields(raw);
         const project = text(input.project);
@@ -120,23 +159,60 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
           throw new HostCommandError("worktree-created needs absolute project and worktree paths.");
         }
         const state = await readProjectScripts(project);
+        const scripts = state.scripts.filter((candidate) => candidate.runOnWorktreeCreate);
+        const setupId = setupIdOf(input) ?? setups.begin({ project, scripts }).id;
+        setups.created(setupId, worktree);
         const started: UiScriptRun[] = [];
-        for (const script of state.scripts.filter((candidate) => candidate.runOnWorktreeCreate)) {
-          const run = runs.start({
-            script,
-            directory: worktree,
-            root: services.cwd(),
-            trigger: "worktree-create",
-            env: { TAU_PROJECT_ROOT: project, TAU_WORKTREE_PATH: worktree },
-          });
-          services.log("git.worktree.setup", `${script.id}: ${script.command}`);
-          started.push(script.async ? run : await runs.finished(run.id));
-        }
-        for (const run of started.filter((candidate) => candidate.status === "failed")) {
-          services.log("git.worktree.setup-failed", `${run.scriptId} exited with ${run.exitCode ?? run.signal ?? "?"}`);
-        }
-        return { runs: started };
-      }, { long: true, callers: ["tau.workspace"] });
+        const endings = new Map<string, Promise<UiScriptRun>>();
+        const ended = (run: UiScriptRun) => {
+          let ending = endings.get(run.id);
+          if (!ending) {
+            ending = runs.finished(run.id).catch(() => run).then((final) => {
+              if (final.status === "failed") services.log("git.worktree.setup-failed", `${final.scriptId} exited with ${final.exitCode ?? final.signal ?? "?"}`);
+              return final;
+            });
+            endings.set(run.id, ending);
+          }
+          return ending;
+        };
+        const blocking = (async () => {
+          for (const script of scripts) {
+            if (setups.isCancelled(setupId)) break;
+            const run = runs.start({
+              script,
+              directory: worktree,
+              root: services.cwd(),
+              trigger: "worktree-create",
+              env: { TAU_PROJECT_ROOT: project, TAU_WORKTREE_PATH: worktree },
+            });
+            services.log("git.worktree.setup", `${script.id}: ${script.command}`);
+            started.push(run);
+            setups.attach(setupId, script.id, run);
+            const ending = ended(run);
+            if (!script.async) await ending;
+          }
+        })();
+        void blocking.then(() => Promise.all(started.map(ended))).finally(() => setups.finish(setupId));
+        await Promise.race([blocking, setups.released(setupId)]);
+        const current = new Map(runs.list().map((run) => [run.id, run]));
+        return { setupId, runs: started.map((run) => current.get(run.id) ?? run) };
+      }, { long: true, ...workspaceOnly });
+
+      context.registerCommand("setups", () => setups.list());
+      context.registerCommand("setup-cancel", (raw) => {
+        const id = setupIdOf(fields(raw));
+        if (!id) return;
+        for (const runId of setups.cancel(id)) runs.stop(runId);
+        services.log("git.worktree.setup-cancelled", id);
+      });
+      context.registerCommand("setup-release", (raw) => {
+        const id = setupIdOf(fields(raw));
+        if (id) setups.release(id);
+      });
+      context.registerCommand("setup-dismiss", (raw) => {
+        const id = setupIdOf(fields(raw));
+        if (id && setups.dismiss(id)) context.emit(SETUP_DISMISSED_EVENT, { id });
+      });
 
       // A script belongs to the workspace it was started from and ends with it.
       const unhook = services.registerThreadLifecycle({

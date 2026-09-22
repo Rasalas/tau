@@ -36,7 +36,8 @@ export interface WorkbenchActions {
   openPanel(id: string): void;
   openCommandPalette(): void;
   openSettings(page?: string): void;
-  newSession(): void;
+  /** A new thread's draft, through the project picker; with `workspace`, in that project directly, and nothing when the window does not know it yet. */
+  newSession(options?: { workspace?: string }): void;
   switchSession(path: string): Promise<boolean>;
   settleActiveThread(): void;
   abort(): void;

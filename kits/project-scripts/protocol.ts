@@ -64,6 +64,44 @@ export interface UiScriptRun {
   previewReady?: boolean;
 }
 
+export type SetupStageStatus = "pending" | "running" | "done" | "failed" | "skipped";
+
+/** One step of a worktree setup: a Git step, or one `runOnWorktreeCreate` script. */
+export interface UiSetupStage {
+  /** `fetch`, `checkout`, or `script:<id>`. */
+  id: string;
+  label: string;
+  status: SetupStageStatus;
+  startedAt?: number;
+  endedAt?: number;
+  /** Short trailing text: an exit code, "cancelled". */
+  detail?: string;
+  /** The script's last lines, colour codes stripped, newest last. */
+  tail: string[];
+  command?: string;
+  /** The thread does not wait for this script. */
+  async?: boolean;
+  runId?: string;
+}
+
+/** A new thread's worktree being set up, step by step, as the card draws it. */
+export interface UiWorktreeSetup {
+  id: string;
+  /** The checkout the thread was started from. */
+  project: string;
+  /** The new worktree, once it exists. */
+  worktree?: string;
+  branch?: string;
+  phase: "running" | "done" | "failed" | "cancelled";
+  startedAt: number;
+  endedAt?: number;
+  stages: UiSetupStage[];
+  /** Why the worktree could not be made. */
+  error?: string;
+  /** The user let the thread start before the blocking scripts ended. */
+  released?: boolean;
+}
+
 /** What `list` answers for one directory. */
 export interface ProjectScriptsState {
   directory: string;
@@ -86,6 +124,13 @@ export interface ProjectScriptsHostCommands {
   "stop": { input: { runId: string }; output: void };
   "dismiss": { input: { runId: string }; output: void };
   "runs": { input: undefined; output: UiScriptRun[] };
+  /** Every worktree setup the host still holds. */
+  "setups": { input: undefined; output: UiWorktreeSetup[] };
+  /** Stops the setup's scripts; the ones not started yet never start, and the thread starts in the worktree. */
+  "setup-cancel": { input: { setupId: string }; output: void };
+  /** Starts the thread now; blocking scripts go on in the background. */
+  "setup-release": { input: { setupId: string }; output: void };
+  "setup-dismiss": { input: { setupId: string }; output: void };
 }
 
 export type ProjectScriptsHostClient = {
@@ -103,6 +148,10 @@ export function createProjectScriptsHostClient(invoke: (command: string, input?:
     stop: call("stop"),
     dismiss: call("dismiss"),
     runs: call("runs"),
+    setups: call("setups"),
+    "setup-cancel": call("setup-cancel"),
+    "setup-release": call("setup-release"),
+    "setup-dismiss": call("setup-dismiss"),
   } as ProjectScriptsHostClient;
 }
 
@@ -115,12 +164,28 @@ export const WORKTREE_CREATED_COMMAND = "worktree-created";
 export interface WorktreeCreatedInput {
   project: string;
   worktree: string;
+  /** The setup `worktree-setup-begin` opened; one is opened here without it. */
+  setupId?: string;
 }
+
+/**
+ * Workspace Kit reports the steps before the scripts, so the card shows the
+ * whole setup from the moment the thread's first prompt was sent (callers
+ * `tau.workspace`): `begin` answers `{ setupId }`, `step` moves to a Git step,
+ * `failed` ends a setup whose worktree could not be made.
+ */
+export const WORKTREE_SETUP_BEGIN_COMMAND = "worktree-setup-begin";
+export const WORKTREE_SETUP_STEP_COMMAND = "worktree-setup-step";
+export const WORKTREE_SETUP_FAILED_COMMAND = "worktree-setup-failed";
 
 /** Pushed with the whole record whenever a run starts, writes, ends or can show its preview. */
 export const RUN_EVENT = "run";
 /** Pushed when a finished run was dismissed. */
 export const RUN_DISMISSED_EVENT = "run-dismissed";
+/** Pushed with the whole setup whenever one of its steps moves. */
+export const SETUP_EVENT = "setup";
+/** Pushed when a settled setup was dismissed. */
+export const SETUP_DISMISSED_EVENT = "setup-dismissed";
 /** Pushed when a watched project file changed; the client asks `list` again. */
 export const SCRIPTS_CHANGED_EVENT = "scripts-changed";
 

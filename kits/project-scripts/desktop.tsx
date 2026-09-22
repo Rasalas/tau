@@ -6,6 +6,8 @@ import {
   RUN_DISMISSED_EVENT,
   RUN_EVENT,
   SCRIPTS_CHANGED_EVENT,
+  SETUP_DISMISSED_EVENT,
+  SETUP_EVENT,
   TERMINAL_HOST_EXTENSION_ID,
   TERMINAL_PANEL,
   createProjectScriptsHostClient,
@@ -14,8 +16,10 @@ import {
   type ProjectScript,
   type ProjectScriptsState,
   type UiScriptRun,
+  type UiWorktreeSetup,
 } from "./protocol.js";
 import { ProjectScriptsStore } from "./store.js";
+import { SetupStore, createSetupCards } from "./setup-card.js";
 
 const isRun = (value: unknown): value is UiScriptRun =>
   Boolean(value && typeof (value as UiScriptRun).id === "string" && typeof (value as UiScriptRun).status === "string");
@@ -115,6 +119,18 @@ export const projectScriptsExtension: DesktopExtension = {
       const directory = directoryOf(payload);
       if (directory) store.scriptsChanged(directory);
     });
+    // The worktree setup of a new thread, step by step, under its transcript.
+    const setups = new SetupStore();
+    const offSetup = plugin.host.onEvent(SETUP_EVENT, (payload) => {
+      if (payload && typeof (payload as UiWorktreeSetup).id === "string" && Array.isArray((payload as UiWorktreeSetup).stages)) setups.apply(payload as UiWorktreeSetup);
+    });
+    const offSetupDismissed = plugin.host.onEvent(SETUP_DISMISSED_EVENT, (payload) => {
+      const id = (payload as { id?: unknown } | null)?.id;
+      if (typeof id === "string") setups.remove(id);
+    });
+    void host.setups().then((list) => setups.load(list), () => undefined);
+    const setupRegion = plugin.registerRegion({ id: "project-scripts.setup", placement: "transcript-footer", order: 5, profiles: ["desktop", "web"], Component: createSetupCards(setups, host) });
+
     const offService = plugin.useService<PreviewBrowserService>(PREVIEW_BROWSER_SERVICE, (value) => {
       browser = value;
       return () => { if (browser === value) browser = undefined; };
@@ -157,6 +173,9 @@ export const projectScriptsExtension: DesktopExtension = {
     void store.loadRuns();
 
     return () => {
+      setupRegion();
+      offSetupDismissed();
+      offSetup();
       reload();
       region();
       offStore();

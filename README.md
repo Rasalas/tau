@@ -141,6 +141,27 @@ The production renderer is minified and does not ship source maps unless `TAU_SO
 
 `npm run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter.html) over the whole repository except `dist/`, `dist-electron/` and `node_modules/` (config in `.oxlintrc.json`: `correctness` and `suspicious` rules as errors, `perf` as warnings); an override turns `no-await-in-loop` and `no-map-spread` off under `kits/`, `scripts/`, `src/main/` and `.pi/`, where sequential awaits and immutable per-element updates are the point, and keeps both on elsewhere. CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full Vitest suite, and a production build on every pull request and push to `main`; `.github/workflows/performance.yml` stays the separate, slower gate for build/startup/renderer budgets, and `.github/workflows/release.yml` builds and publishes the artifacts of a `v*.*.*` tag ([docs/RELEASE.md](docs/RELEASE.md)).
 
+### Open a folder from a terminal
+
+`tau app [path]` opens a folder in the Tau that is running — the current
+directory without a path — with a new thread's draft on screen, and brings the
+window to the front, the way `t3 app` does for T3 Code. It finds the host
+through `<userData>/host.json` and speaks to it with the host's own token;
+`TAU_USER_DATA` points it at another instance, as it does for the app. Without
+a running Tau it starts the app on that folder. The command is `bin/tau.mjs`
+(`bin` in `package.json`) and needs Node 22 or newer. Nothing puts it on your
+`PATH` for you; link it yourself:
+
+```bash
+# a checkout
+ln -s "$PWD/bin/tau.mjs" ~/.local/bin/tau
+# an installed Tau on macOS (npm run install:mac prints this line)
+ln -s /Applications/Tau.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs ~/.local/bin/tau
+```
+
+`npm run smoke:cli-app` (after `npm run build`) drives it against a headless
+host in temp folders.
+
 ### Reach the host over a socket
 
 The renderer talks to the host through one versioned protocol (`docs/adr/0010-host-protocol.md`); Electron IPC is one transport of it. Start a host that also listens on a socket with `TAU_HOST_LISTEN=127.0.0.1:7788 npm start`, and point a client at it by opening the workbench with `?host=ws://127.0.0.1:7788&token=<token>`, where the token is the line in `~/.tau/host-token` (created on the first listen, 0o600). A wrong token closes the connection. Encryption is an SSH tunnel's job.

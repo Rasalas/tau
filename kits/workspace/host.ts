@@ -24,6 +24,8 @@ import { CHECKPOINT_EVENT, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXT
 import { createReviewRequestDetector } from "./review-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
+import { registerWorktreeStorage } from "./worktree-storage-host.js";
+import { registerAppOpen } from "./app-open.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -163,6 +165,9 @@ export function createWorkspaceHostExtension(): HostExtension {
       // The kit owns the Git cache; core only learns project facts from it.
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
       const labels = new Map<string, string | undefined>();
+      // The worktrees Tau made, Settings → Storage and the cleanup sweep.
+      const worktrees = registerWorktreeStorage(context, { removed: (repository) => git.invalidate(repository, ["branch", "status", "workspace"]) });
+      const noteFailure = (label: string) => (error: unknown) => services.log(label, error instanceof Error ? error.message : String(error));
       const cwd = () => services.cwd();
       // A command may name another workspace by id; without one it means the host's.
       const workspaceOf = (input: unknown) => optionalString(input, "workspace") ?? optionalString(input, "cwd") ?? cwd();
@@ -180,12 +185,23 @@ export function createWorkspaceHostExtension(): HostExtension {
       /**
        * The project's own setup, run once in the new worktree. Project Scripts
        * owns it when it is on (scripts with `runOnWorktreeCreate`, the old
-       * string among them); without it the old string runs here as it always did.
-       * A setup that fails is reported and does not undo the worktree.
+       * string among them) and draws its steps as a card; without it the old
+       * string runs here as it always did. A setup that fails is reported and
+       * does not undo the worktree.
        */
-      const runWorktreeSetup = async (project: string, worktree: string): Promise<void> => {
+      const setupCall = (command: string, input: Record<string, unknown>) =>
+        context.invokeHostExtension(PROJECT_SCRIPTS_HOST_EXTENSION_ID, command, input);
+      const beginSetup = async (project: string, branch: string): Promise<string | undefined> => {
         try {
-          await context.invokeHostExtension(PROJECT_SCRIPTS_HOST_EXTENSION_ID, "worktree-created", { project, worktree });
+          const begun = await setupCall("worktree-setup-begin", { project, branch }) as { setupId?: unknown };
+          return typeof begun?.setupId === "string" ? begun.setupId : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      const runWorktreeSetup = async (project: string, worktree: string, setupId: string | undefined): Promise<void> => {
+        try {
+          await setupCall("worktree-created", { project, worktree, ...(setupId ? { setupId } : {}) });
           return;
         } catch (error) {
           services.log("git.worktree.setup-fallback", error instanceof Error ? error.message : String(error));
@@ -206,6 +222,8 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
       };
 
+      // `tau app <path>` from a terminal.
+      registerAppOpen(context);
       // Project sources: browse, pick, clone. Opening the result is core's job.
       context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)));
       // The folder dialog waits on the user, well past the ordinary command timeout.
@@ -363,18 +381,22 @@ export function createWorkspaceHostExtension(): HostExtension {
         const branch = requiredString(input, "branch");
         const baseRef = optionalString(input, "baseRef");
         const startFromOrigin = record(input).startFromOrigin;
+        const setupId = await beginSetup(project, branch);
         try {
           const destination = await workspaceGit.createWorktree(project, branch, {
             ...(baseRef ? { baseRef } : {}),
             ...(startFromOrigin === undefined ? {} : { startFromOrigin: startFromOrigin !== false }),
+            ...(setupId ? { onStep: (stage) => void setupCall("worktree-setup-step", { setupId, stage }).catch(() => undefined) } : {}),
           }, (path) => git.getWorkspaceInfo(path));
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
-          await runWorktreeSetup(project, destination);
+          await worktrees.storage.remember(destination, project, branch).catch(noteFailure("git.worktree.record-failed"));
+          await runWorktreeSetup(project, destination, setupId);
           return services.workspaceRef(destination);
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
+          if (setupId) await setupCall("worktree-setup-failed", { setupId, error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
           throw error;
         }
       }, { long: true });
@@ -397,6 +419,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (used > 0) throw new Error(`${used} thread${used === 1 ? "" : "s"} still run in this worktree.`);
         const branch = optionalString(input, "branch") ?? tree.branch;
         await workspaceGit.removeWorktree(project, path, branch ? { branch } : {});
+        await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
         git.invalidate(project, ["branch", "status", "workspace"]);
         services.log("git.worktree.removed", path);
       }, { long: true });
@@ -407,6 +430,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const branch = optionalString(input, "branch") ?? info.worktrees.find((tree) => tree.path === path)?.branch;
         const recreated = await workspaceGit.ensureWorktree(project, path, branch);
         if (recreated) {
+          await worktrees.storage.restored(path).catch(noteFailure("git.worktree.record-failed"));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.recreated", path);
         }
@@ -528,6 +552,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           return { text: undefined };
         }
       });
+      disposers.push(() => worktrees.dispose());
       return () => { for (const dispose of disposers.reverse()) dispose(); };
     },
   };
