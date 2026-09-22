@@ -24,8 +24,6 @@ export interface PreferencesState {
   favouriteModels: readonly string[];
   /** The runtime backend a new thread is created on; unset means the host's default. */
   newThreadRuntime?: string;
-  /** Providers whose subscription-login warning the user has read, by provider id. */
-  acknowledgedSubscriptionLogins: readonly string[];
   /** Keyed `extensionId.optionId`. */
   extensionOptions: Readonly<Record<string, boolean>>;
   /** Small per-extension values, keyed `extensionId.key`; extensions own their meaning. */
@@ -51,7 +49,6 @@ const DEFAULTS: PreferencesState = {
   settledThreadIds: [],
   pinnedThreadIds: [],
   favouriteModels: [],
-  acknowledgedSubscriptionLogins: [],
   extensionOptions: {},
   extensionValues: {},
   disabledExtensions: [],
@@ -89,6 +86,9 @@ function load(): PreferencesState {
     }
     // The access level lived in core before Access Kit owned it.
     if (typeof raw.accessLevel === "string" && !("tau.access.level" in values)) values["tau.access.level"] = raw.accessLevel;
+    // So were the subscription-login acknowledgements, before that warning became a kit.
+    const acknowledged = stringList(raw.acknowledgedSubscriptionLogins);
+    if (acknowledged.length > 0 && !("tau.subscription-login.acknowledged" in values)) values["tau.subscription-login.acknowledged"] = acknowledged.join(",");
     return {
       // `showThinking` was the old two-state version of this: someone who
       // expanded thinking asked for the level that shows it.
@@ -103,7 +103,6 @@ function load(): PreferencesState {
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
-      acknowledgedSubscriptionLogins: stringList(raw.acknowledgedSubscriptionLogins),
       extensionOptions: options,
       extensionValues: values,
       disabledExtensions: stringList(raw.disabledExtensions),
@@ -273,14 +272,6 @@ export class PreferencesStore {
     this.update({ newThreadRuntime });
   }
 
-  hasAcknowledgedSubscriptionLogin(provider: string): boolean {
-    return this.state.acknowledgedSubscriptionLogins.includes(provider);
-  }
-
-  acknowledgeSubscriptionLogin(provider: string): void {
-    if (this.hasAcknowledgedSubscriptionLogin(provider)) return;
-    this.update({ acknowledgedSubscriptionLogins: [...this.state.acknowledgedSubscriptionLogins, provider] });
-  }
 
   toggleFavouriteModel(key: string): void {
     const favourites = this.state.favouriteModels;

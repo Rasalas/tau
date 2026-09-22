@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, Brain, ChevronDown, GripVertical, Paperclip, Sparkles, Terminal, X } from "lucide-react";
 import type {
@@ -18,8 +18,7 @@ import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
-import { ModelPicker, modelKey } from "./ModelPicker";
-import { SubscriptionLoginPrompt } from "./SubscriptionLoginPrompt";
+import { modelKey } from "./model-picker-rail";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
@@ -39,7 +38,6 @@ import { useComposerHistorySearch } from "./useComposerHistorySearch";
 import { useComposerVim } from "./useComposerVim";
 import {
   classifyComposerInput,
-  requiresSubscriptionAcknowledgement,
   useComposerSubmission,
   type ComposerDelivery,
 } from "./useComposerSubmission";
@@ -57,7 +55,7 @@ import {
 } from "./ComposerAutocomplete";
 import { ComposerAttachmentsList } from "./ComposerAttachments";
 import { composerEnter, sendHint } from "./composer-send-keys";
-import type { ComposerInlineContext, ComposerTriggerItem } from "../extension-system";
+import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
   type ComposerTrigger,
@@ -84,6 +82,18 @@ const noSubscribe = () => () => {};
 const noVersion = () => 0;
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 const NO_INLINES: readonly never[] = [];
+const NO_GATES: readonly ComposerGateContribution[] = [];
+// The picker is its own chunk: nothing of it is drawn until it opens.
+const ModelPicker = lazy(() => import("./ModelPicker").then((module) => ({ default: module.ModelPicker })));
+
+/** A gate that asked: where the run stopped, and what finishes it. */
+interface OpenGate {
+  gate: ComposerGateContribution & { extensionId?: string; extensionName?: string };
+  index: number;
+  context: ComposerGateContext;
+  proceed(): void;
+  cancel?(): void;
+}
 
 /** Pi's out-of-the-box reasoning level; shown as the Default badge. */
 const DEFAULT_THINKING = "medium";
@@ -126,6 +136,7 @@ export function Composer({
   onSetModel,
   onSetThinking,
   runtimeChoice,
+  onNewThreadOnRuntime,
   prompt,
   promptsPending = 0,
   onAnswerPrompt,
@@ -161,6 +172,8 @@ export function Composer({
   onSetThinking(level: string): void;
   /** Offered while the composer targets a thread that does not exist yet. */
   runtimeChoice?: ComposerRuntimeChoice;
+  /** Starts a new thread on another runtime, which an existing thread cannot change to. */
+  onNewThreadOnRuntime?(kind: ThreadBackendKind): void;
   prompt?: ExtensionUiPrompt;
   promptsPending?: number;
   /** `typed` is set when the answer came from the text field rather than a choice. */
@@ -413,18 +426,49 @@ export function Composer({
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const preferences = usePreferences();
-  // A model behind a subscription login is used only after its warning was read once (per provider).
-  const [subscriptionAsk, setSubscriptionAsk] = useState<{ model?: UiModel; resubmit?: ComposerDelivery | "prompt" }>();
+  const gates = registry?.getComposerGates?.() ?? NO_GATES;
+  const gatesRef = useRef(gates);
+  gatesRef.current = gates;
+  const [openGate, setOpenGate] = useState<OpenGate>();
+  // Runs the gates from `from` on; the first that asks holds the action until it is answered.
+  const passGates = useCallback((context: ComposerGateContext, proceed: () => void, cancel?: () => void, from = 0) => {
+    const list = gatesRef.current;
+    for (let index = from; index < list.length; index += 1) {
+      const gate = list[index];
+      let asks = false;
+      try { asks = gate.check(context); } catch (error) { console.error(`Composer gate ${gate.id} failed`, error); }
+      if (asks) { setOpenGate({ gate, index, context, proceed, ...(cancel ? { cancel } : {}) }); return; }
+    }
+    proceed();
+  }, []);
+  // A model added to a new thread's model set passes the same gates as a model chosen alone.
+  const modelSet = newThread ? registry?.getModelSelection?.() : undefined;
+  const gatedModelSet = useMemo<ModelSelectionContribution | undefined>(() => modelSet && {
+    id: modelSet.id,
+    selected: () => modelSet.selected(),
+    subscribe: (listener) => modelSet.subscribe(listener),
+    reset: () => modelSet.reset(),
+    toggle: (model, current) => {
+      if (modelSet.selected().includes(modelKey(model))) { modelSet.toggle(model, current); return; }
+      passGates(
+        { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
+        () => modelSet.toggle(model, current),
+      );
+    },
+  }, [modelSet, passGates, snapshot]);
   const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
   const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
-  const needsSubscriptionAck = useCallback((model: UiModel | undefined): boolean => requiresSubscriptionAcknowledgement(
-    model,
-    snapshot?.backendKind,
-    (provider) => preferences.hasAcknowledgedSubscriptionLogin(provider),
-  ), [preferences, snapshot?.backendKind]);
+  // A model of the visible catalog brings a draft bound elsewhere back to that catalog's runtime.
+  const applyModel = (model: UiModel) => {
+    if (runtimeChoice && snapshot?.backendKind && runtimeChoice.kind !== snapshot.backendKind) runtimeChoice.onSelect(snapshot.backendKind);
+    onSetModel(model.provider, model.id);
+  };
   const chooseModel = (model: UiModel) => {
-    if (needsSubscriptionAck(model)) setSubscriptionAsk({ model });
-    else onSetModel(model.provider, model.id);
+    passGates(
+      { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
+      () => applyModel(model),
+      () => setModelPickerOpen(true),
+    );
   };
   // Only a drag that starts on the grip reorders; text drags inside a row do not.
   const queueDragArmRef = useRef<string | undefined>(undefined);
@@ -538,13 +582,10 @@ export function Composer({
   }, [prompt, updateDraft]);
 
   const answerable = prompt && prompt.answerElsewhere !== true;
-  const submitCurrent = useCallback((delivery?: ComposerDelivery) => {
+  const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
+  const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
     if (held) return;
     if (activeScopeSnapshot.submissionPending) return;
-    if (needsSubscriptionAck(snapshot?.model)) {
-      setSubscriptionAsk({ resubmit: delivery ?? "prompt" });
-      return;
-    }
     const intent = classifyComposerInput({
       text,
       answerable: Boolean(answerable),
@@ -570,25 +611,45 @@ export function Composer({
           onNotify?.(errorMessage(error));
         });
         return;
-      case "prompt":
-        submitPrompt(intent.delivery);
+      case "prompt": {
+        if (gated) { submitPrompt(intent.delivery); return; }
+        const runtime = runtimeChoice?.kind ?? snapshot?.backendKind;
+        const model = draftOnOtherRuntime ? undefined : snapshot?.model;
+        passGates(
+          { action: "prompt", ...(model ? { model } : {}), ...(runtime ? { runtime } : {}), ...(snapshot ? { snapshot } : {}) },
+          () => submitRef.current(delivery, true),
+        );
         return;
+      }
     }
   }, [
     activeScopeSnapshot.submissionPending,
     answerable,
     held,
-    needsSubscriptionAck,
     onAnswerPrompt,
     onNotify,
     onRunShellAction,
+    draftOnOtherRuntime,
+    passGates,
     promptSubmit,
     recordPrompt,
-    snapshot?.model,
+    runtimeChoice?.kind,
+    snapshot,
     submitPrompt,
     text,
     updateDraft,
   ]);
+  submitRef.current = submitCurrent;
+  const proceedGate = () => {
+    if (!openGate) return;
+    setOpenGate(undefined);
+    passGates(openGate.context, openGate.proceed, openGate.cancel, openGate.index + 1);
+  };
+  const cancelGate = () => {
+    if (!openGate) return;
+    setOpenGate(undefined);
+    openGate.cancel?.();
+  };
 
   const handleDequeue = useCallback(() => {
     if (queue.length === 0) return;
@@ -1096,35 +1157,37 @@ export function Composer({
       ) : null}
 
       {modelPickerOpen ? (
-        <ModelPicker
-          models={snapshot?.models ?? []}
-          activeKey={snapshot?.model ? modelKey(snapshot.model) : undefined}
-          onSelect={chooseModel}
-          onClose={() => setModelPickerOpen(false)}
-          runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
-          runtimeBackends={runtimeChoice?.backends}
-          onSelectRuntime={runtimeChoice?.onSelect}
-          modelsAvailable={!draftOnOtherRuntime}
-          multiSelect={newThread ? registry?.getModelSelection() : undefined}
-        />
+        <Suspense fallback={null}>
+          <ModelPicker
+            models={runtimeOwnsModel ? [] : snapshot?.models ?? []}
+            activeKey={snapshot?.model && !draftOnOtherRuntime ? modelKey(snapshot.model) : undefined}
+            onSelect={chooseModel}
+            onClose={() => setModelPickerOpen(false)}
+            runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
+            catalogRuntime={snapshot?.backendKind}
+            runtimeBackends={runtimeChoice?.backends ?? snapshot?.runtimeBackends}
+            onSelectRuntime={runtimeChoice?.onSelect}
+            onNewThreadOnRuntime={onNewThreadOnRuntime}
+            badges={registry?.getModelBadges?.()}
+            multiSelect={gatedModelSet}
+          />
+        </Suspense>
       ) : null}
-      {subscriptionAsk ? (
-        <SubscriptionLoginPrompt
-          provider={(subscriptionAsk.model ?? snapshot?.model)?.provider ?? ""}
-          onAccept={() => {
-            const provider = (subscriptionAsk.model ?? snapshot?.model)?.provider;
-            if (provider) preferences.acknowledgeSubscriptionLogin(provider);
-            const { model, resubmit } = subscriptionAsk;
-            setSubscriptionAsk(undefined);
-            if (model) onSetModel(model.provider, model.id);
-            if (resubmit) submitCurrent(resubmit === "prompt" ? undefined : resubmit);
-          }}
-          onDecline={() => {
-            const { model } = subscriptionAsk;
-            setSubscriptionAsk(undefined);
-            if (model) setModelPickerOpen(true);
-          }}
-        />
+      {openGate ? (
+        <div className="palette-backdrop composer-gate" onMouseDown={cancelGate} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); cancelGate(); } }}>
+          <div className="composer-gate-frame" onMouseDown={(event) => event.stopPropagation()}>
+            <LazyFeatureBoundary
+              label={openGate.gate.id}
+              extensionId={openGate.gate.extensionId}
+              extensionName={openGate.gate.extensionName}
+              registry={registry}
+              onNotify={onNotify}
+              onError={cancelGate}
+            >
+              <openGate.gate.Component context={openGate.context} proceed={proceedGate} cancel={cancelGate} />
+            </LazyFeatureBoundary>
+          </div>
+        </div>
       ) : null}
 
       {composerControls.filter((control) => control.placement === "footer").map((control) => (

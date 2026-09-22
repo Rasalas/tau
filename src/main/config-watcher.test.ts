@@ -87,6 +87,34 @@ describe("ConfigWatcher", () => {
     watcher.close();
   });
 
+  it("finds a path that appeared even when the ancestor's event never came", () => {
+    vi.useFakeTimers();
+    const fake = fakeWatch();
+    const present = new Set(["/home"]);
+    const changes: ConfigChange[] = [];
+    const watcher = new ConfigWatcher({
+      onChange: (change) => changes.push(change),
+      watch: fake.watch,
+      recursive: true,
+      exists: (path) => present.has(path),
+      readDirectories: () => [],
+      pollMs: 1_000,
+    });
+    watcher.setTargets([{ root: "themes", path: "/home/.tau/themes", directory: true }]);
+    vi.advanceTimersByTime(5_000);
+    expect(changes).toEqual([]);
+
+    present.add("/home/.tau");
+    present.add("/home/.tau/themes");
+    vi.advanceTimersByTime(1_300);
+
+    expect(changes).toEqual([{ root: "themes", paths: ["/home/.tau/themes"] }]);
+    expect(fake.paths()).toEqual(["/home/.tau/themes"]);
+    vi.advanceTimersByTime(5_000);
+    expect(changes).toHaveLength(1);
+    watcher.close();
+  });
+
   it("re-attaches a file watch after a change, because an editor replaces the file it saves", () => {
     vi.useFakeTimers();
     const fake = fakeWatch();
@@ -184,6 +212,7 @@ describe("ConfigWatcher on a real folder", () => {
     const watcher = new ConfigWatcher({
       onChange: (change) => { changes.push(change); resolveFirst?.(); },
       debounceMs: 20,
+      pollMs: 100,
     });
     // The folder does not exist yet: the watcher has to find it when it appears.
     watcher.setTargets([{ root: "packages", path: extensions, directory: true }]);

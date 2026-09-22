@@ -136,4 +136,12 @@ while such a model is active. Sending is never blocked; `auth.json` is never
 written. The Claude Code kit never sets the flag: the Agent SDK is the
 sanctioned door for the same subscription.
 
+Since 2026-09-22 the warning is a kit, `kits/subscription-login/`, and only
+for the vendors that allow the login in their own apps alone (Anthropic,
+Google); OpenAI allows it in third-party tools. Core keeps the flag and a
+neutral tag in the picker, and lends the kit three seams any policy may use: a
+composer gate before a model is chosen or a prompt is sent, a model badge in
+the picker, and a region before the thread title. Switching the kit off
+removes the shield, the badge and the question.
+
 Still open: the kit's status page.

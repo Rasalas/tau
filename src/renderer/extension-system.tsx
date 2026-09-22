@@ -9,6 +9,7 @@ import type {
   HostEvent,
   HostSnapshot,
   ShellActionResult,
+  ThreadBackendKind,
   UiModel,
   UiMessage,
   UiPromptAttachment,
@@ -185,9 +186,10 @@ export interface TranscriptRowsHandle {
 /**
  * Places the workbench lends to extensions. Core renders the region, never its
  * content: above or below the composer (Pi's widgets), at the head or foot of
- * the transcript, or as the status line at the bottom, Pi's footer.
+ * the transcript, before the thread's title, or as the status line at the
+ * bottom, Pi's footer.
  */
-export type RegionPlacement = "title-bar" | "composer-above" | "composer-below" | "transcript-header" | "transcript-footer";
+export type RegionPlacement = "title-bar" | "thread-title" | "composer-above" | "composer-below" | "transcript-header" | "transcript-footer";
 
 export interface RegionProps {
   snapshot?: HostSnapshot;
@@ -341,6 +343,54 @@ export interface ComposerInlineContribution extends ProfileScoped {
    * open; `true` claims it. `setText` replaces the draft's text, caret at the end.
    */
   keyDown?(event: ComposerKeyEvent, context: ComposerInlineContext & { setText(text: string): void }): boolean;
+}
+
+/** What a composer gate is asked about, before core does it. */
+export interface ComposerGateContext {
+  /** `model`: a model was picked in the model picker. `prompt`: a prompt is about to go to the thread's model. */
+  action: "model" | "prompt";
+  /** The model picked, or the one the prompt goes to; absent when a new thread starts on its runtime's default. */
+  model?: UiModel;
+  /** The runtime the thread runs on, or the one a thread that does not exist yet will start on. */
+  runtime?: ThreadBackendKind;
+  snapshot?: HostSnapshot;
+}
+
+export interface ComposerGateProps {
+  context: ComposerGateContext;
+  /** Lets the action go ahead, once every later gate has let it through too. */
+  proceed(): void;
+  /** Stops it. A stopped model choice reopens the picker. */
+  cancel(): void;
+}
+
+/**
+ * Asks the user before the composer chooses a model or sends a prompt. Gates
+ * run in `order`; the first whose `check` answers true draws its dialog, and
+ * nothing happens until it proceeds or cancels. A `/command`, a shell command
+ * and an answer to a question are not prompts and pass no gate.
+ */
+export interface ComposerGateContribution extends ProfileScoped {
+  id: string;
+  order?: number;
+  /** Whether to ask; runs on every choice and send, so keep it cheap and free of side effects. */
+  check(context: ComposerGateContext): boolean;
+  /** The dialog, drawn over a backdrop core owns; a click outside or Escape cancels. */
+  Component: ComponentType<ComposerGateProps>;
+}
+
+/** A mark on a model's row in the model picker. */
+export interface ModelBadgeContribution extends ProfileScoped {
+  id: string;
+  order?: number;
+  /** Whether a model wears the badge; runs for every listed row. */
+  applies(model: UiModel, runtime: ThreadBackendKind | undefined): boolean;
+  label: string;
+  /** What hovering the badge says. */
+  title?: string;
+  tone?: "neutral" | "warning";
+  /** One line under the list while any listed model wears this badge. */
+  note?: string;
 }
 
 export interface PanelProps {
@@ -685,6 +735,10 @@ export interface DesktopExtensionContext {
   registerComposerControl(control: ComposerControlContribution): () => void;
   /** Typed context inside the composer's input frame: chips, paste and drop handling, trigger menus. */
   registerComposerInline(inline: ComposerInlineContribution): () => void;
+  /** Asks the user before a model is chosen or a prompt is sent. */
+  registerComposerGate(gate: ComposerGateContribution): () => void;
+  /** Marks models in the model picker, with a line explaining the mark. */
+  registerModelBadge(badge: ModelBadgeContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
@@ -846,6 +900,8 @@ export class ExtensionRegistry {
   private settingsPages = new Map<string, Owned<SettingsPageContribution>>();
   private composerControls = new Map<string, Owned<ComposerControlContribution>>();
   private composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
+  private composerGates = new Map<string, Owned<ComposerGateContribution>>();
+  private modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
@@ -1070,6 +1126,16 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "composer inline", inline.id, undefined, inline)) return noContribution;
         note("composer context");
         return this.register(this.composerInlines, inline.id, { ...inline, ...owner }, disposers);
+      },
+      registerComposerGate: (gate) => {
+        if (!this.scopeToProfile(owner, "composer gate", gate.id, undefined, gate)) return noContribution;
+        note("composer gates");
+        return this.register(this.composerGates, gate.id, { ...gate, ...owner }, disposers);
+      },
+      registerModelBadge: (badge) => {
+        if (!this.scopeToProfile(owner, "model badge", badge.id, badge.label, badge)) return noContribution;
+        note("model badges");
+        return this.register(this.modelBadges, badge.id, { ...badge, ...owner }, disposers);
       },
       provideService: (id, value) => {
         const held = this.extensionServices.get(id);
@@ -1373,6 +1439,14 @@ export class ExtensionRegistry {
 
   getComposerInlines(): Array<Owned<ComposerInlineContribution>> {
     return this.sorted("composer-inlines", this.composerInlines, false);
+  }
+
+  getComposerGates(): Array<Owned<ComposerGateContribution>> {
+    return this.sorted("composer-gates", this.composerGates);
+  }
+
+  getModelBadges(): Array<Owned<ModelBadgeContribution>> {
+    return this.sorted("model-badges", this.modelBadges);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
