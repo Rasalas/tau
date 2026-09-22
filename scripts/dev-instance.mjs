@@ -3,7 +3,7 @@
 // `~/Library/Application Support/tau`. See docs/agents/testing-the-app.md.
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,18 @@ export function seedConfigFile(configFile, realConfig = join(homedir(), ".tau", 
   try { seed = readFileSync(realConfig, "utf8"); } catch { /* no config of the user's yet */ }
   mkdirSync(dirname(configFile), { recursive: true });
   writeFileSync(configFile, seed);
+}
+
+/**
+ * A Codex home of the instance's own: only the login is linked from the
+ * user's, so the sessions, config and caches Codex writes stay under `.tau-dev`.
+ */
+export function prepareCodexHome(codexHome, realHome = join(homedir(), ".codex")) {
+  mkdirSync(codexHome, { recursive: true });
+  const link = join(codexHome, "auth.json");
+  let linked = false;
+  try { linked = lstatSync(link) !== undefined; } catch { /* not there yet */ }
+  if (!linked && existsSync(join(realHome, "auth.json"))) symlinkSync(join(realHome, "auth.json"), link);
 }
 
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
@@ -152,6 +164,9 @@ async function main() {
   // and its agent worktrees under .tau-dev, never in the user's real ~/.tau.
   const configFile = join(DEV_DIR, "tau-config.json");
   const worktreesDir = join(DEV_DIR, "worktrees");
+  // Codex keeps its sessions under CODEX_HOME; a caller's own value is kept.
+  const codexHome = process.env.CODEX_HOME ?? join(DEV_DIR, "codex-home");
+  if (!process.env.CODEX_HOME) prepareCodexHome(codexHome);
 
   if (options.fresh) {
     assertUnderDevDir(userData);
@@ -191,6 +206,7 @@ async function main() {
     TAU_WORKSPACE: workspace,
     TAU_CONFIG_FILE: configFile,
     TAU_WORKTREES_DIR: worktreesDir,
+    CODEX_HOME: codexHome,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
