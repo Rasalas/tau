@@ -18,6 +18,7 @@ const RUNTIME_PROPERTIES = [
   "--composer-inset",
   "--font-family-override",
   "--font-size-override",
+  "--page-zoom",
 ];
 
 /** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */
