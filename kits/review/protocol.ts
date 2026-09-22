@@ -98,9 +98,15 @@ export interface ReviewCommentChip {
   payload: { source: string; text: string };
 }
 
+/** The pull-request view hands its request over as the chip kind Composer Context has for one. */
+export interface PullRequestChip {
+  kind: "pull-request";
+  payload: { number: number; title: string; url: string; branch?: string };
+}
+
 export interface ComposerContextChips {
   /** Throws when no composer is on screen. */
-  addChip(chip: ReviewCommentChip): string;
+  addChip(chip: ReviewCommentChip | PullRequestChip): string;
   removeChip(id: string): void;
 }
 
