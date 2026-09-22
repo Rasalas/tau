@@ -23,6 +23,7 @@ import { createReviewRequestDetector } from "./review-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
+import { registerAppOpen } from "./app-open.js";
 
 const execFileAsync = promisify(execFile);
 /** The kit built on this one; its host entry may call the commands that name it. */
@@ -218,6 +219,8 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
       };
 
+      // `tau app <path>` from a terminal.
+      registerAppOpen(context);
       // Project sources: browse, pick, clone. Opening the result is core's job.
       context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)));
       // The folder dialog waits on the user, well past the ordinary command timeout.

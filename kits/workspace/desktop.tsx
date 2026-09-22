@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Files, GitCompare, HardDrive } from "lucide-react";
 import {
   errorMessage,
@@ -21,7 +22,8 @@ import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } fr
 import { withWorkspaceStore } from "./store-context.js";
 import { WorkspaceTitleActions } from "./title.js";
 import { createStoragePage } from "./storage-page.js";
-import { STORAGE_CHANGED_EVENT, type WorktreeStorageHostCommands } from "./storage-protocol.js";
+import { OPEN_REQUEST_EVENT, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
+import { OpenRequests } from "./open-requests.js";
 
 /** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
 function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChanges; editor?: UiEditor } {
@@ -140,6 +142,20 @@ export const workspaceExtension: DesktopExtension = {
         remove: (path, confirm) => storageCall("storage-remove", { path, confirm }),
         onChanged: (listener) => context.host.onEvent(STORAGE_CHANGED_EVENT, listener),
       }),
+    });
+    // `tau app <path>`: a request pushed now, or one that waited for this window.
+    const openRequests = new OpenRequests();
+    context.host.onEvent(OPEN_REQUEST_EVENT, (payload) => openRequests.receive(payload));
+    context.host.invoke(TAKE_OPEN_REQUEST_COMMAND).then((request) => openRequests.receive(request), () => undefined);
+    context.registerRegion({
+      id: "workspace.open-requests",
+      placement: "composer-above",
+      order: 1,
+      profiles: ["desktop", "web"],
+      Component: function OpenRequestFollower({ actions }) {
+        useEffect(() => openRequests.bind(actions), [actions]);
+        return null;
+      },
     });
     // A new thread's worktree is created while its first prompt waits (ADR 0017).
     context.registerPromptHook({

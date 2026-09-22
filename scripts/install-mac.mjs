@@ -37,6 +37,11 @@ export function dmgPattern(arch) {
   return arch === "arm64" ? "Tau-*-arm64.dmg" : "Tau-[0-9]*.dmg";
 }
 
+/** The command line inside an installed bundle; `asarUnpack` keeps it a real file. */
+export function cliPath(app) {
+  return join(app, "Contents", "Resources", "app.asar.unpacked", "bin", "tau.mjs");
+}
+
 export function pickDmg(names, arch) {
   const candidates = names.filter((name) => name.endsWith(".dmg") && !name.endsWith(".blockmap"));
   const wanted = arch === "arm64"
@@ -86,6 +91,8 @@ function main() {
     // Gatekeeper blocks an unsigned download; the attribute is the "came from the internet" mark.
     spawnSync("xattr", ["-dr", "com.apple.quarantine", target], { stdio: "ignore" });
     console.log(`Installed ${tag} to ${target}`);
+    // Nothing is put on the PATH unasked; this says how (README: "Open a folder from a terminal").
+    console.log(`For \`tau app <path>\` in a terminal: ln -s "${cliPath(target)}" ~/.local/bin/tau`);
     if (options.open) run("open", ["-a", target], { quiet: true });
   } finally {
     if (mountPoint) spawnSync("hdiutil", ["detach", mountPoint, "-quiet"], { stdio: "ignore" });

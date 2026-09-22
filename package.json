@@ -12,6 +12,9 @@
   },
   "license": "MIT",
   "main": "dist-electron/main/launcher.js",
+  "bin": {
+    "tau": "bin/tau.mjs"
+  },
   "scripts": {
     "postinstall": "node scripts/fix-node-pty.mjs",
     "dev": "concurrently -k \"vite\" \"tsc -p tsconfig.electron.json --watch\" \"node scripts/build-preload.mjs --watch\" \"node scripts/build-host-worker.mjs --watch\" \"wait-on file:dist-electron/main/extension-packages.js && node scripts/build-kits.mjs --watch\" \"wait-on tcp:5173 file:dist-electron/main/launcher.js file:dist-electron/preload/bundle.cjs && TAU_DEV_SERVER_URL=http://localhost:5173 electron .\"",
@@ -32,6 +35,7 @@
     "smoke:window-host": "node scripts/window-host-smoke.mjs",
     "smoke:extension-install": "node scripts/extension-install-smoke.mjs",
     "smoke:attached": "node scripts/attached-smoke.mjs",
+    "smoke:cli-app": "node scripts/cli-app-smoke.mjs",
     "install:mac": "node scripts/install-mac.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",
     "dev:instance": "node scripts/dev-instance.mjs",

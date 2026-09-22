@@ -88,6 +88,8 @@ asarUnpack:
   - "node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node/**"
   # Computer use launches a driver app of its own.
   - "node_modules/@amaster.ai/pi-computer-use/bin/**"
+  # `tau app <path>`: a command line Node runs, so it must be a real file.
+  - "bin/**"
   - "**/*.node"
 
 # A clean installation carries the editable inputs for its version. Tau copies
