@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, Command, Cpu, Folder, Monitor, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Command, Cpu, Folder, Info, Monitor, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
 import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
@@ -12,6 +12,7 @@ import { isMacPlatform } from "../keybindings";
 import { ConfigLayersStore, type SettingsProject } from "../../workbench/config-layers-store";
 import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "./settings-search";
 import { SettingsLevelsProvider, useSettingsLevels } from "./settings-layout";
+import { AboutPage } from "./AboutPage";
 import { DefaultsPage } from "./DefaultsPage";
 import { ExtensionPage, useAwaitingApproval } from "./ExtensionPage";
 import { InspectorPage } from "./InspectorPage";
@@ -92,6 +93,7 @@ const CORE_PAGE_LABELS: Record<string, string> = {
   providers: "Providers",
   keybindings: "Keybindings",
   inspector: "Inspector",
+  about: "About",
 };
 
 /**
@@ -306,6 +308,7 @@ export function SettingsScreen({
               {navButton("keybindings", "Keybindings", <Command size={15} />, () => { setKeybindingFilter((current) => ({ filter: "", seq: current.seq + 1 })); onSetPage("keybindings"); })}
               {pages.map((entry) => navButton(entry.id, entry.label, <PanelIcon Icon={entry.Icon} size={15} />))}
               {navButton("inspector", "Inspector", <Puzzle size={15} />)}
+              {navButton("about", "About", <Info size={15} />)}
               {navGroup("extensions", "Extensions", summaries.filter((summary) => !summary.core), (summary) => (
                 <button
                   key={summary.id}
@@ -366,6 +369,8 @@ export function SettingsScreen({
                 <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
               ) : page === "inspector" ? (
                 <InspectorPage registry={registry} cwd={snapshot?.cwd} />
+              ) : page === "about" ? (
+                <AboutPage />
               ) : active ? (
                 <ExtensionPage summary={active} registry={registry} models={snapshot?.completionModels ?? snapshot?.models ?? []} cwd={snapshot?.cwd} onChanged={() => { setAnswered((count) => count + 1); onSetPage(active.id); }} onNotify={onNotify} />
               ) : (

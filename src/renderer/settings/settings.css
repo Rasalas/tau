@@ -293,3 +293,24 @@ body[data-profile="compact"] .settings-nav { max-height: 38vh; border-right: 0; 
 body[data-profile="compact"] .settings-nav-header { display: none; }
 body[data-profile="compact"] .settings-nav-search { margin-top: 8px; }
 body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }
+
+/* Settings → About: the version and the licences of what Tau ships. */
+.about-version { font: 12px var(--mono); color: var(--ink-2); }
+.about-licenses-filter { margin: 0 var(--space-6); }
+.about-licenses-loading { display: grid; gap: 8px; padding: var(--space-5) var(--space-6); }
+.about-licenses { list-style: none; margin: 0; padding: 0 0 var(--space-3); }
+.about-license-row { display: flex; align-items: center; gap: 6px; padding: 0 var(--space-5) 0 var(--space-4); }
+.about-license-row:hover { background: var(--hover); }
+.about-license-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; min-height: 34px; padding: 0 var(--space-2);
+  border: 0; background: transparent; color: var(--ink-2); font: 13px var(--sans); text-align: left; cursor: pointer;
+}
+.about-license-toggle > svg { flex: none; align-self: center; color: var(--faint); transition: transform .12s ease; }
+.about-license-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.about-license-toggle > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink); }
+.about-license-toggle > code { flex: none; font: 11px var(--mono); color: var(--faint); }
+.about-license-toggle > small { margin-left: auto; flex: none; font: 11px var(--sans); color: var(--muted); }
+.about-license-text {
+  margin: 0 var(--space-6) var(--space-4) calc(var(--space-6) + 21px); max-width: 76ch; max-height: 320px; overflow: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.55 var(--mono); color: var(--ink-3);
+}
