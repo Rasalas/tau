@@ -128,6 +128,17 @@ describe("the Settings screen", () => {
     expect(row.getAttribute("title")).toMatch(/setting of this machine/u);
   });
 
+  it("turns watching Tau's files off and back to the default", async () => {
+    const { files, client } = hostWithFiles();
+    const { page } = renderScreen({ client });
+    const watch = await within(page).findByRole("switch", { name: "Reload files when they change" });
+    expect(watch.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(watch);
+    await waitFor(() => expect(files.host).toEqual({ extensions: { watch: false } }));
+    fireEvent.click(within(watch.closest(".settings-row")! as HTMLElement).getByRole("button", { name: /Reset Reload files when they change/u }));
+    await waitFor(() => expect(files.host).toEqual({}));
+  });
+
   it("writes the update track to this machine, and hides it for a host elsewhere", async () => {
     const { files, client } = hostWithFiles();
     const { page } = renderScreen({ client });

@@ -369,6 +369,12 @@ describe("decodeConfigPatch", () => {
       .toThrow("update-config: patch.threads.continueAfterRestart must be a boolean");
   });
 
+  it("takes extensions.watch, and rejects a value that is not a boolean", () => {
+    expect(decodeConfigPatch(CH, "patch", { extensions: { watch: false } })).toEqual({ extensions: { watch: false } });
+    expect(() => decodeConfigPatch(CH, "patch", { extensions: { watch: "off" } }))
+      .toThrow("update-config: patch.extensions.watch must be a boolean");
+  });
+
   it("takes the model picker's preferences per runtime, and rejects a malformed entry", () => {
     expect(decodeConfigPatch(CH, "patch", { modelPreferences: { codex: { hidden: ["openai/o4-mini"], order: [] } } }))
       .toEqual({ modelPreferences: { codex: { hidden: ["openai/o4-mini"] } } });

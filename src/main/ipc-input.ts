@@ -331,6 +331,10 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
       result.threads = { continueAfterRestart: decodeBoolean(channel, `${field}.threads.continueAfterRestart`, threads.continueAfterRestart) };
     }
   }
+  if (item.extensions !== undefined) {
+    const extensions = record(channel, `${field}.extensions`, item.extensions);
+    if (extensions.watch !== undefined) result.extensions = { watch: decodeBoolean(channel, `${field}.extensions.watch`, extensions.watch) };
+  }
   if (item.updates !== undefined) {
     const updates = record(channel, `${field}.updates`, item.updates);
     if (updates.channel !== undefined) {

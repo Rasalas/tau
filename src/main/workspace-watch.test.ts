@@ -38,7 +38,7 @@ function fake() {
   };
 }
 
-async function harness() {
+async function harness(enabled?: () => boolean) {
   const home = await scratch("tau-watch-home-");
   const project = await scratch("tau-watch-project-");
   const extensions = join(home, ".tau", "extensions");
@@ -61,6 +61,7 @@ async function harness() {
     agentDir,
     refreshPackages: async (ids) => { refreshed.push([...ids].sort()); },
     configChanged: (change) => changes.push(change),
+    ...(enabled ? { enabled } : {}),
     createWatcher: (options) => new ConfigWatcher({
       ...options,
       watch: platform.watch,
@@ -104,6 +105,22 @@ describe("WorkspaceWatch", () => {
     await vi.waitFor(() => expect(changes.length).toBeGreaterThan(2));
     expect(changes.slice(1).map((change) => change.kind).sort()).toEqual(["config", "themes"]);
     expect(refreshed).toEqual([]);
+    watch.close();
+  });
+
+  it("watches nothing while extensions.watch is off, and everything again once it is on", async () => {
+    let on = false;
+    const { watch, platform, refreshed, extensions } = await harness(() => on);
+    expect(() => platform.fire(extensions, "notes.tsx")).toThrow(/nothing watches/u);
+
+    on = true;
+    await watch.retarget();
+    platform.fire(extensions, "notes.tsx");
+    await vi.waitFor(() => expect(refreshed).toEqual([["local.notes"]]));
+
+    on = false;
+    await watch.retarget();
+    expect(() => platform.fire(extensions, "notes.tsx")).toThrow(/nothing watches/u);
     watch.close();
   });
 
