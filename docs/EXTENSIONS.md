@@ -835,6 +835,8 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
 
+`Menu`, `Dialog`, `Popover`, `ConfirmDialog`, `SettingRow`, `SettingsSection`, `ChangesTree`, `ExtensionPromptFrame` and `OptionRow` load with chunks of their own: the names and props are the same, and Tau preloads the chunks once the window is idle after start-up. One drawn before that shows nothing until its chunk arrives, a few milliseconds; the hooks (`useSetting`, `usePromptSubmit`, `useContextMenu`, `useFocusTrap`) are always there.
+
 A package that takes over a Pi dialog (`registerPromptRenderer`) gets the
 pieces core draws its own four with, so its dialog is not a look-alike:
 `ExtensionPromptFrame` and `OptionRow` (the frame and one choice row), the
