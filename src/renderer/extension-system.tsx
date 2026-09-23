@@ -153,6 +153,8 @@ export interface WorkbenchActions {
    * alone. Resolves false when it was not accepted. New in API 1.11.0.
    */
   submitPrompt?(text: string): Promise<boolean>;
+  /** Sends the oldest queued message of the thread on screen now, leaving the draft; false when none waits. New in API 1.11.0. */
+  steerQueuedMessage?(): boolean;
   /** Opens the active instructions and system prompt modal. */
   openInstructions?(): void;
   /** Executes a command registered with `registerCommand`. */

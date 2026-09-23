@@ -35,7 +35,7 @@ import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { followTurnActivity } from "../workbench/turn-activity";
-import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
+import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
 import { useWorkbenchReload } from "./use-workbench-reload";
@@ -257,7 +257,7 @@ export default function App() {
   );
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
   // Follow-ups typed during a run wait in the workbench, not in the runtime.
-  const { queue, cancelQueued, steerQueued, reorderQueue } = useFollowUpQueue({
+  const { queue, cancelQueued, steerQueued, reorderQueue, takeQueued } = useFollowUpQueue({
     client,
     store: followUpQueue,
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
@@ -266,6 +266,14 @@ export default function App() {
     submit: submitPrompt,
     setNotice,
   });
+  const returnQueued = useCallback((id?: string) => returnToComposer(actionsRef.current, takeQueued(id)), [takeQueued]);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const steerQueuedMessage = useCallback(() => {
+    const head = queueRef.current[0];
+    if (head) void steerQueued(head.id);
+    return Boolean(head);
+  }, [steerQueued]);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, viewStore.getTranscript().messages);
     if (reconciled.length === optimisticMessages.length) return;
@@ -289,7 +297,9 @@ export default function App() {
     preferences,
     applyActionResult,
   }));
-  const { abort: abortThread, duplicateThread, requireHost, settleActiveThread } = threadCommands;
+  const { abort: abortRun, duplicateThread, requireHost, settleActiveThread } = threadCommands;
+  // Stop returns every queued message to the composer instead of sending it after the stop.
+  const abortThread = useCallback((sessionId?: string) => { returnQueued(); abortRun(sessionId); }, [abortRun, returnQueued]);
   const {
     activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
     applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread,
@@ -444,6 +454,7 @@ export default function App() {
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
+    steerQueuedMessage, beforeAbort: returnQueued,
     openModelPicker, openInstructions, focusStage, toggleSidebar,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
@@ -575,12 +586,12 @@ export default function App() {
     controlRef: composerControlRef,
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
-    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue,
+    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue, returnQueued,
     setModel: setComposerModel, setThinking: threadCommands.setThinking,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
-    conversationPrompts, queue, reorderQueue, setComposerModel, steerQueued, submitPrompt,
+    conversationPrompts, queue, reorderQueue, returnQueued, setComposerModel, steerQueued, submitPrompt,
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({

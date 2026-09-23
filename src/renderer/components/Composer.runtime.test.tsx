@@ -33,7 +33,6 @@ function renderComposer(runtimeChoice?: ComposerRuntimeChoice, visible: HostSnap
       onAbort={() => {}}
       onCancelQueued={() => {}}
       onSteerQueued={() => {}}
-      onReorderQueue={() => {}}
       onSetModel={onSetModel}
       onSetThinking={() => {}}
       onCompactContext={() => {}}
@@ -96,7 +95,6 @@ describe("composer runtime choice", () => {
         onAbort={() => {}}
         onCancelQueued={() => {}}
         onSteerQueued={() => {}}
-        onReorderQueue={() => {}}
         onSetModel={() => {}}
         onSetThinking={() => {}}
         onCompactContext={() => {}}

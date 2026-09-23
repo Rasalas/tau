@@ -432,7 +432,6 @@ button > svg { pointer-events: none; }
 .conversation-column.conversation-start .conversation-start-content .composer-surface { max-width: none; }
 .conversation-column.conversation-start .conversation-start-content .composer-frame { max-width: none; }
 .conversation-column.conversation-start .conversation-start-content .workspace-bar,
-.conversation-column.conversation-start .conversation-start-content .composer-queue { max-width: none; }
 .conversation-column:not(.conversation-start) .conversation-start-screen,
 .conversation-column:not(.conversation-start) .conversation-start-content { display: contents; }
 .conversation-column.conversation-start .conversation-thread { display: none; }
@@ -975,6 +974,27 @@ button > svg { pointer-events: none; }
 .live-status { display: flex; align-items: center; gap: 10px; }
 .live-status > span { font: 500 12px var(--mono); color: var(--working); }
 
+/* Messages waiting for the run: dashed user bubbles at the end of the conversation. */
+.queued-messages { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.queued-message {
+  max-width: 78%; min-width: 220px; padding: 10px 12px 6px 14px;
+  border: 1px dashed var(--line-strong); border-radius: 14px 14px 4px 14px;
+  color: var(--ink-3); font-size: 13.5px; line-height: 1.55;
+}
+.queued-message.dragging { opacity: .45; }
+.queued-message > p { margin: 0; white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.queued-message > small { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted-2); }
+.queued-message > footer { display: flex; align-items: center; gap: 2px; margin-top: 6px; color: var(--muted-2); font-size: 11.5px; }
+.queued-message > footer .spacer { flex: 1; }
+.queued-message > footer button {
+  width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.queued-message > footer button:hover { background: var(--raised); color: var(--ink); }
+.queued-message-grip { cursor: grab; color: var(--faint); }
+.queued-message.dragging .queued-message-grip { cursor: grabbing; }
+.queued-message-status { display: inline-flex; align-items: center; gap: 4px; margin-left: 2px; }
+
 /* --------------------------------------------------------------- tasks */
 
 .task-progress { width: 100%; color: var(--muted); }
@@ -1052,29 +1072,6 @@ button > svg { pointer-events: none; }
 
 .composer-zone { flex: none; padding: 14px 32px 16px; }
 .composer-surface { width: 100%; max-width: 780px; margin: 0 auto; }
-.composer-queue {
-  max-width: 780px; margin: 0 auto; padding: 0 6px;
-}
-.composer-queue-item {
-  border: 1px solid var(--line-control); border-bottom: 0; border-radius: 12px 12px 0 0;
-  background: var(--stage); padding: 9px 10px 17px 6px;
-  display: flex; align-items: center; gap: 8px;
-}
-.composer-queue-item + .composer-queue-item { margin-top: -9px; }
-.composer-queue-item.dragging { opacity: .45; }
-.composer-queue-item > span {
-  flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.composer-queue-item button {
-  border: 0; background: transparent; color: var(--muted);
-  font: 500 12px var(--sans); cursor: pointer; flex: none;
-  display: inline-flex; align-items: center; padding: 3px 6px; border-radius: 6px;
-}
-.composer-queue-item button:hover { color: var(--ink); background: var(--raised); }
-.composer-queue-grip { cursor: grab; color: var(--faint); }
-.composer-queue-item.dragging .composer-queue-grip { cursor: grabbing; }
-.composer-queue-steer { color: var(--ink-2); }
 
 .composer-frame {
   max-width: 780px; margin: 0 auto; position: relative;
@@ -1369,7 +1366,6 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
   border: 1px solid var(--line-card); border-bottom: 0;
   border-radius: 12px 12px 0 0; background: var(--chrome);
 }
-.composer-queue + .extension-prompt { position: relative; z-index: 1; margin-top: -9px; }
 .extension-prompt > header { display: flex; align-items: center; gap: 9px; padding: 0 4px 2px; }
 .extension-prompt > header > strong {
   min-width: 0; font-size: 13px; font-weight: 650; color: var(--ink);

@@ -56,6 +56,13 @@ export class FollowUpQueueStore {
     return item;
   }
 
+  /** Takes every entry of a thread out, oldest first. */
+  drain(sessionId: string): QueuedFollowUp[] {
+    const all = [...this.list(sessionId)];
+    if (all.length > 0) this.write(sessionId, []);
+    return all;
+  }
+
   shift(sessionId: string): QueuedFollowUp | undefined {
     const [first, ...rest] = this.list(sessionId);
     if (first) this.write(sessionId, rest);

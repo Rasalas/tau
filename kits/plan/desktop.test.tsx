@@ -2,10 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, WorkbenchActions } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { WorkbenchShellContext } from "../../src/renderer/workbench-context.js";
-import { ThreadStoreContext } from "../../src/renderer/workbench-context.js";
-import { ThreadStore } from "../../src/workbench/thread-store.js";
+import { createKitHarness, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { implementPlan, planKitExtension } from "./desktop.js";
 
 afterEach(cleanup);

@@ -33,7 +33,6 @@ function renderComposer(
         onAbort={() => {}}
         onCancelQueued={() => {}}
         onSteerQueued={() => {}}
-        onReorderQueue={() => {}}
         onSetModel={() => {}}
         onSetThinking={() => {}}
         onCompactContext={() => {}}
