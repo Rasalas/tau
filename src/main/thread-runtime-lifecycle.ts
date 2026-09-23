@@ -250,9 +250,12 @@ export class ThreadRuntimeLifecycle {
       });
       runtime = createdRuntime;
       const backend = new PiThreadRuntimeBackend(createdRuntime, this.port.adapterFor("pi"), {
-        mapMessages: (messages) => messages
-          .map((message, index) => mapMessage(message, index, this.port.projection.mapping(thread!)))
-          .filter((message): message is UiMessage => Boolean(message?.text || message?.skill)),
+        mapMessages: (messages) => {
+          const mapping = this.port.projection.mapping(thread!);
+          return messages
+            .map((message, index) => mapMessage(message, index, mapping))
+            .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
+        },
       });
       marks.mark("create-runtime");
       thread = new ThreadRuntime(backend, createdRuntime);

@@ -85,8 +85,10 @@ export class ThreadProjection {
 
   branchMessages(thread: ThreadRuntime): unknown[] {
     const records = branchRecords(thread.entries, knownSkillNames(this.composerCommands(thread)));
+    // Once per call: every read of `thread.entries` walks the whole branch.
+    const mapping = this.mapping(thread);
     return records.map(({ record, raw }, index) => {
-      const mapped = mapMessage(record, index, this.mapping(thread));
+      const mapped = mapMessage(record, index, mapping);
       const identity = mapped?.role === "user"
         ? resolveClientTurnIdentity(
           mapped,
