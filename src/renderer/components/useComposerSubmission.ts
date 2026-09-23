@@ -16,7 +16,7 @@ import { expandFileMentions } from "../file-mention-expander.js";
 import type { ComposerInlineContext, ComposerInlineContribution, DocumentSourceContribution } from "../extension-system";
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
-import { plainChipText } from "./composer-chips";
+import { plainChipText, withoutChipTokens } from "./composer-chips";
 
 /** `alternate` is a plain send with the modifier held, which an extension may claim for a new thread. */
 export type ComposerDelivery = "followUp" | "steer" | "alternate";
@@ -314,14 +314,14 @@ export function useComposerSubmission({
             fileAttachments: inlineContext?.fileAttachments ?? false,
             imageInput: inlineContext?.imageInput ?? false,
             ...(inlineContext?.snapshot ? { snapshot: inlineContext.snapshot } : {}),
-            text: plainChipText(captured.draft),
+            text: withoutChipTokens(captured.draft),
           });
         } catch (error) {
           scopeStore.setAttachmentError(scope, errorMessage(error), scopeStore.getAttachmentGeneration(scope));
           return;
         }
       }
-      sink(withInlineContext(plainChipText(captured.draft), inline.context).text, [...images, ...inline.attachments]);
+      sink(withInlineContext(withoutChipTokens(captured.draft), inline.context).text, [...images, ...inline.attachments]);
       settleInlineSend(inline.asked, scope, true);
       scopeStore.setAttachments(scope, scopeStore.getSnapshot(scope).attachments.filter((attachment) => !ids.has(attachment.id)));
       if (scopeStore.getSnapshot(scope).draft === captured.draft) scopeStore.setDraft(scope, "");

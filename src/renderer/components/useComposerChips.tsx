@@ -42,7 +42,7 @@ export interface UseComposerChipsOptions {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   /** Where a menu that just closed left the caret; read once, the field's own caret otherwise. */
   insertAt: RefObject<number | undefined>;
-  /** A prompt is on its way: its chips are hidden by their holders, not gone. */
+  /** A prompt is on its way: its chips are hidden by their holders, not gone, so no token is taken out. */
   paused: boolean;
   updateDraft(next: string): void;
   setCaret(caret: number): void;
@@ -108,7 +108,6 @@ export function useComposerChips({ scope, text, readText, draftStorageKey, clien
 
   const [labelsVersion, setLabelsVersion] = useState(0);
   useEffect(() => {
-    if (paused) return;
     const labels = labelsFor(scope);
     const current = readText();
     const tokens = findChipTokens(current);
@@ -117,7 +116,8 @@ export function useComposerChips({ scope, text, readText, draftStorageKey, clien
     const owners = new Set([IMAGE_OWNER, ...chipInlines.map((inline) => inline.id)]);
     let next = current;
     let changed = false;
-    for (const [key, label] of [...labels]) {
+    // While a prompt is on its way its chips are hidden, not gone; new ones still get tokens.
+    for (const [key, label] of paused ? [] : [...labels]) {
       if (present.has(key)) continue;
       const owner = key.slice(0, key.indexOf(":"));
       // A kit that is not loaded yet still holds its chips; images do not outlive the window.

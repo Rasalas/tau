@@ -47,6 +47,11 @@ export function plainChipText(text: string): string {
   return text.includes(CHIP_MARK) ? text.replace(TOKEN, (_token, label: string) => label.replaceAll("\u00a0", " ")).replaceAll(CHIP_MARK, "") : text;
 }
 
+/** The text without its chips: an answer's own words, when the chips go along as files. */
+export function withoutChipTokens(text: string): string {
+  return text.includes(CHIP_MARK) ? text.replace(/\u2063\u2007\u2007[^\u2063\n]*\u2063 ?/gu, "").replaceAll(CHIP_MARK, "") : text;
+}
+
 /** A label no other chip of the draft reads: `a.ts`, `a.ts 2`, … */
 export function uniqueChipLabel(label: string, taken: ReadonlySet<string>): string {
   const base = chipLabelText(label);

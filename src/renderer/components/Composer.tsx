@@ -59,7 +59,7 @@ import {
 import { ComposerInput } from "./ComposerInput";
 import { useComposerChips } from "./useComposerChips";
 import { useComposerCollapse } from "./useComposerCollapse";
-import { findChipTokens, plainChipText, repairChipTokens } from "./composer-chips";
+import { findChipTokens, plainChipText, repairChipTokens, withoutChipTokens } from "./composer-chips";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
 import { takePasteAsText } from "../paste-as-text";
@@ -632,8 +632,9 @@ export function Composer({
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
     if (held) return;
+    // An answer's chips go along as its files; its text is the user's own words.
     const intent = classifyComposerInput({
-      text: plainChipText(text),
+      text: answerable ? withoutChipTokens(text) : plainChipText(text),
       answerable: Boolean(answerable),
       answerFiles: answerHasFiles,
       promptActionAvailable: Boolean(promptSubmit && !promptSubmit.disabled),
@@ -650,7 +651,6 @@ export function Composer({
         return;
       case "prompt-answer":
         if (answerHasFiles) {
-          chips.dropOrphans(text);
           answerWithDraft((answer, files) => onAnswerPrompt?.(answer, true, files));
           return;
         }
@@ -1104,7 +1104,7 @@ export function Composer({
           />
 
           {answerable && prompt ? (() => {
-            const typedAnswer = Boolean(text.trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
+            const typedAnswer = Boolean(withoutChipTokens(text).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
             const submitLabel = typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer";
             return (
               <button
