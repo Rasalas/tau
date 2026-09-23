@@ -986,9 +986,7 @@ npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
 npm run benchmark:compare -- --large-thread [--seed] --runs 5 --warmup 1 [--check]   # Tau alone, see "Opening a large thread"
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (398 KiB and 360 messages today, about 15 % above the measurement after D22). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
-
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (2,100 KiB and 360 messages today) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB and 360 messages today, about 15 % above the measurement after D22) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once.
 
 ### First results (2026-09-23)
 
@@ -1044,6 +1042,30 @@ The report is written to `reports/compare-<timestamp>.json` and holds every run,
 - **The large thread was loaded in full in both apps.** For Tau that took an explicit action a user would take by hand. "Open the thread" measures only the first page (10 turns in Tau, 100 in T3).
 - **The turn is synthetic.** It is calibrated on the plan's shape, not recorded from a real Codex session. T3 ran with its default settings, including its server-side coalescing.
 - **Not measured yet:** tier B (a real Codex turn on the smallest model with a shadow `CODEX_HOME`), CPU at idle, the 2,000-thread rail, the 2 MB diff, and model switching.
+
+### After wave D (2026-09-23)
+
+- **Report:** `reports/compare-20260923-final.json`, five measured runs per app, same machine, fixture and T3 build as above.
+- **Tau:** `7ad2580e` (t3/wave-d with every ticket merged).
+- **The machine was busy again:** the 1-minute load average was 6.8 median at run start.
+
+| metric (median / p95) | Tau | T3 Code |
+| --- | ---: | ---: |
+| first paint (ms) | 2,311 / 2,659 | 2,593 / 2,812 |
+| rail and composer ready (ms) | 3,632 / 3,984 | 3,337 / 3,571 |
+| footprint of the host / server process, idle (MiB) | 149 / 151 | 151 / 152 |
+| RSS of the host / server process, idle (MiB) | 174 / 176 | 194 / 196 |
+| renderer JS heap, idle (MiB) | 49.1 / 49.8 | 40.2 / 41.4 |
+| open the 100-turn thread, first rows visible (ms) | 219 / 236 | 171 / 196 |
+| scroll: frame p99 (ms) / frames over 33 ms | 17.6 / 0 | 33.4 / 5 |
+| turn: Enter → first text visible (ms) | 96 / 115 | 197 / 262 |
+| stream: long tasks (count / total ms) | 0 / 0 | 11 / 716 |
+| long tasks after the last delta (ms) | 0 / 0 | 345 / 365 |
+| turn: WebSocket messages received | 340 / 341 | 113 / 114 |
+| turn: KiB received (decoded) | 347 / 351 | 259 / 259 |
+| renderer JS heap after the turn (MiB) | 47.2 / 71.2 | 146.9 / 188.6 |
+
+Tau's per-turn transfer fell from 8,812 KiB to 347 KiB and its idle host from 273 MiB to 174 MiB RSS; the host is now leaner than T3's server. T3 still sends about a third fewer messages and opens the large thread about 50 ms sooner, because it sends the whole history at once.
 
 ### Screen by screen
 
