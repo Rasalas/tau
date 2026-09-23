@@ -98,7 +98,7 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
     services.log("local-request.describe", label);
     const prompt = [
       buildDraftPrompt(git),
-      captions.length > 0 ? `Screenshots the description embeds after its text (refer to them where they show a change; do not add image links yourself):\n${captions.map((caption) => `- ${caption}`).join("\n")}` : "",
+      captions.length > 0 ? `Screenshots of the app taken while the change was made, embedded after the description; each caption names the action just before it. Mention what they show only where it helps a reviewer, never how they were taken, and add no image links:\n${captions.map((caption) => `- ${caption}`).join("\n")}` : "",
     ].filter(Boolean).join("\n\n");
     let answer: string;
     try {
@@ -113,11 +113,11 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
   }, { long: true });
 
   /** Where the checkout's pictures, or a request's, would go. */
-  const plan = async (url: string | undefined): Promise<UploadPlan> => {
+  const plan = async (url: string | undefined, branch: string | undefined): Promise<UploadPlan> => {
     if (url) {
       const found = sources.forUrl(url);
       if (!found) throw new HostCommandError("Tau does not know the host of that request.");
-      return planUpload(found.provider, { host: found.ref.host, repo: found.ref.repo }, sources.tools);
+      return planUpload(found.provider, { host: found.ref.host, repo: found.ref.repo }, sources.tools, branch);
     }
     const git = await workspace<ReviewRequestContext>("review-request-context");
     const provider = sources.get(await sources.detect(git.remote?.url));
@@ -126,7 +126,7 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
     return planUpload(provider, target, sources.tools, git.branch);
   };
 
-  context.registerCommand("local-pr-upload-plan", (input) => plan(text(record(input).url)), { long: true });
+  context.registerCommand("local-pr-upload-plan", (input) => plan(text(record(input).url), text(record(input).branch)), { long: true });
 
   context.registerCommand("pr-attach-evidence", async (input) => {
     const fields = record(input);

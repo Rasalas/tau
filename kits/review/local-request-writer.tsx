@@ -81,7 +81,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
     const named = action === "create" ? findEvidenceTokens(form.body) : media;
     if (action === "create" && named.length === 0) { void create(false); return; }
     setStep({ kind: "confirm", action, media: named });
-    client.plan(action === "attach" ? open?.url : undefined).then(
+    (action === "attach" && open ? client.plan(open.url, branch) : client.plan()).then(
       (plan) => setStep((current) => current.kind === "confirm" ? { ...current, plan } : current),
       (reason: unknown) => setStep((current) => current.kind === "confirm" ? { ...current, planError: errorMessage(reason) } : current),
     );
@@ -119,7 +119,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
           <p className="lpr-confirm-text">
             {going
               ? <>Upload {count(step.media.length)} to <strong>{plan.destination}</strong>, then {verb}?</>
-              : <>{count(step.media.length)} stay on this machine: {plan.reason} {step.action === "create" ? "They are taken out of the description." : ""}</>}
+              : <>{count(step.media.length)} {step.media.length === 1 ? "stays" : "stay"} on this machine: {plan.reason} {step.action === "create" ? "They are taken out of the description." : ""}</>}
           </p>
         ) : null}
         <div className="lpr-strip lpr-confirm-strip" aria-label="Pictures that go with it">

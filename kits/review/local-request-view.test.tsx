@@ -98,7 +98,7 @@ describe("the local pull request view", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Save the page" } });
     fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
     expect(await screen.findByText("refs/tau/evidence/feature/pr in github.com/acme/demo")).toBeTruthy();
-    expect(client.plan).toHaveBeenCalledWith(undefined);
+    expect(client.plan).toHaveBeenCalledWith();
     expect(requests.create).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Upload and create PR" }));
     await waitFor(() => expect(requests.create).toHaveBeenCalledWith(expect.objectContaining({ title: "Save the page", uploadConfirmed: true, body: expect.stringContaining("tau-evidence://t1/tau.evidence/f1") })));
@@ -111,7 +111,7 @@ describe("the local pull request view", () => {
     fireEvent.click(screen.getByRole("button", { name: /Insert 1 picture/u }));
     fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Save" } });
     fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
-    expect(await screen.findByText(/1 picture stay on this machine: GitHub has no upload API/u)).toBeTruthy();
+    expect(await screen.findByText(/1 picture stays on this machine: GitHub has no upload API/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create PR without pictures" }));
     await waitFor(() => expect(requests.create).toHaveBeenCalledTimes(1));
   });
@@ -122,7 +122,7 @@ describe("the local pull request view", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Use in the description: Clicked “Save”" }));
     fireEvent.click(screen.getByRole("button", { name: "Attach 1 picture…" }));
     expect(await screen.findByText(/add them to PR #7 as a comment/u)).toBeTruthy();
-    expect(client.plan).toHaveBeenCalledWith(OPEN.url);
+    expect(client.plan).toHaveBeenCalledWith(OPEN.url, "feature/pr");
     fireEvent.click(screen.getByRole("button", { name: "Upload and comment" }));
     await waitFor(() => expect(client.attach).toHaveBeenCalledWith(expect.objectContaining({ url: OPEN.url, branch: "feature/pr", body: expect.stringContaining("tau-evidence://t1/tau.evidence/f2") })));
   });

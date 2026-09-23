@@ -123,7 +123,8 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
 
   const groups = useMemo(() => assignEvidence(data.branch?.commits ?? [], data.evidence ?? [], data.branch?.forkedAt), [data.branch, data.evidence]);
   const frames = useMemo(() => new Map(groups.flatMap((group) => group.turns.flatMap((turn) => turn.frames)).map((frame) => [evidenceKey(frame), frame])), [groups]);
-  const chosen = useMemo(() => [...frames.values()].filter((frame) => selected.has(evidenceKey(frame))), [frames, selected]);
+  // Oldest first, the order a reader follows the change in.
+  const chosen = useMemo(() => [...frames.values()].filter((frame) => selected.has(evidenceKey(frame))).sort((left, right) => left.at - right.at), [frames, selected]);
 
   if (!store) return <div className="stage-empty" role="status">The local pull request needs Workspace Kit.</div>;
   if (!root) return <div className="stage-empty" role="status">Open a thread in a project to see its branch as a pull request.</div>;
@@ -142,7 +143,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
           <span className="pr-state state-local" title="Nothing of this exists on the host yet">local</span>
           <span data-tooltip={providerInfo(service).name} aria-label={providerInfo(service).name}><ServiceIcon service={service} width={13} height={13} /></span>
           <span className="spacer" />
-          <button className="icon-button compact" aria-label="Refresh the local pull request" title="Refresh" disabled={loading} onClick={() => void load(true)}>
+          <button className="icon-button compact" aria-label="Refresh the local pull request" title="Refresh" disabled={loading} onClick={() => { void store.refresh(); void load(true); }}>
             <RefreshCw size={13} />
           </button>
         </div>

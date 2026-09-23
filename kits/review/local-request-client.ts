@@ -20,7 +20,7 @@ export interface LocalRequestClient {
   /** A thumbnail through Evidence Kit when it took the picture, else the picture itself. */
   image(frame: Pick<LocalEvidence, "threadId" | "source" | "id">, thumb: boolean): Promise<string | null>;
   describe(input: { base?: string; model?: ModelRef; prefer?: ModelRef; instructions?: string; template?: boolean; evidence?: string[] }): Promise<ReviewRequestDraft & { model?: string }>;
-  plan(url?: string): Promise<UploadPlan>;
+  plan(url?: string, branch?: string): Promise<UploadPlan>;
   attach(input: { url: string; body: string; branch?: string }): Promise<{ uploaded: number }>;
 }
 
@@ -44,7 +44,7 @@ export function localRequestClient(host: HostExtensionClient, evidence: () => Ev
       return read;
     },
     describe: (input) => host.invoke("local-pr-describe", input) as Promise<ReviewRequestDraft & { model?: string }>,
-    plan: (url) => host.invoke("local-pr-upload-plan", url ? { url } : undefined) as Promise<UploadPlan>,
+    plan: (url, branch) => host.invoke("local-pr-upload-plan", url ? { url, ...(branch ? { branch } : {}) } : undefined) as Promise<UploadPlan>,
     attach: (input) => host.invoke("pr-attach-evidence", { ...input, uploadConfirmed: true }) as Promise<{ uploaded: number }>,
   };
 }
