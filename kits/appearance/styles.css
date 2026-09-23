@@ -45,6 +45,7 @@
 /* Motion: a sidebar and a dock that open and close at the chosen speed. */
 .appearance-motion { display: inline-flex; align-items: center; gap: 12px; }
 .appearance-motion-preview {
+  --preview-motion: 0ms;
   display: flex; gap: 3px; width: 84px; height: 30px; padding: 3px;
   border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--field); cursor: pointer;
 }
