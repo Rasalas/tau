@@ -1,6 +1,7 @@
 import { Package } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
+  SettingsSection,
   errorMessage,
   type DesktopExtension,
   type ExtensionInspection,
@@ -88,101 +89,99 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         An install never starts a package: approve its permissions on its own page, and both halves start there and then.
       </p>
 
-      <div className="settings-label">Install from a source</div>
-      <form
-        className="packages-form"
-        onSubmit={(event) => { event.preventDefault(); if (source.trim()) void run("install", "install", { source: source.trim(), scope }); }}
-      >
-        <input
-          type="text"
-          value={source}
-          placeholder="npm:@acme/hello, git:https://example.com/acme/hello.git, or /path/to/folder"
-          aria-label="Package source"
-          spellCheck={false}
-          onChange={(event) => setSource(event.target.value)}
-        />
-        <button type="submit" className="grant-allow" disabled={!source.trim() || busy !== undefined}>
-          {busy === "install" ? "Installing…" : "Install"}
-        </button>
-      </form>
+      <SettingsSection title="Install from a source" plain>
+        <form
+          className="packages-form"
+          onSubmit={(event) => { event.preventDefault(); if (source.trim()) void run("install", "install", { source: source.trim(), scope }); }}
+        >
+          <input
+            type="text"
+            value={source}
+            placeholder="npm:@acme/hello, git:https://example.com/acme/hello.git, or /path/to/folder"
+            aria-label="Package source"
+            spellCheck={false}
+            onChange={(event) => setSource(event.target.value)}
+          />
+          <button type="submit" className="grant-allow" disabled={!source.trim() || busy !== undefined}>
+            {busy === "install" ? "Installing…" : "Install"}
+          </button>
+        </form>
 
-      <div className="segmented packages-scope">
-        <button type="button" className={scope === "global" ? "active" : ""} onClick={() => setScope("global")}>Every project</button>
-        <button type="button" className={scope === "project" ? "active" : ""} onClick={() => setScope("project")}>This project only</button>
-      </div>
-
-      {log.length > 0 ? (
-        <div className="packages-log" aria-label="Install progress">
-          {log.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+        <div className="segmented packages-scope">
+          <button type="button" className={scope === "global" ? "active" : ""} onClick={() => setScope("global")}>Every project</button>
+          <button type="button" className={scope === "project" ? "active" : ""} onClick={() => setScope("project")}>This project only</button>
         </div>
-      ) : null}
 
-      <div className="settings-label">
-        Bundled kits{inspection?.distribution ? ` · ${inspection.distribution.name} ${inspection.distribution.version}` : ""}
-      </div>
-      {bundled.length > 0 ? (
-        <table className="inspector-table" aria-label="Bundled kits">
-          <thead><tr><th>Kit</th><th>Permissions</th><th>Isolation</th><th>Folder</th></tr></thead>
-          <tbody>
-            {bundled.map((kit) => (
-              <tr key={kit.id} data-extension-id={kit.id}>
-                <td>
-                  <strong>{kit.name}{kit.theme ? <em className="package-kind">Theme</em> : null}</strong>
-                  <small>{kit.id}{kit.version ? ` · ${kit.version}` : ""}</small>
-                </td>
-                <td>{kit.permissions?.length ? kit.permissions.join(", ") : "none"}</td>
-                <td>{kit.isolation ?? "worker"}</td>
-                <td><code title={kit.directory}>{kit.directory}</code></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <div className="settings-note">
-          {cwd ? "Tau is running without its bundled kits — safe mode does that." : "Open a project to list the kits Tau ships."}
-        </div>
-      )}
-      <div className="settings-note">Kits ship with Tau: shipping one is the approval, so they carry no grant and cannot be removed from here.</div>
+        {log.length > 0 ? (
+          <div className="packages-log" aria-label="Install progress">
+            {log.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+          </div>
+        ) : null}
+      </SettingsSection>
 
-      <div className="settings-label">Installed</div>
-      {packages && packages.length > 0 ? (
-        <table className="inspector-table" aria-label="Installed packages">
-          <thead><tr><th>Package</th><th>Scope</th><th>Signature</th><th>Source</th><th /></tr></thead>
-          <tbody>
-            {packages.map((entry) => {
-              const granted = summaryOf(entry.id)?.granted;
-              const kind = kindOf(entry.id);
-              return (
-                <tr key={`${entry.scope}:${entry.source}`} data-extension-id={entry.id}>
-                  <td>
-                    <strong>{entry.name ?? entry.id ?? "unreadable package"}{kind ? <em className="package-kind">{kind}</em> : null}</strong>
-                    <small>{entry.id ?? entry.directory}{entry.version ? ` · ${entry.version}` : ""}</small>
-                  </td>
-                  <td>{entry.scope === "global" ? "every project" : "this project"}</td>
-                  <td>{entry.error ?? entry.signatureLabel}</td>
-                  <td><code title={entry.directory}>{entry.source}</code></td>
-                  <td className="packages-actions">
-                    <button type="button" disabled={busy !== undefined} onClick={() => void run("update", "update", { source: entry.source })}>Update</button>
-                    <button type="button" disabled={busy !== undefined} onClick={() => void run("remove", "remove", { source: entry.source, scope: entry.scope })}>Remove</button>
-                    {granted === false ? <small>waiting for approval</small> : null}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      ) : packages ? (
-        <div className="settings-note">No package source is installed. Packages you copied into the extension folders by hand are listed in the Inspector.</div>
-      ) : (
-        <div className="settings-note">Reading the package list…</div>
-      )}
-
-      <div className="settings-label">Updates</div>
-      <div className="packages-form">
-        <button type="button" className="install-extension" disabled={busy !== undefined || !packages?.length} onClick={() => void run("update", "update", {})}>
+      <SettingsSection title="Installed" plain headerAction={
+        <button type="button" className="text-button" disabled={busy !== undefined || !packages?.length} onClick={() => void run("update", "update", {})}>
           {busy === "update" ? "Updating…" : "Check every source for updates"}
         </button>
-      </div>
+      }>
+        {packages && packages.length > 0 ? (
+          <table className="inspector-table" aria-label="Installed packages">
+            <thead><tr><th>Package</th><th>Scope</th><th>Signature</th><th>Source</th><th /></tr></thead>
+            <tbody>
+              {packages.map((entry) => {
+                const granted = summaryOf(entry.id)?.granted;
+                const kind = kindOf(entry.id);
+                return (
+                  <tr key={`${entry.scope}:${entry.source}`} data-extension-id={entry.id}>
+                    <td>
+                      <strong>{entry.name ?? entry.id ?? "unreadable package"}{kind ? <em className="package-kind">{kind}</em> : null}</strong>
+                      <small>{entry.id ?? entry.directory}{entry.version ? ` · ${entry.version}` : ""}</small>
+                    </td>
+                    <td>{entry.scope === "global" ? "every project" : "this project"}</td>
+                    <td>{entry.error ?? entry.signatureLabel}</td>
+                    <td><code title={entry.directory}>{entry.source}</code></td>
+                    <td className="packages-actions">
+                      <button type="button" disabled={busy !== undefined} onClick={() => void run("update", "update", { source: entry.source })}>Update</button>
+                      <button type="button" disabled={busy !== undefined} onClick={() => void run("remove", "remove", { source: entry.source, scope: entry.scope })}>Remove</button>
+                      {granted === false ? <small>waiting for approval</small> : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : packages ? (
+          <div className="settings-note">No package source is installed. Packages you copied into the extension folders by hand are listed in the Inspector.</div>
+        ) : (
+          <div className="settings-note">Reading the package list…</div>
+        )}
+      </SettingsSection>
+
+      <SettingsSection title={`Bundled kits${inspection?.distribution ? ` · ${inspection.distribution.name} ${inspection.distribution.version}` : ""}`} plain>
+        {bundled.length > 0 ? (
+          <table className="inspector-table" aria-label="Bundled kits">
+            <thead><tr><th>Kit</th><th>Permissions</th><th>Isolation</th><th>Folder</th></tr></thead>
+            <tbody>
+              {bundled.map((kit) => (
+                <tr key={kit.id} data-extension-id={kit.id}>
+                  <td>
+                    <strong>{kit.name}{kit.theme ? <em className="package-kind">Theme</em> : null}</strong>
+                    <small>{kit.id}{kit.version ? ` · ${kit.version}` : ""}</small>
+                  </td>
+                  <td>{kit.permissions?.length ? kit.permissions.join(", ") : "none"}</td>
+                  <td>{kit.isolation ?? "worker"}</td>
+                  <td><code title={kit.directory}>{kit.directory}</code></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="settings-note">
+            {cwd ? "Tau is running without its bundled kits — safe mode does that." : "Open a project to list the kits Tau ships."}
+          </div>
+        )}
+        <div className="settings-note">Kits ship with Tau: shipping one is the approval, so they carry no grant and cannot be removed from here.</div>
+      </SettingsSection>
 
       {error ? <div className="settings-note" data-level="error">{error}</div> : null}
       <div className="settings-note">
