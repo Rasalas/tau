@@ -270,14 +270,14 @@ async function runCommand(session, command, args) {
   }
   if (command === "click") {
     if (args.length !== 1) throw new Error("usage: click <expr>");
-    const point = await evaluate(session, `(() => { const el = (${args[0]}); return el ? rect(el) : null; })()`);
+    const point = await evaluate(session, `(() => { const el = (${args[0]}); if (!el) return null; el.scrollIntoView({ block: "center", inline: "center" }); return rect(el); })()`);
     if (!point) throw new Error(`click: expression did not resolve to an element: ${args[0]}`);
     await dispatchClick(session, point.x, point.y);
     return { clicked: args[0], at: point };
   }
   if (command === "hover" || command === "rightclick") {
     if (args.length !== 1) throw new Error(`usage: ${command} <expr>`);
-    const point = await evaluate(session, `(() => { const el = (${args[0]}); return el ? rect(el) : null; })()`);
+    const point = await evaluate(session, `(() => { const el = (${args[0]}); if (!el) return null; el.scrollIntoView({ block: "center", inline: "center" }); return rect(el); })()`);
     if (!point) throw new Error(`${command}: expression did not resolve to an element: ${args[0]}`);
     // A hover is only the move; a right-click opens whatever context menu the page asks for.
     if (command === "hover") await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
