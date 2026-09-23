@@ -23,6 +23,8 @@ import {
   type RuntimeInstanceConfig,
   type RuntimeToolVersion,
   type VersionPolicy,
+  THREAD_TEXTS_COMMAND,
+  threadTextsDelta,
 } from "tau/host-extension";
 import { connectedProviders, openCodeNewThreadCatalog, parseModelRef, storedModels } from "./catalog.js";
 import type { OpenCodeProviderList } from "./client.js";
@@ -37,6 +39,7 @@ import {
   OPENCODE_HOST_EXTENSION_ID,
   OPENCODE_NPM_PACKAGE,
   TESTED_OPENCODE_VERSION,
+  SEARCH_KIT_ID,
   USAGE_KIT_ID,
   type OpenCodeInstancesReport,
   type OpenCodeStatusReport,
@@ -462,6 +465,8 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model: model.id } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),
       }), { callers: [USAGE_KIT_ID] });
+      // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
 
       /** A server over the default instance's data, or the fixture home an import root names. */
       const importServer = async (): Promise<OpenCodeServerHandle> => {

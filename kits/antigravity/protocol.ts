@@ -22,6 +22,8 @@ export interface AntigravityInstallEvent {
 
 /** Usage Kit may read each thread's running total through the `usage` command. */
 export const USAGE_KIT_ID = "tau.usage";
+/** Search Kit indexes the text of threads nobody has open (`thread-texts`). */
+export const SEARCH_KIT_ID = "tau.search";
 
 /**
  * Questionnaire Kit pages through prompts that carry this extra; its shape is

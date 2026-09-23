@@ -230,6 +230,24 @@ describe("Codex host half", () => {
     await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.codex/usage.");
   });
 
+  it("hands what each thread said to Search Kit, only what it does not hold, and to no other kit", async () => {
+    const { registry, root } = await harness();
+    const store = new CodexSessionStore({ filePath: CodexSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    await store.appendMessages("thread-1", "/repo", [{ id: "m1", role: "user", text: "Where is the luna launch?", timestamp: 1 }, { id: "m2", role: "assistant", text: "On Friday.", timestamp: 2 }]);
+    const reader = (id: string): HostExtension & { read?: (input: unknown) => Promise<unknown> } => {
+      const extension: HostExtension & { read?: (input: unknown) => Promise<unknown> } = { id, name: id, activate(activation) { extension.read = (input) => activation.invokeHostExtension("tau.codex", "thread-texts", input); } };
+      return extension;
+    };
+    const search = reader("tau.search");
+    const stranger = reader("acme.stranger");
+    await registry.activate(search);
+    await registry.activate(stranger);
+    const answer = await search.read!({}) as { threads: Array<{ threadId: string; updatedAt: number; messages: unknown[] }> };
+    expect(answer).toMatchObject({ threads: [{ threadId: "thread-1", messages: [{ role: "user", text: "Where is the luna launch?" }, { role: "assistant", text: "On Friday." }] }], removed: [], more: false });
+    await expect(search.read!({ known: { "thread-1": answer.threads[0]!.updatedAt, gone: 1 } })).resolves.toEqual({ threads: [], removed: ["gone"], more: false });
+    await expect(stranger.read!({})).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.codex/thread-texts.");
+  });
+
   it("registers a backend per instance that runs its own home, variables and arguments, and keeps each thread on its instance", async () => {
     const { registry, backend, backends, events, launches, root } = await harness();
     const home = join(root, "work-home");

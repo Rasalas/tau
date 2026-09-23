@@ -5,6 +5,8 @@ export const OPENCODE_BACKEND_KIND = "opencode" as const;
 export const OPENCODE_HOST_EXTENSION_ID = "tau.opencode";
 /** Usage Kit may read each thread's running total through the `usage` command. */
 export const USAGE_KIT_ID = "tau.usage";
+/** Search Kit indexes the text of threads nobody has open (`thread-texts`). */
+export const SEARCH_KIT_ID = "tau.search";
 /** Onboarding may list and import the sessions OpenCode ran outside Tau. */
 export const ONBOARDING_KIT_ID = "tau.onboarding";
 export const OPENCODE_NPM_PACKAGE = "opencode-ai";
