@@ -72,6 +72,15 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     rows: [],
   },
   {
+    page: "connections",
+    label: "Connections",
+    keywords: ["pairing", "pair", "devices", "clients", "web client", "browser", "phone", "qr", "revoke", "sessions", "host token", "rotate", "remote"],
+    rows: [
+      ["Host token", ["rotate", "token", "secret"]],
+      ["Authorized clients", ["pairing link", "revoke", "sessions", "devices"]],
+    ],
+  },
+  {
     page: "about",
     label: "About",
     keywords: ["version", "licenses", "licences", "open source", "third party", "notices", "release notes", "updates"],
