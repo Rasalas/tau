@@ -62,7 +62,7 @@ describe("ThreadProjection for a backend without a journal", () => {
   });
 });
 
-function piThread(entries: () => readonly unknown[]) {
+function piThread(entries: () => readonly unknown[], runtime?: object) {
   const backend = {
     kind: "pi",
     runtimeAdapter: { id: "pi", capabilities: { skillInvocationDialect: "pi", ownsModelSelection: false } },
@@ -80,7 +80,7 @@ function piThread(entries: () => readonly unknown[]) {
     }),
     composerCommands: () => [{ name: "review", description: "Review", source: "skill" }],
   };
-  return new ThreadRuntime(backend as never);
+  return new ThreadRuntime(backend as never, runtime as never);
 }
 
 describe("ThreadProjection catalog", () => {
@@ -102,5 +102,23 @@ describe("ThreadProjection catalog", () => {
     const catalog = projection().catalog(piThread(entries), models, 3);
     expect(entries).not.toHaveBeenCalled();
     expect(catalog).toMatchObject({ sessionId: "pi-1", thinkingLevel: "high", extensionCount: 3, supportsImageInput: true });
+  });
+});
+
+describe("ThreadProjection transcript", () => {
+  it("walks the branch a fixed number of times, however long the thread, when a kit pins entries", () => {
+    const reads = (turns: number) => {
+      const branch = Array.from({ length: turns }, (_, turn) => [
+        { type: "message", id: `u${turn}`, message: { role: "user", content: [{ type: "text", text: `question ${turn}` }], timestamp: turn * 2 } },
+        { type: "message", id: `a${turn}`, message: { role: "assistant", content: [{ type: "text", text: `answer ${turn}` }], timestamp: turn * 2 + 1 } },
+      ]).flat();
+      const entries = vi.fn(() => branch);
+      const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set([() => ["a0"]]), () => ({}) as never, () => undefined);
+      // A runtime of its own: only a live Pi thread consults the pin providers.
+      const snapshot = projection.hostSnapshot(piThread(entries, {}), [], "/repo", 0);
+      expect(snapshot.messages).toHaveLength(turns * 2);
+      return entries.mock.calls.length;
+    };
+    expect(reads(200)).toBe(reads(2));
   });
 });
