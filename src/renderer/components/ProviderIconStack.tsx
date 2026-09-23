@@ -2,6 +2,7 @@ import anthropicIcon from "@lobehub/icons-static-svg/icons/anthropic.svg?no-inli
 import claudeCodeIcon from "@lobehub/icons-static-svg/icons/claudecode.svg?no-inline";
 import antigravityIcon from "@lobehub/icons-static-svg/icons/antigravity-color.svg?no-inline";
 import codexIcon from "@lobehub/icons-static-svg/icons/codex-color.svg?no-inline";
+import cursorIcon from "@lobehub/icons-static-svg/icons/cursor.svg?no-inline";
 import geminiIcon from "@lobehub/icons-static-svg/icons/gemini-color.svg?no-inline";
 import openAiIcon from "@lobehub/icons-static-svg/icons/openai.svg?no-inline";
 import openCodeIcon from "@lobehub/icons-static-svg/icons/opencode.svg?no-inline";
@@ -35,6 +36,7 @@ function providerIdentity(value: string | undefined): ProviderIdentity | undefin
   if (["openai", "openai-codex", "gpt"].includes(key)) return { family: "openai", label: "OpenAI", source: openAiIcon, fallback: "O" };
   if (["google", "google-gemini", "gemini"].includes(key)) return { family: "gemini", label: "Google Gemini", source: geminiIcon, color: true, fallback: "G" };
   if (["vertex-ai", "vertexai"].includes(key)) return { family: "vertex-ai", label: "Vertex AI", source: vertexAiIcon, color: true, fallback: "V" };
+  if (key === "cursor") return { family: "cursor", label: "Cursor", source: cursorIcon, fallback: "C" };
   if (["opencode", "opencode-go"].includes(key)) return { family: "opencode", label: key === "opencode-go" ? "OpenCode Go" : "OpenCode", source: openCodeIcon, fallback: "O" };
   if (["ki:connect", "ki-connect", "kiconnect"].includes(key)) return { family: "ki-connect", label: "KI:connect", source: kiConnectIcon, color: true, fallback: "K" };
   if (key === "pi") return { family: "pi", label: "Pi", source: piIcon, fallback: "P" };

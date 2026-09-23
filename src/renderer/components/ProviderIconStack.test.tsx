@@ -21,6 +21,7 @@ describe("ProviderIconStack", () => {
     ["google", "Google Gemini", "gemini"],
     ["vertex-ai", "Vertex AI", "vertex-ai"],
     ["opencode-go", "OpenCode Go", "opencode"],
+    ["cursor", "Cursor", "cursor"],
     ["ki:connect", "KI:connect", "ki-connect"],
   ])("maps %s to its model-provider mark, without Pi's", (modelProvider, label, family) => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider={modelProvider} runtimeProvider="pi" />);
