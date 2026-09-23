@@ -282,7 +282,7 @@ export function createStoragePage(host: StorageHost) {
           uncommitted work, unpushed commits or ignored files other than node_modules, and every branch stays.
         </p>
 
-        <div className="settings-label">WORKTREE CLEANUP</div>
+        <div className="settings-label">Worktree cleanup</div>
         {repository ? (
           <div className="segmented workspace-storage-scope" role="group" aria-label="Rules for">
             <button type="button" className={scope === "host" ? "active" : ""} aria-pressed={scope === "host"} onClick={() => setScope("host")}>This host</button>
@@ -318,7 +318,7 @@ export function createStoragePage(host: StorageHost) {
         ) : null}
 
         <div className="settings-label workspace-storage-heading">
-          <span>WORKTREES{report ? ` · ${formatBytes(report.totalBytes)}` : ""}</span>
+          <span>Worktrees{report ? ` · ${formatBytes(report.totalBytes)}` : ""}</span>
           <button type="button" className="text-button" disabled={loading} onClick={() => void refresh()}>
             <RefreshCw size={11} /> {loading ? "Measuring…" : "Measure again"}
           </button>

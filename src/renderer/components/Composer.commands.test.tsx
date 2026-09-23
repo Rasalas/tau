@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
@@ -38,7 +38,7 @@ function renderComposer(
   onSubmit = vi.fn(async () => ({ accepted: true as const })),
   streaming = false,
   snapshotOverride: HostSnapshot = snapshot,
-  queueHandlers: { queue?: QueuedFollowUp[]; onSteerQueued?: (id: string) => void; onReorderQueue?: (id: string, toIndex: number) => void; onCancelQueued?: (id: string) => void } = {},
+  queueHandlers: { queue?: QueuedFollowUp[]; onSteerQueued?: (id: string) => void; onCancelQueued?: (id: string) => void } = {},
   handlers: { onRunShellAction?: (command: string) => Promise<unknown>; onOpenPromptEditor?: () => void; onNotify?: (msg: string) => void } = {},
   controlRef?: React.RefObject<ComposerControlHandle | null>,
 ) {
@@ -55,7 +55,6 @@ function renderComposer(
       onAbort={() => {}}
       onCancelQueued={queueHandlers.onCancelQueued ?? (() => {})}
       onSteerQueued={queueHandlers.onSteerQueued ?? (() => {})}
-      onReorderQueue={queueHandlers.onReorderQueue ?? (() => {})}
       onSetModel={() => {}}
       onSetThinking={() => {}}
       onCompactContext={() => {}}
@@ -156,34 +155,21 @@ describe("Composer command menu", () => {
     expect(onSteerQueued).toHaveBeenCalledTimes(1);
   });
 
-  it("steers, drops and reorders queued messages from their row", () => {
+  it("sends the oldest queued message with Command-Shift-Enter and leaves the draft", () => {
     const onSteerQueued = vi.fn();
-    const onCancelQueued = vi.fn();
-    const onReorderQueue = vi.fn();
-    renderComposer(vi.fn(async () => ({ accepted: true as const })), true, snapshot, {
+    const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })), true, snapshot, {
       queue: [queued("first", "after this turn"), queued("second", "and then this")],
       onSteerQueued,
-      onCancelQueued,
-      onReorderQueue,
     });
-    const rows = screen.getAllByRole("listitem");
-    expect(rows.map((row) => row.querySelector("span")?.textContent)).toEqual(["after this turn", "and then this"]);
-
-    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Steer" }));
-    expect(onSteerQueued).toHaveBeenCalledWith("second");
-    fireEvent.click(within(rows[0]!).getByRole("button", { name: "Drop this queued message" }));
-    expect(onCancelQueued).toHaveBeenCalledWith("first");
-
-    fireEvent.keyDown(within(rows[0]!).getByRole("button", { name: /Reorder queued message 1/u }), { key: "ArrowDown", altKey: true });
-    expect(onReorderQueue).toHaveBeenCalledWith("first", 1);
-    fireEvent.pointerDown(within(rows[1]!).getByRole("button", { name: /Reorder queued message 2/u }));
-    fireEvent.dragStart(rows[1]!, { dataTransfer: { setData: () => {}, effectAllowed: "" } });
-    fireEvent.dragOver(rows[0]!, { dataTransfer: { dropEffect: "" } });
-    fireEvent.drop(rows[0]!, { dataTransfer: {} });
-    expect(onReorderQueue).toHaveBeenLastCalledWith("second", 0);
+    const textarea = screen.getByPlaceholderText(/queues/u) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "still typing", selectionStart: 12 } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, shiftKey: true });
+    expect(onSteerQueued).toHaveBeenCalledWith("first");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("still typing");
   });
 
-  it("keeps a blocking question attached to its answer field below the queue", () => {
+  it("keeps a blocking question attached to its answer field", () => {
     const { container } = render(<TestProviders><Composer
       snapshot={{ ...snapshot, isStreaming: true }}
       scopeStore={new ComposerScopeStore()}
@@ -194,7 +180,6 @@ describe("Composer command menu", () => {
       onAbort={() => {}}
       onCancelQueued={() => {}}
       onSteerQueued={() => {}}
-      onReorderQueue={() => {}}
       onSetModel={() => {}}
       onSetThinking={() => {}}
       prompt={{ id: "question", sessionId: "session", kind: "input", title: "Choose the scope" }}
@@ -202,8 +187,22 @@ describe("Composer command menu", () => {
     /></TestProviders>);
 
     const stack = container.querySelector(".composer-surface");
-    expect(Array.from(stack?.children ?? []).slice(0, 3).map((element) => element.classList[0]))
-      .toEqual(["composer-queue", "extension-prompt", "composer-frame"]);
+    expect(Array.from(stack?.children ?? []).slice(0, 2).map((element) => element.classList[0]))
+      .toEqual(["extension-prompt", "composer-frame"]);
+  });
+
+  it("keeps the slash menu closed for a token after Escape, and opens it for the next one", () => {
+    renderComposer();
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "/rev", selectionStart: 4 } });
+    expect(screen.getByRole("listbox", { name: "Commands" })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+    fireEvent.change(textarea, { target: { value: "/revi", selectionStart: 5 } });
+    expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+    fireEvent.change(textarea, { target: { value: "", selectionStart: 0 } });
+    fireEvent.change(textarea, { target: { value: "/re", selectionStart: 3 } });
+    expect(screen.getByRole("listbox", { name: "Commands" })).toBeTruthy();
   });
 
   it("offers prompt templates and extension commands under slash", () => {
@@ -318,7 +317,6 @@ describe("Composer command menu", () => {
             onAbort={() => {}}
             onCancelQueued={() => {}}
             onSteerQueued={() => {}}
-            onReorderQueue={() => {}}
             onSetModel={() => {}}
             onSetThinking={() => {}}
             onCompactContext={() => {}}
@@ -530,7 +528,6 @@ describe("Composer command menu", () => {
             onAbort={() => {}}
             onCancelQueued={() => {}}
             onSteerQueued={() => {}}
-            onReorderQueue={() => {}}
             onSetModel={() => {}}
             onSetThinking={() => {}}
             onCompactContext={() => {}}

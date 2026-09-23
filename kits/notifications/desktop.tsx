@@ -241,13 +241,13 @@ function createSettingsPage(context: DesktopExtensionContext) {
           When a thread finishes, fails or asks you something and you are not looking at it. One window hears of it — the
           one you used last — and the app icon counts the threads you have not opened since. These choices belong to this window.
         </p>
-        <div className="settings-label">WHEN A THREAD NEEDS YOU</div>
+        <div className="settings-label">When a thread needs you</div>
         <div className="segmented" role="group" aria-label="When a thread needs you">
           {MODES.map((mode) => (
             <button key={mode.value} type="button" className={settings.mode === mode.value ? "active" : ""} aria-pressed={settings.mode === mode.value} onClick={() => choose(mode.value)}>{mode.label}</button>
           ))}
         </div>
-        <div className="settings-label">SOUND</div>
+        <div className="settings-label">Sound</div>
         <div className="notifications-sound-row">
           <div className="segmented" role="group" aria-label="Sound">
             {SOUNDS.map((sound) => (
@@ -256,7 +256,7 @@ function createSettingsPage(context: DesktopExtensionContext) {
           </div>
           <button type="button" className="text-button" onClick={() => playSound(settings.sound)}>Play</button>
         </div>
-        <div className="settings-label">WHILE TAU IS IN FRONT</div>
+        <div className="settings-label">While Tau is in front</div>
         {toggle("toasts", settings.toasts, "Show a toast instead", "When another thread is on screen, a toast in the window replaces the notification")}
         {toggle("when-focused", settings.whenFocused, "Also for the thread on screen", "Notify and play the sound while you are looking at it")}
         <div className="notifications-actions">

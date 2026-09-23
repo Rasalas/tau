@@ -1,0 +1,63 @@
+/* Plan Kit: the Build/Plan chip, the plan card and the "Plan ready" row. */
+
+.plan-mode-chip.active { background: var(--acid-chip); color: var(--acid-text); }
+.plan-mode-chip.active:hover { background: var(--acid-chip); color: var(--acid-text); }
+
+.plan-card {
+  margin: 10px 0; padding: 14px 16px 12px;
+  border: 1px solid var(--line-card); border-radius: var(--radius-lg);
+  background: var(--stage);
+}
+.plan-card > header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.plan-card > header h3 {
+  flex: 1; min-width: 0; margin: 0;
+  font: 600 13.5px/1.4 var(--sans); color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plan-card-badge {
+  flex: none; padding: 1px 7px; border-radius: var(--radius-pill);
+  background: var(--acid-chip); color: var(--acid-text); font: 600 11px/1.6 var(--sans);
+}
+.plan-card-menu {
+  flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid var(--line-control); border-radius: var(--radius-sm);
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.plan-card-menu:hover { background: var(--raised); color: var(--ink); }
+.plan-card-body { margin-top: 10px; position: relative; }
+.plan-card-body.folded { max-height: 26rem; overflow: hidden; }
+.plan-card-body.folded::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 5rem; pointer-events: none;
+  background: linear-gradient(to top, var(--stage), transparent);
+}
+.plan-card-expand {
+  display: block; margin: 10px auto 0; padding: 4px 12px;
+  border: 1px solid var(--line-control); border-radius: var(--radius-pill);
+  background: transparent; color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer;
+}
+.plan-card-expand:hover { background: var(--raised); color: var(--ink); }
+
+.plan-follow-up {
+  width: 100%; box-sizing: border-box; max-width: 780px; margin: 0 auto 8px; padding: 6px 6px 6px 12px;
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  border: 1px solid var(--acid-line); border-radius: var(--radius-lg);
+  background: var(--acid-bg); font: 12.5px/1.4 var(--sans); color: var(--ink-2);
+}
+.plan-follow-up-icon { flex: none; color: var(--acid-text); }
+.plan-follow-up > strong { flex: none; font-weight: 600; color: var(--ink); }
+.plan-follow-up-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-follow-up-hint { flex: none; color: var(--muted-2); }
+.plan-follow-up-actions { flex: none; display: flex; }
+.plan-follow-up-actions > button {
+  border: 0; background: var(--acid); color: var(--acid-ink); cursor: pointer;
+  font: 600 12px var(--sans); height: 28px;
+}
+.plan-follow-up-actions > button:hover:not(:disabled) { background: var(--acid-strong); }
+.plan-follow-up-actions > button:disabled { opacity: .6; cursor: default; }
+.plan-implement { padding: 0 12px; border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
+.plan-implement-more {
+  padding: 0 8px; border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--acid-ink) 20%, transparent);
+  display: grid; place-items: center;
+}
+@media (max-width: 560px) { .plan-follow-up-hint { display: none; } }

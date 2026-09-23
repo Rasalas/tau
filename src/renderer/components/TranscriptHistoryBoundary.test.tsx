@@ -103,7 +103,7 @@ function Fixture({
       loadPage={loadPage}
       applyPage={applyPage}
     >
-      {(anchorRef) => <VirtualTranscript messages={messages} scrollRef={scrollRef} anchorRef={anchorRef} isStreaming={false} />}
+      <VirtualTranscript messages={messages} scrollRef={scrollRef} isStreaming={false} />
     </TranscriptHistoryBoundary>
   </div>;
 }

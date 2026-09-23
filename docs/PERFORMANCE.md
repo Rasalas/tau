@@ -143,11 +143,11 @@ After each completed prompt, Tau runs `SessionManager.listAll()`, rebuilds and s
 
 Session-file and Git invalidation events should update only changed shells. A full scan remains a recovery path, not the normal prompt-completion path.
 
-### Metadata actions return full host snapshots
+### Metadata actions still project the whole thread
 
-Compaction, title generation, and several workspace actions return a complete `HostSnapshot`. The payload includes messages, models, tool descriptions, and usage even when only one field changed. Model and thinking-level changes no longer do; see "Metadata commands without a snapshot" below.
+What these actions send is bounded now; what the host computes to send it is not. A title, generated or renamed, travels as one `thread-shell` update (`ThreadIndex.publishTitle`). Compaction, tree navigation, repair and project actions publish one `thread-detail`, and that detail holds the newest 10 turns (`detailFromSnapshot`), not the thread. Model and thinking-level changes send only the catalog; see "Metadata commands without a snapshot" below.
 
-Split the protocol into thread shell updates, active detail, run events, model and extension catalogs, and project metadata. IPC cost for a metadata action should stay constant as transcript length grows.
+Each of those actions still builds the full `HostSnapshot` first, mapping every message of the branch, and a project action also re-reads the transcript for the thread's shell. That work is linear, 40–80 ms for 20,000 entries on the development machine (see "Opening a large thread" below). IPC cost stays constant as the transcript grows; host CPU does not yet.
 
 ### Large diffs render in full
 
@@ -275,6 +275,7 @@ Initial local targets:
 - build budgets recalibrated on 2026-09-05: the initial script had grown to 1.62 MB because the icon set shared with extension packages was bundled as a namespace import; it is now a lazy 935 KB chunk fetched only when a workspace has packages, and the initial script is 721 KB (221 KB gzip). The initial JavaScript budget is 800 KB raw with the 275 KB gzip budget unchanged, the CSS budgets follow the 128 KB stylesheet (140 KB raw, 30 KB gzip), the total budgets include the lazy icon chunk (1.9 MB raw, 500 KB gzip), and the build-time budget allows a CI runner (20 s; raised to 30 s on 2026-09-06 after the Agents, Preview and cost work took the shared runner to 20.7 s — the build takes 7–10 s on a development machine, and the budget only guards against a runaway build, not a regression in output size)
 - license headers deduplicated on 2026-09-22, budgets unchanged: every icon module carries the same license comment, and the minifier kept all 1,722 copies, 294 KB of the icon chunk. `vite.legal-comments.ts` now keeps the first copy of each legal comment per chunk. Total JavaScript went from 1,900,561 to 1,584,805 bytes (gzip 479,758 to 474,747), the icon chunk from 935 KB to 631 KB and the initial script from 749 KB to 740 KB (227 KB gzip). The browser client's total went down to 1,577,244 bytes (472,681 gzip). Gzip is now the tighter of the two total budgets
 - kit bundles are outside these budgets: `scripts/build-report.mjs` measures `dist/` only, and `scripts/build-kits.mjs` writes each kit's desktop half to `dist-kits/<id>/desktop.js`, one unminified ES module with an inline source map that the renderer imports when the kit activates. Files Kit's CodeMirror 6 editor (2026-09-23) took its bundle from 140,806 bytes (42,623 gzip; 38,875 without the map) to 4,847,915 (1,301,657 gzip; 1,427,626 and 380,419 gzip without the map), and left the renderer's own assets unchanged. CodeMirror and each language mode are evaluated on the first open of a file that needs them; that first open measured 24 ms from the click to highlighted text in the isolated instance, and compiling the module about 16 ms under Node (9 ms without the map, which is two thirds of the bytes)
+- plan mode, the queued-message bubbles, Edit from here and the composer chords (2026-09-23) cost the renderer's initial script 6,813 bytes (777,435 → 784,248; gzip 238,820 → 240,998) and its initial stylesheet 118 bytes (137,968 → 138,086); the lazy chunks did not change. The plan card and the Plan ready row live in Plan Kit's own bundle (`dist-kits/tau.plan/desktop.js`, 42,480 bytes, 15,546 gzip). That leaves about 5.5 KB of gzip under the 500 KB total and 15.7 KB under the 800 KB initial budget
 - the two viewport scenarios over a 1000-turn transcript with 128 activities (`transcript-viewport-anchored-1000-turns`, `transcript-viewport-streaming-1000-turns`) mount at about 21 ms median and 27 ms p95 on the development machine; like their `transcript-1000-turns` sibling they carry their own mount budget (30 ms) instead of the 24 ms default, since 2026-09-05
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
@@ -283,6 +284,8 @@ Initial local targets:
 - sidebar search remains responsive with 10,000 thread shells
 - transcript DOM size remains bounded with 1,000 loaded turns
 - metadata IPC payload size remains constant as transcript length grows
+- a thread of 20,000 entries with every kit loaded opens in the host within 2,500 ms at p95, starts the host within 5,000 ms and reaches full-ready within 7,500 ms (`largeThread*` in `scripts/performance-budgets.json`, since 2026-09-23); in the window its newest turn is on screen within 2,500 ms of the click (median, `tauLargeThread` in `scripts/compare/budgets.json`)
+- loading an older page with the reader at the top moves the row they were reading by at most 2 px, in the large thread and in a two-page one, and shows "Loading…" for at most 1,000 ms (median, `tauLargeThread`, since 2026-09-23)
 - opening cached project navigation performs no filesystem or Git work
 - full-mode local thread switches stay below 150 ms at p95 after cache warm-up
 
@@ -764,6 +767,56 @@ Sharing one worker among the kits Tau ships would save about 40 MiB, but a
 wedged kit would then stop the others: it gives up the per-package containment
 ADR 0018 describes, which needs a decision first.
 
+### Opening a large thread
+
+Before 2026-09-23, a thread of 20,000 session entries (5,000 turns: prompt, tool call, tool result, answer) took tens of seconds to open once the kits were loaded. Without the kits it took half a second. When that thread was the workspace's newest session, the host was ready only after about 45 s and the window gave up with "request timed out after 30000ms".
+
+A CPU profile of the host (`node:inspector` around `switchSession`, 46.9 s) put 27.7 s in Pi's `SessionManager.getBranch` and most of the rest in the per-message map beside it:
+
+- **Quadratic mapping.** `ThreadProjection.branchMessages` and the Pi backend's `mapMessages` asked for the mapping options once per message. Those options include the entries kits pin (`pinTranscriptEntries`; Workspace Kit pins checkpoint anchors). Checking the pin cache reads `thread.entries`, and every read walks the whole branch. Every message therefore cost a walk of every entry, but only when a pin provider was registered, which is why the bare host was fast. Both callers now build the options once per call. `thread-projection.test.ts` counts branch walks for 2 and 200 turns and requires the same number (the old code made 805 walks where the new one makes 13).
+- **Restore recovery read every session file.** Workspace Kit's `beforeActivate` and `beforeWorkspace` look for interrupted checkpoint restores, and they did so by parsing every session file in the index on every thread activation. That cost about 140–180 ms with the 20,000-entry thread and 40 small sessions, more with a real store. The kit now keeps each file's claims stamped with its mtime and size and parses a file again only after it changed.
+
+What remains on the open path is linear. Pi parses the session file (about 200 ms for 20,000 entries), the host projects the branch once for the snapshot (40–80 ms), and each kit's `beforeOpen` hook makes one pass over the entries.
+
+**Host benchmark.** `npm run benchmark:host:full:check` now has a large-thread case, Full Mode with every shipped kit loaded from `dist-kits/`, in an agent directory, session store, `HOME`, config and `CODEX_HOME` of its own. Each sample is a host of its own, so the thread is never live before it is measured:
+
+- `open` runs from a short thread to the long one, until `switchSession` returns with the first page.
+- `bootstrap` is `start()` with the long thread as the workspace's newest session.
+- `full-ready` runs from that start to `bootstrap.full-ready`.
+
+The check fails when a p95 exceeds `largeThreadOpenP95Ms` (2,500 ms), `largeThreadBootstrapP95Ms` (5,000 ms) or `largeThreadFullReadyP95Ms` (7,500 ms), when the first page holds more than `largeThreadPageMessages` (60) messages, or when the thread has fewer than 10,000 entries. Report schema 3. Median / p95 in ms:
+
+| scenario | before (`t3/wave-d` e15791a, 1 sample, load ≈ 20) | after, load ≈ 22 | after, load ≈ 10 |
+| --- | ---: | ---: | ---: |
+| open | 92,989 | 1,221 / 1,250 | 290 / 335 |
+| bootstrap | 47,131 | 2,809 / 3,790 | 519 / 532 |
+| full-ready | 47,851 | 5,882 / 5,911 | 874 / 916 |
+
+**In the window.** `npm run benchmark:compare -- --large-thread [--seed] [--check]` runs Tau alone from a seeded profile of its own (`/tmp/tau-harness-large-thread`, or `$COMPARE_TAU_ROOT-large-thread` when that is set). Each run writes a fresh 20,000-entry Pi session into the profile's session store. Its prompts carry a tag of that run, so the renderer's persisted cache from an earlier run cannot show the newest turn. Each run has two launches: one where a short Pi thread is the workspace's newest and the harness clicks the large one in the rail, and one where the large thread is newest and active from the start. `--check` holds the medians to `tauLargeThread` in `scripts/compare/budgets.json`: 2,500 ms from the click to the newest turn, 1,000 ms for one older page at the tail and at the top, 2 px of drift for an older page loaded at the top (see "Older pages without a jump" below), and 8,000 ms from spawn to the newest turn with the thread active. T3 Code cannot run this case, because both importers keep at most 200 messages. Five runs after one warm-up, load average 10:
+
+| metric (median / p95) | before | after |
+| --- | ---: | ---: |
+| click → newest turn visible (ms) | timed out after 120 s | 295 / 324 |
+| spawn → newest turn visible, thread active (ms) | not shown | 3,201 / 3,665 |
+| spawn → rail and composer ready, thread active (ms) | – | 3,192 / 3,653 |
+| one older page (ms) | – | 60 / 83 |
+| open: KiB over the WebSocket | – | 141 |
+
+In the isolated instance before the change, one open from the rail took 25.1 s and two others did not finish within 120 s. At start-up the host reached `bootstrap.first-content` 14.4 s after spawn and `full-ready` after 36.5 s, and the window never showed the thread: it fell back to an empty new thread. After the change the same instance opens the thread in 0.54–0.57 s. With the thread active it shows the newest turn 6.2–7.3 s after spawn, as fast as a short thread does on that machine at that load. Twelve older pages loaded one after another to turn 4,750. A GPT-5.6 Luna turn at the end of the thread answered, and Pi compacted the thread afterwards.
+
+**Older pages without a jump.** With the reader at the top of the thread, "Load older turns" prepended a page of 20 turns whose rows the virtualizer placed at its 180 px estimate. The row the reader was on moved out of the rendered window. The history boundary looked for it in the DOM, did not find it, kept "Loading…" up for its 60-frame limit and left the view at the start of the new page. The same happened in a thread of two pages. Since 2026-09-23 `VirtualTranscript` notices a prepend itself (`usePrependAnchor`). In the commit that prepends, it mounts the rows the old viewport maps to and moves `scrollTop` by the height of the new rows. It keeps that row in place while the new rows get measured, until the reader or another writer scrolls. The boundary reports success as soon as the page is applied.
+
+The large-thread run measures it: after the load at the tail it wheels to the top three times and loads a page each time, then does the same in a 15-turn thread. A probe samples, every frame from the click until a second after "Loading…" went away, how far the row that led the viewport moved. A frame without that row counts as the viewport's height. `VirtualTranscript.test.tsx` covers the same case without a browser: 50 unmeasured rows prepended above a row 30 px above the viewport top. Three runs before the change (load ≈ 32) and five after (load ≈ 11), median / p95:
+
+| metric | before | after |
+| --- | ---: | ---: |
+| older page at the top: "Loading…" shown (ms) | 1,097 / 1,182 | 57 / 72 |
+| older page at the top: drift of the leading row (px) | 398 / 398 (row gone) | 0 / 0 |
+| older page at the top: frames without the leading row | 122 / 122 | 0 / 0 |
+| two-page thread, older page at the top: drift (px) | 448 / 448 | 0 / 0 |
+
+In the isolated instance, seven pages loaded one after another at the top of a 2,000-turn thread each moved the leading row by 0 px, with "Loading…" up for 23–36 ms; the older page of a 15-turn thread moved it by 0 px as well. What remains is older: scrolling up into rows the virtualizer has not measured yet still shifts the content by the error of the 180 px estimate (38 px and 133 px for the two rows of one turn in that thread), because the virtualizer does not compensate for rows above the viewport.
+
 ## T3 Code comparison
 
 `scripts/compare/` runs Tau and T3 Code side by side on the same machine, with the same data and the same agent turn (tier A of the benchmark plan in `.scratch/t3-parity-2/gap-analysis.md` §3.4). No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer.
@@ -835,6 +888,7 @@ npm run build                                   # Tau
 (cd /tmp/t3-harness && vp i && vp run build:desktop)
 npm run benchmark:compare -- --seed             # first time: import the fixture in both apps
 npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
+npm run benchmark:compare -- --large-thread [--seed] --runs 5 --warmup 1 [--check]   # Tau alone, see "Opening a large thread"
 ```
 
 The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (398 KiB and 360 messages today, about 15 % above the measurement after D22). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
@@ -895,6 +949,23 @@ The report is written to `reports/compare-<timestamp>.json` and holds every run,
 - **The large thread was loaded in full in both apps.** For Tau that took an explicit action a user would take by hand. "Open the thread" measures only the first page (10 turns in Tau, 100 in T3).
 - **The turn is synthetic.** It is calibrated on the plan's shape, not recorded from a real Codex session. T3 ran with its default settings, including its server-side coalescing.
 - **Not measured yet:** tier B (a real Codex turn on the smallest model with a shadow `CODEX_HOME`), CPU at idle, the 2,000-thread rail, the 2 MB diff, and model switching.
+
+### Screen by screen
+
+`scripts/compare/screens/` reuses the harness above for a visual comparison (gap analysis §2.3, ticket D09): the same launch, isolation checks, onboarding import and stand-in `codex`, with roots of their own (`/tmp/compare-screens-tau`, `/tmp/compare-screens-t3`), so a screen pass never shares a profile with a benchmark run.
+
+- **The fixture** is 30 threads (the large one plus 29 small ones). The replayed turn is short and slow (250 ms per event, about 13 s) and, unlike the benchmark's, has a thinking summary; screen 12 replays a turn that fails.
+- **Each screen** is a script (`NN-name.mjs`) that brings both apps into the same state, one implementation per app, and calls `shot(state)`. That captures the page with `Page.captureScreenshot` at 1440×900, DPR 2, in dark and light (`Emulation.setEmulatedMedia`), and measures the elements the screen names: box, font family, size, weight, case, tracking, colours, icon size, running animations, and on request the Tab order with the focus ring.
+- **Native menus** (both apps' row menus) are not in the page; they are captured with `screencapture -l` of the menu window the app's own process owns, never the desktop.
+- **Themes:** `--theme t3-like` installs `examples/theme-t3-like` into Tau's isolated home first, to tell a difference of colour from one of layout.
+
+```
+npm run build
+npm run compare:screens -- --seed                       # first time: import the fixture in both apps
+npm run compare:screens -- [--screens 02,05] [--apps tau] [--theme t3-like --tag t3like]
+```
+
+Captures and `measurements.json` go to `.scratch/t3-parity-2/shots/` unless `--out` says otherwise; the findings are in `.scratch/t3-parity-2/ui-parity.md`.
 
 ## Execution order
 

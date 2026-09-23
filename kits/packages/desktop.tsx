@@ -88,7 +88,7 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         An install never starts a package: approve its permissions on its own page, and both halves start there and then.
       </p>
 
-      <div className="settings-label">INSTALL FROM A SOURCE</div>
+      <div className="settings-label">Install from a source</div>
       <form
         className="packages-form"
         onSubmit={(event) => { event.preventDefault(); if (source.trim()) void run("install", "install", { source: source.trim(), scope }); }}
@@ -118,7 +118,7 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
       ) : null}
 
       <div className="settings-label">
-        BUNDLED KITS{inspection?.distribution ? ` · ${inspection.distribution.name} ${inspection.distribution.version}` : ""}
+        Bundled kits{inspection?.distribution ? ` · ${inspection.distribution.name} ${inspection.distribution.version}` : ""}
       </div>
       {bundled.length > 0 ? (
         <table className="inspector-table" aria-label="Bundled kits">
@@ -144,7 +144,7 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
       )}
       <div className="settings-note">Kits ship with Tau: shipping one is the approval, so they carry no grant and cannot be removed from here.</div>
 
-      <div className="settings-label">INSTALLED</div>
+      <div className="settings-label">Installed</div>
       {packages && packages.length > 0 ? (
         <table className="inspector-table" aria-label="Installed packages">
           <thead><tr><th>Package</th><th>Scope</th><th>Signature</th><th>Source</th><th /></tr></thead>
@@ -177,7 +177,7 @@ export function PackagesPage({ cwd, onNotify, host, inspect }: SettingsPageProps
         <div className="settings-note">Reading the package list…</div>
       )}
 
-      <div className="settings-label">UPDATES</div>
+      <div className="settings-label">Updates</div>
       <div className="packages-form">
         <button type="button" className="install-extension" disabled={busy !== undefined || !packages?.length} onClick={() => void run("update", "update", {})}>
           {busy === "update" ? "Updating…" : "Check every source for updates"}

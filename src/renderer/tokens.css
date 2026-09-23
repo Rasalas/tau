@@ -144,8 +144,14 @@
 
   /* --------------------------------------------------- type, size, motion */
   /* System stacks keep first paint offline and use stable, locally available metrics. */
-  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; /* code, labels and numbers */
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; /* code and numbers */
   --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* everything else */
+  /* Section, group and status labels: sans in sentence case. A theme that sets
+     --mono, uppercase, .1em and 10px brings back the monospace capitals. */
+  --label-font: var(--sans);                         /* a section or status label */
+  --label-case: none;                                /* its text-transform */
+  --label-tracking: normal;                          /* its letter-spacing */
+  --label-size: 11px;                                /* its size */
 
   --radius-xs: 4px;                                  /* a tag */
   --radius-sm: 6px;                                  /* a button */

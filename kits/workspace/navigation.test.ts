@@ -74,14 +74,14 @@ describe("rail sections", () => {
     const threads = [{ ...session("new"), modifiedAt: 3 }, { ...session("pinned"), modifiedAt: 1 }, { ...session("done"), modifiedAt: 2 }];
     const [active, settled] = defaultRailSections(threads, ["pinned"], ["done"], true);
     expect(active.threads.map((entry) => entry.id)).toEqual(["pinned", "new"]);
-    expect(settled).toMatchObject({ label: "SETTLED", shelf: true, settled: true });
+    expect(settled).toMatchObject({ label: "Settled", shelf: true, settled: true });
     expect(settled.threads.map((entry) => entry.id)).toEqual(["done"]);
     expect(defaultRailSections(threads, [], ["done"], false)[0].threads.map((entry) => entry.id)).toEqual(["new", "done", "pinned"]);
   });
 
   it("works out where a dragged thread lands from the row or heading under the pointer", () => {
     const sections = [
-      { id: "pinned", label: "PINNED", threads: [session("p1"), session("p2")] },
+      { id: "pinned", label: "Pinned", threads: [session("p1"), session("p2")] },
       { id: "active", threads: [session("a1"), session("a2"), session("a3")] },
     ];
     expect(railDropAt(sections, { sectionId: "pinned" }, "a2")).toEqual({ sectionId: "pinned", beforeThreadId: "p1" });

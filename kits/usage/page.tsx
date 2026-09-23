@@ -84,10 +84,10 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
 
       {totals ? (
         <div className="usage-tiles" aria-label="Totals">
-          <Tile label="COST" value={cost(totals.costUsd)} detail={totals.costUsd > 0 ? "as the runtimes priced it" : "no priced model in this period"} />
-          <Tile label="TOKENS" value={formatTokens(totals.totalTokens)} detail={`${formatTokens(totals.inputTokens)} in · ${formatTokens(totals.outputTokens)} out · ${formatTokens(totals.cacheReadTokens)} cache read`} />
-          <Tile label="REQUESTS" value={String(totals.requests)} />
-          <Tile label="THREADS" value={String(totals.threads)} />
+          <Tile label="Cost" value={cost(totals.costUsd)} detail={totals.costUsd > 0 ? "as the runtimes priced it" : "no priced model in this period"} />
+          <Tile label="Tokens" value={formatTokens(totals.totalTokens)} detail={`${formatTokens(totals.inputTokens)} in · ${formatTokens(totals.outputTokens)} out · ${formatTokens(totals.cacheReadTokens)} cache read`} />
+          <Tile label="Requests" value={String(totals.requests)} />
+          <Tile label="Threads" value={String(totals.threads)} />
         </div>
       ) : !error ? (
         <div className="settings-note">Reading usage…</div>
@@ -96,7 +96,7 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
       {summary ? (
         <>
           <div className="settings-label usage-table-head">
-            <span>{periodLabel.toUpperCase()} · BY</span>
+            <span>{periodLabel} · by</span>
             <div className="segmented" role="group" aria-label="Group by">
               {USAGE_GROUPINGS.map((entry) => (
                 <button key={entry.id} type="button" className={grouping === entry.id ? "active" : ""} aria-pressed={grouping === entry.id} onClick={() => setGrouping(entry.id)}>
@@ -143,7 +143,7 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
             </div>
           )}
 
-          <div className="settings-label">SOURCES</div>
+          <div className="settings-label">Sources</div>
           <ul className="usage-sources" aria-label="Sources">
             {summary.sources.map((source) => (
               <li key={source.backend} data-status={source.status}>

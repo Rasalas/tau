@@ -1,0 +1,12 @@
+/*
+ * Tau's labels as they were before sans in sentence case became the default:
+ * section, group and status labels in the monospace face, in capitals, spaced
+ * out. Four tokens, nothing else; `/install ./examples/theme-mono-labels`.
+ */
+
+:root {
+  --label-font: var(--mono);
+  --label-case: uppercase;
+  --label-tracking: .1em;
+  --label-size: 10px;
+}

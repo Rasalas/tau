@@ -145,6 +145,16 @@ export class NewThreadController {
     this.store({ ...withoutSelection(pending), ...(model ? { model } : {}), thinkingLevel: level, ...selectionRuntime(runtime) });
   };
 
+  /** A draft keeps the mode its thread starts in; a thread that exists is told at once. */
+  setMode = async (mode: string, setThreadMode: (mode: string) => Promise<unknown>): Promise<void> => {
+    const pending = this.pending;
+    if (!pending || pending.sessionId) {
+      await setThreadMode(mode);
+      return;
+    }
+    this.store({ ...pending, mode });
+  };
+
   private store(next: NewThreadDraft): void {
     writeNewThreadDraft(this.storage, next);
     this.set(next);

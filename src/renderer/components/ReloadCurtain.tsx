@@ -1,9 +1,9 @@
 export type ReloadPhase = "building" | "extensions" | "restarting";
 
 const phaseCopy: Record<ReloadPhase, { eyebrow: string; message: string }> = {
-  building: { eyebrow: "APPLYING CHANGES", message: "Building Tau" },
-  extensions: { eyebrow: "APPLYING CHANGES", message: "Reloading extensions" },
-  restarting: { eyebrow: "CHANGES APPLIED", message: "Restarting Tau" },
+  building: { eyebrow: "Applying changes", message: "Building Tau" },
+  extensions: { eyebrow: "Applying changes", message: "Reloading extensions" },
+  restarting: { eyebrow: "Changes applied", message: "Restarting Tau" },
 };
 
 export function ReloadCurtain({ phase }: { phase: ReloadPhase }) {

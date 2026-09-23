@@ -132,7 +132,7 @@ describe("Workspace Kit in the workbench", () => {
       seed: ({ preferences }) => sessions.forEach((session) => preferences.toggleSettled(session.id)),
     });
 
-    const toggle = await screen.findByRole("button", { name: /SETTLED · 71/u });
+    const toggle = await screen.findByRole("button", { name: /Settled · 71/u });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Settled thread 24")).toBeTruthy();
     expect(screen.queryByText("Settled thread 25")).toBeNull();
@@ -150,9 +150,9 @@ describe("Workspace Kit in the workbench", () => {
       subscribe: () => () => undefined,
       getVersion: () => 1,
       sections: (threads) => [
-        { id: "pinned", label: "PINNED", threads: threads.filter((thread) => thread.id === "gamma") },
+        { id: "pinned", label: "Pinned", threads: threads.filter((thread) => thread.id === "gamma") },
         { id: "active", threads: threads.filter((thread) => thread.id === "alpha") },
-        { id: "snoozed", label: "SNOOZED", shelf: true, collapsed: true, threads: threads.filter((thread) => thread.id === "beta") },
+        { id: "snoozed", label: "Snoozed", shelf: true, collapsed: true, threads: threads.filter((thread) => thread.id === "beta") },
       ],
       menu: (session) => [{ items: [{ id: "pin", label: `Pin ${session.title}` }] }],
       runMenu,
@@ -178,9 +178,9 @@ describe("Workspace Kit in the workbench", () => {
     });
     renderApp(client, { extensions: [workspaceExtension, organizing] });
 
-    expect(await screen.findByText("PINNED · 1")).toBeTruthy();
+    expect(await screen.findByText("Pinned · 1")).toBeTruthy();
     expect(screen.getByText("organizer layer")).toBeTruthy();
-    const snoozed = screen.getByRole("button", { name: /SNOOZED · 1/u });
+    const snoozed = screen.getByRole("button", { name: /Snoozed · 1/u });
     expect(snoozed.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("Thread beta")).toBeNull();
     fireEvent.click(snoozed);

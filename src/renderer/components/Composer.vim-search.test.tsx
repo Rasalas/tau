@@ -40,7 +40,6 @@ describe("Composer vim and reverse-i-search", () => {
           onAbort={() => {}}
           onCancelQueued={() => {}}
           onSteerQueued={() => {}}
-          onReorderQueue={() => {}}
           onSetModel={() => {}}
           onSetThinking={() => {}}
           onCompactContext={() => {}}
@@ -76,7 +75,6 @@ describe("Composer vim and reverse-i-search", () => {
           onAbort={() => {}}
           onCancelQueued={() => {}}
           onSteerQueued={() => {}}
-          onReorderQueue={() => {}}
           onSetModel={() => {}}
           onSetThinking={() => {}}
           onCompactContext={() => {}}

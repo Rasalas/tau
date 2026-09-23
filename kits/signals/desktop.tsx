@@ -15,10 +15,10 @@ export function ObservatoryPanel({ extensionName }: PanelProps) {
         <span className="live-marker"><i /> live</span>
       </header>
       <dl className="state-grid">
-        <div><dt>SESSION</dt><dd>{snapshot?.sessionId.slice(0, 8) ?? "—"}</dd></div>
-        <div><dt>PI EXTENSIONS</dt><dd>{snapshot?.extensionCount ?? 0}</dd></div>
-        <div><dt>DESKTOP EXTENSIONS</dt><dd>{registry.getExtensionNames().length}</dd></div>
-        <div><dt>TOOL RUNS</dt><dd>{tools.length}</dd></div>
+        <div><dt>Session</dt><dd>{snapshot?.sessionId.slice(0, 8) ?? "—"}</dd></div>
+        <div><dt>Pi extensions</dt><dd>{snapshot?.extensionCount ?? 0}</dd></div>
+        <div><dt>Desktop extensions</dt><dd>{registry.getExtensionNames().length}</dd></div>
+        <div><dt>Tool runs</dt><dd>{tools.length}</dd></div>
       </dl>
       <div className="event-stream">
         {events.length === 0 ? <p className="empty-copy">Host events will appear here.</p> : null}

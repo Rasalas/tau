@@ -440,6 +440,45 @@ message when the button was pressed, if any; core keeps the selection alive
 through the click — and the workbench's actions. A throw is shown as a notice.
 Prompt Tools' "Cite" is the shipped caller.
 
+#### Blocks in a reply (new in API 1.11.0)
+
+`registerMessageBlock({ id, tag, Component, profiles })` draws a
+`<tag>` … `</tag>` block of an assistant reply itself; the rest of the reply
+stays Markdown. The tags count only on lines of their own and outside code
+fences. `Component` gets `body` (what stands between the tags), `complete`
+(false while the closing tag is still streaming in), the `message` and
+`streaming`; `useWorkbenchShell()` has the actions. The text itself is not
+changed, so the block survives a restart wherever the runtime keeps text.
+Plan Kit draws `proposed_plan` as a plan card this way.
+
+#### The thread's interaction mode (new in API 1.11.0)
+
+A thread's turns run in a mode: `default`, or one its runtime adds — `plan`
+explores and proposes a plan without changing anything. The mode belongs to
+the thread like its thinking level and applies from the next turn on.
+`snapshot.mode` is the thread's (absent means `default`) and `snapshot.modes`
+the modes besides `default` it offers; for a draft both describe the thread it
+will become. `actions.setMode(mode)` sets it for the thread on screen or the
+draft's thread, and resolves false when the host refused; `actions.activeThread()`
+carries `mode` and `modes` too. `actions.submitPrompt(text)` sends text as the
+user's next message through the composer's own path (queued while a turn runs)
+and leaves the draft alone; `actions.steerQueuedMessage()` sends the oldest
+queued message now.
+
+On the host, a backend offers modes through the capability group `mode`
+(`modes()`, `current()`, `set(mode)`, refusing a mode it does not offer) and
+declares them statically as `adapter.capabilities.modes`, which is what a
+draft's picker reads from `runtimeBackends`. A Pi thread offers the modes its
+runtime extensions declare with `registerRuntimeExtension(name, factory, {
+modes: ["plan"] })`; it records the mode as a `tau.mode` custom entry in its
+session (`THREAD_MODE_ENTRY`), and the extension reads it on every turn with
+`threadModeFromEntries(ctx.sessionManager.getBranch())` from
+`tau/host-extension`. What a mode means is the runtime's: Plan Kit adds plan
+instructions to Pi's system prompt and refuses `edit` and `write`, Codex runs
+the turn in its own `plan` collaboration mode, the Agent SDK runtime in its
+`plan` permission mode. Each of them delivers the finished plan as a reply
+holding a `proposed_plan` block.
+
 #### Policy around the model: gates, badges, the thread title
 
 Three seams let a package hold an opinion about models without core having
@@ -1794,7 +1833,12 @@ if it means one:
 ```
 
 `examples/theme-terracotta/` is that example in full: a manifest, one
-stylesheet, a new accent and a new code face.
+stylesheet, a new accent and a new code face. Two more sit beside it:
+`examples/theme-mono-labels/` sets the four label tokens back to the
+monospace capitals Tau's labels had before API 1.11.0 (label texts are written
+in sentence case, so `--label-case: uppercase` is all it takes), and
+`examples/theme-t3-like/` lays T3 Code's greys, indigo primary and radii over
+the tokens, for telling a difference of colour from one of layout.
 
 ### The table
 
@@ -1954,8 +1998,12 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 
 | Token | Role | Value |
 |---|---|---|
-| `--mono` | code, labels and numbers | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` |
+| `--mono` | code and numbers | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` |
 | `--sans` | everything else | `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` |
+| `--label-font` | section, group and status labels ("Pinned · 2", "Working 0:42", a Settings heading) | `var(--sans)` |
+| `--label-case` | their `text-transform` | `none` |
+| `--label-tracking` | their `letter-spacing` | `normal` |
+| `--label-size` | their size | `11px` |
 | `--radius-xs` | a tag | `4px` |
 | `--radius-sm` | a button | `6px` |
 | `--radius-md` | a card | `9px` |

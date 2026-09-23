@@ -48,6 +48,8 @@ export interface ClaudeRuntimeSessionRecord {
   /** The model and effort the user chose for this thread; the CLI's defaults otherwise. */
   model?: string;
   effort?: string;
+  /** The interaction mode, when it is not `default`. */
+  mode?: string;
   /** What the thread last actually ran on; shown before a session exists, never applied. */
   observedModel?: string;
   /** The only tools the thread keeps, as Pi names them; set when it was created. */
@@ -266,6 +268,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(storedUsage(item.usage) ? { usage: storedUsage(item.usage) } : {}),
     ...(boundedString(item.model, MAX_ID_LENGTH) ? { model: boundedString(item.model, MAX_ID_LENGTH) } : {}),
     ...(boundedString(item.effort, 16) ? { effort: boundedString(item.effort, 16) } : {}),
+    ...(boundedString(item.mode, 16) ? { mode: boundedString(item.mode, 16) } : {}),
     ...(boundedString(item.observedModel, MAX_ID_LENGTH) ? { observedModel: boundedString(item.observedModel, MAX_ID_LENGTH) } : {}),
     ...(storedTools(item.tools) ? { tools: storedTools(item.tools) } : {}),
     updatedAt,
@@ -463,7 +466,7 @@ export class ClaudeRuntimeSessionStore {
   }
 
   /** The user's model and effort for the thread; `undefined` returns a field to the CLI's default. */
-  async setSelection(tauThreadId: string, cwd: string, selection: { model?: string | undefined; effort?: string | undefined }): Promise<void> {
+  async setSelection(tauThreadId: string, cwd: string, selection: { model?: string | undefined; effort?: string | undefined; mode?: string | undefined }): Promise<void> {
     await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
@@ -474,6 +477,10 @@ export class ClaudeRuntimeSessionStore {
     if ("effort" in selection) {
       if (selection.effort) record.effort = selection.effort;
       else delete record.effort;
+    }
+    if ("mode" in selection) {
+      if (selection.mode) record.mode = selection.mode;
+      else delete record.mode;
     }
     record.updatedAt = this.now();
     await this.persist();

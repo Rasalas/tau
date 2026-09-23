@@ -17,7 +17,7 @@
 .project-actions-control { -webkit-app-region: no-drag; }
 .project-action-editor { width: 320px; padding: 10px; gap: 10px; }
 .project-action-editor label { display: flex; flex-direction: column; gap: 5px; }
-.project-action-editor label > span { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.project-action-editor label > span { color: var(--muted); font: var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); }
 .project-action-editor input {
   width: 100%; border: 1px solid var(--line-control); border-radius: 7px;
   background: var(--sunken); color: var(--ink); padding: 8px 9px; outline: none; font: 12.5px var(--sans);
@@ -133,7 +133,7 @@
 }
 .thread-group-label {
   display: flex; align-items: center; gap: 8px; padding: var(--space-5) var(--space-2) var(--space-2);
-  color: var(--faint); font: 500 10px var(--mono); letter-spacing: .1em;
+  color: var(--faint); font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
 }
 .thread-group-label > i { flex: 1; height: 1px; background: var(--line); }
 
@@ -141,7 +141,7 @@
 .settled-shelf-toggle {
   display: flex; align-items: center; gap: 8px; padding: 14px 4px 6px;
   border: 0; background: transparent; color: var(--faint);
-  font: 500 10px var(--mono); letter-spacing: .1em; cursor: pointer;
+  font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); cursor: pointer;
 }
 .settled-shelf-toggle > i { flex: 1; height: 1px; background: var(--line); }
 .settled-shelf-toggle > b { display: grid; place-items: center; }
@@ -443,7 +443,7 @@
 
 .clone-project-form { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .clone-project-form label { display: flex; flex-direction: column; gap: 7px; }
-.clone-project-form label > span { font: 500 10px var(--mono); color: var(--faint); letter-spacing: .1em; }
+.clone-project-form label > span { font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint); }
 .clone-project-form input {
   border: 1px solid var(--line-control); border-radius: 8px; background: var(--sunken);
   color: var(--ink); padding: 10px 12px; font-size: 13px; outline: none;

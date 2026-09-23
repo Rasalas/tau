@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { Copy, GitFork } from "lucide-react";
+import { Copy, GitFork, Pencil } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
@@ -36,9 +36,10 @@ function ExtensionMessageActions({ message }: { message: UiMessage }) {
     ))}</>;
 }
 
-export function MessageActions({ message, onCopy, onFork }: { message?: UiMessage; onCopy(): void; onFork?: () => void }) {
+export function MessageActions({ message, onCopy, onFork, onEdit }: { message?: UiMessage; onCopy(): void; onFork?: () => void; onEdit?: () => void }) {
   return <div className="message-actions">
     <button type="button" onClick={onCopy} title="Copy message"><Copy size={13} /><span>Copy</span></button>
+    {onEdit ? <button type="button" onClick={onEdit} title="Rewind to before this message and edit it in the composer"><Pencil size={13} /><span>Edit from here</span></button> : null}
     {onFork ? <button type="button" onClick={onFork} title="Fork through this message"><GitFork size={13} /><span>Fork</span></button> : null}
     {message ? <ExtensionMessageActions message={message} /> : null}
   </div>;

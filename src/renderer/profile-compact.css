@@ -75,7 +75,7 @@ body[data-profile="compact"] .diff-pane.split > * + * { border-left: 0; }
   background: var(--raised); color: var(--ink-2); cursor: pointer;
 }
 .supervision-start { margin-top: 22px; display: flex; flex-direction: column; gap: 6px; }
-.supervision-start > h2 { font: 600 12px var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.supervision-start > h2 { font: 600 12px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--muted); margin: 0; }
 
 .thread-sheet-scrim { position: fixed; inset: 0; z-index: 60; background: #080908b0; display: flex; align-items: flex-end; }
 .thread-sheet {

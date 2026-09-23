@@ -35,5 +35,6 @@ export function useNewThreadController(storage: ClientStorage) {
     promoteFromHostReport: controller.promoteFromHostReport,
     promoteFromUserMessage: controller.promoteFromUserMessage,
     setModel: controller.setModel,
+    setMode: controller.setMode,
   };
 }

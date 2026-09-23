@@ -127,7 +127,10 @@ export class SubmissionController {
     const chosen = (pending.selectionRuntime ?? "pi") === runtime;
     const model = (chosen ? pending.model : undefined) ?? inherited;
     const thinkingLevel = chosen ? pending.thinkingLevel : undefined;
-    return { runtime, model, ...(thinkingLevel ? { thinkingLevel } : {}) };
+    // A mode goes only to a runtime that offers it; a host that lists no runtimes decides itself.
+    const backend = snapshot?.runtimeBackends?.find((entry) => entry.kind === runtime);
+    const mode = pending.mode && (!backend || backend.modes?.includes(pending.mode)) ? pending.mode : undefined;
+    return { runtime, model, ...(thinkingLevel ? { thinkingLevel } : {}), ...(mode ? { mode } : {}) };
   }
 
   /** Offers the first prompt to an extension that starts the thread itself; true when one took it. */
@@ -362,6 +365,7 @@ export class SubmissionController {
       try {
         if (!client) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
+          if (pending.mode) await client.setMode(pending.mode, pending.sessionId);
           await client.sendPrompt(text, attachments, pending.sessionId, clientTurn, prepared);
           this.settleIpc(clientMessageId, recovery);
           if (recovery?.failed) {
@@ -382,15 +386,19 @@ export class SubmissionController {
         // The draft's project is named by identity; its path is only for display.
         // An unchanged model chip is still a choice. Carry the shown Pi model
         // into the new runtime instead of silently falling back to host defaults.
-        const { model: requestedModel, thinkingLevel } = this.newThreadStart(pending);
-        const result = requestedModel || thinkingLevel
+        const { model: requestedModel, thinkingLevel, mode } = this.newThreadStart(pending);
+        const result = requestedModel || thinkingLevel || mode
           ? await client.newSession(
             text,
             attachments,
             pending.workspaceId ?? pending.projectPath,
             clientTurn,
             prepared,
-            { ...(requestedModel ? { model: { provider: requestedModel.provider, id: requestedModel.id } } : {}), ...(thinkingLevel ? { thinkingLevel } : {}) },
+            {
+              ...(requestedModel ? { model: { provider: requestedModel.provider, id: requestedModel.id } } : {}),
+              ...(thinkingLevel ? { thinkingLevel } : {}),
+              ...(mode ? { mode } : {}),
+            },
           )
           : await client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared);
         this.settleIpc(clientMessageId, recovery);

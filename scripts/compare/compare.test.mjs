@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseCodexSession } from "../../kits/codex/history-import.ts";
@@ -8,7 +8,10 @@ import { codexNotifications } from "./fake-codex.mjs";
 import { assertEnvUnder, forbiddenPaths, openForbiddenFiles, parseLsofNames } from "./isolation.mjs";
 import { descendants, parseFootprint, parsePs, processRole } from "./processes.mjs";
 import { evaluateBudgets, markdownTable, parseArgs } from "./run.mjs";
+import { loadScreens, parseArgs as parseScreenArgs, shotName } from "./screens/run.mjs";
+import { MEASURE, TAB_ORDER } from "./screens/measure.mjs";
 import { rolloutLines, sessionPlan, writeCodexSessions } from "./sessions-fixture.mjs";
+import { largeThreadRows, writePiThread } from "./large-thread.mjs";
 import { aggregateRuns, frameStats, percentile } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
 
@@ -54,6 +57,32 @@ describe("the fake Codex app-server", () => {
     expect(completed.sort()).toEqual(started.sort());
     const times = notifications.map((entry) => entry.at);
     expect(times).toEqual([...times].sort((a, b) => a - b));
+  });
+});
+
+describe("thinking in the replayed turn", () => {
+  it("is off by default, so the benchmark's turn is unchanged", () => {
+    expect(buildTurn().events.some((event) => event.kind === "thinking")).toBe(false);
+  });
+
+  it("becomes one reasoning item that closes before the answer starts", () => {
+    const turn = buildTurn({ answerBytes: 500, codeBlocks: 0, bigOutputBytes: 100, smallCommands: 0, thinkingChars: 600 });
+    const notifications = codexNotifications(turn, { threadId: "thread", turnId: "turn" });
+    const methods = notifications.map((entry) => `${entry.method}:${entry.params.item?.type ?? ""}`);
+    const completed = methods.indexOf("item/completed:reasoning");
+    expect(methods.indexOf("item/started:reasoning")).toBeLessThan(completed);
+    expect(completed).toBeLessThan(methods.indexOf("item/started:agentMessage"));
+    const summary = notifications.filter((entry) => entry.method === "item/reasoning/summaryTextDelta").map((entry) => entry.params.delta).join("");
+    expect(summary).toHaveLength(600);
+    expect(notifications[completed].params.item.summary).toEqual([summary]);
+  });
+});
+
+describe("a failing turn", () => {
+  it("reports the error and completes the turn as failed", () => {
+    const notifications = codexNotifications(buildTurn({ failWith: "stream disconnected" }), { threadId: "thread", turnId: "turn" });
+    expect(notifications.find((entry) => entry.method === "error").params).toMatchObject({ error: { message: "stream disconnected" }, willRetry: false });
+    expect(notifications.at(-1).params.turn).toMatchObject({ status: "failed", error: { message: "stream disconnected" } });
   });
 });
 
@@ -160,6 +189,7 @@ describe("stats and reporting", () => {
     expect(parseArgs(["--apps", "tau", "--runs", "3", "--check"])).toMatchObject({ apps: ["tau"], runs: 3, check: true });
     expect(() => parseArgs(["--nope"])).toThrow(/unknown flag/u);
     expect(() => parseArgs(["--apps", "vscode"])).toThrow(/unknown app/u);
+    expect(parseArgs(["--large-thread", "--apps", "tau,t3"])).toMatchObject({ largeThread: true, apps: ["tau"] });
   });
 
   it("renders a side-by-side table from a report", () => {
@@ -171,5 +201,55 @@ describe("stats and reporting", () => {
     });
     expect(table).toContain("| metric (median / p95) | Tau | T3 Code |");
     expect(table).toContain("| first paint (ms) | 10 / 12 | – |");
+  });
+});
+
+describe("the screen comparison", () => {
+  it("names a capture by screen, state, app, tag and scheme", () => {
+    expect(shotName({ screen: "02-rail", app: "t3", scheme: "dark" })).toBe("02-rail-t3-dark.png");
+    expect(shotName({ screen: "03-row-menu", state: "menu", app: "tau", tag: "t3like", scheme: "light" })).toBe("03-row-menu-menu-tau-t3like-light.png");
+  });
+
+  it("parses flags, and keeps a Tau theme away from T3", () => {
+    expect(parseScreenArgs(["--apps", "tau", "--screens", "02,05", "--theme", "t3-like"])).toMatchObject({ apps: ["tau"], screens: ["02", "05"], theme: "t3-like", schemes: ["dark", "light"] });
+    expect(() => parseScreenArgs(["--theme", "t3-like"])).toThrow(/Tau only/u);
+    expect(() => parseScreenArgs(["--schemes", "sepia"])).toThrow(/unknown scheme/u);
+  });
+
+  it("has a script or a stated reason for every screen in both apps", async () => {
+    const screens = await loadScreens();
+    expect(screens.length).toBeGreaterThanOrEqual(12);
+    for (const screen of screens) {
+      expect(screen.id).toMatch(/^\d\d-[a-z-]+$/u);
+      expect(screen.title).toBeTruthy();
+      for (const id of ["tau", "t3"]) expect(typeof screen[id] === "function" || Boolean(screen.skip?.[id])).toBe(true);
+    }
+  });
+
+  it("ships page code that parses", () => {
+    expect(() => new Function(`return ${MEASURE}`)).not.toThrow();
+    expect(() => new Function(`return ${TAB_ORDER}`)).not.toThrow();
+  });
+});
+
+describe("the large Pi thread", () => {
+  const root = join(import.meta.dirname, "..", "..");
+
+  it("writes four entries a turn, its tag in every prompt, with the modification time asked for", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-compare-large-"));
+    const modifiedAt = new Date(Date.now() - 3_600_000);
+    const { path, entries } = await writePiThread(root, { sessionDir: dir, cwd: dir, title: "Large Pi thread", turns: 3, tag: "run-x", modifiedAt });
+    expect(entries).toBe(13);
+    const lines = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const prompts = lines.filter((line) => line.message?.role === "user").map((line) => line.message.content[0].text);
+    expect(prompts.at(-1)).toBe("Question 2: what does file 2 contain? run-x");
+    expect(Math.abs(statSync(path).mtimeMs - modifiedAt.getTime())).toBeLessThan(1_000);
+  });
+
+  it("gates only what its table reports", () => {
+    const budgets = JSON.parse(readFileSync(join(import.meta.dirname, "budgets.json"), "utf8")).tauLargeThread;
+    const paths = new Set(largeThreadRows().map(([, path]) => path));
+    expect(Object.keys(budgets).length).toBeGreaterThan(0);
+    for (const path of Object.keys(budgets)) expect(paths.has(path)).toBe(true);
   });
 });

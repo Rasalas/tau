@@ -82,6 +82,8 @@ export interface HostClient {
   // Model, thinking level, and context for the active thread.
   setModel(provider: string, id: string): Promise<HostActionResult>;
   setThinkingLevel(level: string): Promise<HostActionResult>;
+  /** The interaction mode the thread's next turns run in; the active thread without `expectedSessionId`. */
+  setMode(mode: string, expectedSessionId?: string): Promise<HostActionResult>;
   compactContext(): Promise<HostActionResult>;
 
   // Desktop/host extension lifecycle and the generic host-extension channel.
@@ -207,6 +209,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
 
     setModel: (provider, id) => call<HostActionResult>("set-model", [provider, id]),
     setThinkingLevel: (level) => call<HostActionResult>("set-thinking", [level]),
+    setMode: (mode, expectedSessionId) => call<HostActionResult>("set-mode", [mode, expectedSessionId]),
     compactContext: () => call<HostActionResult>("compact-context"),
 
     reloadRuntime: () => call<void>("reload-runtime"),

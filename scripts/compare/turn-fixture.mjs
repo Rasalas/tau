@@ -109,11 +109,23 @@ export function buildTurn({
   textDeltaChars = 200,
   outputChunkBytes = 8_192,
   intervalMs = 16,
+  thinkingChars = 0,
+  failWith,
 } = {}) {
   const events = [];
   let at = 0;
   const push = (event) => { events.push({ at, ...event }); at += intervalMs; };
+  // Off by default, so the benchmark's turn stays what docs/PERFORMANCE.md measured.
+  if (thinkingChars > 0) {
+    const thought = `**Planning the pass.** ${paragraph(97)} ${paragraph(98)}`.slice(0, thinkingChars);
+    for (const delta of chunk(thought, textDeltaChars)) push({ kind: "thinking", id: "reasoning-1", delta });
+  }
   for (const delta of chunk(`I'll look at the ${FIRST_SENTINEL}, then summarize what I found.\n\n`, textDeltaChars)) push({ kind: "text", delta });
+  if (failWith) {
+    // A turn that fails after its intro: the error screen needs one in both apps.
+    push({ kind: "error", message: failWith });
+    return { schema: TURN_SCHEMA, prompt: "Replay the recorded comparison turn.", parameters: { failWith, intervalMs }, durationMs: at, events };
+  }
   for (let index = 0; index < smallCommands; index += 1) {
     const id = `call-small-${index + 1}`;
     push({ kind: "tool-start", id, command: `rg -n "subscribe" ${MODULES[index % MODULES.length]}` });
@@ -130,7 +142,7 @@ export function buildTurn({
   return {
     schema: TURN_SCHEMA,
     prompt: "Replay the recorded comparison turn.",
-    parameters: { answerBytes, codeBlocks, bigOutputBytes, smallCommands, textDeltaChars, outputChunkBytes, intervalMs },
+    parameters: { answerBytes, codeBlocks, bigOutputBytes, smallCommands, textDeltaChars, outputChunkBytes, intervalMs, thinkingChars },
     durationMs: at,
     events,
   };

@@ -61,7 +61,7 @@ describe("ThreadRow project mark", () => {
       onToggleSettled={() => {}}
     />);
 
-    expect(container.querySelector(".thread-project-line .thread-status-age")?.textContent).toBe("WORKING1:05");
+    expect(container.querySelector(".thread-project-line .thread-status-age")?.textContent).toBe("Working1:05");
     expect(container.querySelector(".thread-meta-line .thread-activity")).toBeNull();
     expect(getByLabelText("Claude Code").closest(".thread-meta-line")).toBeTruthy();
   });
@@ -83,7 +83,7 @@ describe("ThreadRow project mark", () => {
     expect(container.querySelector(".provider-icon-model .provider-mark")).toBeTruthy();
   });
 
-  it("does not replace WORKING with the active tool name", () => {
+  it("does not replace the Working label with the active tool name", () => {
     const { container } = render(<ThreadRow
       activity="tool"
       activityLabel="BASH"
@@ -94,7 +94,7 @@ describe("ThreadRow project mark", () => {
       onToggleSettled={() => {}}
     />);
 
-    expect(container.querySelector(".thread-status-age")?.textContent).toMatch(/^WORKING/u);
+    expect(container.querySelector(".thread-status-age")?.textContent).toMatch(/^Working/u);
     expect(container.textContent).not.toContain("BASH");
   });
 
@@ -107,7 +107,7 @@ describe("ThreadRow project mark", () => {
       onSelect={() => {}}
       onToggleSettled={() => {}}
     />);
-    expect(idle.container.textContent).not.toContain("IDLE");
+    expect(idle.container.textContent).not.toContain("Idle");
     idle.unmount();
 
     const ready = render(<ThreadRow
@@ -118,7 +118,7 @@ describe("ThreadRow project mark", () => {
       onSelect={() => {}}
       onToggleSettled={() => {}}
     />);
-    expect(ready.container.querySelector(".thread-status-age")?.textContent).toBe("READY");
+    expect(ready.container.querySelector(".thread-status-age")?.textContent).toBe("Ready");
   });
 });
 

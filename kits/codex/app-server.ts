@@ -16,6 +16,15 @@ export interface CodexPolicy {
   sandboxPolicy: SandboxPolicy;
 }
 
+/**
+ * Codex's collaboration mode for a turn: `plan` explores and proposes, `default`
+ * works. Null instructions take Codex's own for the mode.
+ */
+export interface CodexCollaborationMode {
+  mode: "plan" | "default";
+  settings: { model: string; reasoning_effort: string | null; developer_instructions: null };
+}
+
 export type CodexUserInput =
   | { type: "text"; text: string; text_elements: [] }
   | { type: "image"; url: string };
@@ -95,7 +104,8 @@ export class CodexAppServer {
     try {
       server.initialized = await server.connection.request<CodexInitializeResult>("initialize", {
         clientInfo: { name: "tau", title: "Tau", version: options.clientVersion },
-        capabilities: { experimentalApi: false, requestAttestation: false },
+        // Collaboration modes (plan) are behind the experimental API.
+        capabilities: { experimentalApi: true, requestAttestation: false },
       }, { timeoutMs: server.timeouts.handshakeMs });
       server.connection.notify("initialized");
       return server;
@@ -148,7 +158,7 @@ export class CodexAppServer {
     }, { timeoutMs: this.timeouts.requestMs });
   }
 
-  async startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; effort?: string }): Promise<string> {
+  async startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; effort?: string; mode?: CodexCollaborationMode }): Promise<string> {
     const result = await this.connection.request<{ turn: { id: string } }>("turn/start", {
       threadId: params.threadId,
       input: params.input,
@@ -156,6 +166,7 @@ export class CodexAppServer {
       sandboxPolicy: params.policy.sandboxPolicy,
       ...(params.model ? { model: params.model } : {}),
       ...(params.effort ? { effort: params.effort } : {}),
+      ...(params.mode ? { collaborationMode: params.mode } : {}),
     }, { timeoutMs: this.timeouts.requestMs });
     return result.turn.id;
   }

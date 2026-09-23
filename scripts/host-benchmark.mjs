@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { utimesSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile as writeTextFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,7 +31,7 @@ function summarize(samples) {
 
 /** Cold starts per report; one start is a single sample, not a distribution. */
 const HOST_RUNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_RUNS ?? 3));
-/** User turns in the long metadata fixture; each adds a tool call, its result and an answer. */
+/** User turns in the long thread fixtures; each adds a tool call, its result and an answer. */
 const LONG_THREAD_TURNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_LONG_TURNS ?? 5_000));
 const METADATA_SAMPLES = 20;
 
@@ -59,14 +60,15 @@ function writeThread(SessionManager, cwd, sessionDir, turns, provider, model) {
  * directory: a model change needs a provider with a key, and must not touch
  * the settings of whoever runs the benchmark.
  */
-async function measureMetadataCommands(PiHost, ProjectHistory, SessionManager) {
-  const agentDir = join(alternate, "metadata-agent");
-  const sessionDir = join(alternate, "metadata-sessions");
-  const provider = "tau-bench";
+const BENCH_PROVIDER = "tau-bench";
+
+/** An agent directory with one provider that never answers; no real settings are read or written. */
+async function benchmarkAgentDir(name) {
+  const agentDir = join(alternate, name);
   await mkdir(agentDir, { recursive: true });
   await writeTextFile(join(agentDir, "models.json"), JSON.stringify({
     providers: {
-      [provider]: {
+      [BENCH_PROVIDER]: {
         baseUrl: "http://127.0.0.1:9/v1",
         api: "openai-completions",
         apiKey: "benchmark",
@@ -74,6 +76,13 @@ async function measureMetadataCommands(PiHost, ProjectHistory, SessionManager) {
       },
     },
   }));
+  return agentDir;
+}
+
+async function measureMetadataCommands(PiHost, ProjectHistory, SessionManager) {
+  const agentDir = await benchmarkAgentDir("metadata-agent");
+  const sessionDir = join(alternate, "metadata-sessions");
+  const provider = BENCH_PROVIDER;
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   const threads = {
@@ -117,16 +126,129 @@ async function measureMetadataCommands(PiHost, ProjectHistory, SessionManager) {
   };
 }
 
+/**
+ * A thread of LONG_THREAD_TURNS turns with every shipped kit loaded: opened
+ * from a short thread, and active when the host starts. Each sample is a host
+ * of its own, so the thread is never live before it is measured. Everything a
+ * kit might write goes under the benchmark's own directory.
+ */
+async function measureLargeThread(PiHost, ProjectHistory, SessionManager, kits, versions) {
+  const agentDir = await benchmarkAgentDir("large-agent");
+  const workspace = join(alternate, "large-workspace");
+  const sessionDir = join(alternate, "large-sessions");
+  execFileSync("git", ["init", "-b", "main", workspace], { stdio: "ignore" });
+  const saved = {};
+  const isolate = {
+    HOME: join(alternate, "large-home"),
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_CODING_AGENT_SESSION_DIR: sessionDir,
+    TAU_CONFIG_FILE: join(alternate, "large-config.json"),
+    TAU_WORKTREES_DIR: join(alternate, "large-worktrees"),
+    TAU_THEMES_DIR: join(alternate, "large-themes"),
+    TAU_IMPORT_ROOTS: join(alternate, "large-import-roots"),
+    CODEX_HOME: join(alternate, "large-codex"),
+    TAU_NO_WATCH: "1",
+    TAU_NO_PREWARM: "1",
+  };
+  for (const [key, value] of Object.entries(isolate)) { saved[key] = process.env[key]; process.env[key] = value; }
+  await mkdir(isolate.HOME, { recursive: true });
+  const long = writeThread(SessionManager, workspace, sessionDir, LONG_THREAD_TURNS, BENCH_PROVIDER, "bench-a");
+  const short = writeThread(SessionManager, workspace, sessionDir, 2, BENCH_PROVIDER, "bench-a");
+  const newest = `Question ${LONG_THREAD_TURNS - 1}:`;
+  const firstPage = (detail, scenario) => {
+    const messages = detail?.messages ?? [];
+    if (!messages.some((message) => message.role === "user" && message.text?.startsWith(newest))) {
+      throw new Error(`${scenario}: the first page lacks the newest turn`);
+    }
+    return messages.length;
+  };
+  // Pi starts in the workspace's most recently modified session.
+  const makeActive = (path) => {
+    const at = new Date();
+    utimesSync(path, at, at);
+  };
+  const samples = [];
+  const kitFailures = [];
+  let pageMessages = 0;
+  let hostIndex = 0;
+  const withHost = async (work) => {
+    const history = new ProjectHistory(join(alternate, `large-projects-${hostIndex}.json`));
+    await history.load();
+    const events = [];
+    const host = new PiHost(workspace, (event) => {
+      if (event.type === "event-log") events.push({ label: event.label, at: performance.now() });
+    }, history, false, false, {
+      hostExtensions: kits.shippedHostExtensions({ appPath: root, cacheDir: join(alternate, "large-host-extensions"), versions }, (label, detail) => {
+        if (label === "host-extension.kit.failed") kitFailures.push(detail);
+      }),
+      kitStateDir: join(alternate, `large-kit-state-${hostIndex}`),
+      turnsInFlightPath: join(alternate, `large-turns-${hostIndex}.json`),
+      threadTrashDir: join(alternate, `large-trash-${hostIndex}`),
+    });
+    hostIndex += 1;
+    try {
+      await work(host, events);
+      if (kitFailures.length > 0) throw new Error(`kits failed to load:\n${kitFailures.join("\n")}`);
+    } finally {
+      await host.dispose();
+      await history.flush();
+    }
+  };
+  try {
+    for (let run = 0; run < HOST_RUNS; run += 1) {
+      makeActive(short.path);
+      await withHost(async (host) => {
+        await host.start();
+        const started = performance.now();
+        const result = await host.switchSession(long.path);
+        const durationMs = performance.now() - started;
+        pageMessages = Math.max(pageMessages, firstPage(result.updates?.find((update) => update.type === "thread-detail")?.detail, "open"));
+        samples.push({ scenario: "open", durationMs });
+      });
+      makeActive(long.path);
+      await withHost(async (host, events) => {
+        const started = performance.now();
+        const bootstrap = await host.start();
+        samples.push({ scenario: "bootstrap", durationMs: performance.now() - started });
+        pageMessages = Math.max(pageMessages, firstPage(bootstrap.detail, "bootstrap"));
+        const deadline = Date.now() + 120_000;
+        while (!events.some((event) => event.label === "bootstrap.full-ready") && Date.now() < deadline) {
+          await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+        }
+        const ready = events.find((event) => event.label === "bootstrap.full-ready");
+        if (!ready) throw new Error("bootstrap: the host never reported full-ready");
+        samples.push({ scenario: "full-ready", durationMs: ready.at - started });
+      });
+    }
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  return {
+    entries: long.entries,
+    pageMessages,
+    samples,
+    summaries: Object.fromEntries([...new Set(samples.map((sample) => sample.scenario))].map((scenario) => [
+      scenario,
+      summarize(samples.filter((sample) => sample.scenario === scenario).map((sample) => sample.durationMs)),
+    ])),
+  };
+}
+
 try {
   execFileSync("git", ["init", "-b", "main", alternate], { stdio: "ignore" });
   await writeTextFile(join(alternate, "README.md"), "# benchmark\n");
   execFileSync("git", ["-C", alternate, "add", "README.md"], { stdio: "ignore" });
   execFileSync("git", ["-C", alternate, "-c", "user.name=Tau Benchmark", "-c", "user.email=tau@example.invalid", "commit", "-m", "fixture"], { stdio: "ignore" });
-  const [{ PiHost }, { ProjectHistory }, { SessionManager }, { compactHeap }] = await Promise.all([
+  const [{ PiHost }, { ProjectHistory }, { SessionManager, VERSION: PI_VERSION }, { compactHeap }, kits, { EXTENSION_API_VERSION }] = await Promise.all([
     import(pathToFileURL(join(root, "dist-electron", "main", "pi-host.js")).href),
     import(pathToFileURL(join(root, "dist-electron", "main", "project-history.js")).href),
     import("@earendil-works/pi-coding-agent"),
     import(pathToFileURL(join(root, "dist-electron", "main", "host-idle-compaction.js")).href),
+    import(pathToFileURL(join(root, "dist-electron", "main", "bundled-kits.js")).href),
+    import(pathToFileURL(join(root, "dist-electron", "shared", "extension-compat.js")).href),
   ]);
   const sessionDir = join(alternate, "sessions");
   const sessionPaths = ["First fixture", "Second fixture"].map((name, index) => {
@@ -175,8 +297,13 @@ try {
     background = host.getBackgroundLifecycleMeasurements();
   }
   const metadata = await measureMetadataCommands(PiHost, ProjectHistory, SessionManager);
+  // Kits are Full Mode's; safe mode loads none.
+  const tauVersion = JSON.parse(await readFile(join(root, "package.json"), "utf8")).version;
+  const largeThread = mode === "full"
+    ? await measureLargeThread(PiHost, ProjectHistory, SessionManager, kits, { tau: tauVersion, pi: PI_VERSION, api: EXTENSION_API_VERSION })
+    : undefined;
   const report = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: new Date().toISOString(),
     mode,
     wallClock,
@@ -190,6 +317,7 @@ try {
     phases,
     background,
     metadata,
+    ...(largeThread ? { largeThread } : {}),
   };
   await writeFile(output, `${JSON.stringify(report, null, 2)}\n`);
   if (check) {
@@ -202,5 +330,6 @@ try {
   }
   console.log(`Host report: ${output}`);
 } finally {
-  await rm(alternate, { recursive: true, force: true });
+  // Kits may still flush a file while the last host stops.
+  await rm(alternate, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

@@ -221,10 +221,10 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       last = railSections(threads, store.getState(), now());
       store.displayed = [...last.pinned, ...last.active];
       return [
-        { id: "pinned", label: "PINNED", threads: last.pinned },
+        { id: "pinned", label: "Pinned", threads: last.pinned },
         { id: "active", threads: last.active },
-        { id: "snoozed", label: "SNOOZED", shelf: true, collapsed: true, threads: last.snoozed },
-        { id: "settled", label: "SETTLED", shelf: true, settled: true, threads: last.settled },
+        { id: "snoozed", label: "Snoozed", shelf: true, collapsed: true, threads: last.snoozed },
+        { id: "settled", label: "Settled", shelf: true, settled: true, threads: last.settled },
       ];
     },
     menu(session) {

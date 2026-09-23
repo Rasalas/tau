@@ -42,6 +42,7 @@ export function evaluateHostBudgets(report, budgets = {}) {
     if (!Number.isFinite(report.idleHeapMiB)) failures.push("the idle heap was not reported by the host fixture");
     else if (report.idleHeapMiB > idleHeapBudget) failures.push(`${report.mode} idle heap ${report.idleHeapMiB.toFixed(1)} MiB > ${idleHeapBudget} MiB`);
   }
+  failures.push(...evaluateLargeThreadBudgets(report, budgets));
   const warm = report.summaries?.["warm-switch"];
   if (!warm || ![warm.median, warm.p95, warm.maximum].every(Number.isFinite)) {
     failures.push("warm-switch median, p95, and maximum were not reported by the host fixture");
@@ -69,6 +70,33 @@ function evaluateMetadataBudgets(report, budgets) {
     const summary = metadata.summaries[scenario];
     if (!summary || !Number.isFinite(summary.p95)) failures.push(`${scenario} was not reported by the host fixture`);
     else if (summary.p95 > limit) failures.push(`${scenario} p95 ${summary.p95.toFixed(1)}ms > ${limit}ms (median ${summary.median.toFixed(1)}ms)`);
+  }
+  return failures;
+}
+
+/**
+ * A thread of 20,000 entries with every kit loaded opens, and starts the host,
+ * in about the time a short one does, and its first page stays one page.
+ * Only Full Mode loads kits; reports before schema 3 have no such case.
+ */
+function evaluateLargeThreadBudgets(report, budgets) {
+  if ((report.schemaVersion ?? 1) < 3 || report.mode !== "full") return [];
+  const large = report.largeThread;
+  if (!large?.summaries) return ["the large thread was not measured by the Full Mode host fixture"];
+  const failures = [];
+  const minimumEntries = budgets.metadataLongThreadEntries ?? 10_000;
+  if (!((large.entries ?? 0) >= minimumEntries)) failures.push(`large thread has ${large.entries ?? 0} entries < ${minimumEntries}`);
+  const pageLimit = budgets.largeThreadPageMessages ?? 60;
+  if (!((large.pageMessages ?? Infinity) <= pageLimit)) failures.push(`large thread first page holds ${large.pageMessages} messages > ${pageLimit}`);
+  const limits = {
+    open: budgets.largeThreadOpenP95Ms ?? 2_500,
+    bootstrap: budgets.largeThreadBootstrapP95Ms ?? 5_000,
+    "full-ready": budgets.largeThreadFullReadyP95Ms ?? 7_500,
+  };
+  for (const [scenario, limit] of Object.entries(limits)) {
+    const summary = large.summaries[scenario];
+    if (!summary || !Number.isFinite(summary.p95)) failures.push(`large-thread ${scenario} was not reported by the host fixture`);
+    else if (summary.p95 > limit) failures.push(`large-thread ${scenario} p95 ${summary.p95.toFixed(1)}ms > ${limit}ms (median ${summary.median.toFixed(1)}ms)`);
   }
   return failures;
 }

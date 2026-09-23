@@ -3,5 +3,13 @@
     "replay.wire.receivedKiB": 398,
     "replay.wire.received": 360,
     "idleMemory.footprintByRoleMiB.backend": 200
+  },
+  "tauLargeThread": {
+    "open.newestTurnMs": 2500,
+    "open.olderPageMs": 1000,
+    "open.olderPageAtTopMs": 1000,
+    "open.olderPageDriftPx": 2,
+    "open.twoPageDriftPx": 2,
+    "startup.newestTurnMs": 8000
   }
 }

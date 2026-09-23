@@ -94,6 +94,12 @@ export const runtimeControls: DesktopExtension = {
       run: (app) => applyTheme(plugin.preferences, app, nextTheme(plugin.preferences.getSnapshot().theme)),
     });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: (app) => app.abort() });
+    plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", run: (app) => {
+      const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut="composer.effort"]');
+      if (control && !control.disabled) control.click();
+      else app.notify("This thread's runtime sets its reasoning itself.");
+    } });
+    plugin.registerCommand({ id: "thread.steerQueuedMessage", label: "Send the oldest queued message now", group: "Thread", run: (app) => { app.steerQueuedMessage?.(); } });
     plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", run: (app) => app.openCommandPalette() });
     plugin.registerCommand({ id: "runtime.thread-tree", label: "Thread tree…", group: "Thread", run: (app) => app.openThreadTree("navigate") });
     plugin.registerCommand({ id: "runtime.fork-thread", label: "Fork thread…", group: "Thread", run: (app) => app.openThreadTree("fork") });
@@ -352,6 +358,8 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "runtime.new-session", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
+    plugin.registerKeybinding({ keys: "mod+shift+enter", commandId: "thread.steerQueuedMessage", when: "!terminalFocus" });
+    plugin.registerKeybinding({ keys: "mod+shift+e", commandId: "composer.effort", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });
     plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
     // Pi's chord, in the composer only: elsewhere Ctrl+P is `mod+p` off macOS, the file picker.

@@ -222,6 +222,28 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
   });
 });
 
+describe("plan mode", () => {
+  it("runs a turn in Codex's plan collaboration mode, keeps the mode, and leaves it explicitly", async () => {
+    const space = await scratch();
+    const { backend } = await open(space);
+    const mode = backend.capabilities.mode!;
+    expect(mode.modes()).toEqual(["plan"]);
+    expect(mode.current()).toBe("default");
+    await backend.models();
+    await backend.capabilities.catalogWrite!.setModel("openai", "gpt-5.5");
+    await mode.set("plan");
+    await expect(mode.set("review")).rejects.toThrow('no "review" mode');
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    const starts = async () => (await sent(space)).filter((message) => message.method === "turn/start");
+    expect((await starts())[0]?.params?.collaborationMode).toEqual({ mode: "plan", settings: { model: "gpt-5.5", reasoning_effort: null, developer_instructions: null } });
+    expect(await space.store.get("tau-1")).toMatchObject({ mode: "plan" });
+    await mode.set("default");
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    expect((await starts())[1]?.params?.collaborationMode).toMatchObject({ mode: "default" });
+    expect((await space.store.get("tau-1"))?.mode).toBeUndefined();
+  });
+});
+
 describe("a Codex thread restricted to some tools", () => {
   it("runs read-only without a tool that writes, whatever the workbench allows", async () => {
     const space = await scratch();

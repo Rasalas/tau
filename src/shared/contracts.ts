@@ -35,6 +35,8 @@ export interface RuntimeCapabilities {
   interactiveApprovals?: boolean;
   /** The runtime takes `kind: "file"` prompt attachments; without it the host refuses them. */
   fileAttachments?: boolean;
+  /** Interaction modes besides `default` a thread of this runtime can run its turns in, e.g. `plan`. */
+  modes?: readonly string[];
 }
 
 /** Host-resolved metadata for a user skill invocation. */
@@ -166,6 +168,8 @@ export interface UiModel {
 export interface UiRuntimeBackend {
   kind: ThreadBackendKind;
   label: string;
+  /** Interaction modes besides `default` a new thread of this backend offers. */
+  modes?: string[];
   /** The program the backend drives, once the host asked it; see `RuntimeToolVersion`. */
   version?: RuntimeToolVersion;
 }
@@ -405,6 +409,10 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   completionModels?: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
+  /** The interaction mode the thread's next turn runs in; absent means `default`. */
+  mode?: string;
+  /** The modes besides `default` the thread's runtime offers; absent or empty offers none. */
+  modes?: string[];
   /** Cursor for the next page when this snapshot already contains a bounded window. */
   isStreaming: boolean;
   activeTools: string[];
@@ -427,6 +435,8 @@ export interface NewThreadConfiguration {
   model?: Pick<UiModel, "provider" | "id">;
   /** The thinking level chosen with it, one the runtime's catalog offers; omitted means its default. */
   thinkingLevel?: string;
+  /** The interaction mode the thread starts in; omitted means `default`. */
+  mode?: string;
 }
 
 /**
@@ -492,6 +502,8 @@ export interface HostBootstrap {
     runtimeCapabilities?: RuntimeCapabilities;
     thinkingLevel: string;
     thinkingLevels: string[];
+    mode?: string;
+    modes?: string[];
     allTools: Array<{ name: string; description: string }>;
     composerCommands?: UiComposerCommand[];
     extensionCount: number;

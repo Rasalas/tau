@@ -139,6 +139,28 @@ describe("performance report checks", () => {
     expect(evaluateHostBudgets(base)).toEqual(["metadata commands were not measured by the host fixture"]);
   });
 
+  it("fails a large thread that opens slowly or sends more than a page", () => {
+    const lean = { median: 0.2, p95: 0.5, maximum: 0.6 };
+    const fast = { median: 400, p95: 600, maximum: 700 };
+    const base = { schemaVersion: 3, mode: "full", summaries: {
+      bootstrap: { median: 100, p95: 100, maximum: 100 },
+      "cold-switch": { median: 100, p95: 100, maximum: 100 },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [], background: [{ name: "project-label", durationMs: 10 }], metadata: { entries: { short: 8, long: 20_000 }, summaries: {
+      "set-model-short": lean, "set-thinking-short": lean, "set-model-long": lean, "set-thinking-long": lean,
+    } } };
+    const large = (open, pageMessages = 20) => ({ entries: 20_000, pageMessages, summaries: { open, bootstrap: fast, "full-ready": fast } });
+    expect(evaluateHostBudgets({ ...base, largeThread: large(fast) })).toEqual([]);
+    expect(evaluateHostBudgets({ ...base, largeThread: large({ median: 43_000, p95: 54_000, maximum: 54_000 }) })).toEqual([
+      "large-thread open p95 54000.0ms > 2500ms (median 43000.0ms)",
+    ]);
+    expect(evaluateHostBudgets({ ...base, largeThread: large(fast, 40_000) })).toEqual([
+      "large thread first page holds 40000 messages > 60",
+    ]);
+    expect(evaluateHostBudgets(base)).toEqual(["the large thread was not measured by the Full Mode host fixture"]);
+    expect(evaluateHostBudgets({ ...base, mode: "safe" })).toEqual([]);
+  });
+
   it("fails Git fan-out and missing measurements", () => {
     const failures = evaluateGitBudgets({
       baselineSubprocesses: 6, coordinatedSubprocesses: 7, overlappingRefreshSubprocesses: 7,

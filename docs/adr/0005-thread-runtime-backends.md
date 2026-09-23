@@ -218,3 +218,20 @@ Tau installs and pins its server, its versions are release tags no range
 matches, and a second Google login would need a second profile and sign-in
 flow of its own.
 
+## Amendment, 2026-09-23: interaction modes
+
+A thread's turns run in an interaction mode: `default`, or one its runtime
+adds. The first is `plan`: explore, ask, and propose a plan without changing
+anything. Like the access level, the mode reaches a backend in Tau's
+vocabulary and the backend maps it onto its own policy: the capability group
+`mode` (`modes`, `current`, `set`) on the backend, `modes` on the adapter's
+capabilities for a thread that does not exist yet. Unlike the access level it
+belongs to the thread, not the workbench, and the backend keeps it: Codex in
+its record and as the collaboration mode of every turn (which needs the app
+server's experimental API), the Agent SDK runtime in its record and as the
+`plan` permission mode, Pi as a `tau.mode` entry in the session file that a
+runtime extension reads. Pi has no plan mode of its own, so the modes a Pi
+thread offers are the ones runtime extensions declare; Plan Kit declares
+`plan`. However a runtime plans, the plan reaches the transcript as a reply
+holding a `proposed_plan` block, which is text every backend already keeps.
+Antigravity offers no mode yet.

@@ -50,7 +50,7 @@ export function runtimePermissionPolicy(level: RuntimePermissionLevel): RuntimeP
 export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
   /** `claude-code`, or `claude-code@<instance>` for another instance. */
   readonly id: string;
-  readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: false; readonly interactiveApprovals: true };
+  readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: false; readonly interactiveApprovals: true; readonly modes: readonly ["plan"] };
   readonly transport: RuntimeTransport;
   /** One turn with every SDK frame reported as it arrives; resolves when the turn's result is in. */
   stream(input: RuntimePromptInput, onMessage: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<RuntimePromptResult>;
@@ -287,7 +287,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   const requestQueues = new Map<string, Promise<void>>();
   const abortGenerations = new Map<string, number>();
   // The composer offers Claude's models and efforts; its questions reach the workbench through the turn's hooks.
-  const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true } as const;
+  const capabilities = { skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true, modes: ["plan"] } as const;
   const PROBE_TTL_MS = 5 * 60_000;
   let probeCache: { at: number; result: Promise<ClaudeProbe> } | undefined;
 

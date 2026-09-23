@@ -39,6 +39,13 @@ describe("chip serialization", () => {
     expect(serializeChips({ chips: [chip], attachments, fileAttachments: true })).toBe("");
   });
 
+  it("names a video by its path for every runtime, since none takes video input", () => {
+    const store = new ChipStore();
+    const chip = store.add(SCOPE, { kind: "attachment", payload: { name: "demo.mp4", mimeType: "video/mp4", size: 2048, path: "/state/demo.mp4" } });
+    expect(serializeChips({ chips: [chip], fileAttachments: true }))
+      .toBe("The user attached demo.mp4 (video/mp4, 2 KB). It is at /state/demo.mp4; read it from there.");
+  });
+
   it("marks a file it could not read and keeps captured text from closing its block", () => {
     const store = new ChipStore();
     const missing = store.add(SCOPE, { kind: "file", payload: { path: "gone.ts" } });
@@ -63,7 +70,7 @@ describe("limits", () => {
     expect(selectFiles([file("b.png", "image/png", 10)], [], false).take).toHaveLength(1);
   });
 
-  it("holds T3's limits: 50 MB a file, 10 MB an image, eight files a message", () => {
+  it("holds T3's limits: 50 MB a file, 10 MB an image, a hundred files a message", () => {
     expect(selectFiles([file("big.zip", "application/zip", MAX_FILE_BYTES + 1)], [], true).error).toMatch(/50 MB/u);
     expect(selectFiles([file("big.png", "image/png", MAX_IMAGE_BYTES + 1)], [], false).error).toMatch(/10 MB/u);
     const store = new ChipStore();
@@ -72,7 +79,7 @@ describe("limits", () => {
     }
     const result = selectFiles([file("last.txt", "text/plain", 1), file("over.txt", "text/plain", 1)], store.list(SCOPE), true);
     expect(result.take.map((entry) => entry.name)).toEqual(["last.txt"]);
-    expect(result.error).toMatch(/at most 8 files/u);
+    expect(result.error).toMatch(/at most 100 files/u);
   });
 
   it("folds a paste from 32 KiB on, counted in bytes", () => {

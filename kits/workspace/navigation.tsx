@@ -164,7 +164,7 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
   return (
     <form className="clone-project-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <label>
-        <span>GIT REPOSITORY URL</span>
+        <span>Git repository URL</span>
         <input autoFocus value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} placeholder="https://github.com/acme/project.git" disabled={busy} />
         <small>HTTPS and SSH clone URLs are accepted. Next, choose the parent folder.</small>
       </label>
@@ -421,7 +421,7 @@ export function defaultRailSections(
   const sorted = threads.slice().sort((left, right) => Number(pins.has(right.id)) - Number(pins.has(left.id)) || right.modifiedAt - left.modifiedAt);
   return [
     { id: "active", threads: sorted.filter((session) => !shelved.has(session.id)) },
-    { id: "settled", label: "SETTLED", shelf: true, settled: true, threads: sorted.filter((session) => shelved.has(session.id)) },
+    { id: "settled", label: "Settled", shelf: true, settled: true, threads: sorted.filter((session) => shelved.has(session.id)) },
   ];
 }
 
@@ -510,22 +510,22 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
   const activityFor = (sessionId: string): { activity: ThreadActivity; label?: string; hint?: string } => {
     // A stalled question outranks every other state: nothing moves until it is answered.
-    if (activityState.waitingThreadIds.includes(sessionId)) return { activity: "waiting", label: "NEEDS YOU" };
+    if (activityState.waitingThreadIds.includes(sessionId)) return { activity: "waiting", label: "Needs you" };
     // Run state follows the thread, not the tab you happen to be reading.
     if (activityState.runningThreadIds.includes(sessionId)) {
-      return { activity: "working", label: "WORKING" };
+      return { activity: "working", label: "Working" };
     }
     // A turn the host never finished because it restarted. The next prompt clears it.
     if (activityState.interruptedThreadIds.includes(sessionId)) {
-      return { activity: "interrupted", label: "INTERRUPTED", hint: "A restart cut this thread's turn short. Send a message to pick it back up." };
+      return { activity: "interrupted", label: "Interrupted", hint: "A restart cut this thread's turn short. Send a message to pick it back up." };
     }
     // A tool still marked running while nothing is in flight is a dead turn, not work.
     if (sessionId === activityState.activeThreadId && activityState.runningToolName) {
-      return { activity: "stalled", label: "INTERRUPTED" };
+      return { activity: "stalled", label: "Interrupted" };
     }
     // Ready means "finished while you were elsewhere"; opening the thread clears it.
-    if (activityState.unreadThreadIds.includes(sessionId)) return { activity: "ready", label: "READY" };
-    return { activity: "idle", label: "IDLE" };
+    if (activityState.unreadThreadIds.includes(sessionId)) return { activity: "ready", label: "Ready" };
+    return { activity: "idle", label: "Idle" };
   };
 
   const toggleSettled = useCallback((session: UiSession) => {
@@ -664,7 +664,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       >
         {sections.slice(0, mainIndex).map(renderSection)}
         {main.label === undefined && drag && sections.length > 1 ? (
-          <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>ACTIVE<i /></div>
+          <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>Active<i /></div>
         ) : null}
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", flexShrink: 0 }}>
           {rowVirtualizer.getVirtualItems().map((item) => {
@@ -681,7 +681,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === "group" ? (
-                  <div className="thread-group-label">{row.label.toUpperCase()} · {row.count}<i /></div>
+                  <div className="thread-group-label">{row.label} · {row.count}<i /></div>
                 ) : (() => {
                   const status = activityFor(row.session.id);
                   return renderRow(row.session, status.activity, status.label, status.hint);

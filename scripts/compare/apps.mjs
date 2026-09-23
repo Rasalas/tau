@@ -171,7 +171,8 @@ export const tau = {
     }
     await clickWhenReady(session, dialog, /^Select all$/u, { timeoutMs: 3_000 }).catch(() => undefined);
     await clickWhenReady(session, dialog, new RegExp(`^Import ${expectedThreads} conversations`, "u"), { timeoutMs: 60_000 });
-    await waitFor(session, `document.querySelectorAll("article.thread-row").length >= ${expectedThreads}`, { timeoutMs: 120_000 });
+    // A long rail shows its first rows and folds the rest behind "show N more".
+    await waitFor(session, `(() => { const rows = document.querySelectorAll("article.thread-row").length; return rows >= ${expectedThreads} || (rows >= 12 && /show \\d+ more/.test(document.body.textContent)); })()`, { timeoutMs: 120_000 });
   },
 };
 
@@ -270,7 +271,8 @@ export const t3 = {
   async loadHistory() { return 0; },
   /** Imported threads land on the collapsed "Settled" shelf; open it so rows can be clicked. */
   async revealThreads(session, { clickWhenReady, waitFor, expectedThreads }) {
-    const rows = `document.querySelectorAll(${JSON.stringify(this.selectors.threadRow)}).length >= ${expectedThreads}`;
+    // A long shelf shows its first ten rows and folds the rest behind "Show N more".
+    const rows = `((count) => count >= ${expectedThreads} || (count >= 10 && /Show \\d+ more/.test(document.body.textContent)))(document.querySelectorAll(${JSON.stringify(this.selectors.threadRow)}).length)`;
     const { value } = await waitFor(session, `(${rows}) ? "open" : document.querySelector("[data-testid=sidebar-settled-shelf-toggle]") ? "closed" : null`, { timeoutMs: 30_000 });
     if (value === "closed") await clickWhenReady(session, "[data-testid=sidebar-settled-shelf-toggle]", /.*/u);
     await waitFor(session, rows, { timeoutMs: 30_000 });

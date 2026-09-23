@@ -52,6 +52,7 @@ function defaults(): HostClient {
 
     setModel: async () => ({ version: 1, updates: [] }),
     setThinkingLevel: async () => ({ version: 1, updates: [] }),
+    setMode: async () => ({ version: 1, updates: [] }),
     compactContext: async () => ({ version: 1, updates: [] }),
 
     reloadRuntime: async () => undefined,

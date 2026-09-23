@@ -565,6 +565,61 @@ describe("virtual transcript", () => {
     view.unmount();
   });
 
+  it("keeps the leading row in place when unmeasured older rows are prepended", async () => {
+    // Older rows are 250 px once measured; the virtualizer first places them at its 180 px estimate.
+    const heights = new Map<string, number>();
+    const harness = installDelayedMeasurementHarness({
+      rowHeight: (node) => heights.get(node.dataset.messageId ?? "") ?? 100,
+    });
+    const page = (from: number, to: number): UiMessage[] => Array.from({ length: to - from }, (_, offset) => ({
+      id: `m${from + offset}`,
+      role: (from + offset) % 2 ? "assistant" : "user",
+      text: `Turn ${from + offset}`,
+      timestamp: from + offset,
+    }));
+    const newer = page(100, 200);
+    const older = page(50, 100);
+    older.forEach((message) => heights.set(message.id, 250));
+    const rowTop = (container: HTMLElement, id: string) => {
+      const row = container.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+      return row ? Number(row.style.transform.match(/translateY\((-?[\d.]+)px\)/u)?.[1]) - container.scrollTop : undefined;
+    };
+    const view = render(<Fixture messages={newer} />);
+    try {
+      const container = view.container.firstElementChild as HTMLDivElement;
+      container.scrollTop = 1_030;
+      await act(async () => { container.dispatchEvent(new Event("scroll")); });
+      await waitFor(() => expect(rowTop(container, "m110")).toBe(-30));
+
+      view.rerender(<Fixture messages={[...older, ...newer]} />);
+      // Same commit: the leading row is mounted and still 30 px above the viewport top.
+      expect(rowTop(container, "m110")).toBe(-30);
+      expect(container.scrollTop).toBeGreaterThan(50 * 180);
+
+      // The virtualizer catches up with the new offset; a row above the leading one is measured late.
+      await act(async () => { container.dispatchEvent(new Event("scroll")); });
+      expect(rowTop(container, "m110")).toBe(-30);
+      heights.set("m109", 400);
+      const lateRow = container.querySelector<HTMLElement>('[data-message-id="m109"]')!;
+      harness.trigger(lateRow, 400);
+      await harness.flushFrames();
+      expect(rowTop(container, "m110")).toBe(-30);
+
+      // Once the reader scrolls, later measurements no longer move the transcript.
+      container.scrollTop -= 500;
+      await act(async () => { container.dispatchEvent(new Event("scroll")); });
+      const readerScrollTop = container.scrollTop;
+      heights.set("m108", 600);
+      const releasedRow = container.querySelector<HTMLElement>('[data-message-id="m108"]')!;
+      harness.trigger(releasedRow, 600);
+      await harness.flushFrames();
+      expect(container.scrollTop).toBe(readerScrollTop);
+    } finally {
+      view.unmount();
+      harness.restore();
+    }
+  });
+
   describe("keyboard navigation", () => {
     it("navigates rows with j/k and ArrowDown/ArrowUp", async () => {
       const messages: UiMessage[] = [
