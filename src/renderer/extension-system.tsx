@@ -15,6 +15,8 @@ import type {
   ThreadBackendKind,
   UiModel,
   UiMessage,
+  UiRuntimeBackend,
+  UiRuntimeCatalog,
   UiProject,
   UiSession,
   UiPromptAttachment,
@@ -47,7 +49,8 @@ export interface WorkbenchActions {
    * one back to where it came from (`rightPanel.toggleMaximized`, API 1.11.0).
    */
   togglePanelMaximized?(): void;
-  openCommandPalette(): void;
+  /** With `menu`, on the level of the command of that id that has a `submenu` (API 1.12.0). */
+  openCommandPalette(options?: { menu?: string }): void;
   openSettings(page?: string): void;
   /** A new thread's draft, through the project picker; with `workspace`, in that project directly, and nothing when the window does not know it yet. */
   newSession(options?: { workspace?: string }): void;
@@ -75,8 +78,8 @@ export interface WorkbenchActions {
    * 0 for never); an `id` already shown is replaced. New in API 1.11.0.
    */
   toast?(options: ToastOptions): ToastHandle;
-  /** Opens the list of project sources extensions registered. */
-  openProjectSources(): void;
+  /** Opens the list of project sources extensions registered; with `source`, that source's own view (API 1.12.0). */
+  openProjectSources(source?: string): void;
   /** Opens a project like the sidebar does, named by its workspace id; `inheritDraft` carries the unsent composer text into the thread that opens there. */
   openWorkspace(workspace: string, options?: { inheritDraft?: boolean }): Promise<boolean>;
   /**
@@ -175,8 +178,25 @@ export interface WorkbenchActions {
   attachFiles?(files: readonly File[], options?: { sessionId?: string }): void;
   /** Cycles to the next or previous model. */
   cycleModel?(direction?: 1 | -1): Promise<boolean>;
+  /**
+   * Every runtime the host offers and the models a new thread of it can take,
+   * as the host holds them; the answer comes from the host's cache (API 1.12.0).
+   */
+  runtimeModels?(): Promise<readonly RuntimeModels[]>;
+  /**
+   * A thread on `runtime`: the draft on screen moves to it, otherwise a new
+   * draft opens in the project on screen; with `model`, it starts on that
+   * model (API 1.12.0).
+   */
+  startThreadOn?(runtime: string, model?: UiModel): void;
   /** Cycles to the next thinking level. */
   cycleThinking?(): Promise<void>;
+}
+
+/** One runtime as `runtimeModels` answers: its catalog is absent until the host has one. */
+export interface RuntimeModels {
+  backend: UiRuntimeBackend;
+  catalog?: UiRuntimeCatalog;
 }
 
 /** Stamped onto every contribution so the UI can say which extension supplied it. */
@@ -549,14 +569,45 @@ export interface SettingsPageContribution extends ProfileScoped {
   Component: ComponentType<SettingsPageProps>;
 }
 
-/** One row a palette source answers with. */
+/** One row a palette source or a palette menu answers with. */
 export interface PaletteItem {
-  /** Unique within its source. */
+  /** Unique within its source or menu. */
   id: string;
   label: string;
   /** Context after the label: a project, a path, the line that matched. */
   detail?: string;
-  run(actions: WorkbenchActions): void | Promise<void>;
+  /** A mark before the label; one that carries meaning names it with `aria-label` (API 1.12.0). */
+  icon?: ReactNode;
+  /** Words a menu's search also matches and never shows, such as a runtime drawn only as its icon (API 1.12.0). */
+  keywords?: readonly string[];
+  /** The value in use: the row says "Current" (API 1.12.0). */
+  current?: boolean;
+  /** Opens this level of the palette instead of running (API 1.12.0). */
+  submenu?: PaletteMenu;
+  /** What the row does; a row with a `submenu` needs none. */
+  run?(actions: WorkbenchActions): void | Promise<void>;
+}
+
+/**
+ * A level of the palette under a row or a command: its own rows, its own
+ * search, a breadcrumb and a way back (API 1.12.0).
+ */
+export interface PaletteMenu {
+  /** The level's name in the breadcrumb. */
+  title: string;
+  /** The search field's placeholder on this level. */
+  placeholder?: string;
+  /** What the level says when no row answers the query. */
+  empty?: string;
+  /**
+   * The level's rows for what is typed on it ("" when nothing is). Asked when
+   * the level opens and again per keystroke, with the context and signal a
+   * source gets. The palette keeps the rows whose label, detail or keywords
+   * hold every word of the query, best first, unless `searches` is set.
+   */
+  items(query: string, context: PaletteSearchContext): readonly PaletteItem[] | Promise<readonly PaletteItem[]>;
+  /** `items` already answers the query: its rows are shown as they come. */
+  searches?: boolean;
 }
 
 /** What the palette hands a source with every query. */
@@ -597,6 +648,12 @@ export interface CommandContribution {
   label: string;
   group: string;
   surfaces?: readonly CommandSurface[];
+  /**
+   * In the palette the row opens this level instead of running. `run` stays
+   * what a chord or a surface does; `openCommandPalette({ menu: id })` opens
+   * the palette on the level (API 1.12.0).
+   */
+  submenu?: PaletteMenu;
   /** Deletes or discards something: a surface menu draws it last, in the danger colour. */
   destructive?: boolean;
   run(actions: WorkbenchActions, context?: CommandContext): void | Promise<void>;

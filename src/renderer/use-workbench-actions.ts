@@ -38,7 +38,7 @@ export interface UseWorkbenchActionsOptions {
   openPanel: (id: string) => void;
   closePanel?: (id: string) => void;
   togglePanelMaximized?: () => void;
-  openPalette: () => void;
+  openPalette: (options?: { menu?: string }) => void;
   setSettingsPage: (page?: string) => void;
   openNewThreadPicker: () => void;
   /** Puts a new thread's draft in a project without the picker. */
@@ -52,7 +52,7 @@ export interface UseWorkbenchActionsOptions {
   setComposerSeed: (seed: string) => void;
   setDockOpen: Dispatch<SetStateAction<boolean>>;
   setNotice: (notice: any) => void;
-  openProjectSources: () => void;
+  openProjectSources: (source?: string) => void;
   applyHostResult: (result: HostActionResult) => void;
   /** Every path that closes a stage tab, and the tabs extensions drew. */
   stageTabs: StageTabController;
