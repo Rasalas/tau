@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Sparkles, X } from "lucide-react";
 import type { ExtensionInspection, HostExtensionSummary, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary } from "../extension-system";
@@ -24,10 +24,11 @@ function ModelOptionRow({
   onChange(value: string): void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerAnchor = useRef<HTMLButtonElement>(null);
   const chosen = value ? models.find((model) => modelKey(model) === value) : undefined;
   return (
     <div className="model-option-row">
-      <button className="settings-field compact" disabled={disabled} onClick={() => setPickerOpen(true)}>
+      <button ref={pickerAnchor} className="settings-field compact" disabled={disabled} onClick={() => setPickerOpen((open) => !open)}>
         <Sparkles size={14} className="accent" />
         <span>
           <strong>{chosen?.name ?? (value || "Thread's model")}</strong>
@@ -46,6 +47,8 @@ function ModelOptionRow({
           activeKey={value}
           onSelect={(model) => onChange(modelKey(model))}
           onClose={() => setPickerOpen(false)}
+          anchor={pickerAnchor}
+          side="bottom"
         />
       ) : null}
     </div>

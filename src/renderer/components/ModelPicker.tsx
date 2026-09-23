@@ -9,7 +9,7 @@ import { runtimeUpdate } from "../runtime-update";
 import { modelKey, pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
-import { useFocusReturn, useFocusTrap } from "./ui/focus";
+import { useFocusTrap } from "./ui/focus";
 import { VirtualList } from "./VirtualList";
 
 const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
@@ -71,6 +71,7 @@ export function ModelPicker({
   badges = NO_BADGES,
   multiSelect,
   anchor,
+  side = "top",
 }: {
   models: readonly UiModel[];
   activeKey?: string;
@@ -90,8 +91,10 @@ export function ModelPicker({
   badges?: readonly ModelBadgeContribution[];
   /** Shift-click builds a set of models here instead of picking one; a new thread's picker only. */
   multiSelect?: ModelSelectionContribution;
-  /** Opens as a popover beside this element, as T3 Code's picker does at its chip; else a modal. */
-  anchor?: RefObject<HTMLElement | null>;
+  /** The control the picker opens beside, as T3 Code's picker at its chip. */
+  anchor: RefObject<HTMLElement | null>;
+  /** Where it prefers to open; it flips when that side has no room. */
+  side?: "top" | "bottom";
 }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -157,8 +160,6 @@ export function ModelPicker({
   useEffect(() => {
     if (!addProviderOpen) requestAnimationFrame(() => inputRef.current?.focus());
   }, [addProviderOpen]);
-  // The popover returns focus itself; the modal does it here.
-  useFocusReturn(!anchor, surfaceRef);
   useFocusTrap(surfaceRef, !addProviderOpen);
 
   const needle = query.trim().toLowerCase();
@@ -413,26 +414,10 @@ export function ModelPicker({
     </Suspense>
   ) : null;
 
-  if (anchor) {
-    // A press in the form would count as outside the popover, so the form takes the popover's place.
-    return addProvider ?? (
-      <Popover anchor={anchor} side="top" align="start" label="Select model" className="model-picker anchored" onClose={onClose}>
-        {content}
-      </Popover>
-    );
-  }
-  return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <section
-        className="model-picker"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Select model"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        {content}
-      </section>
-      {addProvider}
-    </div>
+  // A press in the form would count as outside the popover, so the form takes the popover's place.
+  return addProvider ?? (
+    <Popover anchor={anchor} side={side} align="start" label="Select model" className="model-picker" onClose={onClose}>
+      {content}
+    </Popover>
   );
 }

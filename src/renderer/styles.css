@@ -1539,50 +1539,42 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 
 /* ---------------------------------------------------------- model picker */
 
-.model-picker {
-  width: 640px; max-width: calc(100vw - 48px); height: 500px; max-height: calc(100vh - 128px);
-  display: flex; flex-direction: column;
-  border: 1px solid var(--line-float); border-radius: 12px;
-  background: var(--overlay); box-shadow: var(--elevation-3);
-  overflow: hidden; color: var(--ink); animation: fade-up .14s ease;
+/* A popover at its chip, as in T3 Code: no scrim. */
+.model-picker.popover {
+  width: 420px; max-width: calc(100vw - 16px); height: 380px; max-height: calc(100vh - 16px);
+  display: flex; flex-direction: column; padding: 0; overflow: hidden;
+  border-radius: 12px; background: var(--overlay); color: var(--ink);
 }
-/* At the model chip, as in T3 Code: no scrim, a narrower card. */
-.model-picker.anchored { width: 420px; height: 380px; max-height: calc(100vh - 16px); padding: 0; border-radius: 12px; background: var(--overlay); box-shadow: var(--elevation-2); animation: none; }
-.model-picker.anchored .model-rail { width: 52px; }
-.model-picker.anchored .model-rail > button { width: 40px; height: 36px; }
-.model-picker.anchored .model-rail > button.active::before { left: -6px; }
-.model-picker.anchored .model-search { height: 44px; }
 .model-picker-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .model-picker-content > footer {
-  flex: none; display: flex; align-items: center; gap: 14px; height: 36px;
+  flex: none; display: flex; align-items: center; gap: 14px; height: 30px;
   border-top: 1px solid var(--line); padding: 0 14px;
   font: 10px var(--mono); color: var(--faint);
 }
-.model-picker.anchored .model-picker-content > footer { height: 30px; }
 .model-picker-content > footer .spacer { flex: 1; }
 .model-picker-body { flex: 1; min-height: 0; display: flex; }
 .model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 /* The rail: Pi's model providers, then every other runtime as one tab. */
 .model-rail {
-  width: 64px; flex: none; overflow: auto;
-  border-right: 1px solid var(--line); padding: 10px 0;
+  width: 52px; flex: none; overflow: auto;
+  border-right: 1px solid var(--line); padding: 8px 0;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
 .model-rail > button {
-  position: relative; width: 48px; height: 40px; display: grid; place-items: center;
+  position: relative; width: 40px; height: 36px; display: grid; place-items: center;
   border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .model-rail > button:hover { background: var(--hover-strong); color: var(--ink-2); }
 .model-rail > button.active { background: var(--raised); color: var(--acid-text); }
 .model-rail > button.elsewhere:not(.active) { opacity: .55; }
 .model-rail > button.active::before {
-  content: ""; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px;
+  content: ""; position: absolute; left: -6px; top: 9px; bottom: 9px; width: 3px;
   border-radius: 0 2px 2px 0; background: var(--acid);
 }
 .model-rail .rail-icon { margin-left: 0; }
 
-.model-search { height: 50px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
+.model-search { height: 44px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
 .model-search:focus-within { border-bottom-color: var(--acid); }
 .model-search > svg { color: var(--faint); flex: none; }
 .model-search > .model-provider-add {

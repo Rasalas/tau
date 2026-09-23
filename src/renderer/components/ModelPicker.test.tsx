@@ -29,6 +29,7 @@ function renderPicker(options: {
       models={models}
       onSelect={onSelect}
       onClose={() => {}}
+      anchor={{ current: null }}
       runtime={options.runtime}
       catalogRuntime={options.catalogRuntime}
       runtimeBackends={options.runtimeBackends}
@@ -175,7 +176,7 @@ describe("ModelPicker", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     render(<TestProviders>
-      <ModelPicker models={models} activeKey="anthropic/claude-sonnet-4-5" onSelect={onSelect} onClose={onClose} multiSelect={selection} />
+      <ModelPicker models={models} activeKey="anthropic/claude-sonnet-4-5" onSelect={onSelect} onClose={onClose} multiSelect={selection} anchor={{ current: null }} />
     </TestProviders>);
 
     fireEvent.click(screen.getByText("Claude Opus 5"), { shiftKey: true });
