@@ -1,0 +1,43 @@
+{
+ "state": "success",
+ "sha": "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
+ "total_count": 4,
+ "statuses": [
+  {
+   "id": 1,
+   "status": "skipped",
+   "target_url": "/forgejo/forgejo/actions/runs/200808/jobs/0",
+   "description": "Has been skipped",
+   "context": "issue-labels / release-notes (pull_request_target)",
+   "created_at": "2026-09-21T12:05:49+02:00",
+   "updated_at": "2026-09-21T12:05:49+02:00"
+  },
+  {
+   "id": 21,
+   "status": "success",
+   "target_url": "/forgejo/forgejo/actions/runs/200810/jobs/12",
+   "description": "Successful in 17s",
+   "context": "testing / semgrep/ci (pull_request)",
+   "created_at": "2026-09-21T12:06:25+02:00",
+   "updated_at": "2026-09-21T12:06:25+02:00"
+  },
+  {
+   "id": 22,
+   "status": "skipped",
+   "target_url": "/forgejo/forgejo/actions/runs/200811/jobs/0",
+   "description": "Has been skipped",
+   "context": "issue-labels / backporting (pull_request_target)",
+   "created_at": "2026-09-21T12:06:39+02:00",
+   "updated_at": "2026-09-21T12:06:39+02:00"
+  },
+  {
+   "id": 23,
+   "status": "skipped",
+   "target_url": "/forgejo/forgejo/actions/runs/200812/jobs/0",
+   "description": "Has been skipped",
+   "context": "issue-labels / cascade (pull_request_target)",
+   "created_at": "2026-09-21T12:06:40+02:00",
+   "updated_at": "2026-09-21T12:06:40+02:00"
+  }
+ ]
+}

@@ -5,6 +5,7 @@ import { HostCommandError, type HostExtensionContext } from "tau/host-extension"
 import { providerInfo, REQUEST_SERVICES, WORKSPACE_HOST_EXTENSION_ID, type PullRequestRef, type RequestService } from "./protocol.js";
 import type { GitCredential, HttpAnswer, HttpFetch, ProviderTools, SourceControlProvider } from "./provider.js";
 import { createGitHubProvider } from "./provider-github.js";
+import { createForgejoProvider } from "./provider-forgejo.js";
 import { createGitLabProvider } from "./provider-gitlab.js";
 import { isRateLimited, RateLimitGate, retryAtFrom } from "./provider-rate-limit.js";
 import { parseRequestUrl } from "./pull-request-json.js";
@@ -49,7 +50,7 @@ type ProviderFactory = (tools: ProviderTools, env: Record<string, string | undef
 const FACTORIES: Record<RequestService, ProviderFactory> = {
   github: (tools) => createGitHubProvider(tools),
   gitlab: (tools) => createGitLabProvider(tools),
-  forgejo: () => unavailable("forgejo"),
+  forgejo: (tools) => createForgejoProvider(tools),
   bitbucket: () => unavailable("bitbucket"),
   "azure-devops": () => unavailable("azure-devops"),
 };
@@ -114,7 +115,13 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
     services.noteSubprocess();
     try {
       // A call that names its repository needs no checkout to run in.
-      const output = await run(command, call.args, extra.cwd ?? homedir(), { ...(call.input !== undefined ? { input: call.input } : {}), ...(extra.maxBuffer ? { maxBuffer: extra.maxBuffer } : {}) });
+      let stderr = "";
+      const output = await run(command, call.args, extra.cwd ?? homedir(), {
+        ...(call.input !== undefined ? { input: call.input } : {}),
+        ...(extra.maxBuffer ? { maxBuffer: extra.maxBuffer } : {}),
+        ...(extra.inspect ? { onStderr: (text: string) => { stderr = text; } } : {}),
+      });
+      extra.inspect?.(output, stderr);
       if (extra.host) gate.succeeded(kind, extra.host);
       return output;
     } catch (error) {
@@ -188,6 +195,7 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
       return value;
     },
     drop: (kind, ref) => { cache.delete(`${kind}\0${ref.url}`); },
+    forget: (ref) => { for (const key of cache.keys()) if (key.endsWith(`\0${ref.url}`)) cache.delete(key); },
     workspace: async (command, input) => {
       try {
         return await context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input);

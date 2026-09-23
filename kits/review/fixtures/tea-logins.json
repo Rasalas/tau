@@ -1,0 +1,16 @@
+[
+ {
+  "name": "codeberg.org",
+  "url": "https://codeberg.org",
+  "ssh_host": "codeberg.org",
+  "user": "octo",
+  "default": "true"
+ },
+ {
+  "name": "work",
+  "url": "https://git.example.com:3000",
+  "ssh_host": "git.example.com",
+  "user": "octo",
+  "default": "false"
+ }
+]

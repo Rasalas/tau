@@ -28,7 +28,7 @@ export function retryAtFrom(headers: { get(name: string): string | null }, now: 
 /**
  * Pauses one provider on one host once it said its rate limit is reached,
  * so a polling tab does not keep hitting it: until the reset time the host
- * named, else for a pause that grows with each repeat. A success ends it.
+ * named, else for a pause that grows with each repeat until a call succeeds.
  */
 export class RateLimitGate {
   private readonly paused = new Map<string, { until: number; attempt: number }>();
@@ -51,8 +51,11 @@ export class RateLimitGate {
     this.paused.set(key, { until: retryAt && retryAt > this.now() ? retryAt : fallback, attempt });
   }
 
+  /** A call that started before the pause may still succeed; only one after it ends the pause's growth. */
   succeeded(kind: string, host: string): void {
-    this.paused.delete(this.key(kind, host));
+    const key = this.key(kind, host);
+    const entry = this.paused.get(key);
+    if (entry && entry.until <= this.now()) this.paused.delete(key);
   }
 
   private key(kind: string, host: string): string {

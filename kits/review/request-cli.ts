@@ -14,6 +14,8 @@ export interface CliRunOptions {
   maxBuffer?: number;
   /** Added to the environment, e.g. to keep Git from prompting. */
   env?: Record<string, string>;
+  /** Hears stderr of a call that succeeded; `tea api` reports the HTTP status there. */
+  onStderr?(stderr: string): void;
 }
 
 const CLI_TIMEOUT_MS = 25_000;
@@ -29,7 +31,7 @@ export const defaultCliRunner: CliRunner = (command, args, cwd, options = {}) =>
     // No CLI may stop for a prompt: there is no terminal to answer it.
     env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GLAB_NO_PROMPT: "1", NO_COLOR: "1", AZURE_CORE_ONLY_SHOW_ERRORS: "1", AZURE_CORE_NO_COLOR: "1", ...options.env },
   }, (error, stdout, stderr) => {
-    if (!error) { resolve(stdout); return; }
+    if (!error) { options.onStderr?.(String(stderr)); resolve(stdout); return; }
     // Past maxBuffer, stdout holds a cut-off answer rather than a reason.
     const overflow = (error as { code?: unknown }).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
     const detail = overflow ? error.message : String(stderr || stdout || "").trim() || error.message;

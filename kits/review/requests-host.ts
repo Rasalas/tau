@@ -125,7 +125,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const target = targetOf(provider, git);
     const missing = await problem(git, provider, target);
     const request = git.branch && git.remote && target && !provider.missing()
-      ? await provider.current({ ...target, branch: git.branch, fresh })
+      ? await provider.current({ ...target, branch: git.branch, fresh }).catch(() => undefined)
       : undefined;
     const current: ReviewRequestStatus = {
       ...(git.branch ? { branch: git.branch } : {}),

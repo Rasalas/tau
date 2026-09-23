@@ -1,0 +1,20 @@
+[
+ {
+  "sha": "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
+  "html_url": "https://codeberg.org/forgejo/forgejo/commit/1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
+  "commit": {
+   "message": "feat(lfs): server: add documentation_url to response\n\nThis isn't used consistently everywhere yet, so further work is needed.\n\nSee: https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md\n",
+   "author": {
+    "name": "Panagiotis \"Ivory\" Vasilopoulos",
+    "email": "git@n0toose.net",
+    "date": "2026-09-21T03:24:20+02:00"
+   }
+  },
+  "author": {
+   "id": 33716,
+   "login": "n0toose",
+   "full_name": "Panagiotis \"Ivory\" Vasilopoulos"
+  },
+  "created": "2026-09-21T12:02:32+02:00"
+ }
+]

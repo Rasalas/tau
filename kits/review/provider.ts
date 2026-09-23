@@ -135,6 +135,14 @@ export interface GitCredential {
   password: string;
 }
 
+export interface CliOptions {
+  cwd?: string;
+  maxBuffer?: number;
+  host?: string;
+  /** Reads a call that exited 0 and throws when it failed all the same. */
+  inspect?(stdout: string, stderr: string): void;
+}
+
 /** What every provider is built on: the host's CLIs, HTTP, the read cache and the kit's other seams. */
 export interface ProviderTools {
   findCommand(name: string): string | undefined;
@@ -143,7 +151,7 @@ export interface ProviderTools {
    * Runs one call of `kind`'s CLI; a missing CLI or a failure becomes a
    * sentence naming what is missing. `host` keys the rate-limit pause.
    */
-  cli(kind: RequestService, call: CliCall, action: string, options?: { cwd?: string; maxBuffer?: number; host?: string }): Promise<string>;
+  cli(kind: RequestService, call: CliCall, action: string, options?: CliOptions): Promise<string>;
   /** Asks a host over HTTP, rate limits honoured; anything but 2xx rejects with the status in its message. */
   http(kind: RequestService, url: string, init: { method?: string; headers?: Record<string, string>; body?: string; action: string; host: string }): Promise<HttpAnswer>;
   /** The credential Git's own helper holds for `https://<host>`, without prompting; undefined when it has none. */
@@ -152,6 +160,8 @@ export interface ProviderTools {
   cached<T>(kind: string, ref: PullRequestRef, fresh: boolean, read: () => Promise<T>): Promise<T>;
   /** Drops one kind of a request's cached reads. */
   drop(kind: string, ref: PullRequestRef): void;
+  /** Drops every cached read of a request, after a write. */
+  forget(ref: PullRequestRef): void;
   /** Workspace Kit's commands that name Review Kit as a caller. */
   workspace(command: string, input?: unknown): Promise<unknown>;
   now(): number;
