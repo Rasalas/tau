@@ -30,8 +30,10 @@ import {
   askUserQuestionPrompts,
   permissionPrompt,
   permissionResultFor,
+  PLAN_CAPTURED,
   PLAN_DECLINED,
   planPrompt,
+  proposedPlanText,
   resumeDialogPrompt,
   resumeDialogResult,
 } from "./approvals.js";
@@ -68,6 +70,8 @@ export function promptContent(text: string, attachments: readonly UiPromptAttach
 const MISSING_SESSION = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid)|(?:no|cannot|could not)\s+(?:find\s+)?(?:the\s+)?(?:session|conversation)/iu;
 /** The thinking picker's first entry: the CLI's own effort. */
 const DEFAULT_EFFORT = "default";
+const PLAN_MODE = "plan";
+const DEFAULT_MODE = "default";
 
 function effortLevel(value: string | undefined): EffortLevel | undefined {
   return (EFFORT_LEVELS as readonly string[]).includes(value ?? "") ? value as EffortLevel : undefined;
@@ -141,6 +145,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** What the user chose for this thread; the CLI's defaults otherwise. */
   private chosenModel?: string;
   private chosenEffort?: EffortLevel;
+  private mode = DEFAULT_MODE;
   private observedEffort?: string;
   private modelInfos?: ModelInfo[];
   /** The only tools this thread keeps, from its record. */
@@ -160,6 +165,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       catalogWrite: {
         setModel: (_provider, id) => this.setModel(id),
         setThinkingLevel: (level) => this.setEffort(level),
+      },
+      // Tau's plan is Claude's plan permission mode, whatever the access level.
+      mode: {
+        modes: () => [PLAN_MODE],
+        current: () => this.mode,
+        set: (mode) => this.setMode(mode),
       },
       // The SDK resumes the stored session itself, so a continuation is an
       // ordinary turn; there is no message kind the transcript hides.
@@ -207,6 +218,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (record.usage) this.usage = { ...record.usage };
     this.chosenModel = record.model;
     this.chosenEffort = effortLevel(record.effort);
+    this.mode = record.mode ?? DEFAULT_MODE;
     this.model = this.chosenModel ?? record.observedModel;
     this.tools = record.tools;
   }
@@ -285,6 +297,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (live) await live.setEffort(effort ?? null);
   }
 
+  private async setMode(mode: string): Promise<void> {
+    if (mode !== PLAN_MODE && mode !== DEFAULT_MODE) throw new Error(`Claude Code offers no "${mode}" mode.`);
+    this.mode = mode;
+    await this.store.setSelection(this.threadId, this.cwd, { mode: mode === DEFAULT_MODE ? undefined : mode });
+  }
+
   async preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     assertClaudePermissionPolicySupported(runtimePermissionPolicy(this.options.permissionLevel?.() ?? "full"), { canAsk: this.options.ask !== undefined });
     const commands = await this.skills();
@@ -314,7 +332,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Claude delivery.");
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
-    const mode = runtimePermissionPolicy(permissionLevel).permissionMode;
+    const mode = this.mode === PLAN_MODE ? "plan" : runtimePermissionPolicy(permissionLevel).permissionMode;
     assertClaudePermissionPolicySupported({ permissionMode: mode }, { canAsk: this.options.ask !== undefined });
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     this.assertPreparedPrompt(input.text, prepared, await this.skills());
@@ -541,6 +559,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       }
       // The CLI reads answers by the full question text.
       return { behavior: "allow", updatedInput: { ...input, answers }, decisionClassification: "user_temporary" };
+    }
+    if (toolName === "ExitPlanMode" && this.mode === PLAN_MODE) {
+      // Plan mode shows the plan as a card and leaves the next step to the user.
+      const plan = typeof input.plan === "string" ? input.plan.trim() : "";
+      if (plan) this.handleEvent({ type: "assistant-end", message: { id: `claude-plan-${this.now()}`, role: "assistant", text: proposedPlanText(plan), timestamp: this.now() } });
+      return { behavior: "deny", message: PLAN_CAPTURED, decisionClassification: "user_reject" };
     }
     if (toolName === "ExitPlanMode") {
       const answer = await ask(planPrompt());

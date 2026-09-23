@@ -138,6 +138,13 @@ function failed(item: Item): boolean {
 
 interface Segment { id: string; text: string; thinking: string; timestamp: number; itemId?: string; announced?: boolean }
 
+/** Tau's name for Codex's plan collaboration mode. */
+export const PLAN_MODE = "plan";
+
+/** How a plan item reads in the transcript: the block Plan Kit draws as a card. */
+const PLAN_OPEN = "<proposed_plan>\n";
+const PLAN_CLOSE = "\n</proposed_plan>";
+
 export class CodexTurnTranslator {
   readonly running = new Map<string, UiToolRun>();
   /** File changes by item, so an approval can name what it would write. */
@@ -154,7 +161,8 @@ export class CodexTurnTranslator {
     switch (method) {
       case "item/started": return this.itemStarted(params.item as Item);
       case "item/completed": return this.itemCompleted(params.item as Item);
-      case "item/agentMessage/delta": return this.text(String(params.itemId ?? ""), String(params.delta ?? ""), "text");
+      case "item/agentMessage/delta":
+      case "item/plan/delta": return this.text(String(params.itemId ?? ""), String(params.delta ?? ""), "text");
       case "item/reasoning/summaryTextDelta":
       case "item/reasoning/textDelta": return this.text(undefined, String(params.delta ?? ""), "thinking");
       case "item/reasoning/summaryPartAdded": return this.segment?.thinking ? this.text(undefined, "\n\n", "thinking") : [];
@@ -177,6 +185,12 @@ export class CodexTurnTranslator {
       this.open(item.id);
       return events;
     }
+    // A proposed plan is a reply of its own, streamed inside the tags.
+    if (item.type === "plan") {
+      const events = this.closeSegment();
+      this.open(item.id);
+      return [...events, ...this.text(item.id, PLAN_OPEN, "text")];
+    }
     const tool = toolFor(item, this.now());
     if (!tool || this.running.has(tool.id)) return [];
     if (item.type === "fileChange") this.changes.set(item.id, (tool.args.paths as string[] | undefined) ?? (tool.args.path ? [String(tool.args.path)] : []));
@@ -191,6 +205,17 @@ export class CodexTurnTranslator {
       const segment = this.open(item.id);
       const text = typeof item.text === "string" ? item.text : segment.text;
       const events = text.startsWith(segment.text) && text.length > segment.text.length ? this.text(item.id, text.slice(segment.text.length), "text") : [];
+      segment.text = text;
+      return [...events, ...this.closeSegment()];
+    }
+    if (item.type === "plan") {
+      const plan = typeof item.text === "string" ? item.text.trim() : "";
+      const events = this.segment?.itemId === item.id ? [] : this.closeSegment();
+      if (!plan && this.segment?.itemId !== item.id) return events;
+      const segment = this.open(item.id);
+      // Deltas need not add up to the finished plan; the item is what counts.
+      const text = plan ? `${PLAN_OPEN}${plan}${PLAN_CLOSE}` : `${segment.text}${PLAN_CLOSE}`;
+      if (text.startsWith(segment.text)) events.push(...this.text(item.id, text.slice(segment.text.length), "text"));
       segment.text = text;
       return [...events, ...this.closeSegment()];
     }

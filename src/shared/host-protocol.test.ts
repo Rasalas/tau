@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, decodeHostUpdates, detailFromSnapshot, isHostUpdate } from "./host-protocol.js";
-import { normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot } from "./host-protocol.js";
+import { hostSnapshotWithCatalog, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot } from "./host-protocol.js";
 import type { HostSnapshot } from "./contracts.js";
 import { asHostTranscriptCursor, type HostTranscriptCursor } from "./transcript-cursor.js";
 import type { TranscriptCursorPolicy } from "./transcript-pager.js";
@@ -24,6 +24,15 @@ const localCursorPolicy: TranscriptCursorPolicy<HostTranscriptCursor> = {
 };
 
 describe("host protocol", () => {
+  it("carries a thread's mode in the catalog and drops the last thread's with a new one", () => {
+    const planned = { ...snapshot, mode: "plan", modes: ["plan"] };
+    expect(catalogFromSnapshot(planned)).toMatchObject({ mode: "plan", modes: ["plan"] });
+    const next = hostSnapshotWithCatalog(planned, { ...catalogFromSnapshot(snapshot), sessionId: "other" });
+    expect(next.mode).toBeUndefined();
+    expect(next.modes).toBeUndefined();
+    expect(hostSnapshotWithCatalog(planned, { ...catalogFromSnapshot(snapshot), sessionId: undefined }).mode).toBe("plan");
+  });
+
   it("accepts only the current version and known focused messages", () => {
     const update = { version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0, supportsImageInput: true } };
     expect(isHostUpdate(update)).toBe(true);

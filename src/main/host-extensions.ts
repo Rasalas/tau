@@ -369,11 +369,22 @@ export interface RuntimeSettingsView {
 export interface RuntimeExtensionOptions {
   /** Decides per runtime, from Pi's settings, whether the extension loads at all. */
   enabledFor?: (settings: RuntimeSettingsView) => boolean;
+  /**
+   * Interaction modes this extension gives Pi threads, e.g. `plan`. A Pi thread
+   * offers every mode an extension declares; the extension reads the thread's
+   * mode from its session (`threadModeFromEntries`) and does what it means.
+   */
+  modes?: readonly string[];
 }
 
 export interface RuntimeExtensionContribution extends RuntimeExtensionOptions {
   name: string;
   factory: RuntimeExtensionFactory;
+}
+
+/** Every mode the registered runtime extensions give Pi threads, once each. */
+export function runtimeExtensionModes(contributions: readonly RuntimeExtensionContribution[]): string[] {
+  return [...new Set(contributions.flatMap((contribution) => contribution.modes ?? []))].filter((mode) => mode !== "default");
 }
 
 /**

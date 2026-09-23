@@ -54,6 +54,8 @@ export interface ThreadRuntimeLifecyclePort {
   /** Runtime extensions host extensions contribute, filtered by the session's settings. */
   runtimeExtensions(settingsManager: SettingsManager, session: RuntimeSessionInfo): Array<{ name: string; factory: ExtensionFactory }>;
   runtimeExtensionNames(): string[];
+  /** The interaction modes runtime extensions give Pi threads. */
+  runtimeModes(): readonly string[];
   threadLifecycle: HostThreadLifecycleSet;
   turnObservers: HostTurnObserverSet;
   clientTurns: ClientTurnLedger;
@@ -256,6 +258,7 @@ export class ThreadRuntimeLifecycle {
             .map((message, index) => mapMessage(message, index, mapping))
             .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
         },
+        modes: () => this.port.runtimeModes(),
       });
       marks.mark("create-runtime");
       thread = new ThreadRuntime(backend, createdRuntime);

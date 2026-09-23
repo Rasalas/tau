@@ -124,6 +124,18 @@ export class ThreadCommands {
     }
   };
 
+  /** Resolves false when the host refused; the notice says why. */
+  setMode = async (mode: string): Promise<boolean> => {
+    if (!this.requireHost("Interaction mode")) return false;
+    try {
+      this.ports.applyActionResult(await this.client!.setMode(mode, this.sessionId()));
+      return true;
+    } catch (error) {
+      this.notify(errorMessage(error));
+      return false;
+    }
+  };
+
   recoverThread = async (): Promise<void> => {
     if (!this.requireHost("Thread recovery")) return;
     try {

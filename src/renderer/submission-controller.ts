@@ -358,6 +358,7 @@ export class SubmissionController {
       try {
         if (!client) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
+          if (pending.mode) await client.setMode(pending.mode, pending.sessionId);
           await client.sendPrompt(text, attachments, pending.sessionId, clientTurn, prepared);
           this.settleIpc(clientMessageId, recovery);
           if (recovery?.failed) {
@@ -379,14 +380,17 @@ export class SubmissionController {
         // An unchanged model chip is still a choice. Carry the shown Pi model
         // into the new runtime instead of silently falling back to host defaults.
         const requestedModel = this.newThreadStart(pending).model;
-        const result = requestedModel
+        const result = requestedModel || pending.mode
           ? await client.newSession(
             text,
             attachments,
             pending.workspaceId ?? pending.projectPath,
             clientTurn,
             prepared,
-            { model: { provider: requestedModel.provider, id: requestedModel.id } },
+            {
+              ...(requestedModel ? { model: { provider: requestedModel.provider, id: requestedModel.id } } : {}),
+              ...(pending.mode ? { mode: pending.mode } : {}),
+            },
           )
           : await client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared);
         this.settleIpc(clientMessageId, recovery);

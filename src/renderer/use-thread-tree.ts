@@ -1,5 +1,6 @@
-import { useCallback, useState, type RefObject } from "react";
-import type { UiThreadTree } from "../shared/contracts";
+import { useCallback, useRef, useState, type RefObject } from "react";
+import type { UiMessage, UiThreadTree } from "../shared/contracts";
+import { visibleUserMessageText } from "./components/MessageText";
 import type { HostActionResult } from "../shared/host-protocol";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
@@ -20,7 +21,10 @@ export interface ThreadTreePorts {
   applyActionResult(result: HostActionResult): boolean;
   /** A navigation may hand back unsent text, which lands in the composer. */
   seedComposer(text: string): void;
+  /** What the composer holds now, kept above a prompt that comes back to it. */
+  composerDraft?(): string;
   composerRef: RefObject<HTMLTextAreaElement | null>;
+  notify?(message: string): void;
 }
 
 /**
@@ -31,7 +35,11 @@ export interface ThreadTreePorts {
 export function useThreadTree(ports: ThreadTreePorts) {
   const [threadTreeModal, setThreadTreeModal] = useState<ThreadTreeModalState>();
   const closeThreadTree = useCallback(() => setThreadTreeModal(undefined), []);
-  const { applyActionResult, client, composerRef, requireHost, seedComposer, sessionId } = ports;
+  const { applyActionResult, client, composerRef, requireHost, sessionId } = ports;
+  // Read when called: the composer callbacks may be new on every render of the caller.
+  const portsRef = useRef(ports);
+  portsRef.current = ports;
+  const seedComposer = useCallback((text: string) => portsRef.current.seedComposer(text), []);
 
   const openThreadTree = useCallback((mode: ThreadTreeMode = "navigate") => {
     if (!requireHost("Thread tree")) return;
@@ -68,5 +76,21 @@ export function useThreadTree(ports: ThreadTreePorts) {
     }
   }, [applyActionResult, client, sessionId]);
 
-  return { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree };
+  // "Edit from here": the conversation goes back to before this prompt, which
+  // returns to the composer below the draft. The later turns stay a branch of the tree.
+  const editFromMessage = useCallback(async (message: UiMessage) => {
+    if (!message.sourceEntryId || !requireHost("Edit from here")) return;
+    try {
+      const result = await client!.navigateThreadTree(message.sourceEntryId, { summarize: false }, sessionId());
+      if (result.cancelled) return;
+      applyActionResult(result);
+      const draft = portsRef.current.composerDraft?.().trimEnd() ?? "";
+      seedComposer([draft, result.draftText ?? visibleUserMessageText(message.text)].filter(Boolean).join("\n\n"));
+      composerRef.current?.focus();
+    } catch (error) {
+      portsRef.current.notify?.(errorMessage(error));
+    }
+  }, [applyActionResult, client, composerRef, requireHost, seedComposer, sessionId]);
+
+  return { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree, editFromMessage };
 }

@@ -47,6 +47,7 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
     sessionFile: () => ({}) as never,
     runtimeExtensions: () => [],
     runtimeExtensionNames: () => [],
+    runtimeModes: () => [],
     threadLifecycle: { beforeOpen: vi.fn(async () => undefined) } as never,
     turnObservers: { closed: vi.fn(async () => undefined) } as never,
     clientTurns: { settle: vi.fn() } as never,

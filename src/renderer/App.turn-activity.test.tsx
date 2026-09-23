@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UiToolRun } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
@@ -310,10 +310,11 @@ describe("last-turn activity", () => {
 
     await waitFor(() => expect(screen.getByRole("listitem").textContent).toContain("after this turn"));
     expect(composer.value).toBe("");
-    // The runtime never holds the follow-up, and it is not a transcript bubble yet.
+    // The runtime never holds the follow-up; it waits as a dashed bubble, not as a message.
     expect(followUp).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(view.container.querySelector(".transcript")?.textContent ?? "").not.toContain("after this turn");
+    expect(view.container.querySelector(".transcript .queued-message")?.textContent).toContain("after this turn");
+    expect(view.container.querySelector(".transcript .message.user")).toBeNull();
 
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
@@ -347,7 +348,7 @@ describe("last-turn activity", () => {
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(1));
     expect(sendPrompt.mock.calls[0]?.[0]).toBe("first");
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
-    await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("span")?.textContent)).toEqual(["second"]));
+    await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("p")?.textContent)).toEqual(["second"]));
     expect(sendPrompt).toHaveBeenCalledTimes(1);
 
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
@@ -355,7 +356,7 @@ describe("last-turn activity", () => {
     expect(sendPrompt.mock.calls[1]?.[0]).toBe("second");
   });
 
-  it("steers the head of the queue with Cmd+Enter on an empty field or its Steer button", async () => {
+  it("steers the head of the queue with Cmd+Enter on an empty field or its Send now button", async () => {
     const steer = vi.fn(async () => undefined);
     client.followUp = vi.fn(async () => undefined);
     client.steer = steer;
@@ -373,12 +374,37 @@ describe("last-turn activity", () => {
 
     fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
     await waitFor(() => expect(steer).toHaveBeenCalledWith("first", [], "session", expect.anything(), undefined));
-    await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("span")?.textContent)).toEqual(["second"]));
+    await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("p")?.textContent)).toEqual(["second"]));
     expect(screen.getByText("first")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send now" }));
     await waitFor(() => expect(steer).toHaveBeenCalledWith("second", [], "session", expect.anything(), undefined));
     await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());
+  });
+
+  it("returns a queued message to the composer, and Stop returns the whole queue", async () => {
+    const sendPrompt = vi.fn(async (..._args: unknown[]) => undefined);
+    client.followUp = vi.fn(async () => undefined);
+    client.sendPrompt = sendPrompt;
+    renderApp(client);
+    await screen.findByRole("heading", { name: "What do you want to build?" });
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
+
+    const composer = screen.getByPlaceholderText(/Queue after this turn/u) as HTMLTextAreaElement;
+    for (const [index, text] of ["first", "second", "third"].entries()) {
+      fireEvent.change(composer, { target: { value: text } });
+      fireEvent.keyDown(composer, { key: "Enter" });
+      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(index + 1));
+    }
+    fireEvent.click(within(screen.getAllByRole("listitem")[1]!).getByRole("button", { name: "Cancel and return to the composer" }));
+    await waitFor(() => expect(composer.value).toBe("second"));
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop the run" }));
+    await waitFor(() => expect(composer.value).toBe("second\n\nfirst\n\nthird"));
+    expect(screen.queryByRole("listitem")).toBeNull();
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("steers with Cmd+Enter and shows the message in the transcript immediately", async () => {

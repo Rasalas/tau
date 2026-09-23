@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
 import { createKitHarness, RendererServicesProvider } from "../../src/renderer/test-support/kit-harness.js";
@@ -52,5 +52,18 @@ describe("Access Kit desktop extension", () => {
     const notify = vi.fn();
     void commands[1]?.run({ notify } as never);
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("ask");
+  });
+
+  it("opens the access menu with composer.mode, as T3 Code's chord does", () => {
+    const { registry, preferences } = activate();
+    const Control = registry.getComposerControls()[0]!.Component;
+    render(<RendererServicesProvider services={{ preferences }}><Control /></RendererServicesProvider>);
+    const notify = vi.fn();
+    act(() => { void registry.getCommands().find((command) => command.id === "composer.mode")!.run({ notify } as never); });
+    expect(screen.getByRole("menuitem", { name: /read-only/u })).toBeTruthy();
+    expect(registry.getKeybindings().find((binding) => binding.commandId === "composer.mode")?.keys).toBe("mod+shift+a");
+    cleanup();
+    void registry.getCommands().find((command) => command.id === "composer.mode")!.run({ notify } as never);
+    expect(notify).toHaveBeenCalled();
   });
 });

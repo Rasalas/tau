@@ -207,6 +207,7 @@ export function WorkspaceBar({
       <div className="menu-anchor">
         <button
           className="workspace-chip"
+          data-composer-shortcut="composer.workspace"
           disabled={busy}
           onClick={() => setOpen(open === "workspace" ? undefined : "workspace")}
         >
@@ -343,6 +344,7 @@ export function WorkspaceBar({
       <div className="menu-anchor">
         <button
           className="workspace-chip"
+          data-composer-shortcut="composer.branch"
           disabled={busy || !info?.isRepo}
           onClick={() => setOpen(open === "refs" ? undefined : "refs")}
         >

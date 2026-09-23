@@ -18,6 +18,8 @@ export interface NewThreadDraft {
   sessionId?: string;
   /** Explicit composer choice for this thread; never applied to the previously active runtime. */
   model?: UiModel;
+  /** The interaction mode the thread starts in; `default` when absent. */
+  mode?: string;
   /** Text-only recovery state; pending attachments remain memory-only. */
   draft?: string;
   /** What extensions keep beside the text, as JSON, by extension id. */
@@ -139,6 +141,7 @@ export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | und
         && typeof value.model.name === "string"
         ? { model: { provider: value.model.provider, id: value.model.id, name: value.model.name } }
         : {}),
+      ...(typeof value.mode === "string" && value.mode ? { mode: value.mode } : {}),
       ...(typeof value.draft === "string" ? { draft: value.draft } : {}),
       ...(isStringRecord(value.extensions) ? { extensions: value.extensions } : {}),
     };

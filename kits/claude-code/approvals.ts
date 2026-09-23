@@ -135,6 +135,14 @@ export function planPrompt(): BackendPrompt {
 
 export const PLAN_DECLINED = "The user did not approve the plan. Stay in plan mode and wait for their instructions.";
 
+/** What Claude hears when Tau's plan mode takes the plan instead of letting it start work. */
+export const PLAN_CAPTURED = "Tau showed your proposed plan to the user. Stop here: the user will ask for changes or for the implementation in a later turn.";
+
+/** A plan as the transcript keeps it: the block Plan Kit draws as a card. */
+export function proposedPlanText(plan: string): string {
+  return `<proposed_plan>\n${plan.trim()}\n</proposed_plan>`;
+}
+
 export function resumeDialogPrompt(): BackendPrompt {
   return {
     kind: "select",

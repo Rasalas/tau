@@ -61,6 +61,12 @@ export interface UseWorkbenchActionsOptions {
   openThread: WorkbenchActions["openThread"];
   setComposerHolds: Dispatch<SetStateAction<number>>;
   setComposerModel: (provider: string, id: string) => Promise<void> | void;
+  setComposerMode?: (mode: string) => Promise<boolean>;
+  /** Sends the oldest queued message of the thread on screen now; false without one. */
+  steerQueuedMessage?: () => boolean;
+  /** Runs before a stop, which hands the queue back to the composer. */
+  beforeAbort?: () => void;
+  submitPrompt?: (text: string) => Promise<{ accepted: boolean }>;
   /** Delivers the model-picker request to the mounted composer. */
   openModelPicker: () => void;
   preferences?: PreferencesStore;
@@ -96,6 +102,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     // Escape is bound to this; only a visibly running thread has anything to stop.
     abort: () => {
       if (options.isVisibleThreadRunning()) {
+        options.beforeAbort?.();
         void client?.abort(options.threadStore.getSnapshot().activeThreadId || undefined);
       }
     },
@@ -163,6 +170,9 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       return false;
     },
     setThinkingLevel: (level: string) => options.threadCommands.setThinking(level as any),
+    ...(options.setComposerMode ? { setMode: options.setComposerMode } : {}),
+    ...(options.steerQueuedMessage ? { steerQueuedMessage: options.steerQueuedMessage } : {}),
+    ...(options.submitPrompt ? { submitPrompt: async (text: string) => (await options.submitPrompt!(text)).accepted } : {}),
     openWorkspace,
     activeThread: () => {
       const pending = pendingNewThreadRef.current;
@@ -173,6 +183,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           workspaceId: snapshot?.workspaceId,
           model: snapshot?.model,
           ...(snapshot?.backendKind ? { backendKind: snapshot.backendKind } : {}),
+          mode: snapshot?.mode ?? "default",
+          modes: snapshot?.modes ?? [],
           draftPending: options.newThreadDeliveryPending,
         };
       }
@@ -185,6 +197,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         workspaceId: pending.workspaceId ?? snapshot?.workspaceId,
         ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
         backendKind,
+        mode: pending.mode ?? "default",
+        modes: snapshot?.runtimeBackends?.find((backend) => backend.kind === backendKind)?.modes ?? [],
         draftPending: options.newThreadDeliveryPending,
       };
     },

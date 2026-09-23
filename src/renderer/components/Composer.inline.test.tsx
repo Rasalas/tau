@@ -84,7 +84,6 @@ function renderWith(contribution: ComposerInlineContribution, onSubmit = vi.fn<S
           onAbort={() => {}}
           onCancelQueued={() => {}}
           onSteerQueued={() => {}}
-          onReorderQueue={() => {}}
           onSetModel={() => {}}
           onSetThinking={() => {}}
           onCompactContext={() => {}}

@@ -41,7 +41,6 @@ describe("prompt controls in the composer", () => {
           onAbort={() => {}}
           onCancelQueued={() => {}}
           onSteerQueued={() => {}}
-          onReorderQueue={() => {}}
           onSetModel={() => {}}
           onSetThinking={() => {}}
           onAnswerPrompt={onAnswerPrompt}
@@ -94,7 +93,6 @@ describe("prompt controls in the composer", () => {
             onAbort={() => {}}
             onCancelQueued={() => {}}
             onSteerQueued={() => {}}
-            onReorderQueue={() => {}}
             onSetModel={() => {}}
             onSetThinking={() => {}}
             onCompactContext={() => {}}

@@ -132,4 +132,16 @@ export class NewThreadController {
     writeNewThreadDraft(this.storage, next);
     this.set(next);
   };
+
+  /** A draft keeps the mode its thread starts in; a thread that exists is told at once. */
+  setMode = async (mode: string, setThreadMode: (mode: string) => Promise<unknown>): Promise<void> => {
+    const pending = this.pending;
+    if (!pending || pending.sessionId) {
+      await setThreadMode(mode);
+      return;
+    }
+    const next = { ...pending, mode };
+    writeNewThreadDraft(this.storage, next);
+    this.set(next);
+  };
 }

@@ -56,7 +56,6 @@ function renderComposer(model: UiModel, gates: ComposerGateContribution[], badge
         onAbort={() => {}}
         onCancelQueued={() => {}}
         onSteerQueued={() => {}}
-        onReorderQueue={() => {}}
         onSetModel={onSetModel}
         onSetThinking={() => {}}
         onCompactContext={() => {}}
