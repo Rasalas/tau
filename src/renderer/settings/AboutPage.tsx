@@ -86,7 +86,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
                       <small>{entry.license}</small>
                     </button>
                     {entry.repository ? (
-                      <button type="button" className="icon-button" aria-label={`Project source of ${entry.name}`} title="Project source" onClick={() => platform.openExternal(entry.repository!)}>
+                      <button type="button" className="about-license-source" aria-label={`Project source of ${entry.name}`} title="Project source" onClick={() => platform.openExternal(entry.repository!)}>
                         <ExternalLink size={12} />
                       </button>
                     ) : null}
