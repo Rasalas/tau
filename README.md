@@ -285,9 +285,20 @@ With `TAU_HOST_TLS=1` the page and the socket are served over HTTPS on the same 
 
 Open it. The code lives in the URL's fragment, so it reaches neither a proxy nor an
 access log, the page replaces the address before it renders anything, and the code can
-be redeemed once. Without a link, the client shows a field for the token itself — the
-line in `~/.tau/host-token` on the host machine. The browser keeps what it was given in
-`localStorage`; a token the host refuses closes the socket and brings the field back.
+be redeemed once. The browser gets a token of its own for it, never the host token
+(`docs/adr/0023-client-tokens-and-pairing.md`), and keeps it in `localStorage`. Without
+a link, the client shows a field where the host's owner can paste the host token — the
+line in `~/.tau/host-token` on the host machine. A token the host refuses, or one whose
+access was revoked, closes the socket and brings the field back with the reason.
+
+**Settings → Connections** in a Tau window manages who else may connect. It shows the
+addresses the host listens on and its certificate fingerprint, makes more pairing links
+(a label, 10 minutes to a day, single use; Copy link, and a QR code when the address is
+reachable from another device), lists the clients that paired — browser, OS, address,
+when each was last active — and revokes one, which closes its open connection at once.
+"Rotate…" replaces the host token and disconnects every other connection that used it
+(a browser paired before tokens of their own, say); paired clients keep theirs. A
+paired client cannot use the page: managing access takes the host token.
 
 The client is the same workbench: the same transcript, composer, thread list, Pi dialogs
 and Agents panel, reading the same stores over the same protocol. What differs is what it
