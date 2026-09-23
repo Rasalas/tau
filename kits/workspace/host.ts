@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -27,6 +27,7 @@ import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
 import { registerAppOpen } from "./app-open.js";
 import { worktreeSetupCommand } from "./agent-worktrees.js";
+import { createTurnStatsFile, turnStatOf } from "./turn-stats.js";
 import { initWorktreeSubmodules } from "./worktree-submodules.js";
 import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
@@ -531,8 +532,23 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       // Turn checkpoints: capture per runtime, restore, recovery and ref upkeep
       // all live in the kit; core only offers the lifecycle hooks.
+      // The rail's `+N −N` per thread outlives the checkpoint announcement in the kit's own state folder.
+      const statsPath = services.stateDir ? join(services.stateDir, "turn-stats.json") : undefined;
+      const turnStats = createTurnStatsFile({
+        read: async () => statsPath ? readFile(statsPath, "utf8").catch(() => undefined) : undefined,
+        write: async (text) => {
+          if (!statsPath) return;
+          await mkdir(dirname(statsPath), { recursive: true });
+          await writeFile(statsPath, text);
+        },
+        schedule: (run) => { setTimeout(run, 2_000).unref?.(); },
+      });
+      context.registerCommand("turn-stats", () => turnStats.all());
       const checkpoints = createWorkspaceKitLifecycle(services, {
-        emit: (event) => context.emit(CHECKPOINT_EVENT, event),
+        emit: (event) => {
+          if (event.type === "turn-checkpoint") void turnStats.record(event.sessionId, turnStatOf(event.checkpoint));
+          context.emit(CHECKPOINT_EVENT, event);
+        },
         git,
         branch: (project) => labels.get(project),
       });
@@ -552,6 +568,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         services.registerTurnObserver(checkpoints.turns),
         services.pinTranscriptEntries((thread) => checkpoints.pinnedEntries(thread)),
         services.registerRuntimeExtension("tau-turn-checkpoints", checkpoints.runtimeExtension),
+        () => turnStats.flush(),
       ];
       const checkpointRef = (input: unknown) => ({ sessionId: requiredString(input, "sessionId"), checkpointId: requiredString(input, "checkpointId") });
       context.registerCommand("checkpoints", (input) => checkpoints.checkpoints(requiredString(input, "sessionId")));

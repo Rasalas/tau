@@ -41,7 +41,7 @@ describe("checkpoint rows", () => {
       canRestoreCheckpoint: vi.fn(async (_sessionId: string, _id: string) => true),
     };
     const { registry } = createKitHarness();
-    registry.activate({ id: EXTENSION_ID, name: "Checkpoints", activate: (context) => registerCheckpoints(context, { host } as unknown as WorkspaceStore) });
+    registry.activate({ id: EXTENSION_ID, name: "Checkpoints", activate: (context) => registerCheckpoints(context, { host, recordTurnStat: vi.fn() } as unknown as WorkspaceStore) });
     const { Component } = registry.getRegions("transcript-header")[0]!;
     const snapshot = { sessionId: "s1", isStreaming: false } as HostSnapshot;
     const actions = new Proxy({}, { get: () => () => undefined }) as WorkbenchActions;

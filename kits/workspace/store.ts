@@ -40,6 +40,7 @@ import {
   type WorktreeNamer,
   type WorktreeSubmodules,
 } from "./protocol.js";
+import { recordTurnStat } from "./turn-stats.js";
 
 export const WORKSPACE_KIT_ID = WORKSPACE_HOST_EXTENSION_ID;
 export const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
@@ -648,10 +649,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   /** A turn ended: one that changed files replaces the thread's stat, one that changed none leaves it. */
   recordTurnStat(sessionId: string, stat: TurnStat): void {
-    if (stat.files === 0) return;
-    const previous = this.state.turnStats[sessionId];
-    if (previous && previous.at > stat.at) return;
-    this.update({ turnStats: { ...this.state.turnStats, [sessionId]: stat } });
+    const turnStats = recordTurnStat(this.state.turnStats, sessionId, stat);
+    if (turnStats[sessionId] === stat) this.update({ turnStats });
   }
 
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {

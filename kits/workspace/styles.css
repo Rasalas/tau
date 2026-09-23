@@ -156,6 +156,21 @@
 .rail-row.dragging { opacity: .45; }
 .rail-row.drop-before { box-shadow: inset 0 2px 0 var(--acid); }
 .rail-row.drop-after { box-shadow: inset 0 -2px 0 var(--acid); }
+/* A picked row (mod-click, shift-click), files held over a row, and the keyboard's row. */
+.rail-row.selected > .thread-row { border-color: var(--acid-line); background: var(--acid-chip); }
+.rail-row.file-drop > .thread-row { border-color: var(--acid); box-shadow: inset 0 0 0 1px var(--acid); }
+.session-list:focus-visible { outline: none; }
+.session-list:focus-visible .rail-row[data-cursor] > .thread-row { outline: 2px solid var(--focus); outline-offset: -2px; }
+.rail-selection-bar {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 0 8px 6px; padding: 6px 10px; border-radius: var(--radius-sm);
+  background: var(--acid-chip); color: var(--acid-text); font: 500 12px var(--sans);
+}
+.rail-selection-bar > button { border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+/* The last turn's `+N −N`, T3 Code's mono counts; its own class, not the diff view's. */
+.thread-diff-stat { flex: none; font: 11px var(--mono); white-space: nowrap; }
+.thread-diff-stat > b { font-weight: 400; color: var(--diff-add-edge); }
+.thread-diff-stat > i { font-style: normal; color: var(--diff-del-edge); }
 /* A row action's list (the snooze clock's), T3 Code's 256 px popover with 28 px rows. */
 .popover.rail-row-popover { width: 256px; padding: 4px; }
 .rail-row-popover > [role="menu"] { display: flex; flex-direction: column; outline: none; }
@@ -521,3 +536,44 @@
 }
 .workspace-storage-confirm > span { flex: 1; }
 .workspace-storage-confirm .danger { color: var(--danger); }
+
+/* Project settings: the project and its icon (T3 Code's picker). */
+.project-settings-dialog {
+  width: 440px; max-width: calc(100vw - 48px); max-height: calc(100vh - 96px);
+  display: flex; flex-direction: column; gap: 12px; padding: 18px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-lg);
+  background: var(--overlay); box-shadow: var(--elevation-3); color: var(--ink);
+}
+.project-settings-dialog > h2 { margin: 0; font: 600 16px var(--sans); }
+.project-settings-identity { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.project-settings-identity > strong { font: 600 13px var(--sans); }
+.project-settings-identity > span { color: var(--muted); font: 11px var(--mono); }
+.project-settings-dialog .segmented { max-width: none; }
+.project-icon-body { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; }
+.project-icon-body input:not([type="file"]) {
+  padding: 7px 10px; border: 1px solid var(--line-field); border-radius: var(--radius-sm);
+  background: var(--field); color: var(--ink); font: 13px var(--sans);
+}
+.project-icon-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.project-icon-preview { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--raised); }
+.project-icon-hues { display: flex; gap: 4px; }
+.project-icon-hues > button { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 50%; background: transparent; cursor: pointer; }
+.project-icon-hues > button[aria-pressed="true"] { border-color: var(--ink-3); }
+.project-icon-hues i { width: 16px; height: 16px; border-radius: 50%; }
+.project-icon-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; max-height: 208px; overflow: auto; }
+.project-icon-grid > button {
+  aspect-ratio: 1; display: grid; place-items: center; border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink-3); font-size: 18px; cursor: pointer;
+}
+.project-icon-grid > button:hover { background: var(--hover); }
+.project-icon-grid > button[aria-pressed="true"] { border-color: var(--line-field); background: var(--raised); color: var(--ink); }
+.project-icon-grid > p { grid-column: 1 / -1; margin: 24px 0; text-align: center; color: var(--muted); font-size: 12px; }
+.project-icon-letters { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 120px; font-size: 12px; }
+.project-icon-letters > small, .project-icon-note { color: var(--muted); font-size: 12px; }
+.project-icon-note { display: flex; align-items: center; gap: 8px; margin: 0; }
+.project-icon-note > img { width: 24px; height: 24px; }
+.project-icon-file { padding: 7px 12px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); cursor: pointer; font: 12.5px var(--sans); }
+.project-settings-dialog footer { display: flex; justify-content: flex-end; gap: 8px; }
+.project-settings-dialog footer > button { padding: 7px 14px; border-radius: var(--radius-sm); font: 500 12.5px var(--sans); cursor: pointer; }
+.project-settings-dialog footer > button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }
+.project-settings-dialog footer > button.primary:disabled { opacity: .45; cursor: default; }

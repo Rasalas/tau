@@ -21,6 +21,7 @@ import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, Workspac
 import { ChangesPanel, FilesPanel } from "./panels.js";
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
+import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { WorkspaceTitleActions } from "./title.js";
 import { createStoragePage } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
@@ -131,6 +132,7 @@ export const workspaceExtension: DesktopExtension = {
     // workspace contribution. Removing Workspace Kit therefore removes both
     // the card and its diff surface without App knowing their implementation.
     registerCheckpoints(context, store);
+    void store.loadTurnStats();
     const storageCall = <K extends keyof WorktreeStorageHostCommands>(command: K, input: WorktreeStorageHostCommands[K]["input"]) =>
       context.host.invoke(command, input) as Promise<WorktreeStorageHostCommands[K]["output"]>;
     context.registerSettingsPage({
@@ -192,7 +194,7 @@ export const workspaceExtension: DesktopExtension = {
         values: [{ value: "current", label: "Current checkout" }, { value: "worktree", label: "A new worktree" }],
         defaultValue: "current",
       },
-      { id: "group-by-project", kind: "toggle", label: "Group threads by project instead of recency", defaultValue: false },
+      ...RAIL_ORDER_OPTIONS,
       { id: "show-settled", kind: "toggle", label: "Show settled shelf", defaultValue: true },
       { id: "compact-rows", kind: "toggle", label: "Compact rows in the thread rail", defaultValue: false },
       { id: "sources", kind: "chips", label: "Add-project sources", values: ["local folder", "git clone"] },

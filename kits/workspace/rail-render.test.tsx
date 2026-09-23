@@ -8,6 +8,7 @@ import { workspaceHostStub } from "../../src/renderer/test-support/workspace-hos
 import { setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
 import { WORKSPACE_STORE_SERVICE, type ThreadRailOrganizer, type WorkspaceStoreApi } from "./protocol.js";
+import type { WorkspaceStore } from "./store.js";
 
 // Every draw of a rail row goes through core's ThreadRow; counting it counts row renders.
 const rowRenders = vi.hoisted(() => ({ count: 0 }));
@@ -57,10 +58,14 @@ function organizer(): ThreadRailOrganizer & { bump(): void } {
 
 async function renderRail() {
   const rail = organizer();
+  let workspace: WorkspaceStore | undefined;
   const organizing: DesktopExtension = {
     id: "test.organizer",
     name: "Organizer",
-    activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => store.registerThreadRailOrganizer(rail)),
+    activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
+      workspace = store as WorkspaceStore;
+      return store.registerThreadRailOrganizer(rail);
+    }),
   };
   const sessions = shells(THREADS);
   const client = createFakeHostClient({
@@ -74,10 +79,10 @@ async function renderRail() {
     invokeHostExtension: workspaceHostStub(),
   });
   const started = performance.now();
-  renderApp(client, { extensions: [workspaceExtension, organizing] });
+  const { services } = renderApp(client, { extensions: [workspaceExtension, organizing] });
   await screen.findByText("Thread 99");
   const mountMs = performance.now() - started;
-  return { client, rail, mountMs };
+  return { client, rail, mountMs, preferences: services.preferences, workspace: workspace! };
 }
 
 const timed = (run: () => void) => {
@@ -87,16 +92,37 @@ const timed = (run: () => void) => {
   return { rows: rowRenders.count, ms: performance.now() - started };
 };
 
+const median = (values: number[]) => values.slice().sort((left, right) => left - right)[Math.floor(values.length / 2)]!;
+
 describe("rail render cost with a thousand threads", () => {
   it("redraws only the rows whose state changed", async () => {
     const { client, rail, mountMs } = await renderRail();
-    const running = timed(() => client.emit({ type: "agent-status", sessionId: "thread-30", running: true }));
-    const stopped = timed(() => client.emit({ type: "agent-status", sessionId: "thread-30", running: false }));
-    const organized = timed(() => rail.bump());
-    // Printed for docs/PERFORMANCE.md; the counts below are what the test holds.
-    console.info(`[rail-render] threads=${THREADS} mount=${mountMs.toFixed(0)}ms running=${running.rows} rows/${running.ms.toFixed(1)}ms stopped=${stopped.rows} rows/${stopped.ms.toFixed(1)}ms organizer=${organized.rows} rows/${organized.ms.toFixed(1)}ms`);
-    expect(running.rows).toBeLessThanOrEqual(2);
-    expect(stopped.rows).toBeLessThanOrEqual(2);
-    expect(organized.rows).toBe(0);
+    const runs = { running: [] as number[], stopped: [] as number[], organizer: [] as number[] };
+    const rows = { running: 0, stopped: 0, organizer: 0 };
+    for (let round = 0; round < 15; round += 1) {
+      const running = timed(() => client.emit({ type: "agent-status", sessionId: "thread-30", running: true }));
+      const stopped = timed(() => client.emit({ type: "agent-status", sessionId: "thread-30", running: false }));
+      const organized = timed(() => rail.bump());
+      runs.running.push(running.ms); runs.stopped.push(stopped.ms); runs.organizer.push(organized.ms);
+      rows.running = Math.max(rows.running, running.rows); rows.stopped = Math.max(rows.stopped, stopped.rows); rows.organizer = Math.max(rows.organizer, organized.rows);
+    }
+    // Printed for docs/PERFORMANCE.md (medians of 15); the row counts below are what the test holds.
+    console.info(`[rail-render] threads=${THREADS} mount=${mountMs.toFixed(0)}ms running=${rows.running} rows/${median(runs.running).toFixed(2)}ms stopped=${rows.stopped} rows/${median(runs.stopped).toFixed(2)}ms organizer=${rows.organizer} rows/${median(runs.organizer).toFixed(2)}ms`);
+    expect(rows.running).toBeLessThanOrEqual(2);
+    expect(rows.stopped).toBeLessThanOrEqual(2);
+    expect(rows.organizer).toBe(0);
+  });
+
+  it("leaves the rows alone when a setting, the selection or another thread's stat changes", async () => {
+    const { preferences, workspace } = await renderRail();
+    const setting = timed(() => preferences.setOption("tau.appearance", "some-toggle", true));
+    const row = screen.getByText("Thread 40").closest("[data-rail-thread]") as HTMLElement;
+    const selecting = timed(() => { row.querySelector<HTMLButtonElement>(".thread-main")!.dispatchEvent(new MouseEvent("click", { bubbles: true, metaKey: true })); });
+    const stat = timed(() => workspace.recordTurnStat("thread-50", { added: 3, removed: 1, files: 1, at: 1 }));
+    console.info(`[rail-render] setting=${setting.rows} rows/${setting.ms.toFixed(2)}ms select=${selecting.rows} rows/${selecting.ms.toFixed(2)}ms stat=${stat.rows} rows/${stat.ms.toFixed(2)}ms`);
+    expect(row.classList.contains("selected")).toBe(true);
+    expect(setting.rows).toBe(0);
+    expect(selecting.rows).toBe(0);
+    expect(stat.rows).toBe(1);
   });
 });

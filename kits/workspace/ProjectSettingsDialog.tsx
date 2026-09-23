@@ -61,6 +61,7 @@ export function ProjectSettingsDialog({ project, current, automatic, onSave, onC
   const [image, setImage] = useState(current?.kind === "image" ? current.image : undefined);
   const [query, setQuery] = useState("");
   const preview = useRef<HTMLSpanElement>(null);
+  const file = useRef<HTMLInputElement>(null);
   const shown = useMemo(() => filterIconNames(query), [query]);
   const monogram = monogramText(letters);
   const Icon = (icons as Record<string, ComponentType<LucideProps>>)[name];
@@ -149,17 +150,17 @@ export function ProjectSettingsDialog({ project, current, automatic, onSave, onC
         ) : (
           <div className="project-icon-row">
             {image ? <img className="project-icon-preview" src={image} alt="" /> : null}
-            <label className="project-icon-file">
-              <span>Choose an image…</span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) imageFileImage(file).then(setImage, (error: unknown) => onError(`Could not read ${file.name}: ${errorMessage(error)}`));
-                }}
-              />
-            </label>
+            <button type="button" className="project-icon-file" onClick={() => file.current?.click()}>{image ? "Choose another image…" : "Choose an image…"}</button>
+            <input
+              ref={file}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(event) => {
+                const picked = event.target.files?.[0];
+                if (picked) imageFileImage(picked).then(setImage, (error: unknown) => onError(`Could not read ${picked.name}: ${errorMessage(error)}`));
+              }}
+            />
           </div>
         )}
       </div>

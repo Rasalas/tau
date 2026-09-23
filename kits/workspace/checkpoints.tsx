@@ -13,6 +13,7 @@ import {
   type WorkbenchActions,
 } from "tau";
 import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
+import { turnStatOf } from "./turn-stats.js";
 import {
   CHECKPOINT_EVENT,
   WORKSPACE_CHECKPOINT_REVIEW_OVERLAY,
@@ -292,6 +293,7 @@ export function registerCheckpoints(plugin: DesktopExtensionContext, workspaceSt
     // Only the card is drawn from the announcement: the capture that emits it
     // still holds the turn, so nothing about restoring it is answerable yet.
     if (event?.type === "turn-checkpoint") {
+      workspaceStore.recordTurnStat(event.sessionId, turnStatOf(event.checkpoint));
       // The card drawn from this announcement is the turn's summary. The live
       // dock already hid itself when the turn settled and must stay hidden, so
       // the same changes are never drawn twice.
