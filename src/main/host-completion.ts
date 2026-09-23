@@ -5,6 +5,7 @@ import { modelLogin } from "./model-login.js";
 import type { PiModelData } from "./model-price-book.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
 import type { CompletionRequest } from "./runtime-types.js";
+import { reachableCompletionModels, type ReportedModels } from "./small-completion-model.js";
 
 /**
  * One short answer for an extension's small job — a thread title, a branch
@@ -20,6 +21,8 @@ export interface HostCompletionOptions {
   /** The model runtime to complete on; the user's Pi configuration otherwise. */
   createRuntime?(agentDir: string): Promise<ModelRuntime>;
   settings?(cwd: string, agentDir: string): { getDefaultProvider(): string | undefined; getDefaultModel(): string | undefined };
+  /** What other runtimes' logins report they reach; a subscription offer they leave out is not offered. */
+  reports?(): Promise<readonly ReportedModels[]>;
 }
 
 export class HostCompletions {
@@ -30,12 +33,13 @@ export class HostCompletions {
   /** What `complete` can be asked for: the user's own catalog, whichever runtime owns the visible thread. */
   async models(): Promise<UiModel[]> {
     const runtime = await this.runtime();
-    return (await runtime.getAvailable()).map((model) => ({
+    const offers = (await runtime.getAvailable()).map((model) => ({
       provider: model.provider,
       id: model.id,
       name: model.name ?? model.id,
       ...(modelLogin(runtime, model.provider) ? { login: "subscription" as const } : {}),
     }));
+    return reachableCompletionModels(offers, await this.options.reports?.().catch(() => []) ?? []);
   }
 
   /**

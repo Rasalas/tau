@@ -710,7 +710,10 @@ export interface HostExtensionServices {
    * thread; without a model it uses the default from `~/.pi/agent`.
    */
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
-  /** The models `complete` can be asked for: the user's Pi catalog, those with a key or a login. Absent before API 1.11.0. */
+  /**
+   * The models `complete` can be asked for: the user's Pi catalog, those with a key or a login, less a
+   * subscription's models its vendor's own runtime does not report (API 1.12.0). Absent before API 1.11.0.
+   */
   completionModels?(): Promise<UiModel[]>;
   /**
    * Tallies priced the way core prices a thread: the user's own prices first,

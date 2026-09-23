@@ -9,6 +9,7 @@ function makeCompletions(options: {
   };
   defaults?: { provider?: string; model?: string };
   onCreate?: () => void;
+  reports?: ConstructorParameters<typeof HostCompletions>[0]["reports"];
 }) {
   const completions = new HostCompletions({
     agentDir: "/agent",
@@ -18,6 +19,7 @@ function makeCompletions(options: {
       getDefaultProvider: () => options.defaults?.provider,
       getDefaultModel: () => options.defaults?.model,
     }),
+    ...(options.reports ? { reports: options.reports } : {}),
   });
   return completions;
 }
@@ -46,7 +48,28 @@ describe("HostCompletions", () => {
     ]);
   });
 
-  it("completes with the named model and returns the trimmed text", async () => {
+  it("offers a subscription's model only where the vendor's own login names it", async () => {
+    const runtimeWithLogins = {
+      ...runtime(),
+      getAvailable: async () => [
+        { provider: "openai-codex", id: "gpt-5.4-mini", name: "GPT-5.4 mini" },
+        { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+        { provider: "openai", id: "gpt-5.4-mini", name: "GPT-5.4 mini" },
+      ],
+      isUsingSubscription: (provider: string) => provider === "openai-codex",
+    };
+    const reports = vi.fn(async () => [{ models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6-Luna", billing: "subscription" as const }] }]);
+    const completions = makeCompletions({ runtime: runtimeWithLogins as never, reports });
+    await expect(completions.models()).resolves.toEqual([
+      { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", login: "subscription" },
+      { provider: "openai", id: "gpt-5.4-mini", name: "GPT-5.4 mini" },
+    ]);
+    // A report that cannot be read leaves Pi's list as it is.
+    reports.mockRejectedValueOnce(new Error("no catalogs"));
+    await expect(completions.models()).resolves.toHaveLength(3);
+  });
+
+    it("completes with the named model and returns the trimmed text", async () => {
     const completeSimple = answer("  A title  ");
     const completions = makeCompletions({ runtime: runtime(completeSimple) });
     await expect(completions.complete({ system: "s", prompt: "p", maxTokens: 12 }, { provider: "openai-codex", id: "gpt-5.6-luna" })).resolves.toBe("A title");
