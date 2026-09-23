@@ -803,9 +803,10 @@ shapes their props speak — `UiWorkspaceChanges`, `UiChangedFile`, `UiFileDiff`
 `DiffLineSlot`, `DiffLineContext` — are exported as types beside them.
 
 Two smaller pieces come with them (new in API 1.10.0). `DiffView` is one
-file's diff — `{ diff, mode, path?, lines?, onLoadMore?, onExpandContext? }`,
+file's diff — `{ diff, mode, path?, lines?, onLoadMore?, onExpandContext?, wrap? }`,
 `diff` a `UiFileDiff` — with its own scroll element and the same `lines` seam
-as `ReviewMode`; it loads from the chunk review mode uses and shows "Loading
+as `ReviewMode`; `wrap: false` (new in API 1.11.0) keeps each line on one row
+and scrolls the diff sideways; it loads from the chunk review mode uses and shows "Loading
 diff…" until `diff` is there. `Markdown` is the transcript's renderer (GFM,
 highlighted code, links that open outside), for text a host wrote in
 Markdown. Review Kit's pull-request view draws a request's files and its
@@ -820,13 +821,17 @@ them. What a caller may add, all optional:
 | `layout`, `onLayoutChange` | Split or unified. Given a handler, the caller owns the choice and the toolbar toggle asks it; otherwise the toggle keeps its own. A window too narrow for split draws unified either way. |
 | `ignoreWhitespace`, `onIgnoreWhitespaceChange` | The flag goes to `loadDiff` as `DiffLoadOptions.ignoreWhitespace`; the toolbar offers the toggle only with a handler. Workspace Kit answers it with `git diff --ignore-all-space` and says "Only whitespace changed." for a file with nothing else. |
 | `filesStartCollapsed` | Every file opens folded to its header. Each header folds its file, the toolbar folds or unfolds all, and a file opened from the tree unfolds. |
+| `wordWrap`, `onWordWrapChange` (new in API 1.11.0) | Long lines wrap unless `wordWrap` is `false`; unwrapped, every row is as wide as the longest line and the stream scrolls sideways. The toolbar offers the toggle only with a handler. |
 | `toolbar`, `aside` | A node in the toolbar, before core's own controls, and a panel beside the diffs. |
 
 Review Kit fills all of them: line comments under the lines, their list in
 the aside and a "Send to composer" that hands them over as `text-excerpt` chips
 through the chip service above (source `Review comment on src/a.ts:12-14`, the
-comment and the lines it covers as a `diff` block), and three settings — split view, hidden whitespace, files that start
-collapsed — which the toolbar toggles write back.
+comment and the lines it covers as a `diff` block), and four settings — split view, hidden whitespace, files that start
+collapsed, line wrapping — which the toolbar toggles write back. Its colour
+setting puts `data-diff-colors="blue-orange"` on `<html>`, and its stylesheet
+points the `--diff-add-*` and `--diff-del-*` tokens at the blue and orange set
+below.
 
 It also exports the renderer's shared state and presentation:
 
@@ -1977,6 +1982,10 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 | `--diff-del-mark` | the changed run inside a removed line | `#f2b4a7` | `#8b433b` |
 | `--diff-del-mark-ink` | the run's text | `#66200f` | `#ffd1c8` |
 | `--diff-del-mark-line` | the run's edge | `#c8695c` | `#b95b50` |
+| `--diff-add-edge` | an addition as a bar, a sign or a count | `#1c7440` | `#7ade9f` |
+| `--diff-del-edge` | a removal as a bar, a sign or a count | `#b03a28` | `#f07a6a` |
+| `--diff-blue-bg`, `--diff-blue-ink`, `--diff-blue-mark`, `--diff-blue-mark-ink`, `--diff-blue-mark-line`, `--diff-blue-edge` | the same roles for an addition in the blue and orange scheme | `#e4eefc` … `#1f5cc0` | `#16223a` … `#6ea8ff` |
+| `--diff-orange-bg`, `--diff-orange-ink`, `--diff-orange-mark`, `--diff-orange-mark-ink`, `--diff-orange-mark-line`, `--diff-orange-edge` | the same roles for a removal in that scheme | `#fdecdc` … `#a54d0c` | `#2e1d12` … `#f59a4a` |
 | `--syntax-fn` | highlight.js function and class names | `#5c6b13` | `#d9e88f` |
 
 **Project**
