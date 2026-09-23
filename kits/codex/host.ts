@@ -15,7 +15,8 @@ import {
   type RuntimeToolVersion,
 } from "tau/host-extension";
 import { CodexAppServer, type CodexAccount, type CodexModel } from "./app-server.js";
-import { CODEX_BACKEND_KIND, CODEX_HOST_EXTENSION_ID, CODEX_NPM_PACKAGE, MIN_CODEX_VERSION, USAGE_KIT_ID, type CodexStatusReport } from "./protocol.js";
+import { codexSessionDirs, importCodexSessions, scanCodexSessions } from "./history-import.js";
+import { CODEX_BACKEND_KIND, CODEX_HOST_EXTENSION_ID, CODEX_NPM_PACKAGE, MIN_CODEX_VERSION, ONBOARDING_KIT_ID, USAGE_KIT_ID, type CodexStatusReport } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CommandOverride } from "./command-override.js";
 import { CodexSessionStore, type CodexStoredModel } from "./session-store.js";
@@ -244,6 +245,15 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),
       }), { callers: [USAGE_KIT_ID] });
+      // Sessions the CLI ran on its own, for Onboarding to list and import as threads.
+      context.registerCommand("import-scan", async () => {
+        const held = await store.codexThreadIds();
+        return { source: CODEX_BACKEND_KIND, ...await scanCodexSessions(codexSessionDirs(env), (id) => held.has(id)) };
+      }, { long: true, callers: [ONBOARDING_KIT_ID] });
+      context.registerCommand("import-sessions", async (input) => {
+        const outcome = await importCodexSessions(codexSessionDirs(env), (input as { paths?: unknown } | undefined)?.paths, store);
+        return { ...outcome, ...(outcome.imported.length ? { update: await services.sessions.refreshIndex() } : {}) };
+      }, { long: true, callers: [ONBOARDING_KIT_ID] });
       return services.registerRuntimeBackend(provider);
     },
   };

@@ -44,6 +44,10 @@ Symlink whatever the test needs from the real dir (auth, settings, the `npm` ext
 
 `dev-instance` sets `CODEX_HOME=.tau-dev/codex-home`, which links only `auth.json` from `~/.codex`; every session and config file Codex writes stays there. Never start Codex against the real `~/.codex`. Pin the cheapest model in that shadow's own `config.toml` (`model = "gpt-5.6-luna"`, `model_reasoning_effort = "low"`) before a Codex thread's first prompt; `docs/agents/testing-the-app.md` has the recipe.
 
+### Session imports read fixtures only
+
+`dev-instance` also sets `TAU_IMPORT_ROOTS=.tau-dev/import-roots` (a caller's own value is kept): Onboarding's import then reads `<root>/<backend kind>/…` and never the user's own CLI homes. Write small synthetic sessions there to test it.
+
 ## Keep it alive across turns
 
 Treat the verification loop, not one assistant turn, as the instance's lifetime. Do not stop it because one pass finished — a follow-up turn may reuse it. Before starting another one, check whether a live instance already answers: `npm run cdp -- pid` succeeds only while one is running, and `.tau-dev/instance.json` (written by `dev-instance.mjs`) names its port and userData.

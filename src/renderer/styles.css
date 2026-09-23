@@ -98,8 +98,9 @@ button > svg { pointer-events: none; }
   z-index: 20;
 }
 .title-bar button, .title-bar .menu-anchor { -webkit-app-region: no-drag; }
- /* Room for the native macOS traffic lights, which are painted over this bar. */
-.window-controls-inset { width: 68px; flex: none; }
+/* Room for the native macOS traffic lights, which are painted over this bar and
+   ignore page zoom: the preload sets --page-zoom so the room stays in screen points. */
+.window-controls-inset { width: calc(76px / var(--page-zoom, 1)); flex: none; }
 .title-identity { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .title-identity > strong { font-weight: 700; font-size: 13px; }
 .title-identity > span { font: 11px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

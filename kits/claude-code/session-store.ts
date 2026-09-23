@@ -521,6 +521,45 @@ export class ClaudeRuntimeSessionStore {
     await this.persist();
   }
 
+  /** The CLI's session ids Tau already holds, whether started here or imported. */
+  async claudeSessionIds(): Promise<Set<string>> {
+    await this.load();
+    return new Set([...this.records.values()].map((record) => record.claudeSessionId));
+  }
+
+  /**
+   * Takes over sessions the CLI ran on its own, as threads that resume them.
+   * A session id Tau already holds is skipped, so importing twice adds nothing;
+   * the answer is the new thread id, or `undefined` for a skipped one.
+   */
+  async adopt(sessions: readonly { claudeSessionId: string; cwd: string; title: string; model?: string; messages: readonly ClaudeStoredMessage[]; updatedAt: number }[]): Promise<Array<string | undefined>> {
+    const held = await this.claudeSessionIds();
+    const ids = sessions.map((session) => {
+      if (held.has(session.claudeSessionId) || !UUID.test(session.claudeSessionId)) return undefined;
+      held.add(session.claudeSessionId);
+      const tauThreadId = randomUUID();
+      this.records.set(tauThreadId, {
+        backendKind: "claude-code",
+        tauThreadId,
+        claudeSessionId: session.claudeSessionId,
+        cwd: session.cwd,
+        started: true,
+        attempted: true,
+        attemptCount: 1,
+        createFallbackUsed: false,
+        lastAttemptOutcome: "started",
+        messages: session.messages.map(cloneMessage),
+        title: visibleStoredTitle(session.title).slice(0, MAX_TITLE_LENGTH),
+        titleSource: "derived",
+        ...(session.model ? { observedModel: session.model } : {}),
+        updatedAt: session.updatedAt,
+      });
+      return tauThreadId;
+    });
+    if (ids.some(Boolean)) await this.persist();
+    return ids;
+  }
+
   async setTitle(tauThreadId: string, cwd: string, title: string, source: ClaudeTitleSource): Promise<void> {
     await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);

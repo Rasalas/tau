@@ -162,6 +162,33 @@ ln -s /Applications/Tau.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs ~/.
 `npm run smoke:cli-app` (after `npm run build`) drives it against a headless
 host in temp folders.
 
+### First start
+
+A Tau without a single thread opens its welcome wizard (Onboarding,
+`kits/onboarding/`); `/welcome`, or "Set up Tau…" in the palette, opens it again
+later. Its three steps follow T3 Code's:
+
+1. **Agents** — Pi and how many models your Pi configuration signs in to, the
+   CLIs of the Agent SDK runtime and of Codex, and `gh` and `glab`: installed or
+   not, which version, signed in or not, with the vendor's install or sign-in
+   command to copy. The CLIs answer through their own kits, so a path set under
+   Settings → Providers counts.
+2. **Projects** — the folders those CLIs and Pi worked in, newest first, each
+   with the conversations it has and when it was last used. Git repositories
+   used in the last 30 days with three conversations or more are chosen for you;
+   "Add a folder…" opens the project sources.
+3. **Conversations** — the conversations those CLIs kept, grouped by folder,
+   imported as threads of the runtime that ran them: the title and the visible
+   text (the first prompt and the newest messages, 200 at most), no tool
+   activity and no attachments. A thread continues by resuming the CLI's own
+   session. Importing again skips what Tau already holds.
+
+Each CLI's history is read from its own home (its config directory, or
+`CODEX_HOME` for Codex), newest 500 sessions, files up to 16 MiB. Set
+`TAU_IMPORT_ROOTS` to one or more directories laid out as
+`<dir>/<backend kind>/…`, like the CLI's own home, and nothing else is read —
+the dev instance sets it to `.tau-dev/import-roots`.
+
 ### Reach the host over a socket
 
 The renderer talks to the host through one versioned protocol (`docs/adr/0010-host-protocol.md`); Electron IPC is one transport of it. Start a host that also listens on a socket with `TAU_HOST_LISTEN=127.0.0.1:7788 npm start`, and point a client at it by opening the workbench with `?host=ws://127.0.0.1:7788&token=<token>`, where the token is the line in `~/.tau/host-token` (created on the first listen, 0o600). A wrong token closes the connection. Encryption is TLS's job (`TAU_HOST_TLS=1`, below) or an SSH tunnel's.

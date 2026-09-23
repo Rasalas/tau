@@ -23,6 +23,7 @@ const RUNTIME_PROPERTIES = [
   "--prompt-font-size",
   "--code-font-family",
   "--code-font-scale",
+  "--page-zoom",
 ];
 
 /** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */

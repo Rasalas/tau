@@ -1,0 +1,16 @@
+{
+  "id": "tau.onboarding",
+  "name": "Onboarding",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.9.0"
+  },
+  "permissions": [
+    "process",
+    "sessions"
+  ],
+  "isolation": "worker",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}

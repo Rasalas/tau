@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage } from "tau/host-extension";
 
@@ -202,6 +203,40 @@ export class CodexSessionStore {
       if (safe) record.title = safe; else delete record.title;
       record.titleSource = source;
     });
+  }
+
+  /** Codex's thread ids Tau already holds, whether started here or imported. */
+  async codexThreadIds(): Promise<Set<string>> {
+    await this.load();
+    return new Set([...this.records.values()].flatMap((record) => record.codexThreadId ? [record.codexThreadId] : []));
+  }
+
+  /**
+   * Takes over sessions the CLI ran on its own, as threads that resume them.
+   * A Codex thread id Tau already holds is skipped, so importing twice adds
+   * nothing; the answer is the new thread id, or `undefined` for a skipped one.
+   */
+  async adopt(sessions: readonly { codexThreadId: string; cwd: string; title: string; model?: string; messages: readonly CodexStoredMessage[]; updatedAt: number }[]): Promise<Array<string | undefined>> {
+    const held = await this.codexThreadIds();
+    const ids = sessions.map((session) => {
+      if (held.has(session.codexThreadId)) return undefined;
+      held.add(session.codexThreadId);
+      const tauThreadId = randomUUID();
+      this.records.set(tauThreadId, {
+        backendKind: "codex",
+        tauThreadId,
+        codexThreadId: session.codexThreadId,
+        cwd: session.cwd,
+        messages: session.messages.map((message) => ({ ...message })),
+        title: session.title.trim().slice(0, MAX_TITLE_LENGTH),
+        titleSource: "derived",
+        ...(session.model ? { observedModel: session.model } : {}),
+        updatedAt: session.updatedAt,
+      });
+      return tauThreadId;
+    });
+    if (ids.some(Boolean)) await this.persist();
+    return ids;
   }
 
   /** Appends visible messages; a replayed client message id is ignored, a conflicting one refused. */
