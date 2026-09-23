@@ -711,10 +711,16 @@ export interface TauThreadsConfig {
   continueAfterRestart?: boolean;
 }
 
+/** How an installed Tau updates itself; read by the window's process on this machine. */
+export interface TauUpdatesConfig {
+  channel?: import("./app-version.js").UpdateChannel;
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
   extensions?: TauConfigExtensions;
   threads?: TauThreadsConfig;
+  updates?: TauUpdatesConfig;
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];

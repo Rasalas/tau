@@ -348,6 +348,12 @@ describe("decodeConfigPatch", () => {
       .toThrow("update-config: patch.threads.continueAfterRestart must be a boolean");
   });
 
+  it("takes the update channel, and only a known one", () => {
+    expect(decodeConfigPatch(CH, "patch", { updates: { channel: "nightly" } })).toEqual({ updates: { channel: "nightly" } });
+    expect(() => decodeConfigPatch(CH, "patch", { updates: { channel: "beta" } }))
+      .toThrow('update-config: patch.updates.channel must be "stable" or "nightly"');
+  });
+
   it("decodes the keys clear-config removes", () => {
     expect(decodeSettingKeys("clear-config", "keys", ["showCosts", "values.tau.x"])).toEqual(["showCosts", "values.tau.x"]);
     expect(() => decodeSettingKeys("clear-config", "keys", [])).toThrow("clear-config: keys must be a list of 1 to 100 setting keys");

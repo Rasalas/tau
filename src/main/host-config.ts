@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TauConfig } from "../shared/contracts.js";
+import { isUpdateChannel, type UpdateChannel } from "../shared/app-version.js";
 import { PI_OWNED_CONFIG_KEYS, isPiOwnedSetting, withoutPiOwned, withoutSetting, type ConfigLayers } from "../shared/config-layers.js";
 
 export interface HostConfigPaths {
@@ -285,7 +286,7 @@ export class HostConfigManager {
     const KNOWN_KEYS = new Set<keyof TauConfig>([
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
-      "temperature", "maxTokens", "vimMode", "hostBackground", "threads",
+      "temperature", "maxTokens", "vimMode", "hostBackground", "threads", "updates",
     ]);
     const result: Partial<TauConfig> = {};
     for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
@@ -319,6 +320,11 @@ export class HostConfigManager {
             result.threads = { continueAfterRestart: (val as { continueAfterRestart: boolean }).continueAfterRestart };
           }
           break;
+        case "updates":
+          if (val && typeof val === "object" && isUpdateChannel((val as { channel?: unknown }).channel)) {
+            result.updates = { channel: (val as { channel: UpdateChannel }).channel };
+          }
+          break;
       }
     }
     return result;
@@ -343,6 +349,9 @@ export class HostConfigManager {
     }
     if (base.threads || override.threads) {
       result.threads = { ...(base.threads ?? {}), ...(override.threads ?? {}) };
+    }
+    if (base.updates || override.updates) {
+      result.updates = { ...(base.updates ?? {}), ...(override.updates ?? {}) };
     }
     if (override.favouriteModels !== undefined || base.favouriteModels !== undefined) {
       result.favouriteModels = override.favouriteModels ?? base.favouriteModels;

@@ -14,6 +14,7 @@ import type {
 } from "../shared/contracts.js";
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import { isHostTranscriptCursor, type HostTranscriptCursor } from "../shared/transcript-cursor.js";
+import { isUpdateChannel } from "../shared/app-version.js";
 
 /**
  * Hand-written decoders for every renderer→host IPC argument, in the style of
@@ -307,6 +308,13 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
     const threads = record(channel, `${field}.threads`, item.threads);
     if (threads.continueAfterRestart !== undefined) {
       result.threads = { continueAfterRestart: decodeBoolean(channel, `${field}.threads.continueAfterRestart`, threads.continueAfterRestart) };
+    }
+  }
+  if (item.updates !== undefined) {
+    const updates = record(channel, `${field}.updates`, item.updates);
+    if (updates.channel !== undefined) {
+      if (!isUpdateChannel(updates.channel)) fail(channel, `${field}.updates.channel`, 'must be "stable" or "nightly"');
+      result.updates = { channel: updates.channel };
     }
   }
   if (item.fontFamily !== undefined) result.fontFamily = decodeString(channel, `${field}.fontFamily`, item.fontFamily);
