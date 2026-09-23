@@ -35,6 +35,7 @@ import {
   type PreviewPickPoll,
   type PreviewPickedElement,
 } from "./page-overlay.js";
+import { EVIDENCE_CALLER, previewSecretFocus, type PreviewEvidenceFrame } from "./evidence-frame.js";
 import { pickCrop, readAnnotationResult, readPickedElement } from "./picks.js";
 import { probeHttp, scanPorts } from "./ports.js";
 import { PreviewProfileStore, profilePartition } from "./profiles.js";
@@ -692,6 +693,18 @@ class PreviewController implements PreviewToolController {
     return { path: recording.path, name: recording.name, size: recording.bytes, durationMs: Date.now() - recording.since, mimeType: recording.mimeType.split(";")[0] || "video/webm" };
   }
 
+  /** One frame for evidence: nothing without a page, nothing while a secret has the keyboard. */
+  async evidenceFrame(maxWidth: number): Promise<PreviewEvidenceFrame> {
+    const view = this.view;
+    const state = view?.state();
+    if (!view || !state?.url || state.url === "about:blank") return { skipped: "closed" };
+    // A page that cannot answer mid-navigation counts as one that might hold a secret.
+    if (await view.evaluate(pageCall(previewSecretFocus), true).catch(() => true) !== false) return { skipped: "secret" };
+    const shot = await view.capture(maxWidth);
+    if (shot.width < 1 || shot.height < 1) return { skipped: "empty" };
+    return { data: shot.base64, width: shot.width, height: shot.height, url: state.url, title: state.title, visible: previewVisible(this.bounds) };
+  }
+
   async profileList(): Promise<PreviewProfiles> {
     return this.profiles.read();
   }
@@ -881,6 +894,10 @@ export function createPreviewHostExtension(
       context.registerCommand("import-cookies", (input) => cookies.import(input));
       context.registerCommand("import-open-access", () => cookies.openAccess());
       context.registerCommand("cookie-import-settled", (input) => { cookies.settle(input); });
+      context.registerCommand("evidence-frame", (input) => {
+        const width = field(input, "maxWidth");
+        return controller.evidenceFrame(typeof width === "number" && width >= 160 && width <= 1_920 ? Math.round(width) : 960);
+      }, { callers: [EVIDENCE_CALLER] });
 
       const factory: RuntimeExtensionFactory = (pi, session) => {
         controller.noteWorkspace(session.cwd);

@@ -1,5 +1,6 @@
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type { PricedUsage } from "./usage-pricing.js";
+import type { HostExtensionSettings } from "./host-extensions.js";
 import Module, { createRequire } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";
 import {
@@ -128,6 +129,8 @@ const UNAVAILABLE = new Set([
   "loadDependency",
   // Tools hand the host live `execute` functions, and a credential is a thread's key.
   "mcp",
+  // A provider is a live object the host calls back into.
+  "turnAttachments",
   // A window half belongs to an in-process kit: an isolated one has no id the
   // window registry would trust and no way to hold the view it creates.
   "callClient",
@@ -191,6 +194,7 @@ const services: WorkerHostServices = {
   admitWorkspace: (path) => rpc("admitWorkspace", path) as Promise<WorkspaceRef>,
   projectName: (cwd) => rpc("projectName", cwd) as Promise<string>,
   priceUsage: (tallies) => rpc("priceUsage", tallies) as Promise<PricedUsage[]>,
+  settings: (cwd) => rpc("settings", cwd) as Promise<HostExtensionSettings>,
   rememberProjectName: async (cwd, name) => { await rpc("rememberProjectName", cwd, name); },
   pickDirectory: (options) => rpc("pickDirectory", options) as Promise<string | undefined>,
   runtimeOwner: () => rpc("runtimeOwner") as Promise<"tau" | "pi">,

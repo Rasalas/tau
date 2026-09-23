@@ -294,6 +294,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "workspaceRef": return services.workspaceRef(String(args[0]));
       case "admitWorkspace": return services.admitWorkspace(String(args[0]));
       case "projectName": return services.projectName(String(args[0]));
+      case "settings": return services.settings ? services.settings(typeof args[0] === "string" ? args[0] : undefined) : { options: {}, values: {} };
       case "priceUsage": return services.priceUsage ? services.priceUsage(Array.isArray(args[0]) ? args[0].flatMap((item) => readUsageTally(item) ?? []) : []) : [];
       case "rememberProjectName": return services.rememberProjectName(String(args[0]), String(args[1]));
       case "pickDirectory": return services.pickDirectory(args[0] as DirectoryPickerOptions | undefined);

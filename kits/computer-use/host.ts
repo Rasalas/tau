@@ -5,6 +5,7 @@ import {
   COMPUTER_USE_RUNTIME_EXTENSION,
   COMPUTER_USE_SCREEN_RUNTIME_EXTENSION,
   COMPUTER_USE_TOOL_PREFIX,
+  SCREEN_CALLERS,
   SCREEN_EVENT,
   type ScreenAccess,
 } from "./protocol.js";
@@ -166,11 +167,12 @@ export function createComputerUseHostExtension(): HostExtension {
         if (windowId === undefined) throw new Error("The agent of this thread drives no window yet.");
         return windowId;
       };
-      context.registerCommand("screen-state", (input) => feed.state(threadIdOf(input)) ?? null);
+      // Evidence Kit keeps the frames the feed lets go of after three.
+      context.registerCommand("screen-state", (input) => feed.state(threadIdOf(input)) ?? null, { callers: SCREEN_CALLERS });
       context.registerCommand("screen-frame", (input) => {
         const seq = (input as { seq?: unknown }).seq;
         return feed.frame(threadIdOf(input), typeof seq === "number" ? seq : undefined);
-      });
+      }, { callers: SCREEN_CALLERS });
       context.registerCommand("screen-front", async (input) => {
         const threadId = threadIdOf(input);
         const target = feed.target(threadId);

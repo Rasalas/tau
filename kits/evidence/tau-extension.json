@@ -1,0 +1,12 @@
+{
+  "id": "tau.evidence",
+  "name": "Evidence",
+  "version": "1.0.0",
+  "engines": { "api": "^1.11.0" },
+  "permissions": ["sessions", "runtime:extend"],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts",
+  "window": "./window.ts",
+  "styles": "./styles.css"
+}
