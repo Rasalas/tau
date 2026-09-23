@@ -131,6 +131,31 @@ export const TERMINAL_COMMANDS = {
   focusPrevious: "terminal.focusPrevious",
 } as const;
 
+/**
+ * The desktop service that runs a command in a new shell the user sees, for
+ * another kit's `useService`: the click that asked for it is the consent, the
+ * output stays in the panel. It answers once the shell ended, with the
+ * command's status; no `exitCode` when the shell was closed or lost first.
+ */
+export const TERMINAL_RUN_SERVICE = "tau.terminal/run";
+export interface TerminalRunRequest {
+  command: string;
+  /** The tab's name; the shell's by default. */
+  label?: string;
+}
+export interface TerminalRunResult {
+  id: string;
+  exitCode?: number;
+}
+/** What of the caller's workbench actions the service uses: the panel, and the thread whose shells it joins. */
+export interface TerminalRunActions {
+  openPanel(id: string): void;
+  activeThread(): { workspaceId?: string; sessionId?: string } | undefined;
+}
+export interface TerminalRunService {
+  run(request: TerminalRunRequest, actions?: TerminalRunActions): Promise<TerminalRunResult>;
+}
+
 // Mirrors of other kits' contracts. They are named here, not imported: a kit
 // never imports another kit, and each use degrades when the other kit is off.
 

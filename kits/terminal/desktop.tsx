@@ -5,7 +5,7 @@ import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage
 import { connectTerminalFont, connectTerminalHost, terminalKit, terminalServices, terminalStore } from "./store.js";
 import { TerminalSettingsPage } from "./settings.js";
 import { focusedPane, paneIds } from "./layout.js";
-import { closeTerminals, focusNextPane, openTerminal, toggleTerminal } from "./controller.js";
+import { closeTerminals, focusNextPane, openTerminal, runInTerminal, toggleTerminal } from "./controller.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   PREVIEW_BROWSER_SERVICE,
@@ -14,8 +14,10 @@ import {
   TERMINAL_PANEL,
   TERMINAL_PANEL_ORDER,
   TERMINAL_PLACEMENT_SETTING,
+  TERMINAL_RUN_SERVICE,
   TERMINAL_STAGE_TAB,
   terminalPlacement,
+  type TerminalRunService,
   type ComposerContextChips,
   type PreviewBrowserService,
   WORKSPACE_STORE_SERVICE,
@@ -80,6 +82,7 @@ export const terminalExtension: DesktopExtension = {
         return () => { if (terminalServices.preview === preview) delete terminalServices.preview; };
       }),
       plugin.useService<WorkspaceRowMarks>(WORKSPACE_STORE_SERVICE, (workspace) => workspace.registerThreadRowAccessory(TerminalRowStatus)),
+      plugin.provideService<TerminalRunService>(TERMINAL_RUN_SERVICE, { run: (request, actions) => runInTerminal(actions ?? terminalServices.actions, request) }),
     ];
     // The setting picks dock or drawer; changing it registers the panel again in its new place.
     const placementNow = () => terminalPlacement(plugin.preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));

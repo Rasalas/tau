@@ -1,8 +1,17 @@
 import { errorMessage, type WorkbenchActions } from "tau";
 import { addGroup, detachPane, focusedPane, focusNext, moveToStage, paneIds, replacePane, returnFromStage, splitAt, type SplitDirection } from "./layout.js";
 import { classifyTerminalLink } from "./links.js";
-import { terminalKit, terminalServices, terminalStore } from "./store.js";
-import { TERMINAL_PANEL, TERMINAL_STAGE_TAB, type UiTerminalSession } from "./protocol.js";
+import { onTerminalEvent, terminalKit, terminalServices, terminalStore } from "./store.js";
+import {
+  TERMINAL_EXITED_EVENT,
+  TERMINAL_PANEL,
+  TERMINAL_STAGE_TAB,
+  type TerminalExitedEvent,
+  type TerminalRunActions,
+  type TerminalRunRequest,
+  type TerminalRunResult,
+  type UiTerminalSession,
+} from "./protocol.js";
 
 /**
  * What the panel's buttons, the terminal's own chords and the palette's
@@ -15,7 +24,7 @@ function session(id: string | undefined): UiTerminalSession | undefined {
 }
 
 /** Where a new shell belongs: beside the one it splits, or with the thread on screen. */
-function placeFor(actions: WorkbenchActions | undefined, beside?: UiTerminalSession): { workspaceId?: string; sessionId?: string } {
+function placeFor(actions: TerminalRunActions | undefined, beside?: UiTerminalSession): { workspaceId?: string; sessionId?: string } {
   if (beside) return { ...(beside.workspaceId ? { workspaceId: beside.workspaceId } : {}), ...(beside.sessionId ? { sessionId: beside.sessionId } : {}) };
   const thread = actions?.activeThread();
   return { ...(thread?.workspaceId ? { workspaceId: thread.workspaceId } : {}), ...(thread?.sessionId ? { sessionId: thread.sessionId } : {}) };
@@ -41,6 +50,55 @@ export async function openTerminal(
   } finally {
     release();
   }
+}
+
+/** The status a shell ended with, or `undefined` once it left the list without one (closed, or the host went away). */
+export function shellEnded(id: string): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    let listed = false;
+    let done = false;
+    const stops: Array<() => void> = [];
+    const finish = (exitCode: number | undefined) => {
+      if (done) return;
+      done = true;
+      for (const stop of stops) stop();
+      resolve(exitCode);
+    };
+    const check = () => {
+      const shell = terminalStore.getSnapshot().sessions.find((entry) => entry.id === id);
+      if (shell) listed = true;
+      if (shell?.exitCode !== undefined) finish(shell.exitCode);
+      else if (!shell && listed) finish(undefined);
+    };
+    stops.push(onTerminalEvent(TERMINAL_EXITED_EVENT, (payload) => {
+      const event = payload as Partial<TerminalExitedEvent> | null;
+      if (event?.id === id && typeof event.exitCode === "number") finish(event.exitCode);
+    }), terminalStore.subscribe(check));
+    check();
+  });
+}
+
+/**
+ * Runs a command in a new shell of its own tab and shows the panel; answers
+ * once the shell ended. The shell leaves right after the command, so its
+ * status is the command's and the output stays to read.
+ */
+export async function runInTerminal(actions: TerminalRunActions | undefined, request: TerminalRunRequest): Promise<TerminalRunResult> {
+  const release = terminalStore.hold();
+  let opened: UiTerminalSession;
+  try {
+    opened = await terminalKit.open({ ...placeFor(actions), ...(request.label ? { label: request.label } : {}) });
+    terminalStore.updateLayout((layout) => addGroup(layout, opened.id));
+    terminalStore.requestFocus(opened.id);
+  } finally {
+    release();
+  }
+  actions?.openPanel(TERMINAL_PANEL);
+  const ended = shellEnded(opened.id);
+  // `exit` without a status leaves with the last command's in sh, bash, zsh and fish.
+  await terminalKit.input({ id: opened.id, data: `${request.command}; exit\r` });
+  const exitCode = await ended;
+  return exitCode === undefined ? { id: opened.id } : { id: opened.id, exitCode };
 }
 
 /** A fresh shell where an ended one was: same pane, or same stage tab. */
