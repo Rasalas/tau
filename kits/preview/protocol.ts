@@ -75,6 +75,58 @@ export interface PreviewRecording {
 
 export type PreviewNavigateInput = { url: string } | { action: "back" | "forward" | "reload" };
 
+/** A browser whose cookies can be copied into a profile. */
+export interface CookieImportSource {
+  id: string;
+  name: string;
+  engine: "chromium" | "firefox" | "safari";
+  /** The browser's own profiles that hold a cookie store. */
+  profiles: Array<{ id: string; name: string }>;
+  /** Chromium's cookies are encrypted with a key in the OS keychain. */
+  keychain?: string;
+}
+
+/** The cookies of one site in a source profile, counted without reading a value. */
+export interface CookieImportSite {
+  site: string;
+  cookies: number;
+}
+
+export interface CookieImportRequest {
+  source: string;
+  profile: string;
+}
+
+export interface CookieImportResult {
+  imported: number;
+  skipped: number;
+  /** Sites with cookies that could not be decrypted or written, a few at most. */
+  skippedSites: string[];
+  /** The Preview profile the cookies went into. */
+  profile: string;
+  /** The page in view was reloaded because it runs in that profile. */
+  reloaded: boolean;
+}
+
+/**
+ * Why an import stopped, as the first word of the error's message in
+ * brackets: errors cross two process boundaries as plain text.
+ */
+export type CookieImportFailure =
+  | "keychain-denied"
+  | "keychain-missing"
+  | "keychain-unavailable"
+  | "full-disk-access"
+  | "busy"
+  | "read-failed"
+  | "unknown-source"
+  | "unknown-profile"
+  | "no-window";
+
+export function cookieImportFailure(message: string): CookieImportFailure | undefined {
+  return /^\[([a-z-]+)\]/u.exec(message)?.[1] as CookieImportFailure | undefined;
+}
+
 export interface PreviewHostCommands {
   "open": { input: { url: string }; output: PreviewState };
   "navigate": { input: PreviewNavigateInput; output: PreviewState };
@@ -92,6 +144,14 @@ export interface PreviewHostCommands {
   "record-stop": { input: undefined; output: PreviewRecording | null };
   "profiles": { input: undefined; output: PreviewProfiles };
   "use-profile": { input: { name: string }; output: PreviewProfiles };
+  /** Browsers installed on the machine the window runs on; reads no cookie. */
+  "import-sources": { input: undefined; output: CookieImportSource[] };
+  /** Site names and counts of one source profile; decrypts nothing. */
+  "import-sites": { input: CookieImportRequest; output: CookieImportSite[] };
+  /** Copies the chosen sites' cookies into a Preview profile; may ask the keychain. */
+  "import-cookies": { input: CookieImportRequest & { sites: string[]; into: string }; output: CookieImportResult };
+  /** Opens the system setting that grants Full Disk Access (Safari's cookies). */
+  "import-open-access": { input: undefined; output: void };
 }
 
 export type PreviewHostClient = {
@@ -119,6 +179,10 @@ export function createPreviewHostClient(invoke: (command: string, input?: unknow
     "record-stop": call("record-stop"),
     profiles: call("profiles"),
     "use-profile": call("use-profile"),
+    "import-sources": call("import-sources"),
+    "import-sites": call("import-sites"),
+    "import-cookies": call("import-cookies"),
+    "import-open-access": call("import-open-access"),
   } as PreviewHostClient;
 }
 
@@ -142,6 +206,17 @@ export const PREVIEW_BROWSER_SERVICE = "tau.preview/browser";
 
 export interface PreviewBrowserService {
   open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
+}
+
+/**
+ * Opens the cookie import dialog for one site and profile, e.g. after the user
+ * signed in in their own browser. The user still picks the browser and clicks
+ * Import; that click is the consent. Answers `undefined` when closed without one.
+ */
+export const PREVIEW_COOKIE_IMPORT_SERVICE = "tau.preview/cookie-import";
+
+export interface PreviewCookieImportService {
+  importSite(request: { site: string; profile?: string }): Promise<CookieImportResult | undefined>;
 }
 
 /**

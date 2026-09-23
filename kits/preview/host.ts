@@ -33,6 +33,7 @@ import {
 import { pickCrop, readAnnotationResult, readPickedElement } from "./picks.js";
 import { probeHttp, scanPorts } from "./ports.js";
 import { PreviewProfileStore, profilePartition } from "./profiles.js";
+import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
 import {
   isPreviewRef,
   pageCall,
@@ -561,6 +562,14 @@ class PreviewController {
     return profiles;
   }
 
+  /** After a cookie import: the page in view sees the new cookies once it loads again. */
+  async reloadIn(profile: string): Promise<boolean> {
+    if ((await this.profiles.read()).active !== profile || !this.view?.state().url) return false;
+    this.view.navigate("reload");
+    this.publish();
+    return true;
+  }
+
   /** Local servers for the address bar; a scan a moment old is answered again. */
   ports(cwd: unknown): Promise<PreviewServer[]> {
     const root = typeof cwd === "string" && cwd ? cwd : this.workspaceRoot;
@@ -797,11 +806,22 @@ const electronSurface: PreviewSurfaceFactory = async (options) => {
 };
 
 /**
+ * Cookie import runs where the browser sessions are: in this process when the
+ * host is the window's own, else in the kit's window half.
+ */
+const windowCookieImport = (context: HostExtensionContext): CookieImportWindow => process.type === "browser"
+  ? { inProcess: true, call: async (command, input) => (await import("./view.js")).handleCookieImport(command.replace(/^cookie-/u, ""), input) }
+  : { inProcess: false, call: (command, input) => context.services.callClient(command, input) };
+
+/**
  * Preview Kit's host entry: one browser view over the Preview panel, its
  * commands for the panel, and the tools that let the agent look at what it
  * built. A host without a window answers every tool with one clear sentence.
  */
-export function createPreviewHostExtension(createSurface: PreviewSurfaceFactory = electronSurface): HostExtension {
+export function createPreviewHostExtension(
+  createSurface: PreviewSurfaceFactory = electronSurface,
+  cookieWindow: (context: HostExtensionContext) => CookieImportWindow = windowCookieImport,
+): HostExtension {
   return {
     id: PREVIEW_HOST_EXTENSION_ID,
     name: "Preview",
@@ -826,6 +846,17 @@ export function createPreviewHostExtension(createSurface: PreviewSurfaceFactory 
       context.registerCommand("record-stop", () => controller.recordStop());
       context.registerCommand("profiles", () => controller.profileList());
       context.registerCommand("use-profile", (input) => controller.useProfile(field(input, "name")));
+      // Only the panel's own dialog reaches these; no agent tool imports cookies.
+      const cookies = new CookieImportHost(cookieWindow(context), {
+        profiles: () => controller.profileList(),
+        partition: profilePartition,
+        reload: (profile) => controller.reloadIn(profile),
+      });
+      context.registerCommand("import-sources", () => cookies.sources());
+      context.registerCommand("import-sites", (input) => cookies.sites(input));
+      context.registerCommand("import-cookies", (input) => cookies.import(input));
+      context.registerCommand("import-open-access", () => cookies.openAccess());
+      context.registerCommand("cookie-import-settled", (input) => { cookies.settle(input); });
 
       const tools = previewTools(controller);
       const factory: RuntimeExtensionFactory = (pi, session) => {
@@ -838,7 +869,7 @@ export function createPreviewHostExtension(createSurface: PreviewSurfaceFactory 
         controller.noteWorkspace(thread.cwd);
         return tools;
       });
-      return () => { release(); releaseMcp(); controller.dispose(); };
+      return () => { release(); releaseMcp(); cookies.dispose(); controller.dispose(); };
     },
   };
 }
