@@ -58,6 +58,8 @@ export class HostConnection {
   private recovering = false;
   private queued: HostPush[] = [];
   private capabilities = new Set<string>();
+  private hostVersion: string | undefined;
+  private readonly helloListeners = new Set<() => void>();
   private jobMethods = new Set<string>();
   private readonly eventListeners = new Set<(event: HostEvent) => void>();
   private readonly stateListeners = new Set<(state: HostConnectionState) => void>();
@@ -85,6 +87,15 @@ export class HostConnection {
     this.refusal = reason;
     this.setState("refused");
     this.transport.close?.();
+  }
+
+  /** The Tau version the host reported in its last hello. */
+  getHostVersion = (): string | undefined => this.hostVersion;
+
+  /** Called after every hello the host answered, a reconnect's included. */
+  onHello(listener: () => void): () => void {
+    this.helloListeners.add(listener);
+    return () => this.helloListeners.delete(listener);
   }
 
   /** What the host said it can do in its hello; `local-files` is read by the workbench. */
@@ -216,6 +227,10 @@ export class HostConnection {
     }]));
     if (!reply) throw new HostRequestError("The host answered hello with a frame this client cannot read.", "invalid-hello");
     this.capabilities = new Set(reply.capabilities);
+    if (reply.hostVersion !== this.hostVersion) {
+      this.hostVersion = reply.hostVersion;
+      for (const listener of this.helloListeners) listener();
+    }
     if (lastSeq === undefined) {
       // A first connection starts from the bootstrap it is about to fetch.
       this.lastSeq = reply.nextSeq - 1;

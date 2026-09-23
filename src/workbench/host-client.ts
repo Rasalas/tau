@@ -135,6 +135,13 @@ export interface HostClient {
   /** Why the connection is `refused`, written for the user; undefined otherwise. */
   getConnectionRefusal(): string | undefined;
   onConnectionState(listener: (state: HostConnectionState) => void): () => void;
+  /**
+   * The Tau versions the hellos reported: the host's, and the window process's
+   * when that is a process apart from the host. Either is unknown until its
+   * hello was answered.
+   */
+  getVersions(): { host?: string; window?: string };
+  onVersions(listener: () => void): () => void;
 }
 
 /**
@@ -241,5 +248,11 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getConnectionState: connection.getState,
     getConnectionRefusal: connection.getRefusal,
     onConnectionState: (listener) => connection.onState(listener),
+    getVersions: () => ({ host: connection.getHostVersion(), window: local?.getHostVersion() }),
+    onVersions: (listener) => {
+      const offHost = connection.onHello(listener);
+      const offWindow = local?.onHello(listener);
+      return () => { offHost(); offWindow?.(); };
+    },
   };
 }

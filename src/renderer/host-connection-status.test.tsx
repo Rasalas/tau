@@ -51,4 +51,27 @@ describe("host connection status", () => {
     expect(alert.textContent).toContain("Expected SHA-256: AA\nPresented SHA-256: BB");
     expect(screen.queryByRole("status")).toBeNull();
   });
+
+  it("shows a version mismatch between the window's process and the host until dismissed", () => {
+    const listeners = new Set<() => void>();
+    let versions: { host?: string; window?: string } = { window: "0.4.1" };
+    const client = createFakeHostClient({
+      getVersions: () => versions,
+      onVersions: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    });
+    render(<HostClientProvider client={client}><HostConnectionStatus /></HostClientProvider>);
+    expect(screen.queryByRole("status")).toBeNull();
+
+    versions = { window: "0.4.1", host: "0.4.0" };
+    act(() => { for (const listener of listeners) listener(); });
+    const notice = screen.getByRole("status");
+    expect(notice.textContent).toContain("This window runs Tau 0.4.1, its host runs 0.4.0.");
+
+    act(() => { screen.getByRole("button", { name: "Dismiss" }).click(); });
+    expect(screen.queryByRole("status")).toBeNull();
+
+    versions = { window: "0.4.1", host: "0.3.0" };
+    act(() => { for (const listener of listeners) listener(); });
+    expect(screen.getByRole("status").textContent).toContain("its host runs 0.3.0");
+  });
 });
