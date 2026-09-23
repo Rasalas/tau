@@ -321,6 +321,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     runtimeOwner: () => deps.ownedByPi(deps.getActive()) ? "pi" : "tau",
     thread: (sessionId) => deps.hostThread(sessionId),
     complete: (request, model) => completions.complete(request, model),
+    completionModels: () => completions.models(),
     setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(deps.requireThread(sessionId), title, source); },
     attachedRuntime: (sessionId) => deps.ownedByPi(deps.threadFor(sessionId)) ? attached.hostRuntime : undefined,
     describeProjects: (facts) => projects.add(facts),

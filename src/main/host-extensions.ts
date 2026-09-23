@@ -10,6 +10,7 @@ import type {
   ThreadBackendKind,
   UiComposerCommand,
   UiMessage,
+  UiModel,
   UiThreadUsage,
   UiToolRun,
 } from "../shared/contracts.js";
@@ -570,6 +571,8 @@ export interface HostExtensionServices {
    * thread; without a model it uses the default from `~/.pi/agent`.
    */
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
+  /** The models `complete` can be asked for: the user's Pi catalog, those with a key or a login. Absent before API 1.11.0. */
+  completionModels?(): Promise<UiModel[]>;
   /** Renames a thread the way the title menu does, and publishes the change. */
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** The Pi terminal owning a thread while Tau is attached; `undefined` when Tau runs it. */
