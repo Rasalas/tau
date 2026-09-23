@@ -284,6 +284,7 @@ Initial local targets:
 - transcript DOM size remains bounded with 1,000 loaded turns
 - metadata IPC payload size remains constant as transcript length grows
 - a thread of 20,000 entries with every kit loaded opens in the host within 2,500 ms at p95, starts the host within 5,000 ms and reaches full-ready within 7,500 ms (`largeThread*` in `scripts/performance-budgets.json`, since 2026-09-23); in the window its newest turn is on screen within 2,500 ms of the click (median, `tauLargeThread` in `scripts/compare/budgets.json`)
+- loading an older page with the reader at the top moves the row they were reading by at most 2 px, in the large thread and in a two-page one, and shows "Loading…" for at most 1,000 ms (median, `tauLargeThread`, since 2026-09-23)
 - opening cached project navigation performs no filesystem or Git work
 - full-mode local thread switches stay below 150 ms at p95 after cache warm-up
 
@@ -790,7 +791,7 @@ The check fails when a p95 exceeds `largeThreadOpenP95Ms` (2,500 ms), `largeThre
 | bootstrap | 47,131 | 2,809 / 3,790 | 519 / 532 |
 | full-ready | 47,851 | 5,882 / 5,911 | 874 / 916 |
 
-**In the window.** `npm run benchmark:compare -- --large-thread [--seed] [--check]` runs Tau alone from a seeded profile of its own (`/tmp/tau-harness-large-thread`). Each run writes a fresh 20,000-entry Pi session into the profile's session store. Its prompts carry a tag of that run, so the renderer's persisted cache from an earlier run cannot show the newest turn. Each run has two launches: one where a short Pi thread is the workspace's newest and the harness clicks the large one in the rail, and one where the large thread is newest and active from the start. `--check` holds the medians to `tauLargeThread` in `scripts/compare/budgets.json`: 2,500 ms from the click to the newest turn, 1,000 ms for one older page, and 8,000 ms from spawn to the newest turn with the thread active. T3 Code cannot run this case, because both importers keep at most 200 messages. Five runs after one warm-up, load average 10:
+**In the window.** `npm run benchmark:compare -- --large-thread [--seed] [--check]` runs Tau alone from a seeded profile of its own (`/tmp/tau-harness-large-thread`, or `$COMPARE_TAU_ROOT-large-thread` when that is set). Each run writes a fresh 20,000-entry Pi session into the profile's session store. Its prompts carry a tag of that run, so the renderer's persisted cache from an earlier run cannot show the newest turn. Each run has two launches: one where a short Pi thread is the workspace's newest and the harness clicks the large one in the rail, and one where the large thread is newest and active from the start. `--check` holds the medians to `tauLargeThread` in `scripts/compare/budgets.json`: 2,500 ms from the click to the newest turn, 1,000 ms for one older page at the tail and at the top, 2 px of drift for an older page loaded at the top (see "Older pages without a jump" below), and 8,000 ms from spawn to the newest turn with the thread active. T3 Code cannot run this case, because both importers keep at most 200 messages. Five runs after one warm-up, load average 10:
 
 | metric (median / p95) | before | after |
 | --- | ---: | ---: |
@@ -801,6 +802,19 @@ The check fails when a p95 exceeds `largeThreadOpenP95Ms` (2,500 ms), `largeThre
 | open: KiB over the WebSocket | – | 141 |
 
 In the isolated instance before the change, one open from the rail took 25.1 s and two others did not finish within 120 s. At start-up the host reached `bootstrap.first-content` 14.4 s after spawn and `full-ready` after 36.5 s, and the window never showed the thread: it fell back to an empty new thread. After the change the same instance opens the thread in 0.54–0.57 s. With the thread active it shows the newest turn 6.2–7.3 s after spawn, as fast as a short thread does on that machine at that load. Twelve older pages loaded one after another to turn 4,750. A GPT-5.6 Luna turn at the end of the thread answered, and Pi compacted the thread afterwards.
+
+**Older pages without a jump.** With the reader at the top of the thread, "Load older turns" prepended a page of 20 turns whose rows the virtualizer placed at its 180 px estimate. The row the reader was on moved out of the rendered window. The history boundary looked for it in the DOM, did not find it, kept "Loading…" up for its 60-frame limit and left the view at the start of the new page. The same happened in a thread of two pages. Since 2026-09-23 `VirtualTranscript` notices a prepend itself (`usePrependAnchor`). In the commit that prepends, it mounts the rows the old viewport maps to and moves `scrollTop` by the height of the new rows. It keeps that row in place while the new rows get measured, until the reader or another writer scrolls. The boundary reports success as soon as the page is applied.
+
+The large-thread run measures it: after the load at the tail it wheels to the top three times and loads a page each time, then does the same in a 15-turn thread. A probe samples, every frame from the click until a second after "Loading…" went away, how far the row that led the viewport moved. A frame without that row counts as the viewport's height. `VirtualTranscript.test.tsx` covers the same case without a browser: 50 unmeasured rows prepended above a row 30 px above the viewport top. Three runs before the change (load ≈ 32) and five after (load ≈ 11), median / p95:
+
+| metric | before | after |
+| --- | ---: | ---: |
+| older page at the top: "Loading…" shown (ms) | 1,097 / 1,182 | 57 / 72 |
+| older page at the top: drift of the leading row (px) | 398 / 398 (row gone) | 0 / 0 |
+| older page at the top: frames without the leading row | 122 / 122 | 0 / 0 |
+| two-page thread, older page at the top: drift (px) | 448 / 448 | 0 / 0 |
+
+In the isolated instance, seven pages loaded one after another at the top of a 2,000-turn thread each moved the leading row by 0 px, with "Loading…" up for 23–36 ms; the older page of a 15-turn thread moved it by 0 px as well. What remains is older: scrolling up into rows the virtualizer has not measured yet still shifts the content by the error of the 180 px estimate (38 px and 133 px for the two rows of one turn in that thread), because the virtualizer does not compensate for rows above the viewport.
 
 ## T3 Code comparison
 

@@ -7,6 +7,9 @@
   "tauLargeThread": {
     "open.newestTurnMs": 2500,
     "open.olderPageMs": 1000,
+    "open.olderPageAtTopMs": 1000,
+    "open.olderPageDriftPx": 2,
+    "open.twoPageDriftPx": 2,
     "startup.newestTurnMs": 8000
   }
 }
