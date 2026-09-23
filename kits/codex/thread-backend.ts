@@ -26,7 +26,7 @@ import {
   type UiSkillDraft,
   type UiThreadUsage,
 } from "tau/host-extension";
-import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
+import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexLoginRequest, type CodexLoginStart, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
 import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
@@ -42,6 +42,9 @@ export interface CodexSessionLike {
   /** Where the CLI keeps its sessions and login, from the handshake. */
   readonly codexHome?: string;
   account?(): Promise<CodexAccount | undefined>;
+  loginStart?(request: CodexLoginRequest): Promise<CodexLoginStart>;
+  loginCancel?(loginId: string): Promise<void>;
+  logout?(): Promise<void>;
   models(): Promise<CodexModel[]>;
   startThread(params: { cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo>;
   resumeThread(params: { threadId: string; cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo>;
