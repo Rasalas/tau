@@ -34,10 +34,12 @@ const READY = {
 
 /**
  * Roots of their own, so a screen pass never shares a profile with a benchmark run.
- * `COMPARE_SCREENS_ROOT` (under /tmp) gives a parallel checkout its own pair.
+ * `COMPARE_SCREENS_ROOT` (under /tmp) gives a parallel checkout its own pair;
+ * `COMPARE_SCREENS_ROOT_TAG` does the same with a suffix on the default roots.
  */
 export function screenRoot(id) {
-  const prefix = process.env.COMPARE_SCREENS_ROOT ?? realTmp("compare-screens");
+  const tag = process.env.COMPARE_SCREENS_ROOT_TAG?.replace(/[^\w-]/gu, "");
+  const prefix = process.env.COMPARE_SCREENS_ROOT ?? realTmp(`compare-screens${tag ? `-${tag}` : ""}`);
   return assertOwnedRoot(`${prefix}-${id}`, APPS[id]);
 }
 
@@ -206,6 +208,11 @@ export function makeContext(app, session) {
     async scheme(value) {
       await session.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value }, { name: "prefers-reduced-motion", value: "no-preference" }] });
       await wait(250);
+    },
+    /** Narrows or restores the emulated window, for layouts that change with width. */
+    async viewport(width = VIEWPORT.width, height = VIEWPORT.height) {
+      await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: false });
+      await wait(400);
     },
     async screenshot(path) {
       const { data } = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
