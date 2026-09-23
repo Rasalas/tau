@@ -128,6 +128,25 @@ export function replaceEvidenceTokens(body: string, replace: (media: EvidenceMed
   return kept.join("\n").replace(/\n{3,}/gu, "\n\n").trim();
 }
 
+export type BodySegment = { kind: "text"; text: string } | { kind: "media"; media: EvidenceMedia };
+
+/** The description as text and the pictures between it, for a preview. */
+export function splitBody(body: string): BodySegment[] {
+  const segments: BodySegment[] = [];
+  let last = 0;
+  for (const match of body.matchAll(TOKEN)) {
+    const [threadId, source, id] = [decode(match[2]!), decode(match[3]!), decode(match[4]!)];
+    if (!threadId || !source || !id) continue;
+    const before = body.slice(last, match.index);
+    if (before.trim()) segments.push({ kind: "text", text: before });
+    segments.push({ kind: "media", media: { threadId, source, id, caption: match[1]!.trim() } });
+    last = match.index + match[0].length;
+  }
+  const rest = body.slice(last);
+  if (rest.trim()) segments.push({ kind: "text", text: rest });
+  return segments;
+}
+
 /** Adds pictures at the end under a heading of their own, or into it when it is there. */
 export function insertEvidence(body: string, media: readonly EvidenceMedia[], heading = SCREENSHOTS_HEADING): string {
   const present = new Set(findEvidenceTokens(body).map(evidenceKey));
