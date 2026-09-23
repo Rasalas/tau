@@ -912,6 +912,29 @@ The complete rail (D10: selection, grouping, file drops, hover details, diff sta
 The one real waste was the rows' subscription to the whole preferences snapshot for `showCosts`: every setting change redrew every row. Rows now select the one value they read (costs, the project's icon, the thread's stat), the rail memoizes the searched and sorted list and the organizer's sections on their inputs and looks a row's state up in sets instead of arrays, and selection, cursor and drop state live on the row's wrapper, not on the memoized row. Because the sections are memoized, Thread Rail's store now bumps its version when the next snooze runs out, which the rail used to catch only on its next unrelated render. The test holds the row counts: one row for a thread's run state, none for an organizer bump with the same sections, a setting, or a selection, one for a stat.
 
 
+### Chips in the composer's text
+
+Ticket E12 (2026-09-23) put the composer's chips (files, excerpts, pull requests, attachments, images) into the text. T3 Code does this with Tiptap. Tau does not: Tiptap 3.31.3 as its own lazy chunk, with the least a plain-text composer needs (`@tiptap/core`, Document, Paragraph, Text, UndoRedo and one inline node), bundled to 290.4 KB (89.5 KB gzip). That would have taken the desktop build's total JavaScript to 530,175 bytes of gzip, over its 500,000 budget. ProseMirror without Tiptap was 63.8 KB gzip and came to 504,458. The editor is still the textarea. A chip is a token in the draft's text, and a mirror behind the transparent glyphs draws the same characters as a chip (`ComposerInput.tsx`, `composer-chips.ts`).
+
+Desktop build, from `reports/build-report.json`:
+
+| | base `f7491dce` | E12 | budget |
+| --- | ---: | ---: | ---: |
+| initial JavaScript | 782,084 (242,539 gzip) | 793,483 (246,890 gzip) | 800,000 (275,000) |
+| initial CSS | 111,047 (20,798 gzip) | 113,152 (21,162 gzip) | 140,000 (30,000) |
+| total JavaScript | 1,440,525 (440,639 gzip) | 1,455,745 (446,445 gzip) | 1,900,000 (500,000) |
+
+The browser client went from 435,652 to 440,654 bytes of total JavaScript gzip. The chip popover is its own chunk (1.1 KB) and loads on the first click on a chip.
+
+Typing latency comes from two renderer scenarios in `benchmarks/renderer-fixtures.json`, committed before the change so both sides ran the same harness. `composer-typing` types 120 characters into an empty composer. `composer-typing-long` types them after a 20 KB draft with twelve chips; on the base side its chips sat in the old strip above the text. The time per key runs from the `input` event's dispatch through React's commit and the auto-height's layout, measured on the development machine under a load average of 13 to 28:
+
+| scenario | base median / p95 / max (ms) | E12 median / p95 / max (ms) |
+| --- | ---: | ---: |
+| `composer-typing` | 0.55 / 0.80 / 2.8 | 0.60 / 0.80 / 2.2 |
+| `composer-typing-long` | 2.4 / 3.3 / 6.1 | 3.4 / 5.0 / 12.0 |
+
+With no chip, mention or selected skill in the text there is no mirror, and typing costs what it did before. With chips, the mirror is one block per line, and a line re-renders only when what it draws changed. The first version drew the whole mirror as one block, and the long draft measured 3.3 / 5.6 / 9.9 ms. What remains is the second layout of the changed line and the token scan, which only runs when the text contains a chip mark or an `@`. Both scenarios stay well inside the renderer's 24 ms commit budget, and a long frame did not occur on either side.
+
 ## T3 Code comparison
 
 `scripts/compare/` runs Tau and T3 Code side by side on the same machine, with the same data and the same agent turn (tier A of the benchmark plan in `.scratch/t3-parity-2/gap-analysis.md` §3.4). No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer.
