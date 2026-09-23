@@ -6,9 +6,18 @@
  */
 export const KEYBINDINGS_HOST_EXTENSION_ID = "tau.keybindings";
 
-/** Pi chord spellings the user set in `~/.pi/agent/keybindings.json`, by Pi action id. */
+/**
+ * The chords the user set in `~/.pi/agent/keybindings.json`, by Pi action or
+ * Tau command id. An entry written as `{ "key": …, "when": … }` (Tau only; Pi
+ * skips it) carries its own `when` clause.
+ */
 export interface PiKeybindingsState {
-  bindings: Record<string, string[]>;
+  bindings: Record<string, Array<string | UserKeybinding>>;
+}
+
+export interface UserKeybinding {
+  key: string;
+  when?: string;
 }
 
 /** A shortcut a Pi extension registered for a thread's runtime. */

@@ -27,6 +27,22 @@ describe("Keybindings host extension", () => {
     await expect(readPiUserKeybindings(join(agentDir, "missing"))).resolves.toEqual({});
   });
 
+  it("reads entries with a when clause for Tau and keeps them from Pi", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "tau-keys-"));
+    await writeFile(join(agentDir, "keybindings.json"), JSON.stringify({
+      "terminal.split": { key: "mod+\\", when: "terminalFocus" },
+      "runtime.new-session": ["ctrl+n", { key: "mod+t" }],
+      "broken": [{ when: "x" }],
+    }));
+    const registry = await activateHostKit(createKeybindingsHostExtension(), { agentDir, thread: () => undefined });
+    await expect(registry.invoke(KEYBINDINGS_HOST_EXTENSION_ID, "pi-keybindings")).resolves.toEqual({ bindings: {
+      "terminal.split": [{ key: "mod+\\", when: "terminalFocus" }],
+      "runtime.new-session": ["ctrl+n", { key: "mod+t" }],
+    } });
+    // Pi reads strings only; an entry with an object in it is not Pi's.
+    await expect(readPiUserKeybindings(agentDir)).resolves.toEqual({});
+  });
+
   it("answers with no shortcuts while no thread is open", async () => {
     const registry = await activateHostKit(createKeybindingsHostExtension(), { thread: () => undefined });
     await expect(registry.invoke(KEYBINDINGS_HOST_EXTENSION_ID, "shortcuts")).resolves.toEqual({ shortcuts: [] });

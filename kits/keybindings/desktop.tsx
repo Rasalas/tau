@@ -55,11 +55,13 @@ function bindPiKeys(plugin: DesktopExtensionContext, isDisposed: () => boolean):
       for (const [action, keys] of Object.entries(bindings)) {
         if (!keys?.length) continue;
         const commandId = actionToCommand.get(action) ?? action;
-        for (const chord of keys) {
+        for (const entry of keys) {
+          // Without `when` a rebound key keeps the context of the default it replaces.
+          const { key, when } = typeof entry === "string" ? { key: entry, when: undefined } : entry;
           try {
-            disposers.push(plugin.registerKeybinding({ keys: chord, commandId, replaces: commandId }));
+            disposers.push(plugin.registerKeybinding({ keys: key, commandId, replaces: commandId, ...(when !== undefined ? { when } : {}) }));
           } catch (error) {
-            console.warn(`keybindings.json: ${action} = ${chord} is not a chord Tau understands`, error);
+            console.warn(`keybindings.json: ${action} = ${key} is not a chord Tau understands`, error);
           }
         }
       }

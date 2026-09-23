@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostExtension, HostExtensionContext, PiUserKeybindings } from "tau/host-extension";
-import { KEYBINDINGS_HOST_EXTENSION_ID, type PiKeybindingsState, type PiShortcutsState } from "./protocol.js";
+import { KEYBINDINGS_HOST_EXTENSION_ID, type PiKeybindingsState, type PiShortcutsState, type UserKeybinding } from "./protocol.js";
 
 /** The user's entries in Pi's keybindings.json; a missing or broken file counts as empty. */
 export async function readPiUserKeybindings(agentDir: string): Promise<PiUserKeybindings> {
@@ -22,6 +22,34 @@ export async function readPiUserKeybindings(agentDir: string): Promise<PiUserKey
   for (const [action, keys] of Object.entries(parsed as Record<string, unknown>)) {
     if (typeof keys === "string") bindings[action] = keys;
     else if (Array.isArray(keys) && keys.every((key) => typeof key === "string")) bindings[action] = keys as string[];
+  }
+  return bindings;
+}
+
+function userKeybinding(value: unknown): string | UserKeybinding | undefined {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return undefined;
+  const { key, when } = value as Record<string, unknown>;
+  if (typeof key !== "string") return undefined;
+  return typeof when === "string" ? { key, when } : { key };
+}
+
+/**
+ * Every entry of keybindings.json as Tau reads it: Pi's strings, and objects
+ * with a `when` clause, alone or in an array.
+ */
+export async function readUserKeybindings(agentDir: string): Promise<PiKeybindingsState["bindings"]> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(join(agentDir, "keybindings.json"), "utf8"));
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const bindings: PiKeybindingsState["bindings"] = {};
+  for (const [action, value] of Object.entries(parsed as Record<string, unknown>)) {
+    const entries = (Array.isArray(value) ? value : [value]).map(userKeybinding);
+    if (entries.length > 0 && entries.every((entry) => entry !== undefined)) bindings[action] = entries as Array<string | UserKeybinding>;
   }
   return bindings;
 }
@@ -47,15 +75,7 @@ export function createKeybindingsHostExtension(): HostExtension {
         if (change.kind !== "keybindings") return;
         context.emit("changed", { paths: [...change.paths] });
       });
-      context.registerCommand("pi-keybindings", async (): Promise<PiKeybindingsState> => {
-        const user = await readPiUserKeybindings(agentDir());
-        const bindings: Record<string, string[]> = {};
-        for (const [action, keys] of Object.entries(user)) {
-          if (keys === undefined) continue;
-          bindings[action] = Array.isArray(keys) ? keys : [keys];
-        }
-        return { bindings };
-      });
+      context.registerCommand("pi-keybindings", async (): Promise<PiKeybindingsState> => ({ bindings: await readUserKeybindings(agentDir()) }));
       context.registerCommand("shortcuts", async (input): Promise<PiShortcutsState> => {
         const thread = context.services.thread(optionalString(input, "sessionId"));
         if (!thread) return { shortcuts: [] };

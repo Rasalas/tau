@@ -74,4 +74,26 @@ describe("Keybindings desktop extension", () => {
     expect(invoke).toHaveBeenCalledWith(KEYBINDINGS_HOST_EXTENSION_ID, "shortcuts", { sessionId: "s2" });
     expect(registry.getCommands().filter((command) => command.id.startsWith("pi.shortcut.")).length).toBe(1);
   });
+
+  it("binds a when clause the user wrote, and keeps the default's clause when there is none", async () => {
+    const invoke = vi.fn(async (_extensionId: string, command: string) => {
+      if (command === "pi-keybindings") return { bindings: {
+        "terminal.split": [{ key: "mod+shift+5", when: "terminalFocus" }],
+        "runtime.new-session": ["mod+t"],
+      } };
+      if (command === "shortcuts") return { shortcuts: [] };
+      throw new Error(`unexpected ${command}`);
+    });
+    const { registry } = createKitHarness(invoke);
+    registry.activateCore({ id: "tau.runtime-settings", name: "Runtime Controls", activate(context) {
+      context.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus" });
+      context.registerKeybinding({ keys: "mod+d", commandId: "terminal.split", when: "terminalFocus && !stageFocus" });
+    } });
+    registry.activate(keybindingsExtension);
+    await flush();
+    expect(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys, binding.when])).toEqual([
+      ["terminal.split", "mod+shift+5", "terminalFocus"],
+      ["runtime.new-session", "mod+t", "!terminalFocus"],
+    ]);
+  });
 });
