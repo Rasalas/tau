@@ -123,7 +123,7 @@ export function ComposerInput({ textareaRef, value, placeholder, maxHeight, skil
 
   return (
     <div className="composer-input">
-      {mirrored ? <ComposerMirror ref={mirrorRef} segments={segments} endsWithNewline={value.endsWith("\n")} lookChip={lookChip} /> : null}
+      {mirrored ? <ComposerMirror ref={mirrorRef} segments={segments} lookChip={lookChip} /> : null}
       <textarea
         ref={textareaRef}
         rows={1}
@@ -155,14 +155,47 @@ export function ComposerInput({ textareaRef, value, placeholder, maxHeight, skil
   );
 }
 
-const ComposerMirror = memo(function ComposerMirror({ ref, segments, endsWithNewline, lookChip }: {
+/** The segments of each hard line, with a key that changes whenever what the line draws does. */
+function mirrorLines(segments: readonly MirrorSegment[]): Array<{ key: string; segments: MirrorSegment[] }> {
+  const lines: Array<{ key: string; segments: MirrorSegment[] }> = [{ key: "", segments: [] }];
+  for (const segment of segments) {
+    const parts = segment.kind === "text" ? segment.text.split("\n") : [segment.text];
+    parts.forEach((part, index) => {
+      if (index > 0) lines.push({ key: "", segments: [] });
+      const line = lines.at(-1)!;
+      if (!part) return;
+      line.segments.push(segment.kind === "text" ? { kind: "text", text: part } : segment);
+      line.key += `${segment.kind}\u0000${part}\u0001`;
+    });
+  }
+  return lines;
+}
+
+/**
+ * One block per hard line: the textarea wraps each line on its own too, and a
+ * keystroke then lays out only the line it changed.
+ */
+const ComposerMirror = memo(function ComposerMirror({ ref, segments, lookChip }: {
   ref: RefObject<HTMLDivElement | null>;
   segments: readonly MirrorSegment[];
-  endsWithNewline: boolean;
   lookChip: ComposerInputProps["lookChip"];
 }) {
   return (
     <div ref={ref} className="composer-mirror" aria-hidden="true">
+      {mirrorLines(segments).map((line, index) => <MirrorLine key={index} signature={line.key} segments={line.segments} lookChip={lookChip} />)}
+    </div>
+  );
+});
+
+const MirrorLine = memo(function MirrorLine({ segments, lookChip }: {
+  signature: string;
+  segments: readonly MirrorSegment[];
+  lookChip: ComposerInputProps["lookChip"];
+}) {
+  // An empty line still takes a line's height, as it does in the textarea.
+  if (segments.length === 0) return <div>{"\u200b"}</div>;
+  return (
+    <div>
       {segments.map((segment, index) => {
         if (segment.kind === "text") return segment.text;
         if (segment.kind !== "chip") return <span key={index} className={`composer-mirror-${segment.kind}`}>{segment.text}</span>;
@@ -175,8 +208,6 @@ const ComposerMirror = memo(function ComposerMirror({ ref, segments, endsWithNew
           </span>
         );
       })}
-      {/* A div drops a last empty line that the textarea keeps. */}
-      {endsWithNewline ? "\u200b" : null}
     </div>
   );
-});
+}, (previous, next) => previous.signature === next.signature && previous.lookChip === next.lookChip);

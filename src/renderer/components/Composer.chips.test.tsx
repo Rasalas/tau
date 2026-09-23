@@ -81,6 +81,11 @@ function renderWith(contribution: ComposerInlineContribution, storage: ClientSto
 
 afterEach(cleanup);
 
+/** The mirror's lines joined as the textarea holds them. */
+function mirrorText(): string {
+  return [...document.querySelector(".composer-mirror")!.children].map((line) => line.textContent === "\u200b" ? "" : line.textContent).join("\n");
+}
+
 describe("chips in the composer's text", () => {
   it("puts a new chip into the text and draws it in the mirror", async () => {
     const kit = chipKit();
@@ -92,8 +97,19 @@ describe("chips in the composer's text", () => {
     const chip = document.querySelector<HTMLElement>(".composer-mirror [data-chip]");
     expect(chip?.dataset.chip).toBe("a.ts");
     // The mirror draws exactly the characters of the text, so both wrap alike.
-    expect(document.querySelector(".composer-mirror")?.textContent).toBe(textarea.value);
+    expect(mirrorText()).toBe(textarea.value);
     expect(chip?.querySelector("svg")).toBeTruthy();
+  });
+
+  it("draws each hard line as its own block, empty ones included", async () => {
+    const kit = chipKit();
+    const { textarea } = renderWith(kit.contribution);
+    fireEvent.change(textarea, { target: { value: "first\n\nthird" } });
+    act(() => { kit.add("a.ts"); });
+    await waitFor(() => expect(findChipTokens(textarea.value)).toHaveLength(1));
+    fireEvent.change(textarea, { target: { value: `${textarea.value}\n` } });
+    expect(document.querySelector(".composer-mirror")?.children).toHaveLength(4);
+    expect(mirrorText()).toBe(textarea.value);
   });
 
   it("puts a chip at the caret while the field has the keyboard", async () => {
