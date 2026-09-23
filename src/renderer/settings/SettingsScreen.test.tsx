@@ -127,6 +127,21 @@ describe("the Settings screen", () => {
     expect(row.getAttribute("title")).toMatch(/setting of this machine/u);
   });
 
+  it("writes the update track to this machine, and hides it for a host elsewhere", async () => {
+    const { files, client } = hostWithFiles();
+    const { page } = renderScreen({ client });
+    const track = await within(page).findByRole("group", { name: "Update track" });
+    fireEvent.click(within(track).getByRole("button", { name: "Nightly" }));
+    await waitFor(() => expect(files.host).toEqual({ updates: { channel: "nightly" } }));
+    expect(within(track).getByRole("button", { name: "Nightly" }).getAttribute("aria-pressed")).toBe("true");
+    cleanup();
+
+    const remote = createFakeHostClient({ hasCapability: () => false });
+    const { page: remotePage } = renderScreen({ client: remote as ReturnType<typeof hostWithFiles>["client"] });
+    await act(async () => undefined);
+    expect(within(remotePage).queryByRole("group", { name: "Update track" })).toBeNull();
+  });
+
   it("offers the scope only on pages that have project rows", async () => {
     const { client } = hostWithFiles();
     const { page } = renderScreen({ client, page: "keybindings" });
