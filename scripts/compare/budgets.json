@@ -1,0 +1,6 @@
+{
+  "tau": {
+    "replay.wire.receivedKiB": 9300,
+    "replay.wire.received": 1000
+  }
+}

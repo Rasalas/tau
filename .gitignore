@@ -17,6 +17,8 @@ reports/*.jsonl
 # (`performance.yml` uploads them for trend reading).
 reports/*.json
 !reports/renderer-2026*.json
+# The first Tau vs T3 Code comparison (docs/PERFORMANCE.md).
+!reports/compare-2026*.json
 !reports/renderer-baseline-*.json
 !reports/renderer-transcript-baseline-*.json
 # The performance report test reads these as checked-in inputs.
