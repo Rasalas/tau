@@ -99,8 +99,20 @@ export const AGENT_CHILD_ENTRY = "tau.agents/child";
  */
 export const AGENT_PERSONA_FIELD = "persona";
 
-/** `pending` is queued behind the parent's running budget; it has no thread yet. */
-export type AgentThreadStatus = "pending" | "running" | "waiting" | "idle" | "completed" | "failed";
+/**
+ * `pending` is queued behind the parent's running budget; it has no thread yet.
+ * `cancelled` was stopped by its parent (`tau_cancel_thread`) until it is sent work again.
+ */
+export type AgentThreadStatus = "pending" | "running" | "waiting" | "idle" | "completed" | "failed" | "cancelled";
+
+/**
+ * How `tau_send_to_thread` delivers: `auto` starts an idle thread, steers a
+ * running one and queues when it cannot steer; `queue` waits for the running
+ * turn; `steer` joins it now; `restart` stops it and starts over with this.
+ */
+export type AgentSendMode = "auto" | "queue" | "steer" | "restart";
+
+export const AGENT_SEND_MODES: readonly AgentSendMode[] = ["auto", "queue", "steer", "restart"];
 
 /**
  * Where a spawned thread works: in the parent's own checkout, or in a worktree
@@ -174,9 +186,9 @@ export function isBusyStatus(status: AgentThreadStatus): boolean {
   return status === "running" || status === "waiting";
 }
 
-/** Neither finished nor failed: the panel counts these as work in flight. */
+/** Neither finished, failed nor cancelled: the panel counts these as work in flight. */
 export function isOpenStatus(status: AgentThreadStatus): boolean {
-  return status !== "completed" && status !== "failed";
+  return status !== "completed" && status !== "failed" && status !== "cancelled";
 }
 
 export function isAgentsState(value: unknown): value is AgentsState {

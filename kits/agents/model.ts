@@ -47,12 +47,13 @@ export interface AgentsPanelModel {
   completed: number;
   failed: number;
   pending: number;
+  cancelled: number;
   /** The active thread's own spend plus every agent's in the panel; undefined when nothing is counted. */
   totalCostUsd?: number;
 }
 
 const EMPTY_MODEL: AgentsPanelModel = {
-  groups: [], running: 0, waiting: 0, completed: 0, failed: 0, pending: 0,
+  groups: [], running: 0, waiting: 0, completed: 0, failed: 0, pending: 0, cancelled: 0,
 };
 
 function usageOf(session: UiSession | undefined): UiThreadUsage | undefined {
@@ -170,7 +171,7 @@ export function agentsPanelModel(
     .sort((left, right) => Number(right.active) - Number(left.active) || left.parentTitle.localeCompare(right.parentTitle));
   if (siblingRows.length > 0) groups.push({ parentThreadId: "siblings", parentTitle: "Same prompt, other models", active: false, rows: siblingRows });
 
-  const counts = { running: 0, waiting: 0, completed: 0, failed: 0, pending: 0 };
+  const counts = { running: 0, waiting: 0, completed: 0, failed: 0, pending: 0, cancelled: 0 };
   let cost = 0;
   let counted = false;
   for (const group of groups) {
@@ -228,6 +229,7 @@ export function canSettleWorktree(row: AgentRow): boolean {
 export function activityLine(row: AgentRow): string {
   if (row.status === "failed") return row.error ?? "Failed";
   if (row.status === "pending") return "Queued for a free slot";
+  if (row.status === "cancelled") return "Cancelled by its parent";
   if (row.status === "waiting") return row.pendingToolPrompt ? `Needs you: ${row.pendingToolPrompt}` : "Waiting for you";
   if (row.status === "running") return row.lastTool ? `▸ ${row.lastTool}` : "Working";
   return row.result ?? row.lastTool ?? "Finished";
