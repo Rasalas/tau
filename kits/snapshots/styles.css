@@ -1,0 +1,33 @@
+/* SnapShots: the chip's thumbnail, its popover and the settings page. */
+.snapshots-thumb { border-radius: 2px; object-fit: cover; }
+
+.snapshots-detail { display: flex; flex-direction: column; gap: 8px; }
+.snapshots-detail-image {
+  display: block; width: 100%; max-height: 180px; object-fit: contain;
+  border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--sunken);
+}
+.snapshots-detail-image.placeholder { height: 120px; }
+.snapshots-detail-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.snapshots-detail-meta strong { color: var(--ink); font-weight: 500; }
+.snapshots-detail-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snapshots-detail-meta small, .snapshots-detail-note { color: var(--muted); font-size: 11px; }
+.snapshots-detail-tree summary { cursor: pointer; color: var(--ink-2); }
+.snapshots-detail-tree pre {
+  margin: 6px 0 0; max-height: 160px; overflow: auto; padding: 6px 8px;
+  border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink-2); font: 11px/1.45 var(--mono); white-space: pre;
+}
+
+.snapshots-recorder {
+  min-width: 96px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--chip);
+  color: var(--ink); font: 12px/1 var(--sans); cursor: pointer;
+}
+.snapshots-recorder:hover { background: var(--chip-hover); }
+.snapshots-recorder.listening { border-color: var(--focus); color: var(--muted); }
+.snapshots-recorder kbd { font: 12px/1 var(--mono); }
+
+.snapshots-permission-actions { display: inline-flex; align-items: center; gap: 8px; }
+.snapshots-permission { font-size: 12px; color: var(--muted); }
+.snapshots-permission.granted { color: var(--ready); }
+.snapshots-permission.denied, .snapshots-permission.restricted { color: var(--danger); }
+.snapshots-privacy { margin: 0; padding: 10px 12px; }
