@@ -3,7 +3,7 @@ import type { WorkbenchActions } from "tau";
 import type { ComputerUseScreenService, ScreenState } from "./screen-protocol.js";
 
 /** A value several components read and one place writes, without a provider around the panel. */
-class Cell<T> {
+export class Cell<T> {
   private readonly listeners = new Set<() => void>();
 
   constructor(private value: T) {}

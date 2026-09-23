@@ -122,7 +122,32 @@ describe("RuntimeCatalogs", () => {
     await expect(none.cache.list()).resolves.toEqual([]);
   });
 
-  it("drops what the file holds that it cannot read", async () => {
+  it("keeps the provider's id behind an alias for the host, across a restart, and never serves it", async () => {
+    const file = await scratchFile();
+    const HAIKU = { provider: "anthropic", id: "haiku", name: "Haiku 4.5", billing: "subscription" as const, apiModelId: "claude-haiku-4-5" };
+    const first = catalogs(() => [source(async () => ({ models: [HAIKU], thinkingLevels: {} }), "claude-code")], { file });
+    const served = await first.cache.get("claude-code");
+    expect(served?.models[0]).not.toHaveProperty("apiModelId");
+    expect(first.published[0]?.models[0]).not.toHaveProperty("apiModelId");
+    await expect(first.cache.onHand()).resolves.toMatchObject([{ kind: "claude-code", models: [{ id: "haiku", apiModelId: "claude-haiku-4-5" }] }]);
+    await vi.waitFor(async () => expect(decodeCatalogs(JSON.parse(await readFile(file, "utf8")))).toHaveLength(1));
+
+    const second = catalogs(() => [source(async () => ANSWER, "claude-code")], { file });
+    await expect(second.cache.onHand()).resolves.toMatchObject([{ models: [{ id: "haiku", apiModelId: "claude-haiku-4-5" }] }]);
+    expect((await second.cache.list())[0]?.models[0]).not.toHaveProperty("apiModelId");
+  });
+
+    it("serves a catalog from a file without provider ids and asks the runtime again behind it", async () => {
+    const file = await scratchFile();
+    await writeFile(file, JSON.stringify({ version: 1, catalogs: [{ kind: "codex", models: [LUNA], thinkingLevels: {}, checkedAt: 999_000 }], askedAt: { codex: 999_000 } }));
+    const load = vi.fn(async () => ANSWER);
+    const { cache } = catalogs(() => [source(load)], { file });
+    await expect(cache.get("codex")).resolves.toMatchObject({ models: [{ id: "gpt-5.6-luna" }] });
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 2 }));
+  });
+
+    it("drops what the file holds that it cannot read", async () => {
     const file = await scratchFile();
     await writeFile(file, JSON.stringify({ version: 1, catalogs: [{ kind: "codex", models: [{ provider: "openai" }, LUNA], thinkingLevels: { x: ["a", 3] }, status: "bogus" }, { models: [] }] }));
     const { cache } = catalogs(() => [source(async () => ANSWER)], { file });

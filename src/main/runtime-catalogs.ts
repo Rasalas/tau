@@ -10,7 +10,8 @@ import type { HostCatalogModel, HostRuntimeNewThreadCatalog } from "./host-exten
 import type { ModelPriceBook } from "./model-price-book.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
-const VERSION = 1;
+/** 2 keeps `apiModelId`; a version-1 answer is served but asked again as if old. */
+const VERSION = 2;
 /** A client that opens a picker gets an answer this old as it is; an older one is asked again behind it. */
 const FRESH_MS = 10 * 60_000;
 /** At start an answer from disk younger than this stands; the programs are not started for it. */
@@ -50,8 +51,11 @@ export interface RuntimeCatalogsOptions {
   timeoutMs?: number;
 }
 
+/** A catalog as the host holds it: each model keeps the provider's own id behind an alias, which clients never get. */
+export type HeldRuntimeCatalog = Omit<UiRuntimeCatalog, "models" | "model"> & { models: HostCatalogModel[]; model?: HostCatalogModel };
+
 interface Held {
-  catalog: UiRuntimeCatalog;
+  catalog: HeldRuntimeCatalog;
   /** When the runtime was last asked; `catalog.checkedAt` stays at the answer that last changed it. */
   askedAt: number;
   /** Undefined for an answer read from disk. */
@@ -67,7 +71,7 @@ interface Held {
  */
 export class RuntimeCatalogs {
   private readonly held = new Map<ThreadBackendKind, Held>();
-  private readonly asking = new Map<ThreadBackendKind, Promise<UiRuntimeCatalog>>();
+  private readonly asking = new Map<ThreadBackendKind, Promise<HeldRuntimeCatalog>>();
   private restored?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private warmed = false;
@@ -101,6 +105,12 @@ export class RuntimeCatalogs {
     if (!held) return served(await this.ask(source), source);
     if (this.stale(source, this.options.freshMs ?? FRESH_MS)) this.askLater(source);
     return served(held.catalog, source);
+  }
+
+  /** Every catalog on hand, as held (with `apiModelId`); nothing is asked. */
+  async onHand(): Promise<HeldRuntimeCatalog[]> {
+    await this.restore();
+    return [...this.held.values()].map((entry) => entry.catalog);
   }
 
   /** Reads the disk and, once start-up is over, asks every runtime whose answer is missing or old. */
@@ -151,7 +161,7 @@ export class RuntimeCatalogs {
     void this.ask(source).catch(() => undefined);
   }
 
-  private ask(source: RuntimeCatalogSource): Promise<UiRuntimeCatalog> {
+  private ask(source: RuntimeCatalogSource): Promise<HeldRuntimeCatalog> {
     const running = this.asking.get(source.kind);
     if (running) return running;
     const asked = this.answer(source).finally(() => {
@@ -161,9 +171,9 @@ export class RuntimeCatalogs {
     return asked;
   }
 
-  private async answer(source: RuntimeCatalogSource): Promise<UiRuntimeCatalog> {
+  private async answer(source: RuntimeCatalogSource): Promise<HeldRuntimeCatalog> {
     const checkedAt = this.now();
-    let next: UiRuntimeCatalog;
+    let next: HeldRuntimeCatalog;
     try {
       next = await this.normalized(source, await this.bounded(source), checkedAt);
     } catch (error) {
@@ -188,18 +198,21 @@ export class RuntimeCatalogs {
     return Promise.race([source.load(), timeout]).finally(() => clearTimeout(timer));
   }
 
-  private async normalized(source: RuntimeCatalogSource, answer: HostRuntimeNewThreadCatalog | undefined, checkedAt: number): Promise<UiRuntimeCatalog> {
+  private async normalized(source: RuntimeCatalogSource, answer: HostRuntimeNewThreadCatalog | undefined, checkedAt: number): Promise<HeldRuntimeCatalog> {
     const kind = source.kind;
     if (!answer) return { kind, models: [], thinkingLevels: {}, status: "unavailable", checkedAt };
     const { models, model, ...rest } = answer;
     // Nothing a runtime that cannot run offers is worth listing.
     if (rest.status === "not-installed" || rest.status === "sign-in-required") return { ...rest, kind, models: [], thinkingLevels: {}, checkedAt };
     const book = source.complete || models.length === 0 ? undefined : await this.options.priceBook().catch(() => undefined);
-    const shown = (entry: HostCatalogModel): UiModel => book ? book.enrich(entry) : withoutApiModelId(entry);
+    const shown = (entry: HostCatalogModel): HostCatalogModel => {
+      const filled = book ? book.enrich(entry) : withoutApiModelId(entry);
+      return entry.apiModelId ? { ...filled, apiModelId: entry.apiModelId } : filled;
+    };
     return { ...rest, kind, models: models.map(shown), ...(model ? { model: shown(model) } : {}), checkedAt };
   }
 
-  private keep(source: RuntimeCatalogSource, next: UiRuntimeCatalog): UiRuntimeCatalog {
+  private keep(source: RuntimeCatalogSource, next: HeldRuntimeCatalog): HeldRuntimeCatalog {
     const previous = this.held.get(source.kind)?.catalog;
     // An unchanged answer keeps its `checkedAt`, so a client that holds it is sent nothing.
     const catalog = previous && sameCatalog(previous, next) ? previous : next;
@@ -217,7 +230,8 @@ export class RuntimeCatalogs {
       ...(this.options.logger ? { logger: this.options.logger } : {}),
     }).then((read) => {
       // An answer that came in while the file was read is newer than the file.
-      for (const { catalog, askedAt } of read?.data ?? []) if (!this.held.has(catalog.kind)) this.held.set(catalog.kind, { catalog, askedAt });
+      const outdated = (read?.version ?? VERSION) < VERSION;
+      for (const { catalog, askedAt } of read?.data ?? []) if (!this.held.has(catalog.kind)) this.held.set(catalog.kind, { catalog, askedAt: outdated ? 0 : askedAt });
     }, () => undefined);
   }
 
@@ -238,8 +252,14 @@ export class RuntimeCatalogs {
   }
 }
 
-function served(catalog: UiRuntimeCatalog, source: RuntimeCatalogSource): UiRuntimeCatalog {
-  return { ...catalog, ...(source.capabilities ? { runtimeCapabilities: source.capabilities } : {}) };
+function served(catalog: HeldRuntimeCatalog, source: RuntimeCatalogSource): UiRuntimeCatalog {
+  const { models, model, ...rest } = catalog;
+  return {
+    ...rest,
+    models: models.map(withoutApiModelId),
+    ...(model ? { model: withoutApiModelId(model) } : {}),
+    ...(source.capabilities ? { runtimeCapabilities: source.capabilities } : {}),
+  };
 }
 
 function withoutApiModelId(model: HostCatalogModel): UiModel {
@@ -247,7 +267,7 @@ function withoutApiModelId(model: HostCatalogModel): UiModel {
   return shown;
 }
 
-function sameCatalog(left: UiRuntimeCatalog, right: UiRuntimeCatalog): boolean {
+function sameCatalog(left: HeldRuntimeCatalog, right: HeldRuntimeCatalog): boolean {
   const { checkedAt: _left, ...a } = left;
   const { checkedAt: _right, ...b } = right;
   return JSON.stringify(a) === JSON.stringify(b);
@@ -274,7 +294,7 @@ function decodePrice(value: unknown): UiModelPrice | undefined {
   };
 }
 
-function decodeModel(value: unknown): UiModel | undefined {
+function decodeModel(value: unknown): HostCatalogModel | undefined {
   const item = record(value);
   if (!item || !text(item.provider) || !text(item.id) || !text(item.name)) return undefined;
   const price = decodePrice(item.price);
@@ -289,10 +309,11 @@ function decodeModel(value: unknown): UiModel | undefined {
     ...(count(item.maxOutput) ? { maxOutput: item.maxOutput } : {}),
     ...(typeof item.images === "boolean" ? { images: item.images } : {}),
     ...(typeof item.reasoning === "boolean" ? { reasoning: item.reasoning } : {}),
+    ...(text(item.apiModelId) ? { apiModelId: item.apiModelId } : {}),
   };
 }
 
-function decodeCatalog(value: unknown): UiRuntimeCatalog | undefined {
+function decodeCatalog(value: unknown): HeldRuntimeCatalog | undefined {
   const item = record(value);
   if (!item || !text(item.kind) || !Array.isArray(item.models)) return undefined;
   const levels = record(item.thinkingLevels) ?? {};
@@ -309,7 +330,7 @@ function decodeCatalog(value: unknown): UiRuntimeCatalog | undefined {
 }
 
 /** The file as written by `persist`; entries it cannot read are left out. */
-export function decodeCatalogs(value: unknown): Array<{ catalog: UiRuntimeCatalog; askedAt: number }> | undefined {
+export function decodeCatalogs(value: unknown): Array<{ catalog: HeldRuntimeCatalog; askedAt: number }> | undefined {
   const list = record(value)?.catalogs;
   const asked = record(record(value)?.askedAt) ?? {};
   if (!Array.isArray(list)) return undefined;

@@ -90,7 +90,20 @@ describe("Thread Title Generator host extension", () => {
     expect(complete).toHaveBeenCalledWith(expect.anything(), { provider: "openai-codex", id: "gpt-5.6-luna" });
   });
 
-  it("keeps the model the settings name, even a large one", async () => {
+  it("titles on the thread's own model, as complete names it, when nothing small is reachable", async () => {
+    const complete = vi.fn(async () => "Pong reply");
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau",
+      thread: () => piThread({ backendKind: "codex", model: { provider: "openai", id: "gpt-5.6-sol" } }),
+      complete,
+      completionModels: async () => [{ provider: "openai-codex", id: "gpt-5.6-sol", name: "Sol" }],
+      setThreadTitle: async () => undefined,
+    });
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { prompt: "Reply with the single word pong." });
+    expect(complete).toHaveBeenCalledWith(expect.anything(), { provider: "openai-codex", id: "gpt-5.6-sol" });
+  });
+
+    it("keeps the model the settings name, even a large one", async () => {
     const complete = vi.fn(async () => "Queue fix");
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {
       runtimeOwner: () => "tau",

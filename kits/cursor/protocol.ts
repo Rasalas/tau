@@ -5,6 +5,8 @@ export const CURSOR_BACKEND_KIND = "cursor" as const;
 export const CURSOR_HOST_EXTENSION_ID = "tau.cursor";
 /** Usage Kit may read each thread's running total through the `usage` command. */
 export const USAGE_KIT_ID = "tau.usage";
+/** Search Kit indexes the text of threads nobody has open (`thread-texts`). */
+export const SEARCH_KIT_ID = "tau.search";
 /** Older CLIs lack `agent acp` with the parameterized model picker Tau asks for. */
 export const MIN_CURSOR_VERSION = "2026.04.08";
 

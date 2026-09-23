@@ -26,6 +26,8 @@ function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
     place: (rect, visible) => { placed.push({ rect, visible }); },
     load: async (url) => { loaded.push(url); },
     navigate: () => undefined,
+    setZoom: () => undefined,
+    setAppearance: async () => undefined,
     state: () => ({ ...EMPTY_PREVIEW_STATE, url: loaded.at(-1) ?? "", title: "Fixture" }),
     viewport: () => ({ width: 800, height: 600 }),
     evaluate: async (expression) => { evaluated.push(expression); return { ok: true, detail: "done" }; },
@@ -46,6 +48,7 @@ async function activate(createSurface: (options: PreviewSurfaceOptions) => Promi
     stateDir,
     findCommand: () => undefined,
     noteSubprocess: () => undefined,
+    registerTurnObserver: () => () => undefined,
     registerRuntimeExtension: (name: string, factory: RuntimeExtensionContribution["factory"]) => {
       runtimeExtensions.push({ name, factory });
       return () => undefined;
@@ -156,7 +159,9 @@ describe("preview tools", () => {
     await kit.call("preview_click", { ref: "e3" });
     expect(evaluated.at(-1)).toContain('{"ref":"e3"}');
     await kit.call("preview_type", { selector: "input[name=q]", text: "hello", submit: true });
-    expect(evaluated.at(-1)).toContain('{"selector":"input[name=q]"}, "hello", true');
+    // The agent's cursor follows each action into the page.
+    expect(evaluated.at(-2)).toContain('{"selector":"input[name=q]"}, "hello", true');
+    expect(evaluated.at(-1)).toContain('"label":"hello"');
   });
 
   it("reports what the page said about an element it could not find", async () => {
@@ -197,6 +202,7 @@ describe("preview tools over MCP", () => {
       stateDir: "/state",
       findCommand: () => undefined,
       noteSubprocess: () => undefined,
+      registerTurnObserver: () => () => undefined,
       registerRuntimeExtension: () => () => undefined,
       mcp: {
         registerTools: (provider) => { providers.push(provider); return () => { providers.splice(providers.indexOf(provider), 1); }; },
@@ -347,7 +353,7 @@ describe("profiles", () => {
     }, "/project", stateDir);
     await kit.call("preview_open", { url: "http://localhost:8000" });
     const profiles = await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: "Logged In" });
-    expect(profiles).toEqual({ profiles: ["default", "logged-in"], active: "logged-in" });
+    expect(profiles).toEqual({ profiles: ["default", "logged-in"], active: "logged-in", names: { "logged-in": "Logged In" } });
     expect(partitions).toEqual(["persist:tau-preview", "persist:tau-preview-logged-in"]);
     expect(surfaces[1]!.loaded).toEqual(["http://localhost:8000/"]);
     await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state", undefined)).resolves.toMatchObject({ profile: "logged-in" });

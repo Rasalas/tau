@@ -1,4 +1,5 @@
 import type { UiModel } from "../shared/contracts.js";
+import { priceIds } from "../shared/model-prices.js";
 
 /** A vendor's small tier by its id: `claude-haiku-4-5`, `gpt-5-mini`, `gemini-2.5-flash`, `gpt-5.6-luna`. */
 const SMALL_MODEL = /(?:^|[-_./:])(?:haiku|mini|nano|flash|lite|luna|small|tiny)(?=$|[-_./:\d])/iu;
@@ -12,6 +13,38 @@ export interface CompletionModelRef {
   id: string;
 }
 
+/** Models a runtime's own login reports it reaches; `apiModelId` is the provider's id behind an alias. */
+export interface ReportedModels {
+  readonly models: readonly (UiModel & { apiModelId?: string })[];
+}
+
+/** One vendor under two names: Pi names a subscription route after its provider (`openai-codex`, `google-antigravity`). */
+export function sameVendor(left: string, right: string): boolean {
+  return left === right || left.startsWith(`${right}-`) || right.startsWith(`${left}-`);
+}
+
+function sameModel(left: string, right: string): boolean {
+  const ids = new Set(priceIds(left));
+  return priceIds(right).some((id) => ids.has(id));
+}
+
+/**
+ * The offers `complete` can really run. Pi lists every model it knows for a
+ * provider it holds a login for, and a subscription serves fewer of them.
+ * Where another runtime reports what the same vendor's subscription serves,
+ * a subscription offer missing from that report is dropped; without such a
+ * report Pi's list stands.
+ */
+export function reachableCompletionModels(offers: readonly UiModel[], reports: readonly ReportedModels[]): UiModel[] {
+  const served = reports.flatMap((report) => report.models).filter((model) => model.billing === "subscription");
+  return offers.filter((offer) => {
+    if (offer.login !== "subscription" && offer.billing !== "subscription") return true;
+    const vendor = served.filter((model) => sameVendor(model.provider, offer.provider));
+    return vendor.length === 0
+      || vendor.some((model) => sameModel(model.id, offer.id) || (model.apiModelId !== undefined && sameModel(model.apiModelId, offer.id)));
+  });
+}
+
 function sharedPrefix(left: string, right: string): number {
   let length = 0;
   while (length < left.length && left[length] === right[length]) length += 1;
@@ -21,18 +54,23 @@ function sharedPrefix(left: string, right: string): number {
 /**
  * The model for a kit's small job (a title, a branch name) when the user chose
  * none: a small model of `completionModels()`, the one closest to `prefer` —
- * same provider (the same login) first, then the longest shared id
+ * the same provider first, then the same vendor under another name (a Codex
+ * thread's `openai` is Pi's `openai-codex`), then the longest shared id
  * (`gpt-5.6-sol` → `gpt-5.6-luna`: a login may not reach an older generation).
- * `undefined` when none is small, which leaves `complete` on the user's default.
+ * `undefined` when none is small, which leaves `complete` on the user's
+ * default — or, with `elsePrefer`, on `prefer` itself where `complete` runs it.
  */
 export async function smallCompletionModel(
   services: { completionModels?(): Promise<UiModel[]> },
   prefer: CompletionModelRef | undefined,
+  options: { elsePrefer?: boolean } = {},
 ): Promise<CompletionModelRef | undefined> {
   const catalog = await services.completionModels?.().catch(() => []) ?? [];
-  const closeness = (model: CompletionModelRef) => prefer ? (model.provider === prefer.provider ? 1_000 : 0) + sharedPrefix(model.id, prefer.id) : 0;
+  const provider = (model: CompletionModelRef) => !prefer ? 0 : model.provider === prefer.provider ? 2 : sameVendor(model.provider, prefer.provider) ? 1 : 0;
+  const closeness = (model: CompletionModelRef) => prefer ? provider(model) * 1_000 + sharedPrefix(model.id, prefer.id) : 0;
   const pick = catalog
     .filter((model) => isSmallModel(model.id))
-    .sort((left, right) => closeness(right) - closeness(left))[0];
+    .sort((left, right) => closeness(right) - closeness(left))[0]
+    ?? (prefer && options.elsePrefer ? catalog.filter((model) => model.id === prefer.id && provider(model) > 0).sort((left, right) => provider(right) - provider(left))[0] : undefined);
   return pick ? { provider: pick.provider, id: pick.id } : undefined;
 }

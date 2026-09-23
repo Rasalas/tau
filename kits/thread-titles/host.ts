@@ -18,12 +18,12 @@ export function createThreadTitlesHostExtension(): HostExtension {
       const { services } = context;
       context.registerCommand("generate", async (input) => {
         const fields = record(input);
-        // The settings' model wins; else a small one close to the thread's (`prefer`), never the thread's own.
+        // The settings' model wins; else a small one close to the thread's (`prefer`), the thread's own only when none is small.
         const provider = text(fields.provider);
         const modelId = text(fields.modelId);
         const preferred = record(fields.prefer);
         const prefer = text(preferred.provider) && text(preferred.id) ? { provider: text(preferred.provider), id: text(preferred.id) } : undefined;
-        const chooseModel = async (hint = prefer) => provider && modelId ? { provider, id: modelId } : smallCompletionModel(services, hint);
+        const chooseModel = async (hint = prefer) => provider && modelId ? { provider, id: modelId } : smallCompletionModel(services, hint, { elsePrefer: true });
         const force = fields.force === true;
         const sessionId = typeof fields.sessionId === "string" ? fields.sessionId : undefined;
         const prompt = typeof fields.prompt === "string" ? fields.prompt : "";
@@ -57,7 +57,7 @@ export function createThreadTitlesHostExtension(): HostExtension {
         const model = await chooseModel(thread.model ?? prefer);
         services.log("title.started", model ? `${model.provider}/${model.id}` : "default model");
         // Titling runs on the user's own model configuration, whichever runtime owns the thread;
-        // without a small model there, on its default.
+        // without a small model or the thread's own there, on its default.
         const title = cleanThreadTitle(await services.complete({
           system: TITLE_SYSTEM_PROMPT,
           prompt: TITLE_USER_PROMPT(conversation),

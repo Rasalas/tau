@@ -67,7 +67,7 @@ export function createWorktreeNamesHostExtension(): HostExtension {
         if (services.runtimeOwner() === "pi") throw new HostCommandError("Name the worktree yourself while Pi is attached to the runtime.");
         const thread = services.thread();
         if (!thread) throw new Error("Pi runtime is not ready");
-        const model = provider && modelId ? { provider, id: modelId } : await smallCompletionModel(services, prefer);
+        const model = provider && modelId ? { provider, id: modelId } : await smallCompletionModel(services, prefer, { elsePrefer: true });
         services.log("worktree-name.started", model ? `${model.provider}/${model.id}` : "default model");
         const answer = await services.complete({
           system: SYSTEM_PROMPT,
