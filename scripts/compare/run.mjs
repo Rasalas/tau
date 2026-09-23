@@ -204,7 +204,10 @@ async function measureRun(app, root, options, turn) {
 
     wire.reset();
     const openLargeMs = await openThread(app, session, LARGE);
+    const historyStartedAt = Date.now();
+    const historyPages = await app.loadHistory(session, { evaluate, waitFor });
     const openLargeWire = wire.snapshot();
+    const history = { pages: historyPages, ms: Date.now() - historyStartedAt };
     await wait(1_500);
     const scroll = await scrollThread(session, options.scrollSteps);
 
@@ -212,7 +215,7 @@ async function measureRun(app, root, options, turn) {
     await wait(options.idleMs);
     const afterTurnMemory = await memory(session, child.pid);
     checkIsolation(child.pid, app.label);
-    return { loadAtStart, startup, idleMemory, openLarge: { ms: openLargeMs, wire: openLargeWire }, scroll, replay, afterTurnMemory, processes };
+    return { loadAtStart, startup, idleMemory, openLarge: { ms: openLargeMs, history, wire: openLargeWire }, scroll, replay, afterTurnMemory, processes };
   } finally {
     session.close();
     const stopped = await stopTree([child.pid]);
@@ -262,8 +265,9 @@ export function markdownTable(report) {
     ["memory idle, whole tree (MiB)", "idleMemory.totalMiB"],
     ["memory idle, host/server process (MiB)", "idleMemory.byRoleMiB.backend"],
     ["renderer JS heap idle (MiB)", "idleMemory.rendererHeapMiB"],
-    ["open 100-turn thread (ms)", "openLarge.ms"],
-    ["open 100-turn thread: KiB over WebSocket / HTTP", "openLarge.wire.receivedKiB", "openLarge.wire.httpKiB"],
+    ["open 100-turn thread: first rows visible (ms)", "openLarge.ms"],
+    ["load the rest of its history (pages · ms)", "openLarge.history.pages", "openLarge.history.ms"],
+    ["open + full history: KiB over WebSocket · HTTP", "openLarge.wire.receivedKiB", "openLarge.wire.httpKiB"],
     ["scroll frame p95 (ms)", "scroll.frames.p95"],
     ["scroll frame p99 (ms)", "scroll.frames.p99"],
     ["scroll frames > 33 ms", "scroll.frames.dropped"],

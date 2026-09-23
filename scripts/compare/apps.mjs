@@ -134,6 +134,20 @@ export const tau = {
   isAppPage: (target) => /\/dist\/index\.html/u.test(target.url),
   ready: (threads) => `!!document.querySelector("textarea") && document.querySelectorAll("article.thread-row").length >= ${threads}`,
   async revealThreads() {},
+  /**
+   * A thread opens with its newest 10 turns; older ones come 20 at a time
+   * through "Load older turns". Clicked until gone so the scroll covers the
+   * whole thread, as it does in T3, which sends all of it at once.
+   */
+  async loadHistory(session, { evaluate, waitFor }) {
+    let pages = 0;
+    for (; pages < 50; pages += 1) {
+      const clicked = await evaluate(session, `(() => { const b = document.querySelector('[aria-label="Load older turns"]'); if (!b) return false; b.click(); return true; })()`);
+      if (!clicked) break;
+      await waitFor(session, `!document.querySelector('[aria-label="Loading older turns"]')`, { timeoutMs: 30_000, pollMs: 20 });
+    }
+    return pages;
+  },
   selectors: {
     threadRow: "article.thread-row",
     threadRowClick: "article.thread-row button.thread-main",
@@ -251,6 +265,8 @@ export const t3 = {
     await waitFor(session, `/Settled \\(${expectedThreads}\\)/.test(document.querySelector("[data-testid=sidebar-settled-header]")?.textContent ?? "") || document.querySelectorAll(${JSON.stringify(this.selectors.threadRow)}).length >= ${expectedThreads}`, { timeoutMs: 120_000 });
     await this.revealThreads(session, { clickWhenReady, waitFor, expectedThreads });
   },
+  /** T3 sends a thread's whole history when it opens. */
+  async loadHistory() { return 0; },
   /** Imported threads land on the collapsed "Settled" shelf; open it so rows can be clicked. */
   async revealThreads(session, { clickWhenReady, waitFor, expectedThreads }) {
     const rows = `document.querySelectorAll(${JSON.stringify(this.selectors.threadRow)}).length >= ${expectedThreads}`;
