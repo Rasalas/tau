@@ -2,7 +2,7 @@ import { Terminal } from "lucide-react";
 import type { DesktopExtension, WorkbenchActions } from "tau";
 import { TerminalPanel } from "./panel.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
-import { connectTerminalFont, connectTerminalHost, terminalServices, terminalStore } from "./store.js";
+import { connectTerminalFont, connectTerminalHost, terminalKit, terminalServices, terminalStore } from "./store.js";
 import { TerminalSettingsPage } from "./settings.js";
 import { focusedPane, paneIds } from "./layout.js";
 import { closeTerminals, focusNextPane, openTerminal, toggleTerminal } from "./controller.js";
@@ -21,7 +21,7 @@ import {
   WORKSPACE_STORE_SERVICE,
   type WorkspaceRowMarks,
 } from "./protocol.js";
-import { TerminalRowStatus } from "./row-status.js";
+import { TerminalRowStatus, watchForegrounds } from "./row-status.js";
 
 /** A command keeps the actions it ran with, so a link clicked later has them too. */
 function withActions(run: (actions: WorkbenchActions) => unknown) {
@@ -65,6 +65,7 @@ export const terminalExtension: DesktopExtension = {
   name: "Terminal",
   activate(plugin) {
     const disconnect = connectTerminalHost(plugin.host);
+    const stopForegrounds = watchForegrounds((id) => terminalKit.foreground({ id }));
     const stopFont = connectTerminalFont(plugin.preferences);
     // The panel groups terminals by the thread on screen; the event is the
     // only push a kit gets about a switch, so the store follows it here.
@@ -152,6 +153,7 @@ export const terminalExtension: DesktopExtension = {
       panel();
       for (const dispose of services) dispose();
       stopFont();
+      stopForegrounds();
       disconnect();
     };
   },

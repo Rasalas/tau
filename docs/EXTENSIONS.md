@@ -907,7 +907,7 @@ followed project it lends two places another kit may draw into:
 panel, clean worktree or not, with the panel's `actions`, the commit message as
 the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
-the row's `session` (Terminal Kit draws a thread's open shells this way).
+the row's `session` (Terminal Kit marks a thread whose shells run a program this way).
 `setRailProjectFilter(projectName | undefined)` shows only one repository's
 threads in the rail and `openProjectSettings(thread)` opens the settings of the
 project a thread runs in — its name, path and icon (both new in API 1.11.0,
