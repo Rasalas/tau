@@ -129,6 +129,7 @@ export type {
   ProjectSourceProps,
   CommandContribution,
   CommandSurface,
+  CommandContext,
   PaletteItem,
   PaletteSearchContext,
   PaletteSourceContribution,
