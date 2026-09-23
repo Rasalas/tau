@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { THREAD_TEXT_CHARS, threadTextsDelta } from "./thread-texts";
+import { THREAD_TEXT_CHARS, threadTextsDelta } from "./thread-texts.js";
 
 const record = (id: string, updatedAt: number, texts: Array<[string, string]> = [["user", `about ${id}`]]) => ({
   tauThreadId: id, updatedAt, messages: texts.map(([role, text]) => ({ role, text })),
