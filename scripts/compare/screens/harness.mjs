@@ -32,9 +32,13 @@ const READY = {
   t3: `!!document.querySelector("[data-testid=composer-editor]") && !!document.querySelector("[data-testid=sidebar-settled-header], [data-testid=sidebar-row-card]")`,
 };
 
-/** Roots of their own, so a screen pass never shares a profile with a benchmark run. */
+/**
+ * Roots of their own, so a screen pass never shares a profile with a benchmark run.
+ * COMPARE_SCREENS_ROOT_TAG keeps parallel checkouts off each other's profiles.
+ */
 export function screenRoot(id) {
-  return assertOwnedRoot(realTmp(`compare-screens-${id}`), APPS[id]);
+  const tag = process.env.COMPARE_SCREENS_ROOT_TAG?.replace(/[^\w-]/gu, "");
+  return assertOwnedRoot(realTmp(`compare-screens-${id}${tag ? `-${tag}` : ""}`), APPS[id]);
 }
 
 export function screenTurnFile(overrides = {}) {
