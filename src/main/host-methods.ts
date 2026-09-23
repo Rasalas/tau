@@ -16,6 +16,7 @@ import { defaultUserThemeResolver } from "./user-themes.js";
 import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
 import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
+import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
 import {
   decodeBoolean,
   decodeCommandName,
@@ -149,6 +150,8 @@ export interface HostMethodDeps {
   host(): PiHost | undefined;
   jobs: HostJobRunner;
   platform: HostMethodPlatform;
+  /** Who else may connect (ADR 0023); absent where no socket listens. */
+  connections?(): HostConnectionsService | undefined;
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
@@ -374,6 +377,8 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const text = decodeOptionalText("open-external-editor", "text", params[0]) ?? "";
       return openExternalEditor({ initialText: text });
     },
+
+    ...createConnectionsMethods(() => deps.connections?.()),
 
     // The other direction of the protocol: a client answering a `client-call`.
     "client-call-result": async (params) => {

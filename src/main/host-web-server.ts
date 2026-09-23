@@ -1,9 +1,9 @@
-import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { isLoopbackHost } from "./host-listen.js";
+import type { AccessPeer } from "./host-access.js";
 
 /** Everything the built client is made of; anything else is not served at all. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -21,8 +21,6 @@ const CONTENT_TYPES: Record<string, string> = {
   ".map": "application/json; charset=utf-8",
 };
 
-/** A pairing code is redeemable once and briefly; after that the paste field is the way in. */
-const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 4096;
 const AUTH_MAX_SOURCES = 1024;
 const AUTH_IDLE_MS = 10 * 60 * 1000;
@@ -60,9 +58,8 @@ export function createAuthRateLimiter(now: () => number = Date.now): (source: st
 export interface WebClientServerOptions {
   /** The built client, normally `dist-web/`. */
   dir: string;
-  /** The host's own secret. A redeemed code hands the browser exactly this. */
-  token: string;
-  codeTtlMs?: number;
+  /** Trades a single-use pairing code for a token of the client's own (`HostAccess.redeem`). */
+  pairing: { redeem(code: string, peer: AccessPeer): Promise<string | undefined> };
   now?(): number;
   /** Serve over HTTPS; the socket transport then upgrades on the same TLS port. */
   tls?: { cert: string; key: string };
@@ -71,30 +68,19 @@ export interface WebClientServerOptions {
 export interface WebClientServer {
   /** The socket transport attaches to this, so client and protocol share one port. */
   server: Server;
-  /** A single-use code for the link the operator opens a browser with. */
-  issueCode(): string;
 }
 
 /**
  * The static half of a listening host: it serves the built web client on the
  * same port its socket listens on, and it trades a single-use pairing code for
- * the host token. The code travels in the link's fragment, which no proxy and
- * no server log ever sees, and the page drops it from its URL before it does
- * anything else. There is no other way in but the token itself, which the
- * operator can still paste by hand.
+ * a token of the browser's own. The code travels in the link's fragment, which
+ * no proxy and no server log ever sees, and the page drops it from its URL
+ * before it does anything else. The host token is never handed out here; the
+ * owner can still paste it by hand.
  */
 export function createWebClientServer(options: WebClientServerOptions): WebClientServer {
   const root = resolve(options.dir);
-  const ttl = options.codeTtlMs ?? CODE_TTL_MS;
-  const now = options.now ?? Date.now;
-  const codes = new Map<string, number>();
-  const admitPair = createAuthRateLimiter(now);
-
-  const redeem = (code: string): string | undefined => {
-    const expiresAt = codes.get(code);
-    codes.delete(code);
-    return expiresAt !== undefined && expiresAt > now() ? options.token : undefined;
-  };
+  const admitPair = createAuthRateLimiter(options.now ?? Date.now);
 
   const listener = (request: IncomingMessage, response: ServerResponse): void => {
     void handle(request, response).catch(() => send(response, 500, "text/plain; charset=utf-8", "internal error"));
@@ -116,9 +102,15 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
       }
       const body = await readBody(request);
       const code = typeof body?.code === "string" ? body.code : "";
-      const token = code ? redeem(code) : undefined;
+      const userAgent = request.headers["user-agent"];
+      const token = code ? await options.pairing.redeem(code, {
+        ...(request.socket.remoteAddress ? { address: request.socket.remoteAddress } : {}),
+        ...(typeof userAgent === "string" ? { userAgent } : {}),
+      }) : undefined;
       // A refused code says nothing about why: expired, spent and invented are one answer.
       if (!token) { send(response, 403, "application/json; charset=utf-8", JSON.stringify({ error: "unknown pairing code" })); return; }
+      // No store: the answer is a credential.
+      response.setHeader("cache-control", "no-store");
       send(response, 200, "application/json; charset=utf-8", JSON.stringify({ token }));
       return;
     }
@@ -140,14 +132,7 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
     response.end(request.method === "HEAD" ? undefined : content);
   }
 
-  return {
-    server,
-    issueCode: () => {
-      const code = randomBytes(24).toString("base64url");
-      codes.set(code, now() + ttl);
-      return code;
-    },
-  };
+  return { server };
 }
 
 function send(response: ServerResponse, status: number, type: string, body: string): void {
