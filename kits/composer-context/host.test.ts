@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { HostThreadLifecycle } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { attachmentFolder, createComposerContextHostExtension, inside, parsePullRequests, rankFiles, safeFileName, sliceLines } from "./host.js";
 import { COMPOSER_CONTEXT_ID, EMBED_TEXT_BYTES } from "./protocol.js";
@@ -18,14 +19,16 @@ async function setup(findCommand: (name: string) => string | undefined = () => u
   await writeFile(join(project, "src", "alpha.ts"), "one\ntwo\nthree\nfour\n");
   await writeFile(join(project, "README.md"), "Banana split\n");
   await writeFile(join(project, "logo.bin"), Buffer.from([1, 0, 2]));
+  const lifecycles: HostThreadLifecycle[] = [];
   const registry = await activateHostKit(createComposerContextHostExtension(), {
     cwd: () => project,
     stateDir: state,
     findCommand,
     log: () => undefined,
+    registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
   });
   const invoke = (command: string, input: unknown) => registry.invoke(COMPOSER_CONTEXT_ID, command, input);
-  return { invoke, project, state };
+  return { invoke, project, state, lifecycles };
 }
 
 describe("Composer Context host", () => {
@@ -37,6 +40,15 @@ describe("Composer Context host", () => {
     expect(stored.path).toMatch(/attachments[/\\]thread-1[/\\][0-9a-f]{8}-notes\.txt$/u);
     expect(await readFile(stored.path, "utf8")).toBe("hello");
     await expect(invoke("store-attachment", { scope: "s", name: "a", mimeType: "", data: "" })).rejects.toThrow(/empty/u);
+  });
+
+  it("drops a thread's attachments when the thread is deleted for good", async () => {
+    const { invoke, lifecycles } = await setup();
+    const kept = await invoke("store-attachment", { scope: "session:kept", name: "a.txt", mimeType: "", data: "eA==" }) as { path: string };
+    const gone = await invoke("store-attachment", { scope: "session:gone", name: "b.txt", mimeType: "", data: "eA==" }) as { path: string };
+    await lifecycles[0]!.threadDeleted?.("gone", "/project");
+    await expect(readFile(gone.path)).rejects.toThrow();
+    expect(await readFile(kept.path, "utf8")).toBe("x");
   });
 
   it("appends later chunks to a file it started, and to no other", async () => {
