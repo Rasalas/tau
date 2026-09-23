@@ -62,6 +62,17 @@ describe("host transport frames", () => {
     const detail = { seq: 3, event: { type: "thread-detail-compact", update: { version: 1, type: "thread-detail", detail: { sessionId: "s", messages: [], isStreaming: false, activeTools: [] } } } };
     expect(decodeHostPush(detail)).toEqual(detail);
     expect(decodeHostPush({ seq: 3, event: { type: "thread-detail-compact", update: { version: 1, type: "error", message: "boom" } } })).toBeUndefined();
+    const texts = { seq: 3, event: { ...detail.event, activityFromHistory: true, texts: { a1: 2 } } };
+    expect(decodeHostPush(texts)).toEqual(texts);
+    expect(decodeHostPush({ seq: 3, event: { ...detail.event, texts: { a1: "2" } } })).toBeUndefined();
+    expect(decodeHostPush({ seq: 3, event: { ...detail.event, activityFromHistory: 1 } })).toBeUndefined();
+    const message = { id: "a1", role: "assistant", timestamp: 1 };
+    const ended = { seq: 4, event: { type: "assistant-end-delta", sessionId: "s", message, after: 3, text: { keep: 5, drop: 0, text: "" } } };
+    expect(decodeHostPush(ended)).toEqual(ended);
+    expect(decodeHostPush({ seq: 4, event: { ...ended.event, thinking: { keep: 1, drop: 0, text: "" } } })).toBeDefined();
+    expect(decodeHostPush({ seq: 4, event: { ...ended.event, text: { keep: -1, drop: 0, text: "" } } })).toBeUndefined();
+    expect(decodeHostPush({ seq: 4, event: { ...ended.event, thinking: "plan" } })).toBeUndefined();
+    expect(decodeHostPush({ seq: 4, event: { ...ended.event, message: { role: "assistant" } } })).toBeUndefined();
   });
 
   it("decodes a hello reply with its replayed pushes", () => {

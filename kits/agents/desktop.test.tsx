@@ -182,6 +182,11 @@ describe("the spawn card", () => {
     expect(model.rows.map((row) => row.threadId)).toEqual(["alpha", "beta"]);
   });
 
+  it("finds the links of a spawn another runtime made over MCP", () => {
+    const model = spawnCardModel([spawn("call-1", { name: "mcp__tau__tau_spawn_thread" })], state, []);
+    expect(model.rows.map((row) => row.threadId)).toEqual(["alpha"]);
+  });
+
   it("still names an agent from the prompt when nothing else knows it", () => {
     const model = spawnCardModel([spawn("call-1", { args: { prompt: "Read the code\nand report" } })], undefined, []);
     expect(model.rows[0]).toMatchObject({ title: "Read the code", status: "completed" });

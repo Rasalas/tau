@@ -119,6 +119,7 @@ function threadSnapshot(thread: HostThread | undefined): WorkerThreadSnapshot | 
     idle: thread.isIdle(),
     current: thread.isCurrent(),
     ...(thread.usage ? { usage: thread.usage } : {}),
+    ...(thread.model ? { model: thread.model } : {}),
   };
 }
 

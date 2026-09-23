@@ -281,6 +281,27 @@ describe("thread runtime backends", () => {
     await offline.dispose();
   });
 
+  it("keeps a thread created with a tool list to those tools, across a restart", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened } = scriptedAdapter(filePath, () => turn("ok"));
+    const connect = vi.fn(async () => undefined);
+    const tools = ["read", "grep", "tau_spawn_thread"];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", mcpServer: connect, tools, onEvent: () => undefined });
+    await backend.start("create");
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    expect(opened[0]!.tools).toEqual(tools);
+    expect(connect).toHaveBeenCalledWith(tools);
+    await backend.dispose();
+
+    // A resumed thread reads the list from its record; nobody passes it again.
+    const again = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", mcpServer: connect, onEvent: () => undefined });
+    await again.start("resume");
+    await again.prompt({ text: "again", delivery: "prompt" });
+    expect(opened[1]!.tools).toEqual(tools);
+    expect(await new ClaudeRuntimeSessionStore({ filePath }).get("tau-thread")).toMatchObject({ tools });
+    await again.dispose();
+  });
+
   it("settles a broken turn as an error the host hears about, and reports a session that died", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, sessions } = scriptedAdapter(filePath, () => [init(), frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["not logged in"], total_cost_usd: 0, usage: {} })]);

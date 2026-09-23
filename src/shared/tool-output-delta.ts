@@ -44,6 +44,12 @@ function worthIt(delta: ToolOutputDelta, next: string): ToolOutputDelta | undefi
   return delta.text.length < next.length / 2 ? delta : undefined;
 }
 
+/** `next` as a change to `previous`: their common head kept, the rest replaced. Always applies. */
+export function replaceTail(previous: string, next: string): ToolOutputDelta {
+  const keep = commonPrefixLength(previous, next);
+  return { keep, drop: previous.length - keep, text: next.slice(keep) };
+}
+
 function commonPrefixLength(left: string, right: string): number {
   const limit = Math.min(left.length, right.length);
   let index = 0;

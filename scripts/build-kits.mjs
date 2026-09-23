@@ -12,7 +12,7 @@
 // this core; the defaults are this repository's own two folders.
 import { build } from "esbuild";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join, relative as relativeTo, resolve } from "node:path";
+import { basename, join, relative as relativeTo, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -35,7 +35,7 @@ const OUTPUT = directoryOption("out", join(ROOT, "dist-kits"));
 const INDEX_FILE = "manifest.json";
 const watch = process.argv.includes("--watch");
 
-const { MANIFEST_FILE, bundleHostExtension, bundlePiExtension, parseExtensionManifest } = await import(pathToFileURL(join(MAIN, "extension-packages.js")).href);
+const { MANIFEST_FILE, bundleHostExtension, bundlePiExtension, linkSourceMap, parseExtensionManifest } = await import(pathToFileURL(join(MAIN, "extension-packages.js")).href);
 const { bundleDesktopExtension } = await import(pathToFileURL(join(MAIN, "desktop-extensions.js")).href);
 const { SHARED_MODULE_PACKAGES } = await import(pathToFileURL(join(ROOT, "dist-electron/shared/shared-modules.js")).href);
 
@@ -99,19 +99,25 @@ async function buildKits() {
     }
     await writeFile(join(OUTPUT, relative), contents, "utf8");
   };
+  // A half that runs in Node keeps its map in a file of its own; see linkSourceMap.
+  const writeNodeBundle = async (relative, code) => {
+    const linked = linkSourceMap(code, `${basename(relative)}.map`);
+    if (linked.map !== undefined) await write(`${relative}.map`, linked.map);
+    await write(relative, linked.code);
+  };
   const ids = [];
   for (const kit of kits) {
     const { manifest, hostEntry, windowEntry, desktopEntry, stylesEntry, piEntry } = parseExtensionManifest(kit.directory, kit.source);
     await mkdir(join(OUTPUT, manifest.id), { recursive: true });
     const shippedManifest = { ...manifest };
     if (hostEntry) {
-      await write(`${manifest.id}/host.cjs`, await bundleHostExtension(hostEntry));
+      await writeNodeBundle(`${manifest.id}/host.cjs`, await bundleHostExtension(hostEntry));
       shippedManifest.host = "./host.cjs";
     }
     // The window half runs in the process the user's window lives in, so it
     // compiles like a host half: CommonJS, Electron external.
     if (windowEntry) {
-      await write(`${manifest.id}/window.cjs`, await bundleHostExtension(windowEntry));
+      await writeNodeBundle(`${manifest.id}/window.cjs`, await bundleHostExtension(windowEntry));
       shippedManifest.window = "./window.cjs";
     }
     if (desktopEntry) {
@@ -126,7 +132,7 @@ async function buildKits() {
     // The Pi half is required by Tau's bridge from inside an attached Pi
     // process, which has no toolchain and cannot resolve `tau/*`.
     if (piEntry) {
-      await write(`${manifest.id}/pi.cjs`, await bundlePiExtension(piEntry));
+      await writeNodeBundle(`${manifest.id}/pi.cjs`, await bundlePiExtension(piEntry));
       shippedManifest.pi = "./pi.cjs";
     }
     await write(`${manifest.id}/${MANIFEST_FILE}`, `${JSON.stringify(shippedManifest, null, 2)}\n`);

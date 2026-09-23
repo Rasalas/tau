@@ -18,6 +18,7 @@ import {
 import { CodexAppServer, type CodexAccount, type CodexModel } from "./app-server.js";
 import { codexSessionDirs, importCodexSessions, scanCodexSessions } from "./history-import.js";
 import { codexMcpLaunch } from "./mcp.js";
+import { codexToolArgs } from "./tools.js";
 import { CODEX_BACKEND_KIND, CODEX_HOST_EXTENSION_ID, CODEX_NPM_PACKAGE, MIN_CODEX_VERSION, ONBOARDING_KIT_ID, USAGE_KIT_ID, type CodexStatusReport } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CommandOverride } from "./command-override.js";
@@ -107,8 +108,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const spawnSession = async (input: CodexSessionInput): Promise<CodexSessionLike> => {
         const command = await assertSupported();
         // A thread's session reaches Tau's tools; without the endpoint it still runs, only without them.
-        const mcp = input.threadId ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }).catch(() => undefined) : undefined;
-        const launch = mcp ? codexMcpLaunch(mcp) : { args: [], env: {} };
+        const mcp = input.threadId
+          ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }, input.tools ? { tools: input.tools } : undefined).catch(() => undefined)
+          : undefined;
+        const tau = mcp ? codexMcpLaunch(mcp) : { args: [], env: {} };
+        const launch = { args: [...tau.args, ...(input.tools ? codexToolArgs(input.tools) : [])], env: tau.env };
         const sessionEnv = { ...env, ...launch.env };
         if (options.openSession) return options.openSession({ ...input, command, args: launch.args, env: sessionEnv });
         services.noteSubprocess();
@@ -178,7 +182,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           const entry = await store.get(threadId);
           return entry ? record(entry) : undefined;
         },
-        open: async (threadId, cwd, { resume }, thread) => {
+        restrictsTools: true,
+        open: async (threadId, cwd, { resume, tools }, thread) => {
           await assertSupported();
           const backend = new CodexThreadRuntimeBackend(threadId, cwd, {
             adapter,
@@ -188,6 +193,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             models: cachedModels,
             onModels: (models) => void store.setModels(models).catch(() => undefined),
             permissionLevel: thread.permissionLevel,
+            ...(tools ? { tools } : {}),
             onMessage: thread.onMessage,
             onEvent: thread.onEvent,
             ask: thread.ask,

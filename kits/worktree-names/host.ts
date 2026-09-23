@@ -1,5 +1,5 @@
-import type { HostExtension, HostExtensionContext } from "tau/host-extension";
-import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
+import { HostCommandError, smallCompletionModel, type HostExtension, type HostExtensionContext } from "tau/host-extension";
+import { DESCRIBE_THE_TASK, WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
 
 const SYSTEM_PROMPT = "You name Git branches for coding tasks. Answer with one branch name only: lowercase words joined by hyphens, optionally led by a type such as feat/, fix/, chore/, refactor/ or docs/, then two to five words, at most 40 characters. No quotes, no explanation, no Markdown.";
 
@@ -57,19 +57,23 @@ export function createWorktreeNamesHostExtension(): HostExtension {
         const fields = record(input);
         const provider = text(fields.provider);
         const modelId = text(fields.modelId);
+        const preferred = record(fields.prefer);
+        const prefer = text(preferred.provider) && text(preferred.id) ? { provider: text(preferred.provider), id: text(preferred.id) } : undefined;
         const description = text(fields.description);
         const hint = text(fields.hint);
         const taken = Array.isArray(fields.taken) ? fields.taken.filter((entry): entry is string => typeof entry === "string") : [];
-        if (!description.trim() && !hint.trim()) throw new Error("Describe the task in the composer first, or type the start of a name.");
-        if (services.runtimeOwner() === "pi") throw new Error("Name the worktree yourself while Pi is attached to the runtime.");
+        // Hints to the user, not a broken command: they must not count toward deactivation.
+        if (!description.trim() && !hint.trim()) throw new HostCommandError(DESCRIBE_THE_TASK);
+        if (services.runtimeOwner() === "pi") throw new HostCommandError("Name the worktree yourself while Pi is attached to the runtime.");
         const thread = services.thread();
         if (!thread) throw new Error("Pi runtime is not ready");
-        services.log("worktree-name.started", provider && modelId ? `${provider}/${modelId}` : "default model");
+        const model = provider && modelId ? { provider, id: modelId } : await smallCompletionModel(services, prefer);
+        services.log("worktree-name.started", model ? `${model.provider}/${model.id}` : "default model");
         const answer = await services.complete({
           system: SYSTEM_PROMPT,
           prompt: buildNamingPrompt(description, hint, taken),
           maxTokens: 32,
-        }, provider && modelId ? { provider, id: modelId } : undefined);
+        }, model);
         const branch = branchNameFromSuggestion(answer, taken);
         if (!branch) throw new Error("The model did not answer with a usable branch name.");
         services.log("worktree-name.suggested", branch);

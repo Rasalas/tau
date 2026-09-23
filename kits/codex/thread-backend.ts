@@ -28,6 +28,7 @@ import { approvalDialog, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
 import type { CodexSessionStore, CodexStoredModel } from "./session-store.js";
+import { codexToolsWrite } from "./tools.js";
 
 /** What the backend needs of a live app-server; `CodexAppServer` is the real one. */
 export interface CodexSessionLike {
@@ -49,6 +50,8 @@ export interface CodexSessionInput {
   cwd: string;
   /** The Tau thread the session serves; a probe serves none and gets no Tau tools. */
   threadId?: string;
+  /** The only tools the thread keeps, as Pi names them; every tool when absent. */
+  tools?: readonly string[];
   onNotification(method: string, params: unknown): void;
   onRequest(method: string, params: unknown): Promise<unknown>;
   onExit(error: Error | undefined): void;
@@ -68,6 +71,8 @@ export interface CodexThreadBackendOptions {
   onEvent?(event: ThreadRuntimeEvent): void;
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
   permissionLevel?: () => RuntimePermissionLevel;
+  /** A thread being created keeps only these tools, as Pi names them. */
+  tools?: readonly string[];
   now?(): number;
   timeouts?: { interruptMs?: number };
 }
@@ -158,6 +163,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private observedEffort?: string;
   private modelList: CodexStoredModel[] = [];
   private persisting: Promise<void> = Promise.resolve();
+  /** The only tools this thread keeps, from its record. */
+  private tools?: string[];
 
   constructor(readonly threadId: string, readonly cwd: string, private readonly options: CodexThreadBackendOptions) {
     this.runtimeAdapter = options.adapter;
@@ -179,8 +186,13 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   get providerSessionId(): string { return this.codexThreadId ?? this.threadId; }
 
   async start(mode: "create" | "resume"): Promise<void> {
-    const record = mode === "create" ? await this.store.ensure(this.threadId, this.cwd) : await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
+    let record = mode === "create" ? await this.store.ensure(this.threadId, this.cwd) : await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
     if (record.cwd !== this.cwd) throw new Error("This Codex thread belongs to another workspace.");
+    if (mode === "create" && this.options.tools) {
+      await this.store.setTools(this.threadId, this.cwd, this.options.tools);
+      record = { ...record, tools: [...this.options.tools] };
+    }
+    this.tools = record.tools;
     this.messages = record.messages.map((message, index) => ({
       id: `codex-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
       role: message.role,
@@ -346,7 +358,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         this.settle(turn, "interrupted");
         return {};
       }
-      const level = this.options.permissionLevel?.() ?? "full";
+      const level = this.permissionLevel();
       const id = await live.startTurn({
         threadId: this.codexThreadId!,
         input: turn.input,
@@ -388,6 +400,12 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     turn.finish();
   }
 
+  /** The workbench's level, or read-only for a thread left without a tool that writes. */
+  private permissionLevel(): RuntimePermissionLevel {
+    const level = this.options.permissionLevel?.() ?? "full";
+    return this.tools && !codexToolsWrite(this.tools) ? "read-only" : level;
+  }
+
   /** The live app-server, spawned on demand; the stored thread is resumed, a gone one started afresh. */
   private ensureSession(): Promise<CodexSessionLike> {
     if (this.live && !this.live.closed) return Promise.resolve(this.live);
@@ -396,12 +414,15 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private async openSession(): Promise<CodexSessionLike> {
-    const level = this.options.permissionLevel?.() ?? "full";
+    const level = this.permissionLevel();
     if (level === "ask" && !this.options.ask) throw new Error("Codex cannot ask for approvals on this host; choose read-only or full access.");
     await this.store.ensure(this.threadId, this.cwd);
-    const session: CodexSessionLike = await this.options.openSession({
+    // A process that dies during the handshake exits before `session` is assigned.
+    let session: CodexSessionLike | undefined;
+    session = await this.options.openSession({
       cwd: this.cwd,
       threadId: this.threadId,
+      ...(this.tools ? { tools: this.tools } : {}),
       onNotification: (method, params) => this.onNotification(method, params),
       onRequest: (method, params) => this.onRequest(method, params),
       onExit: (error) => this.onExit(session, error),
@@ -490,8 +511,10 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     return dialog.resultFor(answers);
   }
 
-  private onExit(session: CodexSessionLike, error: Error | undefined): void {
-    if (this.live === session) this.live = undefined;
+  /** Only the live session's exit settles a turn; one that dies while opening fails the open instead. */
+  private onExit(session: CodexSessionLike | undefined, error: Error | undefined): void {
+    if (!session || this.live !== session) return;
+    this.live = undefined;
     const turn = this.turns[0];
     if (!error && !turn) return;
     if (error) this.report({ type: "notice", message: error.message, level: "error" });

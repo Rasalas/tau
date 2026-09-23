@@ -81,7 +81,8 @@ function gitHead(dir) {
 export const tau = {
   id: "tau",
   label: "Tau",
-  defaultRoot: () => realTmp("tau-harness-home"),
+  // COMPARE_TAU_ROOT lets parallel checkouts keep their own profiles.
+  defaultRoot: () => process.env.COMPARE_TAU_ROOT || realTmp("tau-harness-home"),
   sourceDir: TAU_ROOT,
   describe() {
     return {

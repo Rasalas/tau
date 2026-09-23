@@ -124,6 +124,18 @@ describe("the host's MCP endpoint", () => {
     expect(new Set(seen)).toEqual(new Set(["thread-a", "thread-b"]));
   });
 
+  it("offers a thread started with a tool list only those tools", async () => {
+    const runs: unknown[] = [];
+    const { mcp } = endpoint({ providers: [() => [echo("tau_echo", (_thread, input) => runs.push(input)), echo("tau_other")]] });
+    const session = await connectClient((await mcp.connect({ sessionId: "thread-a", cwd: "/project" }, { tools: ["tau_echo", "read"] }))!);
+    expect((await session.listTools()).tools.map((tool) => tool.name)).toEqual(["tau_echo"]);
+    const refused = await session.callTool({ name: "tau_other", arguments: { text: "x" } });
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toContain('no tool "tau_other"');
+    expect(text(await session.callTool({ name: "tau_echo", arguments: { text: "y" } }))).toContain("y");
+    expect(runs).toEqual([{ text: "y" }]);
+  });
+
   it("follows registration: a provider that leaves takes its tools along", async () => {
     const { mcp, providers } = endpoint();
     const provider: HostMcpToolProvider = () => [echo("tau_echo")];

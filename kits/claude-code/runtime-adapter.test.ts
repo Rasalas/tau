@@ -102,6 +102,16 @@ describe("Claude Code runtime adapter", () => {
     });
   });
 
+  it("restricts a thread to the tools it was given, Claude's own by their Pi names, and to Tau's MCP server alone", () => {
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    expect(claudeQueryOptions(plan)).not.toHaveProperty("tools");
+    expect(claudeQueryOptions(plan)).not.toHaveProperty("strictMcpConfig");
+    const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
+    const restricted = claudeQueryOptions({ ...plan, mcpServer, tools: ["read", "grep", "find", "ls", "WebFetch", "tau_spawn_thread", "unknown"] });
+    expect(restricted).toMatchObject({ tools: ["Read", "Grep", "Glob", "WebFetch"], strictMcpConfig: true, mcpServers: { tau: expect.any(Object) } });
+    expect(claudeQueryOptions({ ...plan, tools: ["tau_list_threads"] })).toMatchObject({ tools: [], strictMcpConfig: true });
+  });
+
   it("collects the main loop's text, skips sub-agent frames and the resume handshake", async () => {
     async function* frames(): AsyncGenerator<SDKMessage> {
       yield init();

@@ -11,6 +11,7 @@ import {
   type HostPush,
   type HostResponse,
 } from "../shared/host-transport";
+import { MessageTextStream } from "./message-text-stream";
 import { ToolOutputStream, isWireEvent } from "./tool-output-stream";
 
 /**
@@ -68,6 +69,7 @@ export class HostConnection {
   /** A job that finished before its `start-job` response arrived. */
   private readonly earlyJobResults = new Map<string, HostJobEvent>();
   private readonly toolOutputs = new ToolOutputStream();
+  private readonly messageTexts = new MessageTextStream();
 
   constructor(private readonly transport: HostTransport) {
     transport.onPush((push) => this.receive(push));
@@ -188,7 +190,9 @@ export class HostConnection {
 
   private apply(push: HostPush): void {
     this.lastSeq = push.seq;
-    const event = this.toolOutputs.receive(push);
+    const withText = this.messageTexts.receive(push);
+    if (this.messageTexts.lost && !this.recovering) void this.recover();
+    const event = withText && this.toolOutputs.receive({ seq: push.seq, event: withText });
     if (!event || isWireEvent(event)) return;
     if (!isHostJobEvent(event)) {
       for (const listener of this.eventListeners) listener(event);
@@ -208,22 +212,29 @@ export class HostConnection {
     else job.resolve(event.result);
   }
 
-  /** Repairs a gap: replay what the host still has, otherwise refetch everything. */
+  /**
+   * Repairs a gap: replay what the host still has, otherwise refetch everything. A text this
+   * client lacks starts it over as a new client, so the host sends whole texts again.
+   */
   private async recover(): Promise<void> {
     if (this.recovering) return;
     this.recovering = true;
     this.setState("reconnecting");
+    const restart = this.messageTexts.lost;
+    this.messageTexts.lost = false;
     try {
-      await this.hello(this.lastSeq);
+      await this.hello(restart ? undefined : this.lastSeq, restart);
     } catch {
+      if (restart) this.messageTexts.lost = true;
       this.setState("reconnecting");
     } finally {
       this.recovering = false;
       this.drain();
     }
+    if (this.messageTexts.lost && this.state === "connected") void this.recover();
   }
 
-  private async hello(lastSeq: number | undefined): Promise<HostHelloReply | undefined> {
+  private async hello(lastSeq: number | undefined, restart = false): Promise<HostHelloReply | undefined> {
     const reply = decodeHostHelloReply(await this.request<unknown>("hello", [{
       protocol: HOST_TRANSPORT_VERSION,
       ...(lastSeq === undefined ? {} : { lastSeq }),
@@ -238,17 +249,23 @@ export class HostConnection {
     if (lastSeq === undefined) {
       // A first connection starts from the bootstrap it is about to fetch.
       this.lastSeq = reply.nextSeq - 1;
+      if (restart) await this.startOver();
       this.setState("connected");
       return reply;
     }
     for (const push of reply.missed) if (push.seq > this.lastSeq) this.apply(push);
     if (reply.resync) {
       this.lastSeq = reply.nextSeq - 1;
-      this.toolOutputs.clear();
-      await this.resync();
+      await this.startOver();
     }
     this.setState("connected");
     return reply;
+  }
+
+  private async startOver(): Promise<void> {
+    this.toolOutputs.clear();
+    this.messageTexts.clear();
+    await this.resync();
   }
 
   /** Refetches the bootstrap and republishes it as the updates a client already applies. */

@@ -431,6 +431,8 @@ export function createAgentsHostExtension(options: {
             title: agent.title,
             ...(agent.model ? { model: parseModel(agent.model) } : {}),
             ...(definition?.runtime ? { backend: definition.runtime } : {}),
+            // Pi's tools are narrowed by this kit's runtime extension; another runtime narrows its own or refuses.
+            ...(definition?.tools && !piRuntime ? { tools: definition.tools } : {}),
             parent: {
               threadId: agent.parentThreadId,
               details: { ...linkData(agent), ...(definition && piRuntime ? { [AGENT_PERSONA_FIELD]: personaOf(definition) } : {}) },

@@ -87,6 +87,33 @@ describe("useWorkbenchActions", () => {
     expect(result.current).toBe(firstActions);
   });
 
+  it("describes a pending draft by the runtime and model it will start with", () => {
+    const draft = { kind: "draft" as const, draftId: "d1", projectPath: "/p", workspaceId: "ws-2", projectName: "p" };
+    const codexThread = { sessionId: "sess-1", workspaceId: "ws-1", backendKind: "codex", model: { provider: "openai", id: "gpt-5.6-sol" } } as HostSnapshot;
+    const preferences = (newThreadRuntime?: string) => ({ getSnapshot: () => ({ newThreadRuntime }) }) as any;
+
+    // The last thread ran on Codex; a Pi draft does not inherit its model.
+    const pi = renderHook(() => useWorkbenchActions(createMockOptions({ snapshot: codexThread, pendingNewThread: draft, newThreadDeliveryPending: true }))).result.current;
+    expect(pi.activeThread()).toEqual({ cwd: "/path/to/project", workspaceId: "ws-2", backendKind: "pi", draftPending: true });
+
+    const chosen = { ...draft, model: { provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" } };
+    const picked = renderHook(() => useWorkbenchActions(createMockOptions({ snapshot: codexThread, pendingNewThread: chosen, newThreadDeliveryPending: true }))).result.current;
+    expect(picked.activeThread()?.model).toEqual({ provider: "anthropic", id: "claude-haiku-4-5" });
+
+    // A Pi thread's model is what an untouched Pi draft shows and starts with.
+    const fromPi = renderHook(() => useWorkbenchActions(createMockOptions({ pendingNewThread: draft, newThreadDeliveryPending: true }))).result.current;
+    expect(fromPi.activeThread()?.model).toEqual({ provider: "anthropic", id: "claude-3-7-sonnet" });
+
+    const onCodex = renderHook(() => useWorkbenchActions(createMockOptions({
+      snapshot: { ...codexThread, runtimeBackends: [{ kind: "codex", label: "Codex" }] } as HostSnapshot,
+      pendingNewThread: draft,
+      newThreadDeliveryPending: true,
+      preferences: preferences("codex"),
+    }))).result.current;
+    expect(onCodex.activeThread()).toMatchObject({ backendKind: "codex" });
+    expect(onCodex.activeThread()?.model).toBeUndefined();
+  });
+
   it("delegates setModel query search and resolves target model", async () => {
     const setComposerModel = vi.fn();
     const options = createMockOptions({ setComposerModel });

@@ -551,13 +551,15 @@ The expected state is the one a client should have: every tool as
 `src/main/client-tool-output.ts` shapes it (a live tail, a deferred output).
 It is Tau's counterpart of T3 Code's `TransferBudgetReport` gate.
 
-Two scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
+Three scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
 GPT-5.6 Luna turn recorded from a Tau host on 2026-09-23: thinking, a bash tool
 printing 200 lines that Pi reports every 100 ms, a two-sentence answer streamed
 per token, and the settle with its thread detail. **heavy-turn** is generated
 in the test in the spirit of T3's fixture: 1.2 KB of thinking, twenty tools with
 1 KB output each, one tool streaming 1.1 MB through the host's 128 KB tail
-window, and a 4 KB answer, at a model's pace.
+window, and a 4 KB answer, at a model's pace. **answer-turn** is all answer,
+like the comparison harness's replay: 150 KB of text in 200-character deltas
+every 16 ms, then the settle and its detail.
 
 Same fixtures, before (`4a7f515`) and after this change:
 
@@ -615,6 +617,32 @@ messages, 232,788 decoded and 233,284 wire bytes before, and 99 messages, 60,236
 decoded and 5,945 wire bytes after. Those counts include a few pushes unrelated
 to the turn (the instance's theme watcher), which the fixture leaves out.
 
+**Answer text once (D22).** `assistant-end` now refers to the text its
+message streamed (`assistant-end-delta`) and a detail to the `assistant-end`
+that carried a message's text (`thread-detail-compact` with `texts`)
+([host-protocol.md](host-protocol.md#answer-text-travels-once)). Same fixtures,
+before (`e15791a`) and after:
+
+| scenario | wire bytes | decoded bytes | messages |
+| --- | ---: | ---: | ---: |
+| recorded turn, before | 5,669 | 40,346 | 98 |
+| recorded turn, after | 5,701 | 40,258 | 98 |
+| heavy turn, before | 130,525 | 553,323 | 475 |
+| heavy turn, after | 130,093 | 543,992 | 475 |
+| answer turn, before | 122,594 | 482,221 | 196 |
+| answer turn, after | 47,251 | 178,856 | 196 |
+
+The recorded turn's answer is 92 characters and its thinking 41, so little
+changes there; its wire bytes moved by 32 within the deflate noise and its
+wire budget stays at 6,500, since 15 % over would raise it. The answer turn
+now costs about the answer once plus 19 % of framing, where it cost the
+answer three times. The other budgets are the after column plus about 15 %,
+messages as before. The test also checks that a client joining in the middle
+of the answer receives its end whole and ends with the same transcript. In
+the comparison harness the replayed turn went from 645.6 to 345.7 KiB
+(median of three runs each, 324 messages both); `replay.wire.receivedKiB` is
+now 398.
+
 ### Metadata commands without a snapshot
 
 `setModel` and `setThinkingLevel` used to build the whole host snapshot, which
@@ -655,6 +683,86 @@ After, both threads measure 8–10 ms median; what is left is the 77 KB catalog
 the reply carries (every model the machine can use) and the socket. Picking a
 model in that thread's composer changes the picker's label 15–30 ms after the
 click.
+
+### Host process memory at idle
+
+The comparison harness below had Tau's host process at about 100 MiB more than
+T3's server at idle. Heap snapshots of the host after the harness fixture was
+imported (`--heapsnapshot-signal`, then the inspector for each kit worker)
+attributed its memory like this, on `ae88cee`:
+
+- **Garbage and a grown young generation, about 110 MiB.** 182 MiB of V8 heap
+  held 72 MiB of live objects. Start-up allocates heavily (kit bundles, the
+  desktop halves the host sends, the model catalog, session files), and Node
+  runs no GC while a process is idle, so none of it came back.
+- **Inline source maps of the kits' Node halves, about 17 MiB.** 9.6 of the
+  12.8 MB of `host.cjs`, `window.cjs` and `pi.cjs` were maps. V8 keeps a
+  module's source and, separately, its `sourceMappingURL`, so each map sat in
+  the heap twice; Node does not read them without `--enable-source-maps`.
+- **The models.dev catalog, 5.5 MiB**, parsed whole and kept for an hour,
+  though runtimes read only the `opencode` and `opencode-go` entries.
+- **Six kit workers, 60 to 70 MiB** (a worker isolate costs 7.5 MiB before it
+  loads anything; each measured 9 MiB of heap and 5 MiB external).
+- The rest is module code: 24 MiB of source, 11 MiB of it Pi's 1,416 modules
+  (its interactive TUI included), and 5.4 MiB for jiti's Babel, which Pi's
+  extension loader imports eagerly.
+
+A Pi runtime retained 0.2 MiB of its own in the fixture. For a large thread it
+holds about the session file's size (1.6 MiB for a 1.6 MB session in a probe
+with four such threads).
+
+What changed:
+
+- `IdleHeapCompactor` (`src/main/host-idle-compaction.ts`) runs one
+  memory-reducing collection when the host process has had no call and no push
+  for a second (a Files tab polls every two) and its heap grew by 32 MiB since
+  the last one. It took 26 to
+  79 ms in the harness and the isolated instance (for example "190 → 108 MiB in
+  71 ms" in `host-process.log`).
+- Kit halves that run in Node keep their map in `<file>.map` beside the module,
+  in `dist-kits/` and in the host's bundle cache.
+- The catalog keeps only the two providers Tau registers.
+- A runtime nobody used for ten minutes is released under the eviction guards
+  (`ThreadRuntimeRegistry.releaseIdle`, through the lifecycle queue). A turn
+  that starts or ends counts as use.
+
+Harness, tier A fixture, one warm-up and three runs each, before (`ae88cee`,
+built in a copy) and after on the same machine, run one after the other (load
+average 10 to 24, memory pressure). `reports/compare-20260923-host-memory-before.json`
+and `-after.json` hold the runs. Footprint is macOS's physical footprint; RSS
+dropped as low as 27 MiB under pressure and is not comparable.
+
+| metric (median / p95) | before | after |
+| --- | ---: | ---: |
+| host process footprint, idle (MiB) | 294 / 296 | 170 / 178 |
+| host process footprint, 5 s after the turn (MiB) | 314 / 331 | 181 / 187 |
+| whole tree footprint, idle (MiB) | 708 / 710 | 522 / 532 |
+| whole tree footprint, after the turn (MiB) | 873 / 953 | 690 / 699 |
+
+The host's V8 heap at idle went from 182 MiB total (72 live) to 51 total (48
+live). In an isolated instance with the user's own Pi setup, after two Luna
+turns in two threads, the live heap went from 137 to 109 MiB and the footprint
+from 292 and 332 MiB (two runs) to 281 and 258 MiB; that host carries the user's
+Pi packages in every runtime. Reopening a thread whose runtime was released took
+457 ms in that instance (171 ms before-open, 285 ms to create the runtime), a
+switch to a live runtime 32 ms. In `npm run benchmark:host`, `reopen-released`
+measured 9 ms median in Safe Mode and 22 ms in Full Mode, against 12 and 23 ms
+for a warm switch.
+
+Checks that catch a regression:
+
+- `npm run benchmark:host:check` reports `idleHeapMiB`, the heap left after a
+  compaction at the end of the run, and holds Safe Mode to 70 MiB
+  (`hostIdleHeapSafeMiB`; 57 to 60 MiB measured). Full Mode reads the user's own
+  Pi setup (127 to 132 MiB here) and is reported without a budget.
+- `npm run benchmark:compare -- --apps tau --check` holds the host process's
+  idle footprint to 200 MiB (`idleMemory.footprintByRoleMiB.backend` in
+  `scripts/compare/budgets.json`). It needs macOS's `footprint`.
+
+Not done: the six kit workers are now the largest owner after module code.
+Sharing one worker among the kits Tau ships would save about 40 MiB, but a
+wedged kit would then stop the others: it gives up the per-package containment
+ADR 0018 describes, which needs a decision first.
 
 ## T3 Code comparison
 
@@ -729,7 +837,9 @@ npm run benchmark:compare -- --seed             # first time: import the fixture
 npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (745 KiB and 360 messages today, about 15 % above the measurement after D17). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (398 KiB and 360 messages today, about 15 % above the measurement after D22). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
+
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (2,100 KiB and 360 messages today) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once.
 
 ### First results (2026-09-23)
 

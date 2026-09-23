@@ -61,6 +61,37 @@ function sameActivityLayout(previous: ActivityLayoutSnapshot, activities: readon
   });
 }
 
+interface RowMeasurer {
+  measureElement(node: HTMLElement | null): void;
+}
+
+/**
+ * virtual-core 3.13 hands a removed row's late resize to the row now at its index and stops
+ * observing that row (a settled turn remounts under persisted ids); this keeps measuring it.
+ */
+function useRowMeasurement(virtualizer: RowMeasurer): (node: HTMLDivElement | null) => (() => void) | undefined {
+  const latest = useRef(virtualizer);
+  useLayoutEffect(() => { latest.current = virtualizer; }, [virtualizer]);
+  const [observer] = useState(() => typeof ResizeObserver === "undefined"
+    ? undefined
+    : new ResizeObserver((entries) => {
+      const rows = entries.map((entry) => entry.target as HTMLElement);
+      requestAnimationFrame(() => {
+        for (const row of rows) if (row.isConnected) latest.current.measureElement(row);
+      });
+    }));
+  return useCallback((node: HTMLDivElement | null) => {
+    if (!node) return undefined;
+    latest.current.measureElement(node);
+    observer?.observe(node, { box: "border-box" });
+    return () => {
+      observer?.unobserve(node);
+      // What a `null` ref did before: forget rows that left the document.
+      latest.current.measureElement(null);
+    };
+  }, [observer]);
+}
+
 export interface TranscriptVisibleRange {
   startIndex: number;
   endIndex: number;
@@ -175,6 +206,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   useLayoutEffect(() => {
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
   }, [virtualizer]);
+  const measureRow = useRowMeasurement(virtualizer);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const activityLayout = useRef<ActivityLayoutSnapshot>({
@@ -406,7 +438,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       const anchoredActivities = activitiesByMessage.get(message.id) ?? [];
       return <div
         key={message.id}
-        ref={virtualizer.measureElement}
+        ref={measureRow}
         data-index={row.index}
         data-message-id={message.id}
         data-focused={focusedIndex === row.index ? "true" : undefined}

@@ -1,7 +1,8 @@
 {
   "tau": {
-    "replay.wire.receivedKiB": 2100,
-    "replay.wire.received": 360
+    "replay.wire.receivedKiB": 398,
+    "replay.wire.received": 360,
+    "idleMemory.footprintByRoleMiB.backend": 200
   },
   "tauLargeThread": {
     "open.newestTurnMs": 2500,

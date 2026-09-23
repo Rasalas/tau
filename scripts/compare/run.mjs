@@ -324,8 +324,9 @@ async function seed(app, root, turnFile) {
 }
 
 /**
- * Tau's own transfer budget per replayed turn (budgets.json): the medians
- * must stay at or under it. Timing is not gated here; it depends on the machine.
+ * Tau's own budgets (budgets.json): transfer per replayed turn and the host's
+ * idle footprint (macOS). The medians must stay at or under them. Timing is
+ * not gated here; it depends on the machine.
  */
 export function evaluateBudgets(aggregate, budgets) {
   const failures = [];
@@ -344,6 +345,8 @@ export function markdownTable(report) {
     ["rail + composer ready (ms)", "startup.interactiveMs"],
     ["memory idle, whole tree (MiB)", "idleMemory.totalMiB"],
     ["memory idle, host/server process (MiB)", "idleMemory.byRoleMiB.backend"],
+    ["footprint idle, whole tree (MiB, macOS)", "idleMemory.footprintMiB"],
+    ["footprint idle, host/server process (MiB, macOS)", "idleMemory.footprintByRoleMiB.backend"],
     ["renderer JS heap idle (MiB)", "idleMemory.rendererHeapMiB"],
     ["open 100-turn thread: first rows visible (ms)", "openLarge.ms"],
     ["load the rest of its history (pages · ms)", "openLarge.history.pages", "openLarge.history.ms"],
@@ -463,7 +466,7 @@ async function main() {
     const budgets = JSON.parse(readFileSync(fileURLToPath(new URL("./budgets.json", import.meta.url)), "utf8")).tau;
     const failures = evaluateBudgets(report.aggregate.tau, budgets);
     if (failures.length) {
-      console.error(`Transfer budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
+      console.error(`Budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
       process.exitCode = 1;
     }
   }

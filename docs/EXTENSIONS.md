@@ -734,9 +734,10 @@ and cost the thread index carries and a "Take over" button, while the composer
 goes on addressing the thread it was already addressing. Both take
 `{ pin: true }` for a tab the next preview must not replace. Agents Kit opens a
 spawned thread that way rather than switching to it. A thread reads whether or
-not the host still holds a runtime for it: runtimes are capped and idle ones are
-released oldest first, so a released thread's transcript is projected from its
-session file, with the same paging, cursors and client-message correlation.
+not the host still holds a runtime for it: runtimes are capped, idle ones are
+released oldest first, and one nobody used for ten minutes is released too, so a
+released thread's transcript is projected from its session file, with the same
+paging, cursors and client-message correlation.
 
 `actions.newSession()` opens the project picker for a new thread, as the rail's
 button does. `actions.newSession({ workspace })` puts a new thread's draft
@@ -967,7 +968,7 @@ permission and isolation vocabularies, the `PiShortcut` and `PiUserKeybindings`
 types that `HostThread.shortcuts` and `runShortcut` speak, the workspace
 vocabulary core renders itself (`src/shared/workspace-kit-types.ts`:
 changed files, diffs, worktrees, editors), `HostActionResult`, `WorkspaceRef`,
-`isWorkspaceRelativePath`, `gitExecutable`/`findExecutable`,
+`isWorkspaceRelativePath`, `smallCompletionModel`/`isSmallModel`, `gitExecutable`/`findExecutable`,
 `commandInvocation`/`killProcessTree` (how to start a command and end what
 it started on this platform: on Windows `findExecutable` resolves through
 PATHEXT, a `.cmd` shim such as `npm.cmd` or `code.cmd` runs through `cmd.exe`
@@ -1043,7 +1044,18 @@ about which model should name it, and a thread whose runtime cannot complete
 would otherwise go unnamed. It needs the `sessions` permission. The models it accepts are the snapshot's
 `completionModels`, which a `kind: "model"` option offers the user; they are the
 same list whatever runtime owns the visible thread, while `models` stays that
-thread's own.
+thread's own. A host half reads the same list with `completionModels()` (new in
+API 1.11.0, `sessions`, in-process only; absent on an older host).
+`smallCompletionModel(services, prefer)` from `tau/host-extension` (API
+1.11.0) picks a small model from it — `isSmallModel(id)` knows the tiers by id
+(`haiku`, `mini`, `flash`, `luna`, …) — the one closest to `prefer`: same
+provider first, then the longest shared id, so a thread on `gpt-5.6-sol` gets
+`gpt-5.6-luna`; `undefined` when none is small, which leaves `complete` on
+the default. Thread Title Generator and Worktree Names take the model their
+setting names, else this pick with the thread's or draft's model as `prefer`,
+for a thread of any runtime. `HostThread.model` (new in API 1.11.0) is that
+model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
+— so a thread whose draft named none still gives the hint.
 
 A registered backend's `label` is what the workbench calls it where a new
 thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
@@ -1073,7 +1085,12 @@ both; Antigravity reports the release it pins.
 `backend`. `backend` is the kind the thread runs on — `"pi"`, the default, or
 any registered kind — and a kind nobody registered is refused before anything
 is created. A model is applied through the runtime's `catalogWrite`
-capability, so a runtime without model selection refuses one. `parent` is
+capability, so a runtime without model selection refuses one. `tools` (new in
+API 1.11.0) keeps the thread to those tools for its whole life, named as Pi
+names them (`read`, `bash`, `tau_spawn_thread`); it is for a backend whose
+provider sets `restrictsTools` and receives the list in `open(threadId, cwd,
+{ resume: false, tools })`. Any other backend — Pi included, whose tools a
+runtime extension sets — is refused before anything is created. `parent` is
 written into a Pi thread's session file; a thread of another backend has no
 such file, so the host keeps its link in the index for as long as it runs and
 the extension that asked for it is the durable record. Agents Kit starts a
@@ -1091,14 +1108,23 @@ credential per thread.
 |---|---|
 | `registerTools(provider)` | `provider(thread)` answers the tools for one thread (`{ sessionId, cwd }`) as Pi `ToolDefinition`s — the very objects the kit registers with `pi.registerTool`. It is asked on every list and every call, with the thread the credential names and no other. Over MCP `execute` gets no `ExtensionContext`: its last argument is `undefined`. Arguments are validated against `parameters` the way Pi validates them, and `executionMode: "sequential"` runs one call of that thread at a time. Returns the disposer. |
 | `gate(gate)` | Runs before each call with `{ threadId, cwd, toolName, input, signal, confirm(title, message) }`; answering `{ block: true, reason }` refuses the call with that text. `confirm` is a yes/no question on the thread's own dialog surface. A gate that throws blocks. Access Kit's gate is the shipped one. |
-| `connect(thread)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
+| `connect(thread, options?)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). `options.tools` narrows what the credential lists and calls to those names, for a thread started with `tools`. The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
 
 The three runtime kits are the reference: Codex passes the entry as
 `codex app-server -c mcp_servers.tau.…` overrides with the token in the
 process environment (`bearer_token_env_var`), the Agent SDK runtime as an
 `http` entry of `mcpServers`, Antigravity as an ACP `http` server on
-`session/new` and `session/resume`. Each lets Tau's gate ask instead of asking
-again itself. Preview Kit and Agents Kit offer their tools this way.
+`session/new` and `session/resume` (agy_acp_server 1.1.1 announces
+`mcpCapabilities: { http: true, sse: true }`; an agent that does not announce a
+transport is not sent servers of it). Each lets Tau's gate ask instead of
+asking again itself. Preview Kit and Agents Kit offer their tools this way.
+
+A thread started with `tools` keeps them on every runtime that can: Codex
+switches off its shell, web search, image viewing, image generation, apps and
+plugins as the list leaves them out (`kits/codex/tools.ts`) and runs read-only
+without `bash`, `edit` or `write`; the Agent SDK runtime gets Claude's own tools by their Pi
+names (`read` → `Read`, `find` → `Glob`, …) and no MCP server but Tau's.
+Antigravity cannot restrict its tools and refuses such a thread.
 
 ### Lifecycle hooks a host half may step into
 

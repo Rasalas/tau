@@ -153,6 +153,26 @@ describe("PiHost background starts on another runtime backend", () => {
     await vi.waitFor(() => { expect(bench.delivered).toContain(`${started.sessionId}:hello`); });
   });
 
+  it("hands a tool list to a backend that restricts its tools, and refuses it for any other", async () => {
+    const bench = hostWithHeldStarts();
+    const opened: unknown[] = [];
+    bench.internals.seam.backends.set("strict", { kind: "strict", restrictsTools: true });
+    bench.internals.seam.backends.set("loose", { kind: "loose", label: "Loose" });
+    bench.internals.runtimes.openExternal = async (_kind: string, threadId: string, _cwd: string, options: unknown) => {
+      opened.push(options);
+      return fakeThread(threadId, bench.delivered);
+    };
+    await bench.internals.startThread({ cwd: "/repo", prompt: "hello", backend: "strict", tools: ["read", "tau_spawn_thread"] });
+    expect(opened).toEqual([{ resume: false, adopt: false, tools: ["read", "tau_spawn_thread"] }]);
+
+    await expect(bench.internals.startThread({ cwd: "/repo", prompt: "hello", backend: "loose", tools: ["read"] }))
+      .rejects.toThrow("The Loose runtime cannot restrict its tools.");
+    await expect(bench.internals.startThread({ cwd: "/repo", prompt: "hello", tools: ["read"] }))
+      .rejects.toThrow("The pi runtime cannot restrict its tools when a thread starts");
+    expect(opened).toHaveLength(1);
+    expect(bench.inFlight()).toBe(0);
+  });
+
   it("refuses a backend nobody registered before it creates anything", async () => {
     const bench = hostWithHeldStarts();
     await expect(bench.internals.startThread({ cwd: "/repo", prompt: "hello", backend: "missing" }))

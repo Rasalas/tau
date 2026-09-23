@@ -26,8 +26,8 @@ describe("branch names from model answers", () => {
 });
 
 describe("Worktree Names host extension", () => {
-  const registryWith = (thread: HostThread | undefined, complete = vi.fn(async () => "x"), owner: "tau" | "pi" = "tau") =>
-    activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread, complete });
+  const registryWith = (thread: HostThread | undefined, complete = vi.fn(async () => "x"), owner: "tau" | "pi" = "tau", models: Array<{ provider: string; id: string; name: string }> = []) =>
+    activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread, complete, completionModels: async () => models });
 
   const anyThread = (backendKind = "pi") => ({ backendKind }) as unknown as HostThread;
 
@@ -49,6 +49,25 @@ describe("Worktree Names host extension", () => {
     await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { description: "Add Gemini notes" }))
       .resolves.toEqual({ branch: "add-gemini-notes" });
     expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toBeUndefined();
+  });
+
+  it("never names a branch on the draft's large model", async () => {
+    const complete = vi.fn(async () => "fix-queue");
+    const registry = await registryWith(anyThread(), complete, "tau", [
+      { provider: "openai-codex", id: "gpt-5.6-sol", name: "Sol" },
+      { provider: "openai-codex", id: "gpt-5.6-luna", name: "Luna" },
+    ]);
+    await registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { prefer: { provider: "openai-codex", id: "gpt-5.6-sol" }, description: "Fix the queue" });
+    expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
+  });
+
+  it("answers a missing task as a hint that never switches the kit off", async () => {
+    const registry = await registryWith(anyThread());
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { description: "" })).rejects.toThrow(/Describe the task/u);
+    }
+    expect(registry.isActive(WORKTREE_NAMES_HOST_EXTENSION_ID)).toBe(true);
+    expect(registry.summaries().find((entry) => entry.id === WORKTREE_NAMES_HOST_EXTENSION_ID)?.error).toBeUndefined();
   });
 
   it("refuses without a task or a thread", async () => {
