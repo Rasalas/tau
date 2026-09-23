@@ -84,5 +84,7 @@ describe("ThreadLimits", () => {
     await vi.advanceTimersByTimeAsync(6 * 60_000);
     expect(after.resumed).toEqual(["t"]);
     expect(before.resumed).toEqual([]);
+    // The resume rewrites the file; let that write land before the folder goes.
+    await after.limits.flush();
   });
 });
