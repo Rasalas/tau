@@ -44,6 +44,7 @@ function defaults(): HostClient {
 
     loadTranscript: async (sessionId) => ({ sessionId, messages: [], hasMore: false }),
     readToolOutput: async () => undefined,
+    toolOutput: async () => undefined,
     copyThreadMarkdown: async () => undefined,
     readImagePreview: async () => undefined,
     shareFile: async (path: string) => { throw new Error(`No file is shared in a test: ${path}`); },

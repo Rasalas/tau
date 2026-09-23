@@ -27,6 +27,7 @@ import type {
   CustomProviderConfig,
   CustomProviderInput,
   SystemPromptInspection,
+  UiToolOutputPreview,
 } from "../shared/contracts.js";
 import { addModelProvider, loadModelsConfig } from "./models-config.js";
 import { discoverPromptOverrides } from "./system-prompt-resolver.js";
@@ -90,6 +91,7 @@ import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { requireCapability } from "./runtime-types.js";
 import { localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
+import { clientTranscript } from "./client-tool-output.js";
 import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
@@ -790,14 +792,14 @@ export class PiHost {
   async getThreadDetail(cursor?: HostTranscriptCursor): Promise<TranscriptPage | ThreadDetail> {
     const snapshot = await this.snapshot();
     const result = cursor !== undefined
-      ? localTranscriptPage(
+      ? clientTranscript(localTranscriptPage(
         snapshot.sessionId,
         snapshot.messages,
         snapshot.taskHistory,
         snapshot.turnActivityHistory,
         snapshot.turnActivityHistoryComplete,
         cursor,
-      )
+      ))
       : this.detailForSnapshot(snapshot);
     this.lifecycleMetrics.recordIpc(result);
     return result;
@@ -806,7 +808,7 @@ export class PiHost {
   async loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
     const thread = this.threadFor(sessionId);
     if (!thread) {
-      const result = await this.releasedTranscript(sessionId, cursor);
+      const result = clientTranscript(await this.releasedTranscript(sessionId, cursor));
       this.lifecycleMetrics.recordIpc(result);
       return result;
     }
@@ -825,6 +827,7 @@ export class PiHost {
         cursor,
       );
     }
+    result = clientTranscript(result);
     this.lifecycleMetrics.recordIpc(result);
     return result;
   }
@@ -848,6 +851,22 @@ export class PiHost {
       : readLocalToolOutput(this.projection.branchMessages(thread), toolCallId);
     this.lifecycleMetrics.recordIpc(result);
     return result;
+  }
+
+  /** A deferred tool's output as the transcript would have carried it; `clientToolRun` held it back. */
+  async toolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputPreview | undefined> {
+    if (!toolCallId) throw new Error("A tool call id is required.");
+    const thread = this.threadFor(sessionId);
+    if (thread && !isPiBackend(thread)) {
+      const tool = [thread.tools.get(toolCallId), ...thread.adapterActivity.flatMap((entry) => entry.tools).reverse()]
+        .find((candidate) => candidate?.id === toolCallId);
+      if (tool?.output === undefined) return undefined;
+      return { toolCallId, output: tool.output, ...(tool.outputTruncated ? { outputTruncated: true } : {}), ...(tool.fullOutputAvailable ? { fullOutputAvailable: true } : {}) };
+    }
+    const read = await this.readToolOutput(sessionId, toolCallId);
+    if (!read) return undefined;
+    const output = boundedToolOutput(read.output);
+    return { toolCallId, output, ...(output !== read.output ? { outputTruncated: true, fullOutputAvailable: true } : {}) };
   }
 
   /**
