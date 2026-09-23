@@ -1,5 +1,5 @@
-import type { HostEvent } from "./contracts.js";
-import { isHostUpdate } from "./host-protocol.js";
+import type { HostEvent, UiToolRun } from "./contracts.js";
+import { isHostUpdate, type HostUpdate } from "./host-protocol.js";
 import type { ToolOutputDelta } from "./tool-output-delta.js";
 
 /**
@@ -74,8 +74,31 @@ export interface HostToolOutputDeltaEvent extends ToolOutputDelta {
   after: number;
 }
 
+/**
+ * A `tool-end` whose output is a change to the output the push numbered
+ * `after` carried, usually none. `length` is the output's length, for a client
+ * that never saw that push: it shows the output as deferred and loads it.
+ */
+export interface HostToolEndDeltaEvent extends ToolOutputDelta {
+  type: "tool-end-delta";
+  sessionId: string;
+  /** The tool without its `output`. */
+  tool: UiToolRun;
+  after: number;
+  length: number;
+}
+
+/** A `thread-detail` update whose `turnActivity` is its last `turnActivityHistory` entry, sent once. */
+export interface HostCompactThreadDetailEvent {
+  type: "thread-detail-compact";
+  update: Extract<HostUpdate, { type: "thread-detail" }>;
+}
+
+/** Events only the transport speaks; `HostConnection` turns them back into `HostEvent`s. */
+export type HostWireEvent = HostToolOutputDeltaEvent | HostToolEndDeltaEvent | HostCompactThreadDetailEvent;
+
 /** Everything a host pushes: workbench events and job progress share one sequence. */
-export type HostPushEvent = HostEvent | HostJobEvent | HostToolOutputDeltaEvent;
+export type HostPushEvent = HostEvent | HostJobEvent | HostWireEvent;
 
 export interface HostPush {
   seq: number;
@@ -204,6 +227,12 @@ function isToolOutputDelta(item: Record<string, unknown>): boolean {
     && count(item.keep) && count(item.drop) && typeof item.text === "string";
 }
 
+function isToolEndDelta(item: Record<string, unknown>): boolean {
+  const tool = record(item.tool);
+  return typeof item.sessionId === "string" && Boolean(tool && nonEmptyString(tool.id)) && count(item.after)
+    && count(item.keep) && count(item.drop) && typeof item.text === "string" && count(item.length);
+}
+
 function decodePushEvent(value: unknown): HostPushEvent | undefined {
   const item = record(value);
   if (!item || !nonEmptyString(item.type)) return undefined;
@@ -212,6 +241,8 @@ function decodePushEvent(value: unknown): HostPushEvent | undefined {
   if ((item.type === "job-progress" || item.type === "job-done") && !nonEmptyString(item.jobId)) return undefined;
   if (item.type === "job-progress" && typeof item.message !== "string") return undefined;
   if (item.type === "tool-update-delta" && !isToolOutputDelta(item)) return undefined;
+  if (item.type === "tool-end-delta" && !isToolEndDelta(item)) return undefined;
+  if (item.type === "thread-detail-compact" && !(isHostUpdate(item.update) && item.update.type === "thread-detail")) return undefined;
   return item as unknown as HostPushEvent;
 }
 
