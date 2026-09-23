@@ -136,7 +136,6 @@ export function CommandPalette({
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") { onClose(); return; }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setCursor((value) => (rows.length ? (value + 1) % rows.length : 0));
@@ -157,6 +156,8 @@ export function CommandPalette({
         aria-modal="true"
         aria-label="Command palette"
         onMouseDown={(event) => event.stopPropagation()}
+        // Here rather than on the field: Tab can take focus to a row.
+        onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}
       >
         <div className="palette-input-wrap">
           <span>›</span>
