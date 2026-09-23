@@ -228,8 +228,9 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
   const style: React.CSSProperties & Record<`--${string}`, string> = {
     [vertical]: `${insets[vertical]}px`,
     [horizontal]: `${insets[horizontal]}px`,
-    // While the edge is dragged the pointer is over the card; it shows the width being set.
-    width: `${hovered && !drag && !resizing ? large : prefs.width}px`,
+    // CSS enlarges it on hover and focus; while dragged it keeps the width being set.
+    "--mini-width": `${prefs.width}px`,
+    "--mini-large": `${large}px`,
     "--mini-aspect": `${aspect}`,
     ...(drag ? { transform: `translate(${drag.dx}px, ${drag.dy}px)` } : {}),
   };

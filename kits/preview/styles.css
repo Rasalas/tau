@@ -142,6 +142,8 @@
   box-shadow: var(--elevation-3); user-select: none;
   transition: width 200ms var(--ease) 120ms, transform 120ms var(--ease);
 }
+.preview-mini { width: var(--mini-width, 280px); }
+.preview-mini:is(:hover, :focus-within):not(.dragging) { width: var(--mini-large, 280px); }
 .preview-mini.dragging { transition: none; cursor: grabbing; opacity: 0.92; }
 .preview-mini-head { flex: none; display: flex; align-items: center; gap: 2px; height: 26px; padding: 0 3px 0 7px; border-bottom: 1px solid var(--line); cursor: grab; }
 .preview-mini-head .spacer { flex: 1; }
