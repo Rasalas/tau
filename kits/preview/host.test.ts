@@ -94,16 +94,25 @@ describe("preview bounds", () => {
 
 describe("preview URLs", () => {
   it("accepts web pages and workspace files, and nothing else", () => {
-    expect(normalizePreviewUrl("127.0.0.1:9877", "/project")).toBe("http://127.0.0.1:9877/");
-    expect(normalizePreviewUrl("localhost:8765/page.html", "/project")).toBe("http://localhost:8765/page.html");
-    expect(normalizePreviewUrl("localhost:3000", "/project")).toBe("http://localhost:3000/");
-    expect(normalizePreviewUrl(" https://example.com/a ", "/project")).toBe("https://example.com/a");
-    expect(normalizePreviewUrl("/project/dist/index.html", "/project")).toBe("file:///project/dist/index.html");
-    expect(normalizePreviewUrl("about:blank", "/project")).toBe("about:blank");
-    expect(() => normalizePreviewUrl("javascript:alert(1)", "/project")).toThrow(/http, https and workspace files/u);
-    expect(() => normalizePreviewUrl("file:///etc/passwd", "/project")).toThrow(/inside the workspace/u);
-    expect(() => normalizePreviewUrl("/etc/passwd", "")).toThrow(/inside the workspace/u);
-    expect(() => normalizePreviewUrl("", "/project")).toThrow(/needs a URL/u);
+    expect(normalizePreviewUrl("127.0.0.1:9877", "/project", "darwin")).toBe("http://127.0.0.1:9877/");
+    expect(normalizePreviewUrl("localhost:8765/page.html", "/project", "darwin")).toBe("http://localhost:8765/page.html");
+    expect(normalizePreviewUrl("localhost:3000", "/project", "darwin")).toBe("http://localhost:3000/");
+    expect(normalizePreviewUrl(" https://example.com/a ", "/project", "darwin")).toBe("https://example.com/a");
+    expect(normalizePreviewUrl("/project/dist/index.html", "/project", "darwin")).toBe("file:///project/dist/index.html");
+    expect(normalizePreviewUrl("about:blank", "/project", "darwin")).toBe("about:blank");
+    expect(() => normalizePreviewUrl("javascript:alert(1)", "/project", "darwin")).toThrow(/http, https and workspace files/u);
+    expect(() => normalizePreviewUrl("file:///etc/passwd", "/project", "darwin")).toThrow(/inside the workspace/u);
+    expect(() => normalizePreviewUrl("/etc/passwd", "", "darwin")).toThrow(/inside the workspace/u);
+    expect(() => normalizePreviewUrl("", "/project", "darwin")).toThrow(/needs a URL/u);
+  });
+
+  it("opens workspace files by their Windows path, and still only those", () => {
+    expect(normalizePreviewUrl("C:\\work\\site\\dist\\index.html", "C:\\work\\site", "win32")).toBe("file:///C:/work/site/dist/index.html");
+    expect(normalizePreviewUrl("file:///c:/Work/Site/index.html", "C:\\work\\site", "win32")).toBe("file:///c:/Work/Site/index.html");
+    expect(normalizePreviewUrl("localhost:3000", "C:\\work\\site", "win32")).toBe("http://localhost:3000/");
+    expect(() => normalizePreviewUrl("C:\\work\\site-other\\index.html", "C:\\work\\site", "win32")).toThrow(/inside the workspace/u);
+    expect(() => normalizePreviewUrl("file:///C:/work/site/../secret.html", "C:\\work\\site", "win32")).toThrow(/inside the workspace/u);
+    expect(() => normalizePreviewUrl("/work/site/index.html", "C:\\work\\site", "win32")).toThrow(/inside the workspace/u);
   });
 });
 
