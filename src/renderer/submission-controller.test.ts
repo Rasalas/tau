@@ -329,17 +329,17 @@ describe("SubmissionController", () => {
     });
   });
 
-  it("starts a thread on another runtime with the model and level the draft chose from that runtime's catalog, and never with a Pi choice", async () => {
-    const backends = [{ kind: "pi", label: "Pi" }, { kind: "codex@work", label: "Codex · Work" }];
+  it("starts a thread on another runtime with the model, level and mode the draft chose for it, and never with a Pi choice", async () => {
+    const backends = [{ kind: "pi", label: "Pi" }, { kind: "codex@work", label: "Codex · Work", modes: ["plan"] }];
     const created = async () => ({ version: 1 as const, submission: { accepted: true as const }, sessionId: "created", updates: [] });
     const chosen = harness({
-      pending: { ...DRAFT, model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }, thinkingLevel: "low", selectionRuntime: "codex@work" },
+      pending: { ...DRAFT, model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }, thinkingLevel: "low", selectionRuntime: "codex@work", mode: "plan" },
       snapshot: { ...SESSION_SNAPSHOT, backendKind: "pi", runtimeBackends: backends } as HostSnapshot,
       newThreadRuntime: "codex@work",
       client: { newSession: created },
     });
     await chosen.submission.submit({ text: "one word" });
-    expect(chosen.client.calls.find((call) => call.method === "newSession")?.args[5]).toEqual({ model: { provider: "openai", id: "gpt-5.6-luna" }, thinkingLevel: "low" });
+    expect(chosen.client.calls.find((call) => call.method === "newSession")?.args[5]).toEqual({ model: { provider: "openai", id: "gpt-5.6-luna" }, thinkingLevel: "low", mode: "plan" });
 
     // A model picked for Pi stays with Pi: the Codex thread starts on its own default.
     const piChoice = harness({
@@ -350,6 +350,15 @@ describe("SubmissionController", () => {
     });
     await piChoice.submission.submit({ text: "one word" });
     expect(piChoice.client.calls.find((call) => call.method === "newSession")?.args[5]).toBeUndefined();
+
+    // A mode the runtime does not offer stays with the draft.
+    const noPlan = harness({
+      pending: { ...DRAFT, mode: "plan" },
+      snapshot: { ...SESSION_SNAPSHOT, backendKind: "pi", model: undefined, runtimeBackends: backends } as HostSnapshot,
+      client: { newSession: created },
+    });
+    await noPlan.submission.submit({ text: "one word" });
+    expect(noPlan.client.calls.find((call) => call.method === "newSession")?.args[5]).toBeUndefined();
   });
 
   it("sends a new thread's first prompt to the workspace a gate named, and stays put when none does", async () => {
