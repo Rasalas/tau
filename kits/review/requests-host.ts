@@ -3,6 +3,7 @@ import {
   THREAD_RAIL_EXTENSION_ID,
   WORKSPACE_HOST_EXTENSION_ID,
   type MergeMethod,
+  type MergeOutcome,
   type ReviewRequest,
   type ReviewRequestContext,
   type ReviewRequestDraft,
@@ -167,6 +168,14 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     return inspected;
   };
 
+  const refuseMethod = (provider: SourceControlProvider, method: MergeMethod) => {
+    const methods = provider.info.capabilities.merge;
+    if (methods.includes(method)) return;
+    throw new HostCommandError(methods.length === 0
+      ? `${provider.info.name} does not let Tau merge; merge it on the website.`
+      : `${provider.info.name} merges by ${methods.map((entry) => METHOD_WORDS[entry]).join(" or ")} only.`);
+  };
+
   const openRequest = ({ current, provider }: Inspected): ReviewRequest => {
     const { info } = provider;
     const request = current.request;
@@ -242,20 +251,33 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     return { status: next, url: created };
   }, { long: true });
 
-  context.registerCommand("pr-merge", async (input) => {
-    const method = MERGE_METHODS.find((candidate) => candidate === record(input).method);
+  context.registerCommand("pr-merge", async (input): Promise<ReviewRequestStatus & { merge?: MergeOutcome }> => {
+    const fields = record(input);
+    const method = MERGE_METHODS.find((candidate) => candidate === fields.method);
     if (!method) throw new HostCommandError("Choose squash, merge or rebase.");
     const inspected = await ready();
     const { provider, target } = inspected;
     const request = openRequest(inspected);
-    const methods = provider.info.capabilities.merge;
-    if (!methods.includes(method)) {
-      throw new HostCommandError(methods.length === 0
-        ? `${provider.info.name} does not let Tau merge; merge it on the website.`
-        : `${provider.info.name} merges by ${methods.map((entry) => METHOD_WORDS[entry]).join(" or ")} only.`);
-    }
-    await provider.merge(target, request, method);
-    services.log("request.merged", `#${request.number} · ${method}`);
+    refuseMethod(provider, method);
+    const deleteBranch = fields.deleteBranch === true && provider.info.capabilities.deleteBranch;
+    const outcome = await provider.merge(target, request, method, { deleteBranch });
+    services.log("request.merged", `#${request.number} · ${method}${outcome?.branchDeleted ? " · branch deleted" : ""}`);
+    const next = await status(true);
+    return outcome ? { ...next, merge: outcome } : next;
+  }, { long: true });
+
+  context.registerCommand("pr-auto-merge", async (input) => {
+    const fields = record(input);
+    const enable = fields.enable !== false;
+    const method = MERGE_METHODS.find((candidate) => candidate === fields.method);
+    const inspected = await ready();
+    const { provider, target } = inspected;
+    const request = openRequest(inspected);
+    const arm = provider.autoMerge;
+    if (!arm || !provider.info.capabilities.autoMerge) throw new HostCommandError(`${provider.info.name} does not let Tau merge automatically; merge when it is ready.`);
+    if (enable && method) refuseMethod(provider, method);
+    await arm(target, request, enable, method, { deleteBranch: fields.deleteBranch === true && provider.info.capabilities.deleteBranch });
+    services.log(enable ? "request.auto-merge" : "request.auto-merge-off", `#${request.number}${enable && method ? ` · ${method}` : ""}`);
     return status(true);
   }, { long: true });
 

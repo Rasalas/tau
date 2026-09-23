@@ -7,7 +7,7 @@ import { registerPullRequestListCommands } from "./pull-request-list-host.js";
 import { withInstructions } from "./writing.js";
 import { registerPublishCommands } from "./publish-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
-import { registerThreadLinks } from "./thread-links-host.js";
+import { registerThreadLinks, type ThreadLinks } from "./thread-links-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
   conventional: "Write one excellent Conventional Commit message for the supplied Git diff. Use an accurate type and an optional short scope. The imperative subject must explain the intent, not list files. Keep the subject under 72 characters. Add a short body only when it explains important behavior or migration details. Return only the commit message, without quotes or Markdown fences.",
@@ -56,13 +56,15 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
       context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input));
       const sources = createSourceControl(context, options);
       const workspace = (command: string, input?: unknown) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input);
-      const reads = registerPullRequestCommands(context, sources, options);
+      let links: ThreadLinks | undefined;
+      // A revert opened from a request's view belongs to the thread it was opened from.
+      const reads = registerPullRequestCommands(context, sources, { ...options, created: (url, threadId) => { if (threadId) void links?.link(threadId, url, "created"); } });
       registerPullRequestListCommands(context, sources, workspace);
-      const links = registerThreadLinks(context, reads, workspace, sources);
+      links = registerThreadLinks(context, reads, workspace, sources);
       registerRequestCommands(context, sources, {
         ...options,
         // A request opened from the Changes panel belongs to the thread on screen.
-        created: (url) => { const thread = services.thread(); if (thread) void links.link(thread.sessionId, url, "created"); },
+        created: (url) => { const thread = services.thread(); if (thread) void links?.link(thread.sessionId, url, "created"); },
       });
       registerPublishCommands(context, options);
       registerProviderSettings(context, sources);
@@ -99,7 +101,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         services.log("commit-message.suggested", message.split(/\r?\n/u)[0]);
         return { message };
       });
-      return () => links.dispose();
+      return () => links?.dispose();
     },
   };
 }

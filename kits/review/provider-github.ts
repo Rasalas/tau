@@ -1,10 +1,11 @@
 import { HostCommandError } from "tau/host-extension";
-import { PROVIDERS, type PullRequestLabel, type PullRequestRef, type PullRequestViewedState } from "./protocol.js";
+import { PROVIDERS, type MergeOutcome, type PullRequestLabel, type PullRequestRef, type PullRequestViewedState } from "./protocol.js";
 import type { ChangedFileEntry, ProviderTools, SourceControlProvider } from "./provider.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
+import { createGitHubStacks } from "./github-stacks.js";
 import { GITHUB_BRANCH_FIELDS, parseGitHubBranchRequest } from "./branch-request-json.js";
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs, SERVICES } from "./request-cli.js";
 
@@ -49,6 +50,41 @@ export async function cliAuthStatus(tools: ProviderTools, kind: "github" | "gitl
   }
 }
 
+const REVERT_MUTATION = "mutation($id: ID!) { revertPullRequest(input: { pullRequestId: $id }) { revertPullRequest { number url } } }";
+
+/** A call that names its repository, for a request opened by its URL rather than from a checkout. */
+const inRepository = (target: { host: string; repo: string; cwd?: string }): string[] => target.cwd || !target.host || !target.repo ? [] : ["--repo", `${target.host}/${target.repo}`];
+
+/**
+ * Deletes a merged request's head branch on GitHub, and only its own: not a
+ * branch another open request is based on, not the head repository's default
+ * branch, not before the merge landed. What stopped it is said in words.
+ */
+export async function deleteHeadBranch(tools: ProviderTools, target: { host: string; repo: string }, number: number): Promise<MergeOutcome> {
+  if (!target.host || !target.repo) return { branchKept: "Tau could not tell which repository holds the branch." };
+  const repo = ["--repo", `${target.host}/${target.repo}`];
+  const call = (args: string[], action: string) => tools.cli("github", { args }, action, { host: target.host });
+  try {
+    const head = record(JSON.parse(await call(["pr", "view", String(number), ...repo, "--json", "state,headRefName,headRepository,headRepositoryOwner,isCrossRepository"], `Reading PR #${number}`)));
+    const branch = text(head.headRefName);
+    if (!branch) return { branchKept: "GitHub did not name the branch." };
+    if (text(head.state) !== "MERGED") return { branchKept: `${branch} stays until the merge has landed.` };
+    const owner = text(record(head.headRepositoryOwner).login);
+    const name = text(record(head.headRepository).name);
+    if (!owner || !name) return { branchKept: `The repository that holds ${branch} is gone or hidden.` };
+    const where = `repos/${owner}/${name}`;
+    const defaultBranch = (await call(["api", "--hostname", target.host, where, "--jq", ".default_branch"], "Reading the head repository")).trim();
+    if (defaultBranch === branch) return { branchKept: `${branch} is the default branch of ${owner}/${name}.` };
+    const based = JSON.parse(await call(["pr", "list", ...repo, "--base", branch, "--state", "open", "--json", "number", "--limit", "5"], "Looking for requests based on the branch")) as unknown[];
+    const first = based.map(record).map((row) => row.number).find((value) => typeof value === "number");
+    if (first !== undefined) return { branchKept: `PR #${first as number} is based on ${branch}.` };
+    await call(["api", "--hostname", target.host, "--method", "DELETE", `${where}/git/refs/heads/${branch.split("/").map(encodeURIComponent).join("/")}`], `Deleting ${branch}`);
+    return { branchDeleted: branch };
+  } catch (error) {
+    return { branchKept: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** GitHub through `gh`: its own verbs where it has them, `gh api` and GraphQL for the rest. */
 export function createGitHubProvider(tools: ProviderTools): SourceControlProvider {
   const kind = "github" as const;
@@ -71,6 +107,8 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
     return { threads: read, viewed, ...(first.nodeId ? { nodeId: first.nodeId } : {}) };
   });
 
+  const stacks = createGitHubStacks(tools);
+
   const provider: SourceControlProvider = {
     kind,
     info: PROVIDERS.github,
@@ -90,7 +128,21 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       return output ? parseGitHubBranchRequest(output) : undefined;
     },
     create: async ({ cwd }, input) => createdUrl(await tools.cli(kind, { args: createArgs(kind, input) }, "Creating the pull request", { cwd })),
-    merge: async ({ cwd }, request, method) => { await tools.cli(kind, { args: mergeArgs(kind, request.number, method) }, `Merging PR #${request.number}`, { cwd }); },
+    merge: async (target, request, method, options = {}) => {
+      await tools.cli(kind, { args: [...mergeArgs(kind, request.number, method), ...inRepository(target)] }, `Merging PR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
+      return options.deleteBranch ? deleteHeadBranch(tools, target, request.number) : undefined;
+    },
+    // GitHub keeps the method with the armed merge; deleting the branch afterwards is the repository's own setting.
+    autoMerge: async (target, request, enable, method) => {
+      const args = enable ? ["pr", "merge", String(request.number), "--auto", `--${method ?? "merge"}`] : ["pr", "merge", String(request.number), "--disable-auto"];
+      await tools.cli(kind, { args: [...args, ...inRepository(target)] }, `${enable ? "Turning on" : "Turning off"} auto-merge for PR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
+    },
+    revert: async (ref, known) => {
+      if (!known.nodeId) throw new HostCommandError(`GitHub did not name ${noun(ref)}'s id; refresh and try again.`);
+      const output = await cli(ref, { args: ["api", "--hostname", ref.host, "graphql", "--input", "-"], input: JSON.stringify({ query: REVERT_MUTATION, variables: { id: known.nodeId } }) }, `Reverting ${noun(ref)}`);
+      const created = record(record(record(record(JSON.parse(output)).data).revertPullRequest).revertPullRequest);
+      return text(created.url);
+    },
     edit: async ({ cwd }, request, input) => { await tools.cli(kind, { args: editArgs(kind, request.number, input) }, `Editing PR #${request.number}`, { cwd }); },
     setDraft: async ({ cwd }, request, draft) => { await tools.cli(kind, { args: draftArgs(kind, request.number, draft) }, `Editing PR #${request.number}`, { cwd }); },
 
@@ -143,6 +195,9 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       ]);
       return parseCandidates(labelOutput, peopleOutput);
     },
+    stack: (ref, fresh) => stacks.stack(ref, fresh),
+    stackMemberships: (target, numbers) => stacks.memberships(target, numbers),
+    stackAction: (ref, input) => stacks.act(ref, input),
   };
   return provider;
 }

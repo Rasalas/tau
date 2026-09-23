@@ -45,7 +45,14 @@ export function registerPullRequestListCommands(
     const project = typeof fields.workspace === "string" && fields.workspace ? fields.workspace : undefined;
     const { git, service, provider, host, repo } = await projectRepository(workspace, sources, project);
     const viewer = await sources.viewer(service, host);
-    const { entries, more } = await provider.list({ host, repo, cwd: git.root }, { state, limit, ...(search ? { search } : {}) }, viewer);
+    const listed = await provider.list({ host, repo, cwd: git.root }, { state, limit, ...(search ? { search } : {}) }, viewer);
+    const more = listed.more;
+    // Where the host keeps stacks, each open row says which layer it is.
+    const open = listed.entries.filter((entry) => entry.state === "open").map((entry) => entry.ref.number);
+    const stacks = provider.stackMemberships && provider.info.capabilities.stacks && open.length > 0
+      ? await provider.stackMemberships({ host, repo }, open).catch(() => new Map())
+      : new Map();
+    const entries = stacks.size > 0 ? listed.entries.map((entry) => stacks.has(entry.ref.number) ? { ...entry, stack: stacks.get(entry.ref.number) } : entry) : listed.entries;
     return {
       service,
       host,

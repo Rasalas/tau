@@ -322,8 +322,10 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
       })));
       return htmlUrl(created);
     },
-    merge: async (target, current, method) => {
-      await request(`${pullPath(refFor(target, current.number))}/merge`, `Merging PR #${current.number}`, { method: "POST", body: { merge_strategy: method === "squash" ? "squash" : "merge_commit" } });
+    merge: async (target, current, method, options = {}) => {
+      const body = { merge_strategy: method === "squash" ? "squash" : "merge_commit", ...(options.deleteBranch ? { close_source_branch: true } : {}) };
+      await request(`${pullPath(refFor(target, current.number))}/merge`, `Merging PR #${current.number}`, { method: "POST", body });
+      return options.deleteBranch && current.headRef ? { branchDeleted: current.headRef } : undefined;
     },
     edit: async (target, current, input) => {
       await put(refFor(target, current.number), { title: input.title ?? current.title, ...(input.body !== undefined ? { description: input.body } : {}) }, `Editing PR #${current.number}`);
