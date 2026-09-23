@@ -54,6 +54,18 @@ The `config.toml` is the shadow's own and pins the cheapest model, so a new Code
 
 Onboarding lists and imports the conversations the agent CLIs kept in their own homes. `dev-instance.mjs` sets `TAU_IMPORT_ROOTS=<worktree>/.tau-dev/import-roots` (a caller's own value is kept), and with it set the backend kits read only `<root>/<backend kind>/…` — laid out like the CLI's own home — and never the user's. Put small synthetic sessions there to test the wizard; an instance with an empty folder finds nothing to import.
 
+### A stub `gh` or `glab`
+
+Anything that writes to a pull request is tested against a stub, never a real remote. Put an executable named `gh` (or `glab`) in a folder under `.tau-dev/`, have it answer from `kits/review/fixtures/` and append every call with its stdin to a log, then start the instance with that folder first on `PATH` and an empty `ZDOTDIR`:
+
+```
+mkdir -p .tau-dev/stub-bin .tau-dev/zdotdir
+env -u ELECTRON_RUN_AS_NODE PATH="$PWD/.tau-dev/stub-bin:$PATH" ZDOTDIR="$PWD/.tau-dev/zdotdir" npm run dev:instance -- --build
+git -C .tau-dev/workspace remote add origin git@github.com:acme/demo.git
+```
+
+The host reads PATH from a login shell; with the user's real `ZDOTDIR` that shell puts Homebrew's real `gh` in front of the stub. A stub must read stdin only when the call passes `--input -` or `--body-file -`: the kit leaves stdin open otherwise, and a stub that waits for it never answers. The remote only names the repository; nothing is pushed to it.
+
 ## Keeping an instance alive across turns
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.
