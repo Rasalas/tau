@@ -200,6 +200,8 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [commandCursor, setCommandCursor] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
+  // Escape closes the menu for that token until a new one starts, not until the next keystroke.
+  const [escapedToken, setEscapedToken] = useState<string>();
   const [selectedSkill, setSelectedSkill] = useState<SelectedSkill>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -239,7 +241,10 @@ export function Composer({
     return byChar;
   }, [inlines]);
   const extensionChars = useMemo(() => [...extensionTriggers.keys()], [extensionTriggers]);
-  const trigger = commandMenuDismissed ? undefined : composerTrigger(text, caret, extensionChars);
+  const parsedTrigger = commandMenuDismissed ? undefined : composerTrigger(text, caret, extensionChars);
+  const trigger = parsedTrigger && `${parsedTrigger.kind}:${parsedTrigger.start}` === escapedToken ? undefined : parsedTrigger;
+  const tokenEnded = parsedTrigger === undefined;
+  useEffect(() => { if (tokenEnded) setEscapedToken(undefined); }, [tokenEnded]);
   const commandMatches = useMemo(() => {
     if (!trigger) return [];
     const query = trigger.query.toLowerCase();
@@ -852,7 +857,7 @@ export function Composer({
             }
             if (trigger && event.key === "Escape") {
               event.preventDefault();
-              setCommandMenuDismissed(true);
+              setEscapedToken(`${trigger.kind}:${trigger.start}`);
               return;
             }
             if (!trigger && inlineKeyDown(event)) {

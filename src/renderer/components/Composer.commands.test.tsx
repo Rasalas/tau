@@ -191,6 +191,20 @@ describe("Composer command menu", () => {
       .toEqual(["extension-prompt", "composer-frame"]);
   });
 
+  it("keeps the slash menu closed for a token after Escape, and opens it for the next one", () => {
+    renderComposer();
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "/rev", selectionStart: 4 } });
+    expect(screen.getByRole("listbox", { name: "Commands" })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+    fireEvent.change(textarea, { target: { value: "/revi", selectionStart: 5 } });
+    expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+    fireEvent.change(textarea, { target: { value: "", selectionStart: 0 } });
+    fireEvent.change(textarea, { target: { value: "/re", selectionStart: 3 } });
+    expect(screen.getByRole("listbox", { name: "Commands" })).toBeTruthy();
+  });
+
   it("offers prompt templates and extension commands under slash", () => {
     renderComposer();
     const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
