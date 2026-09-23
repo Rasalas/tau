@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { CircleCheck, Download, ExternalLink, Orbit, TriangleAlert } from "lucide-react";
-import type { DesktopExtension, HostExtensionClient, RegionProps, SettingsPageProps } from "tau";
+import { loadSignInUi, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type RegionProps, type SettingsPageProps, type WorkbenchActions } from "tau";
 import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, type AntigravityInstallEvent, type AntigravitySignInEvent } from "./protocol.js";
 
 /** The sign-in link the host half last reported; the status item opens it and offers it again. */
@@ -22,6 +22,16 @@ export class SignInLinks {
 }
 
 export const signInLinks = new SignInLinks();
+
+const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
+
+function useShellActions(): WorkbenchActions | undefined {
+  try {
+    return useWorkbenchShell().actions;
+  } catch {
+    return undefined;
+  }
+}
 
 function isGoogleSignIn(url: unknown): url is string {
   return typeof url === "string" && url.startsWith("https://accounts.google.com/o/oauth2/v2/auth?");
@@ -59,6 +69,9 @@ export interface AntigravityStatusReport {
   version?: string;
   path?: string;
   signedIn?: boolean;
+  authMethod?: string;
+  gcpProject?: string;
+  gcpLocation?: string;
   available?: string;
   mcpServers?: string[];
   models?: number;
@@ -108,10 +121,27 @@ function CommandPathField({ status, onSave }: { status: AntigravityStatusReport 
   );
 }
 
+/** The Google Cloud project and location Enterprise and Agent Platform run in; saved when a field is left. */
+function ProjectFields({ status, onSave }: { status: AntigravityStatusReport | undefined; onSave(project: string, location: string): Promise<void> }) {
+  const [project, setProject] = useState(status?.gcpProject ?? "");
+  const [location, setLocation] = useState(status?.gcpLocation ?? "");
+  useEffect(() => { setProject(status?.gcpProject ?? ""); setLocation(status?.gcpLocation ?? ""); }, [status?.gcpProject, status?.gcpLocation]);
+  const commit = () => {
+    if (project.trim() !== (status?.gcpProject ?? "") || location.trim() !== (status?.gcpLocation ?? "")) void onSave(project.trim(), location.trim());
+  };
+  return (
+    <div className="antigravity-project">
+      <input className="settings-search-input" aria-label="Google Cloud project" placeholder="Google Cloud project, e.g. acme-dev" value={project} disabled={!status} onChange={(event) => setProject(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); }} />
+      <input className="settings-search-input" aria-label="Google Cloud location" placeholder="Location, e.g. us-central1" value={location} disabled={!status} onChange={(event) => setLocation(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") commit(); }} />
+    </div>
+  );
+}
+
 /** Antigravity's card on the Providers page: where the runtime comes from, whether it is signed in, and what of the user's own configuration reaches it. */
 export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & { host: HostExtensionClient }) {
   const [status, setStatus] = useState<AntigravityStatusReport>();
-  const [busy, setBusy] = useState<"install" | "logout">();
+  const [busy, setBusy] = useState<"install">();
+  const actions = useShellActions();
   const [progress, setProgress] = useState<AntigravityInstallEvent>();
   const [error, setError] = useState<string>();
 
@@ -137,14 +167,23 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
     }
   };
 
-  const run = async (command: "install" | "logout", done: string) => {
+  const saveProject = async (gcpProject: string, gcpLocation: string) => {
+    setError(undefined);
+    try {
+      await host.invoke("set-sign-in", { gcpProject, gcpLocation });
+      await refresh();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  };
+
+  const run = async (command: "install", done: string) => {
     setBusy(command);
     setError(undefined);
     setProgress(undefined);
     try {
       await host.invoke(command);
       onNotify(done);
-      if (command === "logout") signInLinks.clear();
       await refresh();
     } catch (failure) {
       setError(errorMessage(failure));
@@ -183,19 +222,22 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
       {busy === "install" && label ? <p className="settings-note" role="status">{label}</p> : null}
       {known && status.available === undefined ? <p className="settings-note">Google publishes no Antigravity runtime for this platform.</p> : null}
 
-      <div className="settings-label">Google account</div>
-      <div className="settings-field antigravity-field">
-        {status?.signedIn ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-        <span>
-          <strong>{!known ? "Checking…" : status.signedIn ? "Signed in" : "Not signed in"}</strong>
-          <small>{status?.signedIn ? "The agent holds your Google credentials in Tau's own profile folder." : "The first turn of an Antigravity thread opens Google's sign-in in your browser."}</small>
-        </span>
-        {status?.signedIn ? (
-          <button className="antigravity-action" disabled={busy !== undefined} onClick={() => void run("logout", "Signed out of Antigravity.")}>
-            {busy === "logout" ? "Signing out…" : "Sign out"}
-          </button>
-        ) : null}
-      </div>
+      <Suspense fallback={null}>
+        <SignIn
+          host={host}
+          program="Antigravity"
+          heading="Sign-in"
+          openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
+          copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
+          onNotify={onNotify}
+          onReport={(next) => {
+            if (next.flow?.phase === "succeeded" || !next.account?.signedIn) signInLinks.clear();
+            void refresh();
+          }}
+        />
+      </Suspense>
+      <p className="settings-note">Gemini Enterprise and Agent Platform run in a Google Cloud project; Agent Platform takes a key or your application default credentials instead.</p>
+      <ProjectFields status={status} onSave={saveProject} />
 
       <div className="settings-label">Your configuration</div>
       <p className="settings-note">
