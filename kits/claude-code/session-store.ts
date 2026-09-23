@@ -48,6 +48,8 @@ export interface ClaudeRuntimeSessionRecord {
   effort?: string;
   /** What the thread last actually ran on; shown before a session exists, never applied. */
   observedModel?: string;
+  /** The only tools the thread keeps, as Pi names them; set when it was created. */
+  tools?: string[];
   updatedAt: number;
 }
 
@@ -261,6 +263,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(boundedString(item.model, MAX_ID_LENGTH) ? { model: boundedString(item.model, MAX_ID_LENGTH) } : {}),
     ...(boundedString(item.effort, 16) ? { effort: boundedString(item.effort, 16) } : {}),
     ...(boundedString(item.observedModel, MAX_ID_LENGTH) ? { observedModel: boundedString(item.observedModel, MAX_ID_LENGTH) } : {}),
+    ...(storedTools(item.tools) ? { tools: storedTools(item.tools) } : {}),
     updatedAt,
   };
 }
@@ -273,7 +276,18 @@ function cloneMessage(message: ClaudeStoredMessage): ClaudeStoredMessage {
 }
 
 function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRecord {
-  return { ...record, messages: record.messages.map(cloneMessage), ...(record.usage ? { usage: { ...record.usage } } : {}) };
+  return {
+    ...record,
+    messages: record.messages.map(cloneMessage),
+    ...(record.usage ? { usage: { ...record.usage } } : {}),
+    ...(record.tools ? { tools: [...record.tools] } : {}),
+  };
+}
+
+function storedTools(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length > 256) return undefined;
+  const tools = value.filter((tool): tool is string => typeof tool === "string" && tool.length > 0 && tool.length <= 128);
+  return tools.length === value.length ? tools : undefined;
 }
 
 function sameStoredMessage(left: ClaudeStoredMessage, right: ClaudeStoredMessage): boolean {
@@ -442,6 +456,16 @@ export class ClaudeRuntimeSessionStore {
       if (selection.effort) record.effort = selection.effort;
       else delete record.effort;
     }
+    record.updatedAt = this.now();
+    await this.persist();
+  }
+
+  /** Restricts a new thread to these tools for good. */
+  async setTools(tauThreadId: string, cwd: string, tools: readonly string[]): Promise<void> {
+    await this.ensure(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
+    if (!record) return;
+    record.tools = [...tools];
     record.updatedAt = this.now();
     await this.persist();
   }

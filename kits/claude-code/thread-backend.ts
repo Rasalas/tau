@@ -88,8 +88,10 @@ export interface ClaudeThreadBackendOptions {
   projectName: string;
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
-  /** Tau's tools for this thread over MCP, asked each time a session starts. */
-  mcpServer?(): Promise<HostMcpConnection | undefined>;
+  /** Tau's tools for this thread over MCP, asked each time a session starts; `tools` narrows them. */
+  mcpServer?(tools?: readonly string[]): Promise<HostMcpConnection | undefined>;
+  /** A thread being created keeps only these tools, as Pi names them. */
+  tools?: readonly string[];
   now?(): number;
   /** How long an interrupt may take before the session is closed instead. */
   interruptGraceMs?: number;
@@ -141,6 +143,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private chosenEffort?: EffortLevel;
   private observedEffort?: string;
   private modelInfos?: ModelInfo[];
+  /** The only tools this thread keeps, from its record. */
+  private tools?: string[];
   private readonly now: () => number;
 
   constructor(
@@ -178,6 +182,10 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   async start(mode: "create" | "resume"): Promise<void> {
     if (mode === "create") {
       this.record = await this.store.ensure(this.threadId, this.cwd);
+      if (this.options.tools) {
+        await this.store.setTools(this.threadId, this.cwd, this.options.tools);
+        this.record = await this.store.get(this.threadId) ?? this.record;
+      }
     } else {
       this.record = await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
       if (this.record.cwd !== this.cwd) throw new Error("Claude session belongs to another workspace.");
@@ -200,6 +208,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.chosenModel = record.model;
     this.chosenEffort = effortLevel(record.effort);
     this.model = this.chosenModel ?? record.observedModel;
+    this.tools = record.tools;
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message, ...(message.skill ? { skill: { ...message.skill } } : {}) })); }
@@ -414,7 +423,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     await this.store.markAttempted(this.threadId, this.cwd);
     this.record = await this.store.get(this.threadId);
     // Without the endpoint the thread still runs, only without Tau's tools.
-    const mcpServer = await this.options.mcpServer?.().catch(() => undefined);
+    const mcpServer = await this.options.mcpServer?.(this.tools).catch(() => undefined);
     const live: LiveSession = { session: undefined as unknown as ClaudeSdkSession, mode, resumed, confirmed: false, stderr: "" };
     live.session = this.runtimeAdapter.openSession({
       cwd: this.cwd,
@@ -425,6 +434,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       ...(this.chosenEffort ? { effort: this.chosenEffort } : {}),
       ...(this.turnHooks() ? { hooks: this.turnHooks() } : {}),
       ...(mcpServer ? { mcpServer } : {}),
+      ...(this.tools ? { tools: this.tools } : {}),
       onMessage: (frame) => this.onFrame(frame),
       onExit: (error) => this.onExit(live, error),
       onStderr: (chunk) => { live.stderr = `${live.stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },

@@ -90,7 +90,8 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           const entry = await store.get(threadId);
           return entry ? record(entry) : undefined;
         },
-        open: async (threadId, cwd, { resume }, thread) => {
+        restrictsTools: true,
+        open: async (threadId, cwd, { resume, tools }, thread) => {
           assertCommandInstalled(services.findCommand, claudeCommand());
           const backend = new ClaudeThreadRuntimeBackend(threadId, cwd, {
             adapter,
@@ -100,7 +101,8 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             projectName: thread.projectName,
             branch: thread.projectLabel,
             permissionLevel: thread.permissionLevel,
-            mcpServer: () => services.mcp.connect({ sessionId: threadId, cwd }),
+            mcpServer: (only) => services.mcp.connect({ sessionId: threadId, cwd }, only ? { tools: only } : undefined),
+            ...(tools ? { tools } : {}),
             onMessage: thread.onMessage,
             onEvent: thread.onEvent,
             ask: thread.ask,

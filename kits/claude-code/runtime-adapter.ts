@@ -73,6 +73,8 @@ export interface ClaudeSessionInput {
   hooks?: ClaudeTurnHooks;
   /** Tau's tools for this thread, over the host's MCP endpoint. */
   mcpServer?: HostMcpConnection;
+  /** The only tools the thread keeps, as Pi names them; every tool when absent. */
+  tools?: readonly string[];
   onMessage(message: SDKMessage): void;
   onExit(error: unknown | undefined): void;
   /** The CLI's stderr, for the message when the session fails. */
@@ -106,6 +108,7 @@ export interface ClaudeQueryPlan {
   model?: string;
   effort?: EffortLevel;
   mcpServer?: HostMcpConnection;
+  tools?: readonly string[];
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -136,7 +139,29 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     abortController: plan.abortController,
     ...(plan.stderr ? { stderr: plan.stderr } : {}),
     ...(plan.mcpServer ? tauMcpOptions(plan.mcpServer) : {}),
+    ...(plan.tools ? claudeToolOptions(plan.tools) : {}),
   };
+}
+
+/** Pi's names for the tools Claude has under its own. */
+const CLAUDE_TOOL_NAMES: Readonly<Record<string, string>> = {
+  read: "Read",
+  grep: "Grep",
+  find: "Glob",
+  ls: "Glob",
+  bash: "Bash",
+  edit: "Edit",
+  write: "Write",
+};
+
+/**
+ * A thread restricted to some tools: Claude's own by their Pi names or its
+ * own (`WebFetch`), nothing else built in, and no MCP server but Tau's, whose
+ * endpoint filters Tau's tools. A name Claude does not have is dropped, as on Pi.
+ */
+export function claudeToolOptions(tools: readonly string[]): Pick<Options, "tools" | "strictMcpConfig"> {
+  const own = tools.flatMap((tool) => CLAUDE_TOOL_NAMES[tool] ?? (/^[A-Z][A-Za-z]*$/u.test(tool) ? [tool] : []));
+  return { tools: [...new Set(own)], strictMcpConfig: true };
 }
 
 /**
@@ -372,6 +397,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       ...(input.model ? { model: input.model } : {}),
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.mcpServer ? { mcpServer: input.mcpServer } : {}),
+      ...(input.tools ? { tools: input.tools } : {}),
     });
     const session = new ClaudeSdkSession({ query, options: queryOptions, claudeSessionId: input.claudeSessionId, onMessage: input.onMessage, onExit: input.onExit });
     session.start();
