@@ -71,7 +71,7 @@
 .usage-table td.usage-plan-value { font-style: italic; color: var(--muted); }
 
 /* Model prices: a table of the user's own, and a row that adds one. */
-.usage-price-table .usage-number { width: 88px; }
+.usage-price-table .usage-number { width: 100px; white-space: nowrap; }
 .usage-price-table th.usage-number:last-child { width: 130px; }
 .usage-rate { width: 100%; min-width: 0; font: 11.5px var(--mono); text-align: right; padding: 4px 6px; }
 .usage-price-error { color: var(--warn); }
@@ -83,3 +83,4 @@
 .usage-link:hover { color: var(--ink-2); }
 .usage-link:disabled { opacity: .5; cursor: default; }
 .usage-price-add .settings-input, .usage-price-table .settings-input { width: 100%; min-width: 0; box-sizing: border-box; }
+.usage-table th.usage-plan-head { width: 84px; }

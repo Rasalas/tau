@@ -143,7 +143,7 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
                   <th className="usage-number">Output</th>
                   <th className="usage-number">Cache read</th>
                   <th className="usage-number" title="Money billed per token">Billed</th>
-                  <th className="usage-number" title="What a subscription covered would have cost over the API">Plan value</th>
+                  <th className="usage-number usage-plan-head" title="What a subscription covered would have cost over the API">Plan value</th>
                 </tr>
               </thead>
               <tbody>
