@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseCodexSession } from "../../kits/codex/history-import.ts";
@@ -9,6 +9,7 @@ import { assertEnvUnder, forbiddenPaths, openForbiddenFiles, parseLsofNames } fr
 import { descendants, parsePs, processRole } from "./processes.mjs";
 import { evaluateBudgets, markdownTable, parseArgs } from "./run.mjs";
 import { rolloutLines, sessionPlan, writeCodexSessions } from "./sessions-fixture.mjs";
+import { largeThreadRows, writePiThread } from "./large-thread.mjs";
 import { aggregateRuns, frameStats, percentile } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
 
@@ -149,6 +150,7 @@ describe("stats and reporting", () => {
     expect(parseArgs(["--apps", "tau", "--runs", "3", "--check"])).toMatchObject({ apps: ["tau"], runs: 3, check: true });
     expect(() => parseArgs(["--nope"])).toThrow(/unknown flag/u);
     expect(() => parseArgs(["--apps", "vscode"])).toThrow(/unknown app/u);
+    expect(parseArgs(["--large-thread", "--apps", "tau,t3"])).toMatchObject({ largeThread: true, apps: ["tau"] });
   });
 
   it("renders a side-by-side table from a report", () => {
@@ -160,5 +162,27 @@ describe("stats and reporting", () => {
     });
     expect(table).toContain("| metric (median / p95) | Tau | T3 Code |");
     expect(table).toContain("| first paint (ms) | 10 / 12 | – |");
+  });
+});
+
+describe("the large Pi thread", () => {
+  const root = join(import.meta.dirname, "..", "..");
+
+  it("writes four entries a turn, its tag in every prompt, with the modification time asked for", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-compare-large-"));
+    const modifiedAt = new Date(Date.now() - 3_600_000);
+    const { path, entries } = await writePiThread(root, { sessionDir: dir, cwd: dir, title: "Large Pi thread", turns: 3, tag: "run-x", modifiedAt });
+    expect(entries).toBe(13);
+    const lines = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const prompts = lines.filter((line) => line.message?.role === "user").map((line) => line.message.content[0].text);
+    expect(prompts.at(-1)).toBe("Question 2: what does file 2 contain? run-x");
+    expect(Math.abs(statSync(path).mtimeMs - modifiedAt.getTime())).toBeLessThan(1_000);
+  });
+
+  it("gates only what its table reports", () => {
+    const budgets = JSON.parse(readFileSync(join(import.meta.dirname, "budgets.json"), "utf8")).tauLargeThread;
+    const paths = new Set(largeThreadRows().map(([, path]) => path));
+    expect(Object.keys(budgets).length).toBeGreaterThan(0);
+    for (const path of Object.keys(budgets)) expect(paths.has(path)).toBe(true);
   });
 });
