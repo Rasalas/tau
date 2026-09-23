@@ -132,7 +132,7 @@ fieldset:disabled .onboarding-row { cursor: default; opacity: .7; }
 .onboarding-meta {
   display: grid;
   flex: none;
-  grid-template-columns: 16px 16px 16px 40px 36px;
+  grid-template-columns: 16px 16px 16px 16px 40px 36px;
   align-items: center;
   gap: 4px;
   margin-left: auto;

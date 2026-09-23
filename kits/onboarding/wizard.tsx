@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
-import { ArrowRight, Bot, Check, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
+import { ArrowRight, Bot, Braces, Check, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
 import { useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
 import { backendKit, defaultProjects, defaultSessions, type AgentStatus, type FlowState, type WelcomeFlow } from "./flow.js";
 import type { ImportableSession, ProjectCandidate, ToolReport } from "./protocol.js";
@@ -28,9 +28,9 @@ export interface BackendEntry {
   version?: { installed?: string };
 }
 
-const ICONS: Record<string, Icon> = { pi: Sparkles, "claude-code": Bot, codex: SquareTerminal, antigravity: Orbit, gh: GitPullRequest, glab: GitMerge };
+const ICONS: Record<string, Icon> = { pi: Sparkles, "claude-code": Bot, codex: SquareTerminal, opencode: Braces, antigravity: Orbit, gh: GitPullRequest, glab: GitMerge };
 const iconOf = (id: string): Icon => ICONS[id] ?? ICONS[id.split("@")[0]!] ?? Bot;
-const SOURCE_LABEL = { "claude-code": "Claude Code", codex: "Codex", pi: "Pi" } as const;
+const SOURCE_LABEL = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", pi: "Pi" } as const;
 
 function plural(count: number, one: string): string {
   return `${count} ${count === 1 ? one : `${one}s`}`;
@@ -162,7 +162,7 @@ function AgentCard({ row, actions }: { row: AgentRow; actions: WorkbenchActions 
 
 function SourceMarks({ sources }: { sources: ReadonlyArray<keyof typeof SOURCE_LABEL> }) {
   return <>
-    {(["claude-code", "codex", "pi"] as const).map((source) => {
+    {(["claude-code", "codex", "opencode", "pi"] as const).map((source) => {
       const Glyph = iconOf(source);
       return <span key={source} className="onboarding-source">{sources.includes(source) ? <Glyph size={12} aria-label={SOURCE_LABEL[source]} /> : null}</span>;
     })}
