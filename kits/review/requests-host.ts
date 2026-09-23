@@ -12,6 +12,8 @@ import {
 import type { RepositoryTarget, SourceControlProvider } from "./provider.js";
 import type { SourceControl } from "./provider-registry.js";
 import { withInstructions } from "./writing.js";
+import { attachmentReader, embedMedia } from "./evidence-upload.js";
+import { findEvidenceTokens } from "./local-request.js";
 import { SERVICES, type CliRunner } from "./request-cli.js";
 
 const AUTH_CACHE_MS = 60_000;
@@ -24,7 +26,7 @@ const record = (input: unknown): Record<string, unknown> => input && typeof inpu
 const text = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
-const draftSystemPrompt = (noun: string) => [
+export const draftSystemPrompt = (noun: string) => [
   `Write the title and description of a ${noun} for the supplied branch.`,
   "First line: the title, imperative, under 72 characters, no prefix like 'Title:'.",
   "Then one blank line, then the description in Markdown.",
@@ -242,13 +244,17 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const base = text(fields.base)?.trim() || git.base;
     if (base === git.branch) throw new HostCommandError(`The ${info.noun} would merge ${base} into itself; choose another base branch.`);
     const draft = fields.draft === true && info.capabilities.draft;
+    // Pictures named in the body go up first; a failed upload creates nothing.
+    const written = text(fields.body) ?? "";
+    if (findEvidenceTokens(written).length > 0 && fields.uploadConfirmed !== true) throw new HostCommandError("Confirm what is uploaded first.");
+    const embedded = await embedMedia({ provider, target, ...(git.branch ? { branch: git.branch } : {}), body: written, read: attachmentReader(context), tools: sources.tools });
     await workspace("push");
-    const created = await provider.create(target, { title, body: text(fields.body) ?? "", base, head: git.branch!, draft });
+    const created = await provider.create(target, { title, body: embedded.body, base, head: git.branch!, draft });
     services.log("request.created", created ?? title);
     const next = await status(true);
     const url = created ?? next.request?.url;
     if (url) options.created?.(url);
-    return { status: next, url: created };
+    return { status: next, url: created, ...(embedded.uploaded || embedded.kept ? { uploaded: embedded.uploaded, kept: embedded.kept } : {}) };
   }, { long: true });
 
   context.registerCommand("pr-merge", async (input): Promise<ReviewRequestStatus & { merge?: MergeOutcome }> => {
