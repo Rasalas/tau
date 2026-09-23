@@ -23,6 +23,15 @@ describe("pickerRail", () => {
     ]);
   });
 
+  it("lists a runtime whose catalog the host holds, and Pi as one tab when it is not the catalog on hand", () => {
+    const rail = pickerRail({ providers: ["anthropic"], catalogRuntime: "claude-code", backends, favourites: false, cached: new Set(["pi", "antigravity"]) });
+    expect(rail.map((entry) => [entry.key, entry.kind === "runtime" && entry.listed])).toEqual([
+      ["runtime:pi", true],
+      ["runtime:claude-code", true],
+      ["runtime:antigravity", true],
+    ]);
+  });
+
   it("stands alone on a host that offers only Pi", () => {
     expect(pickerRail({ providers: ["anthropic"], catalogRuntime: undefined, backends: undefined, favourites: false }).map((entry) => entry.key)).toEqual(["anthropic"]);
     expect(pickerRail({ providers: [], catalogRuntime: "pi", backends: [], favourites: false })).toEqual([

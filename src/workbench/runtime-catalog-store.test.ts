@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiRuntimeCatalog } from "../shared/contracts";
 import { createNewThreadDraft } from "./draft-store";
-import { RuntimeCatalogStore, draftRuntimeSnapshot } from "./runtime-catalog-store";
+import { RuntimeCatalogStore, draftRuntimeSnapshot, type RuntimeCatalogPort } from "./runtime-catalog-store";
 
 const luna = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
 const sol = { provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
@@ -19,11 +19,13 @@ const SNAPSHOT = {
 } as unknown as HostSnapshot;
 const draft = () => createNewThreadDraft({ projectPath: "/repo", projectName: "repo" });
 
+const port = (runtimeCatalog: RuntimeCatalogPort["runtimeCatalog"], runtimeCatalogs: RuntimeCatalogPort["runtimeCatalogs"] = async () => []): RuntimeCatalogPort => ({ runtimeCatalog, runtimeCatalogs });
+
 describe("RuntimeCatalogStore", () => {
   it("asks the host once while an answer is fresh, and again when it is not", async () => {
     let now = 0;
     const load = vi.fn(async () => CATALOG);
-    const store = new RuntimeCatalogStore(load, () => now);
+    const store = new RuntimeCatalogStore(port(load), () => now);
     const seen = vi.fn();
     store.subscribe(seen);
     store.request("codex");
@@ -39,13 +41,39 @@ describe("RuntimeCatalogStore", () => {
   });
 
   it("calls a runtime that cannot say, or fails to, unavailable with its reason", async () => {
-    const store = new RuntimeCatalogStore(async (kind) => kind === "antigravity"
+    const store = new RuntimeCatalogStore(port(async (kind) => kind === "antigravity"
       ? { kind, models: [], thinkingLevels: {}, note: "Chosen after the start." }
-      : kind === "gone" ? undefined : Promise.reject(new Error("no CLI")));
+      : kind === "gone" ? undefined : Promise.reject(new Error("no CLI"))));
     for (const kind of ["antigravity", "gone", "broken"]) store.request(kind);
     await vi.waitFor(() => expect(store.get("broken")).toEqual({ status: "unavailable", message: "no CLI" }));
-    expect(store.get("antigravity")).toEqual({ status: "unavailable", message: "Chosen after the start." });
+    expect(store.get("antigravity")).toMatchObject({ status: "unavailable", message: "Chosen after the start." });
     expect(store.get("gone")).toEqual({ status: "unavailable" });
+  });
+
+  it("takes every catalog the host holds when a picker opens, then only what the store lacks", async () => {
+    const pi = { kind: "pi", models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", price: { input: 0.2, output: 1.2 } }], thinkingLevels: {}, checkedAt: 5 };
+    const list = vi.fn(async (_revalidate: boolean, known: Record<string, number>) => [{ ...CATALOG, checkedAt: 7 }, pi].filter((catalog) => known[catalog.kind] !== catalog.checkedAt));
+    const store = new RuntimeCatalogStore(port(vi.fn(), list));
+    const views = [store.all()];
+    store.subscribe(() => views.push(store.all()));
+    store.refresh();
+    await vi.waitFor(() => expect(store.get("pi")).toEqual({ status: "ready", catalog: pi }));
+    expect(list).toHaveBeenLastCalledWith(true, {});
+    expect(views.at(-1)?.get("codex")).toMatchObject({ status: "ready" });
+    expect(views.at(-2)).not.toBe(views.at(-1));
+
+    store.refresh();
+    await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(list).toHaveBeenLastCalledWith(true, { codex: 7, pi: 5 });
+  });
+
+  it("follows what the host publishes, and a missing CLI is a reason, not an empty list", () => {
+    const store = new RuntimeCatalogStore(port(vi.fn()));
+    store.apply({ kind: "codex", models: [], thinkingLevels: {}, status: "not-installed", note: "The Codex CLI is not installed." });
+    expect(store.get("codex")).toMatchObject({ status: "unavailable", reason: "not-installed", message: "The Codex CLI is not installed." });
+    // Models named before a failed refresh are still offered; the catalog says why they may be old.
+    store.apply({ ...CATALOG, status: "unavailable", note: "timed out" });
+    expect(store.get("codex")).toMatchObject({ status: "ready", catalog: { status: "unavailable", note: "timed out" } });
   });
 });
 

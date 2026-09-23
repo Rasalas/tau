@@ -8,10 +8,9 @@ export function modelKey(model: { provider: string; id: string }): string {
 }
 
 /**
- * One tab of the picker's rail. Pi's catalog is split by model provider; any
- * other runtime is one tab, whose models are listed only when the catalog on
- * hand is its own (`listed`), because a runtime's models are known once a
- * thread of it runs.
+ * One tab of the picker's rail. Pi's catalog is split by model provider when
+ * it is the catalog on hand; any other runtime is one tab, whose models are
+ * listed (`listed`) when they are on hand or the host's cache holds them.
  */
 export type RailEntry =
   | { kind: "favourites"; key: string }
@@ -26,19 +25,22 @@ export interface RailInput {
   /** Every runtime the host offers, Pi first; absent on a host that offers only Pi. */
   backends: readonly UiRuntimeBackend[] | undefined;
   favourites: boolean;
+  /** Runtimes besides the catalog's own whose models the host's cache holds. */
+  cached?: ReadonlySet<ThreadBackendKind>;
 }
 
 export function runtimeEntryKey(kind: ThreadBackendKind): string {
   return `runtime:${kind}`;
 }
 
-export function pickerRail({ providers, catalogRuntime = DEFAULT_RUNTIME, backends, favourites }: RailInput): RailEntry[] {
+export function pickerRail({ providers, catalogRuntime = DEFAULT_RUNTIME, backends, favourites, cached }: RailInput): RailEntry[] {
   const offered = backends?.length ? [...backends] : [];
   if (!offered.some((backend) => backend.kind === catalogRuntime)) offered.unshift({ kind: catalogRuntime, label: catalogRuntime === DEFAULT_RUNTIME ? "Pi" : catalogRuntime });
   const rail: RailEntry[] = favourites ? [{ kind: "favourites", key: FAVOURITES_ENTRY }] : [];
   for (const backend of offered) {
-    const listed = backend.kind === catalogRuntime;
-    if (listed && backend.kind === DEFAULT_RUNTIME && providers.length > 0) {
+    const own = backend.kind === catalogRuntime;
+    const listed = own || cached?.has(backend.kind) === true;
+    if (own && backend.kind === DEFAULT_RUNTIME && providers.length > 0) {
       rail.push(...providers.map((provider): RailEntry => ({ kind: "provider", key: provider, provider })));
     } else {
       rail.push({ kind: "runtime", key: runtimeEntryKey(backend.kind), backend, listed });

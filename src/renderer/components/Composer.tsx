@@ -22,6 +22,7 @@ import { tooltipProps } from "./ui/Tooltip";
 import { modelKey } from "./model-picker-rail";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
+import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
@@ -430,6 +431,7 @@ export function Composer({
     });
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const runtimeCatalogs = useRuntimeCatalogs(modelPickerOpen);
   const modelChipRef = useRef<HTMLButtonElement>(null);
   const preferences = usePreferences();
   const gates = registry?.getComposerGates?.() ?? NO_GATES;
@@ -464,16 +466,22 @@ export function Composer({
   }, [modelSet, passGates, snapshot]);
   const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
   const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
-  // A model of the visible catalog brings a draft bound elsewhere back to that catalog's runtime.
-  const applyModel = (model: UiModel) => {
-    if (runtimeChoice && snapshot?.backendKind && runtimeChoice.kind !== snapshot.backendKind) runtimeChoice.onSelect(snapshot.backendKind);
+  // A model binds a draft to the runtime that offers it: the visible catalog's, or the one it came from.
+  const applyModel = (model: UiModel, runtime = snapshot?.backendKind) => {
+    if (runtimeChoice && runtime && runtimeChoice.kind !== runtime) runtimeChoice.onSelect(runtime);
     onSetModel(model.provider, model.id);
   };
-  const chooseModel = (model: UiModel) => {
+  const chooseModel = (model: UiModel, from?: ThreadBackendKind) => {
+    const runtime = from ?? snapshot?.backendKind;
+    // A thread keeps its runtime; another runtime's model means a thread of its own.
+    if (from && from !== snapshot?.backendKind && !runtimeChoice) {
+      onNewThreadOnRuntime?.(from);
+      return;
+    }
     passGates(
-      { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
+      { action: "model", model, ...(runtime ? { runtime } : {}), ...(snapshot ? { snapshot } : {}) },
       () => {
-        applyModel(model);
+        applyModel(model, runtime);
         // The popover hands focus back to its chip; with a model chosen, the prompt is next.
         requestAnimationFrame(() => textareaRef.current?.focus());
       },
@@ -1088,6 +1096,7 @@ export function Composer({
             runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
             catalogRuntime={snapshot?.backendKind}
             runtimeBackends={runtimeChoice?.backends ?? snapshot?.runtimeBackends}
+            catalogs={runtimeCatalogs}
             onSelectRuntime={runtimeChoice?.onSelect}
             onNewThreadOnRuntime={onNewThreadOnRuntime}
             badges={registry?.getModelBadges?.()}

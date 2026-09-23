@@ -5,6 +5,7 @@ import type { UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import { ModelPicker } from "./ModelPicker";
 import { PreferencesStore } from "../preferences";
 import { TestProviders } from "../test-support/test-providers";
+import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 
 const models: UiModel[] = [
   { provider: "anthropic", id: "claude-fable-5-1", name: "Claude Fable 5.1", login: "subscription" },
@@ -17,8 +18,9 @@ const models: UiModel[] = [
 function renderPicker(options: {
   runtime?: string;
   preferences?: PreferencesStore;
-  onSelect?: (model: UiModel) => void;
+  onSelect?: (model: UiModel, runtime?: string) => void;
   catalogRuntime?: string;
+  catalogs?: ReadonlyMap<string, RuntimeCatalogEntry>;
   runtimeBackends?: UiRuntimeBackend[];
   onSelectRuntime?: (kind: string) => void;
   onNewThreadOnRuntime?: (kind: string) => void;
@@ -33,6 +35,7 @@ function renderPicker(options: {
       runtime={options.runtime}
       catalogRuntime={options.catalogRuntime}
       runtimeBackends={options.runtimeBackends}
+      catalogs={options.catalogs}
       onSelectRuntime={options.onSelectRuntime}
       onNewThreadOnRuntime={options.onNewThreadOnRuntime}
     />
@@ -48,7 +51,54 @@ const backends = [
 
 afterEach(cleanup);
 
+const codexBackends = [...backends, { kind: "codex", label: "Codex" }];
+const luna = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" as const, price: { input: 0.2, output: 1.2 } };
+const cached = (entries: Array<[string, RuntimeCatalogEntry]>) => new Map(entries);
+
 describe("ModelPicker", () => {
+  it("lists another runtime's models from the host's cache in a fresh draft, and picks one with its runtime", () => {
+    const onSelect = renderPicker({
+      runtime: "pi",
+      runtimeBackends: codexBackends,
+      onSelectRuntime: vi.fn(),
+      catalogs: cached([["codex", { status: "ready", catalog: { kind: "codex", models: [luna], thinkingLevels: {} } }]]),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Codex (1)" }));
+    expect(screen.queryByRole("region", { name: "Codex" })).toBeNull();
+    expect(screen.getByText("Choosing one runs this thread on Codex instead of Pi.")).toBeTruthy();
+    expect(document.querySelector(".model-sub .provider-family-codex")).toBeTruthy();
+    fireEvent.click(screen.getByText("GPT-5.6 Luna"));
+    expect(onSelect).toHaveBeenCalledWith(luna, "codex");
+  });
+
+  it("searches every runtime's models at once", () => {
+    renderPicker({
+      runtime: "pi",
+      runtimeBackends: codexBackends,
+      onSelectRuntime: vi.fn(),
+      catalogs: cached([["codex", { status: "ready", catalog: { kind: "codex", models: [luna, { ...luna, id: "gpt-5.6-sol", name: "GPT-5.6 Sol" }], thinkingLevels: {} } }]]),
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search models" }), { target: { value: "sol" } });
+    // Pi's own Sol and Codex's: one row per offering.
+    expect(screen.getAllByText("GPT-5.6 Sol")).toHaveLength(2);
+  });
+
+  it("says why a runtime lists no models instead of an empty list", () => {
+    renderPicker({
+      runtime: "pi",
+      runtimeBackends: codexBackends,
+      onSelectRuntime: vi.fn(),
+      catalogs: cached([
+        ["codex", { status: "unavailable", reason: "not-installed", message: "The Codex CLI \"codex\" is not installed." }],
+        ["claude-code", { status: "loading" }],
+      ]),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.getByRole("region", { name: "Codex" }).textContent).toMatch(/is not installed/u);
+    fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
+    expect(screen.getByRole("region", { name: "Claude Code" }).textContent).toMatch(/Asking Claude Code for its models/u);
+  });
+
   it("offers another runtime to a new thread from its rail tab", () => {
     const onSelectRuntime = vi.fn();
     const onSelect = renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime });
