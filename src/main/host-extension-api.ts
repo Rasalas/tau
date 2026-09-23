@@ -55,7 +55,7 @@ export { assertAllowedCloneSource } from "./clone-source.js";
 export { npmLatestVersion, packageInstallCommand, packageUpdateCommand, type NpmLatestVersionOptions } from "./cli-versions.js";
 export { compareVersions, updateAvailable } from "../shared/runtime-version.js";
 // Several setups of one program, and the versions of it a backend works with (API 1.11.0).
-export { RuntimeInstanceSettings, expandHome, runtimeVersionPolicy, type RuntimeInstanceSettingsOptions } from "./runtime-instance-settings.js";
+export { RuntimeInstanceSettings, expandHome, runtimeUpdateCommand, runtimeVersionPolicy, type RuntimeInstanceSettingsOptions } from "./runtime-instance-settings.js";
 export {
   DEFAULT_INSTANCE_ID,
   formatEnvironment,

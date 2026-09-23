@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { RuntimeInstanceSettings, expandHome, runtimeVersionPolicy } from "./runtime-instance-settings.js";
+import { RuntimeInstanceSettings, expandHome, runtimeUpdateCommand, runtimeVersionPolicy } from "./runtime-instance-settings.js";
 import { packageInstallCommand } from "./cli-versions.js";
 
 const directories: string[] = [];
@@ -94,6 +94,13 @@ describe("helpers for a CLI's releases", () => {
     expect(runtimeVersionPolicy("codex", bundled, { TAU_VERSION_POLICY: JSON.stringify({ codex: { ranges: [{ range: ">=0.1.0", status: "unsafe" }] } }) })).toEqual({ ranges: [{ range: ">=0.1.0", status: "unsafe" }] });
     expect(runtimeVersionPolicy("codex", bundled, { TAU_VERSION_POLICY: JSON.stringify({ "claude-code": { ranges: [] } }) })).toBe(bundled);
     expect(runtimeVersionPolicy("codex", bundled, { TAU_VERSION_POLICY: "{broken" })).toBe(bundled);
+  });
+
+  it("takes an update command from TAU_RUNTIME_UPDATE_COMMAND for its program, else the one worked out", () => {
+    expect(runtimeUpdateCommand("codex", "brew upgrade --cask codex", {})).toBe("brew upgrade --cask codex");
+    expect(runtimeUpdateCommand("codex", "brew upgrade --cask codex", { TAU_RUNTIME_UPDATE_COMMAND: JSON.stringify({ codex: " /tmp/stub-update.sh " }) })).toBe("/tmp/stub-update.sh");
+    expect(runtimeUpdateCommand("codex", "codex update", { TAU_RUNTIME_UPDATE_COMMAND: JSON.stringify({ "claude-code": "/tmp/stub.sh", codex: "" }) })).toBe("codex update");
+    expect(runtimeUpdateCommand("codex", "codex update", { TAU_RUNTIME_UPDATE_COMMAND: "{broken" })).toBe("codex update");
   });
 
   it("names the command that installs one release, for a package manager that can pin it", () => {
