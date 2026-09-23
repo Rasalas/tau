@@ -10,6 +10,8 @@
     "open.olderPageAtTopMs": 1000,
     "open.olderPageDriftPx": 2,
     "open.twoPageDriftPx": 2,
+    "open.scrollUpDriftPx": 2,
+    "open.scrollUpTopHits": 0,
     "startup.newestTurnMs": 8000
   }
 }
