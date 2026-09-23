@@ -25,7 +25,9 @@ describe("editorLanguageFor", () => {
     const support = await typescript.load();
     const state = EditorState.create({ doc: "function f() {\n  return 1;\n}\n", extensions: [support] });
     ensureSyntaxTree(state, state.doc.length, 5_000);
-    expect(foldable(state, 0, state.doc.line(1).to)).toEqual({ from: 14, to: 27 });
+    // A new state parses for only 20 ms; the finished tree reaches the state on its next update.
+    const parsed = state.update({}).state;
+    expect(foldable(parsed, 0, parsed.doc.line(1).to)).toEqual({ from: 14, to: 27 });
   });
 
   it("loads every mode", async () => {

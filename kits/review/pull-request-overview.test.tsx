@@ -33,7 +33,7 @@ describe("the Pull Requests page", () => {
     expect(within(authored).getAllByRole("button").map((row) => row.getAttribute("aria-label"))).toEqual([expect.stringMatching(/^#14475 /u)]);
     expect(within(screen.getByRole("region", { name: "Others" })).getAllByRole("button")).toHaveLength(3);
     expect(client.list).toHaveBeenCalledWith({ workspace: "/project", state: "open", limit: 100 });
-    expect(tab.setTitle).toHaveBeenCalledWith("PRs · cli");
+    await waitFor(() => expect(tab.setTitle).toHaveBeenCalledWith("PRs · cli"));
 
     fireEvent.click(screen.getByRole("button", { name: "Sort pull requests" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Blocked on me/u }));
