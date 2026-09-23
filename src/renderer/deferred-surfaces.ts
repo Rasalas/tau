@@ -16,6 +16,8 @@ export const QueuedMessages = deferred(
 export const ExtensionPrompt = deferred(() => import("./components/ExtensionPrompt").then((module) => module.ExtensionPrompt));
 export const ExtensionPromptFrame = deferred(() => import("./components/ExtensionPrompt").then((module) => module.ExtensionPromptFrame));
 export const OptionRow = deferred(() => import("./components/ExtensionPrompt").then((module) => module.OptionRow));
+export const SettingRow = deferred(() => import("./settings/settings-layout").then((module) => module.SettingRow));
+export const SettingsSection = deferred(() => import("./settings/settings-layout").then((module) => module.SettingsSection));
 
 // No top-level await here: Rollup would split the start-up graph into many chunks. Tests preload in src/test-setup.ts.
 if (import.meta.env.PROD) preloadDeferredWhenIdle();

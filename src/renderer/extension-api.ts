@@ -32,8 +32,9 @@ export { DiffView, ReviewMode } from "./extension-components";
 export { ChangesTree } from "./components/ChangesTree";
 export { usePreferences } from "./renderer-services-context";
 // The rows a Settings page is built from, and one config key read across the levels.
-export { SettingRow, SettingsSection, useSetting } from "./settings/settings-layout";
-export type { SettingHandle, SettingOptions } from "./settings/settings-layout";
+export { SettingRow, SettingsSection } from "./deferred-surfaces";
+export { useSetting } from "./settings/setting-state";
+export type { SettingHandle, SettingOptions } from "./settings/setting-state";
 export type { ConfigLayerName, SettingScope } from "../shared/config-layers";
 // Read only: preferences sync them from the host, and emit when they do.
 export { listUserThemes as userThemes } from "./theme";
