@@ -96,7 +96,7 @@ function textOfContent(content: AcpToolCallContent[] | null | undefined): string
   return parts.join("\n");
 }
 
-/** Google's native field names on the raw payloads; the ACP fields come first. */
+/** Native field names agents put on raw payloads (Google's among them); the ACP fields come first. */
 function textOfRawOutput(raw: unknown): string {
   if (typeof raw === "string") return raw;
   if (!raw || typeof raw !== "object") return "";
@@ -122,7 +122,8 @@ export class AcpTurnTranslator {
   private readonly texts: string[] = [];
   private segments = 0;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  /** `idPrefix` names the assistant messages: `antigravity-assistant-…`. */
+  constructor(private readonly now: () => number = Date.now, private readonly idPrefix = "acp") {}
 
   static emptyUsage(): UiThreadUsage { return { ...EMPTY_USAGE }; }
 
@@ -177,6 +178,26 @@ export class AcpTurnTranslator {
     return events;
   }
 
+  /** A reply the agent sent outside the stream (a plan, say): it closes the open text and stands as a message of its own. */
+  reply(text: string): ThreadRuntimeEvent[] {
+    if (!text.trim()) return [];
+    const events = this.closeSegment();
+    events.push(...this.chunk({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }, "text"));
+    events.push(...this.closeSegment());
+    return events;
+  }
+
+  /** A tool the agent reported through a method of its own: a card that starts and ends at once. */
+  finishedTool(tool: { id: string; name: string; args?: Record<string, unknown>; output?: string; failed?: boolean }): ThreadRuntimeEvent[] {
+    const started: UiToolRun = { id: tool.id, name: tool.name, args: tool.args ?? {}, status: "running", startedAt: this.now() };
+    const output = tool.output ? boundedToolOutput(tool.output) : undefined;
+    return [
+      ...this.closeSegment(),
+      { type: "tool-start", tool: started },
+      { type: "tool-end", tool: { ...started, status: tool.failed ? "error" : "done", ...(output ? { output } : {}), endedAt: this.now() } },
+    ];
+  }
+
   /** The process died mid-turn. */
   abandon(): ThreadRuntimeEvent[] {
     return this.finish({ stopReason: "cancelled" });
@@ -189,7 +210,7 @@ export class AcpTurnTranslator {
     const events: ThreadRuntimeEvent[] = [];
     if (!this.segment) {
       this.segments += 1;
-      this.segment = { id: `antigravity-assistant-${this.now()}-${this.segments}`, text: "", thinking: "", timestamp: this.now() };
+      this.segment = { id: `${this.idPrefix}-assistant-${this.now()}-${this.segments}`, text: "", thinking: "", timestamp: this.now() };
       events.push({ type: "assistant-start", id: this.segment.id, timestamp: this.segment.timestamp });
     }
     this.segment[field] += text;

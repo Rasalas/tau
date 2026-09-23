@@ -37,6 +37,13 @@ may additionally reach `src/main/test-support/` and `src/renderer/test-support/`
 Relative imports inside a kit use the `.js` spelling (`./protocol.js`). esbuild
 and TypeScript both map it to the `.ts` file.
 
+A folder whose name starts with `_` is not a kit but code several kits share:
+it has no manifest, the loaders and `build-kits` skip it, and each kit that
+imports it bundles its own copy. `kits/_acp/` is the Agent Client Protocol
+client (wire, session, turn translator, approvals, a fake agent for tests)
+behind Antigravity and Cursor. Such a folder imports only `tau/*` and itself,
+never a kit, so kits stay apart while the protocol lives once.
+
 A kit's `pi` entry is the exception to "a kit is two halves": when a Pi TUI
 owns the session and Tau is only attached, the host half cannot hand a closure
 to that process. `pi.ts` default-exports `(pi, bridge) => void`, is prebuilt to

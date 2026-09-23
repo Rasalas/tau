@@ -69,6 +69,8 @@ export type AcpRequestHandler = (params: unknown) => Promise<unknown> | unknown;
 
 export interface AcpClientOptions {
   process: AcpProcess;
+  /** How errors name the agent: `Antigravity exited with code 1.` */
+  agentName?: string;
   onNotification(method: string, params: unknown): void;
   /** A stdout line that is not JSON-RPC; return true to say it was meant for Tau. */
   onStdoutLine?(line: string): boolean | void;
@@ -123,10 +125,14 @@ export class AcpClient {
   private exitError?: AcpExitedError;
   private stderrTail = "";
   private closing = false;
+  private readonly name: string;
+  private readonly session: string;
 
   constructor(private readonly options: AcpClientOptions) {
+    this.name = options.agentName ?? "The agent";
+    this.session = options.agentName ? `The ${options.agentName} session` : "The agent session";
     const max = options.maxLineBytes ?? DEFAULT_MAX_LINE;
-    const stdout = lineSplitter(max, (line) => this.onLine(line), () => this.fail(new AcpExitedError("Antigravity sent a line longer than Tau reads.")));
+    const stdout = lineSplitter(max, (line) => this.onLine(line), () => this.fail(new AcpExitedError(`${this.name} sent a line longer than Tau reads.`)));
     const stderr = lineSplitter(STDERR_TAIL, (line) => {
       this.stderrTail = `${this.stderrTail}${line}\n`.slice(-STDERR_TAIL);
       options.onStderrLine?.(line);
@@ -136,7 +142,7 @@ export class AcpClient {
     void options.process.exited.then(({ code, signal }) => {
       if (this.closing && !this.exitError) { this.finish(undefined); return; }
       const detail = this.stderrTail.trim();
-      this.finish(new AcpExitedError(`Antigravity exited${code !== null ? ` with code ${code}` : signal ? ` on ${signal}` : ""}.${detail ? `\n${detail}` : ""}`));
+      this.finish(new AcpExitedError(`${this.name} exited${code !== null ? ` with code ${code}` : signal ? ` on ${signal}` : ""}.${detail ? `\n${detail}` : ""}`));
     });
     options.process.stdin.on("error", () => undefined);
   }
@@ -153,14 +159,14 @@ export class AcpClient {
 
   request<T = unknown>(method: string, params: unknown, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
     if (this.exitError) return Promise.reject(this.exitError);
-    if (this.closing) return Promise.reject(new AcpExitedError("The Antigravity session is closing."));
+    if (this.closing) return Promise.reject(new AcpExitedError(`${this.session} is closing.`));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;
       const settle = (fn: () => void) => { if (timer) clearTimeout(timer); options.signal?.removeEventListener("abort", onAbort); this.pending.delete(id); fn(); };
       const onAbort = () => settle(() => reject(new AcpRequestError(method, ACP_INTERNAL_ERROR, "The request was aborted.")));
       this.pending.set(id, { method, resolve: (value) => settle(() => resolve(value as T)), reject: (error) => settle(() => reject(error)) });
-      if (options.timeoutMs) timer = setTimeout(() => settle(() => reject(new AcpRequestError(method, ACP_INTERNAL_ERROR, `Antigravity did not answer ${method} within ${Math.round(options.timeoutMs! / 1000)} s.`))), options.timeoutMs);
+      if (options.timeoutMs) timer = setTimeout(() => settle(() => reject(new AcpRequestError(method, ACP_INTERNAL_ERROR, `${this.name} did not answer ${method} within ${Math.round(options.timeoutMs! / 1000)} s.`))), options.timeoutMs);
       timer?.unref?.();
       if (options.signal?.aborted) { onAbort(); return; }
       options.signal?.addEventListener("abort", onAbort, { once: true });
@@ -193,7 +199,7 @@ export class AcpClient {
     try {
       this.options.process.stdin.write(`${JSON.stringify(message)}\n`);
     } catch (error) {
-      this.fail(new AcpExitedError(`Antigravity's input closed: ${error instanceof Error ? error.message : String(error)}`));
+      this.fail(new AcpExitedError(`${this.name}'s input closed: ${error instanceof Error ? error.message : String(error)}`));
     }
   }
 
@@ -220,7 +226,7 @@ export class AcpClient {
     if (!pending) return;
     if (message.error && typeof message.error === "object") {
       const error = message.error as { code?: unknown; message?: unknown; data?: unknown };
-      pending.reject(new AcpRequestError(pending.method, typeof error.code === "number" ? error.code : ACP_INTERNAL_ERROR, typeof error.message === "string" ? error.message : "Antigravity returned an error.", error.data));
+      pending.reject(new AcpRequestError(pending.method, typeof error.code === "number" ? error.code : ACP_INTERNAL_ERROR, typeof error.message === "string" ? error.message : `${this.name} returned an error.`, error.data));
       return;
     }
     pending.resolve(message.result);
@@ -250,8 +256,8 @@ export class AcpClient {
 
   private finish(error: AcpExitedError | undefined): void {
     if (error && !this.exitError) this.exitError = error;
-    if (!error && !this.exitError) this.exitError = new AcpExitedError("The Antigravity session was closed.");
-    const failure = error ?? new AcpExitedError("The Antigravity session was closed.");
+    if (!error && !this.exitError) this.exitError = new AcpExitedError(`${this.session} was closed.`);
+    const failure = error ?? new AcpExitedError(`${this.session} was closed.`);
     for (const pending of [...this.pending.values()]) pending.reject(failure);
     this.pending.clear();
     this.options.onExit?.(error);
