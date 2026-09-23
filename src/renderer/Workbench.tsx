@@ -10,7 +10,8 @@ import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { QueuedFollowUp } from "../workbench/follow-up-queue";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
-import { ComposerHost, LiveStatus } from "./components/ComposerHost";
+import { ComposerHost, LiveStatus, TurnErrorLine } from "./components/ComposerHost";
+import { useThreadShell } from "./use-thread-shell";
 import { QueuedMessages } from "./components/QueuedMessages";
 import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
@@ -24,6 +25,7 @@ import type { ClientProfile } from "../workbench/client-profile";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
+import { ThreadRuntimeBanner } from "./components/ThreadRuntimeBanner";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import { useConversationActivities } from "./conversation-activities";
@@ -577,6 +579,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 />
                 <span className="title-spacer" />
               </header>
+              {snapshot?.sessionId ? <ThreadRuntimeBanner
+                sessionId={snapshot.sessionId}
+                onRetry={(path) => void actions.switchSession(path)}
+                onOpenProviders={() => actions.openSettings("providers")}
+              /> : null}
               <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} />
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
             </> : null}
@@ -719,13 +726,16 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
   const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
+  const shellTurnError = useThreadShell(conversationSnapshot?.sessionId ?? "")?.turnError;
+  const turnError = pendingNewThread || running ? undefined : shellTurnError;
   const liveStatus = useMemo(() => {
     const status = liveStatusLabel !== undefined
       ? <LiveStatus label={liveStatusLabel} />
-      : showRunClock ? <LiveStatus startedAt={runStartedAt} /> : undefined;
+      : showRunClock ? <LiveStatus startedAt={runStartedAt} />
+      : turnError ? <TurnErrorLine message={turnError} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
     return <>{status}<QueuedMessages queue={queue} streaming={running} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [liveStatusLabel, pendingNewThread, queue, reorderQueue, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut]);
+  }, [liveStatusLabel, pendingNewThread, queue, reorderQueue, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     scrollRef={transcriptRef}

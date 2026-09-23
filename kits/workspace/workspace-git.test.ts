@@ -74,6 +74,15 @@ describe("selective workspace changes", () => {
       await revertFile(cwd, "tracked.txt");
       expect((await readProjectGitState(cwd)).changes.files).toHaveLength(0);
 
+      await mkdir(join(cwd, "src", "nested"), { recursive: true });
+      await writeFile(join(cwd, "src", "a.ts"), "one\ntwo\n");
+      await writeFile(join(cwd, "src", "nested", "b.ts"), "three\n");
+      expect((await readProjectGitState(cwd)).changes.files).toEqual([
+        expect.objectContaining({ path: "src/a.ts", status: "untracked", added: 2 }),
+        expect.objectContaining({ path: "src/nested/b.ts", status: "untracked", added: 1 }),
+      ]);
+      await rm(join(cwd, "src"), { recursive: true, force: true });
+
       await writeFile(join(cwd, "new.txt"), "new\n");
       await revertFile(cwd, "new.txt");
       await expect(readFile(join(cwd, "new.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });

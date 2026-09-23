@@ -67,6 +67,7 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
     logRuntimePhase: () => undefined,
     log: () => undefined,
     errorMessage: (error) => error instanceof Error ? error.message : String(error),
+    runtimeUnavailable: vi.fn(),
     ...overrides,
   };
   return { lifecycle: new ThreadRuntimeLifecycle(port), port, adopted, emitted, released };
@@ -179,6 +180,27 @@ describe("ThreadRuntimeLifecycle", () => {
     const provider = { lookup: async () => undefined };
     const { lifecycle } = makeLifecycle({ indexedSession: () => ({ id: "thread", backendKind: "test" }) as never }, { test: provider });
     await expect(lifecycle.openForPath("/a.jsonl", "resume")).rejects.toThrow("no longer available");
+  });
+
+  it("opens a thread read-only when its runtime cannot start, and says why", async () => {
+    const provider = {
+      adapter: PI_AGENT_RUNTIME_ADAPTER,
+      lookup: async () => ({ threadId: "thread", cwd: "/repo", title: "Kept", updatedAt: 5, messages: [{ role: "user", text: "hello" }, { role: "assistant", text: "hi" }] }),
+      open: async () => { throw new Error("The Codex CLI was not found."); },
+    };
+    const { lifecycle, port, adopted } = makeLifecycle({ indexedSession: () => ({ id: "thread", backendKind: "test" }) as never }, { test: provider });
+    const thread = await lifecycle.openForPath("/a.jsonl", "resume");
+    expect(adopted).toEqual([thread]);
+    expect(thread.adapterMessages.map((message) => message.text)).toEqual(["hello", "hi"]);
+    expect(thread.state).toMatchObject({ streaming: false, idle: true, hasMessages: true, title: "Kept" });
+    expect(port.runtimeUnavailable).toHaveBeenCalledWith("thread", "The Codex CLI was not found.");
+    await expect(thread.backend.prompt({ text: "again", delivery: "prompt" } as never)).rejects.toThrow("The Codex CLI was not found.");
+
+    // A prewarm in the background still fails, and a runtime that starts clears the mark.
+    await expect(lifecycle.openForPath("/b.jsonl", "resume", true)).rejects.toThrow("not found");
+    provider.open = async () => externalBackend("thread") as never;
+    await lifecycle.openForPath("/c.jsonl", "resume");
+    expect(port.runtimeUnavailable).toHaveBeenLastCalledWith("thread", undefined);
   });
 
   it("aborts a streaming backend before disposing it and releases its tools", async () => {

@@ -259,6 +259,7 @@ button > svg { pointer-events: none; }
 }
 .thread-status-age.status-ready { color: var(--ready); }
 .thread-status-age.status-interrupted { color: var(--warn); }
+.thread-status-age.status-failed { color: var(--fail-ink); }
 .thread-status-age > i {
   width: 10px; height: 10px; flex: none; border: 1.5px solid var(--working);
   border-top-color: transparent; border-radius: 50%; animation: spin .9s linear infinite;
@@ -450,6 +451,14 @@ button > svg { pointer-events: none; }
   flex: none; display: flex; align-items: center; gap: 12px;
   height: 52px; padding: 0 var(--space-7); border-bottom: 1px solid var(--line);
 }
+.thread-runtime-banner {
+  flex: none; display: flex; align-items: flex-start; gap: 10px; margin: 12px var(--space-7) 0; padding: 10px 12px;
+  border: 1px solid var(--danger-line); border-radius: 10px; background: var(--danger-bg); color: var(--fail-ink);
+}
+.thread-runtime-banner > svg { flex: none; margin-top: 2px; }
+.thread-runtime-banner > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.thread-runtime-banner p { margin: 2px 0; }
+.thread-runtime-banner span { color: var(--muted); font-size: 12px; }
 .thread-title-control { min-width: 0; }
 .thread-title-trigger {
   min-width: 0; max-width: min(560px, 48vw); display: flex; align-items: center; gap: 6px;
@@ -968,7 +977,10 @@ button > svg { pointer-events: none; }
 
 .transcript-card + .live-status, .static-activity-transcript + .live-status { margin-top: 22px; }
 .live-status { display: flex; align-items: center; gap: 10px; }
-.live-status > span { font: 500 12px var(--mono); color: var(--working); }
+.live-status > span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.turn-error-line { display: flex; align-items: flex-start; gap: 8px; padding: 7px 2px; color: var(--fail-ink); overflow-wrap: anywhere; }
+.turn-error-line > svg { flex: none; margin-top: 3px; color: var(--fail); }
+.turn-error-line > span { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; user-select: text; }
 
 /* Messages waiting for the run: dashed user bubbles at the end of the conversation. */
 .queued-messages { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
@@ -2123,7 +2135,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .commit-proposal-heading > span svg { color: var(--acid-text); }
 .commit-message-preview { width: 100%; display: block; padding: 0; border: 0; background: transparent; color: var(--ink-2); font: 11px/1.5 var(--mono); text-align: left; white-space: pre-wrap; cursor: text; }
 .commit-proposal textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--line-control); border-radius: 6px; background: var(--sunken); color: var(--ink); padding: 7px; font: 11px/1.45 var(--mono); }
-.commit-message-error { display: block; margin-top: 6px; color: var(--removed); }
+.commit-message-error { display: block; margin-top: 6px; color: var(--muted); }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .review-sidebar-resizer { position: absolute; z-index: 20; top: 0; left: -4px; bottom: 0; width: 8px; cursor: col-resize; }

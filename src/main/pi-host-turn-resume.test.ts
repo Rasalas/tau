@@ -103,11 +103,13 @@ describe("PiHost turn markers", () => {
     bench.thread.release();
   });
 
-  it("clears the thread's interrupted mark as soon as it is prompted again", async () => {
+  it("clears the thread's interrupted and failed marks as soon as it is prompted again", async () => {
     const bench = host();
     const setInterrupted = vi.spyOn(bench.internals.index, "setInterrupted");
+    const setTurnError = vi.spyOn(bench.internals.index, "setTurnError");
     await bench.host.prompt("go on", [], "thread-1");
     expect(setInterrupted).toHaveBeenCalledWith("thread-1", false);
+    expect(setTurnError).toHaveBeenCalledWith("thread-1", undefined);
     bench.thread.release();
   });
 

@@ -57,6 +57,11 @@ function sizedImageFile(name: string, size: number): File {
 afterEach(cleanup);
 
 describe("Composer attachments", () => {
+  it("keeps the hidden file input out of the tab order", () => {
+    renderComposer();
+    expect((screen.getByLabelText("Choose attachment files") as HTMLInputElement).tabIndex).toBe(-1);
+  });
+
   it("shows a selected image above the text line, opens it large, and submits its bytes", async () => {
     const onSubmit = renderComposer();
     expect(screen.getByRole("button", { name: "Attach files" })).toBeTruthy();

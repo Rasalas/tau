@@ -469,6 +469,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     logRuntimePhase: (phase, startedAt, reason, phaseCwd) => deps.logRuntimePhase(phase, startedAt, reason, phaseCwd),
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
+    runtimeUnavailable: (threadId, reason) => index.setRuntimeError(threadId, reason),
   });
   const hostConfig = defaultHostConfigManager.readSync(deps.getCwd());
   /**

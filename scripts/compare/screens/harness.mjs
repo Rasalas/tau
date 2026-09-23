@@ -32,9 +32,13 @@ const READY = {
   t3: `!!document.querySelector("[data-testid=composer-editor]") && !!document.querySelector("[data-testid=sidebar-settled-header], [data-testid=sidebar-row-card]")`,
 };
 
-/** Roots of their own, so a screen pass never shares a profile with a benchmark run. */
+/**
+ * Roots of their own, so a screen pass never shares a profile with a benchmark run.
+ * `COMPARE_SCREENS_ROOT` (under /tmp) gives a parallel checkout its own pair.
+ */
 export function screenRoot(id) {
-  return assertOwnedRoot(realTmp(`compare-screens-${id}`), APPS[id]);
+  const prefix = process.env.COMPARE_SCREENS_ROOT ?? realTmp("compare-screens");
+  return assertOwnedRoot(`${prefix}-${id}`, APPS[id]);
 }
 
 export function screenTurnFile(overrides = {}) {

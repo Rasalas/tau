@@ -274,6 +274,10 @@ export interface UiSession {
   usage?: UiThreadUsage;
   /** A turn of this thread was cut short by a restart and was not continued. */
   interrupted?: boolean;
+  /** Why the thread's last turn failed; the host drops it at the next prompt. */
+  turnError?: string;
+  /** Why the thread's runtime could not start; the thread shows read-only until it does. */
+  runtimeError?: string;
   /**
    * The thread that spawned this one, as its own session file records it
    * (ADR 0013, amended). Absent for a thread the user started.

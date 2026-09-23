@@ -86,7 +86,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
-  "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",
+  "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",   "./unavailable-thread-backend.js",
   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
   "./window-attention.js",   "./window-context-menu.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",

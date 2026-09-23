@@ -399,14 +399,14 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (outcome?.status === "failed") this.report({ type: "notice", message: `Codex stopped: ${outcome.error ?? "the turn failed."}`, level: "error" });
       this.usage = { ...this.usage, turns: this.usage.turns + 1 };
       await this.store.recordUsage(this.threadId, this.cwd, this.usage);
-      this.settle(turn, outcome?.status === "interrupted" ? "interrupted" : outcome?.status === "failed" ? "error" : "completed");
+      this.settle(turn, outcome?.status === "interrupted" ? "interrupted" : outcome?.status === "failed" ? "error" : "completed", outcome?.error);
       return outcome?.texts.length ? { assistantText: outcome.texts.join("\n\n") } : {};
     } catch (error) {
       if (!turn.status) {
         const message = error instanceof Error ? error.message : String(error);
         this.report({ type: "notice", message: `Codex reported an error: ${message}`, level: "error" });
         for (const event of turn.translator.abandon("failed", message)) this.handleEvent(event);
-        this.settle(turn, "error");
+        this.settle(turn, "error", message);
       }
       throw error;
     } finally {
@@ -414,14 +414,14 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
   }
 
-  private settle(turn: Turn, status: NonNullable<Turn["status"]>): void {
+  private settle(turn: Turn, status: NonNullable<Turn["status"]>, error?: string): void {
     if (turn.status) return;
     turn.status = status;
     turn.complete();
     const index = this.turns.indexOf(turn);
     if (index >= 0) this.turns.splice(index, 1);
     this.report({ type: "usage" });
-    this.report({ type: "turn-settled", status });
+    this.report({ type: "turn-settled", status, ...(status === "error" && error ? { error } : {}) });
     this.reportQueue();
     turn.finish();
   }

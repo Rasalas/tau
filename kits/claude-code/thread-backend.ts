@@ -504,7 +504,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.report({ type: "usage" });
       if (outcome.error) this.report({ type: "notice", message: `Claude Code reported an error: ${outcome.error}`, level: "error" });
     }
-    this.report({ type: "turn-settled", status });
+    this.report({ type: "turn-settled", status, ...(status === "error" && outcome?.error ? { error: outcome.error } : {}) });
   }
 
   /** What the session says about itself, once per init frame. */
