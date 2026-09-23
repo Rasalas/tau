@@ -16,6 +16,7 @@ export const QueuedMessages = deferred(
 export const ExtensionPrompt = deferred(() => import("./components/ExtensionPrompt").then((module) => module.ExtensionPrompt));
 export const ExtensionPromptFrame = deferred(() => import("./components/ExtensionPrompt").then((module) => module.ExtensionPromptFrame));
 export const OptionRow = deferred(() => import("./components/ExtensionPrompt").then((module) => module.OptionRow));
+export const AttachmentLightbox = deferred(() => import("./components/AttachmentLightbox").then((module) => module.AttachmentLightbox));
 export const ChangesTree = deferred(() => import("./components/ChangesTree").then((module) => module.ChangesTree));
 export const Dialog = deferred(() => import("./components/ui/Dialog").then((module) => module.Dialog));
 export const Popover = deferred(() => import("./components/ui/Dialog").then((module) => module.Popover));
