@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, UiSession } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -171,6 +171,18 @@ describe("the rest of the rail", () => {
     const branch = row("a").querySelector(".thread-branch")!;
     expect(branch.children).toHaveLength(2);
     expect(branch.lastElementChild!.textContent).toBe("e-20260923");
+  });
+
+  it("opens the thread's Project settings from the command palette", async () => {
+    await renderRail([shell("a", 0)]);
+    const mac = /mac|iphone|ipad/iu.test(navigator.platform);
+    fireEvent.keyDown(window, { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    const input = within(palette).getByRole("textbox", { name: "Command" });
+    fireEvent.change(input, { target: { value: "Project settings" } });
+    fireEvent.keyDown(input, { key: "Enter", bubbles: true, cancelable: true });
+    const dialog = await screen.findByRole("dialog", { name: "Project settings" });
+    expect(within(dialog).getByText("/project")).toBeTruthy();
   });
 
   it("opens Project settings and shows the chosen icon on the row", async () => {

@@ -211,6 +211,17 @@ export const workspaceExtension: DesktopExtension = {
     } });
     context.registerCommand({ id: "workspace.switch-project", label: "Switch project…", group: "Project", run: () => requestProjectSwitcher() });
     context.registerCommand({
+      id: "workspace.project-settings",
+      label: "Project settings…",
+      group: "Project",
+      run: (app) => {
+        const active = app.activeThread();
+        const cwd = active?.cwd ?? store.getSnapshot().cwd;
+        if (!cwd) { app.notify("Open a project first."); return; }
+        store.openProjectSettings({ projectPath: cwd, projectName: cwd.split("/").pop() ?? cwd, ...(active?.workspaceId ? { workspaceId: active.workspaceId } : {}) });
+      },
+    });
+    context.registerCommand({
       id: "workspace.open-in-editor",
       label: "Open in external editor",
       group: "Project",
