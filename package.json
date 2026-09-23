@@ -37,6 +37,7 @@
     "smoke:attached": "node scripts/attached-smoke.mjs",
     "smoke:cli-app": "node scripts/cli-app-smoke.mjs",
     "install:mac": "node scripts/install-mac.mjs",
+    "packaging:update": "node scripts/packaging/update-packages.mjs",
     "start:budget": "npm run build:budget && node scripts/start-report.mjs --check",
     "dev:instance": "node scripts/dev-instance.mjs",
     "cdp": "node scripts/tau-cdp.mjs",

@@ -3,10 +3,18 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  # The nightly: 03:17 UTC, published only when main moved since the last one,
+  # and only once the repository variable NIGHTLY is `true` (docs/RELEASE.md).
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       publish:
         description: Publish a GitHub release from a tag ref (otherwise just build and upload artifacts)
+        type: boolean
+        default: false
+      nightly:
+        description: Build main and publish it as the nightly prerelease now, even without new commits
         type: boolean
         default: false
 
@@ -18,9 +26,66 @@ permissions:
   contents: write
 
 jobs:
+  # Decides whether this run builds at all, and whether it is a nightly. Every
+  # other job needs it, so a nightly with nothing new stops here.
+  gate:
+    # A fork runs schedules too; only the upstream repository publishes nightlies,
+    # and only after someone switched them on.
+    if: github.event_name != 'schedule' || (github.repository == 'Rasalas/tau' && vars.NIGHTLY == 'true')
+    runs-on: tau-linux
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      nightly: ${{ steps.decide.outputs.nightly }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: decide
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          NIGHTLY: ${{ inputs.nightly }}
+          PUBLISH: ${{ inputs.publish }}
+          REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          if [ "$EVENT" != schedule ] && [ "$NIGHTLY" != true ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "nightly=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$PUBLISH" = true ]; then
+            echo "::error::publish and nightly exclude each other."
+            exit 1
+          fi
+          if [ "$REF" != refs/heads/main ] || [ "$REPOSITORY" != Rasalas/tau ]; then
+            echo "::error::A nightly builds main of Rasalas/tau, not $REF of $REPOSITORY."
+            exit 1
+          fi
+          head="$(git rev-parse HEAD)"
+          # The peeled line (^{}) names the commit when the tag is annotated.
+          last="$(git ls-remote origin refs/tags/nightly 'refs/tags/nightly^{}' | tail -n 1 | cut -f 1)"
+          if [ "$EVENT" = schedule ] && [ "$last" = "$head" ]; then
+            echo "main is still at the last nightly ($head); nothing to publish."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "nightly=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$(node scripts/packaging/nightly-version.mjs --run "$RUN_NUMBER")"
+          echo "Nightly $version from $head (last nightly: ${last:-none})."
+          echo "build=true" >> "$GITHUB_OUTPUT"
+          echo "nightly=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   # Same gates as ci.yml, so a tag that points at a red commit stops here
   # instead of shipping a broken build. Cheap enough to run on every release.
   verify:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
     runs-on: tau-linux
     timeout-minutes: 15
     steps:
@@ -40,7 +105,7 @@ jobs:
       - run: npx vitest run
 
   build:
-    needs: verify
+    needs: [gate, verify]
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
@@ -71,6 +136,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Before the build, so the app, its update feed and the file names all carry it.
+      - name: Stamp the nightly version
+        if: needs.gate.outputs.nightly == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: npm pkg set version="$VERSION"
       - run: npm run build
 
       - name: Package
@@ -129,8 +201,8 @@ jobs:
           retention-days: 7
 
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+    needs: [gate, build]
+    if: needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
     runs-on: tau-linux
     timeout-minutes: 15
     steps:
@@ -147,3 +219,47 @@ jobs:
           files: artifacts/*
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+  # One prerelease under the moving tag `nightly`: the previous one and its tag
+  # go first, so the tag points at this commit and no stale asset stays behind.
+  # An installed Tau on the nightly channel reads its latest*.yml from there.
+  nightly:
+    needs: [gate, build]
+    if: needs.gate.outputs.nightly == 'true'
+    runs-on: tau-linux
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: List what will be published
+        run: ls -lh artifacts
+      - name: Remove the previous nightly
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: "nightly" });
+              if (!data.prerelease) throw new Error("The release tagged nightly is not a prerelease; refusing to delete it.");
+              await github.rest.repos.deleteRelease({ owner, repo, release_id: data.id });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            try {
+              await github.rest.git.deleteRef({ owner, repo, ref: "tags/nightly" });
+            } catch (error) {
+              if (error.status !== 404 && error.status !== 422) throw error;
+            }
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          target_commitish: ${{ github.sha }}
+          name: Nightly ${{ needs.gate.outputs.version }}
+          body: |
+            Built from ${{ github.sha }} on main. Nightly builds are untested; Settings → Defaults → Update track switches an installed Tau between Stable and Nightly.
+          prerelease: true
+          make_latest: false
+          files: artifacts/*
+          fail_on_unmatched_files: true

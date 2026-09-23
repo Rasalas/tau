@@ -44,6 +44,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
       ["Composer editing mode", ["vim", "readline", "emacs", "modal"]],
       ["Send with", ["send", "enter", "submit", "shortcut"]],
       ["Model parameters", ["temperature", "max tokens", "sampling"]],
+      ["Update track", ["update", "updates", "nightly", "stable", "channel", "prerelease", "beta"]],
     ],
   },
   {

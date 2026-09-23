@@ -2676,6 +2676,15 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   background: var(--danger-bg);
   border-top-color: var(--danger-line);
 }
+.host-connection-status.version-skew {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.host-connection-status.version-skew .text-button {
+  flex: none;
+}
 .host-connection-status.refused .host-connection-detail {
   color: var(--ink-2);
   font-family: var(--mono);

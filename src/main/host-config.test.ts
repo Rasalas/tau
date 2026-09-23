@@ -291,5 +291,17 @@ describe("HostConfigManager", () => {
       expect((await manager.read()).threads?.continueAfterRestart).toBe(true);
       expect((await manager.read(projectDir)).threads?.continueAfterRestart).toBe(false);
     });
+
+    it("round-trips the update channel on the host level and clears it back to the default", async () => {
+      await manager.update({ updates: { channel: "nightly" } }, "global");
+      expect(JSON.parse(await readFile(globalPath, "utf8")).updates).toEqual({ channel: "nightly" });
+      expect((await manager.read()).updates?.channel).toBe("nightly");
+      expect((await manager.readLayers()).host.updates).toEqual({ channel: "nightly" });
+      await manager.update({ updates: { channel: "beta" as never } }, "global");
+      expect((await manager.read()).updates?.channel).toBe("nightly");
+      const layers = await manager.clear(["updates.channel"], "global");
+      expect(layers.host.updates).toBeUndefined();
+      expect((await manager.read()).updates).toBeUndefined();
+    });
   });
 });

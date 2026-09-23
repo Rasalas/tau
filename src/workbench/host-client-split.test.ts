@@ -52,6 +52,25 @@ describe("a client with a host in another process", () => {
     expect(log).toEqual(["host:copy-text"]);
   });
 
+  it("reports the version each side said hello with", async () => {
+    const hello = (version: string): HostTransport => ({
+      platform: version,
+      request: async () => ({ id: "1", result: { protocol: 1, hostVersion: version, capabilities: [], resync: false, missed: [], nextSeq: 1 } }),
+      onPush: () => () => undefined,
+    });
+    const host = new HostConnection(hello("0.4.0"));
+    const local = new HostConnection(hello("0.4.1"));
+    const client = createHostClient(host, local);
+    let heard = 0;
+    client.onVersions(() => { heard += 1; });
+    expect(client.getVersions()).toEqual({ host: undefined, window: undefined });
+    await host.start();
+    await local.start();
+    expect(client.getVersions()).toEqual({ host: "0.4.0", window: "0.4.1" });
+    expect(heard).toBe(2);
+    expect(createHostClient(host).getVersions()).toEqual({ host: "0.4.0", window: undefined });
+  });
+
   it("reports the platform of its own machine, not the socket's", () => {
     expect(split().client.platform).toBe("local");
     expect(createHostClient(new HostConnection(recordingTransport("host", []))).platform).toBe("host");

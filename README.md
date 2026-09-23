@@ -103,9 +103,15 @@ The builds are unsigned, so the first launch needs the usual confirmation —
 open the app from Finder's context menu once on macOS, and tell Windows
 SmartScreen to run it anyway.
 
+Once the repository is public, the package managers carry it too:
+`brew install --cask rasalas/tau/tau` on macOS, `winget install Rasalas.Tau` on
+Windows, `yay -S tau-bin` (or any AUR helper) on Arch Linux. How each is
+published is in [docs/RELEASE.md](docs/RELEASE.md#package-managers).
+
 An installed Tau checks for a newer release shortly after it starts, downloads
 one in the background, and offers a restart that installs it; "Check for
-updates…" in the application menu asks on demand.
+updates…" in the application menu asks on demand. Settings → Defaults →
+Update track switches between stable releases and the nightly build of `main`.
 
 To build an installer yourself:
 

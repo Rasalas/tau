@@ -6,6 +6,7 @@ describe("setting keys", () => {
     expect(settingPath("showCosts")).toEqual(["showCosts"]);
     expect(settingPath("values.tau.appearance.density")).toEqual(["values", "tau.appearance.density"]);
     expect(settingPath("threads.continueAfterRestart")).toEqual(["threads", "continueAfterRestart"]);
+    expect(settingPath("updates.channel")).toEqual(["updates", "channel"]);
     expect(settingPath("theme.dark")).toEqual(["theme.dark"]);
   });
 

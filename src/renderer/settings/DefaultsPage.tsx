@@ -13,6 +13,9 @@ import type { SendShortcut } from "../components/composer-send-keys";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { SettingRow, SettingsSection, Switch, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
+import { UPDATE_CHANNELS, defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
+import { useHostClient } from "../host-client-context";
+import { useHostCapabilities } from "../use-host-capabilities";
 
 const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
   ["enter", "↵"],
@@ -21,6 +24,8 @@ const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
 ];
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = { focused: "Focused", detailed: "Detailed", everything: "Everything" };
+
+const CHANNEL_LABELS: Record<UpdateChannel, string> = { stable: "Stable", nightly: "Nightly" };
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
 const readNumber = (raw: unknown) => (typeof raw === "number" && Number.isFinite(raw) ? raw : undefined);
@@ -92,6 +97,13 @@ export function DefaultsPage({
   const continueAfterRestart = useSetting<boolean>("threads.continueAfterRestart", {
     defaultValue: CONFIG_DEFAULTS["threads.continueAfterRestart"] as boolean, read: readBoolean, offline: (value) => preferences.setContinueThreadsAfterRestart(value),
   });
+  // Unset, a nightly build stays on nightly: the updater reads it the same way.
+  const versions = useHostClient()?.getVersions();
+  const updateChannel = useSetting<UpdateChannel>("updates.channel", {
+    defaultValue: defaultUpdateChannel(versions?.window ?? versions?.host), read: (raw) => (isUpdateChannel(raw) ? raw : undefined), format: (value) => CHANNEL_LABELS[value],
+  });
+  // The updater reads this machine's config; a host elsewhere would store a choice nothing here applies.
+  const { localFiles: hostIsThisMachine } = useHostCapabilities();
   const temperature = useSetting<number | undefined>("temperature", { defaultValue: undefined, scope: "both", read: readNumber, format: (value) => (value === undefined ? "Model default" : String(value)) });
   const maxTokens = useSetting<number | undefined>("maxTokens", { defaultValue: undefined, scope: "both", read: readNumber, format: (value) => (value === undefined ? "Model default" : String(value)) });
 
@@ -234,6 +246,22 @@ export function DefaultsPage({
           control={<Switch label="Continue threads after restarts" checked={continueAfterRestart.value} onChange={continueAfterRestart.set} />}
         />
       </SettingsSection>
+
+      {hostIsThisMachine ? (
+        <SettingsSection title="Updates">
+          <SettingRow
+            id={settingAnchor("Update track")}
+            title="Update track"
+            description="Stable installs tagged releases. Nightly installs the build of main the release workflow publishes each night there is something new. Switching back to Stable returns to the latest release, even when it is older."
+            setting={updateChannel}
+            control={<div className="segmented" role="group" aria-label="Update track">
+              {UPDATE_CHANNELS.map((channel) => (
+                <button key={channel} className={channel === updateChannel.value ? "active" : ""} aria-pressed={channel === updateChannel.value} onClick={() => updateChannel.set(channel)}>{CHANNEL_LABELS[channel]}</button>
+              ))}
+            </div>}
+          />
+        </SettingsSection>
+      ) : null}
 
       {pickerOpen ? (
         <ModelPicker
