@@ -15,6 +15,7 @@ import type {
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import { isHostTranscriptCursor, type HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { isUpdateChannel } from "../shared/app-version.js";
+import { MAX_ATTACHMENTS } from "../shared/prompt-attachment-limits.js";
 
 /**
  * Hand-written decoders for every renderer→host IPC argument, in the style of
@@ -199,9 +200,12 @@ export function decodeExtensionUiAnswer(channel: string, field: string, value: u
   if ("confirmed" in item) return { confirmed: decodeBoolean(channel, `${field}.confirmed`, item.confirmed) };
   if ("customResult" in item) return { customResult: item.customResult };
   if ("value" in item) {
+    const attachments = decodeUiPromptAttachments(channel, `${field}.attachments`, item.attachments);
+    if (attachments && attachments.length > MAX_ATTACHMENTS) fail(channel, `${field}.attachments`, `must hold at most ${MAX_ATTACHMENTS} files`);
     return {
       value: decodeString(channel, `${field}.value`, item.value),
       ...(item.typed !== undefined ? { typed: decodeBoolean(channel, `${field}.typed`, item.typed) } : {}),
+      ...(attachments?.length ? { attachments } : {}),
     };
   }
   fail(channel, field, 'must have "cancelled", "confirmed", "customResult" or "value"');

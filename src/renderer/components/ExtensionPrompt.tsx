@@ -147,8 +147,8 @@ export function ExtensionPrompt({
       hint={elsewhere
         ? "answer in Pi's terminal"
         : hasChoices
-          ? (acceptsFreeText ? "or type your own answer below" : "or answer below")
-          : "answer below"}
+          ? (acceptsFreeText ? "or type your own answer below; attached files go with it" : "or answer below")
+          : prompt.kind === "input" || prompt.kind === "editor" ? "answer below; attached files go with it" : "answer below"}
       footer={elsewhere ? null : <button onClick={onCancel}>Skip</button>}
     >
       {hasChoices ? (

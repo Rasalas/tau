@@ -1,5 +1,6 @@
 import type { ExtensionUiAnswer, ExtensionUiPrompt, ThreadHostEvent } from "../shared/contracts.js";
 import { freeTextOption } from "../shared/extension-prompt-options.js";
+import { answerImageSaver, answerWithFiles, type SaveAnswerImage } from "./answer-attachments.js";
 import type { ThreadRuntime } from "./thread-runtime.js";
 
 const TYPED_ANSWER_TTL_MS = 10_000;
@@ -13,6 +14,7 @@ export class ExtensionUiCoordinator {
   constructor(
     private readonly emit: (thread: ThreadRuntime | undefined, event: ThreadHostEvent) => void,
     private readonly log: (thread: ThreadRuntime | undefined, label: string, detail?: string) => void,
+    private readonly saveImage: SaveAnswerImage = answerImageSaver(),
   ) {}
 
   addDecorator(decorator: (prompt: ExtensionUiPrompt) => void): () => void {
@@ -57,6 +59,15 @@ export class ExtensionUiCoordinator {
 
   answer(id: string, answer: ExtensionUiAnswer): void {
     const prompt = this.open.get(id);
+    if ("value" in answer && answer.attachments?.length) {
+      // Whoever asked reads text: the files are named in it once they are on disk.
+      const sessionId = prompt?.sessionId ?? "thread";
+      void answerWithFiles(answer, sessionId, this.saveImage).then((named) => this.answer(id, named), (error: unknown) => {
+        this.log(undefined, "extension-ui.attachments.failed", error instanceof Error ? error.message : String(error));
+        this.answer(id, { value: answer.value, ...(answer.typed !== undefined ? { typed: answer.typed } : {}) });
+      });
+      return;
+    }
     if (prompt?.kind === "select" && "typed" in answer && answer.typed && "value" in answer) {
       const sentinel = freeTextOption(prompt.options);
       if (sentinel) {

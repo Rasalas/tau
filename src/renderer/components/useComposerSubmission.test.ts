@@ -35,6 +35,10 @@ describe("classifyComposerInput", () => {
       promptActionAvailable: true,
       shellActionAvailable: false,
     })).toEqual({ kind: "prompt-action" });
+
+    // Files alone answer a question that takes them.
+    expect(classifyComposerInput({ text: "", answerable: true, answerFiles: true, promptActionAvailable: false, shellActionAvailable: false })).toEqual({ kind: "prompt-answer", text: "" });
+    expect(classifyComposerInput({ text: "", answerable: true, promptActionAvailable: false, shellActionAvailable: false })).toEqual({ kind: "noop" });
   });
 
   it("routes shell commands with their context policy", () => {

@@ -25,6 +25,8 @@ const NO_INLINES: readonly ComposerInlineContribution[] = [];
 export interface ComposerSubmissionInput {
   text: string;
   answerable: boolean;
+  /** Files wait in the composer and the open question takes them with its answer. */
+  answerFiles?: boolean;
   promptActionAvailable: boolean;
   shellActionAvailable: boolean;
   delivery?: ComposerDelivery;
@@ -41,12 +43,13 @@ export type ComposerSubmissionIntent =
 export function classifyComposerInput({
   text,
   answerable,
+  answerFiles = false,
   promptActionAvailable,
   shellActionAvailable,
   delivery,
 }: ComposerSubmissionInput): ComposerSubmissionIntent {
   if (answerable) {
-    if (!text.trim()) return promptActionAvailable ? { kind: "prompt-action" } : { kind: "noop" };
+    if (!text.trim()) return promptActionAvailable ? { kind: "prompt-action" } : answerFiles ? { kind: "prompt-answer", text } : { kind: "noop" };
     return { kind: "prompt-answer", text };
   }
 
@@ -132,9 +135,12 @@ export interface UseComposerSubmissionOptions {
   clearPreviewForScope(scope: ComposerScope): void;
 }
 
+/** Takes the prepared text and files as the answer to the open question instead of a prompt. */
+export type ComposerAnswerSink = (text: string, attachments: UiPromptAttachment[]) => void;
+
 export interface UseComposerSubmissionResult {
-  /** Captures the current scope and starts its asynchronous host submission. */
-  submit(delivery?: ComposerDelivery): void;
+  /** Captures the current scope and starts its asynchronous host submission, or answers with it. */
+  submit(delivery?: ComposerDelivery, answer?: ComposerAnswerSink): void;
 }
 
 /**
@@ -155,13 +161,13 @@ export function useComposerSubmission({
   recordPrompt,
   clearPreviewForScope,
 }: UseComposerSubmissionOptions): UseComposerSubmissionResult {
-  const submit = useCallback((delivery?: ComposerDelivery) => {
+  const submit = useCallback((delivery?: ComposerDelivery, answer?: ComposerAnswerSink) => {
     const submission = scopeStore.beginSubmission(scope);
     if ("busy" in submission) return;
 
     const sendSubmission = async (handle: SubmissionHandle) => {
       // A `/command` is not a prompt the context belongs to; it stays for the next one.
-      const isCommand = !selectedSkillDraft(handle.text, selectedSkill) && handle.text.trimStart().startsWith("/");
+      const isCommand = !answer && !selectedSkillDraft(handle.text, selectedSkill) && handle.text.trimStart().startsWith("/");
       let inline: InlineSend = { context: "", attachments: [], asked: [] };
       if (!isCommand && inlines.length > 0) {
         try {
@@ -227,7 +233,10 @@ export function useComposerSubmission({
       const { submittedText, skillDraft, promptToSend, attachmentsToSend } = prepared;
       let result: SubmissionResult;
       try {
-        result = skillDraft
+        if (answer) {
+          answer(promptToSend, attachmentsToSend);
+          result = { accepted: true };
+        } else result = skillDraft
           ? await onSubmit(promptToSend, attachmentsToSend, delivery, skillDraft)
           : delivery
             ? await onSubmit(promptToSend, attachmentsToSend, delivery)
@@ -246,7 +255,7 @@ export function useComposerSubmission({
           writeComposerDraft(clientStorage, scope, scopeStore.getSnapshot(scope).draft);
         }
         if (result.accepted) {
-          recordPrompt(submittedText);
+          if (!answer) recordPrompt(submittedText);
           clearPreviewForScope(scope);
         }
       } catch {

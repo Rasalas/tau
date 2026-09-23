@@ -213,6 +213,13 @@ describe("ipc-input decoders", () => {
     it("accepts a typed value answer", () => {
       expect(decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", typed: true })).toEqual({ value: "x", typed: true });
     });
+    it("accepts files attached to a typed answer and refuses a malformed one", () => {
+      const file = { kind: "file", name: "a.txt", mimeType: "text/plain", path: "/tmp/a.txt", size: 3 };
+      expect(decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", typed: true, attachments: [file] })).toEqual({ value: "x", typed: true, attachments: [file] });
+      expect(decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", attachments: [] })).toEqual({ value: "x" });
+      expect(() => decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", attachments: [{ kind: "file" }] })).toThrow();
+      expect(() => decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", attachments: Array.from({ length: 101 }, () => file) })).toThrow();
+    });
     it("rejects an object with none of the known shapes", () => {
       expect(() => decodeExtensionUiAnswer(CHANNEL, "field", {})).toThrow();
     });
