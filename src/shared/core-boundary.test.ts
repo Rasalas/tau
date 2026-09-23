@@ -75,7 +75,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./opencode-catalog.js",
   "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
   "./pi-host-components.js",   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
-  "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",
+  "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",   "./platform-process.js",
   "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",   "./remote-host-trust.js",
   "./prompt-attachments.js",   "./prompt-preparation.js",   "./resource-discovery-cache.js",
   "./runtime-adapters.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
