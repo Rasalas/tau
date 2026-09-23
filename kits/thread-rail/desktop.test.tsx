@@ -276,6 +276,20 @@ describe("Thread Rail on the desktop", () => {
     expect(actions.notify).toHaveBeenCalledWith("Stop the thread before deleting it.");
   });
 
+  it("says above the composer that the thread on screen is settled, and un-settles it from there", async () => {
+    const { registry, actions, calls, push } = setup();
+    await flush();
+    const region = registry.getRegions("composer-above").find((entry) => entry.id === "thread-rail.settled-note")!;
+    const snapshot = { sessionId: "b" } as never;
+    const view = render(<region.Component snapshot={snapshot} actions={actions} />);
+    expect(view.container.textContent).toBe("");
+    act(() => push({ threads: { b: { settledAt: 3, settledBy: "user" } }, settings: { onMerged: true, onClosed: false } }));
+    expect(view.getByRole("status").textContent).toContain("This thread is settled");
+    act(() => view.getByRole("button", { name: "Un-settle" }).click());
+    expect(calls("patch").at(-1)).toEqual({ patches: { b: expect.objectContaining({ settledAt: null, settledBy: null }) } });
+    expect(view.container.textContent).toBe("");
+  });
+
   it("takes back a settle with the pin it cleared, and offers archive and delete in the title menu", async () => {
     const { registry, organizer, actions, calls, push } = setup();
     await flush();
