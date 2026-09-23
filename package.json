@@ -55,6 +55,7 @@
     "benchmark:host:full:check": "node scripts/host-benchmark.mjs --full --check --output reports/host-full-report.json",
     "benchmark:git": "npm run build && node scripts/git-benchmark.mjs",
     "benchmark:git:check": "node scripts/git-benchmark.mjs --check",
+    "benchmark:compare": "node scripts/compare/run.mjs",
     "typecheck:kits": "tsc -p tsconfig.kits.json --noEmit",
     "typecheck:examples": "tsc -p tsconfig.examples.json --noEmit",
     "build:kits": "node scripts/build-kits.mjs"
