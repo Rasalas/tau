@@ -441,6 +441,14 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
         return recreated;
       }, { long: true });
+      // Read once per project: `origin/HEAD` moves only when someone sets it again.
+      const defaultBranches = new Map<string, Promise<string>>();
+      context.registerCommand("default-branch", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        let branch = defaultBranches.get(project);
+        if (!branch) defaultBranches.set(project, branch = workspaceGit.readDefaultBranch(project));
+        return branch;
+      });
       context.registerCommand("project-defaults", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         return readProjectDefaults(project);

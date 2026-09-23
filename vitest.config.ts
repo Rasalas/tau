@@ -20,6 +20,7 @@ export default defineConfig({
       "**/release/**",
       "**/.tau-dev/**",
     ],
+    globalSetup: ["./src/test-global-setup.ts"],
     setupFiles: ["./src/test-setup.ts"],
     // Several suites spawn their own bounded subprocess pools. Letting Vitest
     // occupy every core at the same time starves jsdom timers and makes the

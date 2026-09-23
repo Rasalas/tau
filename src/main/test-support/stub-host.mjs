@@ -23,6 +23,8 @@ writeFileSync(tokenPath, `${token}\n`);
 const port = Number((process.env.TAU_HOST_LISTEN ?? "127.0.0.1:0").split(":").pop());
 const server = new WebSocketServer({ host: "127.0.0.1", port });
 server.on("listening", () => {
+  // A host that hangs before it announces itself.
+  if (process.env.STUB_SILENT === "1") return;
   console.log(`tau-host listening on ws://127.0.0.1:${server.address().port}`);
   console.log(`token: ${tokenPath} (stub)`);
 });

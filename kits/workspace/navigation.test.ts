@@ -61,6 +61,13 @@ describe("branch on a row", () => {
     expect(isDefaultBranch("tau/rail-density")).toBe(false);
     expect(isDefaultBranch(undefined)).toBe(false);
   });
+
+  it("takes the project's own default branch once the host named it", () => {
+    expect(isDefaultBranch("trunk", "trunk")).toBe(true);
+    expect(isDefaultBranch("main", "trunk")).toBe(false);
+    expect(isDefaultBranch("master", "trunk")).toBe(false);
+    expect(isDefaultBranch(undefined, "trunk")).toBe(false);
+  });
 });
 
 describe("findProjectForSession", () => {
