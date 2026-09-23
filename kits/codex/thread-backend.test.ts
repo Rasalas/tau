@@ -33,7 +33,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[] } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
@@ -44,7 +44,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
       cwd: input.cwd,
       env: { ...process.env, STUB_LOG: space.log, STUB_THREADS: space.threads, CODEX_HOME: join(space.dir, "home") },
       clientVersion: "test",
-      spawn: (spawn) => spawnRpcProcess({ ...spawn, args: [STUB, ...spawn.args] }),
+      spawn: (spawn) => spawnRpcProcess({ ...spawn, args: options.script ?? [STUB, ...spawn.args] }),
       onNotification: input.onNotification,
       onRequest: input.onRequest,
       onExit: input.onExit,
@@ -53,6 +53,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
     onEvent: (event) => events.push(event),
     ask: async (prompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true }; },
     permissionLevel: () => options.level ?? "full",
+    ...(options.tools ? { tools: options.tools } : {}),
   });
   backends.push(backend);
   await backend.start(options.resume ? "resume" : "create");
@@ -135,6 +136,17 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect(events.filter((event) => event.type === "turn-settled").at(-1)).toEqual({ type: "turn-settled", status: "completed" });
   });
 
+  it("fails the turn with the reason when Codex dies before its handshake", async () => {
+    const space = await scratch();
+    const { backend, events } = await open(space, { script: ["-e", "process.stderr.write('stub: no login\\n'); process.exit(4)"] });
+    await expect(backend.prompt({ text: "Hello.", delivery: "prompt" })).rejects.toThrow("Codex exited with code 4.\nstub: no login");
+    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error" });
+    expect(events.filter((event) => event.type === "notice")).toEqual([
+      { type: "notice", message: "Codex reported an error: Codex exited with code 4.\nstub: no login", level: "error" },
+    ]);
+    expect(backend.state().streaming).toBe(false);
+  });
+
   it("resumes the same Codex thread in a new process after a restart", async () => {
     const space = await scratch();
     const first = await open(space);
@@ -172,6 +184,28 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     const turn = (await sent(space)).find((message) => message.method === "turn/start");
     expect(turn?.params).toMatchObject({ model: "gpt-5.5", effort: "low", approvalPolicy: "never", sandboxPolicy: { type: "readOnly" } });
     expect(await space.store.get("tau-1")).toMatchObject({ model: "gpt-5.5", effort: "low" });
+  });
+});
+
+describe("a Codex thread restricted to some tools", () => {
+  it("runs read-only without a tool that writes, whatever the workbench allows", async () => {
+    const space = await scratch();
+    const { backend } = await open(space, { tools: ["read", "grep"] });
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    await backend.dispose();
+    const resumed = await open(space, { resume: true });
+    await resumed.backend.prompt({ text: "Again.", delivery: "prompt" });
+    const turns = (await sent(space)).filter((message) => message.method === "turn/start");
+    expect(turns.map((turn) => turn.params?.sandboxPolicy)).toEqual([{ type: "readOnly" }, { type: "readOnly" }]);
+    expect((await space.store.get("tau-1"))?.tools).toEqual(["read", "grep"]);
+  });
+
+  it("keeps the workbench's level when the list names a tool that writes", async () => {
+    const space = await scratch();
+    const { backend } = await open(space, { tools: ["read", "edit"] });
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    const turn = (await sent(space)).find((message) => message.method === "turn/start");
+    expect(turn?.params).toMatchObject({ sandboxPolicy: { type: "dangerFullAccess" } });
   });
 });
 

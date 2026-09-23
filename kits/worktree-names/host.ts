@@ -1,4 +1,4 @@
-import type { HostExtension, HostExtensionContext } from "tau/host-extension";
+import type { HostExtension, HostExtensionContext, HostExtensionServices } from "tau/host-extension";
 import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
 
 const SYSTEM_PROMPT = "You name Git branches for coding tasks. Answer with one branch name only: lowercase words joined by hyphens, optionally led by a type such as feat/, fix/, chore/, refactor/ or docs/, then two to five words, at most 40 characters. No quotes, no explanation, no Markdown.";
@@ -30,6 +30,38 @@ export function branchNameFromSuggestion(text: string, taken: readonly string[] 
   return "";
 }
 
+/** A vendor's small tier by its id: `claude-haiku-4-5`, `gpt-5-mini`, `gemini-2.5-flash`, `gpt-5.6-luna`. */
+const SMALL_MODEL = /(?:^|[-_./:])(?:haiku|mini|nano|flash|lite|luna|small|tiny)(?=$|[-_./:\d])/iu;
+
+export function isSmallModel(id: string): boolean {
+  return SMALL_MODEL.test(id);
+}
+
+type ModelRef = { provider: string; id: string };
+
+function sharedPrefix(left: string, right: string): number {
+  let length = 0;
+  while (length < left.length && left[length] === right[length]) length += 1;
+  return length;
+}
+
+/**
+ * The model that names a branch when the settings chose none. A branch name
+ * is three words, never worth the large model a draft may run on, so only a
+ * small model of the user's catalog is taken: the one closest to the draft's
+ * model — same provider (the same login) first, then the longest shared id
+ * (`gpt-5.6-sol` → `gpt-5.6-luna`: a login may not reach an older generation).
+ * None small leaves the host's default.
+ */
+export async function smallNamingModel(services: Pick<HostExtensionServices, "completionModels">, prefer: ModelRef | undefined): Promise<ModelRef | undefined> {
+  const catalog = await services.completionModels?.().catch(() => []) ?? [];
+  const closeness = (model: ModelRef) => prefer ? (model.provider === prefer.provider ? 1_000 : 0) + sharedPrefix(model.id, prefer.id) : 0;
+  const pick = catalog
+    .filter((model) => isSmallModel(model.id))
+    .sort((left, right) => closeness(right) - closeness(left))[0];
+  return pick ? { provider: pick.provider, id: pick.id } : undefined;
+}
+
 /** The prompt the naming model reads: the task, the user's own start on a name, and names to avoid. */
 export function buildNamingPrompt(description: string, hint: string, taken: readonly string[]): string {
   const parts = [`Task:\n${description.trim().slice(0, 4000) || "(not described)"}`];
@@ -57,6 +89,8 @@ export function createWorktreeNamesHostExtension(): HostExtension {
         const fields = record(input);
         const provider = text(fields.provider);
         const modelId = text(fields.modelId);
+        const preferred = record(fields.prefer);
+        const prefer = text(preferred.provider) && text(preferred.id) ? { provider: text(preferred.provider), id: text(preferred.id) } : undefined;
         const description = text(fields.description);
         const hint = text(fields.hint);
         const taken = Array.isArray(fields.taken) ? fields.taken.filter((entry): entry is string => typeof entry === "string") : [];
@@ -64,12 +98,13 @@ export function createWorktreeNamesHostExtension(): HostExtension {
         if (services.runtimeOwner() === "pi") throw new Error("Name the worktree yourself while Pi is attached to the runtime.");
         const thread = services.thread();
         if (!thread) throw new Error("Pi runtime is not ready");
-        services.log("worktree-name.started", provider && modelId ? `${provider}/${modelId}` : "default model");
+        const model = provider && modelId ? { provider, id: modelId } : await smallNamingModel(services, prefer);
+        services.log("worktree-name.started", model ? `${model.provider}/${model.id}` : "default model");
         const answer = await services.complete({
           system: SYSTEM_PROMPT,
           prompt: buildNamingPrompt(description, hint, taken),
           maxTokens: 32,
-        }, provider && modelId ? { provider, id: modelId } : undefined);
+        }, model);
         const branch = branchNameFromSuggestion(answer, taken);
         if (!branch) throw new Error("The model did not answer with a usable branch name.");
         services.log("worktree-name.suggested", branch);

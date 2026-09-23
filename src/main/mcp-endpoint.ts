@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import type {
   HostMcpConnection,
+  HostMcpConnectOptions,
   HostMcpTool,
   HostMcpToolGate,
   HostMcpToolProvider,
@@ -29,6 +30,8 @@ interface Credential {
   readonly token: string;
   readonly hash: string;
   thread: RuntimeSessionInfo;
+  /** The only tools this thread may list and call; all of them when absent. */
+  only?: ReadonlySet<string>;
 }
 
 /** What a tools/call answers, in MCP's shape. */
@@ -60,7 +63,7 @@ export class McpEndpoint {
 
   constructor(private readonly options: McpEndpointOptions) {}
 
-  async connect(thread: RuntimeSessionInfo): Promise<HostMcpConnection | undefined> {
+  async connect(thread: RuntimeSessionInfo, options: HostMcpConnectOptions = {}): Promise<HostMcpConnection | undefined> {
     if (this.closed || !thread.sessionId) return undefined;
     let port: number;
     try {
@@ -77,6 +80,7 @@ export class McpEndpoint {
       this.credentials.set(credential.hash, credential);
       this.threads.set(thread.sessionId, credential);
     }
+    credential.only = options.tools ? new Set(options.tools) : undefined;
     return {
       name: MCP_SERVER_NAME,
       url: `http://${LOOPBACK}:${port}${MCP_PATH}`,
@@ -106,8 +110,8 @@ export class McpEndpoint {
     if (http) await new Promise<void>((resolve) => { http.close(() => resolve()); http.closeAllConnections(); });
   }
 
-  /** The tools a thread is offered: every provider's, the first of a name wins. */
-  tools(thread: RuntimeSessionInfo): HostMcpTool[] {
+  /** The tools a thread is offered: every provider's, the first of a name wins, narrowed to `only`. */
+  tools(thread: RuntimeSessionInfo, only?: ReadonlySet<string>): HostMcpTool[] {
     const byName = new Map<string, HostMcpTool>();
     for (const provider of this.options.providers()) {
       let tools: readonly HostMcpTool[];
@@ -117,14 +121,14 @@ export class McpEndpoint {
         this.options.log("mcp.tools-failed", messageOf(error));
         continue;
       }
-      for (const tool of tools) if (!byName.has(tool.name)) byName.set(tool.name, tool);
+      for (const tool of tools) if (!byName.has(tool.name) && (!only || only.has(tool.name))) byName.set(tool.name, tool);
     }
     return [...byName.values()];
   }
 
   /** One tools/call for the thread a credential names: validate, gate, run. */
-  async call(thread: RuntimeSessionInfo, name: string, input: unknown, signal?: AbortSignal): Promise<McpCallResult> {
-    const tool = this.tools(thread).find((candidate) => candidate.name === name);
+  async call(thread: RuntimeSessionInfo, name: string, input: unknown, signal?: AbortSignal, only?: ReadonlySet<string>): Promise<McpCallResult> {
+    const tool = this.tools(thread, only).find((candidate) => candidate.name === name);
     if (!tool) return failure(`Tau has no tool "${name}" for this thread.`);
     const controller = new AbortController();
     const forward = () => controller.abort(signal?.reason);
@@ -265,7 +269,7 @@ export class McpEndpoint {
     ]);
     const server = new Server({ name: MCP_SERVER_NAME, title: "Tau", version: this.options.version ?? "0.0.0" }, { capabilities: { tools: {} } });
     server.setRequestHandler(ListToolsRequestSchema, () => ({
-      tools: this.tools(credential.thread).map((tool) => ({
+      tools: this.tools(credential.thread, credential.only).map((tool) => ({
         name: tool.name,
         ...(tool.label && tool.label !== tool.name ? { title: tool.label } : {}),
         description: tool.description,
@@ -273,7 +277,7 @@ export class McpEndpoint {
       })),
     }));
     server.setRequestHandler(CallToolRequestSchema, (call, extra) =>
-      this.call(credential.thread, call.params.name, call.params.arguments, extra.signal));
+      this.call(credential.thread, call.params.name, call.params.arguments, extra.signal, credential.only));
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     response.on("close", () => {
       void transport.close().catch(() => undefined);

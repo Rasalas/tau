@@ -6,6 +6,7 @@ import type {
   AgentDefinitionsState,
   AgentWorkspaceMode,
 } from "./protocol.js";
+import { tauToolName } from "./protocol.js";
 import { parseModel } from "./threads.js";
 
 /**
@@ -128,7 +129,8 @@ export function parseAgentDefinition(file: string, text: string): { definition: 
   const runtime = scalar(fields, "runtime");
   if (runtime && !RUNTIME.test(runtime)) throw new Error(`"runtime" must name a runtime backend such as "pi", not "${runtime}".`);
 
-  const tools = list(fields, "tools");
+  // Tau's own tools read the same in either spelling (ADR 0022).
+  const tools = list(fields, "tools")?.map(tauToolName);
   if (tools) {
     if (tools.length === 0) throw new Error("\"tools\" lists no tool; leave it out to keep every tool.");
     const bad = tools.find((tool) => !TOOL.test(tool));
@@ -145,10 +147,10 @@ export function parseAgentDefinition(file: string, text: string): { definition: 
     throw new Error("\"workspace\" must be worktree or shared.");
   }
 
-  // Tools and access are enforced inside a Pi runtime; another backend would
-  // silently run with more than the file promises.
-  if (runtime && runtime !== "pi" && (tools || access)) {
-    throw new Error(`"tools" and "access" only apply on the pi runtime; the ${runtime} runtime cannot honour them.`);
+  // Access is enforced inside a Pi runtime; another backend would silently run
+  // with more than the file promises. Its tools are that backend's to refuse.
+  if (runtime && runtime !== "pi" && access) {
+    throw new Error(`"access" only applies on the pi runtime; the ${runtime} runtime cannot honour it.`);
   }
 
   return {

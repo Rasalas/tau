@@ -73,8 +73,8 @@ export interface WorkbenchActions {
   openWorkspace(workspace: string, options?: { inheritDraft?: boolean }): Promise<boolean>;
   /**
    * The thread on screen: its id, model and runtime owner, the project it runs
-   * in (a pending draft's project while the thread does not exist yet), and
-   * whether that draft is still pending.
+   * in, and whether a draft is pending. For a draft there is no id yet; model,
+   * runtime and project are the ones the draft will start with.
    */
   activeThread(): { sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; backendKind?: string; draftPending: boolean } | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */

@@ -59,6 +59,8 @@ can call that thread's tools while it runs; that is the same trust the
 runtime's own process already has. The endpoint never binds beyond loopback,
 also on a host that serves remote clients.
 
-A tool that reads Pi's `ExtensionContext` must cope without it. Agent
-definitions' `tools` still restrict only Pi threads, and a thread-level access
-narrowing reaches another runtime's own tools only through its launch policy.
+A tool that reads Pi's `ExtensionContext` must cope without it. A
+thread-level access narrowing reaches another runtime's own tools only through
+its launch policy. Agent definitions' `tools` reach Codex and the Agent SDK
+runtime through `sessions.start({ tools })` and a filtered credential
+(`connect(thread, { tools })`); Antigravity refuses them.

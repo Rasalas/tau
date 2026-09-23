@@ -474,7 +474,10 @@ export class PiHost {
     this.workbenchReload.assertAvailable();
     const cwd = options.cwd || this.cwd;
     const backendKind = options.backend ?? "pi";
-    if (backendKind !== "pi") this.requireBackend(backendKind);
+    const provider = backendKind === "pi" ? undefined : this.requireBackend(backendKind);
+    if (options.tools && !provider?.restrictsTools) {
+      throw new Error(`The ${provider?.label ?? backendKind} runtime cannot restrict its tools${provider ? "" : " when a thread starts; a runtime extension sets them"}.`);
+    }
     const requestedAt = performance.now();
     // Background starts share the queue's background lane: they build their own
     // thread and touch nothing the thread on screen depends on, so serialising
@@ -491,7 +494,7 @@ export class PiHost {
         // Another backend keeps no Pi session file, so the link lives in the index only.
         const threadId = randomUUID();
         if (options.parent) this.index.rememberParent(threadId, options.parent.threadId);
-        runtime = await this.runtimes.openExternal(backendKind, threadId, cwd, { resume: false, adopt: false });
+        runtime = await this.runtimes.openExternal(backendKind, threadId, cwd, { resume: false, adopt: false, ...(options.tools ? { tools: options.tools } : {}) });
       }
       marks.mark("open");
       try {
