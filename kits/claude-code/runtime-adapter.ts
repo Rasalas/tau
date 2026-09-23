@@ -1,5 +1,5 @@
 import { query as sdkQuery, type CanUseTool, type EffortLevel, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
+import type { HostMcpConnection, RuntimePermissionLevel, RuntimePromptInput, RuntimePromptResult, RuntimeTransport, SkillRuntimeAdapter } from "tau/host-extension";
 import { homedir } from "node:os";
 import manifest from "./tau-extension.json";
 import { probeClaude, type ClaudeProbe } from "./probe.js";
@@ -71,6 +71,8 @@ export interface ClaudeSessionInput {
   model?: string;
   effort?: EffortLevel;
   hooks?: ClaudeTurnHooks;
+  /** Tau's tools for this thread, over the host's MCP endpoint. */
+  mcpServer?: HostMcpConnection;
   onMessage(message: SDKMessage): void;
   onExit(error: unknown | undefined): void;
   /** The CLI's stderr, for the message when the session fails. */
@@ -103,6 +105,7 @@ export interface ClaudeQueryPlan {
   hooks?: ClaudeTurnHooks;
   model?: string;
   effort?: EffortLevel;
+  mcpServer?: HostMcpConnection;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -132,6 +135,19 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     env: { ...plan.env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP },
     abortController: plan.abortController,
     ...(plan.stderr ? { stderr: plan.stderr } : {}),
+    ...(plan.mcpServer ? tauMcpOptions(plan.mcpServer) : {}),
+  };
+}
+
+/**
+ * Tau's tools as one more MCP server beside the user's own. Its tools are
+ * pre-approved here because Tau's own gate asks for them, as it does for Pi;
+ * a second question from Claude would only repeat the first.
+ */
+export function tauMcpOptions(server: HostMcpConnection): Pick<Options, "mcpServers" | "allowedTools"> {
+  return {
+    mcpServers: { [server.name]: { type: "http", url: server.url, headers: { ...server.headers } } },
+    allowedTools: [`mcp__${server.name}`],
   };
 }
 
@@ -355,6 +371,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       ...(input.hooks ? { hooks: input.hooks } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.effort ? { effort: input.effort } : {}),
+      ...(input.mcpServer ? { mcpServer: input.mcpServer } : {}),
     });
     const session = new ClaudeSdkSession({ query, options: queryOptions, claudeSessionId: input.claudeSessionId, onMessage: input.onMessage, onExit: input.onExit });
     session.start();

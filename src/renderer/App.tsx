@@ -11,7 +11,7 @@ import { type ComposerAttachmentHandle, type ComposerControlHandle } from "./com
 import { visibleUserMessageText } from "./components/MessageText";
 import { UpdateToast } from "./components/UpdateToast";
 import { createDraftKey } from "../workbench/composer-scope-store";
-import { useConversationActivities } from "./conversation-activities";
+import { hasActivityTools } from "./conversation-activities";
 import { draftKey, writeNewThreadDraft } from "../workbench/draft-store";
 import { errorMessage } from "../workbench/error-message";
 import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from "./extension-system";
@@ -33,7 +33,7 @@ import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, 
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
-import { writeCachedTurnActivity } from "../workbench/turn-activity";
+import { followTurnActivity } from "../workbench/turn-activity";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
@@ -122,10 +122,9 @@ export default function App() {
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
   const snapshot = useSyncExternalStore(viewStore.subscribeToSnapshot, viewStore.getSnapshot);
-  const { tools, toolAnchorId, turnActivityHistory, turnActivitySessionId } = useSyncExternalStore(
-    viewStore.subscribeToTools,
-    viewStore.getToolView,
-  );
+  // Tool runs render in the transcript, which subscribes itself; here only
+  // whether there are any, which a stream of output never changes.
+  const turnHasActivity = useSyncExternalStore(viewStore.subscribeToTools, () => hasActivityTools(viewStore));
   const uiPrompts = useSyncExternalStore(viewStore.subscribeToPrompts, viewStore.getUiPrompts);
   const optimisticMessages = useSyncExternalStore(viewStore.subscribeToOptimistic, viewStore.getOptimisticMessages);
   const notice = useSyncExternalStore(viewStore.subscribeToNotice, viewStore.getNotice);
@@ -456,16 +455,7 @@ export default function App() {
 
   useAppKeybindings(registry, actions, setNotice);
 
-  useEffect(() => {
-    const sessionId = snapshot?.sessionId;
-    if (!sessionId || turnActivitySessionId !== sessionId) return;
-    writeCachedTurnActivity(clientStorage, {
-      sessionId,
-      tools: [...tools],
-      anchorMessageId: toolAnchorId,
-    });
-  }, [snapshot?.sessionId, toolAnchorId, tools, turnActivitySessionId]);
-  const activityTools = useMemo(() => tools.filter((tool) => tool.name !== "todo"), [tools]);
+  useEffect(() => followTurnActivity(viewStore, clientStorage), [clientStorage, viewStore]);
 
   const liveSnapshot = useMemo(
     () => snapshot ? { ...snapshot, isStreaming: visibleStreaming } : undefined,
@@ -473,12 +463,13 @@ export default function App() {
   );
   const stageTab = activeStageTab(stage);
   const stageFilePath = stageTabPath(stageTab);
+  // The workbench adds the tool runs to both contexts itself.
   const contextValue = useMemo(
-    () => ({ snapshot: liveSnapshot, tools, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
-    [liveSnapshot, tools, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
+    () => ({ snapshot: liveSnapshot, events, registry, activeDocumentPath: stageFilePath, openFile, applySnapshot, handleHostEvent }),
+    [liveSnapshot, events, registry, stageFilePath, openFile, applySnapshot, handleHostEvent],
   );
   const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry, actions }), [actions, liveSnapshot, registry]);
-  const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, tools, registry }), [events, liveSnapshot, tools, registry]);
+  const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, registry }), [events, liveSnapshot, registry]);
   // The stage shows documents; whoever registered the document source loads them.
   const documentSource = registry.getDocumentSource();
   const documentState = useSyncExternalStore(documentSource?.subscribe ?? noopSubscribe, documentSource?.getState ?? emptyDocumentState, documentSource?.getState ?? emptyDocumentState);
@@ -496,11 +487,6 @@ export default function App() {
     viewStore.subscribeToConversation,
     () => viewStore.selectConversation(activeDraftKey, Boolean(pendingNewThread)),
   );
-  const visibleToolAnchorId = visibleStreaming
-    ? conversation.lastMessageId
-    // A submitted prompt is visible before its run starts. Keep the previous
-    // settled group on its original turn until agent-status opens new work.
-    : toolAnchorId ?? conversation.lastMessageId;
   const conversationSnapshot = useMemo(() => pendingNewThread && snapshot ? {
     ...snapshot,
     cwd: pendingNewThread.projectPath,
@@ -537,14 +523,8 @@ export default function App() {
     composerAttachmentSnapshot.attachments,
     registry.getComposerInlines().some((inline) => inline.takeFiles !== undefined),
   );
-  const { conversationActivityTools, conversationPrompts, liveStatusLabel, transcriptActivities } = useConversationActivities({
-    pendingNewThread: Boolean(pendingNewThread), activityTools, turnActivityHistory, conversationSnapshot,
-    toolAnchorId, visibleToolAnchorId, threadPrompts, registry, registryVersion,
-    viewStore, actions, detail: preferences.transcriptDetailFor(conversationSnapshot?.sessionId),
-    recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, abortSessionId: snapshot?.sessionId,
-    abort: abortThread,
-  });
-  const showStartScreen = conversation.isEmpty && !conversationSnapshot?.isStreaming && conversationActivityTools.length === 0 && conversationPrompts.length === 0;
+  const conversationPrompts = useMemo(() => pendingNewThread ? [] : threadPrompts, [pendingNewThread, threadPrompts]);
+  const showStartScreen = conversation.isEmpty && !conversationSnapshot?.isStreaming && (Boolean(pendingNewThread) || !turnHasActivity) && conversationPrompts.length === 0;
   const startProjectPath = conversationSnapshot?.cwd ?? "";
   const startProjectName = pendingNewThread?.projectName ?? projects.find((project) => project.path === startProjectPath)?.name ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? startProjectPath;
   const layout = useMemo<WorkbenchLayout>(() => ({
@@ -571,15 +551,16 @@ export default function App() {
     snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread),
     showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
-    transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, transcriptActivities,
-    liveStatusLabel, conversationActivityTools, runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage,
+    transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, lastMessageId: conversation.lastMessageId,
+    recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage,
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
-    activeDraftKey, applyTranscriptPage, closeThreadTree, conversationActivityTools, conversationSnapshot,
-    threadCommands, copyMessage, duplicateThread, forkFromTree, liveSnapshot, liveStatusLabel, navigateThreadTree,
+    activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
+    threadCommands, copyMessage, duplicateThread, forkFromTree, liveSnapshot, navigateThreadTree,
     openThreadTree, pendingNewThread, runStartedAt, settleActiveThread, showStartScreen, startProjectName,
-    startProjectPath, threadDropController, threadTreeModal, titleCommands, transcriptActivities,
+    startProjectPath, threadDropController, threadTreeModal, titleCommands,
     transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart, visibleTranscriptTurnStart,
   ]);
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { GlobalHostEvent, RuntimeExtensionContribution } from "tau/host-extension";
+import type { GlobalHostEvent, HostMcpToolProvider, RuntimeExtensionContribution } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { EMPTY_PREVIEW_STATE, PREVIEW_HOST_EXTENSION_ID, type PreviewRecording, type PreviewState } from "./protocol.js";
 import {
@@ -186,6 +186,33 @@ describe("preview tools", () => {
     const result = await pending;
     expect(result.content[0]).toMatchObject({ text: "The user stopped the run." });
     expect((result as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+describe("preview tools over MCP", () => {
+  it("offers the Pi tools to other runtimes, with the calling thread's workspace for files", async () => {
+    const providers: HostMcpToolProvider[] = [];
+    const { surface, loaded } = fakeSurface();
+    const registry = await activateHostKit(createPreviewHostExtension(async () => surface), {
+      stateDir: "/state",
+      findCommand: () => undefined,
+      noteSubprocess: () => undefined,
+      registerRuntimeExtension: () => () => undefined,
+      mcp: {
+        registerTools: (provider) => { providers.push(provider); return () => { providers.splice(providers.indexOf(provider), 1); }; },
+        gate: () => () => undefined,
+        connect: async () => undefined,
+      },
+    });
+    const tools = providers[0]!({ sessionId: "codex-thread", cwd: "/site" });
+    expect(tools.map((tool) => tool.name)).toContain("preview_navigate");
+    const open = tools.find((tool) => tool.name === "preview_open")!;
+    const result = await open.execute("call-1", { url: "/site/index.html" } as never, undefined, undefined, undefined as never) as { isError?: boolean };
+    expect(result.isError).toBeUndefined();
+    expect(loaded).toEqual(["file:///site/index.html"]);
+
+    await registry.deactivate(PREVIEW_HOST_EXTENSION_ID);
+    expect(providers).toEqual([]);
   });
 });
 

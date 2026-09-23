@@ -29,6 +29,9 @@
     "transcript-viewport-streaming-1000-turns": {
       "mountP95Ms": 30,
       "commitP95Ms": 40
+    },
+    "app-tool-output-stream": {
+      "mountP95Ms": 45
     }
   },
   "rendererDomNodes": 5000,
@@ -56,7 +59,8 @@
     "thread-shells-10000",
     "workspace-files-10000",
     "picker-catalog-10000",
-    "long-user-message"
+    "long-user-message",
+    "app-tool-output-stream"
   ],
   "web": {
     "initialJavascriptBytes": 820000,

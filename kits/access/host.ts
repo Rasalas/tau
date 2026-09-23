@@ -1,5 +1,5 @@
 import type { HostExtension, HostExtensionContext } from "tau/host-extension";
-import { createAccessExtension } from "./gate.js";
+import { createAccessExtension, gateToolCall } from "./gate.js";
 import type { AccessLevel } from "./protocol.js";
 import {
   ACCESS_HOST_EXTENSION_ID,
@@ -13,8 +13,8 @@ import {
 
 /**
  * Access Kit's host entry. It owns the access level, contributes the Pi gate
- * extension to every runtime, and tells external runtimes which permission
- * policy to launch with. Without it every tool runs, which is what Pi does.
+ * extension to every runtime and the same gate to the host's MCP tools, and
+ * tells external runtimes which permission policy to launch with. Without it every tool runs, which is what Pi does.
  */
 export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_ACCESS_LEVEL): HostExtension {
   return {
@@ -24,10 +24,11 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
       let level = initialLevel;
       const threadLevels = new Map<string, AccessLevel>();
       const { services } = context;
-      services.registerRuntimeExtension("tau-access", createAccessExtension({
-        level: (sessionId) => strictestAccessLevel(level, sessionId ? threadLevels.get(sessionId) : undefined),
-        onBlocked: (toolName, reason) => services.log("access.blocked", `${toolName}: ${reason}`),
-      }));
+      const levelFor = (sessionId?: string) => strictestAccessLevel(level, sessionId ? threadLevels.get(sessionId) : undefined);
+      const onBlocked = (toolName: string, reason: string) => services.log("access.blocked", `${toolName}: ${reason}`);
+      services.registerRuntimeExtension("tau-access", createAccessExtension({ level: levelFor, onBlocked }));
+      // Tau's own tools reach other runtimes over MCP; the same decision gates them there.
+      const releaseMcpGate = services.mcp.gate((call) => gateToolCall(levelFor(call.threadId), call.toolName, call.input, call.confirm, onBlocked));
       services.setPermissionLevel(() => level);
       context.registerCommand("level", () => level);
       context.registerCommand("set-level", (input) => {
@@ -48,7 +49,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
         else throw new Error("Access level must be read-only, ask or full.");
         return strictestAccessLevel(level, threadLevels.get(fields.threadId));
       }, { callers: ACCESS_THREAD_LEVEL_CALLERS });
-      return () => { services.setPermissionLevel(undefined); };
+      return () => { releaseMcpGate(); services.setPermissionLevel(undefined); };
     },
   };
 }

@@ -55,6 +55,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     registerRuntimeExtension: () => () => undefined,
     loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     loadDependency: async () => { throw new Error("no dependencies in this test"); },
+    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async () => undefined },
     callClient: async () => { throw new Error("no client in this test"); },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,

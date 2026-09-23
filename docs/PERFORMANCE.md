@@ -95,7 +95,7 @@ Scroll work should run only while the viewport is pinned to the tail. Streaming 
 
 The workbench context carries unrelated transcript, tool, event, file-tree, and Git state. Inactive panels stay mounted and receive those updates even though CSS hides them.
 
-Split state by update frequency and ownership. Composer input, elapsed labels, active message records, tool runs, panel data, and shell navigation need separate subscriptions. Hidden heavy panels should mount on demand.
+Split state by update frequency and ownership. Composer input, elapsed labels, active message records, tool runs, panel data, and shell navigation need separate subscriptions. Hidden heavy panels should mount on demand. Tool runs have their own subscription since 2026-09-23; see "Tool output without re-rendering the workbench".
 
 ### Transcript and tool state are unbounded
 
@@ -451,6 +451,21 @@ The anchored transcript comparison is also retained in `reports/renderer-transcr
 
 `npm run benchmark:host:check` and `npm run benchmark:host:full:check` use the same persisted-session fixture in Safe and Full Mode. Branch resolution no longer blocks first content: against the same local fixture, Full Mode bootstrap fell from 2,350.7 ms to 1,601.7 ms, while the current Safe Mode bootstrap is 87.3 ms. CI rejects a critical-path branch phase and requires its duration to remain visible as background work. Full Mode cold switching now prepares a fresh isolated runtime before activation and defers retirement until after the focused response; the complete-run measurement fell from 2,175.8 ms to 1,630.4 ms without skipping Extension startup or shutdown hooks. The current report records Safe Mode warm-switch p95 at 85.9 ms and Full Mode warm-switch p95 at 19.7 ms. Full Mode prewarming took 430–1,173 ms and deferred extension retirement took 190–902 ms during the complete release run. Those extension-owned costs remain reported rather than being skipped or moved back into the interactive switch path. A focused `PI_TIMING=1` run attributed 1,404 ms of cold startup to configured Extension module imports and factories. A three-process Node compile-cache experiment measured resource phases of 1,494 ms, 1,530 ms, and 1,501 ms, so Tau does not enable that cache: it produced no repeatable improvement. Parallel imports were rejected because changing top-level Extension execution order would violate Extension ownership and can change behavior.
 
+### Tool output without re-rendering the workbench
+
+Until 2026-09-23 `App` subscribed to the tool view, so every tool-output flush (one per animation frame while a command prints) re-rendered `App`, built a new workbench model and re-rendered the whole workbench: title bar, rail, dock, composer and transcript. Now the transcript subscribes to the tool view itself (`useConversationActivities` in `ConversationTranscript`), the tool runs join `useWorkbench()` and `useObservatory()` in a provider inside the workbench, `App` reads only whether the turn has any work (a boolean), and the live-turn cache is written from a store subscription (`followTurnActivity`). The live task-progress element, the transcript's copy and fork callbacks and its live-status element are stable, so a flush no longer re-renders every visible message either. The composer follows the tool output estimate in thousands of tokens, the unit its context meter shows.
+
+The renderer benchmark gained `app-tool-output-stream`: the real `App` against a scripted host (40 messages, one bash call, 120 frame flushes of 16 lines each), timing the store's frame flush plus React's commit. Its mount is the whole workbench and carries its own 45 ms mount budget; frame, commit and long-task budgets are the defaults. Base (`4a7f515`) and current were built side by side with the same harness and run interleaved, 2 warm-ups and 9 samples each, on the development machine (Apple M4) under a load average of 11 to 20 from other work, so absolute values are noisy while the comparison is paired:
+
+| app-tool-output-stream | update (median / p95 / max ms) | frame (median / p95 / max ms) | long tasks |
+| --- | ---: | ---: | ---: |
+| base `4a7f515` | 1.5 / 3.9 / 5.9 | 16.7 / 18.4 / 18.7 | 0 |
+| current | 0.5 / 1.5 / 2.3 | 16.7 / 18.3 / 18.7 | 0 |
+
+In the isolated real app (all kits, GPT-5.6 Luna running `for i in $(seq 1 60); do echo …; sleep 0.1; done` in a new thread, three turns per side) a DevTools-hook counter tallied commits while the live tool row was running. Per turn, base: about 132 commits, 62 to 66 of which re-rendered the app shell, and 12,500 to 13,400 re-rendered DOM elements; renderer script time 214 to 327 ms and task time 525 to 773 ms for the whole turn. Current: 130 to 151 commits, 1 to 20 shell re-renders (other events during the run; not traced one by one), 1,000 to 5,100 re-rendered elements; script 144 to 175 ms and task 435 to 540 ms. The composer area alone had accounted for 4,650 to 4,950 of the base's re-rendered elements per turn.
+
+`App.render-count.test.tsx` is the regression guard: a tool-output flush must not render `App`, the workbench chrome or the composer, and a kit reading `useWorkbench().tools` must still see every flush. Consumers of `useWorkbench()` still re-render per flush, since `tools` is part of that public context value.
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension
@@ -597,6 +612,136 @@ After, both threads measure 8–10 ms median; what is left is the 77 KB catalog
 the reply carries (every model the machine can use) and the socket. Picking a
 model in that thread's composer changes the picker's label 15–30 ms after the
 click.
+
+## T3 Code comparison
+
+`scripts/compare/` runs Tau and T3 Code side by side on the same machine, with the same data and the same agent turn (tier A of the benchmark plan in `.scratch/t3-parity-2/gap-analysis.md` §3.4). No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer.
+
+### What runs
+
+- **The turn** (`turn-fixture.mjs`) is synthetic and deterministic: 898 events over 14.4 s.
+  - A short intro, then five small commands (1 KB of output each).
+  - One command that streams 1 MB of output in 8 KB chunks.
+  - A 151 KB Markdown answer with 20 fenced code blocks (with blank lines inside the fences), tables and lists, sent as 200-character deltas.
+  - Sentinel strings at the start and end let the page probe time first text and the end of the stream.
+  - `fake-codex-conformance.mjs <t3-clone>` (run it with Node 24) decodes every response and notification the stand-in sends with T3's generated protocol schemas.
+- **The sessions** (`sessions-fixture.mjs`) are five Codex rollouts. Each app imports them through its own onboarding wizard.
+  - One large thread: 100 turns, every fourth reply 2.4 KB of Markdown with a fence and a table.
+  - Four small threads of six turns each.
+  - Text only: both importers drop tool calls, and both keep at most 200 messages. The large thread is therefore 100 turns, not the plan's 1,000.
+- **Seeding** happens once per app (`--seed`). The harness drives each onboarding over CDP, then copies the resulting profile. Every run starts from a fresh copy of that profile at the same path.
+- **One run** does the following, in order:
+  1. Cold start to first paint and to "ready". Ready means the rail lists the imported threads and the composer is mounted. T3 files imported threads under a collapsed "Settled (5)" shelf, and that counts.
+  2. Memory of the whole process tree after 5 s idle.
+  3. Opening the large thread.
+  4. In Tau only, loading the rest of the thread's history. Tau opens a thread with its newest 10 turns and loads older ones 20 at a time through "Load older turns". T3 sends all 100 turns at once. The harness clicks until the button is gone, so both apps scroll the same thread.
+  5. 60 wheel notches of 240 px up, then 60 down.
+  6. The replayed turn, sent in the first small thread.
+  7. Memory again, 5 s after the turn.
+
+  Runs alternate between the apps.
+- **The probe** (`page-probe.mjs`) is the same code in both renderers:
+  - `requestAnimationFrame` intervals.
+  - A `longtask` observer.
+  - A mutation observer that reads only changed nodes, to spot the sentinels.
+  - A per-frame `elementFromPoint` sampler that counts blank transcript frames.
+- **Bytes and messages** come from CDP `Network.webSocketFrame*` on the page, plus the encoded size of HTTP responses (T3 fetches thread snapshots over HTTP).
+
+### Isolation
+
+T3 runs from its own clone and never touches the installed app or its data. The clone is `git clone --shared /tmp/t3code-latest /tmp/t3-harness`, set up with `vp i` and built with `vp run build:desktop`.
+
+**Both apps**
+
+- Everything lives under one root per app: `/tmp/t3-harness-home` and `/tmp/tau-harness-home`.
+- `HOME` and `CFFIXED_USER_HOME` both point at `<root>/run/home`. Foundation reads `CFFIXED_USER_HOME`, so Chromium's own paths follow it too.
+- `ZDOTDIR` points at an empty directory, so the login shell both apps read `PATH` from never loads real dotfiles.
+- Electron gets `--use-mock-keychain`.
+- The environment is built from scratch. Only `USER`, `LOGNAME`, `TMPDIR` and `LANG` are inherited.
+- `isolation.mjs` fails the environment if any data variable points outside the root or into the user's data.
+- After load and after the turn, every run lists the open files of the whole process tree with `lsof`. It aborts if any file sits in `~/.t3`, `~/Library/Application Support/t3code*`, `~/Library/Application Support/tau*`, `~/.tau`, `~/.codex`, `~/.claude` or `~/.pi`. In every run so far, no process of either tree had any file open under the real home.
+
+**T3 specifics**
+
+- `T3CODE_HOME` is `<root>/run/home/.t3`.
+- `T3CODE_PORT` is a free port.
+- `T3CODE_TELEMETRY_ENABLED=false` and `T3CODE_DISABLE_AUTO_UPDATE=1` are set.
+- `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and `GROK_HOME` all point under the root.
+- A seeded `settings.json` points Codex at the stand-in, turns Claude off and sets `enableProviderUpdateChecks: false`.
+- Electron's `userData` is `homedir()/Library/Application Support/t3code` with no override, which is why `HOME` has to move.
+- T3 runs as the plain Electron binary on `apps/desktop/dist-electron/main.cjs`. `apps/desktop/scripts/start-electron.mjs` is never used: on macOS it builds a bundle with the installed app's identifier (`com.t3tools.t3code`) and registers it with LaunchServices.
+
+**Tau specifics**
+
+- Tau gets the dev-instance variables (`TAU_USER_DATA`, `TAU_CONFIG_FILE`, `TAU_IMPORT_ROOTS`, `PI_CODING_AGENT_SESSION_DIR` and so on) under its root.
+- `TAU_CODEX_COMMAND` points at the stand-in.
+- Because `HOME` moved, Tau loads only the kits it ships, none of the user's packages.
+
+### Running it
+
+```
+npm run build                                   # Tau
+(cd /tmp/t3-harness && vp i && vp run build:desktop)
+npm run benchmark:compare -- --seed             # first time: import the fixture in both apps
+npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
+```
+
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (9,300 KiB and 1,000 messages today, a little above the first measurement below). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
+
+### First results (2026-09-23)
+
+- **Report:** `reports/compare-20260923.json`.
+- **Machine:** Apple M4 `Mac16,10`, 16 GiB, 10 cores, arm64.
+- **Tau:** `e028602ad7` (t3/wave-d plus this harness, no app changes), 0.4.0, Electron 44.4.4. Built with `npm run build`, unpackaged.
+- **T3 Code:** `aca3c87cdb`, 0.0.42, Electron 44.4.2. Built with `vp run build:desktop`, unpackaged.
+- **Viewport:** 1440×900 at DPR 2. Dark theme, the default in both apps.
+- **Runs:** one warmup and nine measured runs per app. The table shows median / p95.
+
+| metric | Tau | T3 Code |
+| --- | ---: | ---: |
+| spawn → first paint (ms) | 1,942 / 2,537 | 2,278 / 3,186 |
+| spawn → rail and composer ready (ms) | 2,994 / 4,116 | 2,792 / 3,933 |
+| RSS of the whole tree, idle (MiB) | 772 / 867 | 726 / 873 |
+| RSS of the host / server process, idle (MiB) | 273 / 300 | 174 / 238 |
+| renderer JS heap, idle (MiB) | 49.7 / 49.8 | 39.8 / 40.5 |
+| open the 100-turn thread, first rows visible (ms) | 190 / 330 | 200 / 270 |
+| load the rest of its history (ms) | 322 / 1,213 (5 pages) | 0 (sent at once) |
+| scroll the whole thread: frame p95 / p99 (ms) | 18.3 / 18.6 | 31.5 / 33.8 |
+| scroll: frames over 33 ms (of 354–382) | 0 / 0 | 7 / 7.6 |
+| scroll: blank samples | 0 | 0 |
+| turn: Enter → first text visible (ms) | 80 / 110 | 169 / 279 |
+| turn: Enter → last delta visible (ms; replay lasts 14,384) | 14,446 / 14,478 | 14,589 / 14,634 |
+| stream: frame p95 / p99 (ms) | 18.4 / 18.6 | 18.5 / 33.4 |
+| stream: long tasks (count / total ms) | 0 / 0 | 7 / 408 |
+| long tasks after the last delta (ms) | 84 / 95 | 322 / 360 |
+| turn: WebSocket messages received | 924 / 926 | 113 / 114 |
+| turn: KiB received (WebSocket payload, decoded) | 8,812 / 9,077 | 259 / 261 |
+| turn: WebSocket messages sent | 44 / 44 | 120 / 121 |
+| renderer JS heap after the turn (MiB) | 60.1 / 66.7 | 90.3 / 178.4 |
+| RSS of the whole tree after the turn (MiB) | 474 / 818 | 812 / 929 |
+
+**What the numbers say**
+
+- **Transfer.** This is where Tau loses clearly. One turn costs Tau 34 times T3's decoded bytes and 8 times its messages. Both apps receive the same 1.15 MB of events. T3 strips command output from what it pushes and coalesces live events for 50 ms. Tau pushes every assistant delta separately and resends the whole tool output on every 16 ms flush (hotspots 2 and 4 in the gap analysis). On the wire the gap is wider still, because T3's socket uses permessage-deflate and Tau's does not. This row is now Tau's transfer gate (`--check`).
+- **Rendering.** Tau renders the stream and the long scroll without a single long task, and its frame p99 stays at one vsync.
+  - T3 has about 7 long tasks while it streams, the longest a 66 ms median.
+  - T3 spends 322 ms of long tasks after the last delta, against Tau's 84 ms.
+  - T3 misses 7 frames scrolling a thread it holds in full.
+  - Tau shows first text 90 ms sooner. T3 groups deltas into paragraphs by default (`responseStreamingMode`).
+- **Start-up.** The two apps are within a few hundred milliseconds of each other. Both runs overlap heavily at p95.
+- **Memory.** Tau's host process holds about 100 MiB more at idle than T3's server; the renderers are the other way round.
+
+**Caveats**
+
+- **The machine was not quiet.** Other agents' test suites ran alongside: the 1-minute load average was 6 to 12 at run start (in the JSON per run), the CI runner VM was not paused, and power was not checked. Treat timings as indicative; comparisons within one run of the table are fairer than absolute values.
+- **Memory is RSS on a 16 GiB machine under memory pressure.** macOS compresses and pages resident memory, so the "after turn" rows swing widely, and Tau's median is lower after the turn than at idle. Only the idle host/server and heap rows are stable enough to compare.
+- **Unpackaged builds.** Both are production bundles in unpackaged Electron, not the signed DMGs. T3's renderer comes from its `t3code://` protocol, Tau's from `file://`.
+- **Viewport, not window.** Electron's DevTools has no `Browser.setWindowBounds`, so the viewport is set with `Emulation.setDeviceMetricsOverride`. The windows keep their own sizes.
+- **Frame p95 does not discriminate.** At 60 Hz the p95 sits at about 18.4 ms in every scenario of both apps; that is vsync jitter in the `requestAnimationFrame` sampler. The p99, the frames over 33 ms and the long tasks are the rows that separate the apps.
+- **Decoded bytes, not wire bytes.** WebSocket bytes are the decoded payloads CDP reports. T3's actual wire bytes are smaller, because it compresses.
+- **The large thread was loaded in full in both apps.** For Tau that took an explicit action a user would take by hand. "Open the thread" measures only the first page (10 turns in Tau, 100 in T3).
+- **The turn is synthetic.** It is calibrated on the plan's shape, not recorded from a real Codex session. T3 ran with its default settings, including its server-side coalescing.
+- **Not measured yet:** tier B (a real Codex turn on the smallest model with a shadow `CODEX_HOME`), CPU at idle, the 2,000-thread rail, the 2 MB diff, and model switching.
 
 ## Execution order
 

@@ -259,6 +259,28 @@ describe("thread runtime backends", () => {
     expect((await store.get("tau-thread"))?.lastAttemptOutcome).not.toBe("failed");
   });
 
+  it("asks for Tau's MCP server each time a session starts and hands it to the SDK", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, opened } = scriptedAdapter(filePath, () => turn("ok"));
+    const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
+    const connect = vi.fn(async () => mcpServer);
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", mcpServer: connect, onEvent: () => undefined });
+    await backend.start("create");
+    expect(connect).not.toHaveBeenCalled();
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(opened[0]!.mcpServer).toEqual(mcpServer);
+
+    // Without an endpoint the thread still runs, only without Tau's tools.
+    const { adapter: bare, opened: bareOpened } = scriptedAdapter(filePath, () => turn("ok"));
+    const offline = new ClaudeThreadRuntimeBackend("tau-other", "/repo", { adapter: bare, store, commands, projectName: "repo", mcpServer: async () => { throw new Error("no endpoint"); }, onEvent: () => undefined });
+    await offline.start("create");
+    await offline.prompt({ text: "hi", delivery: "prompt" });
+    expect(bareOpened[0]).not.toHaveProperty("mcpServer");
+    await backend.dispose();
+    await offline.dispose();
+  });
+
   it("settles a broken turn as an error the host hears about, and reports a session that died", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, sessions } = scriptedAdapter(filePath, () => [init(), frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["not logged in"], total_cost_usd: 0, usage: {} })]);

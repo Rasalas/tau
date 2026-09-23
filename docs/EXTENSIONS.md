@@ -1055,6 +1055,27 @@ such file, so the host keeps its link in the index for as long as it runs and
 the extension that asked for it is the durable record. Agents Kit starts a
 thread whose agent definition names a runtime this way.
 
+### Tau's tools for every runtime: `services.mcp`
+
+A tool a kit gives Pi through `registerRuntimeExtension` reaches only Pi
+threads. `services.mcp` (new in API 1.11.0, `runtime:extend`, in-process only)
+offers the same tools to every other runtime through a local MCP endpoint in the
+host process (ADR 0022): Streamable HTTP on `127.0.0.1`, stateless, one bearer
+credential per thread.
+
+| Member | What it does |
+|---|---|
+| `registerTools(provider)` | `provider(thread)` answers the tools for one thread (`{ sessionId, cwd }`) as Pi `ToolDefinition`s — the very objects the kit registers with `pi.registerTool`. It is asked on every list and every call, with the thread the credential names and no other. Over MCP `execute` gets no `ExtensionContext`: its last argument is `undefined`. Arguments are validated against `parameters` the way Pi validates them, and `executionMode: "sequential"` runs one call of that thread at a time. Returns the disposer. |
+| `gate(gate)` | Runs before each call with `{ threadId, cwd, toolName, input, signal, confirm(title, message) }`; answering `{ block: true, reason }` refuses the call with that text. `confirm` is a yes/no question on the thread's own dialog surface. A gate that throws blocks. Access Kit's gate is the shipped one. |
+| `connect(thread)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
+
+The three runtime kits are the reference: Codex passes the entry as
+`codex app-server -c mcp_servers.tau.…` overrides with the token in the
+process environment (`bearer_token_env_var`), the Agent SDK runtime as an
+`http` entry of `mcpServers`, Antigravity as an ACP `http` server on
+`session/new` and `session/resume`. Each lets Tau's gate ask instead of asking
+again itself. Preview Kit and Agents Kit offer their tools this way.
+
 ### Lifecycle hooks a host half may step into
 
 `services.registerThreadLifecycle(hooks)` and
@@ -1167,7 +1188,7 @@ A package's `permissions` array draws from a fixed list
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
 | `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
-| `runtime:extend` | register Pi runtime extensions, load one Tau ships, register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — and read a workspace's skill catalog (`skills`). |
+| `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — and read a workspace's skill catalog (`skills`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
 | `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
@@ -1483,7 +1504,7 @@ the port — nothing that hands out a live object. From
 | Available in a worker | Not available — declare `"isolation": "in-process"` instead |
 |---|---|
 | `cwd`, `log`, `safeMode` | `attachedRuntime` (a live Pi terminal) |
-| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef`, `admitWorkspace` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension`, `loadDependency` |
+| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef`, `admitWorkspace` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension`, `loadDependency`, `mcp` |
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |

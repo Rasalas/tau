@@ -71,7 +71,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-transcript.js",   "./host-transport-clients.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
-  "./managed-workbench-source.js",   "./model-attribution.js",   "./model-login.js",   "./models-config.js",   "./packaged-app.js",
+  "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-login.js",   "./models-config.js",   "./packaged-app.js",
   "./opencode-catalog.js",
   "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
   "./pi-host-components.js",   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
@@ -96,6 +96,12 @@ const CORE_ALLOWED_PACKAGES = new Set([
   "@earendil-works/pi-ai",
   "@earendil-works/pi-ai/providers/opencode",
   "@earendil-works/pi-ai/providers/opencode-go",
+  // Tool arguments over MCP are checked the way Pi checks them.
+  "@earendil-works/pi-ai/utils/validation",
+  // The host's MCP endpoint (ADR 0022), loaded on its first request.
+  "@modelcontextprotocol/sdk/server/index.js",
+  "@modelcontextprotocol/sdk/server/streamableHttp.js",
+  "@modelcontextprotocol/sdk/types.js",
   "@earendil-works/pi-coding-agent",
   "electron",
   "electron-updater",

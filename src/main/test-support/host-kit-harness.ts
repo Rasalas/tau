@@ -34,6 +34,8 @@ export function activateHostKit(
     // Nothing is watched in a kit's own test; a kit that follows config changes
     // still activates, and its test drives the listener it passes here.
     observeConfigChanges: () => () => undefined,
+    // No MCP endpoint in a kit's own test; a kit that offers tools passes its own fake.
+    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async () => undefined },
     ...services,
   } as HostExtensionServices, (event: GlobalHostEvent) => {
     if (event.type === "extension-event") publish(event);

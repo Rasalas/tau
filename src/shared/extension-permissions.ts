@@ -88,6 +88,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   decorateUiPrompt: "runtime:extend",
   setPermissionLevel: "runtime:extend",
   registerRuntimeBackend: "runtime:extend",
+  mcp: "runtime:extend",
   presentUi: "runtime:extend",
   noteSubprocess: "process",
   findCommand: "process",

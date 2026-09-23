@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -361,6 +361,61 @@ export interface RuntimeExtensionContribution extends RuntimeExtensionOptions {
   factory: RuntimeExtensionFactory;
 }
 
+/**
+ * A Pi tool, offered to the runtimes that are not Pi over the host's local MCP
+ * endpoint (ADR 0022). Over MCP `execute` gets no `ExtensionContext`: its last
+ * argument is `undefined`, so a tool that reads one must cope without it.
+ */
+// oxlint-disable-next-line typescript/no-explicit-any -- the SDK's own `AnyToolDefinition`, which it does not export.
+export type HostMcpTool = ToolDefinition<any, any, any>;
+
+/** The tools a thread's runtime is offered; asked on every list and call, with the thread the credential names. */
+export type HostMcpToolProvider = (thread: RuntimeSessionInfo) => readonly HostMcpTool[];
+
+/** One tool call over MCP, as a gate sees it before the tool runs. */
+export interface HostMcpToolCall {
+  readonly threadId: string;
+  readonly cwd: string;
+  readonly toolName: string;
+  readonly input: Record<string, unknown>;
+  /** Aborts when the runtime cancels the call or its thread closes. */
+  readonly signal: AbortSignal;
+  /** Asks the user on the thread's own dialog surface; a cancelled question is `false`. */
+  confirm(title: string, message: string): Promise<boolean>;
+}
+
+/** Runs before every MCP tool call; an answer with `block` refuses it with that reason. */
+export type HostMcpToolGate = (call: HostMcpToolCall) => Promise<{ block: true; reason: string } | undefined> | { block: true; reason: string } | undefined;
+
+/** Where a runtime reaches Tau's tools for one thread: the server entry it puts in its own MCP configuration. */
+export interface HostMcpConnection {
+  /** The server name runtimes show in front of a tool (`mcp__tau__…`). */
+  readonly name: string;
+  /** Streamable HTTP on 127.0.0.1. */
+  readonly url: string;
+  /** The thread's bearer credential, bare; `headers` carries it as `Authorization`. */
+  readonly token: string;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
+/**
+ * Tau's tools for every runtime (ADR 0022). Pi gets tools through
+ * `registerRuntimeExtension`; a runtime Tau does not own reaches the same tools
+ * through a local MCP endpoint, with a credential bound to one thread.
+ */
+export interface HostMcpServices {
+  /** Offers tools to every thread that connects; the provider sees only the thread the credential names. */
+  registerTools(provider: HostMcpToolProvider): () => void;
+  /** Runs before each call, in registration order; the first block wins. Access Kit's gate is one. */
+  gate(gate: HostMcpToolGate): () => void;
+  /**
+   * The endpoint and a credential for one thread, for a runtime backend to put
+   * in its session's MCP configuration. The credential is revoked when the
+   * thread's runtime closes. `undefined` when the host cannot serve MCP.
+   */
+  connect(thread: RuntimeSessionInfo): Promise<HostMcpConnection | undefined>;
+}
+
 /** What a host extension may do with one open thread. */
 export interface HostThread {
   readonly sessionId: string;
@@ -547,6 +602,8 @@ export interface HostExtensionServices {
    * kit's bundle, so the host loads it and the kit registers what it gets back.
    */
   loadRuntimeExtension(packageName: string): Promise<RuntimeExtensionFactory>;
+  /** Tau's tools for the runtimes that are not Pi, over a local MCP endpoint (ADR 0022). */
+  readonly mcp: HostMcpServices;
   /**
    * A module from Tau's own npm dependencies, resolved from the host's modules
    * for the same reason: a native addon finds its binary beside itself only

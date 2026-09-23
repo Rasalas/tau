@@ -6,6 +6,7 @@ import {
   validatePreparedPrompt,
   type BackendPrompt,
   type ExtensionUiAnswer,
+  type HostMcpConnection,
   type PreparedPrompt,
   type RuntimePermissionLevel,
   type ThreadBackendCapabilities,
@@ -87,6 +88,8 @@ export interface ClaudeThreadBackendOptions {
   projectName: string;
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
+  /** Tau's tools for this thread over MCP, asked each time a session starts. */
+  mcpServer?(): Promise<HostMcpConnection | undefined>;
   now?(): number;
   /** How long an interrupt may take before the session is closed instead. */
   interruptGraceMs?: number;
@@ -410,6 +413,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const resumed = !create && (record.started || record.attempted);
     await this.store.markAttempted(this.threadId, this.cwd);
     this.record = await this.store.get(this.threadId);
+    // Without the endpoint the thread still runs, only without Tau's tools.
+    const mcpServer = await this.options.mcpServer?.().catch(() => undefined);
     const live: LiveSession = { session: undefined as unknown as ClaudeSdkSession, mode, resumed, confirmed: false, stderr: "" };
     live.session = this.runtimeAdapter.openSession({
       cwd: this.cwd,
@@ -419,6 +424,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       ...(this.chosenModel ? { model: this.chosenModel } : {}),
       ...(this.chosenEffort ? { effort: this.chosenEffort } : {}),
       ...(this.turnHooks() ? { hooks: this.turnHooks() } : {}),
+      ...(mcpServer ? { mcpServer } : {}),
       onMessage: (frame) => this.onFrame(frame),
       onExit: (error) => this.onExit(live, error),
       onStderr: (chunk) => { live.stderr = `${live.stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },

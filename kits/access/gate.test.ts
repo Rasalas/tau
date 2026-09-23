@@ -29,6 +29,13 @@ describe("access gate", () => {
 });
 
 describe("isMutatingToolCall", () => {
+  it("counts taking a sub-agent's work into the checkout as an edit, and Tau's other tools as reads", () => {
+    expect(isMutatingToolCall("tau_apply_thread_changes", { threadId: "t" })).toBe(true);
+    expect(isMutatingToolCall("tau_list_threads", {})).toBe(false);
+    expect(isMutatingToolCall("preview_click", { ref: "e1" })).toBe(false);
+  });
+
+
   it("keeps computer-use perception available in read-only threads", () => {
     expect(isMutatingToolCall("computer_use_get_window_state", {})).toBe(false);
     expect(isMutatingToolCall("computer_use_get_browser_state", {})).toBe(false);

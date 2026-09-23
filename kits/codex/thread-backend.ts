@@ -47,6 +47,8 @@ export interface CodexSessionLike {
 
 export interface CodexSessionInput {
   cwd: string;
+  /** The Tau thread the session serves; a probe serves none and gets no Tau tools. */
+  threadId?: string;
   onNotification(method: string, params: unknown): void;
   onRequest(method: string, params: unknown): Promise<unknown>;
   onExit(error: Error | undefined): void;
@@ -399,6 +401,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     await this.store.ensure(this.threadId, this.cwd);
     const session: CodexSessionLike = await this.options.openSession({
       cwd: this.cwd,
+      threadId: this.threadId,
       onNotification: (method, params) => this.onNotification(method, params),
       onRequest: (method, params) => this.onRequest(method, params),
       onExit: (error) => this.onExit(session, error),

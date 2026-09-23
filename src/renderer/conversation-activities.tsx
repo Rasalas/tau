@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ExtensionUiPrompt, HostSnapshot, UiToolRun } from "../shared/contracts";
 import { answerTimestampAfter, type TranscriptDetail } from "../workbench/transcript-folding";
 import { TaskProgress } from "./components/TaskProgress";
@@ -9,14 +9,13 @@ import type { ThreadViewStore } from "../workbench/thread-view-store";
 
 export interface ConversationActivityInput {
   pendingNewThread: boolean;
-  activityTools: UiToolRun[];
-  turnActivityHistory: readonly NonNullable<HostSnapshot["turnActivityHistory"]>[number][];
   conversationSnapshot?: HostSnapshot;
-  toolAnchorId?: string;
-  visibleToolAnchorId?: string;
-  threadPrompts: ExtensionUiPrompt[];
+  /** Whether the thread on screen runs; a draft's conversation snapshot never does. */
+  running: boolean;
+  /** The conversation's last message, where live work sits while a run is open. */
+  lastMessageId?: string;
+  prompts: readonly ExtensionUiPrompt[];
   registry: ExtensionRegistry;
-  registryVersion: number;
   viewStore: ThreadViewStore;
   /** How much of each turn the transcript shows; see `TranscriptDetail`. */
   detail: TranscriptDetail;
@@ -29,16 +28,30 @@ export interface ConversationActivityInput {
 }
 
 const NO_TOOLS: readonly UiToolRun[] = [];
-const NO_PROMPTS: ExtensionUiPrompt[] = [];
 const NO_HISTORY: NonNullable<HostSnapshot["turnActivityHistory"]> = [];
+const isActivityTool = (tool: UiToolRun) => tool.name !== "todo";
 
+/** Whether the turn has work to show; a boolean, so tool output never changes it. */
+export function hasActivityTools(view: ThreadViewStore): boolean {
+  return view.getToolView().tools.some(isActivityTool);
+}
+
+/**
+ * The transcript's own subscription to tool runs. Tool output changes these
+ * rows and nothing above the transcript.
+ */
 export function useConversationActivities(input: ConversationActivityInput) {
   const {
-    pendingNewThread, activityTools, turnActivityHistory, conversationSnapshot, toolAnchorId,
-    visibleToolAnchorId, threadPrompts, registry, registryVersion, viewStore, detail, actions,
+    pendingNewThread, conversationSnapshot, running, lastMessageId, prompts, registry, viewStore, detail, actions,
     recoverThread, copyToolOutput, abortSessionId, abort,
   } = input;
+  const { tools, toolAnchorId, turnActivityHistory } = useSyncExternalStore(viewStore.subscribeToTools, viewStore.getToolView);
+  const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const activityTools = useMemo(() => tools.filter(isActivityTool), [tools]);
   const conversationActivityTools: readonly UiToolRun[] = pendingNewThread ? NO_TOOLS : activityTools;
+  // A submitted prompt is visible before its run starts. Keep the previous
+  // settled group on its original turn until agent-status opens new work.
+  const visibleToolAnchorId = running ? lastMessageId : toolAnchorId ?? lastMessageId;
   const conversationActivityHistory = pendingNewThread
     ? NO_HISTORY
     : (turnActivityHistory.length > 0 ? turnActivityHistory : conversationSnapshot?.turnActivityHistory ?? NO_HISTORY);
@@ -74,10 +87,12 @@ export function useConversationActivities(input: ConversationActivityInput) {
         />,
       };
     }), [actions, conversationActivityHistory, copyToolOutput, currentActivityHistoryId, detail, messages, recoverThread, registry]);
-  const conversationPrompts = pendingNewThread ? NO_PROMPTS : threadPrompts;
-  const liveTaskProgress = conversationSnapshot?.isStreaming && conversationSnapshot.taskProgress
-    ? <TaskProgress progress={conversationSnapshot.taskProgress} placement="transcript" />
-    : undefined;
+  // One element per progress value, so a tool flush leaves the row list's inputs alone.
+  const taskProgress = conversationSnapshot?.isStreaming ? conversationSnapshot.taskProgress : undefined;
+  const liveTaskProgress = useMemo(
+    () => taskProgress ? <TaskProgress progress={taskProgress} placement="transcript" /> : undefined,
+    [taskProgress],
+  );
   const extensionRows = registry.getTranscriptRows(conversationSnapshot?.sessionId);
   const liveStatusLabel = registry.getLiveStatus(conversationSnapshot?.sessionId);
 
@@ -107,14 +122,14 @@ export function useConversationActivities(input: ConversationActivityInput) {
         detail={detail}
         status={conversationSnapshot?.isStreaming ? "running" : "completed"}
         streaming={conversationSnapshot?.isStreaming}
-        waiting={conversationPrompts.length > 0}
+        waiting={prompts.length > 0}
         {...(actions ? { actions } : {})}
         onRecover={() => void recoverThread()}
         onStop={() => abort(abortSessionId)}
         onCopyOutput={copyToolOutput}
       />,
     }] : []),
-  ], [abort, abortSessionId, actions, conversationActivityTools, conversationPrompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, visibleToolAnchorId]);
+  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, visibleToolAnchorId]);
 
-  return { conversationActivityTools, conversationPrompts, liveStatusLabel, transcriptActivities };
+  return { conversationActivityTools, liveStatusLabel, transcriptActivities };
 }
