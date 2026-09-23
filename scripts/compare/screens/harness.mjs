@@ -207,6 +207,11 @@ export function makeContext(app, session) {
       await session.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value }, { name: "prefers-reduced-motion", value: "no-preference" }] });
       await wait(250);
     },
+    /** Narrows or restores the emulated window, for layouts that change with width. */
+    async viewport(width = VIEWPORT.width, height = VIEWPORT.height) {
+      await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: false });
+      await wait(400);
+    },
     async screenshot(path) {
       const { data } = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
       writeFileSync(path, Buffer.from(data, "base64"));
