@@ -40,11 +40,11 @@ describe("Search Kit: palette sources", () => {
   it("switches to a thread and opens a project by its workspace id", async () => {
     const actions = { switchSession: vi.fn(async () => true), openWorkspace: vi.fn(async () => true) } as unknown as WorkbenchActions;
     const context = searchContext(actions);
-    await threadTitleItems("luna", context)[0]!.run(actions);
+    await threadTitleItems("luna", context)[0]!.run!(actions);
     expect(actions.switchSession).toHaveBeenCalledWith("/sessions/c.jsonl");
     const found = projectItems("t", context);
     expect(found.map((item) => item.label)).toEqual(["t3code", "tau"]);
-    await found[1]!.run(actions);
+    await found[1]!.run!(actions);
     expect(actions.openWorkspace).toHaveBeenCalledWith("ws-repo");
   });
 

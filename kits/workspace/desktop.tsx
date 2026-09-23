@@ -15,6 +15,7 @@ import {
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_STORE_SERVICE,
 } from "./protocol.js";
+import { addProjectMenu } from "./add-project-menu.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { TurnChangesDock, WorkspaceBarControl, WorkspaceFollower } from "./dock.js";
 import { CloneProjectSource, LocalFolderSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
@@ -209,6 +210,13 @@ export const workspaceExtension: DesktopExtension = {
         app.notify(errorMessage(error));
       }
     } });
+    context.registerCommand({
+      id: "workspace.add-project",
+      label: "Add project…",
+      group: "Project",
+      submenu: addProjectMenu({ listDirectories: (path) => host.listDirectories(path), pickFolder: () => host.pickFolder(), baseDirectory: () => store.projectBaseDirectory() }),
+      run: (app) => app.openCommandPalette({ menu: "workspace.add-project" }),
+    });
     context.registerCommand({ id: "workspace.switch-project", label: "Switch project…", group: "Project", run: () => requestProjectSwitcher() });
     context.registerCommand({
       id: "workspace.project-settings",
