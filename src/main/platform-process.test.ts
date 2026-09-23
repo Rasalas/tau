@@ -1,4 +1,7 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { batchArgument, commandInvocation, killProcessTree } from "./platform-process.js";
 
@@ -83,4 +86,28 @@ describe("killProcessTree", () => {
     killProcessTree(child.pid!, "SIGTERM");
     expect(await exited).toBe("SIGTERM");
   });
+});
+
+// Only a Windows runner can check these against the real cmd.exe.
+describe.runIf(process.platform === "win32")("on a real Windows machine", () => {
+  it("passes every argument through cmd.exe and an npm-style shim unchanged", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-cmd-shim-"));
+    await writeFile(join(dir, "print-args.cjs"), "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
+    // What npm's cmd-shim writes: the runtime, the script, and %* forwarded.
+    await writeFile(join(dir, "print-args.cmd"), `@"${process.execPath}" "%~dp0\\print-args.cjs" %*\r\n`);
+    const args = ["plain", "a b", "a&b|c", "100%", "%PATH%", "x^y", "(paren)", "C:\\dir with space\\", "!bang!", "<in>", ""];
+    const invocation = commandInvocation(join(dir, "print-args.cmd"), args);
+    const output = execFileSync(invocation.command, invocation.args, { encoding: "utf8", windowsVerbatimArguments: invocation.windowsVerbatimArguments, windowsHide: true });
+    expect(JSON.parse(output)).toEqual(args);
+  });
+
+  it("ends cmd.exe and the program it started", async () => {
+    const child = spawn("cmd.exe", ["/d", "/c", "ping -n 60 127.0.0.1 >NUL"], { stdio: "ignore", windowsHide: true });
+    await new Promise((resolve) => child.once("spawn", resolve));
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    killProcessTree(child.pid!);
+    await exited;
+    const tasks = execFileSync("tasklist.exe", ["/fi", `PID eq ${child.pid}`, "/nh"], { encoding: "utf8" });
+    expect(tasks).not.toContain(String(child.pid));
+  }, 30_000);
 });

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,13 +33,16 @@ describe("parseCapture", () => {
 
 describe("mergePaths", () => {
   it("keeps the first occurrence of an entry", () => {
-    expect(mergePaths(["/a:/b", "/b:/c", undefined, ""])).toBe("/a:/b:/c");
-    expect(mergePaths([undefined])).toBeUndefined();
+    expect(mergePaths(["/a:/b", "/b:/c", undefined, ""], "darwin")).toBe("/a:/b:/c");
+    expect(mergePaths([undefined], "darwin")).toBeUndefined();
   });
 });
 
+const posix = process.platform !== "win32";
+
 describe("installShellEnvironment", () => {
-  it("puts the login shell PATH first and fills missing variables only", async () => {
+  // Needs a real /bin/sh to count as a login shell.
+  it.runIf(posix)("puts the login shell PATH first and fills missing variables only", async () => {
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin", SHELL: "/bin/sh", LANG: "C" };
     const calls: string[][] = [];
     const result = await installShellEnvironment({
@@ -75,7 +79,7 @@ describe("installShellEnvironment", () => {
     expect(result).toEqual({ pathSource: "process", installed: [] });
   });
 
-  it("reads a real shell", async () => {
+  it.runIf(posix)("reads a real shell", async () => {
     const captured = await captureLoginShellEnvironment(["PATH", "TAU_PROBE"], { shell: "/bin/sh", env: { PATH: "/usr/bin:/bin", TAU_PROBE: "yes" } });
     // A login shell may rewrite PATH (/etc/profile runs path_helper on macOS); it must still contain the system bins.
     expect(captured.PATH).toContain("/usr/bin");
@@ -84,7 +88,7 @@ describe("installShellEnvironment", () => {
 });
 
 describe("findExecutable", () => {
-  it("resolves a command on PATH and refuses non-executables", async () => {
+  it.runIf(posix)("resolves a command on PATH and refuses non-executables", async () => {
     const dir = await mkdtemp(join(tmpdir(), "tau-path-"));
     await writeFile(join(dir, "tool"), "#!/bin/sh\n");
     await chmod(join(dir, "tool"), 0o755);
@@ -98,7 +102,7 @@ describe("findExecutable", () => {
 });
 
 describe("gitExecutable", () => {
-  it("resolves git to an absolute path once per PATH and falls back to the bare name", async () => {
+  it.runIf(posix)("resolves git to an absolute path once per PATH and falls back to the bare name", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-git-executable-"));
     const git = join(directory, "git");
     await writeFile(git, "#!/bin/sh\n");
@@ -177,4 +181,23 @@ describe("Windows", () => {
     expect(findExecutable("C:\\npm\\codex", env, options)).toBe("C:\\npm\\codex.cmd");
     expect(findExecutable("git", { Path: "C:\\Git\\cmd" }, options)).toBe("C:\\Git\\cmd\\git.exe");
   });
+});
+
+// Only a Windows runner can check these against the real file system and PowerShell.
+describe.runIf(process.platform === "win32")("on a real Windows machine", () => {
+  it("finds a .cmd on PATH, the way where.exe does", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-pathext-"));
+    await writeFile(join(dir, "tau-probe.cmd"), "@echo off\r\n");
+    const found = findExecutable("tau-probe", { Path: `${dir};${process.env.PATH ?? ""}`, PATHEXT: process.env.PATHEXT });
+    expect(found?.toLowerCase()).toBe(join(dir, "tau-probe.cmd").toLowerCase());
+    expect(execFileSync("where.exe", ["tau-probe"], { env: { ...process.env, PATH: dir }, encoding: "utf8" }).trim().toLowerCase())
+      .toBe(found?.toLowerCase());
+  });
+
+  it("reads the registry PATH through Windows PowerShell", async () => {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    const result = await installShellEnvironment({ env, platform: "win32", timeoutMs: 30_000 });
+    expect(result.pathSource).toBe("registry");
+    expect(envValue(env, "PATH", "win32")?.toLowerCase()).toContain("system32");
+  }, 60_000);
 });

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import { commandInvocation, type UiEditor } from "tau/host-extension";
 
 /** How a command-line launcher takes a line: `--goto file:line`, `--line n file`, or not at all. */
@@ -82,8 +82,8 @@ export function defaultEditorProbe(findCommand: (name: string) => string | undef
 
 /** Where JetBrains Toolbox writes its launcher scripts, which are rarely on the login PATH. */
 function toolboxScripts(probe: EditorProbe): string | undefined {
-  if (probe.platform === "darwin") return join(probe.home, "Library/Application Support/JetBrains/Toolbox/scripts");
-  if (probe.platform === "linux") return join(probe.home, ".local/share/JetBrains/Toolbox/scripts");
+  if (probe.platform === "darwin") return posix.join(probe.home, "Library/Application Support/JetBrains/Toolbox/scripts");
+  if (probe.platform === "linux") return posix.join(probe.home, ".local/share/JetBrains/Toolbox/scripts");
   if (probe.platform === "win32") return win32.join(probe.home, "AppData", "Local", "JetBrains", "Toolbox", "scripts");
   return undefined;
 }
@@ -100,15 +100,15 @@ function findLaunch(definition: EditorDefinition, probe: EditorProbe): EditorLau
   }
   const scripts = toolboxScripts(probe);
   if (scripts && definition.launchStyle === "line-column") {
-    const script = probe.platform === "win32" ? win32.join(scripts, `${definition.id}.cmd`) : join(scripts, definition.id);
+    const script = probe.platform === "win32" ? win32.join(scripts, `${definition.id}.cmd`) : posix.join(scripts, definition.id);
     if (probe.exists(script)) return { kind: "command", command: script, style: "line-column", baseArgs };
   }
   if (probe.platform !== "darwin") return undefined;
   for (const app of definition.apps ?? []) {
-    for (const folder of ["/Applications", join(probe.home, "Applications")]) {
-      const bundle = join(folder, app.bundle);
+    for (const folder of ["/Applications", posix.join(probe.home, "Applications")]) {
+      const bundle = posix.join(folder, app.bundle);
       if (!probe.exists(bundle)) continue;
-      const cli = app.cli ? join(bundle, app.cli) : undefined;
+      const cli = app.cli ? posix.join(bundle, app.cli) : undefined;
       if (cli && probe.exists(cli)) return { kind: "command", command: cli, style: definition.launchStyle, baseArgs };
       return { kind: "app", bundle };
     }
@@ -140,7 +140,7 @@ export function editorCommand(
   if (launch.kind === "file-manager") {
     if (options.platform === "darwin") return { command: "open", args: options.isFile ? ["-R", target] : [target] };
     if (options.platform === "win32") return { command: "explorer.exe", args: options.isFile ? [`/select,${target}`] : [target] };
-    return { command: "xdg-open", args: [options.isFile ? dirname(target) : target] };
+    return { command: "xdg-open", args: [options.isFile ? posix.dirname(target) : target] };
   }
   if (launch.kind === "app") return { command: "open", args: ["-a", launch.bundle, target] };
   const base = [...launch.baseArgs];
