@@ -46,7 +46,7 @@ describe("Claude Code runtime adapter", () => {
   it("declares its kind, its capabilities and a transport core will accept", () => {
     const adapter = createClaudeCodeRuntimeAdapter({ command: "claude-test", storePath: store("selection") });
     expect(adapter.id).toBe("claude-code");
-    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true });
+    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true, modes: ["plan"] });
     expect(adapter.transport.sendPrompt).toBeTypeOf("function");
   });
 

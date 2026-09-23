@@ -168,10 +168,10 @@ describe("thread runtime backends", () => {
       usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, costUsd: 0.2, turns: 2 },
       contextUsage: { tokens: 100, contextWindow: 200000 },
     });
-    // Beside the model and effort pickers and the word it uses to say a turn
-    // was cut short, Claude offers no Pi-shaped capability; every such
-    // operation is refused in one place.
-    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "resume"]);
+    // Beside the model and effort pickers, the plan mode and the word it uses
+    // to say a turn was cut short, Claude offers no Pi-shaped capability;
+    // every such operation is refused in one place.
+    expect(Object.keys(backend.capabilities)).toEqual(["catalogWrite", "mode", "resume"]);
     expect(backend.capabilities.resume?.hiddenPrompt).toBe(false);
 
     await backend.dispose();
@@ -453,6 +453,39 @@ describe("thread runtime backends", () => {
     await backend.prompt({ text: "look only", delivery: "prompt" });
     expect(sessions[0]?.setPermissionMode).toHaveBeenCalledWith("plan");
     expect(opened).toHaveLength(1);
+  });
+});
+
+describe("plan mode", () => {
+  it("runs the turn in Claude's plan permission mode and shows the plan instead of starting work", async () => {
+    const { filePath, store } = await scratchStore();
+    const results: unknown[] = [];
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, async (_content, _priority, input) => {
+      if (results.length === 0) {
+        results.push(await input.hooks!.canUseTool!("ExitPlanMode", { plan: "# Add login\n\n1. Form" }, { signal: new AbortController().signal, toolUseID: "t1", requestId: "r1" }));
+      }
+      return turn("Planned.");
+    });
+    const events: ThreadRuntimeEvent[] = [];
+    const ask = vi.fn(async (): Promise<ExtensionUiAnswer> => ({ confirmed: true }));
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store, commands, projectName: "repo", permissionLevel: () => "full", ask, now: () => 7, onEvent: (event) => events.push(event) });
+    await backend.start("create");
+    expect(backend.capabilities.mode!.modes()).toEqual(["plan"]);
+    await backend.capabilities.mode!.set("plan");
+    await expect(backend.capabilities.mode!.set("review")).rejects.toThrow('no "review" mode');
+    await backend.prompt({ text: "plan a login", delivery: "prompt" });
+    expect(opened[0]?.permissionLevel).toBe("full");
+    expect(sessions[0]?.setPermissionMode).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
+    expect(results).toEqual([{ behavior: "deny", message: expect.stringContaining("Stop here"), decisionClassification: "user_reject" }]);
+    const plan = events.find((event) => event.type === "assistant-end" && event.message.text.startsWith("<proposed_plan>"));
+    expect(plan).toMatchObject({ message: { role: "assistant", text: "<proposed_plan>\n# Add login\n\n1. Form\n</proposed_plan>" } });
+    expect((await store.get("tau-thread"))?.mode).toBe("plan");
+    expect((await backend.transcript()).some((message) => message.text.includes("<proposed_plan>"))).toBe(true);
+    await backend.capabilities.mode!.set("default");
+    await backend.prompt({ text: "implement it", delivery: "prompt" });
+    expect(sessions[0]?.setPermissionMode).toHaveBeenCalledWith("auto");
+    expect((await store.get("tau-thread"))?.mode).toBeUndefined();
   });
 });
 
