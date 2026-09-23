@@ -187,15 +187,23 @@ later. Its three steps follow T3 Code's:
 1. **Agents** — Pi and how many models your Pi configuration signs in to, then
    every other runtime Tau has (the Agent SDK runtime, Codex, Antigravity, and
    any instance of them): installed or not, which version, signed in or not,
-   with the vendor's install or sign-in command to copy, or a link to its card
+   with the vendor's install or sign-in command, or a link to its card
    under Settings → Providers. Each runtime answers through its own kit, so a
    path set there counts. Below them, marked optional, **Tools for pull
    requests**: `gh` and `glab`, which Tau needs only to open pull and merge
-   requests and show their checks.
+   requests and show their checks. With Terminal Kit on, Install and Sign in
+   run the command in a terminal you see: the wizard steps aside for it (a
+   button in the title bar leads back), and returns and checks again when the
+   shell ends; without it the command is there to copy.
 2. **Projects** — the folders those CLIs and Pi worked in, newest first, each
-   with the conversations it has and when it was last used. Git repositories
-   used in the last 30 days with three conversations or more are chosen for you;
-   "Add a folder…" opens the project sources.
+   with the conversations it has and when it was last used. Clones of one
+   repository (the same `origin`) are one group with a checkbox for all of
+   them; folders that are no repository are folded away under "Other folders".
+   Linked worktrees, your home and temporary folders themselves, and anything
+   in `~/Downloads`, Codex's scratch folders under `~/Documents/Codex` or Tau's
+   worktrees folder are left out. Git repositories used in the last 30 days
+   with three conversations or more are chosen for you; "Add a folder…" opens
+   the project sources.
 3. **Conversations** — the conversations those CLIs kept, grouped by folder,
    imported as threads of the runtime that ran them: the title and the visible
    text (the first prompt and the newest messages, 200 at most), no tool

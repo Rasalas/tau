@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DesktopExtension } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import onboarding from "./desktop.js";
 import { agentRows, age, toolRows } from "./wizard.js";
-import { FLOW_STORAGE_KEY, WelcomeFlow, defaultProjects, defaultSessions, importSummary } from "./flow.js";
+import { FLOW_STORAGE_KEY, WelcomeFlow, defaultProjects, defaultSessions, groupProjects, importSummary } from "./flow.js";
 import type { Discovery, ToolsReport } from "./protocol.js";
 
 afterEach(cleanup);
@@ -120,6 +121,55 @@ describe("Onboarding in the workbench", () => {
     expect(calls.some(([, command]) => command === "complete")).toBe(true);
   });
 
+  it("runs a review CLI's install in a terminal it steps aside for, and asks again when the shell ends", async () => {
+    const { calls, invokeHostExtension } = host();
+    const runs: Array<{ request: { command: string; label?: string }; resolve(result: { id: string; exitCode?: number }): void }> = [];
+    const terminal: DesktopExtension = {
+      id: "tau.terminal",
+      name: "Terminal",
+      activate: (plugin) => { plugin.provideService("tau.terminal/run", { run: (request: { command: string; label?: string }) => new Promise((resolve) => runs.push({ request, resolve })) }); },
+    };
+    renderApp(createFakeHostClient({ invokeHostExtension }), { extensions: [terminal, onboarding] });
+    const reviewTools = await screen.findByRole("region", { name: /Tools for pull requests/ });
+    const glab = within(reviewTools).getByText("GitLab CLI").closest(".onboarding-card") as HTMLElement;
+    const asked = calls.filter(([, command]) => command === "tools").length;
+    fireEvent.click(within(glab).getByRole("button", { name: "Install" }));
+
+    await waitFor(() => expect(runs.map((run) => run.request)).toEqual([{ command: "brew install glab", label: "Install GitLab CLI" }]));
+    // The wizard covers the workbench; it makes way for the terminal and leaves a way back in the title bar.
+    expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull();
+    expect(await screen.findByRole("button", { name: /Install GitLab CLI · Back to setup/ })).toBeTruthy();
+
+    await act(async () => { runs[0]!.resolve({ id: "t1", exitCode: 0 }); });
+    await screen.findByRole("heading", { name: "Your agents" });
+    await waitFor(() => expect(calls.filter(([, command]) => command === "tools").length).toBe(asked + 1));
+    expect(screen.queryByRole("button", { name: /Back to setup/ })).toBeNull();
+  });
+
+  it("groups clones of one repository and folds folders that are no repository away", async () => {
+    const { invokeHostExtension } = host();
+    const grouped: Discovery = { ...discovery, projects: [
+      { path: "/work/app", name: "app", sources: ["codex"], threadCount: 3, lastActiveAt: NOW - DAY, git: true, remote: { key: "github.com/acme/app", label: "acme/app" } },
+      { path: "/work/app-2", name: "app-2", sources: ["claude-code"], threadCount: 1, lastActiveAt: NOW - 2 * DAY, git: true, remote: { key: "github.com/acme/app", label: "acme/app" } },
+      { path: "/work/notes", name: "notes", sources: ["codex"], threadCount: 4, lastActiveAt: NOW - DAY, git: false },
+    ] };
+    const answer = vi.fn(async (extensionId: string, command: string, input?: unknown) => command === "discover" ? grouped : invokeHostExtension(extensionId, command, input));
+    renderApp(createFakeHostClient({ invokeHostExtension: answer }), { extensions: [onboarding] });
+    await screen.findByRole("heading", { name: "Your agents" });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await screen.findByRole("heading", { name: "Choose your projects" });
+
+    const group = screen.getByRole("checkbox", { name: "Add every folder of acme/app" }) as HTMLInputElement;
+    // T3 Code's default takes only the clone with three conversations.
+    expect(group.indeterminate).toBe(true);
+    expect((screen.getByRole("checkbox", { name: /\/work\/app-2/ }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(group);
+    expect(screen.getByRole("button", { name: "Add 2 projects" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /\/work\/notes/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Other folders/ }));
+    expect(screen.getByRole("checkbox", { name: /\/work\/notes/ })).toBeTruthy();
+  });
+
   it("stays closed once setup ran, and /welcome brings it back", async () => {
     const { invokeHostExtension } = host();
     await invokeHostExtension("tau.onboarding", "complete");
@@ -144,6 +194,19 @@ describe("Onboarding's choices", () => {
     expect(importSummary({ imported: 3, failed: 1 })).toBe("Imported 3 threads. 1 thread could not be imported.");
     expect(importSummary({ imported: 0, failed: 2 })).toBe("2 threads could not be imported.");
     expect([age(NOW - 30_000, NOW), age(NOW - 5 * 60_000, NOW), age(NOW - 3 * DAY, NOW), age(NOW - 90 * DAY, NOW), age(0, NOW)]).toEqual(["now", "5m", "3d", "3mo", ""]);
+  });
+
+  it("groups projects by their remote, newest first, and keeps folders without Git apart", () => {
+    const project = (path: string, lastActiveAt: number, extra: Partial<Discovery["projects"][number]> = {}) => ({ path, name: path.split("/").pop()!, sources: ["codex" as const], threadCount: 1, lastActiveAt, git: true, ...extra });
+    const remote = { key: "github.com/acme/app", label: "acme/app" };
+    const { repositories, other } = groupProjects([
+      project("/a/app", 5, { remote }), project("/b/solo", 9), project("/c/app", 7, { remote, sources: ["claude-code"] }), project("/d/plain", 8, { git: false }),
+    ]);
+    expect(repositories.map((group) => [group.label, group.projects.map((entry) => entry.path), group.threadCount, group.lastActiveAt, group.sources])).toEqual([
+      ["solo", ["/b/solo"], 1, 9, ["codex"]],
+      ["acme/app", ["/a/app", "/c/app"], 2, 7, ["codex", "claude-code"]],
+    ]);
+    expect(other.map((entry) => entry.path)).toEqual(["/d/plain"]);
   });
 
   it("says what each agent needs before it can be used", () => {

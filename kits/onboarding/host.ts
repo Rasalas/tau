@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
 import { commandInvocation } from "tau/host-extension";
+import { excludedFolders, folderGit, isExcludedFolder, type ExcludedFolders } from "./folders.js";
 import {
   IMPORT_PROGRESS_EVENT,
   ONBOARDING_EXTENSION_ID,
@@ -67,10 +69,15 @@ async function folder(path: string): Promise<{ exists: boolean; git: boolean }> 
   return { exists: true, git: Boolean(await stat(join(path, ".git")).catch(() => undefined)) };
 }
 
-/** Folders newest first; one that no longer exists is not offered. */
-export async function projectCandidates(sessions: readonly ImportableSession[], piThreads: ReadonlyArray<{ cwd: string; updatedAt?: number }>): Promise<ProjectCandidate[]> {
+/**
+ * Folders newest first. One that no longer exists, a linked worktree (its
+ * history is the main checkout's) and one `excluded` names — home, temporary
+ * folders, Downloads — is not offered.
+ */
+export async function projectCandidates(sessions: readonly ImportableSession[], piThreads: ReadonlyArray<{ cwd: string; updatedAt?: number }>, excluded?: ExcludedFolders): Promise<ProjectCandidate[]> {
   const byPath = new Map<string, ProjectCandidate>();
   const add = (path: string, source: ProjectCandidate["sources"][number], at: number) => {
+    if (excluded && isExcludedFolder(path, excluded)) return;
     const entry = byPath.get(path) ?? { path, name: basename(path) || path, sources: [], threadCount: 0, lastActiveAt: 0, git: false };
     if (!entry.sources.includes(source)) entry.sources.push(source);
     entry.threadCount += 1;
@@ -79,9 +86,11 @@ export async function projectCandidates(sessions: readonly ImportableSession[], 
   };
   for (const session of sessions) add(session.cwd, session.source, session.updatedAt);
   for (const thread of piThreads) add(thread.cwd, "pi", thread.updatedAt ?? 0);
-  const candidates = await Promise.all([...byPath.values()].map(async (entry) => {
-    const found = await folder(entry.path);
-    return found.exists ? [{ ...entry, git: found.git }] : [];
+  const candidates = await Promise.all([...byPath.values()].map(async (entry): Promise<ProjectCandidate[]> => {
+    if (!(await folder(entry.path)).exists) return [];
+    const git = await folderGit(entry.path);
+    if (git.kind === "worktree") return [];
+    return [{ ...entry, git: git.kind === "repository", ...(git.kind === "repository" && git.remote ? { remote: git.remote } : {}) }];
   }));
   return candidates.flat().sort((left, right) => right.lastActiveAt - left.lastActiveAt);
 }
@@ -89,6 +98,8 @@ export async function projectCandidates(sessions: readonly ImportableSession[], 
 export interface OnboardingHostOptions {
   platform?: string;
   run?: Run;
+  /** The home the scan's exclusions are relative to; the user's by default. */
+  home?: string;
 }
 
 /**
@@ -99,6 +110,7 @@ export interface OnboardingHostOptions {
 export function createOnboardingHostExtension(options: OnboardingHostOptions = {}): WorkerHostExtension & { permissions: string[] } {
   const platform = options.platform ?? process.platform;
   const exec = options.run ?? run;
+  const excluded = excludedFolders(options.home ?? homedir(), process.env, tmpdir());
   return {
     id: ONBOARDING_EXTENSION_ID,
     name: "Onboarding",
@@ -149,7 +161,7 @@ export function createOnboardingHostExtension(options: OnboardingHostOptions = {
         const sessions = scans.flat().sort((left, right) => right.updatedAt - left.updatedAt);
         const pi = await services.sessions.list().catch(() => []);
         // Pi's threads are Tau's already; they only suggest folders.
-        return { projects: await projectCandidates(sessions, pi), sessions, truncated, unavailable };
+        return { projects: await projectCandidates(sessions, pi, excluded), sessions, truncated, unavailable };
       }, { long: true });
 
       // The identity a client opens a found folder under; the host admits it here.

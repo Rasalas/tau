@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+import { SquareTerminal } from "lucide-react";
 import { getClientStorage, type DesktopExtension, type DesktopExtensionContext, type RegionProps } from "tau";
 import { WelcomeFlow } from "./flow.js";
 import { ONBOARDING_EXTENSION_ID as ID, WELCOME_OVERLAY, type WelcomeState } from "./protocol.js";
@@ -8,9 +9,10 @@ import { createWelcomeWizard, type TerminalRunner } from "./wizard.js";
 const TERMINAL_RUN_SERVICE = "tau.terminal/run";
 
 /**
- * Draws nothing: once per window it reopens a wizard a reload interrupted, or
- * asks whether this is a first start — no thread yet and setup never
- * finished — and opens the wizard if so.
+ * Once per window it reopens a wizard a reload interrupted, or asks whether
+ * this is a first start — no thread yet and setup never finished — and opens
+ * the wizard if so. While the wizard stands aside for a terminal it is the
+ * way back.
  */
 function createFirstStart(context: DesktopExtensionContext, flow: WelcomeFlow) {
   let asked = false;
@@ -18,6 +20,7 @@ function createFirstStart(context: DesktopExtensionContext, flow: WelcomeFlow) {
   let threads: number | undefined;
   context.events.on("thread-index", (event) => { threads = event.threadIndex.sessions.length; });
   return function FirstStart({ actions }: RegionProps) {
+    const { terminal } = useSyncExternalStore(flow.subscribe, flow.get);
     useEffect(() => {
       if (asked) return;
       asked = true;
@@ -26,7 +29,11 @@ function createFirstStart(context: DesktopExtensionContext, flow: WelcomeFlow) {
         if ((state as WelcomeState).firstStart && !threads) actions.openOverlay(WELCOME_OVERLAY);
       }, () => undefined);
     }, [actions]);
-    return null;
+    return terminal ? (
+      <button type="button" className="onboarding-return" data-tooltip="Setup comes back by itself when the command ends" onClick={() => actions.openOverlay(WELCOME_OVERLAY)}>
+        <SquareTerminal size={12} /> {terminal} · Back to setup
+      </button>
+    ) : null;
   };
 }
 
