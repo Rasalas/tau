@@ -63,6 +63,17 @@ OPENCODE_SERVER_PASSWORD=test opencode serve --hostname 127.0.0.1 --port 0
 
 Stop a server you started by its PID. For import tests, `<import root>/opencode` is such a home too: start a server over it, create a session and send one prompt, and Onboarding lists it.
 
+### Cursor gets a shadow home, and usually the fake CLI
+
+The Cursor CLI keeps its config and chats in `~/.cursor` and, on macOS, its login in the keychain. The Cursor kit reads `TAU_CURSOR_HOME` as that folder (`CURSOR_CONFIG_DIR` and `CURSOR_DATA_DIR`) with a file login (`AGENT_CLI_CREDENTIAL_STORE=file`), so a home is an account of its own; `dev-instance.mjs` sets it to `<worktree>/.tau-dev/cursor-home` (a caller's own value is kept). Nothing is linked from `~/.cursor`, and nobody signs in there for a test. A CLI older than 2026.04.08 has no `acp` and would take the word as a prompt, so the kit never starts one with it; `--version` and `about` are all it asks of such a CLI.
+
+A test instance drives `kits/cursor/fixtures/fake-cursor-agent.mjs` instead: an ACP server over stdio that answers `--version`, `about --format json` and `acp`, keeps its sessions under `CURSOR_DATA_DIR`, and picks a scenario from words in the prompt (`permission`, `question`, `plan`, `todos`, `tool`, `mcp`, `history`, `transport`, `sleep`; anything else answers `pong from <model> …`). `FAKE_CURSOR_LOG=<file>` records every message Tau sent. Point the instance at it:
+
+```
+TAU_CURSOR_COMMAND=$PWD/kits/cursor/fixtures/fake-cursor-agent.mjs FAKE_CURSOR_LOG=$PWD/.tau-dev/cursor.log \
+  env -u ELECTRON_RUN_AS_NODE npm run dev:instance -- --build --fresh
+```
+
 ### Earlier sessions to import come from fixtures
 
 Onboarding lists and imports the conversations the agent CLIs kept in their own homes. `dev-instance.mjs` sets `TAU_IMPORT_ROOTS=<worktree>/.tau-dev/import-roots` (a caller's own value is kept), and with it set the backend kits read only `<root>/<backend kind>/…` — laid out like the CLI's own home — and never the user's. Put small synthetic sessions there to test the wizard; an instance with an empty folder finds nothing to import.

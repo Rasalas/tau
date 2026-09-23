@@ -1155,8 +1155,10 @@ turn observers, so checkpoints and status watchers do not care which program
 answers. `ask(prompt)` puts a blocking question on the workbench's dialog
 surface (the one Pi's extension dialogs use); aborting the thread answers it as
 cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005);
-`kits/codex/` shows the same seam over a CLI's own JSON-RPC server, and
-`kits/opencode/` over an HTTP server and its event stream.
+`kits/codex/` shows the same seam over a CLI's own JSON-RPC server,
+`kits/opencode/` over an HTTP server and its event stream, and
+`kits/antigravity/` and `kits/cursor/` over the Agent Client Protocol, whose
+client they share as `kits/_acp/` (a folder of shared code, not a kit).
 
 A backend whose threads can be deleted answers two more members of its
 provider (new in API 1.11.0): `removeThread(threadId)` takes the thread's shell
@@ -1164,7 +1166,7 @@ record out of the backend's own store and answers it as plain JSON, which the
 host keeps in its trash, and `restoreThread(threadId, record)` puts that record
 back. Only the shell goes — the program's own history (a CLI's session files)
 is never touched. A backend without the pair refuses deletion. Codex, the
-Agent SDK runtime, Antigravity and OpenCode have it.
+Agent SDK runtime, Antigravity, OpenCode and Cursor have it.
 
 A streamed backend whose tool cards should return after a restart or a reload
 offers the capability group `activityHistory` (new in API 1.12.0):
@@ -1181,8 +1183,8 @@ halves: one JSON Lines file per thread in a folder of the backend's choosing,
 outputs clipped to their last 16 KiB and long arguments shortened, turns a
 restart cut short read back as interrupted, the newest 500 turns kept, and
 `take(threadId)`/`put(threadId, value)` for `removeThread`/`restoreThread`.
-Codex, Antigravity and OpenCode keep theirs beside their session stores
-(`codex-activity/`, `antigravity-activity/`, `opencode-activity/`).
+Codex, Antigravity, OpenCode and Cursor keep theirs beside their session stores
+(`codex-activity/`, `antigravity-activity/`, `opencode-activity/`, `cursor-activity/`).
 
 An MCP server may ask for a form (an *elicitation*: `requestedSchema` with
 text, number, integer, boolean, single- and multiple-choice fields — the same
@@ -1239,7 +1241,7 @@ every runtime list uses — the model picker's rail, the composer's runtime
 menu, Settings → Defaults and Providers, onboarding: Pi, then backends by the
 provider's `order` (new in API 1.11.0; lower first, unset last, ties in
 registration order). The bundled kits take 10 (the Agent SDK runtime), 20
-(Codex), 30 (Antigravity) and 40 (OpenCode); every instance of a program shares its order.
+(Codex), 30 (Antigravity), 40 (OpenCode) and 50 (Cursor); every instance of a program shares its order.
 
 A backend that drives a program the user installed may say which version that
 is: `version()` on the provider answers `{ tool, installed?, latest?,
@@ -1446,7 +1448,9 @@ process environment (`bearer_token_env_var`), the Agent SDK runtime as an
 `mcpCapabilities: { http: true, sse: true }`; an agent that does not announce a
 transport is not sent servers of it), OpenCode as a `remote` entry laid over
 the user's config through `OPENCODE_CONFIG_CONTENT` of the server Tau starts
-for the thread (a server the user runs and names by URL gets none). Each lets
+for the thread (a server the user runs and names by URL gets none), Cursor as
+an ACP `http` server on `session/new` and `session/load` (sent without the
+transport check, as the Cursor CLI takes it without announcing it). Each lets
 Tau's gate ask instead of asking again itself. Preview Kit and Agents Kit offer their tools this way.
 
 A thread started with `tools` keeps them on every runtime that can: Codex
@@ -1456,7 +1460,7 @@ without `bash`, `edit` or `write`; the Agent SDK runtime gets Claude's own tools
 names (`read` → `Read`, `find` → `Glob`, …) and no MCP server but Tau's;
 OpenCode switches its own tools off in every prompt's `tools`
 (`kits/opencode/tools.ts`) and runs read-only without `bash`, `edit` or `write`.
-Antigravity cannot restrict its tools and refuses such a thread.
+Antigravity and Cursor cannot restrict their tools and refuse such a thread.
 
 ### Lifecycle hooks a host half may step into
 

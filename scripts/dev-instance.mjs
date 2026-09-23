@@ -207,6 +207,9 @@ async function main() {
   // OpenCode keeps its config, logins and database in the XDG folders; its kit makes this home all four.
   const openCodeHome = process.env.TAU_OPENCODE_HOME ?? join(DEV_DIR, "opencode-home");
   mkdirSync(openCodeHome, { recursive: true });
+  // The Cursor CLI keeps config, chats and (with a home) its login in ~/.cursor; its kit points it here.
+  const cursorHome = process.env.TAU_CURSOR_HOME ?? join(DEV_DIR, "cursor-home");
+  mkdirSync(cursorHome, { recursive: true });
   // Onboarding imports the agent CLIs' earlier sessions; an instance reads fixtures only, never the user's history.
   const importRoots = process.env.TAU_IMPORT_ROOTS ?? join(DEV_DIR, "import-roots");
 
@@ -253,6 +256,7 @@ async function main() {
     TAU_HOST_TOKEN_FILE: join(DEV_DIR, "host-token"),
     CODEX_HOME: codexHome,
     TAU_OPENCODE_HOME: openCodeHome,
+    TAU_CURSOR_HOME: cursorHome,
     TAU_IMPORT_ROOTS: importRoots,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
