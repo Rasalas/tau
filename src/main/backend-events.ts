@@ -145,7 +145,7 @@ function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEve
   services.log("tool.ended", `${ended.name}:${ended.status}`);
 }
 
-function settleTurn(status: "completed" | "interrupted" | "error", thread: ThreadRuntime, services: BackendEventServices, error?: string): void {
+function settleTurn(status: "completed" | "interrupted" | "error", thread: ThreadRuntime, services: BackendEventServices, failure?: string): void {
   const sessionId = thread.threadId;
   // A tool still running when the turn ends never reports again; close its card.
   for (const tool of [...thread.tools.values()]) {
@@ -161,7 +161,7 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
     else entry.status = status;
   }
   services.clientTurns.settle(sessionId);
-  services.turnSettled(sessionId, status === "error" ? error?.trim() || thread.turnError || "The turn failed." : undefined);
+  services.turnSettled(sessionId, status === "error" ? failure?.trim() || thread.turnError || "The turn failed." : undefined);
   thread.turnError = undefined;
   services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
   services.emit({ type: "agent-status", sessionId, running: false });

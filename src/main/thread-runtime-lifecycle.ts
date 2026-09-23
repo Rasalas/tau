@@ -335,12 +335,12 @@ export class ThreadRuntimeLifecycle {
           } catch (error) {
             if (background) throw error;
             // The thread still opens, read-only, so its history is not hidden behind a missing CLI.
-            const reason = this.port.errorMessage(error);
-            this.port.log("runtime.unavailable", `${owner} ${record.threadId.slice(0, 8)}: ${reason}`);
-            const thread = new ThreadRuntime(new UnavailableThreadBackend(owner, provider.adapter, record, reason));
+            const why = this.port.errorMessage(error);
+            this.port.log("runtime.unavailable", `${owner} ${record.threadId.slice(0, 8)}: ${why}`);
+            const thread = new ThreadRuntime(new UnavailableThreadBackend(owner, provider.adapter, record, why));
             thread.adapterMessages = await thread.backend.transcript();
             thread.adapterTitle = record.title;
-            this.port.runtimeUnavailable(record.threadId, reason);
+            this.port.runtimeUnavailable(record.threadId, why);
             await this.port.adopt(thread);
             return thread;
           }
