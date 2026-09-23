@@ -968,7 +968,7 @@ permission and isolation vocabularies, the `PiShortcut` and `PiUserKeybindings`
 types that `HostThread.shortcuts` and `runShortcut` speak, the workspace
 vocabulary core renders itself (`src/shared/workspace-kit-types.ts`:
 changed files, diffs, worktrees, editors), `HostActionResult`, `WorkspaceRef`,
-`isWorkspaceRelativePath`, `gitExecutable`/`findExecutable`,
+`isWorkspaceRelativePath`, `smallCompletionModel`/`isSmallModel`, `gitExecutable`/`findExecutable`,
 `commandInvocation`/`killProcessTree` (how to start a command and end what
 it started on this platform: on Windows `findExecutable` resolves through
 PATHEXT, a `.cmd` shim such as `npm.cmd` or `code.cmd` runs through `cmd.exe`
@@ -1045,8 +1045,17 @@ would otherwise go unnamed. It needs the `sessions` permission. The models it ac
 `completionModels`, which a `kind: "model"` option offers the user; they are the
 same list whatever runtime owns the visible thread, while `models` stays that
 thread's own. A host half reads the same list with `completionModels()` (new in
-API 1.11.0, `sessions`, in-process only; absent on an older host); Worktree
-Names picks a small model from it when the user chose none.
+API 1.11.0, `sessions`, in-process only; absent on an older host).
+`smallCompletionModel(services, prefer)` from `tau/host-extension` (API
+1.11.0) picks a small model from it — `isSmallModel(id)` knows the tiers by id
+(`haiku`, `mini`, `flash`, `luna`, …) — the one closest to `prefer`: same
+provider first, then the longest shared id, so a thread on `gpt-5.6-sol` gets
+`gpt-5.6-luna`; `undefined` when none is small, which leaves `complete` on
+the default. Thread Title Generator and Worktree Names take the model their
+setting names, else this pick with the thread's or draft's model as `prefer`,
+for a thread of any runtime. `HostThread.model` (new in API 1.11.0) is that
+model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
+— so a thread whose draft named none still gives the hint.
 
 A registered backend's `label` is what the workbench calls it where a new
 thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);

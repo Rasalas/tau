@@ -396,6 +396,7 @@ export class PiHost {
       get sessionFile() { return thread.sessionFile; },
       get parentThreadId() { return parentThreadId(); },
       get usage() { return thread.backend.catalogView().usage; },
+      get model() { const model = thread.backend.catalogView().model; return model && { provider: model.provider, id: model.id }; },
       isStreaming: () => thread.state.streaming || thread.adapterStreaming,
       isIdle: () => !thread.state.streaming && thread.state.idle && !thread.adapterStreaming
       && thread.adapterPending === 0 && !this.extensionUi.hasOpen(thread.threadId),

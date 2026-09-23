@@ -420,7 +420,7 @@ Tau's own source can be changed from inside Tau too. A clean installation carrie
 - one settings page: workbench defaults, keybindings, and a click-through list of extensions rendered from the options each one declares
 - Markdown rendering of messages — GFM tables, task lists, inline code, and syntax-highlighted code blocks with copy, all styled on the workbench palette; raw HTML is deliberately not enabled
 - extension-provided tool renderers for reads, writes and shell commands
-- thread title generation using the thread's own model, automatic after the first prompt and manual on demand
+- thread title generation on a small model (the one the settings name, else one close to the thread's), automatic after the first prompt and manual on demand
 - extension-free safe mode with empty layout slots collapsed
 
 ## The seam under test
