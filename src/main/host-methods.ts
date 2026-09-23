@@ -256,6 +256,10 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeString("read-tool-output", "sessionId", params[0]),
       decodeString("read-tool-output", "toolCallId", params[1]),
     ),
+    "tool-output": async (params) => (await host()).toolOutput(
+      decodeString("tool-output", "sessionId", params[0]),
+      decodeString("tool-output", "toolCallId", params[1]),
+    ),
     // Answers with the text rather than copying it: the clipboard belongs to
     // the client, which may be a different process than the host.
     "copy-thread-markdown": async (params) =>

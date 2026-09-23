@@ -7,7 +7,9 @@ import { HostPushLog, helloReply } from "../main/host-push-log.js";
 import { HostPushCoalescer, type CoalescerClock } from "../main/host-push-coalescer.js";
 import { startSocketHostTransport, type SocketHostTransport } from "../main/host-transport-socket.js";
 import { boundedToolOutput } from "../main/host-messages.js";
+import { clientToolRun, clientTranscript, liveToolOutput } from "../main/client-tool-output.js";
 import { HostConnection, type HostTransport } from "./host-connection";
+import { isWireEvent } from "./tool-output-stream";
 import { createThreadViewState, reduceHostEvent, type ThreadViewState } from "./thread-view-store";
 
 /**
@@ -53,7 +55,7 @@ function diagnosticLines(seed: number, length: number): string {
  * tools, one tool streaming 1.1 MB (so the host's tail window slides), and a
  * 4 KB answer, streamed at a model's pace.
  */
-function heavyTurn(template: TimedEvent[]): { sessionId: string; events: TimedEvent[] } {
+function heavyTurn(template: TimedEvent[], big = { bytes: 1_100_000, chunks: 100 }): { sessionId: string; events: TimedEvent[] } {
   const sessionId = "transfer-heavy";
   const events: TimedEvent[] = [];
   let t = 0;
@@ -90,8 +92,9 @@ function heavyTurn(template: TimedEvent[]): { sessionId: string; events: TimedEv
     const output = diagnosticLines(100 + index, 1_000);
     runTool(index, [output.slice(0, 333), output.slice(333, 666), output.slice(666)]);
   }
-  const big = diagnosticLines(999, 1_100_000);
-  runTool(21, Array.from({ length: 100 }, (_, chunk) => big.slice(chunk * 11_000, (chunk + 1) * 11_000)));
+  const bigOutput = diagnosticLines(999, big.bytes);
+  const chunk = big.bytes / big.chunks;
+  runTool(21, Array.from({ length: big.chunks }, (_, index) => bigOutput.slice(index * chunk, (index + 1) * chunk)));
   const answer = diagnosticLines(7, 4_096);
   at({ type: "assistant-start", sessionId, id: "a2", timestamp: 3 });
   stream("assistant-delta", "a2", answer);
@@ -223,7 +226,7 @@ async function measure(events: readonly TimedEvent[], options: { joinAt?: number
   for (const { t, event } of events) {
     clock.advanceTo(t);
     if (options.joinAt !== undefined && !joined && t >= options.joinAt) joined = await connect(transport.port, false);
-    pushes.publish(event);
+    pushes.publish(published(event));
   }
   pushes.flush();
   await client.untilSeq(log.nextSeq - 1);
@@ -240,6 +243,19 @@ async function measure(events: readonly TimedEvent[], options: { joinAt?: number
     extensions: client.extensions(),
     ...(joined ? { joined } : {}),
   };
+}
+
+/** A thread detail as the host publishes it: `HostPublication` shapes its tools for clients. */
+function published(event: HostPushEvent): HostPushEvent {
+  if (event.type !== "host-update" || event.update.type !== "thread-detail") return event;
+  return { ...event, update: { ...event.update, detail: clientTranscript(event.update.detail) } };
+}
+
+/** What a client should end up with: every tool in the shape the host sends it. */
+function asClientSees(event: HostEvent): HostEvent {
+  if (event.type === "tool-update") return { ...event, output: liveToolOutput(event.output) };
+  if (event.type === "tool-end") return { ...event, tool: clientToolRun(event.tool) };
+  return published(event) as HostEvent;
 }
 
 /**
@@ -313,8 +329,8 @@ describe("host transfer budget", () => {
       expect(observed.decodedBytes, "decoded bytes").toBeLessThanOrEqual(budget.decodedBytes);
       expect(observed.messages, "messages").toBeLessThanOrEqual(budget.messages);
 
-      const raw = events.map(({ event }) => event).filter((event): event is HostEvent => event.type !== "tool-update-delta" && event.type !== "job-progress" && event.type !== "job-done");
-      const expected = view(sessionId, raw);
+      const raw = events.map(({ event }) => event).filter((event): event is HostEvent => !isWireEvent(event) && event.type !== "job-progress" && event.type !== "job-done");
+      const expected = view(sessionId, raw.map(asClientSees));
       expect(view(sessionId, await received(measured.pushes, measured.log))).toEqual(expected);
       // A client that loses part of the turn replays it from the log.
       const middle = Math.floor(measured.pushes.length / 2);
@@ -323,19 +339,26 @@ describe("host transfer budget", () => {
   }
 
   it("sends a running tool's output whole to a client that joins mid-run", async () => {
-    const { events } = heavyTurn(recordedTurn().events);
-    const sent = events.flatMap(({ event }) => event.type === "tool-update" && event.id === "tool-21" ? [event.output] : []);
-    const halfway = events.find(({ event }) => event.type === "tool-update" && event.output === sent[50])!.t;
+    // Small chunks, so the live tail travels as deltas until the join.
+    const { events } = heavyTurn(recordedTurn().events, { bytes: 200_000, chunks: 400 });
+    const sent = events.flatMap(({ event }) => event.type === "tool-update" && event.id === "tool-21" ? [liveToolOutput(event.output)] : []);
+    const halfway = events.find(({ event }) => event.type === "tool-update" && liveToolOutput(event.output) === sent[200])!.t;
     const measured = await measure(events, { joinAt: halfway });
-    const big = measured.pushes.filter(({ event }) => "id" in event && event.id === "tool-21");
+    const big = measured.pushes.filter(({ event }) => event.type !== "tool-end-delta" && "id" in event && event.id === "tool-21");
     const joined = measured.joined!;
     expect(big.filter(({ event }) => event.type === "tool-update-delta").length).toBeGreaterThan(big.length * 0.9);
     expect(big.find(({ seq }) => seq >= joined.nextSeq)?.event.type).toBe("tool-update");
-    const outputs = (await received(measured.pushes, measured.log, { from: joined.nextSeq - 1 }))
+    const late = await received(measured.pushes, measured.log, { from: joined.nextSeq - 1 });
+    const outputs = late
       .filter((event): event is Extract<HostEvent, { type: "tool-update" }> => event.type === "tool-update" && event.id === "tool-21")
       .map((event) => event.output);
     // Every update after the join reaches it, the first one whole.
     expect(outputs).toEqual(sent.slice(sent.length - outputs.length));
     expect(outputs.length).toBe(big.filter(({ seq }) => seq >= joined.nextSeq).length);
+    // It ends the tool as every client does: deferred, with its size.
+    const isEnd = (event: HostPushEvent): event is Extract<HostEvent, { type: "tool-end" }> => event.type === "tool-end" && event.tool.id === "tool-21";
+    const ended = late.find(isEnd);
+    expect(ended?.tool).toEqual(clientToolRun(events.map(({ event }) => event).find(isEnd)!.tool));
+    expect(ended?.tool).toMatchObject({ outputDeferred: true, outputLength: expect.any(Number) });
   });
 });

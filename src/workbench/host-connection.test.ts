@@ -199,6 +199,34 @@ describe("host connection", () => {
     expect(connection.getState()).toBe("connected");
   });
 
+  it("ends a tool from the output it streamed, and deferred when it never saw that push", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const ended: HostEvent[] = [];
+    connection.onEvent((event) => { if (event.type === "tool-end") ended.push(event); });
+    const tool = { id: "t1", name: "bash", args: {}, status: "done" as const, startedAt: 0 };
+    link.push(1, { type: "tool-update", sessionId: "s1", id: "t1", output: "line 1\n" });
+    link.push(2, { type: "tool-end-delta", sessionId: "s1", tool, after: 1, length: 14, keep: 7, drop: 0, text: "line 2\n" });
+    link.push(3, { type: "tool-end-delta", sessionId: "s1", tool: { ...tool, id: "t2" }, after: 1, length: 40, keep: 7, drop: 0, text: "" });
+    expect(ended).toEqual([
+      { type: "tool-end", sessionId: "s1", tool: { ...tool, output: "line 1\nline 2\n" } },
+      { type: "tool-end", sessionId: "s1", tool: { ...tool, id: "t2", outputDeferred: true, outputLength: 40 } },
+    ]);
+  });
+
+  it("puts a compact detail's turn activity back from its history", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const updates: HostEvent[] = [];
+    connection.onEvent((event) => updates.push(event));
+    const tools = [{ id: "t1", name: "bash", args: {}, status: "done" as const, startedAt: 0, output: "ok" }];
+    const detail = { ...bootstrap.detail, turnActivityHistory: [{ id: "a1", anchorMessageId: "m1", status: "completed" as const, tools }] };
+    link.push(1, { type: "thread-detail-compact", update: { version: 1, type: "thread-detail", detail } });
+    expect(updates).toEqual([{ type: "host-update", update: { version: 1, type: "thread-detail", detail: { ...detail, turnActivity: { tools, anchorMessageId: "m1" } } } }]);
+  });
+
   it("learns which methods the host wants run as jobs", async () => {
     const link = harness();
     const connection = new HostConnection(link.transport);

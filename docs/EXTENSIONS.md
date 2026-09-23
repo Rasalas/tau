@@ -251,6 +251,13 @@ so a card is what to reach for when the thing a tool started outlives the turn
 that started it; Agents Kit's spawn card is the caller that motivated it. A
 tool a card claims is not offered to `registerToolRenderer`.
 
+Both see a tool as clients receive it. A settled tool whose output is longer
+than 16 KB comes without `output`: `outputDeferred` is true and
+`outputLength` says how many characters the host holds back. A card that needs
+the text asks for it with `actions.toolOutput(tool)` (API 1.11.0), which answers
+the output as the transcript would have carried it. A running tool longer than
+16 KB carries only its last 4 KB.
+
 ```ts
 context.registerToolCard({
   id: "agents.spawn",

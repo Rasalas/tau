@@ -4,6 +4,7 @@ import type {
   ShellActionResult,
   UiMessage,
   UiProject,
+  UiToolOutputPreview,
   UiToolRun,
 } from "../shared/contracts";
 import type { HostActionResult } from "../shared/host-protocol";
@@ -221,6 +222,13 @@ export class ThreadCommands {
     } catch (error) {
       this.notify(errorMessage(error));
     }
+  };
+
+  /** A deferred tool's output, from the thread on screen; undefined when the host no longer has it. */
+  loadToolOutput = async (tool: UiToolRun): Promise<UiToolOutputPreview | undefined> => {
+    const sessionId = this.sessionId();
+    if (!sessionId || !this.client) return undefined;
+    return this.client.toolOutput(sessionId, tool.id);
   };
 
   forkMessage = async (message: UiMessage): Promise<void> => {
