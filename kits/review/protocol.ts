@@ -92,6 +92,14 @@ export interface ProviderCapabilities {
   viewed: "host" | "local";
   /** Create a repository for a checkout without a remote. */
   publish: boolean;
+  /** Arm a merge that waits for checks and approvals, and take it back. */
+  autoMerge: boolean;
+  /** Open a request that reverts a merged one. */
+  revert: boolean;
+  /** Delete the request's branch on the host once it merged. */
+  deleteBranch: boolean;
+  /** Requests stacked on one another, merged and rebased as one. */
+  stacks: boolean;
 }
 
 /** How a provider is named in the UI, and what it can do. */
@@ -113,6 +121,7 @@ const EVERYTHING: ProviderCapabilities = {
   conversations: true, lineComments: true, replies: true, resolve: true,
   reviewEvents: ["comment", "approve", "request-changes"], editComments: ["comment", "review", "review-comment"],
   reviewers: true, labels: true, viewed: "host", publish: true,
+  autoMerge: true, revert: true, deleteBranch: true, stacks: true,
 };
 
 const plainUrl = (host: string, repo: string) => `https://${host}/${repo}`;
@@ -122,15 +131,18 @@ export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
   gitlab: {
     kind: "gitlab", name: "GitLab", noun: "merge request", short: "MR", checkout: (number) => `glab mr checkout ${number}`, repositoryUrl: plainUrl,
     // GitLab's API has no "request changes"; viewed marks are kept by the kit.
-    capabilities: { ...EVERYTHING, reviewEvents: ["comment", "approve"], viewed: "local" },
+    capabilities: { ...EVERYTHING, reviewEvents: ["comment", "approve"], viewed: "local", revert: false, stacks: false },
   },
   forgejo: {
     kind: "forgejo", name: "Forgejo", noun: "pull request", short: "PR", checkout: (number) => `tea pr checkout ${number}`, repositoryUrl: plainUrl,
-    capabilities: { ...EVERYTHING, replies: false, resolve: false, editComments: ["comment"], viewed: "local", publish: false },
+    capabilities: { ...EVERYTHING, replies: false, resolve: false, editComments: ["comment"], viewed: "local", publish: false, autoMerge: false, revert: false, stacks: false },
   },
   bitbucket: {
     kind: "bitbucket", name: "Bitbucket", noun: "pull request", short: "PR", repositoryUrl: plainUrl,
-    capabilities: { ...EVERYTHING, merge: ["merge", "squash"], resolve: false, editComments: ["comment", "review-comment"], reviewers: false, labels: false, viewed: "local", publish: false },
+    capabilities: {
+      ...EVERYTHING, merge: ["merge", "squash"], resolve: false, editComments: ["comment", "review-comment"], reviewers: false, labels: false, viewed: "local", publish: false,
+      autoMerge: false, revert: false, stacks: false,
+    },
   },
   "azure-devops": {
     kind: "azure-devops", name: "Azure DevOps", noun: "pull request", short: "PR", checkout: (number) => `az repos pr checkout --id ${number}`,
@@ -141,7 +153,7 @@ export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
     // `az` gives no diff and no labels; conversations and comments go through `az devops invoke`.
     capabilities: {
       ...EVERYTHING, merge: ["squash", "merge"], files: false, lineComments: false, reviewEvents: ["approve", "request-changes"],
-      editComments: [], labels: false, viewed: "local", publish: false,
+      editComments: [], labels: false, viewed: "local", publish: false, revert: false, stacks: false,
     },
   },
 };
@@ -166,8 +178,20 @@ export interface SourceProviderStatus {
 /** A self-hosted server's provider, chosen by the user, by host (with a port when it has one). */
 export type SourceHosts = Record<string, RequestService>;
 
+/** A merge armed to run once the host's checks and approvals allow it. */
+export interface AutoMergeState {
+  /** The method stored with it, where the host reports one. */
+  method?: MergeMethod;
+}
+
 /** A branch's request as Review Kit reports it; core's type names only the first two hosts. */
-export type ReviewRequest = Omit<UiReviewRequest, "provider"> & { provider: RequestService };
+export type ReviewRequest = Omit<UiReviewRequest, "provider"> & { provider: RequestService; autoMerge?: AutoMergeState };
+
+/** What a merge did beside merging: the branch it deleted on the host, or why it kept it. */
+export interface MergeOutcome {
+  branchDeleted?: string;
+  branchKept?: string;
+}
 
 /**
  * Where the current branch stands on the way to a merged request: its Git
@@ -328,6 +352,47 @@ export interface PullRequestDetail {
   commits: PullRequestCommit[];
   /** The signed-in login on the host, so the view offers to edit only its own comments. */
   viewer?: string;
+  /** Set while a merge is armed to run once the host allows it. */
+  autoMerge?: AutoMergeState;
+}
+
+/** One layer of a stack, as the host lists it: bottom first. */
+export interface PullRequestStackLayer {
+  number: number;
+  url: string;
+  title?: string;
+  headRef: string;
+  headSha?: string;
+  state: "open" | "closed" | "merged";
+  draft?: boolean;
+}
+
+/** Requests stacked on one another, each based on the one below. */
+export interface PullRequestStack {
+  number: number;
+  /** The branch the bottom layer merges into. */
+  base: string;
+  layers: PullRequestStackLayer[];
+}
+
+/** Where a listed request sits in its stack; `position` counts from 1 at the bottom. */
+export interface PullRequestStackMembership {
+  number: number;
+  size: number;
+  position: number;
+}
+
+/** Merge a layer with every unmerged one below it, or rebase every layer onto the one below. */
+export type StackAction = "merge" | "rebase";
+
+/** Steps on one request by its URL; the Changes panel's own steps act on the branch's request. */
+export type PullRequestAction = "merge" | "auto-merge" | "cancel-auto-merge" | "revert";
+
+export interface PullRequestActionResult {
+  detail: PullRequestDetail;
+  merge?: MergeOutcome;
+  /** The request a revert opened. */
+  created?: string;
 }
 
 export interface PullRequestThread {
@@ -391,6 +456,10 @@ export interface PullRequestListEntry {
   checks?: PullRequestChecksState;
   /** The signed-in account is among the requested reviewers. */
   reviewRequested: boolean;
+  /** Its layer in a stack, where the host keeps stacks. */
+  stack?: PullRequestStackMembership;
+  /** The signed-in login on the row's own host, where a page mixes hosts. */
+  viewer?: string;
 }
 
 export interface PullRequestList {
@@ -403,6 +472,13 @@ export interface PullRequestList {
   /** The host had more than `limit` rows for this question. */
   truncated: boolean;
   limit: number;
+}
+
+/** The page across projects: one list per repository, with the projects that share it. */
+export interface PullRequestLists {
+  lists: Array<PullRequestList & { workspaces: string[] }>;
+  /** Projects whose repository could not be read, with the reason. */
+  failures: Array<{ workspace: string; message: string }>;
 }
 
 /**

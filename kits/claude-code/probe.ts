@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AccountInfo, ModelInfo, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { commandInvocation, type HostCatalogModel, type HostRuntimeNewThreadCatalog, type UiModel, type UiModelBilling } from "tau/host-extension";
+import { commandInvocation, type HostCatalogModel, type HostRuntimeNewThreadCatalog, type SignInAccount, type UiModel, type UiModelBilling } from "tau/host-extension";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -158,6 +158,57 @@ export async function probeClaude(input: ProbeInput): Promise<ClaudeProbe> {
 export function apiKeyBilling(source: string | undefined): UiModelBilling | undefined {
   if (!source || source === "none") return undefined;
   return source === "oauth" ? "subscription" : "api-key";
+}
+
+/** What `auth status --json` prints: whether the CLI can reach a model, and through what. */
+export interface ClaudeAuthStatus {
+  loggedIn: boolean;
+  /** `claude.ai`, `api_key`, `oauth_token` (a token in the environment), `third_party`, `none`. */
+  authMethod?: string;
+  /** `firstParty`, `bedrock`, `vertex`, `foundry`. */
+  apiProvider?: string;
+  /** Where a key comes from: a variable's name, or the key a console login stored. */
+  apiKeySource?: string;
+  email?: string;
+  orgName?: string;
+  subscriptionType?: string;
+}
+
+/**
+ * Asks the CLI whether it is signed in, without a session: `auth status`
+ * answers from its own files and the environment, and exits 1 when nothing
+ * is set up. Undefined when the CLI cannot say (an older release).
+ */
+export async function readClaudeAuth(command: string, env: NodeJS.ProcessEnv, run: typeof execFile = execFile): Promise<ClaudeAuthStatus | undefined> {
+  const invocation = commandInvocation(command, ["auth", "status", "--json"]);
+  const stdout = await new Promise<string>((resolve) => {
+    run(invocation.command, invocation.args, { env, timeout: 10_000, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments }, (_error, out) => resolve(String(out ?? "")));
+  });
+  try {
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    if (typeof parsed.loggedIn !== "boolean") return undefined;
+    const text = (key: string) => typeof parsed[key] === "string" && parsed[key] ? { [key]: parsed[key] as string } : {};
+    return { loggedIn: parsed.loggedIn, ...text("authMethod"), ...text("apiProvider"), ...text("apiKeySource"), ...text("email"), ...text("orgName"), ...text("subscriptionType") };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The account row: who, through what, and whether a sign-out has anything to remove. */
+export function claudeAuthAccount(auth: ClaudeAuthStatus | undefined): SignInAccount {
+  if (!auth?.loggedIn) return { signedIn: false };
+  const plan = auth.subscriptionType ? (/^claude\b/iu.test(auth.subscriptionType) ? auth.subscriptionType : `Claude ${auth.subscriptionType.charAt(0).toUpperCase()}${auth.subscriptionType.slice(1)}`) : undefined;
+  // A key or token from the environment, or a cloud provider's account, is not the CLI's to forget.
+  const fromEnvironment = auth.authMethod === "third_party" || auth.authMethod === "oauth_token" || /^[A-Z][A-Z0-9_]+$/u.test(auth.apiKeySource ?? "");
+  if (auth.authMethod === "third_party") return { signedIn: true, label: `via ${auth.apiProvider ?? "a cloud provider"}`, detail: "Billed by that provider", canSignOut: false };
+  if (auth.authMethod === "api_key") return { signedIn: true, label: auth.email ?? "API key", detail: auth.apiKeySource ? `API key · ${auth.apiKeySource}` : "API key", canSignOut: !fromEnvironment };
+  return { signedIn: true, label: auth.email ?? plan ?? "Signed in", ...(auth.email && (plan ?? auth.orgName) ? { detail: [plan, auth.orgName].filter(Boolean).join(" · ") } : {}), canSignOut: !fromEnvironment };
+}
+
+/** How the account pays, from `auth status`: a plan is the subscription, anything else per token. */
+export function authBilling(auth: ClaudeAuthStatus | undefined): UiModelBilling | undefined {
+  if (!auth?.loggedIn) return undefined;
+  return auth.authMethod === "claude.ai" || auth.subscriptionType ? "subscription" : "api-key";
 }
 
 /** A plan login is the subscription; a key or a cloud provider's account is billed per token. */

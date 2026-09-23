@@ -13,6 +13,7 @@ import {
   nextWake,
   pinPatch,
   railSections,
+  linkedRequestThreads,
   requestCheckouts,
   settlePatch,
   snoozePatch,
@@ -182,6 +183,25 @@ describe("the sweep", () => {
     expect(Object.keys(sweepPatches(threads, state({}, { onClosed: true }), new Set(), requests, NOW))).toEqual(["merged", "closed"]);
     const again = state({ merged: { keptAt: NOW - 5, activityAt: NOW, settledForRequest: "https://example.test/pr/1" } });
     expect(sweepPatches(threads, again, new Set(), requests, NOW)).toEqual({});
+  });
+
+  it("counts a thread's linked requests beside its branch's, and waits for the last one", () => {
+    const threads = [quiet("linked", 0, "/project"), quiet("mixed", 0, "/worktrees/mixed"), quiet("closed", 0, "/project")];
+    const requests = new Map([["/worktrees/mixed", { state: "merged" as const, url: "https://example.test/pr/1" }]]);
+    const linked = new Map([
+      ["linked", [{ state: "merged" as const, url: "https://example.test/pr/5" }]],
+      ["mixed", [{ state: "open" as const, url: "https://example.test/pr/2" }]],
+      ["closed", [{ state: "closed" as const, url: "https://example.test/pr/3" }, { url: "https://example.test/pr/4" }]],
+    ]);
+    expect(sweepPatches(threads, state({}, { onClosed: true }), new Set(), requests, NOW, linked)).toEqual({
+      linked: { ...settlePatch(NOW, "pr-merged"), settledForRequest: "https://example.test/pr/5" },
+    });
+    const allClosed = new Map([["closed", [{ state: "closed" as const, url: "https://example.test/pr/3" }]]]);
+    // Without its open link, "mixed" goes by its branch's merged request alone.
+    expect(Object.keys(sweepPatches(threads, state({}), new Set(), requests, NOW, allClosed))).toEqual(["mixed"]);
+    expect(Object.keys(sweepPatches(threads, state({}, { onClosed: true }), new Set(), requests, NOW, allClosed))).toEqual(["mixed", "closed"]);
+    expect(linkedRequestThreads(threads, state({}), new Set(["mixed"]), NOW)).toEqual(["linked", "closed"]);
+    expect(linkedRequestThreads(threads, state({}, { onMerged: false }), new Set(), NOW)).toEqual([]);
   });
 
   it("asks about the request only of a thread that has its checkout to itself", () => {

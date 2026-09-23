@@ -8,10 +8,12 @@ import {
   RuntimeInstanceSettings,
   TurnActivityStore,
   commandInvocation,
+  commandLine,
   compareVersions,
   npmLatestVersion,
   packageInstallCommand,
   packageUpdateCommand,
+  registerSignIn,
   runtimeUpdateCommand,
   runtimeVersionPolicy,
   updateAvailable,
@@ -24,11 +26,13 @@ import {
   type RuntimeCompatibility,
   type RuntimeInstanceConfig,
   type RuntimeToolVersion,
+  type SignInAccount,
+  type SignInMethod,
   type UiModel,
   type UiModelBilling,
   type VersionPolicy,
 } from "tau/host-extension";
-import { CodexAppServer, type CodexAccount, type CodexModel } from "./app-server.js";
+import { CodexAppServer, type CodexAccount, type CodexLoginCompleted, type CodexModel } from "./app-server.js";
 import { codexHome, readCodexConfiguredModel } from "./config.js";
 import { codexSessionDirs, importCodexSessions, scanCodexSessions } from "./history-import.js";
 import { codexMcpLaunch } from "./mcp.js";
@@ -115,6 +119,36 @@ export async function readCodexVersion(path: string): Promise<string | undefined
   } catch {
     return undefined;
   }
+}
+
+const PLAN_NAMES: Record<string, string> = { free: "Free", go: "Go", plus: "Plus", pro: "Pro", team: "Team", business: "Business", enterprise: "Enterprise", edu: "Edu" };
+
+/** The ways Codex signs in: its own login server for the browser, a device code, a key, or `codex login` in a terminal. */
+export const CODEX_SIGN_IN_METHODS: readonly SignInMethod[] = [
+  { id: "chatgpt", label: "Sign in with ChatGPT", kind: "browser", description: "Opens OpenAI's page in your browser; Codex finishes the sign-in on this computer." },
+  { id: "device", label: "Use a device code", kind: "device-code", description: "Enter a code on OpenAI's page from any device, for a browser on another computer." },
+  { id: "api-key", label: "Use an API key", kind: "api-key", description: "Billed per token to the key's account instead of a ChatGPT plan." },
+  { id: "terminal", label: "Sign in in a terminal", kind: "terminal", description: "Runs codex login in a terminal you can see." },
+];
+
+/** Who Codex is signed in as, for the account row. */
+export function codexSignInAccount(account: CodexAccount | undefined): SignInAccount {
+  if (!account) return { signedIn: false };
+  if (account.type === "chatgpt") {
+    const chatgpt = account as { planType?: string; email?: string | null };
+    const plan = chatgpt.planType ? `ChatGPT ${PLAN_NAMES[chatgpt.planType] ?? chatgpt.planType}` : "ChatGPT";
+    return { signedIn: true, label: chatgpt.email || plan, ...(chatgpt.email ? { detail: plan } : {}), canSignOut: true };
+  }
+  return account.type === "apiKey"
+    ? { signedIn: true, label: "API key", detail: "Billed per token", canSignOut: true }
+    : { signedIn: true, label: "Signed in", canSignOut: true };
+}
+
+function aborted(signal: AbortSignal): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    if (signal.aborted) reject(new Error("Sign-in cancelled."));
+    else signal.addEventListener("abort", () => reject(new Error("Sign-in cancelled.")), { once: true });
+  });
 }
 
 function accountSummary(account: CodexAccount | undefined): CodexStatusReport["account"] {
@@ -389,7 +423,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           newThreadCatalog: async () => {
             if (!locate(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The Codex CLI "${codexCommand(id)}" is not installed.` };
             const probe = await runProbe(id);
-            if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: "Codex is not signed in. Run codex login, then open the picker again." };
+            if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
             const models = probe.models.map(storedModel);
             await store.setModels(models, id).catch(() => undefined);
             return codexNewThreadCatalog(models, await readCodexConfiguredModel(home()), codexBilling(probe.account));
@@ -542,8 +576,93 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         return { ...outcome, ...(outcome.imported.length ? { update: await services.sessions.refreshIndex() } : {}) };
       }, { long: true, callers: [ONBOARDING_KIT_ID] });
 
+      // Signing in from the window: Codex's own login over its app server, or `codex login` in a terminal.
+      const signInEnv = (id: string): Record<string, string> => {
+        const added = settings.environment(id, {});
+        const inherited = env[CODEX_HOME_VARIABLE] && !added[CODEX_HOME_VARIABLE] ? { [CODEX_HOME_VARIABLE]: env[CODEX_HOME_VARIABLE] } : {};
+        return Object.fromEntries(Object.entries({ ...inherited, ...added }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+      };
+      const loginSession = async (id: string, completed: (event: CodexLoginCompleted) => void) => {
+        await mkdir(services.stateDir, { recursive: true });
+        return spawnSession(id, {
+          cwd: services.stateDir,
+          onNotification: (method, params) => { if (method === "account/login/completed") completed(params as CodexLoginCompleted); },
+          onRequest: async () => { throw new Error("No thread runs during a sign-in."); },
+          onExit: () => undefined,
+        });
+      };
+      const signIn = registerSignIn(context, {
+        defaultTarget: DEFAULT_INSTANCE_ID,
+        report: async (id) => {
+          requireInstance(id);
+          if (!locate(id)) return { methods: CODEX_SIGN_IN_METHODS.map((method) => ({ ...method, unavailable: `Install Codex first; "${codexCommand(id)}" was not found.` })), account: { signedIn: false } };
+          try {
+            const probe = await Promise.race([
+              runProbe(id),
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Codex did not report its account within 20 s.")), 20_000).unref?.()),
+            ]);
+            return { methods: [...CODEX_SIGN_IN_METHODS], account: codexSignInAccount(probe.account), note: `Codex keeps its login in ${probe.codexHome ?? "its home"}; Tau stores none.` };
+          } catch (error) {
+            return { methods: [...CODEX_SIGN_IN_METHODS], account: { signedIn: false, detail: error instanceof Error ? error.message : String(error) } };
+          }
+        },
+        signIn: async (id, method, flow) => {
+          requireInstance(id);
+          if (method === "terminal") {
+            const path = await assertSupported(id);
+            flow.show({ terminal: { command: commandLine(path, ["login"], signInEnv(id), process.platform) } });
+            const ended = await flow.ask({ kind: "text", message: "Waiting for codex login to finish in the terminal." });
+            flow.verifying();
+            const account = (await runProbe(id, true)).account;
+            if (!account) throw new Error(ended === "0" || ended === "done" ? "Codex still reports no account." : `codex login ended without signing in (${ended}).`);
+            return `Signed in as ${codexSignInAccount(account).label}.`;
+          }
+          let complete: (event: CodexLoginCompleted) => void = () => undefined;
+          const completed = new Promise<CodexLoginCompleted>((resolve) => { complete = resolve; });
+          const session = await loginSession(id, (event) => complete(event));
+          try {
+            if (!session.loginStart) throw new Error("This Codex cannot sign in from Tau; sign in in a terminal.");
+            if (method === "api-key") {
+              const apiKey = await flow.ask({ kind: "secret", message: "Paste an OpenAI API key. Codex keeps it in its home.", placeholder: "sk-…" });
+              flow.verifying("Handing the key to Codex…");
+              await session.loginStart({ type: "apiKey", apiKey });
+            } else {
+              const started = await session.loginStart(method === "device" ? { type: "chatgptDeviceCode" } : { type: "chatgpt" });
+              if (started.type === "chatgpt") flow.show({ browser: { url: started.authUrl, instructions: "Sign in with your ChatGPT account in the browser; Codex finishes the sign-in by itself." } });
+              else if (started.type === "chatgptDeviceCode") flow.show({ deviceCode: { url: started.verificationUrl, code: started.userCode } });
+              const loginId = "loginId" in started ? started.loginId : undefined;
+              flow.signal.addEventListener("abort", () => { if (loginId) void session.loginCancel?.(loginId).catch(() => undefined); }, { once: true });
+              const result = await Promise.race([completed, aborted(flow.signal)]);
+              if (!result.success) throw new Error(result.error ?? "Codex did not finish the sign-in.");
+              flow.verifying();
+            }
+            const account = await session.account?.();
+            if (!account) throw new Error("Codex reports no account after the sign-in.");
+            return `Signed in as ${codexSignInAccount(account).label}.`;
+          } finally {
+            await session.close().catch(() => undefined);
+          }
+        },
+        signOut: async (id) => {
+          requireInstance(id);
+          const session = await loginSession(id, () => undefined);
+          try {
+            if (!session.logout) throw new Error("This Codex cannot sign out from Tau; run codex logout.");
+            await session.logout();
+          } finally {
+            await session.close().catch(() => undefined);
+          }
+          return "Signed out of Codex.";
+        },
+        // The account decides the catalog and the probe: the backend is registered anew and asked again.
+        changed: (id) => { if (settings.get(id)) register(id); },
+      });
+
       for (const instance of settings.list()) register(instance.id);
-      return () => { for (const id of [...states.keys()]) unregister(id); };
+      return () => {
+        signIn.dispose();
+        for (const id of [...states.keys()]) unregister(id);
+      };
     },
   };
 }

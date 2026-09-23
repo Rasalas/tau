@@ -45,6 +45,22 @@ export type CodexAccount =
   | { type: "apiKey" }
   | { type: string };
 
+/** How a login starts: the browser, a device code, or a key handed over. */
+export type CodexLoginRequest = { type: "chatgpt" } | { type: "chatgptDeviceCode" } | { type: "apiKey"; apiKey: string };
+
+/** What the CLI answers: the page to open or the code to enter, and the id its `account/login/completed` names. */
+export type CodexLoginStart =
+  | { type: "chatgpt"; loginId: string; authUrl: string }
+  | { type: "chatgptDeviceCode"; loginId: string; verificationUrl: string; userCode: string }
+  | { type: "apiKey" };
+
+/** `account/login/completed`: `loginId` is null for a login no flow started (an API key). */
+export interface CodexLoginCompleted {
+  loginId: string | null;
+  success: boolean;
+  error: string | null;
+}
+
 export interface CodexThreadInfo {
   thread: { id: string; path?: string | null; cliVersion?: string };
   model: string;
@@ -130,6 +146,20 @@ export class CodexAppServer {
    */
   async rateLimits(): Promise<unknown> {
     return this.connection.request("account/rateLimits/read", { excludeResetCreditDetails: true }, { timeoutMs: this.timeouts.requestMs });
+  }
+
+  /** Starts a login; the CLI keeps the credential in its home and runs any callback listener itself. */
+  loginStart(request: CodexLoginRequest): Promise<CodexLoginStart> {
+    return this.connection.request("account/login/start", request, { timeoutMs: this.timeouts.requestMs });
+  }
+
+  async loginCancel(loginId: string): Promise<void> {
+    await this.connection.request("account/login/cancel", { loginId }, { timeoutMs: this.timeouts.requestMs });
+  }
+
+  /** Removes what the CLI stored for its login. */
+  async logout(): Promise<void> {
+    await this.connection.request("account/logout", undefined, { timeoutMs: this.timeouts.requestMs });
   }
 
   /** Every model the account may pick, hidden ones left out. */

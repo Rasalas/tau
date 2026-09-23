@@ -33,7 +33,7 @@ import {
   mergeTallies,
   unpricedUsage,
 } from "tau/host-extension";
-import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
+import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexLoginRequest, type CodexLoginStart, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
 import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
@@ -51,6 +51,9 @@ export interface CodexSessionLike {
   account?(): Promise<CodexAccount | undefined>;
   /** `account/rateLimits/read`; see `limits.ts`. */
   rateLimits?(): Promise<unknown>;
+  loginStart?(request: CodexLoginRequest): Promise<CodexLoginStart>;
+  loginCancel?(loginId: string): Promise<void>;
+  logout?(): Promise<void>;
   models(): Promise<CodexModel[]>;
   startThread(params: { cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo>;
   resumeThread(params: { threadId: string; cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo>;

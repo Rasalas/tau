@@ -12,6 +12,7 @@ export type { WindowExtension, WindowExtensionContext, WindowExtensionFactory } 
 export type * from "./runtime-types.js";
 export type * from "./runtime-adapters.js";
 export type * from "./pi-kit-extensions.js";
+export type * from "./model-auth.js";
 export type * from "../shared/contracts.js";
 export { HostAuthorizationError, HostCommandError, type HostAuthorizationDetails } from "./host-extension-errors.js";
 export { buildTitleConversation, cleanThreadTitle, textFromContent, type TitleMessage } from "./host-text.js";
@@ -87,3 +88,7 @@ export {
   type UsageTally,
   type UsageTurn,
 } from "./usage-pricing.js";
+/** Signing in from the window: the commands and event around a kit's own flows, and the command line a terminal runs (API 1.12.0). */
+export { registerSignIn, type SignInFlowContext, type SignInOptions, type SignInShown } from "./sign-in-flows.js";
+export { SIGN_IN_COMMANDS, SIGN_IN_EVENT, commandLine, shellQuote, signInActive } from "../shared/sign-in.js";
+export type * from "../shared/sign-in.js";

@@ -55,7 +55,6 @@ async function harness(options: { remote?: string; tools?: Record<string, string
       context.registerCommand("review-request-context", () => ({
         root: "/project", branch: "feature/x", base: "main", remote: { name: "origin", url: options.remote ?? "https://git.example.com:3000/acme/tau.git" },
       }), { callers: [REVIEW_HOST_EXTENSION_ID] });
-      context.registerCommand("review-request", () => undefined, { callers: [REVIEW_HOST_EXTENSION_ID] });
     },
   };
   const run = vi.fn(async (_command: string, args: string[], _cwd: string, runOptions?: CliRunOptions) => {

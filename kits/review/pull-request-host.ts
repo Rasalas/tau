@@ -1,15 +1,21 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import type {
+  MergeMethod,
   PendingReviewComment,
+  PullRequestAction,
+  PullRequestActionResult,
   PullRequestCheck,
   PullRequestDetail,
   PullRequestFiles,
   PullRequestLabel,
   PullRequestRef,
   PullRequestReviewEvent,
+  PullRequestStack,
+  PullRequestStackLayer,
   PullRequestThread,
   PullRequestViewedState,
 } from "./protocol.js";
+import { asReviewRequest } from "./pull-request-logic.js";
 import type { ChangedFileEntry, SourceControlProvider } from "./provider.js";
 import type { SourceControl } from "./provider-registry.js";
 import { diffFingerprint } from "./pull-request-json.js";
@@ -21,6 +27,8 @@ const names = (value: unknown): string[] => Array.isArray(value) ? [...new Set(v
 
 export interface PullRequestCommandOptions {
   now?(): number;
+  /** A revert opened a request on behalf of a thread; its URL. */
+  created?(url: string, threadId: string | undefined): void;
 }
 
 /** The view's cached read of a request, for the kit's other commands (a link's snapshot). */
@@ -241,5 +249,93 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     return tools.cached("candidates", ref, fresh(input), () => read(ref));
   }, { long: true });
 
+  const methodOf = (value: unknown): MergeMethod | undefined => (["squash", "merge", "rebase"] as const).find((candidate) => candidate === value);
+
+  /**
+   * Merge, auto-merge and revert on a request opened by its URL: the view's
+   * header offers them where the provider can, and a refusal says why.
+   */
+  context.registerCommand("pr-action", async (input): Promise<PullRequestActionResult> => {
+    const { ref, provider } = target(input);
+    const fields = record(input);
+    const action = (["merge", "auto-merge", "cancel-auto-merge", "revert"] as const).find((candidate) => candidate === fields.action) as PullRequestAction | undefined;
+    if (!action) throw new HostCommandError("Choose merge, auto-merge or revert.");
+    const { capabilities, name } = provider.info;
+    const deleteBranch = fields.deleteBranch === true && capabilities.deleteBranch;
+    const method = methodOf(fields.method);
+    // What the provider cannot do is refused before the host is asked anything.
+    const revert = provider.revert;
+    const arm = provider.autoMerge;
+    if (action === "revert" && (!revert || !capabilities.revert)) throw lacks(provider, "revert a request");
+    if (action !== "revert" && action !== "merge" && (!arm || !capabilities.autoMerge)) throw lacks(provider, "merge automatically");
+    if (action === "merge" && (!method || !capabilities.merge.includes(method))) {
+      throw new HostCommandError(capabilities.merge.length === 0 ? `${name} does not let Tau merge; merge it on the website.` : `Choose ${capabilities.merge.join(", ")}.`);
+    }
+    if (action === "auto-merge" && method && !capabilities.merge.includes(method)) throw new HostCommandError(`Choose ${capabilities.merge.join(", ")}.`);
+    const known = await detail(ref, true);
+    const request = asReviewRequest(known, []);
+    const where = { host: ref.host, repo: ref.repo };
+    if (action === "revert") {
+      if (known.state !== "merged") throw new HostCommandError(`${noun(ref, provider)} is ${known.state}; only a merged one can be reverted.`);
+      const created = await revert!(ref, known);
+      forget(ref);
+      services.log("request.reverted", `${noun(ref, provider)}${created ? ` · ${created}` : ""}`);
+      if (created) options.created?.(created, text(fields.threadId));
+      return { detail: await detail(ref, true), ...(created ? { created } : {}) };
+    }
+    if (known.state !== "open") throw new HostCommandError(`${noun(ref, provider)} is ${known.state}.`);
+    if (action === "merge") {
+      const outcome = await provider.merge(where, request, method!, { deleteBranch });
+      forget(ref);
+      services.log("request.merged", `${noun(ref, provider)} · ${method}${outcome?.branchDeleted ? " · branch deleted" : ""}`);
+      return { detail: await detail(ref, true), ...(outcome ? { merge: outcome } : {}) };
+    }
+    await arm!(where, request, action === "auto-merge", method, { deleteBranch });
+    forget(ref);
+    services.log(action === "auto-merge" ? "request.auto-merge" : "request.auto-merge-off", noun(ref, provider));
+    return { detail: await detail(ref, true) };
+  }, { long: true });
+
+  /** The stack a request is a layer of; null for one on its own or a host without stacks. */
+  context.registerCommand("pr-stack", async (input): Promise<PullRequestStack | null> => {
+    const { ref, provider } = target(input);
+    const read = provider.stack;
+    if (!read || !provider.info.capabilities.stacks) return null;
+    return await read(ref, fresh(input)) ?? null;
+  }, { long: true });
+
+  context.registerCommand("pr-stack-action", async (input): Promise<PullRequestDetail> => {
+    const { ref, provider } = target(input);
+    const fields = record(input);
+    const action = (["merge", "rebase"] as const).find((candidate) => candidate === fields.action);
+    if (!action) throw new HostCommandError("Choose to merge or to rebase the stack.");
+    const act = provider.stackAction;
+    if (!act || !provider.info.capabilities.stacks) throw lacks(provider, "act on a stack");
+    const seen = decodeStack(fields.seen);
+    if (!seen) throw new HostCommandError("Refresh the stack before acting on it.");
+    const method = methodOf(fields.method);
+    if (action === "merge" && method && !provider.info.capabilities.merge.includes(method)) throw new HostCommandError(`Choose ${provider.info.capabilities.merge.join(", ")}.`);
+    await act(ref, { action, seen, ...(method ? { method } : {}) });
+    forget(ref);
+    services.log(action === "merge" ? "request.stack-merged" : "request.stack-rebased", `${noun(ref, provider)} · stack of ${seen.layers.length}`);
+    return detail(ref, true);
+  }, { long: true });
+
   return { detail };
+}
+
+/** The stack as the window showed it, checked field by field: it decides what a stack step may touch. */
+function decodeStack(value: unknown): PullRequestStack | undefined {
+  const raw = record(value);
+  const number = typeof raw.number === "number" && Number.isInteger(raw.number) ? raw.number : undefined;
+  if (number === undefined || !Array.isArray(raw.layers)) return undefined;
+  const layers = raw.layers.map(record).flatMap((layer): PullRequestStackLayer[] => {
+    const layerNumber = typeof layer.number === "number" && Number.isInteger(layer.number) ? layer.number : undefined;
+    const state = layer.state === "open" || layer.state === "closed" || layer.state === "merged" ? layer.state : undefined;
+    const headRef = text(layer.headRef);
+    const url = text(layer.url);
+    if (layerNumber === undefined || !state || !headRef || !url) return [];
+    return [{ number: layerNumber, state, headRef, url, ...(text(layer.headSha) ? { headSha: text(layer.headSha) } : {}), ...(typeof layer.draft === "boolean" ? { draft: layer.draft } : {}) }];
+  });
+  return layers.length > 0 ? { number, base: text(raw.base) ?? "", layers } : undefined;
 }

@@ -5,8 +5,12 @@
 // `crash` exits mid-turn. `elicitation`, `permissions` and `question` are
 // written from the protocol's schema (codex-cli 0.156.1), not recorded.
 // STUB_LOG names a file every client message is appended to; STUB_THREADS a
-// file of thread ids that survive a restart.
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+// file of thread ids that survive a restart. Logins are the protocol's own
+// (codex-cli 0.156.1): a ChatGPT login or a device code is completed by
+// visiting the local page the stub serves, an API key `sk-stub-good` is
+// taken and any other refused; a `signed-out` file in CODEX_HOME is the state.
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -54,6 +58,54 @@ async function play(name, ids) {
   }
 }
 
+const home = process.env.CODEX_HOME;
+let signedOutHere = false;
+const signedOut = () => home ? existsSync(join(home, "signed-out")) : signedOutHere;
+const accountKind = () => home && existsSync(join(home, "stub-account")) ? readFileSync(join(home, "stub-account"), "utf8").trim() : "chatgpt";
+function signIn(kind) {
+  if (!home) { signedOutHere = false; return; }
+  mkdirSync(home, { recursive: true });
+  rmSync(join(home, "signed-out"), { force: true });
+  writeFileSync(join(home, "stub-account"), kind);
+}
+function signOut() {
+  if (!home) { signedOutHere = true; return; }
+  mkdirSync(home, { recursive: true });
+  writeFileSync(join(home, "signed-out"), "");
+}
+function account() {
+  if (signedOut()) return null;
+  return accountKind() === "apiKey" ? { type: "apiKey" } : { type: "chatgpt", email: "stub@example.com", planType: "pro" };
+}
+
+/** One pending browser or device login: a page on 127.0.0.1 completes it. */
+const logins = new Map();
+async function startLogin(type) {
+  const loginId = `login-${logins.size + 1}`;
+  const server = createServer((request, response) => {
+    const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    if (path !== "/oauth/authorize" && path !== "/device") { response.writeHead(404); response.end(); return; }
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<p>Signed in to the stub. Return to Tau.</p>");
+    finishLogin(loginId, true);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  logins.set(loginId, server);
+  return type === "chatgpt"
+    ? { type, loginId, authUrl: `${url}/oauth/authorize?state=${loginId}` }
+    : { type, loginId, verificationUrl: `${url}/device`, userCode: "STUB-CODE" };
+}
+function finishLogin(loginId, success) {
+  const server = logins.get(loginId);
+  if (!server) return;
+  logins.delete(loginId);
+  server.close();
+  if (success) signIn("chatgpt");
+  send({ method: "account/login/completed", params: { loginId, success, error: success ? null : "Login was cancelled.", onboardingEntrypoint: null } });
+  if (success) send({ method: "account/updated", params: { authMode: "chatgpt" } });
+}
+
 const cwds = new Map();
 async function handle(message) {
   if (log) appendFileSync(log, `${JSON.stringify(message)}\n`);
@@ -67,7 +119,23 @@ async function handle(message) {
   switch (method) {
     case "initialize": return send({ id, result: { userAgent: "stub", codexHome: process.env.CODEX_HOME ?? "/stub/.codex", platformFamily: "unix", platformOs: "macos" } });
     // A `signed-out` file in the home stands for a CLI nobody logged in to.
-    case "account/read": return send({ id, result: { account: process.env.CODEX_HOME && existsSync(join(process.env.CODEX_HOME, "signed-out")) ? null : { type: "chatgpt", email: null, planType: "pro" }, requiresOpenaiAuth: true } });
+    case "account/read": return send({ id, result: { account: account(), requiresOpenaiAuth: true } });
+    case "account/login/start":
+      if (params.type === "apiKey") {
+        if (params.apiKey !== "sk-stub-good") return send({ id, error: { code: -32600, message: "The API key was refused." } });
+        signIn("apiKey");
+        send({ id, result: { type: "apiKey" } });
+        return send({ method: "account/login/completed", params: { loginId: null, success: true, error: null, onboardingEntrypoint: null } });
+      }
+      if (params.type !== "chatgpt" && params.type !== "chatgptDeviceCode") return send({ id, error: { code: -32602, message: `stub has no login ${params.type}` } });
+      return send({ id, result: await startLogin(params.type) });
+    case "account/login/cancel":
+      if (!logins.has(params.loginId)) return send({ id, result: { status: "notFound" } });
+      finishLogin(params.loginId, false);
+      return send({ id, result: { status: "canceled" } });
+    case "account/logout":
+      signOut();
+      return send({ id, result: {} });
     // Shaped like codex-cli 0.156's `GetAccountRateLimitsResponse`; the params are logged for the test.
     case "account/rateLimits/read": return send({ id, result: JSON.parse(readFileSync(new URL("./rate-limits-read.json", import.meta.url), "utf8")) });
     case "model/list": return send({ id, result: { data: fixture.models, nextCursor: null } });

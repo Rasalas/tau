@@ -14,6 +14,7 @@ import type {
 } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
 import type { CompletionRequest } from "./runtime-types.js";
+import type { HostModelAuthServices } from "./model-auth.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { AttachedSessionHost } from "./attached-pi-session.js";
 import { assertRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
@@ -34,6 +35,7 @@ import type {
   HostAttachedRuntime,
   HostClientServices,
   HostExtensionServices,
+  HostMcpInstructionsProvider,
   HostMcpToolGate,
   HostMcpToolProvider,
   HostPlatform,
@@ -131,6 +133,7 @@ export interface ExtensionServicesPort {
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   completionModels(): Promise<UiModel[]>;
   priceUsage(tallies: readonly UsageTally[]): Promise<PricedUsage[]>;
+  readonly modelAuth: HostModelAuthServices;
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined;
   describeProjects(facts: HostProjectFacts): () => void;
@@ -232,8 +235,10 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   let permissionLevelProvider: (() => RuntimePermissionLevel) | undefined;
   const mcpProviders = new Set<HostMcpToolProvider>();
   const mcpGates: HostMcpToolGate[] = [];
+  const mcpInstructions: HostMcpInstructionsProvider[] = [];
   const mcp = new McpEndpoint({
     providers: () => mcpProviders,
+    instructions: () => mcpInstructions,
     gates: () => mcpGates,
     confirm: (threadId, title, message, signal) => port.confirmInThread(threadId, title, message, signal),
     log: (label, detail) => port.log(label, detail),
@@ -294,6 +299,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     complete: (request, model) => port.complete(request, model),
     completionModels: () => port.completionModels(),
     priceUsage: (tallies) => port.priceUsage(tallies),
+    modelAuth: port.modelAuth,
     setThreadTitle: (sessionId, title, source) => port.setThreadTitle(sessionId, title, source),
     attachedRuntime: (sessionId) => port.attachedRuntime(sessionId),
     describeProjects: (facts) => port.describeProjects(facts),
@@ -367,6 +373,13 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         return () => {
           const index = mcpGates.indexOf(gate);
           if (index >= 0) mcpGates.splice(index, 1);
+        };
+      },
+      registerInstructions: (provider) => {
+        mcpInstructions.push(provider);
+        return () => {
+          const index = mcpInstructions.indexOf(provider);
+          if (index >= 0) mcpInstructions.splice(index, 1);
         };
       },
       connect: (thread, options) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread, options),

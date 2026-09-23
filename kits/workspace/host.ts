@@ -21,7 +21,7 @@ import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
 import { CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
-import { createReviewRequestDetector } from "./review-request.js";
+import { createBranchRequests } from "./branch-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
@@ -167,11 +167,11 @@ export function createWorkspaceHostExtension(): HostExtension {
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
       const labels = new Map<string, string | undefined>();
       // The worktrees Tau made, Settings → Storage and the cleanup sweep.
-      // A branch merged by squash or rebase is only known merged from its request's state.
-      const cleanupRequests = createReviewRequestDetector({ findCommand: (name) => services.findCommand(name), onSubprocess: () => services.noteSubprocess() });
+      // A branch's request comes from Review Kit, which knows the hosts; a squash or rebase merge is only known from it.
+      const branchRequest = createBranchRequests((input) => context.invokeHostExtension(REVIEW_KIT_ID, "branch-request", input));
       const worktrees = registerWorktreeStorage(context, {
         removed: (repository) => git.invalidate(repository, ["branch", "status", "workspace"]),
-        requestState: async (path) => (await cleanupRequests.detect(path))?.state,
+        requestState: async (path) => (await branchRequest(path))?.state,
       });
       const noteFailure = (label: string) => (error: unknown) => services.log(label, error instanceof Error ? error.message : String(error));
       const cwd = () => services.cwd();
@@ -273,10 +273,9 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (relative) await workspaceGit.assertWorkspacePath(project, relative);
         return readFileTree(relative ? resolve(project, relative) : project, relative ?? "");
       });
-      // A branch with a pull or merge request diffs against that request's base, via gh or glab.
-      const reviewRequests = createReviewRequestDetector({ findCommand: (name) => services.findCommand(name), onSubprocess: () => services.noteSubprocess() });
+      // A branch with a pull or merge request diffs against that request's base.
       const branchChanges = async (project: string, query: WorkspaceChangesQuery) => {
-        const request = query.baseRef ? undefined : await reviewRequests.detect(project);
+        const request = query.baseRef ? undefined : await branchRequest(project);
         if (!request) return workspaceGit.getBranchChanges(project, query);
         const baseRef = await workspaceGit.firstExistingRef(project, [`origin/${request.baseRef}`, request.baseRef]);
         const changes = await workspaceGit.getBranchChanges(project, baseRef ? { ...query, baseRef } : query);
@@ -386,11 +385,6 @@ export function createWorkspaceHostExtension(): HostExtension {
           detail: record(input).detail === true,
           ...(optionalString(input, "base") ? { base: optionalString(input, "base") } : {}),
         });
-      }, { callers: [REVIEW_KIT_ID] });
-      context.registerCommand("review-request", async (input) => {
-        const named = optionalString(input, "workspace");
-        const project = named ? await services.knownWorkspacePath(named) : cwd();
-        return reviewRequests.detect(project, { fresh: record(input).fresh === true });
       }, { callers: [REVIEW_KIT_ID] });
       context.registerCommand("workspace-info", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));

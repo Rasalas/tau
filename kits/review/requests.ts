@@ -1,5 +1,5 @@
 import type { HostExtensionClient, UiReviewRequestChecks } from "tau";
-import { providerInfo, type MergeMethod, type ReviewRequest, type ReviewRequestDraft, type ReviewRequestStatus } from "./protocol.js";
+import { providerInfo, type MergeMethod, type MergeOutcome, type ReviewRequest, type ReviewRequestDraft, type ReviewRequestStatus } from "./protocol.js";
 
 /** Review Kit's own host commands for the request lifecycle, typed. */
 export interface RequestClient {
@@ -7,7 +7,9 @@ export interface RequestClient {
   request(workspace: string): Promise<ReviewRequest | undefined>;
   draft(model?: { provider: string; id: string }, base?: string, writing?: { instructions?: string; template?: boolean }): Promise<ReviewRequestDraft>;
   create(input: { title: string; body: string; base: string; draft: boolean }): Promise<{ status: ReviewRequestStatus; url?: string }>;
-  merge(method: MergeMethod): Promise<ReviewRequestStatus>;
+  merge(method: MergeMethod, deleteBranch?: boolean): Promise<ReviewRequestStatus & { merge?: MergeOutcome }>;
+  /** Arms or disarms a merge the host runs once it allows it. */
+  autoMerge(enable: boolean, method?: MergeMethod, deleteBranch?: boolean): Promise<ReviewRequestStatus>;
   edit(input: { title?: string; body?: string; draft?: boolean }): Promise<ReviewRequestStatus>;
 }
 
@@ -22,7 +24,8 @@ export function requestClient(host: HostExtensionClient): RequestClient {
       ...(writing?.template === false ? { template: false } : {}),
     }) as Promise<ReviewRequestDraft>,
     create: (input) => host.invoke("pr-create", input) as Promise<{ status: ReviewRequestStatus; url?: string }>,
-    merge: (method) => host.invoke("pr-merge", { method }) as Promise<ReviewRequestStatus>,
+    merge: (method, deleteBranch) => host.invoke("pr-merge", { method, ...(deleteBranch ? { deleteBranch } : {}) }) as Promise<ReviewRequestStatus & { merge?: MergeOutcome }>,
+    autoMerge: (enable, method, deleteBranch) => host.invoke("pr-auto-merge", { enable, ...(method ? { method } : {}), ...(deleteBranch ? { deleteBranch } : {}) }) as Promise<ReviewRequestStatus>,
     edit: (input) => host.invoke("pr-edit", input) as Promise<ReviewRequestStatus>,
   };
 }

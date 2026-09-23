@@ -53,6 +53,7 @@ function host() {
     "tau.codex/status": (input) => (input as { instance?: string } | undefined)?.instance === "work"
       ? { path: "/bin/codex", version: "0.154.0", signedIn: false }
       : { command: "codex", message: "not found" },
+    "tau.codex/sign-in-state": () => ({ methods: [{ id: "chatgpt", label: "Sign in with ChatGPT", kind: "browser" }], account: { signedIn: false } }),
     "tau.antigravity/status": () => ({ installed: false, message: "not installed" }),
   };
   const invokeHostExtension = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
@@ -87,7 +88,10 @@ describe("Onboarding in the workbench", () => {
     expect(calls).toContainEqual(["tau.codex", "status", { instance: "work" }]);
     // Each program is asked once per opening; a probe may start it.
     expect(calls.filter(([id, command]) => id === "tau.claude-code" && command === "probe")).toHaveLength(1);
-    expect(within(card("Codex (work)")).getByRole("button", { name: "Open Settings" })).toBeTruthy();
+    // The instance signs in to its own home, in place.
+    fireEvent.click(within(card("Codex (work)")).getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("button", { name: "Sign in with ChatGPT" })).toBeTruthy();
+    expect(calls).toContainEqual(["tau.codex", "sign-in-state", { target: "work" }]);
     expect(within(card("Antigravity")).getByRole("button", { name: "Open Settings" })).toBeTruthy();
     const reviewTools = screen.getByRole("region", { name: /Tools for pull requests/ });
     expect(within(reviewTools).getByText("GitHub CLI")).toBeTruthy();
@@ -155,13 +159,14 @@ describe("Onboarding's choices", () => {
       },
     };
     const backends = ["pi", "claude-code", "codex", "claude-code@work", "antigravity", "later"].map((kind) => ({ kind, label: kind }));
-    const line = (row: { id: string; state: string; command?: string; settings?: string }) => `${row.id}:${row.state}:${row.command ?? `settings=${row.settings ?? ""}`}`;
+    const line = (row: { id: string; state: string; command?: string; settings?: string; signIn?: { extensionId: string; target: string } }) =>
+      `${row.id}:${row.state}:${row.command ?? (row.signIn ? `sign-in=${row.signIn.extensionId}/${row.signIn.target}` : `settings=${row.settings ?? ""}`)}`;
     expect(agentRows(state, 0, backends).map(line)).toEqual([
-      "pi:signIn:settings=pi",
-      "claude-code:signIn:claude auth login",
+      "pi:signIn:settings=pi-providers.settings",
+      "claude-code:signIn:sign-in=tau.claude-code/default",
       "codex:settings:settings=providers",
-      // An instance signs in on its own card, not with the default home's command.
-      "claude-code@work:signIn:settings=providers",
+      // An instance signs in to its own home.
+      "claude-code@work:signIn:sign-in=tau.claude-code/work",
       "antigravity:settings:settings=providers",
       "later:checking:settings=",
     ]);

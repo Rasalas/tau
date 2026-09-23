@@ -50,6 +50,19 @@ CODEX_HOME=$PWD/.tau-dev/codex-home codex app-server
 
 The `config.toml` is the shadow's own and pins the cheapest model, so a new Codex thread's first turn does not run on the account's default. List the models first (`model/list` on the app server, or the Codex page in Settings) and pick the smallest; ask for one-word answers. Never write into the real `~/.codex`.
 
+### OpenCode gets a shadow home
+
+OpenCode keeps its config, logins, database, logs and caches in the XDG folders (`~/.config/opencode`, `~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode`). The OpenCode kit reads `TAU_OPENCODE_HOME` as all four (`<home>/config`, `<home>/data`, `<home>/state`, `<home>/cache`) for the servers it starts, and `dev-instance.mjs` sets it to `<worktree>/.tau-dev/opencode-home`; a value set in the calling shell is kept. Nothing is linked from the real folders: OpenCode Zen's free models answer without a login, so a test prompt runs on one of them (`opencode/mimo-v2.6-flash-free`, say) and asks for a one-word answer. A test that needs another provider copies only that provider's entry of `auth.json` into `<home>/data/opencode/auth.json` — never an OAuth entry, whose refresh would rotate the user's own token. By hand:
+
+```
+mkdir -p .tau-dev/opencode-home
+XDG_CONFIG_HOME=$PWD/.tau-dev/opencode-home/config XDG_DATA_HOME=$PWD/.tau-dev/opencode-home/data \
+XDG_STATE_HOME=$PWD/.tau-dev/opencode-home/state XDG_CACHE_HOME=$PWD/.tau-dev/opencode-home/cache \
+OPENCODE_SERVER_PASSWORD=test opencode serve --hostname 127.0.0.1 --port 0
+```
+
+Stop a server you started by its PID. For import tests, `<import root>/opencode` is such a home too: start a server over it, create a session and send one prompt, and Onboarding lists it.
+
 ### Earlier sessions to import come from fixtures
 
 Onboarding lists and imports the conversations the agent CLIs kept in their own homes. `dev-instance.mjs` sets `TAU_IMPORT_ROOTS=<worktree>/.tau-dev/import-roots` (a caller's own value is kept), and with it set the backend kits read only `<root>/<backend kind>/…` — laid out like the CLI's own home — and never the user's. Put small synthetic sessions there to test the wizard; an instance with an empty folder finds nothing to import.
@@ -66,6 +79,8 @@ git -C .tau-dev/workspace remote add origin git@github.com:acme/demo.git
 
 The host reads PATH from a login shell; with the user's real `ZDOTDIR` that shell puts Homebrew's real `gh` in front of the stub. A stub must read stdin only when the call passes `--input -` or `--body-file -`: the kit leaves stdin open otherwise, and a stub that waits for it never answers. The remote only names the repository; nothing is pushed to it.
 
+A stub for the merge workflows keeps a little state beside its log: `pr merge N` marks the branch's request merged (`--auto` arms, `--disable-auto` disarms), `pr view N --repo … --json state,headRefName,…` answers the head a deleted branch is checked against, `repos/<o>/<r>/stacks?pull_request=N` a stack whose layers `graphql --input -` names (memberships, titles, permissions, `updatePullRequestBranch`, `revertPullRequest`), and `merge-async` a merged stack. Every write then shows in the log with its arguments; nothing reaches GitHub. `TAU_THREAD_RAIL_SWEEP_MS=20000` makes Thread Rail settle a thread whose linked requests ended within half a minute.
+
 ### Stub `tea` and `az`, a fake Bitbucket API
 
 The other providers are tested the same way. A stub `tea` answers `login list --output json` and `api --include …`, writing `HTTP/2.0 200 OK` to stderr (tea exits 0 on HTTP errors, and Review Kit reads the status there); a stub `az` answers `repos …` and `devops invoke …` and reads the body file `--in-file` names. Both can answer from `kits/review/fixtures/forgejo-*` and `azure-*`. Bitbucket has no CLI: start a local server that answers `/2.0/…` from `bitbucket-*`, point `TAU_BITBUCKET_API_URL=http://127.0.0.1:<port>/2.0` at it, and give the instance a Git config of its own whose credential helper prints a fake `username`/`password`, so the real keychain is never asked:
@@ -76,6 +91,12 @@ GIT_CONFIG_GLOBAL=$PWD/.tau-dev/stub/gitconfig GIT_CONFIG_NOSYSTEM=1 TAU_BITBUCK
 ```
 
 A `pushInsteadOf` in that config sends a push for the fake remote to a bare repository under `.tau-dev/`. A self-hosted server is chosen in Settings → Review → Self-hosted servers and lands in `.tau-dev/userdata/kit-state/tau.review/source-hosts.json`.
+
+### Signing in without a real account
+
+Sign-in and sign-out are never tried against a real account. Give the instance homes of its own and stubs, set before `npm run dev:instance` so its script keeps them: `CODEX_HOME` and the Agent SDK runtime's configuration folder (its `homeVariable`) pointing at empty folders under `.tau-dev/`, `TAU_CODEX_COMMAND` at a script that runs `kits/codex/fixtures/stub-app-server.mjs` for `app-server` (it logs in and out the way the protocol does; a ChatGPT login or a device code finishes when its page on 127.0.0.1 is fetched, the key `sk-stub-good` is taken) and flips the `signed-out` marker in `CODEX_HOME` for `login` and `logout`, the Agent SDK runtime's command variable at its kit's `fixtures/stub-cli.mjs` (its `auth login`, `auth status` and `auth logout` keep a file in that configuration folder), and `TAU_ANTIGRAVITY_ACP_COMMAND` at a fake ACP server (a shell script that runs a `.cjs` file with node, beside an executable `localharness_external`) that prints Google's link with a redirect to a listener of its own and stores a token once that listener is reached. An empty `ZDOTDIR` keeps the login shell from putting the real CLIs first.
+
+Pi signs in through `--agent-dir` pointing at a folder of plain files — never the default `.tau-dev/pi-agent`, whose `auth.json` and `models.json` are links to the real ones (check with `ls -l`). Its `models.json` names a provider Pi's gateway login speaks to, `{ "providers": { "fakegw": { "oauth": "radius", "baseUrl": "http://127.0.0.1:47811/v1" } } }`, served by `node src/main/test-support/fake-oauth-gateway.ts 47811`: its consent page approves at once and redirects to Pi's callback listener, and fetching its `/device` page approves a device code. Stand in for the browser with `curl -sL` on the consent URL (the flow's `browser.url`) or on the device page; never press Open sign-in page, which opens the user's own browser. A key typed into a flow must end up only in that `auth.json`; grep `.tau-dev` for it afterwards.
 
 ### A runtime update without a real update
 
@@ -121,7 +142,7 @@ This is about not restarting between passes of the same task, not about leaving 
 | --- | --- |
 | `snapshot` | A compact text outline: headings, buttons with aria-labels, thread rows (marking the active one), toasts, composer state, active dock panels. |
 | `eval <expr>` | Runs an async JS expression in the renderer with `all`, `byText`, `rect`, `setValue`, `sleep`, `toasts` in scope. |
-| `click <expr>` | Resolves `expr` to an element and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
+| `click <expr>` | Resolves `expr` to an element, scrolls it into view (a button below a short window's fold was clicked in empty space before) and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
 | `hover <expr>` | Moves the mouse onto the element's center and nowhere else, so a tooltip opens after its delay. |
 | `rightclick <expr>` | A right-click at the element's center. Where the page asks for the OS's menu (`useContextMenu`), that menu is a native window CDP cannot reach: read it with `screencapture -l <id>` of a window your instance's PID owns, and `stop` closes it with the instance. |
 | `type <expr> <text>` | Sets a textarea's value through its native setter and fires `input`. |
@@ -131,6 +152,14 @@ This is about not restarting between passes of the same task, not about leaving 
 | `toasts` | The toast stack as JSON: each toast's `level` (its type) and text. |
 | `pid` | The instance's own Electron PID, found by checking the port's devtools endpoint and cross-referencing `ps`, so a caller kills only its own instance. |
 | `stop` | Stops the instance: SIGTERM, then SIGKILL if it is still alive after ~2s. Electron's main process installs no SIGTERM handler of its own and does not reliably quit from one alone; prefer this over a bare `kill <pid>`. |
+
+## A test prompt from a fresh instance
+
+`.agents/skills/test-tau-app/SKILL.md` has the commands, checked against the current picker. Three things make it more than "type and press Enter":
+
+- A `--fresh` instance opens the welcome wizard first (Continue, "Do not add projects", "Do not import").
+- The instance copies the user's Pi `settings.json`, so a new draft starts on the user's default model, which may be expensive. Pick the cheap model in the picker by its option's aria-label (`GPT-5.6 Luna, Pi, …`), and check the chip's label before sending.
+- Proof that the turn ran on it is the session file under `.tau-dev/pi-sessions/`: a `model_change` to the cheap model before the user message, and the assistant message's `"model"`.
 
 ## Known traps
 

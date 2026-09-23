@@ -1,0 +1,15 @@
+{
+  "id": "tau.pi-providers",
+  "name": "Pi Providers",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.11.0"
+  },
+  "permissions": [
+    "runtime:extend"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}

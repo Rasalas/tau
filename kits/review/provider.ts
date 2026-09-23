@@ -1,6 +1,7 @@
 import type { UiFileDiff } from "tau/host-extension";
 import type {
   MergeMethod,
+  MergeOutcome,
   PendingReviewComment,
   ProviderInfo,
   PullRequestCheck,
@@ -11,11 +12,14 @@ import type {
   PullRequestListState,
   PullRequestRef,
   PullRequestReviewEvent,
+  PullRequestStack,
+  PullRequestStackMembership,
   PullRequestThread,
   PullRequestViewedState,
   RequestService,
   ReviewRequest,
   SourceProviderStatus,
+  StackAction,
 } from "./protocol.js";
 import type { CliCall } from "./pull-request-cli.js";
 
@@ -40,8 +44,6 @@ export interface RepositoryTarget {
 export interface BranchTarget extends RepositoryTarget {
   cwd: string;
   branch: string;
-  /** A workspace named by a rail row rather than the one on screen. */
-  workspace?: string;
   fresh: boolean;
 }
 
@@ -92,7 +94,16 @@ export interface SourceControlProvider {
   current(branch: BranchTarget): Promise<ReviewRequest | undefined>;
   /** Opens a request; the URL the host answered with, when it said one. */
   create(target: RepositoryTarget & { cwd: string }, input: CreateRequestInput): Promise<string | undefined>;
-  merge(target: RepositoryTarget & { cwd: string }, request: ReviewRequest, method: MergeMethod): Promise<void>;
+  /**
+   * Merges now. Without `cwd` the target names the repository alone, as a
+   * request opened by its URL does. `deleteBranch` asks for the request's
+   * branch to go too, where `capabilities.deleteBranch` says the host can.
+   */
+  merge(target: RepositoryTarget, request: ReviewRequest, method: MergeMethod, options?: MergeOptions): Promise<MergeOutcome | void>;
+  /** Arms a merge that runs once the host allows it, or takes it back (`capabilities.autoMerge`). */
+  autoMerge?(target: RepositoryTarget, request: ReviewRequest, enable: boolean, method: MergeMethod | undefined, options?: MergeOptions): Promise<void>;
+  /** Opens a request that reverts a merged one (`capabilities.revert`); the URL of the new one. */
+  revert?(ref: PullRequestRef, known: PullRequestDetail): Promise<string | undefined>;
   edit(target: RepositoryTarget & { cwd: string }, request: ReviewRequest, input: { title?: string; body?: string }): Promise<void>;
   setDraft(target: RepositoryTarget & { cwd: string }, request: ReviewRequest, draft: boolean): Promise<void>;
 
@@ -121,6 +132,21 @@ export interface SourceControlProvider {
   labels?(ref: PullRequestRef, add: readonly string[], remove: readonly string[]): Promise<void>;
   /** The labels and reviewers a picker offers; either may come back empty. */
   candidates?(ref: PullRequestRef): Promise<{ labels: PullRequestLabel[]; reviewers: string[] }>;
+
+  /** The stack a request is a layer of; undefined for one on its own (`capabilities.stacks`). */
+  stack?(ref: PullRequestRef, fresh: boolean): Promise<PullRequestStack | undefined>;
+  /** The stack positions of listed requests, by number; a request on its own is left out. */
+  stackMemberships?(target: RepositoryTarget, numbers: readonly number[]): Promise<Map<number, PullRequestStackMembership>>;
+  /**
+   * Merges `ref` with the unmerged layers below it, or rebases every layer
+   * onto the one below. `seen` is the stack as the user confirmed it: a layer
+   * that moved since refuses the step.
+   */
+  stackAction?(ref: PullRequestRef, input: { action: StackAction; seen: PullRequestStack; method?: MergeMethod }): Promise<void>;
+}
+
+export interface MergeOptions {
+  deleteBranch?: boolean;
 }
 
 /** An HTTP answer a provider reads: the status, the headers it cares about and the text. */
@@ -168,6 +194,8 @@ export interface ProviderTools {
   /** Workspace Kit's commands that name Review Kit as a caller. */
   workspace(command: string, input?: unknown): Promise<unknown>;
   now(): number;
+  /** Waits between two polls of a step the host finishes later. */
+  wait(ms: number): Promise<void>;
 }
 
 /** GitLab and Forgejo answer a page at a time; this reads pages until a short one. */

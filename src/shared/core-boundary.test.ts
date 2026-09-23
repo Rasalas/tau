@@ -95,6 +95,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./turn-activity-store.js",   "./elicitation-form.js",   "./answer-attachments.js",
   // What tokens cost: the user's prices, the runtime's, a subscription's value (API 1.12.0).
   "./usage-pricing.js",
+  // Signing in from the window: the flows a kit runs and Pi's provider credentials (API 1.12.0).
+  "./sign-in-flows.js",   "./model-auth.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

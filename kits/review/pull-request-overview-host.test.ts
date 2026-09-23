@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionContext, HostMcpToolProvider, HostThreadLifecycle, RuntimeExtensionFactory } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
-import { REVIEW_HOST_EXTENSION_ID, THREAD_LINKS_EVENT, type PullRequestDetail, type PullRequestFiles, type PullRequestList, type PullRequestThread, type ThreadPullRequestLink } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, THREAD_LINKS_EVENT, type PullRequestDetail, type PullRequestFiles, type PullRequestList, type PullRequestLists, type PullRequestThread, type ThreadPullRequestLink } from "./protocol.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import type { CliRunOptions } from "./request-cli.js";
 
@@ -27,23 +27,24 @@ afterEach(async () => { if (stateRoot) await rm(stateRoot, { recursive: true, fo
  * Review Kit over a fake `gh`/`glab`, a Workspace Kit that answers the
  * project's remote, and the host seams the links register with, recorded.
  */
-async function harness(options: { remote?: string; viewer?: string; answer?(call: Call): string | Promise<string> | undefined } = {}) {
+async function harness(options: { remote?: string; remotes?: Record<string, string | null>; viewer?: string; answer?(call: Call): string | Promise<string> | undefined } = {}) {
   stateRoot = await mkdtemp(join(tmpdir(), "tau-pr-overview-"));
   const calls: Call[] = [];
   const events: PublishedKitEvent[] = [];
   const providers: HostMcpToolProvider[] = [];
   const runtime: RuntimeExtensionFactory[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
+  const instructions: Array<(thread: { sessionId: string; cwd: string }) => string | undefined> = [];
   const workspace = {
     id: "tau.workspace",
     name: "Workspace Kit",
     permissions: [] as string[],
     activate(context: HostExtensionContext) {
-      context.registerCommand("review-request-context", (input) => ({
-        root: (input as { workspace?: string } | undefined)?.workspace ?? "/project",
-        base: "main",
-        remote: { name: "origin", url: options.remote ?? "git@github.com:acme/tau.git" },
-      }), { callers: [REVIEW_HOST_EXTENSION_ID] });
+      context.registerCommand("review-request-context", (input) => {
+        const root = (input as { workspace?: string } | undefined)?.workspace ?? "/project";
+        const url = options.remotes && root in options.remotes ? options.remotes[root] : options.remote ?? "git@github.com:acme/tau.git";
+        return { root, base: "main", ...(url ? { remote: { name: "origin", url } } : {}) };
+      }, { callers: [REVIEW_HOST_EXTENSION_ID] });
     },
   };
   const run = vi.fn(async (_command: string, args: string[], cwd: string, runOptions?: CliRunOptions) => {
@@ -61,7 +62,12 @@ async function harness(options: { remote?: string; viewer?: string; answer?(call
     thread: () => undefined,
     registerRuntimeExtension: (_name: string, factory: RuntimeExtensionFactory) => { runtime.push(factory); return () => undefined; },
     registerThreadLifecycle: (lifecycle: HostThreadLifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
-    mcp: { registerTools: (provider: HostMcpToolProvider) => { providers.push(provider); return () => undefined; }, gate: () => () => undefined, connect: async () => undefined },
+    mcp: {
+      registerTools: (provider: HostMcpToolProvider) => { providers.push(provider); return () => undefined; },
+      registerInstructions: (provider: (thread: { sessionId: string; cwd: string }) => string | undefined) => { instructions.push(provider); return () => undefined; },
+      gate: () => () => undefined,
+      connect: async () => undefined,
+    },
   }, (event) => events.push(event));
   await registry.activate(createReviewHostExtension({ run }));
   const invoke = <T = unknown>(command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input) as Promise<T>;
@@ -70,7 +76,7 @@ async function harness(options: { remote?: string; viewer?: string; answer?(call
     if (!found) throw new Error(`no tool ${name}`);
     return (params: unknown) => found.execute("call-1", params, undefined, undefined, undefined as never) as Promise<{ details: unknown }>;
   };
-  return { invoke, calls, events, providers, runtime, lifecycles, tool };
+  return { invoke, calls, events, providers, runtime, lifecycles, tool, instructions };
 }
 
 async function defaultAnswer({ args }: Call): Promise<string> {
@@ -128,6 +134,20 @@ describe("the Pull Requests page", () => {
     expect(list.entries[0]!.mergeable).toBeUndefined();
   });
 
+  it("lists every project's repository once across projects and hosts, and names the ones it could not read", async () => {
+    const { invoke, calls } = await harness({
+      viewer: "niik",
+      remotes: { "/tau": "git@github.com:acme/tau.git", "/tau-worktree": "https://github.com/acme/tau.git", "/tools": "https://gitlab.com/acme/tools/tau.git", "/scratch": null },
+    });
+    const answer = await invoke<PullRequestLists>("pr-list-many", { workspaces: ["/tau", "/tau-worktree", "/tools", "/scratch", 7], state: "open", limit: 3 });
+    expect(answer.lists.map((list) => [list.host, list.repo, list.workspaces, list.viewer, list.entries.length])).toEqual([
+      ["github.com", "acme/tau", ["/tau", "/tau-worktree"], "niik", 3],
+      ["gitlab.com", "acme/tools/tau", ["/tools"], "niik", 3],
+    ]);
+    expect(answer.failures).toEqual([{ workspace: "/scratch", message: "This project has no remote, so it has no pull requests to list." }]);
+    expect(calls.filter((call) => call.args[0] === "pr" && call.args[1] === "list")).toHaveLength(1);
+  });
+
   it("refuses a project without a remote it can read", async () => {
     const { invoke } = await harness({ remote: "work:acme/tau.git" });
     await expect(invoke("pr-list", {})).rejects.toThrow("names no server");
@@ -152,6 +172,27 @@ describe("linked pull requests", () => {
     expect(await invoke<ThreadPullRequestLink[]>("thread-links", { threadId: "t1" })).toHaveLength(1);
   });
 
+  it("names the threads that link a request and answers Thread Rail with each thread's states", async () => {
+    const { invoke } = await harness();
+    await invoke("link-pr", { threadId: "t1", reference: GITHUB_URL });
+    await invoke("link-pr", { threadId: "t2", reference: "https://GitHub.com/ACME/tau/pull/7" });
+    await invoke("link-pr", { threadId: "t2", reference: GITLAB_URL });
+    await expect(invoke("pr-linked-threads", { url: GITHUB_URL })).resolves.toEqual(["t1", "t2"]);
+    await expect(invoke("pr-linked-threads", { url: "https://github.com/acme/tau/pull/99" })).resolves.toEqual([]);
+    await expect(invoke("thread-requests", { threadIds: ["t1", "t2", "t3", 4] })).resolves.toEqual({
+      t1: [{ url: GITHUB_URL, state: "open" }],
+      t2: [{ url: "https://github.com/ACME/tau/pull/7", state: "open" }, { url: GITLAB_URL, state: "open" }],
+    });
+  });
+
+  it("keeps links to requests of every provider", async () => {
+    const { invoke } = await harness();
+    // No CLI answers for Codeberg here; the link is kept without a snapshot.
+    await invoke("link-pr", { threadId: "t1", reference: "https://codeberg.org/acme/tau/pulls/3" });
+    const stored = JSON.parse(await readFile(join(stateRoot!, REVIEW_HOST_EXTENSION_ID, "thread-pull-requests.json"), "utf8")) as { threads: Record<string, Array<{ service: string }>> };
+    expect(stored.threads.t1).toEqual([expect.objectContaining({ service: "forgejo" })]);
+  });
+
   it("keeps links across a restart and drops a deleted thread's", async () => {
     const first = await harness();
     await first.invoke("link-pr", { threadId: "t1", reference: GITHUB_URL });
@@ -159,6 +200,18 @@ describe("linked pull requests", () => {
     expect(Object.keys(stored.threads)).toEqual(["t1"]);
     await first.lifecycles[0]!.threadDeleted!("t1", "/project");
     expect(await first.invoke<ThreadPullRequestLink[]>("thread-links", { threadId: "t1" })).toEqual([]);
+  });
+
+  it("asks every runtime to link each request it works on, in its system prompt", async () => {
+    const { runtime, instructions } = await harness();
+    const handlers = new Map<string, (event: { systemPrompt: string }) => unknown>();
+    const pi = { registerTool: vi.fn(), on: (name: string, handler: (event: { systemPrompt: string }) => unknown) => { handlers.set(name, handler); } };
+    runtime[0]!(pi as never, { sessionId: "thread-1", cwd: "/project" } as never);
+    expect(pi.registerTool).toHaveBeenCalledTimes(3);
+    const turn = handlers.get("before_agent_start")!({ systemPrompt: "You are Pi." }) as { systemPrompt: string };
+    expect(turn.systemPrompt).toMatch(/^You are Pi\.\n\n<pull_request_linking>[\s\S]*call the link_pull_request tool with its full URL[\s\S]*<\/pull_request_linking>$/u);
+    expect(instructions).toHaveLength(1);
+    expect(instructions[0]!({ sessionId: "thread-2", cwd: "/elsewhere" })).toContain("list_thread_pull_requests");
   });
 
   it("gives every runtime the agent's link tools, bound to the calling thread", async () => {

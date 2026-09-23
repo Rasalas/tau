@@ -4,6 +4,8 @@ import { REVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
 import { COLLAPSED_OPTION, COLORS_KEY, SPLIT_OPTION, WHITESPACE_OPTION, WRAP_OPTION, type DiffColorScheme } from "./diff-settings.js";
 import { SourceControlSettings } from "./source-settings.js";
 import { INSTRUCTIONS_OPTION, TEMPLATE_OPTION } from "./writing.js";
+import { DELETE_BRANCH_OPTION } from "./merge-controls.js";
+import { PROACTIVE_OPTION } from "./proactive-panels.js";
 
 const value = (key: string) => `values.${ID}.${key}`;
 const option = (key: string) => `options.${ID}.${key}`;
@@ -77,6 +79,8 @@ export function ReviewSettingsPage({ host }: { host?: HostExtensionClient } = {}
   const split = useSetting<boolean>(option(SPLIT_OPTION), { defaultValue: false, read: readBoolean });
   const whitespace = useSetting<boolean>(option(WHITESPACE_OPTION), { defaultValue: false, read: readBoolean });
   const collapsed = useSetting<boolean>(option(COLLAPSED_OPTION), { defaultValue: false, read: readBoolean });
+  const deleteBranch = useSetting<boolean>(option(DELETE_BRANCH_OPTION), { defaultValue: false, scope: "both", read: readBoolean });
+  const proactive = useSetting<boolean>(option(PROACTIVE_OPTION), { defaultValue: false, read: readBoolean });
 
   return (
     <div className="settings-page review-settings-page">
@@ -90,6 +94,12 @@ export function ReviewSettingsPage({ host }: { host?: HostExtensionClient } = {}
           control={<Instructions setting={instructions} />} />
         <SettingRow id="setting-review-template" title="Follow the request template" description="Fill in the repository's pull or merge request template instead of writing a description from scratch." setting={template}
           control={<Toggle label="Follow the request template" setting={template} />} />
+      </SettingsSection>
+      <SettingsSection title="Merging and panels">
+        <SettingRow id="setting-review-delete-branch" title="Delete the branch after merging" description="A merge's confirmation starts with this ticked. GitHub keeps a branch another open request is based on, and the default branch." setting={deleteBranch}
+          control={<Toggle label="Delete the branch after merging" setting={deleteBranch} />} />
+        <SettingRow id="setting-review-proactive" title="Proactive panels" description="Open a pull request when the thread links a new one. Otherwise, open the Changes panel after a turn that changed at least 3 files or 50 lines." setting={proactive}
+          control={<Toggle label="Proactive panels" setting={proactive} />} />
       </SettingsSection>
       <SettingsSection title="Diffs">
         <SettingRow id="setting-review-colors" title="Colours" description="Additions and removals, including change counts. Blue and orange read apart for most kinds of colour blindness." setting={colors}

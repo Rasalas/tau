@@ -157,6 +157,62 @@ describe("ModelPicker", () => {
     expect(screen.getByRole("option", { name: /^Claude Opus 5/u }).textContent).toContain("hidden");
   });
 
+  it("shows runtimes and providers as marks only, named in their tooltips", () => {
+    renderPicker({
+      runtime: "pi",
+      runtimeBackends: [...codexBackends, { kind: "codex@work", label: "Codex · work" }],
+      onSelectRuntime: vi.fn(),
+      list: [...models, { provider: "radius", id: "r-1", name: "Radius One" }],
+      catalogs: cached([codexReady(), ["claude-code", { status: "unavailable", reason: "not-installed", message: "The CLI is not on the PATH." }]]),
+    });
+    const rail = screen.getByRole("navigation", { name: "Runtimes" });
+    const providers = screen.getByRole("navigation", { name: "Pi providers" });
+    for (const column of [rail, providers]) {
+      expect(column.textContent).not.toMatch(/Favourites|Pi|Claude|Codex|Antigravity|providers|Anthropic|OpenAI|radius|\d/u);
+    }
+    const tips = (column: HTMLElement) => within(column).getAllByRole("button").map((button) => button.getAttribute("data-tooltip"));
+    expect(tips(rail)).toEqual([
+      "Favourites", "Pi · ready · 6 models", "Claude Code · not installed\nThe CLI is not on the PATH.", "Antigravity · run this thread on it", "Codex · ready · 1 model", "Codex · work · run this thread on it",
+    ]);
+    // A second instance wears its initials on the program's mark.
+    expect(within(rail).getByRole("button", { name: /^Codex · work,/u }).querySelector(".rail-instance")?.textContent).toBe("W");
+    expect(tips(providers)).toEqual(["All providers · 6 models", "Anthropic · 4 models", "OpenAI · 1 model", "radius · 1 model"]);
+    // A provider without a mark gets its monogram.
+    expect(within(providers).getByRole("button", { name: "radius (1)" }).querySelector(".provider-icon-fallback")?.textContent).toBe("R");
+    // A row names its provider by its mark, not in text.
+    const row = screen.getByRole("option", { name: /^Claude Opus 5, Pi/u });
+    expect(row.textContent).not.toContain("Anthropic");
+    expect(row.querySelector("[data-tooltip='Anthropic']")).toBeTruthy();
+  });
+
+  it("marks the runtime and provider of an offering in search instead of naming them", () => {
+    const preferences = new PreferencesStore();
+    preferences.toggleFavouriteModel("codex:openai/gpt-5.6-luna");
+    renderPicker({
+      preferences,
+      runtime: "pi",
+      runtimeBackends: codexBackends,
+      onSelectRuntime: vi.fn(),
+      list: [...models, { ...luna, provider: "openai-codex" }],
+      catalogs: cached([codexReady([luna, { ...luna, id: "gpt-5.6-sol", name: "GPT-5.6 Sol" }])]),
+    });
+    fireEvent.change(search(), { target: { value: "luna" } });
+    const pi = screen.getByRole("option", { name: "GPT-5.6 Luna, Pi, Plan" });
+    const codex = screen.getByRole("option", { name: "GPT-5.6 Luna, Codex, Plan" });
+    for (const row of [pi, codex]) {
+      expect(row.textContent).not.toMatch(/Pi|Codex|OpenAI/u);
+    }
+    const marks = (row: HTMLElement) => [...row.querySelectorAll("[data-tooltip]")].map((mark) => mark.getAttribute("data-tooltip"));
+    expect(marks(pi)).toEqual(["Pi", "OpenAI"]);
+    expect(marks(codex)).toEqual(["Codex"]);
+    // A list across runtimes: the runtime's mark, then the provider's.
+    fireEvent.change(search(), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Favourites" }));
+    const favourite = screen.getByRole("option", { name: /^GPT-5.6 Luna, Codex/u });
+    expect(favourite.textContent).not.toMatch(/Codex|OpenAI/u);
+    expect(marks(favourite)).toEqual(["Codex", "OpenAI"]);
+  });
+
   it("says why a runtime lists no models instead of an empty list", () => {
     renderPicker({
       runtime: "pi",
@@ -188,7 +244,7 @@ describe("ModelPicker", () => {
     renderPicker({ runtime: "pi", runtimeBackends: [...backends, codex], onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
     const entry = runtimeButton("Codex");
     expect(entry.getAttribute("aria-label")).toBe("Codex, update available");
-    expect(entry.getAttribute("title")).toBe("Codex · update available");
+    expect(entry.getAttribute("data-tooltip")).toBe("Codex · update available · 1 model");
     fireEvent.click(entry);
     expect(screen.getByRole("status").textContent).toBe("Codex 0.155.1 is out; 0.154.0 is installed. Update with brew upgrade --cask codex.");
   });

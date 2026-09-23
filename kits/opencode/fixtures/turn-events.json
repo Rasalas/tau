@@ -1,0 +1,1549 @@
+{
+ "recordedWith": "opencode 1.18.32, opencode/mimo-v2.6-flash-free",
+ "reply": [
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "brave-lagoon",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "time": {
+      "created": 1790181363181,
+      "updated": 1790181363229
+     }
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf1fce1b001uadJsAy8bnw52b",
+     "role": "user",
+     "sessionID": "$SESSION",
+     "time": {
+      "created": 1790181363229
+     },
+     "agent": "build",
+     "model": {
+      "providerID": "opencode",
+      "modelID": "mimo-v2.6-flash-free"
+     }
+    }
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "type": "text",
+     "text": "Reply with exactly one word: ok",
+     "messageID": "msg_0cf1fce1b001uadJsAy8bnw52b",
+     "sessionID": "$SESSION",
+     "id": "prt_0cf1fce210015LMX2Y0PsGnOZP"
+    },
+    "time": 1790181363235
+   }
+  },
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "brave-lagoon",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "time": {
+      "created": 1790181363181,
+      "updated": 1790181363237
+     }
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "busy"
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "parentID": "msg_0cf1fce1b001uadJsAy8bnw52b",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181363242
+     },
+     "sessionID": "$SESSION"
+    }
+   }
+  },
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "brave-lagoon",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+     },
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "time": {
+      "created": 1790181363181,
+      "updated": 1790181363404
+     }
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "role": "user",
+     "time": {
+      "created": 1790181363229
+     },
+     "agent": "build",
+     "model": {
+      "providerID": "opencode",
+      "modelID": "mimo-v2.6-flash-free"
+     },
+     "id": "msg_0cf1fce1b001uadJsAy8bnw52b",
+     "sessionID": "$SESSION",
+     "summary": {
+      "diffs": []
+     }
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "busy"
+    }
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf1fe604001TVpcUdmtvYJNS2",
+     "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "sessionID": "$SESSION",
+     "snapshot": "0d8e22bbffac452fee0c03d53e0a8c995321ba5f",
+     "type": "step-start"
+    },
+    "time": 1790181369349
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf1fe60c001uCYjg8IQB2JZ94",
+     "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "sessionID": "$SESSION",
+     "type": "reasoning",
+     "text": "",
+     "time": {
+      "start": 1790181369356
+     }
+    },
+    "time": 1790181369356
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+    "partID": "prt_0cf1fe60c001uCYjg8IQB2JZ94",
+    "field": "text",
+    "delta": "The user wants exactly"
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+    "partID": "prt_0cf1fe60c001uCYjg8IQB2JZ94",
+    "field": "text",
+    "delta": " one word reply"
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+    "partID": "prt_0cf1fe60c001uCYjg8IQB2JZ94",
+    "field": "text",
+    "delta": "."
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf1fe60c001uCYjg8IQB2JZ94",
+     "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "sessionID": "$SESSION",
+     "type": "reasoning",
+     "text": "The user wants exactly one word reply.",
+     "time": {
+      "start": 1790181369356,
+      "end": 1790181370995
+     }
+    },
+    "time": 1790181370995
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf1fec7a001zMoA33Ho0wDoKN",
+     "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "sessionID": "$SESSION",
+     "type": "text",
+     "text": "",
+     "time": {
+      "start": 1790181371003
+     }
+    },
+    "time": 1790181371003
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+    "partID": "prt_0cf1fec7a001zMoA33Ho0wDoKN",
+    "field": "text",
+    "delta": "ok"
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf1fec7a001zMoA33Ho0wDoKN",
+     "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "sessionID": "$SESSION",
+     "type": "text",
+     "text": "ok",
+     "time": {
+      "start": 1790181371003,
+      "end": 1790181371027
+     }
+    },
+    "time": 1790181371027
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf1fecdd001NHXDOY243OKYBS",
+     "reason": "stop",
+     "snapshot": "0d8e22bbffac452fee0c03d53e0a8c995321ba5f",
+     "messageID": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "sessionID": "$SESSION",
+     "type": "step-finish",
+     "tokens": {
+      "total": 13052,
+      "input": 10992,
+      "output": 3,
+      "reasoning": 9,
+      "cache": {
+       "write": 0,
+       "read": 2048
+      }
+     },
+     "cost": 0
+    },
+    "time": 1790181371101
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "parentID": "msg_0cf1fce1b001uadJsAy8bnw52b",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "total": 13052,
+      "input": 10992,
+      "output": 3,
+      "reasoning": 9,
+      "cache": {
+       "write": 0,
+       "read": 2048
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181363242
+     },
+     "sessionID": "$SESSION",
+     "finish": "stop"
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf1fce2a001frYG9kuuLriHyQ",
+     "parentID": "msg_0cf1fce1b001uadJsAy8bnw52b",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "total": 13052,
+      "input": 10992,
+      "output": 3,
+      "reasoning": 9,
+      "cache": {
+       "write": 0,
+       "read": 2048
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181363242,
+      "completed": 1790181371148
+     },
+     "sessionID": "$SESSION",
+     "finish": "stop"
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "busy"
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "idle"
+    }
+   }
+  },
+  {
+   "type": "session.idle",
+   "properties": {
+    "sessionID": "$SESSION"
+   }
+  },
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "brave-lagoon",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+     },
+     "cost": 0,
+     "tokens": {
+      "input": 10992,
+      "output": 3,
+      "reasoning": 9,
+      "cache": {
+       "read": 2048,
+       "write": 0
+      }
+     },
+     "time": {
+      "created": 1790181363181,
+      "updated": 1790181371150
+     }
+    }
+   }
+  }
+ ],
+ "tool": [
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "curious-forest",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe2",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "permission": [
+      {
+       "permission": "*",
+       "pattern": "*",
+       "action": "ask"
+      },
+      {
+       "permission": "read",
+       "pattern": "*",
+       "action": "allow"
+      }
+     ],
+     "time": {
+      "created": 1790181396396,
+      "updated": 1790181396585
+     }
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "role": "user",
+     "sessionID": "$SESSION",
+     "time": {
+      "created": 1790181396585
+     },
+     "agent": "build",
+     "model": {
+      "providerID": "opencode",
+      "modelID": "mimo-v2.6-flash-free"
+     }
+    }
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "type": "text",
+     "text": "Run the shell command `echo hi` with your bash tool, then reply with one word: done",
+     "messageID": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "sessionID": "$SESSION",
+     "id": "prt_0cf205074001lO2c1v468dZPtX"
+    },
+    "time": 1790181396601
+   }
+  },
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "curious-forest",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe2",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "permission": [
+      {
+       "permission": "*",
+       "pattern": "*",
+       "action": "ask"
+      },
+      {
+       "permission": "read",
+       "pattern": "*",
+       "action": "allow"
+      }
+     ],
+     "time": {
+      "created": 1790181396396,
+      "updated": 1790181396605
+     }
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "busy"
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "parentID": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181396615
+     },
+     "sessionID": "$SESSION"
+    }
+   }
+  },
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "curious-forest",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe2",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+     },
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "permission": [
+      {
+       "permission": "*",
+       "pattern": "*",
+       "action": "ask"
+      },
+      {
+       "permission": "read",
+       "pattern": "*",
+       "action": "allow"
+      }
+     ],
+     "time": {
+      "created": 1790181396396,
+      "updated": 1790181396793
+     }
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "role": "user",
+     "time": {
+      "created": 1790181396585
+     },
+     "agent": "build",
+     "model": {
+      "providerID": "opencode",
+      "modelID": "mimo-v2.6-flash-free"
+     },
+     "id": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "sessionID": "$SESSION",
+     "summary": {
+      "diffs": []
+     }
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "busy"
+    }
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf205b780014suiqhboXBRM2k",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "sessionID": "$SESSION",
+     "snapshot": "0d8e22bbffac452fee0c03d53e0a8c995321ba5f",
+     "type": "step-start"
+    },
+    "time": 1790181399417
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf205b7c001JCk0VSS28oTraf",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "sessionID": "$SESSION",
+     "type": "reasoning",
+     "text": "",
+     "time": {
+      "start": 1790181399420
+     }
+    },
+    "time": 1790181399420
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+    "partID": "prt_0cf205b7c001JCk0VSS28oTraf",
+    "field": "text",
+    "delta": "The user wants me to run `echo"
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+    "partID": "prt_0cf205b7c001JCk0VSS28oTraf",
+    "field": "text",
+    "delta": " hi` and reply"
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+    "partID": "prt_0cf205b7c001JCk0VSS28oTraf",
+    "field": "text",
+    "delta": " with one word:"
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+    "partID": "prt_0cf205b7c001JCk0VSS28oTraf",
+    "field": "text",
+    "delta": " done."
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf205b7c001JCk0VSS28oTraf",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "sessionID": "$SESSION",
+     "type": "reasoning",
+     "text": "The user wants me to run `echo hi` and reply with one word: done.",
+     "time": {
+      "start": 1790181399420,
+      "end": 1790181399744
+     }
+    },
+    "time": 1790181399744
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf205cc4001ebBxQ8qrkCtdzt",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "sessionID": "$SESSION",
+     "type": "tool",
+     "tool": "bash",
+     "callID": "call_3f25a8a8ee1a419fa999c4d7",
+     "state": {
+      "status": "pending",
+      "input": {},
+      "raw": ""
+     }
+    },
+    "time": 1790181399748
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "type": "tool",
+     "tool": "bash",
+     "callID": "call_3f25a8a8ee1a419fa999c4d7",
+     "state": {
+      "status": "running",
+      "input": {
+       "command": "echo hi"
+      },
+      "time": {
+       "start": 1790181399761
+      }
+     },
+     "id": "prt_0cf205cc4001ebBxQ8qrkCtdzt",
+     "sessionID": "$SESSION",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf"
+    },
+    "time": 1790181399761
+   }
+  },
+  {
+   "type": "permission.asked",
+   "properties": {
+    "id": "per_0cf205cf3001PZw32aKQoxPv20",
+    "sessionID": "$SESSION",
+    "permission": "bash",
+    "patterns": [
+     "echo hi"
+    ],
+    "metadata": {
+     "command": "echo hi"
+    },
+    "always": [
+     "echo *"
+    ],
+    "tool": {
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "callID": "call_3f25a8a8ee1a419fa999c4d7"
+    }
+   }
+  },
+  {
+   "type": "permission.replied",
+   "properties": {
+    "sessionID": "$SESSION",
+    "requestID": "per_0cf205cf3001PZw32aKQoxPv20",
+    "reply": "once"
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "type": "tool",
+     "tool": "bash",
+     "callID": "call_3f25a8a8ee1a419fa999c4d7",
+     "state": {
+      "metadata": {
+       "output": ""
+      },
+      "status": "running",
+      "input": {
+       "command": "echo hi"
+      },
+      "time": {
+       "start": 1790181399761
+      }
+     },
+     "id": "prt_0cf205cc4001ebBxQ8qrkCtdzt",
+     "sessionID": "$SESSION",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf"
+    },
+    "time": 1790181400793
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "type": "tool",
+     "tool": "bash",
+     "callID": "call_3f25a8a8ee1a419fa999c4d7",
+     "state": {
+      "metadata": {
+       "output": "hi\n"
+      },
+      "status": "running",
+      "input": {
+       "command": "echo hi"
+      },
+      "time": {
+       "start": 1790181399761
+      }
+     },
+     "id": "prt_0cf205cc4001ebBxQ8qrkCtdzt",
+     "sessionID": "$SESSION",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf"
+    },
+    "time": 1790181400808
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "type": "tool",
+     "tool": "bash",
+     "callID": "call_3f25a8a8ee1a419fa999c4d7",
+     "state": {
+      "status": "completed",
+      "input": {
+       "command": "echo hi"
+      },
+      "output": "hi\n",
+      "metadata": {
+       "output": "hi\n",
+       "exit": 0,
+       "truncated": false
+      },
+      "title": "echo hi",
+      "time": {
+       "start": 1790181399761,
+       "end": 1790181400815
+      }
+     },
+     "id": "prt_0cf205cc4001ebBxQ8qrkCtdzt",
+     "sessionID": "$SESSION",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf"
+    },
+    "time": 1790181400815
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf206120001eTyB29q5RWlN9M",
+     "reason": "tool-calls",
+     "snapshot": "0d8e22bbffac452fee0c03d53e0a8c995321ba5f",
+     "messageID": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "sessionID": "$SESSION",
+     "type": "step-finish",
+     "tokens": {
+      "total": 13092,
+      "input": 11005,
+      "output": 20,
+      "reasoning": 19,
+      "cache": {
+       "write": 0,
+       "read": 2048
+      }
+     },
+     "cost": 0
+    },
+    "time": 1790181400864
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "parentID": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "total": 13092,
+      "input": 11005,
+      "output": 20,
+      "reasoning": 19,
+      "cache": {
+       "write": 0,
+       "read": 2048
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181396615
+     },
+     "sessionID": "$SESSION",
+     "finish": "tool-calls"
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf2050870016lQfGbGgdDrpqf",
+     "parentID": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "total": 13092,
+      "input": 11005,
+      "output": 20,
+      "reasoning": 19,
+      "cache": {
+       "write": 0,
+       "read": 2048
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181396615,
+      "completed": 1790181400908
+     },
+     "sessionID": "$SESSION",
+     "finish": "tool-calls"
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "busy"
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf206150001f4vRmlcNRQNFih",
+     "parentID": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+       "read": 0,
+       "write": 0
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181400912
+     },
+     "sessionID": "$SESSION"
+    }
+   }
+  },
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "curious-forest",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe2",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+     },
+     "cost": 0,
+     "tokens": {
+      "input": 11005,
+      "output": 20,
+      "reasoning": 19,
+      "cache": {
+       "read": 2048,
+       "write": 0
+      }
+     },
+     "permission": [
+      {
+       "permission": "*",
+       "pattern": "*",
+       "action": "ask"
+      },
+      {
+       "permission": "read",
+       "pattern": "*",
+       "action": "allow"
+      }
+     ],
+     "time": {
+      "created": 1790181396396,
+      "updated": 1790181400914
+     }
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "busy"
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "role": "user",
+     "time": {
+      "created": 1790181396585
+     },
+     "agent": "build",
+     "model": {
+      "providerID": "opencode",
+      "modelID": "mimo-v2.6-flash-free"
+     },
+     "summary": {
+      "diffs": []
+     },
+     "id": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "sessionID": "$SESSION"
+    }
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf20760200100fBNt9KIIRZ1U",
+     "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+     "sessionID": "$SESSION",
+     "snapshot": "0d8e22bbffac452fee0c03d53e0a8c995321ba5f",
+     "type": "step-start"
+    },
+    "time": 1790181406210
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf207607001g5l7r0XMVuGZkT",
+     "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+     "sessionID": "$SESSION",
+     "type": "reasoning",
+     "text": "",
+     "time": {
+      "start": 1790181406215
+     }
+    },
+    "time": 1790181406216
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+    "partID": "prt_0cf207607001g5l7r0XMVuGZkT",
+    "field": "text",
+    "delta": "The command"
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+    "partID": "prt_0cf207607001g5l7r0XMVuGZkT",
+    "field": "text",
+    "delta": " ran successfully"
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+    "partID": "prt_0cf207607001g5l7r0XMVuGZkT",
+    "field": "text",
+    "delta": "."
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf207607001g5l7r0XMVuGZkT",
+     "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+     "sessionID": "$SESSION",
+     "type": "reasoning",
+     "text": "The command ran successfully.",
+     "time": {
+      "start": 1790181406215,
+      "end": 1790181406378
+     }
+    },
+    "time": 1790181406378
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf2076ac001hve7004w6tXmxz",
+     "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+     "sessionID": "$SESSION",
+     "type": "text",
+     "text": "",
+     "time": {
+      "start": 1790181406380
+     }
+    },
+    "time": 1790181406380
+   }
+  },
+  {
+   "type": "message.part.delta",
+   "properties": {
+    "sessionID": "$SESSION",
+    "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+    "partID": "prt_0cf2076ac001hve7004w6tXmxz",
+    "field": "text",
+    "delta": "done"
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf2076ac001hve7004w6tXmxz",
+     "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+     "sessionID": "$SESSION",
+     "type": "text",
+     "text": "done",
+     "time": {
+      "start": 1790181406380,
+      "end": 1790181406404
+     }
+    },
+    "time": 1790181406404
+   }
+  },
+  {
+   "type": "message.part.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "part": {
+     "id": "prt_0cf2076ee001F3Xf10o5qnRjc6",
+     "reason": "stop",
+     "snapshot": "0d8e22bbffac452fee0c03d53e0a8c995321ba5f",
+     "messageID": "msg_0cf206150001f4vRmlcNRQNFih",
+     "sessionID": "$SESSION",
+     "type": "step-finish",
+     "tokens": {
+      "total": 13110,
+      "input": 109,
+      "output": 3,
+      "reasoning": 6,
+      "cache": {
+       "write": 0,
+       "read": 12992
+      }
+     },
+     "cost": 0
+    },
+    "time": 1790181406446
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf206150001f4vRmlcNRQNFih",
+     "parentID": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "total": 13110,
+      "input": 109,
+      "output": 3,
+      "reasoning": 6,
+      "cache": {
+       "write": 0,
+       "read": 12992
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181400912
+     },
+     "sessionID": "$SESSION",
+     "finish": "stop"
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "msg_0cf206150001f4vRmlcNRQNFih",
+     "parentID": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "role": "assistant",
+     "mode": "build",
+     "agent": "build",
+     "path": {
+      "cwd": "$DIR",
+      "root": "$ROOT"
+     },
+     "cost": 0,
+     "tokens": {
+      "total": 13110,
+      "input": 109,
+      "output": 3,
+      "reasoning": 6,
+      "cache": {
+       "write": 0,
+       "read": 12992
+      }
+     },
+     "modelID": "mimo-v2.6-flash-free",
+     "providerID": "opencode",
+     "time": {
+      "created": 1790181400912,
+      "completed": 1790181406488
+     },
+     "sessionID": "$SESSION",
+     "finish": "stop"
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "busy"
+    }
+   }
+  },
+  {
+   "type": "session.status",
+   "properties": {
+    "sessionID": "$SESSION",
+    "status": {
+     "type": "idle"
+    }
+   }
+  },
+  {
+   "type": "session.idle",
+   "properties": {
+    "sessionID": "$SESSION"
+   }
+  },
+  {
+   "type": "session.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "id": "$SESSION",
+     "slug": "curious-forest",
+     "projectID": "25075043810bb6e47332756815482c6fdd9ed3e3",
+     "directory": "$DIR",
+     "path": "$PATH",
+     "title": "probe2",
+     "agent": "build",
+     "model": {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+     },
+     "version": "1.18.32",
+     "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+     },
+     "cost": 0,
+     "tokens": {
+      "input": 11114,
+      "output": 23,
+      "reasoning": 25,
+      "cache": {
+       "read": 15040,
+       "write": 0
+      }
+     },
+     "permission": [
+      {
+       "permission": "*",
+       "pattern": "*",
+       "action": "ask"
+      },
+      {
+       "permission": "read",
+       "pattern": "*",
+       "action": "allow"
+      }
+     ],
+     "time": {
+      "created": 1790181396396,
+      "updated": 1790181406491
+     }
+    }
+   }
+  },
+  {
+   "type": "message.updated",
+   "properties": {
+    "sessionID": "$SESSION",
+    "info": {
+     "role": "user",
+     "time": {
+      "created": 1790181396585
+     },
+     "agent": "build",
+     "model": {
+      "providerID": "opencode",
+      "modelID": "mimo-v2.6-flash-free"
+     },
+     "summary": {
+      "diffs": []
+     },
+     "id": "msg_0cf205067001n4cdJWVEgKrO7f",
+     "sessionID": "$SESSION"
+    }
+   }
+  }
+ ]
+}

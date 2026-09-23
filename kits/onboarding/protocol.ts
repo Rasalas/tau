@@ -5,12 +5,13 @@ export const WELCOME_OVERLAY = "onboarding.welcome";
 /** Pushed while `import-sessions` runs: `{ source, done, total }`. */
 export const IMPORT_PROGRESS_EVENT = "import-progress";
 
-export type SessionSource = "claude-code" | "codex";
+export type SessionSource = "claude-code" | "codex" | "opencode";
 
 /** The backend kits that list and import their CLI's sessions (`import-scan`, `import-sessions`, granted to this kit). */
 export const SESSION_SOURCES: ReadonlyArray<{ source: SessionSource; extensionId: string; label: string }> = [
   { source: "claude-code", extensionId: "tau.claude-code", label: "Claude Code" },
   { source: "codex", extensionId: "tau.codex", label: "Codex" },
+  { source: "opencode", extensionId: "tau.opencode", label: "OpenCode" },
 ];
 
 export interface WelcomeState {
@@ -82,5 +83,5 @@ export interface ImportResult {
 }
 
 export function isSessionSource(value: unknown): value is SessionSource {
-  return value === "claude-code" || value === "codex";
+  return value === "claude-code" || value === "codex" || value === "opencode";
 }

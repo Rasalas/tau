@@ -5,6 +5,7 @@ import {
   isRuntimeInstanceOf,
   loadRuntimeInstanceUi,
   loadRuntimeUpdateToasts,
+  loadSignInUi,
   runtimeInstanceId,
   updateAvailable,
   useWorkbenchShell,
@@ -37,6 +38,7 @@ const TERMINAL_PANEL = "terminal";
 
 const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeInstanceSetup })));
 const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
+const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
 
 /** Names the runtime behind a Claude thread, on any instance; Pi threads show nothing. */
 export function ClaudeCodeStatus({ snapshot }: RegionProps) {
@@ -138,6 +140,8 @@ export interface ClaudeCodeProviderCardProps extends SettingsPageProps {
   instances?: ClaudeInstances;
   /** Terminal Kit's host half, for the command that installs a release. */
   terminal?: HostExtensionClient;
+  /** Terminal Kit's run service, for the CLI's login in a shell the user sees. */
+  runner?: () => TerminalRunService | undefined;
 }
 
 /**
@@ -145,7 +149,7 @@ export interface ClaudeCodeProviderCardProps extends SettingsPageProps {
  * whether it is current and a version Tau works with, who it is signed in as
  * and how the instance is set up. The binary and the login are the user's.
  */
-export function ClaudeCodeProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_ID, instances, terminal }: ClaudeCodeProviderCardProps) {
+export function ClaudeCodeProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_ID, instances, terminal, runner }: ClaudeCodeProviderCardProps) {
   const [status, setStatus] = useState<ClaudeStatusReport>();
   const [probe, setProbe] = useState<ProbeReport>();
   const [busy, setBusy] = useState(false);
@@ -209,6 +213,7 @@ export function ClaudeCodeProviderCard({ host, onNotify, instance = DEFAULT_INST
   const known = status !== undefined;
   const found = Boolean(status?.path);
   const compatibility = status?.compatibility && status.compatibility.status !== "supported" ? status.compatibility : undefined;
+  const run = runner?.();
   return (
     <>
       <p className="settings-note">
@@ -241,14 +246,18 @@ export function ClaudeCodeProviderCard({ host, onNotify, instance = DEFAULT_INST
       ) : null}
       {!compatibility && status?.update ? <p className="settings-note">Claude Code {status.update.latest} is out; {status.update.installed} is installed.{status.update.command ? <> Update with <code>{status.update.command}</code>.</> : null}</p> : null}
 
-      <div className="settings-label">Account</div>
-      <div className="settings-field claude-code-field">
-        {probe?.account ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-        <span>
-          <strong>{!known ? "Checking…" : probe?.account ?? "Not signed in"}</strong>
-          <small>{probe?.account ? "Sign in and out with the CLI itself; Tau uses whatever it is signed in as." : view?.home ? <>Run <code>CLAUDE_CONFIG_DIR={view.home} claude</code> once in a terminal to sign in.</> : "Run the CLI once in a terminal to sign in."}</small>
-        </span>
-      </div>
+      <Suspense fallback={null}>
+        <SignIn
+          host={host}
+          target={instance}
+          program={view?.label ?? "Claude Code"}
+          {...(run ? { runInTerminal: (command: string) => run.run({ command, label: `Sign in to ${view?.label ?? "Claude Code"}` }, actions) } : {})}
+          openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
+          copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
+          onNotify={onNotify}
+          onReport={(next) => { if (next.flow?.phase === "succeeded") void read(true); }}
+        />
+      </Suspense>
 
       {probe?.models?.length ? (
         <p className="settings-note">
@@ -353,6 +362,7 @@ export const claudeCodeExtension: DesktopExtension = {
     const instances = new ClaudeInstances();
     const terminal = () => plugin.hostExtension(TERMINAL_HOST_EXTENSION_ID);
     const cards = new Map<string, { label: string; dispose: () => void }>();
+    let runner: TerminalRunService | undefined;
     // The default instance keeps the page id it always had, so `openSettings("claude-code.settings")` still lands on it.
     const registerCard = (entry: ClaudeInstanceView, order: number) => plugin.registerSettingsPage({
       id: settingsPageOf(entry.id),
@@ -361,7 +371,7 @@ export const claudeCodeExtension: DesktopExtension = {
       runtime: entry.kind,
       order,
       keywords: ["claude", "instance", entry.id],
-      Component: (props: SettingsPageProps) => <ClaudeCodeProviderCard {...props} host={plugin.host} instance={entry.id} instances={instances} terminal={terminal()} />,
+      Component: (props: SettingsPageProps) => <ClaudeCodeProviderCard {...props} host={plugin.host} instance={entry.id} instances={instances} terminal={terminal()} runner={() => runner} />,
     });
     cards.set(DEFAULT_INSTANCE_ID, { label: "Claude Code", dispose: registerCard({ id: DEFAULT_INSTANCE_ID, kind: CLAUDE_CODE_BACKEND_KIND, label: "Claude Code", threads: 0 }, DEFAULT_ORDER) });
     const sync = (report: ClaudeInstancesReport) => {
@@ -376,7 +386,6 @@ export const claudeCodeExtension: DesktopExtension = {
         if (!cards.has(id)) cards.set(id, { label: entry.label, dispose: registerCard(entry, DEFAULT_ORDER + index / 100) });
       }
     };
-    let runner: TerminalRunService | undefined;
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
       plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, profiles: ["desktop", "web", "compact"], Component: ClaudeCodeStatus }),

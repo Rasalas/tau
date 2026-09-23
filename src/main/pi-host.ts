@@ -299,6 +299,12 @@ export class PiHost {
         const thread = await this.reopenThread(sessionId);
         await this.prompt(text, [], thread.threadId, undefined, undefined, { hidden: thread.backend.capabilities.resume?.hiddenPrompt === true });
       },
+      modelCredentialsChanged: () => {
+        this.modelCatalogCache.invalidate();
+        this.completionModels = undefined;
+        this.completionModelsPending = false;
+        this.ensureCompletionModels();
+      },
     });
     this.agentDir = components.agentDir;
     this.sessionsDirOverride = components.sessionsDirOverride;
