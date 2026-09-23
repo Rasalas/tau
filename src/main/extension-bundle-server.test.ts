@@ -40,6 +40,18 @@ describe("tau-ext bundle scheme", () => {
     expect(store.respond(script).headers.get("Content-Type")).toBe("text/javascript");
   });
 
+  it("lets the file:// workbench import a bundle across origins", async () => {
+    const { protocol } = await import("electron");
+    const { registerDesktopBundleScheme } = await import("./extension-bundle-server.js");
+    registerDesktopBundleScheme();
+    const [schemes] = vi.mocked(protocol.registerSchemesAsPrivileged).mock.lastCall!;
+    expect(schemes[0]!.privileges).toMatchObject({ corsEnabled: true });
+
+    const store = new DesktopBundleStore();
+    expect(store.respond(store.publish("acme.pkg", "export default 1;")).headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(store.respond(store.publishStyles("acme.pkg", ".a {}")).headers.get("Access-Control-Allow-Origin")).toBe("*");
+  });
+
   it("gives the same content one URL and forgets everything on a reload", () => {
     const store = new DesktopBundleStore();
     expect(store.publish("acme.pkg", "a")).toBe(store.publish("acme.pkg", "a"));

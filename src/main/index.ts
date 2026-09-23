@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, Notification, session, shell } from "electron";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -102,6 +102,7 @@ const kitOptions = {
 /** Both transports report their clients here; the host publishes the count. */
 const hostClients = new HostClientRegistry();
 
+let lastPickedDirectory: string | undefined;
 const hostOptions = {
   // TAU_RUNTIME_ADAPTER names the backend new threads get; a non-Pi kind needs its extension installed.
   defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
@@ -126,14 +127,25 @@ const hostOptions = {
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {
+        // Electron 43+ opens in Downloads unless told otherwise; start where the last pick ended.
+        ...(lastPickedDirectory ? { defaultPath: lastPickedDirectory } : {}),
         ...(options?.buttonLabel ? { buttonLabel: options.buttonLabel } : {}),
         ...(options?.message ? { message: options.message } : {}),
         properties: ["openDirectory", ...(options?.createDirectory ? ["createDirectory" as const] : [])],
       });
-      return result.filePaths[0];
+      const picked = result.filePaths[0];
+      if (picked) lastPickedDirectory = dirname(picked);
+      return picked;
     },
   },
 };
+
+/** The clipboard takes W3C `ClipboardItem`s since Electron 44; an image goes on it as PNG. */
+async function copyImageToClipboard(dataUrl: string): Promise<void> {
+  const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
+  if (image.isEmpty()) throw new Error("Invalid image data.");
+  await clipboard.write([new ClipboardItem({ "image/png": new Blob([new Uint8Array(image.toPNG())], { type: "image/png" }) })]);
+}
 
 async function rendererImagePreview(path: string) {
   const preview = await readBoundedImagePreview(path);
@@ -264,8 +276,8 @@ function openWindow(): BrowserWindow {
     minWidth: 1080,
     minHeight: 680,
     titleBarStyle: "hiddenInset",
-    // Centres the native traffic lights in Tau's 46px title bar.
-    trafficLightPosition: { x: 19, y: 15 },
+    // Centres the native traffic lights (14pt since the macOS 26 SDK) in Tau's 46px title bar.
+    trafficLightPosition: { x: 19, y: 16 },
     backgroundColor: "#11110f",
     ...(appIconPath ? { icon: appIconPath } : {}),
     webPreferences: {
@@ -474,11 +486,7 @@ function createLocalHostMethods(): HostMethodTable {
     jobs,
     platform: {
       copyText: (text) => clipboard.writeText(text),
-      copyImage: (dataUrl) => {
-        const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
-        if (image.isEmpty()) throw new Error("Invalid image data.");
-        clipboard.writeImage(image);
-      },
+      copyImage: copyImageToClipboard,
       readImagePreview: rendererImagePreview,
       shareFile: (path) => sharedFiles.share(path),
       // The kits Tau ships are listed beside the installed packages, marked
@@ -538,11 +546,7 @@ function serveBundles(result: WorkbenchDesktopExtensions, only?: readonly string
 function createWindowPlatform(): ClientHostPlatform {
   return {
     copyText: (text) => clipboard.writeText(text),
-    copyImage: (dataUrl) => {
-      const image = nativeImage.createFromDataURL(validateImageDataUrl(dataUrl));
-      if (image.isEmpty()) throw new Error("Invalid image data.");
-      clipboard.writeImage(image);
-    },
+    copyImage: copyImageToClipboard,
     readImagePreview: rendererImagePreview,
     shareFile: (path) => sharedFiles.share(path),
     loadDesktopExtensions: async (cwd, sharedExports, only) =>
