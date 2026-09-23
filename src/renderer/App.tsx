@@ -40,6 +40,7 @@ import { followTurnActivity } from "../workbench/turn-activity";
 import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
+import { usePendingAttachments } from "./use-pending-attachments";
 import { useWorkbenchReload } from "./use-workbench-reload";
 import { Workbench, type WorkbenchComposer, type WorkbenchControlHandle, type WorkbenchLayout, type WorkbenchModel, type WorkbenchThread } from "./Workbench";
 
@@ -198,6 +199,7 @@ export default function App() {
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const attachFiles = usePendingAttachments(composerAttachmentRef, snapshot?.sessionId);
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
   /** The draft key as of now, for the async paths that must not read a rendered value. */
   const currentDraftKey = useCallback(
@@ -474,7 +476,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, toggleSidebar,
+    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
