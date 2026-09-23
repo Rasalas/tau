@@ -57,7 +57,7 @@ const ON_FILL: ReadonlyArray<[string, string]> = [
 ];
 
 /** A shape rather than a glyph: non-text contrast, 3:1. */
-const MARK_ON_FILL: ReadonlyArray<[string, string]> = [["stop-ink", "stop"]];
+const MARK_ON_FILL: ReadonlyArray<[string, string]> = [["stop-ink", "stop"], ["qr-ink", "qr-paper"]];
 
 /** `--name: value;` for every token, with `light-dark()` left whole. */
 async function readTokens(): Promise<Map<string, string>> {
@@ -129,9 +129,9 @@ describe("the token contract", () => {
   it("gives every colour token a value in both schemes", async () => {
     const tokens = await readTokens();
     const single = [...tokens].filter(([, value]) => /^#|^hsl\(/u.test(value) && !value.startsWith("light-dark("));
-    // The mark on the stop button is the same in both schemes on purpose;
-    // anything else with one value is a token that was not themed.
-    expect(single.map(([name]) => name).sort()).toEqual(["--stop-ink"]);
+    // The mark on the stop button and a QR code are the same in both schemes on
+    // purpose; anything else with one value is a token that was not themed.
+    expect(single.map(([name]) => name).sort()).toEqual(["--qr-ink", "--qr-paper", "--stop-ink"]);
   });
 
   it("defines every token the stylesheets ask for", async () => {

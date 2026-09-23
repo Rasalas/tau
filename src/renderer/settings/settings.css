@@ -413,7 +413,9 @@ body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }
 .connection-link-box { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 4px 4px 10px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--stage); }
 .connection-link-box > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); color: var(--ink-2); }
 .connection-copy-code { align-self: flex-start; }
-.pairing-qr { flex: none; padding: 8px; border-radius: var(--radius-md); background: #fff; }
+.pairing-qr { flex: none; padding: 8px; border-radius: var(--radius-md); background: var(--qr-paper); }
+.pairing-qr > rect { fill: var(--qr-paper); }
+.pairing-qr > path { fill: var(--qr-ink); }
 .pairing-qr.pending { background: var(--well); }
 .connection-field { display: flex; flex-direction: column; gap: 5px; font: 500 12px var(--sans); color: var(--ink-2); }
 .connection-field > .settings-input, .connection-field > .settings-select { width: 100%; }

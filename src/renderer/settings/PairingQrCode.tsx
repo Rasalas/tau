@@ -21,8 +21,8 @@ export function PairingQrCode({ value, size = 168 }: { value: string; size?: num
   if (!code || code.value !== value) return <div className="pairing-qr pending" style={{ width: size, height: size }} aria-busy="true" />;
   return (
     <svg className="pairing-qr" width={size} height={size} viewBox={`0 0 ${code.size} ${code.size}`} shapeRendering="crispEdges" role="img" aria-label="Pairing link as a QR code">
-      <rect width={code.size} height={code.size} fill="#fff" />
-      <path d={code.path} fill="#000" />
+      <rect width={code.size} height={code.size} />
+      <path d={code.path} />
     </svg>
   );
 }
