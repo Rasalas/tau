@@ -10,6 +10,7 @@ import {
   latestCheckpointSnapshotRef,
   readAgentWorktreeChanges,
   removeAgentWorktree,
+  worktreeSetupCommand,
 } from "./agent-worktrees.js";
 import { TURN_CHECKPOINT_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
 
@@ -110,5 +111,20 @@ describe("a spawned thread's worktree", () => {
     expect(latestCheckpointSnapshotRef([{ type: "custom", customType: "other", data: {} }])).toBeUndefined();
     // A ref outside the checkpoint namespace is never taken from an entry.
     expect(latestCheckpointSnapshotRef([entry("refs/heads/main")])).toBeUndefined();
+  });
+});
+
+describe("worktreeSetupCommand", () => {
+  it("runs the setup line in a POSIX login shell", () => {
+    expect(worktreeSetupCommand("npm ci && npm run build", "darwin")).toEqual({ command: "/bin/sh", args: ["-lc", "npm ci && npm run build"] });
+  });
+
+  it("runs it through cmd.exe on Windows, where there is no /bin/sh", () => {
+    expect(worktreeSetupCommand("npm ci && npm run build", "win32", { ComSpec: "C:\\Windows\\system32\\cmd.exe" })).toEqual({
+      command: "C:\\Windows\\system32\\cmd.exe",
+      args: ["/d", "/s", "/c", "\"npm ci && npm run build\""],
+      windowsVerbatimArguments: true,
+    });
+    expect(worktreeSetupCommand("x", "win32", {}).command).toBe("cmd.exe");
   });
 });

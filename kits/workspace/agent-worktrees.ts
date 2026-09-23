@@ -96,6 +96,20 @@ export function latestCheckpointSnapshotRef(entries: readonly unknown[]): string
 }
 
 /**
+ * How a project's `runOnWorktreeCreate` line runs: a POSIX login shell, or on
+ * Windows `cmd.exe`, the way Node's `shell: true` would start it.
+ */
+export function worktreeSetupCommand(
+  script: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): { command: string; args: string[]; windowsVerbatimArguments?: boolean } {
+  if (platform !== "win32") return { command: "/bin/sh", args: ["-lc", script] };
+  const comSpec = Object.entries(env).find(([key]) => key.toUpperCase() === "COMSPEC")?.[1];
+  return { command: comSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${script}"`], windowsVerbatimArguments: true };
+}
+
+/**
  * Resolves the parent directory where worktrees live for a repository.
  * Defaults to `<repo>-worktrees` beside the repository.
  * If configured (e.g. `~/.tau/worktrees` or `/path/to/worktrees`), worktrees

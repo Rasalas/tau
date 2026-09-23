@@ -28,6 +28,17 @@ describe("findInstalledEditors", () => {
     expect(editors.at(-1)?.name).toBe("Finder");
   });
 
+  it("finds Toolbox's .cmd launchers on Windows", () => {
+    const editors = findInstalledEditors({
+      platform: "win32",
+      home: "C:\\Users\\me",
+      findCommand: (name) => name === "code" ? "C:\\Users\\me\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd" : undefined,
+      exists: (path) => path === "C:\\Users\\me\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd",
+    });
+    expect(editors.map((editor) => editor.id)).toEqual(["code", "idea", "file-manager"]);
+    expect(editors[1]?.launch).toMatchObject({ kind: "command", command: "C:\\Users\\me\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd" });
+  });
+
   it("names the file manager for the platform and needs xdg-open on Linux", () => {
     expect(findInstalledEditors(probe({ platform: "win32" })).map((editor) => editor.name)).toEqual(["Explorer"]);
     expect(findInstalledEditors(probe({ platform: "linux" }))).toEqual([]);

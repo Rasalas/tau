@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import type { UiEditor } from "tau/host-extension";
+import { dirname, join, win32 } from "node:path";
+import { commandInvocation, type UiEditor } from "tau/host-extension";
 
 /** How a command-line launcher takes a line: `--goto file:line`, `--line n file`, or not at all. */
 export type EditorLaunchStyle = "direct-path" | "goto" | "line-column";
@@ -84,6 +84,7 @@ export function defaultEditorProbe(findCommand: (name: string) => string | undef
 function toolboxScripts(probe: EditorProbe): string | undefined {
   if (probe.platform === "darwin") return join(probe.home, "Library/Application Support/JetBrains/Toolbox/scripts");
   if (probe.platform === "linux") return join(probe.home, ".local/share/JetBrains/Toolbox/scripts");
+  if (probe.platform === "win32") return win32.join(probe.home, "AppData", "Local", "JetBrains", "Toolbox", "scripts");
   return undefined;
 }
 
@@ -99,7 +100,7 @@ function findLaunch(definition: EditorDefinition, probe: EditorProbe): EditorLau
   }
   const scripts = toolboxScripts(probe);
   if (scripts && definition.launchStyle === "line-column") {
-    const script = join(scripts, definition.id);
+    const script = probe.platform === "win32" ? win32.join(scripts, `${definition.id}.cmd`) : join(scripts, definition.id);
     if (probe.exists(script)) return { kind: "command", command: script, style: "line-column", baseArgs };
   }
   if (probe.platform !== "darwin") return undefined;
@@ -151,10 +152,16 @@ export function editorCommand(
   return { command: launch.command, args: [...base, "--line", String(line), ...(column ? ["--column", String(column)] : []), target] };
 }
 
-/** Starts the editor and returns once it is running; a GUI launcher is never waited for. */
+/**
+ * Starts the editor and returns once it is running; a GUI launcher is never
+ * waited for. On Windows `code.cmd` and Toolbox's scripts run through cmd.exe,
+ * whose console is hidden; an editor's own .exe is not, or its window would be.
+ */
 export function launchEditor(command: string, args: readonly string[], cwd: string): Promise<void> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, [...args], { cwd, detached: true, stdio: "ignore" });
+    const invocation = commandInvocation(command, args);
+    const viaShell = invocation.windowsVerbatimArguments === true;
+    const child = spawn(invocation.command, invocation.args, { cwd, detached: true, stdio: "ignore", windowsHide: viaShell, windowsVerbatimArguments: viaShell });
     child.once("error", reject);
     child.once("spawn", () => {
       child.unref();
