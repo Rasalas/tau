@@ -84,4 +84,13 @@ describe("composer thread cost", () => {
     expect(cost.compareDocumentPosition(context) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(context.compareDocumentPosition(attachment) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it("shows a subscription's usage apart, with what the API would have charged", () => {
+    renderComposer({ ...usage, costUsd: 0, subscription: { ...usage, apiValueUsd: 1.2 } });
+    const button = screen.getByLabelText("Thread cost plan ≈$1.20");
+    fireEvent.click(button);
+    expect(screen.getByText("Subscription")).toBeTruthy();
+    expect(screen.getByText("Would have cost ≈ $1.20 via the API")).toBeTruthy();
+    expect(screen.queryByText("Spent")).toBeNull();
+  });
 });

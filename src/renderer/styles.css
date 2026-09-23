@@ -1237,6 +1237,8 @@ button > svg { pointer-events: none; }
   font: 11px var(--mono); color: var(--muted); line-height: 1;
 }
 .thread-cost:hover { color: var(--ink-2); }
+/* A subscription's value is not money spent; it reads quieter than a cost. */
+.thread-cost.plan { font-style: italic; color: var(--faint); }
 .thread-cost-popover {
   position: absolute; bottom: 28px; right: -40px; z-index: 30; width: max-content; max-width: 280px;
   display: flex; flex-direction: column; gap: 6px;
@@ -1248,6 +1250,8 @@ button > svg { pointer-events: none; }
 .thread-cost-popover > header > strong { font-size: 12.5px; font-weight: 700; }
 .thread-cost-popover > header > b { margin-left: auto; font: 11px var(--mono); color: var(--ink-2); font-weight: 400; }
 .thread-cost-popover > small { font: 10.5px var(--mono); color: var(--ink-3); white-space: nowrap; }
+.thread-cost-popover > small.thread-cost-value { color: var(--muted); font-style: italic; }
+.thread-cost-popover > small + header { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
 
 /* ------------------------------------------------------------------ dock */
 

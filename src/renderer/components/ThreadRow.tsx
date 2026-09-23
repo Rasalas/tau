@@ -2,7 +2,7 @@ import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "r
 import { ArchiveRestore, Check, CircleAlert, Hourglass, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
-import { threadCostLabel, threadUsageDetail } from "../cost-format";
+import { threadCostLabel, threadUsageSummary } from "../cost-format";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
 import { tooltipProps } from "./ui/Tooltip";
 
@@ -155,7 +155,7 @@ export const ThreadRow = memo(function ThreadRow({
           {childCount}
           {showLabel && session.projectLabel ? <MiddleTruncate className="thread-branch" value={session.projectLabel} /> : null}
           {accessory}
-          {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadUsageDetail(session.usage))}>{cost}</span> : null}
+          {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadUsageSummary(session.usage))}>{cost}</span> : null}
           <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
         </span>
       </button>
