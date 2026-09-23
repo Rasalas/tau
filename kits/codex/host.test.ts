@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
-import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { CodexAppServer, spawnInput } from "./app-server.js";
 import createCodexHostExtension from "./host.js";
 import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
@@ -28,20 +28,25 @@ async function caskInstall(root: string): Promise<string> {
 
 const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 
-async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv } = {}) {
+async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv; settings?: unknown; install?: (root: string) => Promise<string> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-codex-host-"));
   directories.push(root);
-  const path = await caskInstall(root);
+  const path = await (options.install ?? caskInstall)(root);
+  if (options.settings) {
+    await mkdir(join(root, "state", "tau.codex"), { recursive: true });
+    await writeFile(join(root, "state", "tau.codex", "settings.json"), JSON.stringify(options.settings));
+  }
   const backends: HostRuntimeBackendProvider[] = [];
+  const events: PublishedKitEvent[] = [];
   const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
-  const launches: Array<{ threadId?: string; args: readonly string[]; env: NodeJS.ProcessEnv }> = [];
+  const launches: Array<{ threadId?: string; args: readonly string[]; env: NodeJS.ProcessEnv; instance: string }> = [];
   const connected: RuntimeSessionInfo[] = [];
   const connectOptions: unknown[] = [];
   const extension = createCodexHostExtension({
     env: options.env ?? {},
     fetch,
     readVersion: async () => "installed" in options ? options.installed : "0.154.0",
-    openSession: (input) => (launches.push({ ...(input.threadId ? { threadId: input.threadId } : {}), args: input.args, env: input.env }), CodexAppServer.open({
+    openSession: (input) => (launches.push({ ...(input.threadId ? { threadId: input.threadId } : {}), args: input.args, env: input.env, instance: input.instance }), CodexAppServer.open({
       command: process.execPath,
       cwd: input.cwd,
       env: { ...process.env, CODEX_HOME: join(root, "home") },
@@ -58,9 +63,13 @@ async function harness(options: { installed?: string | undefined; found?: boolea
     sessionsDir: join(root, "agent", "sessions"),
     stateDir: join(root, "state"),
     noteSubprocess: () => undefined,
-    registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
-  });
-  return { registry, provider: backends[0]!, root, fetch, launches, connected, connectOptions };
+    registerRuntimeBackend: (provider) => {
+      backends.push(provider);
+      return () => { backends.splice(backends.indexOf(provider), 1); };
+    },
+  }, (event) => events.push(event));
+  const backend = (kind: string) => backends.find((entry) => entry.kind === kind);
+  return { registry, provider: backends[0]!, backend, backends, events, root, fetch, launches, connected, connectOptions };
 }
 
 const context = { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) } as never;
@@ -142,6 +151,7 @@ describe("Codex host half", () => {
   it("reports the CLI, its update and the account it is signed in as", async () => {
     const { registry, root } = await harness();
     await expect(registry.invoke("tau.codex", "status")).resolves.toEqual({
+      instance: "default",
       command: "codex",
       path: join(root, "bin", "codex"),
       version: "0.154.0",
@@ -187,5 +197,87 @@ describe("Codex host half", () => {
     await registry.activate(stranger);
     await expect(usageKit.read!()).resolves.toMatchObject({ threads: [{ threadId: "thread-1", cwd: "/repo", model: "gpt-5.6-luna", usage: { totalTokens: 17, turns: 1 } }] });
     await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.codex/usage.");
+  });
+
+  it("registers a backend per instance that runs its own home, variables and arguments, and keeps each thread on its instance", async () => {
+    const { registry, backend, backends, events, launches, root } = await harness();
+    const home = join(root, "work-home");
+    const saved = await registry.invoke("tau.codex", "save-instance", { instance: { id: "work", name: "Work", home, env: { CODEX_EXTRA: "1" }, args: "-c 'model_verbosity=\"low\"'" } });
+    expect(saved).toMatchObject({ instances: [{ id: "default", kind: "codex", label: "Codex" }, { id: "work", kind: "codex@work", label: "Codex · Work", home, threads: 0 }] });
+    expect(events.map((event) => event.name)).toEqual(["instances"]);
+    const work = backend("codex@work")!;
+    expect(work).toMatchObject({ label: "Codex · Work", modelProvider: "openai" });
+    expect(work.adapter.id).toBe("codex@work");
+
+    const thread = await work.open("work-thread", root, { resume: false }, context);
+    try {
+      await thread.prompt({ text: "Reply with one word.", delivery: "prompt" });
+    } finally {
+      await thread.dispose();
+    }
+    const launch = launches.find((entry) => entry.threadId === "work-thread")!;
+    expect(launch.instance).toBe("work");
+    expect(launch.env.CODEX_HOME).toBe(home);
+    expect(launch.env.CODEX_EXTRA).toBe("1");
+    expect(launch.args.slice(-2)).toEqual(["-c", 'model_verbosity="low"']);
+    expect(thread.kind).toBe("codex@work");
+    await expect(work.listThreads()).resolves.toEqual([expect.objectContaining({ threadId: "work-thread" })]);
+    await expect(backend("codex")!.listThreads()).resolves.toEqual([]);
+    await expect(backend("codex")!.lookup("work-thread")).resolves.toBeUndefined();
+    await expect(registry.invoke("tau.codex", "instances")).resolves.toMatchObject({ instances: [{ id: "default", threads: 0 }, { id: "work", threads: 1 }] });
+
+    await registry.invoke("tau.codex", "remove-instance", { instance: "work" });
+    expect(backends.map((entry) => entry.kind)).toEqual(["codex"]);
+    // The thread is only out of the list: an instance with the same id brings it back.
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "work", home } });
+    await expect(backend("codex@work")!.listThreads()).resolves.toEqual([expect.objectContaining({ threadId: "work-thread" })]);
+    await expect(registry.invoke("tau.codex", "remove-instance", { instance: "default" })).rejects.toThrow("cannot be removed");
+    await expect(registry.invoke("tau.codex", "save-instance", { instance: { id: "Bad Id" } })).rejects.toThrow("starts with a letter");
+  });
+
+  it("reads a settings file from before instances as the default instance and keeps its shape", async () => {
+    const found = await harness();
+    const path = join(found.root, "bin", "codex");
+    await chmod(path, 0o755);
+    const { registry, root } = await harness({ settings: { command: path } });
+    await expect(registry.invoke("tau.codex", "status")).resolves.toMatchObject({ instance: "default", command: path, commandSource: "setting" });
+    await registry.invoke("tau.codex", "save-instance", { instance: { id: "second", name: "Second" } });
+    expect(JSON.parse(await readFile(join(root, "state", "tau.codex", "settings.json"), "utf8"))).toEqual({ command: path, instances: [{ id: "second", name: "Second" }] });
+  });
+
+  it("judges the CLI by its version policy, names the release to install and refuses a broken one", async () => {
+    const policy = { codex: { ranges: [{ range: ">=0.154.0 <0.156.0", status: "unsafe" }, { range: "~0.157.0 || =0.158.0", status: "broken" }], recommendedVersion: "0.160.0" } };
+    const npmInstall = async (root: string) => {
+      const real = join(root, "lib", "node_modules", "@openai", "codex", "bin", "codex.js");
+      await mkdir(join(root, "lib", "node_modules", "@openai", "codex", "bin"), { recursive: true });
+      await mkdir(join(root, "bin"), { recursive: true });
+      await writeFile(real, "");
+      await symlink(real, join(root, "bin", "codex"));
+      return join(root, "bin", "codex");
+    };
+    const unsafe = await harness({ env: { TAU_VERSION_POLICY: JSON.stringify(policy) }, install: npmInstall });
+    await expect(unsafe.provider.version!()).resolves.toMatchObject({
+      installed: "0.154.0",
+      compatibility: { status: "unsafe", recommendedVersion: "0.160.0", installCommand: "npm install -g @openai/codex@0.160.0" },
+    });
+    await expect(unsafe.registry.invoke("tau.codex", "status")).resolves.toMatchObject({ compatibility: { status: "unsafe" } });
+    // Unsafe warns; a thread still starts.
+    const thread = await unsafe.provider.open("t", unsafe.root, { resume: false }, context);
+    await thread.dispose();
+
+    // Homebrew cannot pin a release, so there is no install command, only the update.
+    const cask = await harness({ env: { TAU_VERSION_POLICY: JSON.stringify(policy) } });
+    await expect(cask.provider.version!()).resolves.toMatchObject({ compatibility: { status: "unsafe", recommendedVersion: "0.160.0" }, updateCommand: "brew upgrade --cask codex" });
+    expect((await cask.provider.version!())?.compatibility?.installCommand).toBeUndefined();
+
+    const broken = await harness({ installed: "0.157.2", env: { TAU_VERSION_POLICY: JSON.stringify(policy) }, install: npmInstall });
+    await expect(broken.provider.open("t", "/repo", { resume: false }, context)).rejects.toThrow("Codex 0.157.2 does not work with Tau. Install 0.160.0 with: npm install -g @openai/codex@0.160.0");
+    await expect(broken.registry.invoke("tau.codex", "status")).resolves.toMatchObject({ unsupported: true, compatibility: { status: "broken" } });
+
+    // Without an override the bundled policy only calls a CLI older than the protocol broken.
+    const current = await harness({ installed: "0.155.1" });
+    expect((await current.provider.version!())?.compatibility).toBeUndefined();
+    const old = await harness({ installed: "0.150.0" });
+    await expect(old.provider.version!()).resolves.toMatchObject({ compatibility: { status: "broken", recommendedVersion: "0.154.0" } });
   });
 });
