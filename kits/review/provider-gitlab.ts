@@ -1,16 +1,20 @@
 import { HostCommandError } from "tau/host-extension";
-import { PROVIDERS, type PullRequestRef, type ReviewRequest } from "./protocol.js";
+import { PROVIDERS, type PullRequestRef } from "./protocol.js";
 import { readPages, type ProviderTools, type SourceControlProvider } from "./provider.js";
 import { cliAuthStatus, missingCli, parseCandidates } from "./provider-github.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitLabChecks, parseGitLabDetail, parseGitLabDiffs, parseGitLabThreads } from "./pull-request-json.js";
 import { parseGitLabList } from "./pull-request-list-json.js";
+import { parseGitLabBranchRequest } from "./branch-request-json.js";
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs } from "./request-cli.js";
 
 const LIST_BUFFER = 32 * 1024 * 1024;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
+
+/** A call that names its project, for a request opened by its URL rather than from a checkout. */
+const inRepository = (target: { host: string; repo: string; cwd?: string }): string[] => target.cwd || !target.host || !target.repo ? [] : ["--repo", `https://${target.host}/${target.repo}`];
 
 /** GitLab through `glab`: its own verbs for the branch's request, `glab api` with JSON on stdin for the rest. */
 export function createGitLabProvider(tools: ProviderTools): SourceControlProvider {
@@ -34,9 +38,27 @@ export function createGitLabProvider(tools: ProviderTools): SourceControlProvide
     },
     status: () => cliAuthStatus(tools, kind, "gitlab.com"),
 
-    current: async (branch) => await tools.workspace("review-request", branch.workspace ? { workspace: branch.workspace } : { fresh: branch.fresh }) as ReviewRequest | undefined,
+    current: async ({ cwd, host }) => {
+      const output = await tools.cli(kind, { args: ["mr", "view", "-F", "json"] }, "Reading the branch's merge request", { cwd, ...(host ? { host } : {}) }).catch(() => undefined);
+      return output ? parseGitLabBranchRequest(output) : undefined;
+    },
     create: async ({ cwd }, input) => createdUrl(await tools.cli(kind, { args: createArgs(kind, input) }, "Creating the merge request", { cwd })),
-    merge: async ({ cwd }, request, method) => { await tools.cli(kind, { args: mergeArgs(kind, request.number, method) }, `Merging MR #${request.number}`, { cwd }); },
+    merge: async (target, request, method, options = {}) => {
+      const args = [...mergeArgs(kind, request.number, method), ...(options.deleteBranch ? ["--remove-source-branch"] : []), ...inRepository(target)];
+      await tools.cli(kind, { args }, `Merging MR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
+      return options.deleteBranch && request.headRef ? { branchDeleted: request.headRef } : undefined;
+    },
+    // `glab mr merge` can arm the merge but never disarm it; that direction goes to the API.
+    autoMerge: async (target, request, enable, method, options = {}) => {
+      if (enable) {
+        const args = ["mr", "merge", String(request.number), "--yes", "--auto-merge=true", ...(method === "squash" ? ["--squash"] : method === "rebase" ? ["--rebase"] : []), ...(options.deleteBranch ? ["--remove-source-branch"] : []), ...inRepository(target)];
+        await tools.cli(kind, { args }, `Turning on auto-merge for MR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
+        return;
+      }
+      if (!target.host || !target.repo) throw new HostCommandError("Tau could not tell which GitLab project holds this merge request.");
+      const path = `projects/${encodeURIComponent(target.repo)}/merge_requests/${request.number}/cancel_merge_when_pipeline_succeeds`;
+      await tools.cli(kind, { args: ["api", "--hostname", target.host, "--method", "POST", path] }, `Turning off auto-merge for MR #${request.number}`, { host: target.host });
+    },
     edit: async ({ cwd }, request, input) => { await tools.cli(kind, { args: editArgs(kind, request.number, input) }, `Editing MR #${request.number}`, { cwd }); },
     setDraft: async ({ cwd }, request, draft) => { await tools.cli(kind, { args: draftArgs(kind, request.number, draft) }, `Editing MR #${request.number}`, { cwd }); },
 

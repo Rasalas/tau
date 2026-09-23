@@ -29,6 +29,8 @@ export interface SourceControlOptions {
   fetch?: HttpFetch;
   /** Read for provider overrides such as `TAU_BITBUCKET_API_URL`; the process's own by default. */
   env?: Record<string, string | undefined>;
+  /** The pause between two polls; a timer unless a test hands in its own. */
+  wait?(ms: number): Promise<void>;
 }
 
 /** Review Kit's providers, the one that serves a remote or a URL, and the user's choice for self-hosted servers. */
@@ -200,6 +202,7 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
       }
     },
     now,
+    wait: options.wait ?? ((ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); })),
   };
 
   const providers = new Map(REQUEST_SERVICES.map((kind) => [kind, FACTORIES[kind](tools, env)] as const));

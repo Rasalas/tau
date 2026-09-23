@@ -14,7 +14,6 @@ import type {
   UiFileStat,
   UiFileWriteResult,
   UiProject,
-  UiReviewRequest,
   UiSession,
   UiWorktreeStatus,
   UiWorkspaceChanges,
@@ -223,8 +222,6 @@ export interface WorkspaceHostCommands {
   "add-remote": { input: { name?: string; url: string }; output: { hasCommits: boolean } };
   /** Review Kit's reading of the branch before it opens a request (callers: `tau.review`). */
   "review-request-context": { input: { detail?: boolean; base?: string } | undefined; output: ReviewRequestContext };
-  /** The branch's pull or merge request as `gh`/`glab` report it; `fresh` skips the short cache (callers: `tau.review`). */
-  "review-request": { input: { workspace?: string; fresh?: boolean } | undefined; output: UiReviewRequest | undefined };
   /** Reads metadata for a known project without changing the active host workspace. */
   "workspace-info": { input: { workspace?: string } | undefined; output: WorkspaceInfo };
   /** Reads every linked checkout only when the picker needs cleanup safety facts. */

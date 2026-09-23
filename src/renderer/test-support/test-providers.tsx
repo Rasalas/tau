@@ -1,4 +1,7 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import type { UiProject, UiSession } from "../../shared/contracts";
+import { ThreadStore } from "../../workbench/thread-store";
+import { ThreadStoreContext } from "../workbench-context";
 import { createMemoryStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { createRendererServices } from "../renderer-services";
@@ -18,4 +21,17 @@ export function TestProviders({ children, preferences }: { children: ReactNode; 
       </RendererServicesProvider>
     </ClientStorageProvider>
   );
+}
+
+/**
+ * A thread index for a component that reads `useThreadStore` (the rail's
+ * threads and projects) without the whole `App` around it.
+ */
+export function TestThreadStore({ threads, projects = [], children }: { threads: UiSession[]; projects?: UiProject[]; children: ReactNode }) {
+  const [store] = useState(() => {
+    const next = new ThreadStore();
+    next.applyThreadIndex({ projects, sessions: threads });
+    return next;
+  });
+  return <ThreadStoreContext.Provider value={store}>{children}</ThreadStoreContext.Provider>;
 }

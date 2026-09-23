@@ -5,6 +5,7 @@ import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import type {
   HostMcpConnection,
   HostMcpConnectOptions,
+  HostMcpInstructionsProvider,
   HostMcpTool,
   HostMcpToolGate,
   HostMcpToolProvider,
@@ -19,6 +20,8 @@ const BODY_LIMIT_BYTES = 4 * 1024 * 1024;
 
 export interface McpEndpointOptions {
   providers(): Iterable<HostMcpToolProvider>;
+  /** The sections of `instructions` for a thread; none when absent. */
+  instructions?(): Iterable<HostMcpInstructionsProvider>;
   gates(): Iterable<HostMcpToolGate>;
   /** A yes/no question on the thread's dialog surface; a cancelled one is `false`. */
   confirm(threadId: string, title: string, message: string, signal: AbortSignal): Promise<boolean>;
@@ -124,6 +127,20 @@ export class McpEndpoint {
       for (const tool of tools) if (!byName.has(tool.name) && (!only || only.has(tool.name))) byName.set(tool.name, tool);
     }
     return [...byName.values()];
+  }
+
+  /** What the server tells the thread's runtime on `initialize`: every provider's section, in order. */
+  instructions(thread: RuntimeSessionInfo): string | undefined {
+    const sections: string[] = [];
+    for (const provider of this.options.instructions?.() ?? []) {
+      try {
+        const section = provider(thread)?.trim();
+        if (section) sections.push(section);
+      } catch (error) {
+        this.options.log("mcp.instructions-failed", messageOf(error));
+      }
+    }
+    return sections.length > 0 ? sections.join("\n\n") : undefined;
   }
 
   /** One tools/call for the thread a credential names: validate, gate, run. */
@@ -267,7 +284,8 @@ export class McpEndpoint {
       import("@modelcontextprotocol/sdk/server/streamableHttp.js"),
       import("@modelcontextprotocol/sdk/types.js"),
     ]);
-    const server = new Server({ name: MCP_SERVER_NAME, title: "Tau", version: this.options.version ?? "0.0.0" }, { capabilities: { tools: {} } });
+    const instructions = this.instructions(credential.thread);
+    const server = new Server({ name: MCP_SERVER_NAME, title: "Tau", version: this.options.version ?? "0.0.0" }, { capabilities: { tools: {} }, ...(instructions ? { instructions } : {}) });
     server.setRequestHandler(ListToolsRequestSchema, () => ({
       tools: this.tools(credential.thread, credential.only).map((tool) => ({
         name: tool.name,

@@ -9,6 +9,7 @@ import { providerInfo, type ChangesSectionProps, type MergeMethod, type ReviewRe
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
 import { PublishForm } from "./publish-form.js";
+import { deleteBranchByDefault, outcomeText, preferredMethod, rememberMethod } from "./merge-controls.js";
 
 type Mode = "idle" | "create" | "merge" | "edit" | "publish";
 
@@ -41,7 +42,8 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     const [status, setStatus] = useState<ReviewRequestStatus>();
     const [mode, setMode] = useState<Mode>("idle");
     const [form, setForm] = useState<Form>(EMPTY_FORM);
-    const [method, setMethod] = useState<MergeMethod>("squash");
+    const [method, setMethod] = useState<MergeMethod>(() => preferredMethod(["squash", "merge", "rebase"]) ?? "squash");
+    const [deleteBranch, setDeleteBranch] = useState(false);
     const [busy, setBusy] = useState<string>();
     const [error, setError] = useState<string>();
     const latest = useRef(0);
@@ -76,6 +78,8 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     // A provider without the chosen method merges by its first one.
     const chosen = methods.some((entry) => entry.value === method) ? method : methods[0]?.value ?? method;
     const hasChanges = snapshot.changes.files.length > 0;
+    // Checks still running or failing: the host can merge it later, once they pass.
+    const waiting = Boolean(open && !open.autoMerge && capabilities.autoMerge && open.checks && (open.checks.pending > 0 || open.checks.failed > 0));
 
     const startCreate = () => run("Writing title and description…", async () => {
       if (hasChanges) {
@@ -104,11 +108,20 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     });
 
     const merge = () => run(`Merging ${short}…`, async () => {
-      const next = await client.merge(chosen);
+      rememberMethod(chosen);
+      const next = await client.merge(chosen, deleteBranch && capabilities.deleteBranch);
       publish(next);
       setMode("idle");
       void store.refresh();
-      actions.notify(`${short} #${open?.number ?? ""} merged.`);
+      actions.notify(`${short} #${open?.number ?? ""} merged.${outcomeText(next.merge)}`);
+    });
+
+    const autoMerge = (enable: boolean) => run(enable ? "Turning on auto-merge…" : "Turning off auto-merge…", async () => {
+      if (enable) rememberMethod(chosen);
+      const next = await client.autoMerge(enable, enable ? chosen : undefined, enable && deleteBranch && capabilities.deleteBranch);
+      publish(next);
+      setMode("idle");
+      actions.notify(enable ? `Auto-merge turned on for ${short} #${open?.number ?? ""}: it merges as soon as the host allows.` : `Auto-merge turned off for ${short} #${open?.number ?? ""}.`);
     });
 
     const save = () => run(`Saving ${short}…`, async () => {
@@ -152,7 +165,8 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
             ) : (
               <>
                 {capabilities.edit || capabilities.draft ? <button onClick={() => { setForm({ title: open.title, body: open.body ?? "", base: open.baseRef, draft: Boolean(open.draft) }); setMode("edit"); }}>Edit…</button> : null}
-                {methods.length > 0 ? <button className="primary" onClick={() => setMode("merge")}>Merge…</button> : null}
+                {open.autoMerge && capabilities.autoMerge ? <button onClick={() => void autoMerge(false)}>Disable auto-merge</button> : null}
+                {methods.length > 0 ? <button className="primary" onClick={() => { setDeleteBranch(deleteBranchByDefault(plugin.preferences)); setMode("merge"); }}>Merge…</button> : null}
               </>
             )}
           </div>
@@ -215,9 +229,16 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
               Merge {short} #{open.number} into <code>{open.baseRef}</code> ({METHODS.find((entry) => entry.value === chosen)?.label.toLowerCase()})?
               {open.draft ? " It is still a draft." : ""}
               {open.checks && open.checks.failed > 0 ? ` ${open.checks.failed} check${open.checks.failed === 1 ? " is" : "s are"} failing.` : ""}
+              {waiting ? " Auto-merge lets the host merge it once its checks and approvals pass." : ""}
             </p>
+            {capabilities.deleteBranch && open.headRef ? (
+              <label className="request-draft">
+                <input type="checkbox" checked={deleteBranch} onChange={(event) => setDeleteBranch(event.target.checked)} /> Delete <code>{open.headRef}</code> after merging
+              </label>
+            ) : null}
             <div className="commit-actions">
-              <button className="primary" disabled={Boolean(busy)} onClick={() => void merge()}>Merge {short} #{open.number}</button>
+              {waiting ? <button className="primary" disabled={Boolean(busy)} onClick={() => void autoMerge(true)}>Enable auto-merge</button> : null}
+              <button className={waiting ? "" : "primary"} disabled={Boolean(busy)} onClick={() => void merge()}>{waiting ? "Merge now" : `Merge ${short} #${open.number}`}</button>
               <button disabled={Boolean(busy)} onClick={() => setMode("idle")}>Cancel</button>
             </div>
           </div>
@@ -230,6 +251,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
 }
 
 function RequestSummary({ request, onOpen, onBrowse }: { request: ReviewRequest; onOpen(): void; onBrowse(): void }) {
+  const armed = request.state === "open" && request.autoMerge ? `auto-merge${request.autoMerge.method ? ` · ${request.autoMerge.method}` : ""}` : undefined;
   const state = requestStateLabel(request);
   const checks = checksLabel(request.checks);
   const short = requestShort(request);
@@ -243,6 +265,7 @@ function RequestSummary({ request, onOpen, onBrowse }: { request: ReviewRequest;
       </button>
       <span className={`request-state state-${state}`}>{state}</span>
       {checks ? <span className={`request-checks ${checksTone(request.checks)}`}>checks {checks}</span> : null}
+      {armed ? <span className="request-state state-armed" title="The host merges it on its own once its requirements are met">{armed}</span> : null}
     </>
   );
 }

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { HostCommandError } from "tau/host-extension";
 import {
   PROVIDERS,
+  type AutoMergeState,
   type PullRequestActor,
   type PullRequestCheck,
   type PullRequestCheckStatus,
@@ -179,6 +180,12 @@ export function parseAzureThreads(output: string): { threads: PullRequestThread[
   return { threads, comments: comments.sort((left, right) => left.createdAt.localeCompare(right.createdAt)) };
 }
 
+/** Auto-complete is armed while someone is named as having set it. */
+export function azureAutoMerge(raw: Json): AutoMergeState | undefined {
+  if (!text(record(raw.autoCompleteSetBy).id) && !text(record(raw.autoCompleteSetBy).uniqueName)) return undefined;
+  return { method: record(raw.completionOptions).squashMerge === true ? "squash" : "merge" };
+}
+
 export function parseAzureDetail(ref: PullRequestRef, pull: string, threads: string, commits: string, checks: PullRequestCheck[]): PullRequestDetail {
   const raw = record(JSON.parse(pull));
   const author = actor(raw.createdBy);
@@ -187,8 +194,10 @@ export function parseAzureDetail(ref: PullRequestRef, pull: string, threads: str
     return who ? [{ login: who.login, verdict: verdict(reviewer.vote), ...(reviewer.isContainer === true ? { team: true } : {}) }] : [];
   });
   const closed = text(raw.closedDate);
+  const autoMerge = azureAutoMerge(raw);
   return {
     ref,
+    ...(autoMerge ? { autoMerge } : {}),
     ...(author ? { author } : {}),
     ...(text(raw.creationDate) ? { createdAt: text(raw.creationDate) } : {}),
     ...(closed ? { updatedAt: closed } : text(raw.creationDate) ? { updatedAt: text(raw.creationDate) } : {}),
@@ -293,6 +302,7 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
         state: state(raw), draft: raw.isDraft === true,
         ...(typeof raw.description === "string" ? { body: raw.description } : {}),
         ...(found.length > 0 ? { checks: { passed: found.length - failed - pending, failed, pending, total: found.length } } : {}),
+        ...(azureAutoMerge(raw) ? { autoMerge: azureAutoMerge(raw) } : {}),
       };
       return request;
     },
@@ -303,8 +313,16 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
       ], "Creating the pull request")));
       return typeof created.pullRequestId === "number" ? refFor(target, created.pullRequestId).url : undefined;
     },
-    merge: async (target, request, method) => {
-      await update(target, request.number, ["--status", "completed", "--squash", method === "squash" ? "true" : "false"], `Merging PR #${request.number}`);
+    merge: async (target, request, method, options = {}) => {
+      await update(target, request.number, ["--status", "completed", "--squash", method === "squash" ? "true" : "false", ...(options.deleteBranch ? ["--delete-source-branch", "true"] : [])], `Merging PR #${request.number}`);
+      return options.deleteBranch && request.headRef ? { branchDeleted: request.headRef } : undefined;
+    },
+    // Azure calls it auto-complete: the request completes itself once its policies pass.
+    autoMerge: async (target, request, enable, method, options = {}) => {
+      const args = enable
+        ? ["--auto-complete", "true", "--squash", method === "squash" ? "true" : "false", ...(options.deleteBranch ? ["--delete-source-branch", "true"] : [])]
+        : ["--auto-complete", "false"];
+      await update(target, request.number, args, `${enable ? "Turning on" : "Turning off"} auto-complete for PR #${request.number}`);
     },
     edit: async (target, request, input) => {
       await update(target, request.number, [...(input.title !== undefined ? ["--title", input.title] : []), ...(input.body !== undefined ? ["--description", input.body || " "] : [])], `Editing PR #${request.number}`);

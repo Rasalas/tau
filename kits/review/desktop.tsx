@@ -19,6 +19,7 @@ import { createRequestBadge } from "./request-badge.js";
 import { createRequestSection } from "./request-section.js";
 import { LinkDialogs } from "./link-dialog.js";
 import { PendingReviewStore } from "./pending-review.js";
+import { createProactivePanels } from "./proactive-panels.js";
 import { pullRequestClient } from "./pull-request-client.js";
 import { registerPullRequestTab } from "./pull-request-tab.js";
 import { requestClient, RowRequests } from "./requests.js";
@@ -46,6 +47,7 @@ export const reviewExtension: DesktopExtension = {
     const links = new ThreadLinkRows(client);
     const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs() };
     let chips: ComposerContextChips | undefined;
+    let workspaceStore: WorkspaceStoreApi | undefined;
     // The rest of the kit's settings are its Review page; the model picker stays here.
     plugin.registerOptions(COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"));
     plugin.registerSettingsPage({
@@ -55,6 +57,7 @@ export const reviewExtension: DesktopExtension = {
       order: 36,
       scope: "both",
       keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace",
+        "delete branch", "merge", "proactive panels",
         "git hosts", "github", "gitlab", "forgejo", "gitea", "codeberg", "bitbucket", "azure devops", "self-hosted", "tea", "az"],
       profiles: ["desktop", "web"],
       Component: createReviewSettingsPage(plugin.host),
@@ -67,7 +70,9 @@ export const reviewExtension: DesktopExtension = {
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
     const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared);
+    const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
     const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
+      workspaceStore = store;
       const disposers = [
         plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store, comments, () => chips) }),
         plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => store.openReview() }),
@@ -80,9 +85,9 @@ export const reviewExtension: DesktopExtension = {
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),
         store.registerThreadRowAccessory(createRequestBadge(rows, links)),
       ];
-      return () => { for (const dispose of disposers.reverse()) dispose(); };
+      return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseStore(); releaseTabs(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseStore(); releaseProactive(); releaseTabs(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 
