@@ -276,6 +276,7 @@ Initial local targets:
 - license headers deduplicated on 2026-09-22, budgets unchanged: every icon module carries the same license comment, and the minifier kept all 1,722 copies, 294 KB of the icon chunk. `vite.legal-comments.ts` now keeps the first copy of each legal comment per chunk. Total JavaScript went from 1,900,561 to 1,584,805 bytes (gzip 479,758 to 474,747), the icon chunk from 935 KB to 631 KB and the initial script from 749 KB to 740 KB (227 KB gzip). The browser client's total went down to 1,577,244 bytes (472,681 gzip). Gzip is now the tighter of the two total budgets
 - kit bundles are outside these budgets: `scripts/build-report.mjs` measures `dist/` only, and `scripts/build-kits.mjs` writes each kit's desktop half to `dist-kits/<id>/desktop.js`, one unminified ES module with an inline source map that the renderer imports when the kit activates. Files Kit's CodeMirror 6 editor (2026-09-23) took its bundle from 140,806 bytes (42,623 gzip; 38,875 without the map) to 4,847,915 (1,301,657 gzip; 1,427,626 and 380,419 gzip without the map), and left the renderer's own assets unchanged. CodeMirror and each language mode are evaluated on the first open of a file that needs them; that first open measured 24 ms from the click to highlighted text in the isolated instance, and compiling the module about 16 ms under Node (9 ms without the map, which is two thirds of the bytes)
 - plan mode, the queued-message bubbles, Edit from here and the composer chords (2026-09-23) cost the renderer's initial script 6,813 bytes (777,435 → 784,248; gzip 238,820 → 240,998) and its initial stylesheet 118 bytes (137,968 → 138,086); the lazy chunks did not change. The plan card and the Plan ready row live in Plan Kit's own bundle (`dist-kits/tau.plan/desktop.js`, 42,480 bytes, 15,546 gzip). That leaves about 5.5 KB of gzip under the 500 KB total and 15.7 KB under the 800 KB initial budget
+- gzip headroom won back on 2026-09-23 (ticket D27), budgets unchanged: total JavaScript from 494,702 to 427,033 bytes of gzip and the initial script from 785,075 to 762,071 bytes, which leaves 73 KB of gzip under the total budget and 38 KB under the initial one. "Gzip headroom" below lists the four build changes and what each saved
 - the two viewport scenarios over a 1000-turn transcript with 128 activities (`transcript-viewport-anchored-1000-turns`, `transcript-viewport-streaming-1000-turns`) mount at about 21 ms median and 27 ms p95 on the development machine; like their `transcript-1000-turns` sibling they carry their own mount budget (30 ms) instead of the 24 ms default, since 2026-09-05
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
@@ -484,6 +485,33 @@ The desktop build before and after, from `reports/build-report.json`:
 The browser client went from 756,114 to 772,561 bytes of initial JavaScript (232,815 to 238,083 gzip) and from 478,074 to 485,541 bytes of total JavaScript gzip. The initial stylesheet had 2,559 bytes left, and the primitives' rules alone would have taken it over: the toast stack therefore loads with its own chunk and stylesheet (`src/renderer/components/ui/toasts.css`, 2,010 bytes) when the first toast is shown, which leaves 2,161 bytes of initial CSS.
 
 Tooltips cost no component per element: one `TooltipLayer` follows `pointerover` and `focusin` on the document and reads `data-tooltip`, so a rail of a thousand rows adds attributes, not listeners. The renderer benchmark, base and current built side by side and run on the development machine under a load average of 15 to 19, showed no change beyond noise: `app-tool-output-stream` (the whole workbench, which now mounts the three layers) measured a mount median of 30.8 ms on the base and 45.7 ms on the current side in the full runs, and 32.8/29.1 ms against 29.9/30.0 ms in two interleaved reruns of that scenario alone. `long-user-message` and `diff-2mb` fail their budgets on the base as well under that load.
+
+### Gzip headroom
+
+After wave D the total JavaScript had 5.3 KB of gzip left under its 500 KB budget. Four changes to the renderer build (ticket D27, 2026-09-23) won back 67.7 KB of it without raising a budget. Desktop build, from `reports/build-report.json`, each row measured after the one above it:
+
+| change | initial JavaScript | total JavaScript |
+| --- | ---: | ---: |
+| base (`t3/wave-d`, `12933f1`) | 785,075 (241,227 gzip) | 1,643,620 (494,702 gzip) |
+| icon `key` hashes blanked (`vite.icon-keys.ts`) | 783,191 (240,421) | 1,550,184 (458,296) |
+| shared icon names built at run time (`src/renderer/shared-icons.ts`) | 783,297 (240,440) | 1,431,107 (433,508) |
+| native `structuredClone` for Markdown (`vite.renderer-build.ts`) | 780,146 (239,181) | 1,427,956 (432,230) |
+| build target Chrome 98 / Safari 15.4 (`vite.renderer-build.ts`) | 762,071 (234,982) | 1,406,257 (427,033) |
+
+The browser client went from 786,560 to 763,499 bytes of initial JavaScript (242,258 to 235,993 gzip) and from 1,627,859 to 1,390,897 bytes of total JavaScript (489,598 to 422,119 gzip). The stylesheets did not change.
+
+- **Icon keys.** Every element of a lucide icon carries a six-character hash as its React `key`, 7,197 of them across the set. `Icon` renders the elements as a fixed array, so index keys are enough. `stripIconKeys` blanks the keys in lucide's icon modules before minifying, in production builds only; React's development build would warn about the keyless list. `vite.icon-keys.test.ts` checks that every installed icon loses its keys and nothing else, and that `Icon` renders the same markup either way.
+- **Shared icon names.** Extension packages get `lucide-react` from the renderer's copy. That copy was the dynamic import's module namespace, so the icon chunk exported 6,137 names. The export list alone took 127 KB, 27 KB of it gzip. `sharedIconModule` now builds the same object from lucide's `icons` object. It lists each icon under its own name, as `<name>Icon` and as `Lucide<name>`, plus a table of 254 older names of renamed icons. `shared-icons.test.ts` compares it name for name with lucide-react's ES namespace, so a lucide upgrade that renames icons fails there.
+- **structuredClone.** `mdast-util-to-hast` imports `@ungap/structured-clone` and calls it with one argument, which that package passes straight to the native function. Its polyfill still sat in the initial script. Both renderer builds alias the package to a one-line stand-in, and a test checks that every call site still passes one argument.
+- **Build target.** Vite's default target (Chrome 87, Safari 14) made esbuild turn all 361 class fields in the initial script into helper calls. The renderer already needs `structuredClone` and `Array.prototype.at`, so both builds now target Chrome and Edge 98, Firefox 94 and Safari 15.4. `cssTarget` stays at Vite's default, so the stylesheets are byte for byte the same.
+
+The comparison captured twelve screens of an isolated instance, before and after, at a fixed 1280×760 viewport. They cover onboarding (three steps), the workbench with its rail, the Files, Changes and Agents dock panels, the command palette, the model picker and three Settings pages. Nine of the twelve came out pixel-identical. In the other three, one to five pixels were off by at most three colour levels, and the palette's caret blinked at a different moment. With the new build the renderer's shared `lucide-react` object held the same 6,137 names.
+
+Checked and left alone:
+
+- 27.5 KB of the initial script is reachable only through the `tau` module: the Settings rows and `useSetting`, `ThreadRow`, `ChangesTree`, `Dialog`, `VirtualList`, `FileKindIcon` and the config-layer store behind them. Kits read these names as soon as their modules run at startup, so they cannot move into a lazy chunk.
+- `property-information` (18.6 KB, most of it the SVG attribute table) comes in through `hast-util-to-jsx-runtime`, which chooses the table per element. Markdown produces no SVG, but slimming the table would tie Markdown rendering to a hand-kept list.
+- No package is bundled twice. The only nested copy is `escape-string-regexp`, which `mdast-util-find-and-replace` needs in its own version, and it is a few hundred bytes.
 
 ### Deferred extension binding
 
