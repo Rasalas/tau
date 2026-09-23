@@ -45,6 +45,9 @@ describe("worktree cleanup rules", () => {
     expect(evaluateWorktree(facts({ commitsBeyondBase: 2, integrated: true }), all, NOW).reasons).toEqual(["merged"]);
     // Commits of its own that the default branch does not have are neither merged nor unchanged.
     expect(evaluateWorktree(facts({ commitsBeyondBase: 2, integrated: false }), all, NOW).reasons).toEqual([]);
+    // A squash or rebase merge leaves the commits outside the default branch; the request says it merged.
+    expect(evaluateWorktree(facts({ commitsBeyondBase: 2, integrated: false, requestMerged: true }), all, NOW).reasons).toEqual(["merged"]);
+    expect(evaluateWorktree(facts({ commitsBeyondBase: 2, requestMerged: true }), { ...all, onMerge: false }, NOW).reasons).toEqual([]);
   });
 
   it("counts inactivity from the last thing that happened there", () => {

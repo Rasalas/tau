@@ -167,7 +167,12 @@ export function createWorkspaceHostExtension(): HostExtension {
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
       const labels = new Map<string, string | undefined>();
       // The worktrees Tau made, Settings → Storage and the cleanup sweep.
-      const worktrees = registerWorktreeStorage(context, { removed: (repository) => git.invalidate(repository, ["branch", "status", "workspace"]) });
+      // A branch merged by squash or rebase is only known merged from its request's state.
+      const cleanupRequests = createReviewRequestDetector({ findCommand: (name) => services.findCommand(name), onSubprocess: () => services.noteSubprocess() });
+      const worktrees = registerWorktreeStorage(context, {
+        removed: (repository) => git.invalidate(repository, ["branch", "status", "workspace"]),
+        requestState: async (path) => (await cleanupRequests.detect(path))?.state,
+      });
       const noteFailure = (label: string) => (error: unknown) => services.log(label, error instanceof Error ? error.message : String(error));
       const cwd = () => services.cwd();
       // A command may name another workspace by id; without one it means the host's.
@@ -353,10 +358,14 @@ export function createWorkspaceHostExtension(): HostExtension {
         }
       }, { callers: [REVIEW_KIT_ID] });
       // Review Kit opens, merges and edits requests; the Git it needs is read here.
-      context.registerCommand("review-request-context", (input) => readReviewRequestContext(cwd(), {
-        detail: record(input).detail === true,
-        ...(optionalString(input, "base") ? { base: optionalString(input, "base") } : {}),
-      }), { callers: [REVIEW_KIT_ID] });
+      context.registerCommand("review-request-context", async (input) => {
+        // Review's Pull Requests page and its links name another project by id or path.
+        const named = optionalString(input, "workspace");
+        return readReviewRequestContext(named ? await services.knownWorkspacePath(named) : cwd(), {
+          detail: record(input).detail === true,
+          ...(optionalString(input, "base") ? { base: optionalString(input, "base") } : {}),
+        });
+      }, { callers: [REVIEW_KIT_ID] });
       context.registerCommand("review-request", async (input) => {
         const named = optionalString(input, "workspace");
         const project = named ? await services.knownWorkspacePath(named) : cwd();
