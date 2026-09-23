@@ -159,13 +159,19 @@ as T3 Code's does, without a scrim; Escape gives focus back to that control,
 and choosing a model from the composer hands it to the prompt. It keys everything on
 what the catalog says: a rail with Pi's catalog split by model provider and
 every other runtime the host offers — each instance of one included — as one
-tab of its own (`model-picker-rail.ts`), a search across the catalog on hand, favourites
-reachable with ⌘1–9, and per tab one fold for legacy generations. Another
-runtime's tab says what choosing it means: a new thread's draft switches to
-it, and a thread that exists offers a new thread on it, because a thread keeps
-its runtime. A draft bound for a runtime other than the thread on screen
-chooses from that runtime's own catalog (`runtime-catalog`, which a backend
-answers through `newThreadCatalog` without opening a thread): the composer's
+tab of its own (`model-picker-rail.ts`), a search across every runtime's models, favourites
+reachable with ⌘1–9, and per tab one fold for legacy generations. The host
+keeps every runtime's catalog, Pi's too, whether or not a thread of it ran
+(`src/main/runtime-catalogs.ts`, stale-while-revalidate, on disk across
+restarts, with price, context, inputs and billing filled from Pi's model
+data), and the picker lists another runtime's models from it
+(`src/workbench/runtime-catalog-store.ts`); a runtime that cannot run says why
+(not installed, not signed in) instead of listing nothing. Picking another
+runtime's model binds a new thread's draft to that runtime; for a thread that
+exists it offers a new thread on it, because a thread keeps its runtime. A
+draft bound for a runtime other than the thread on screen chooses from that
+runtime's own catalog (`runtime-catalog`, which a backend answers through
+`newThreadCatalog` without opening a thread): the composer's
 model and thinking pickers work as they do for Pi, the draft keeps the choice
 with the runtime it was made for (`src/workbench/runtime-catalog-store.ts`),
 and `newSession` hands model and level to the new thread through

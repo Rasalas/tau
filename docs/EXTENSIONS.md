@@ -1211,6 +1211,35 @@ answers from `model/list` (cached per instance) and the instance home's
 `config.toml`, the Agent SDK runtime from its cached probe, Antigravity from
 the models its last session named.
 
+Since API 1.12.0 the host keeps that answer instead of asking per draft
+(`src/main/runtime-catalogs.ts`). It holds every runtime's catalog, Pi's
+included, in memory and in `<userData>/runtime-catalogs.json`; after
+start-up it asks, one runtime at a time, those whose answer is missing or
+half a day old, and a client that opens a picker gets what is held at once
+while the host asks again, behind the answer, any runtime last asked ten
+minutes ago or more. `newThreadCatalog` may therefore start the program; it
+is never asked twice at once and gives up after 30 s. A catalog reaches every
+client as a `runtime-catalog` event only when it changed, and the
+`runtime-catalogs` method answers only the catalogs a client does not hold
+(it names what it holds by `checkedAt`, which an unchanged answer keeps).
+
+A model in the answer (`HostCatalogModel`) may say more than its name:
+`billing` (`subscription`, `api-key`, `free`, `local`), `price` (USD per
+million tokens: `input`, `output`, `cacheRead`, `cacheWrite`),
+`contextWindow`, `maxOutput`, `images` and `reasoning`. Whatever it leaves out
+the host fills from Pi's model data when Pi knows the model — the same
+provider and id first, then any provider that prices the id — so a
+subscription offering still carries the price the model has over its API.
+`apiModelId` names the id to look up when `id` is an alias (the Agent SDK
+runtime's `opus` resolves to `claude-opus-5`); it never reaches a client. A
+runtime that cannot run answers `status: "not-installed"` or
+`"sign-in-required"` with a `note`, and the host lists none of its models;
+one whose answer throws or times out keeps the models it named last with
+`status: "unavailable"` and the error as `note`. Codex answers `billing` from
+its account (a ChatGPT login is the subscription), the Agent SDK runtime from
+its login; both answer `not-installed` without their CLI, and Codex
+`sign-in-required` without an account.
+
 #### Versions a backend works with (new in API 1.11.0)
 
 `RuntimeToolVersion.compatibility` is a backend's verdict on the installed
