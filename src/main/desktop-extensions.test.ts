@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { bundleDesktopExtension, desktopExtensionLabel, listDesktopExtensionEntries, loadDesktopExtensions } from "./desktop-extensions.js";
+import { bundleDesktopExtension, desktopExtensionLabel, listDesktopExtensionEntries, loadDesktopExtensions, isGeneratedOrVendored } from "./desktop-extensions.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -160,5 +160,15 @@ describe("desktop extension packages", () => {
     expect(result.bundles[0].permissions).toEqual(["workspace:read"]);
     expect(result.bundles[0].granted).toBe(false);
     expect(result.bundles[0].source).toEqual({ url: "https://github.com/foo/bar" });
+  });
+});
+
+describe("isGeneratedOrVendored", () => {
+  it("drops shim and dependency sources from a kit's map, keeps the author's", () => {
+    expect(isGeneratedOrVendored("tau-shared:icons")).toBe(true);
+    expect(isGeneratedOrVendored("../../node_modules/@codemirror/view/dist/index.js")).toBe(true);
+    expect(isGeneratedOrVendored("..\\node_modules\\xterm\\lib\\xterm.js")).toBe(true);
+    expect(isGeneratedOrVendored("../../kits/files/editor-view.ts")).toBe(false);
+    expect(isGeneratedOrVendored(undefined)).toBe(false);
   });
 });

@@ -208,18 +208,23 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
 const INLINE_MAP = /\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)/u;
 
 /**
- * Drops the shim sources from the inline map. They are generated bindings, not
- * anybody's code, and `lucide-react` alone carries some 3000 lines of them —
- * which the map would ship even though tree shaking already dropped all but
- * the names the package imports. The author's own sources stay.
+ * Drops the shim sources and third-party package sources from the inline map.
+ * Shims are generated bindings (`lucide-react` alone carries some 3000 lines);
+ * a bundled dependency's sources (CodeMirror in the Files Kit) outweigh the
+ * code itself. Their mappings stay, so stack traces still name the file and
+ * line; only the author's own sources keep their text.
  */
+export function isGeneratedOrVendored(source: string | undefined): boolean {
+  return source !== undefined && (source.startsWith("tau-shared:") || /(^|[\\/])node_modules[\\/]/u.test(source));
+}
+
 function withoutGeneratedSources(code: string): string {
   const match = INLINE_MAP.exec(code);
   if (!match) return code;
   try {
     const map = JSON.parse(Buffer.from(match[1], "base64").toString("utf8")) as { sources?: string[]; sourcesContent?: (string | null)[] };
     if (!map.sources || !map.sourcesContent) return code;
-    map.sourcesContent = map.sourcesContent.map((content, index) => map.sources![index]?.startsWith("tau-shared:") ? null : content);
+    map.sourcesContent = map.sourcesContent.map((content, index) => isGeneratedOrVendored(map.sources![index]) ? null : content);
     return code.replace(match[0], `//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map), "utf8").toString("base64")}`);
   } catch {
     // A map we cannot read is a map we leave alone; the bundle is what matters.
