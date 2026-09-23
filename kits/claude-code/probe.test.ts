@@ -1,6 +1,6 @@
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it, vi } from "vitest";
-import { describeAccount, parseClaudeModelId, probeClaude, readClaudeVersion, versionedModelName } from "./probe.js";
+import { describeAccount, parseClaudeModelId, probeClaude, probeNewThreadCatalog, readClaudeVersion, versionedModelName } from "./probe.js";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 const frame = <T extends object>(value: T): SDKMessage => ({ uuid: "u", session_id: "s", ...value }) as unknown as SDKMessage;
@@ -97,4 +97,17 @@ describe("describeAccount plans", () => {
     expect(describeAccount({ subscriptionType: "Claude Max" })).toBe("Claude Max");
     expect(describeAccount({ subscriptionType: "Max" })).toBe("Claude Max");
   });
+
+  it("offers a draft the plan's models, starting on the one the CLI picks, with each model's efforts", () => {
+    const modelInfos = [
+      { value: "default", displayName: "Default (recommended)", description: "", resolvedModel: "claude-sonnet-5" },
+      { value: "haiku", displayName: "Haiku", description: "", resolvedModel: "claude-haiku-4-5", supportedEffortLevels: ["low"] },
+    ] as never;
+    const catalog = probeNewThreadCatalog({ modelInfos, defaultModel: "claude-haiku-4-5", effort: "medium" });
+    expect(catalog.model?.id).toBe("haiku");
+    expect(catalog.models.map((model) => model.id)).toEqual(["default", "haiku"]);
+    expect(catalog.thinkingLevels).toEqual({ default: ["default (medium)", "low", "medium", "high", "xhigh", "max"], haiku: ["default (medium)", "low"] });
+    expect(probeNewThreadCatalog({ modelInfos, defaultModel: "unknown" }).model?.id).toBe("default");
+  });
 });
+

@@ -32,7 +32,7 @@ import {
   type ClaudeInstancesReport,
   type ClaudeStatusReport,
 } from "./protocol.js";
-import { describeAccount, readClaudeVersion } from "./probe.js";
+import { describeAccount, probeNewThreadCatalog, readClaudeVersion } from "./probe.js";
 import { createClaudeCodeRuntimeAdapter, sdkExtraArgs, type ClaudeCodeAgentRuntimeAdapter, type ClaudeCodeRuntimeOptions } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
@@ -216,6 +216,8 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           },
           composerCommands: offered,
           version: () => versionOf(id),
+          // A draft on this instance chooses from its plan's models; the probe is cached a few minutes.
+          newThreadCatalog: async () => probeNewThreadCatalog(await adapter.probe()),
         };
       };
 
