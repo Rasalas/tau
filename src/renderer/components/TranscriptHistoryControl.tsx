@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import type { TranscriptHistoryStatus } from "../../workbench/transcript-history";
 import type { TranscriptHistoryCompleteness } from "../../shared/transcript-completeness";
 import type { HostTranscriptCursor } from "../../shared/transcript-cursor";
@@ -10,6 +11,7 @@ export interface TranscriptHistoryControlProps {
   loading: boolean;
   status?: TranscriptHistoryStatus;
   onLoad: () => void;
+  ref?: Ref<HTMLElement>;
 }
 
 function loadedLabel(count: number | undefined): string {
@@ -24,6 +26,7 @@ export function TranscriptHistoryControl({
   loading,
   status,
   onLoad,
+  ref,
 }: TranscriptHistoryControlProps) {
   const hasOlder = Boolean(olderCursor);
   const limited = historyCompleteness === "unknown";
@@ -37,6 +40,7 @@ export function TranscriptHistoryControl({
         : "Older turns are available.";
 
   return <section
+    ref={ref}
     className={`transcript-history-control${loading ? " loading" : ""}${status?.state === "error" ? " error" : ""}${limited ? " limited" : ""}`}
     aria-label="Transcript history"
     aria-busy={loading}

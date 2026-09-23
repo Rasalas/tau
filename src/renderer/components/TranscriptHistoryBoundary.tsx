@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import type { TranscriptPage } from "../../shared/host-protocol";
 import type { HostTranscriptCursor } from "../../shared/transcript-cursor";
 import { countUserTurns } from "../../shared/transcript-pager";
@@ -111,8 +111,23 @@ export function TranscriptHistoryBoundary({
     void loadOlder();
   }, [controller, loadOlder]);
 
+  // The history line sits above the scroller. When it comes or goes (the last
+  // older page landed), move the rows by as much, so the reader sees no shift.
+  const controlRef = useRef<HTMLElement>(null);
+  const controlLayout = useRef<{ sessionId?: string; px: number }>({ px: 0 });
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const control = controlRef.current;
+    const px = control ? node.getBoundingClientRect().top - control.getBoundingClientRect().top : 0;
+    const previous = controlLayout.current;
+    controlLayout.current = { sessionId: state.sessionId, px };
+    if (previous.sessionId === state.sessionId && px !== previous.px) node.scrollTop += px - previous.px;
+  }, [scrollRef, showControl, state]);
+
   return <>
     {showControl ? <TranscriptHistoryControl
+      ref={controlRef}
       olderCursor={state.olderCursor}
       historyCompleteness={state.historyCompleteness}
       loading={state.loading}

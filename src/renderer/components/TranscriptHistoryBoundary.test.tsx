@@ -257,4 +257,37 @@ describe("TranscriptHistoryBoundary integration", () => {
     expect(loadPage).toHaveBeenCalledOnce();
   });
 
+  it("keeps the rows where they were when the last older page takes the history line away", async () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    restoreLayout = () => { HTMLElement.prototype.getBoundingClientRect = originalRect; };
+    // The line is 50 px tall, margin included, and sits right above the scroller.
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains("transcript-history-control")) return rect(0, 34);
+      if (this === scroll.current) return rect(this.previousElementSibling ? 50 : 0, 600);
+      return originalRect.call(this);
+    };
+    const initialMessages = [message("newer")];
+    const controller = new TranscriptHistoryController(snapshot("thread", initialMessages));
+    controller.syncSnapshot(snapshot("thread", initialMessages), detail("thread", initialMessages));
+    let resolvePage: ((page: TranscriptPage) => void) | undefined;
+    const loadPage = vi.fn(() => new Promise<TranscriptPage>((resolve) => { resolvePage = resolve; }));
+    render(<TranscriptHistoryBoundary
+      controller={controller}
+      scrollRef={scroll}
+      showControl
+      loadPage={loadPage}
+      applyPage={(page, request) => controller.applyPage(page, initialMessages, request) !== undefined}
+    >
+      {() => <div ref={(node) => { if (node) scroll.current = node; }} />}
+    </TranscriptHistoryBoundary>);
+    const node = scroll.current!;
+    node.scrollTop = 500;
+
+    fireEvent.click(screen.getByRole("button", { name: "Load older turns" }));
+    await act(async () => {
+      resolvePage!({ sessionId: "thread", messages: [message("older")], hasMore: false });
+    });
+    expect(screen.queryByLabelText("Transcript history")).toBeNull();
+    expect(node.scrollTop).toBe(450);
+  });
 });
