@@ -179,6 +179,22 @@ export interface RuntimeToolVersion {
   latest?: string;
   /** What updates it: a shell command, or where in Tau to click. */
   updateCommand?: string;
+  /** How well Tau works with `installed`, when the backend keeps a policy for it. */
+  compatibility?: RuntimeCompatibility;
+}
+
+/**
+ * Where an installed version falls in a backend's policy: `supported`, `unsafe`
+ * (it runs, with known problems) or `broken` (threads refuse to start).
+ */
+export interface RuntimeCompatibility {
+  status: "supported" | "unsafe" | "broken";
+  /** Why, in a sentence. */
+  message?: string;
+  /** The release Tau was tested against. */
+  recommendedVersion?: string;
+  /** The shell command that installs `recommendedVersion`; the user runs it, never Tau. */
+  installCommand?: string;
 }
 
 export interface UiComposerCommand {
