@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowDownUp, ChevronDown, ChevronRight, Clock, Eye, ListFilter, Plus, Search, Star } from "lucide-react";
+import { ArrowDownUp, ChevronDown, ChevronRight, Clock, Eye, Layers, ListFilter, Plus, Search, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 import { modelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
+import { runtimeInstanceId } from "../../shared/runtime-instances";
 import { runtimeUpdate } from "../runtime-update";
 import {
   RUNTIME_STATUS_LABELS, pickerViews, runtimeView, type ViewEntry,
@@ -15,9 +16,10 @@ import {
   type BillingFilter, type CapabilityFilter, type Offering, type OfferingFilters, type OfferingSort,
 } from "./model-offerings";
 import { OfferingRow, wears, type RowCell } from "./ModelPickerRow";
-import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
+import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
 import { useFocusTrap } from "./ui/focus";
+import { tooltipProps } from "./ui/Tooltip";
 import { VirtualList } from "./VirtualList";
 import "./model-picker.css";
 
@@ -25,7 +27,7 @@ const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").t
 
 /** ⌘1 to ⌘9 reach the first nine favourites, in the order they were starred. */
 const JUMP_KEYS = 9;
-/** Below this window width the provider column becomes a filter above the list, and the runtimes icons. */
+/** Below this window width the provider column becomes a filter above the list. */
 const NARROW_WIDTH = 760;
 const NO_SELECTION: readonly string[] = [];
 const NO_CATALOGS: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> = new Map();
@@ -75,6 +77,17 @@ function unlistedReason(label: string, entry: RuntimeCatalogEntry | undefined): 
 function runtimeName(kind: string | undefined, backends: readonly UiRuntimeBackend[] | undefined): string {
   const runtime = kind ?? DEFAULT_RUNTIME;
   return backends?.find((backend) => backend.kind === runtime)?.label ?? (runtime === DEFAULT_RUNTIME ? "Pi" : runtime);
+}
+
+function countLabel(count: number): string {
+  return `${count} ${count === 1 ? "model" : "models"}`;
+}
+
+/** A provider's mark in the provider column, or one for all of them. */
+function ProviderChoiceMark({ provider }: { provider: string | undefined }) {
+  return provider
+    ? <ProviderIconStack modelProvider={provider} className="provider-column-icon" hint={false} />
+    : <Layers size={16} className="provider-all-glyph" aria-hidden />;
 }
 
 function useNarrow(): boolean {
@@ -429,13 +442,18 @@ export function ModelPicker({
     if (entry.kind === "recent") return "Recent";
     return entry.backend.label;
   };
+  // The columns show marks only; the tooltip names the entry and says its state.
   const viewTitle = (entry: ViewEntry): string => {
     if (entry.kind !== "runtime") return viewLabel(entry);
     const note = runtimeUpdate(entry.backend);
+    if (entry.listed) return `${entry.backend.label} · ${note?.tag ?? RUNTIME_STATUS_LABELS[entry.status]} · ${countLabel(offerings.filter((offering) => offering.runtime === entry.backend.kind).length)}`;
     if (note) return `${entry.backend.label} · ${note.tag}`;
-    if (entry.listed) return `${entry.backend.label} · ${offerings.filter((offering) => offering.runtime === entry.backend.kind).length} models`;
     if (entry.backend.kind === threadRuntime) return `${entry.backend.label} · this thread's runtime`;
-    if (entry.status !== "unlisted") return `${entry.backend.label} · ${RUNTIME_STATUS_LABELS[entry.status]}`;
+    if (entry.status !== "unlisted") {
+      const cached = catalogs.get(entry.backend.kind);
+      const message = cached?.status === "unavailable" ? cached.message : undefined;
+      return `${entry.backend.label} · ${RUNTIME_STATUS_LABELS[entry.status]}${message ? `\n${message}` : ""}`;
+    }
     return draft ? `${entry.backend.label} · run this thread on it` : `${entry.backend.label} · starts a new thread`;
   };
   const inUse = (key: string) => key === activeOffering && chosen.length === 0;
@@ -478,16 +496,18 @@ export function ModelPicker({
                 className={!needle && entry.key === current?.key ? "active" : ""}
                 aria-label={entry.kind === "runtime" ? `${entry.backend.label}, ${RUNTIME_STATUS_LABELS[entry.status]}` : viewLabel(entry)}
                 aria-pressed={!needle && entry.key === current?.key}
-                title={viewTitle(entry)}
+                {...tooltipProps(viewTitle(entry), { side: "left", variant: "lines" })}
                 tabIndex={!needle && entry.key === current?.key ? 0 : -1}
                 onClick={() => selectView(entry.key)}
               >
                 {entry.kind === "favourites"
-                  ? <Star size={15} fill="currentColor" className="rail-glyph" />
+                  ? <Star size={16} fill="currentColor" className="rail-glyph" />
                   : entry.kind === "recent"
-                    ? <Clock size={15} className="rail-glyph" />
-                    : <ProviderIconStack runtimeProvider={entry.backend.kind === DEFAULT_RUNTIME ? "pi" : entry.backend.kind} className="rail-icon" />}
-                <span className="model-rail-label">{viewLabel(entry)}</span>
+                    ? <Clock size={16} className="rail-glyph" />
+                    : <ProviderIconStack runtimeProvider={entry.backend.kind === DEFAULT_RUNTIME ? "pi" : entry.backend.kind} className="rail-icon" hint={false} />}
+                {entry.kind === "runtime" && entry.backend.kind.includes("@")
+                  ? <i className="rail-instance" aria-hidden>{monogram(runtimeInstanceId(entry.backend.kind))}</i>
+                  : null}
                 {entry.kind === "runtime" ? <i className={`runtime-dot runtime-dot-${entry.status}`} aria-hidden /> : null}
               </button>
             </div>
@@ -503,12 +523,11 @@ export function ModelPicker({
                 className={choice.key === provider ? "active" : ""}
                 aria-pressed={choice.key === provider}
                 aria-label={`${choice.label} (${choice.count})`}
+                {...tooltipProps(`${choice.label} · ${countLabel(choice.count)}`, { side: "left" })}
                 tabIndex={choice.key === provider ? 0 : -1}
                 onClick={() => chooseProvider(choice.key)}
               >
-                {choice.key ? <ProviderIconStack modelProvider={choice.key} className="provider-column-icon" /> : null}
-                <span>{choice.label}</span>
-                <small>{choice.count}</small>
+                <ProviderChoiceMark provider={choice.key} />
               </button>
             ))}
           </nav>
@@ -591,8 +610,15 @@ export function ModelPicker({
           {providerColumn && narrow && !needle ? (
             <div className="model-provider-filter" role="group" aria-label={`${currentRuntime!.backend.label} providers`}>
               {providerChoices.map((choice) => (
-                <button key={choice.key ?? "all"} className={choice.key === provider ? "active" : ""} aria-pressed={choice.key === provider} onClick={() => chooseProvider(choice.key)}>
-                  {choice.key ? choice.label : "All"} <small>{choice.count}</small>
+                <button
+                  key={choice.key ?? "all"}
+                  className={choice.key === provider ? "active" : ""}
+                  aria-pressed={choice.key === provider}
+                  aria-label={`${choice.label} (${choice.count})`}
+                  {...tooltipProps(`${choice.label} · ${countLabel(choice.count)}`, { side: "bottom" })}
+                  onClick={() => chooseProvider(choice.key)}
+                >
+                  <ProviderChoiceMark provider={choice.key} />
                 </button>
               ))}
             </div>

@@ -1,11 +1,11 @@
 /*
  * The model picker: a popover at its chip, as in T3 Code, with no scrim.
  * Runtimes on the left, a runtime's providers beside them when it has
- * several, the models on the right. Loaded with the picker's chunk when it
+ * several, both as marks named by their tooltips; the models on the right. Loaded with the picker's chunk when it
  * first opens; the chip keeps its rules in styles.css.
  */
 .model-picker.popover {
-  width: 760px; max-width: calc(100vw - 16px); height: 460px; max-height: calc(100vh - 16px);
+  width: 680px; max-width: calc(100vw - 16px); height: 460px; max-height: calc(100vh - 16px);
   display: flex; flex-direction: column; padding: 0; overflow: hidden;
   border-radius: 12px; background: var(--overlay); color: var(--ink);
 }
@@ -26,27 +26,35 @@
 
 /* Left: Favourites, Recent, then every runtime with a dot for its state. */
 .model-rail {
-  width: 150px; flex: none; overflow: auto;
+  width: 48px; flex: none; overflow: auto; scrollbar-width: none;
   border-right: 1px solid var(--line); padding: 6px;
   display: flex; flex-direction: column; gap: 2px; background: var(--wash);
 }
 .model-rail-slot > hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px 6px; }
 .model-rail button {
-  position: relative; width: 100%; height: 32px; display: flex; align-items: center; gap: 8px;
-  border: 0; border-radius: 7px; padding: 0 8px; background: transparent;
-  color: var(--ink-3); font: 12.5px var(--sans); text-align: left; cursor: pointer;
+  position: relative; width: 36px; height: 36px; display: grid; place-items: center;
+  border: 0; border-radius: 8px; padding: 0; background: transparent;
+  color: var(--ink-3); cursor: pointer;
 }
 .model-rail button:hover { background: var(--hover-strong); color: var(--ink-2); }
 .model-rail button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
-.model-rail button.active { background: var(--raised); color: var(--ink); font-weight: 600; }
+.model-rail button.active { background: var(--raised); color: var(--ink); }
 .model-rail button.active::before {
   content: ""; position: absolute; left: -6px; top: 8px; bottom: 8px; width: 3px;
   border-radius: 0 2px 2px 0; background: var(--acid);
 }
 .model-rail .rail-icon { margin-left: 0; flex: none; }
 .model-rail .rail-glyph { flex: none; color: var(--acid-text); }
-.model-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.runtime-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--fainter); }
+/* A second instance of one program: its initials on the program's mark. */
+.rail-instance {
+  position: absolute; left: 3px; bottom: 3px; min-width: 11px; height: 11px; padding: 0 2px;
+  border-radius: 3px; background: var(--overlay); box-shadow: 0 0 0 1px var(--line-control);
+  font: 700 7.5px/11px var(--mono); font-style: normal; color: var(--ink-2); text-align: center;
+}
+.runtime-dot {
+  position: absolute; right: 4px; top: 5px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fainter); box-shadow: 0 0 0 1.5px var(--wash);
+}
 .runtime-dot-ready { background: var(--ready); }
 .runtime-dot-update { background: var(--info); }
 .runtime-dot-sign-in, .runtime-dot-unavailable { background: var(--warn); }
@@ -55,23 +63,23 @@
 @keyframes model-dot-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .runtime-dot-loading { animation: none; } }
 
-/* Middle: a runtime's providers, only when it has several. */
+/* Middle: a runtime's providers, only when it has several; the count is in the tooltip. */
 .model-providers {
-  width: 168px; flex: none; overflow: auto;
+  width: 48px; flex: none; overflow: auto; scrollbar-width: none;
   border-right: 1px solid var(--line); padding: 6px;
   display: flex; flex-direction: column; gap: 2px;
 }
 .model-providers button {
-  display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px;
-  border: 0; border-radius: 7px; background: transparent;
-  color: var(--ink-3); font: 12.5px var(--sans); text-align: left; cursor: pointer;
+  flex: none; width: 36px; height: 34px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--ink-3); cursor: pointer;
 }
-.model-providers button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-providers button > small { font: 10.5px var(--mono); color: var(--faint); }
+.provider-all-glyph { color: var(--muted); }
+.model-providers button.active .provider-all-glyph, .model-provider-filter > button.active .provider-all-glyph { color: var(--ink); }
 .model-providers button:hover { background: var(--hover-strong); color: var(--ink-2); }
 .model-providers button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
 .model-providers button.active { background: var(--raised); color: var(--ink); }
-.model-providers .provider-column-icon { margin-left: 0; flex: none; }
+.model-providers .provider-column-icon, .model-provider-filter .provider-column-icon { margin-left: 0; flex: none; }
 
 .model-search { height: 46px; gap: 8px; padding: 0 10px 0 14px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
 .model-search:focus-within { border-bottom-color: var(--acid); }
@@ -109,21 +117,17 @@
   background: var(--hover-strong); color: var(--ink); border-color: var(--line-float);
 }
 
-/* The narrow popover: the provider column as a row of filters above the list. */
+/* The narrow popover: the provider column as a row of marks above the list. */
 .model-provider-filter {
   flex: none; display: flex; gap: 4px; overflow-x: auto; padding: 6px 8px;
   border-bottom: 1px solid var(--line); scrollbar-width: none;
 }
 .model-provider-filter > button {
-  flex: none; height: 24px; padding: 0 8px; border: 1px solid var(--line-control); border-radius: 12px;
-  background: transparent; color: var(--muted); font: 11.5px var(--sans); cursor: pointer; white-space: nowrap;
+  flex: none; width: 30px; height: 26px; display: grid; place-items: center; padding: 0;
+  border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer;
 }
-.model-provider-filter > button small { color: var(--faint); font: 10px var(--mono); }
-.model-provider-filter > button.active { color: var(--ink); background: var(--raised); border-color: var(--line-float); }
-.model-picker-content.narrow .model-rail { width: 52px; align-items: center; }
-.model-picker-content.narrow .model-rail button { width: 40px; justify-content: center; padding: 0; }
-.model-picker-content.narrow .model-rail-label { display: none; }
-.model-picker-content.narrow .runtime-dot { position: absolute; right: 3px; top: 4px; width: 6px; height: 6px; }
+.model-provider-filter > button:hover { background: var(--hover-strong); }
+.model-provider-filter > button.active { background: var(--raised); border-color: var(--line-float); }
 
 /* A runtime whose models are not on hand: what choosing it means, and the actions it takes. */
 .model-runtime-pane {
@@ -171,7 +175,10 @@
 }
 .model-sub .sub-icon, .model-line .sub-icon { margin-left: 0; transform: scale(.78); transform-origin: left center; }
 .model-sub .sub-icon.stacked { margin-right: -2px; }
-.model-runtime { color: var(--muted); }
+/* A runtime's mark, then its provider's, in rows that list more than one runtime. */
+.model-marks { flex: none; display: inline-flex; align-items: center; gap: 1px; }
+.model-marks > .sub-icon + .sub-icon { margin-left: -1px; }
+.model-row.grouped .model-marks { min-width: 36px; }
 .model-id { font: 10px var(--mono); opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .model-levels { display: inline-flex; align-items: center; gap: 2px; font: 10px var(--mono); color: var(--muted); }
 .model-context { font: 11px var(--mono); color: var(--muted); text-align: right; }
