@@ -1,0 +1,38 @@
+[
+ {
+  "id": 1894897,
+  "user": {
+   "id": 1280705,
+   "login": "famfo-cb",
+   "full_name": ""
+  },
+  "body": "",
+  "commit_id": "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
+  "state": "APPROVED",
+  "stale": false,
+  "official": true,
+  "dismissed": false,
+  "comments_count": 2,
+  "submitted_at": "2026-09-21T12:42:55+02:00",
+  "updated_at": "2026-09-21T12:44:30+02:00",
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23383897"
+ },
+ {
+  "id": 1902946,
+  "user": {
+   "id": 26734,
+   "login": "Gusted",
+   "full_name": ""
+  },
+  "body": "Thanks!",
+  "commit_id": "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
+  "state": "APPROVED",
+  "stale": false,
+  "official": true,
+  "dismissed": false,
+  "comments_count": 0,
+  "submitted_at": "2026-09-23T14:23:01+02:00",
+  "updated_at": "2026-09-23T14:23:01+02:00",
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23588455"
+ }
+]

@@ -28,16 +28,36 @@ const list = (value: unknown): Json[] => Array.isArray(value) ? value.map(record
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value : undefined;
 const count = (value: unknown): number => typeof value === "number" && Number.isFinite(value) ? value : 0;
 
-/** `https://github.com/o/n/pull/7` or `https://gitlab.com/g/sub/p/-/merge_requests/7`, else undefined. */
+/**
+ * A request's web URL, by the path each host gives it: GitHub's `o/n/pull/7`,
+ * GitLab's `g/sub/p/-/merge_requests/7`, Forgejo's `o/n/pulls/7`, Bitbucket's
+ * `w/r/pull-requests/7` and Azure DevOps' `org/project/_git/repo/pullrequest/7`.
+ */
 export function parseRequestUrl(url: string): PullRequestRef | undefined {
   let parsed: URL;
   try { parsed = new URL(url); } catch { return undefined; }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return undefined;
   const path = parsed.pathname.replace(/\/+$/u, "");
+  const at = (service: PullRequestRef["service"], repo: string, number: string, host = parsed.host): PullRequestRef =>
+    ({ service, host, repo, number: Number(number), url: `${parsed.origin}${path}` });
   const gitlab = /^\/(.+?)\/-\/merge_requests\/(\d+)$/u.exec(path);
-  if (gitlab) return { service: "gitlab", host: parsed.host, repo: gitlab[1]!, number: Number(gitlab[2]), url: `${parsed.origin}${path}` };
+  if (gitlab) return at("gitlab", gitlab[1]!, gitlab[2]!);
   const github = /^\/([^/]+\/[^/]+)\/pull\/(\d+)$/u.exec(path);
-  if (github) return { service: "github", host: parsed.host, repo: github[1]!, number: Number(github[2]), url: `${parsed.origin}${path}` };
+  if (github) return at("github", github[1]!, github[2]!);
+  const forgejo = /^\/([^/]+\/[^/]+)\/pulls\/(\d+)$/u.exec(path);
+  if (forgejo) return at("forgejo", forgejo[1]!, forgejo[2]!);
+  const bitbucket = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)$/u.exec(path);
+  if (bitbucket) return at("bitbucket", bitbucket[1]!, bitbucket[2]!);
+  const azure = /^\/(.+)\/_git\/([^/]+)\/pullrequest\/(\d+)$/iu.exec(path);
+  if (azure) {
+    const before = azure[1]!.split("/").map((segment) => decodeURIComponent(segment));
+    const repository = decodeURIComponent(azure[2]!);
+    // A legacy host names the organization and may keep a collection segment before the project.
+    const legacy = parsed.hostname.endsWith(".visualstudio.com");
+    const organization = legacy ? parsed.hostname.split(".")[0] : before.length === 2 ? before[0] : undefined;
+    const project = before.at(-1);
+    if (organization && project && (!legacy || before.length <= 2)) return at("azure-devops", `${organization}/${project}/${repository}`, azure[3]!);
+  }
   return undefined;
 }
 

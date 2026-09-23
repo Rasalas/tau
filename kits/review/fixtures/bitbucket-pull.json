@@ -1,0 +1,120 @@
+{
+ "comment_count": 10,
+ "task_count": 0,
+ "type": "pullrequest",
+ "id": 11,
+ "title": "PIPES-17: Add support for upload multiple files by wildcard",
+ "description": "",
+ "state": "MERGED",
+ "draft": false,
+ "merge_commit": {
+  "hash": "187901792e45",
+  "type": "commit"
+ },
+ "close_source_branch": true,
+ "closed_by": {
+  "display_name": "Oleksandr Kyrdan",
+  "type": "user",
+  "uuid": "{c3cbd4fd-2494-4a26-a4db-ea02e2cdb5ee}",
+  "account_id": "5c88f88364a81c1dae2814f1",
+  "nickname": "Oleksandr Kyrdan"
+ },
+ "author": {
+  "display_name": "Oleksandr Kyrdan",
+  "type": "user",
+  "uuid": "{c3cbd4fd-2494-4a26-a4db-ea02e2cdb5ee}",
+  "account_id": "5c88f88364a81c1dae2814f1",
+  "nickname": "Oleksandr Kyrdan"
+ },
+ "reason": "",
+ "created_on": "2020-08-12T20:58:38.608228+00:00",
+ "updated_on": "2020-08-21T09:18:23.141180+00:00",
+ "destination": {
+  "branch": {
+   "name": "master"
+  },
+  "commit": {
+   "hash": "8e4168ea6d23",
+   "type": "commit"
+  }
+ },
+ "source": {
+  "branch": {
+   "name": "PIPES-17-add-upload-multiple-files",
+   "sync_strategies": [
+    "merge_commit",
+    "rebase"
+   ]
+  },
+  "commit": {
+   "hash": "c6ee5d86f36e",
+   "type": "commit"
+  }
+ },
+ "reviewers": [
+  {
+   "display_name": "Raul Gomis",
+   "type": "user",
+   "uuid": "{91630f90-12d1-479e-a2d4-8bc9d704f3e3}",
+   "account_id": "557058:d7586a23-84e7-4583-96e6-dabb01a16e87",
+   "nickname": "Raul Gomis"
+  },
+  {
+   "display_name": "Halyna Berezovska",
+   "type": "user",
+   "uuid": "{a63e7312-cd15-42c4-bb94-e92a0b044ac3}",
+   "account_id": "5e9545dc2b755a0c0918391f",
+   "nickname": "Halyna Berezovska"
+  }
+ ],
+ "participants": [
+  {
+   "type": "participant",
+   "user": {
+    "display_name": "Oleksandr Kyrdan",
+    "type": "user",
+    "uuid": "{c3cbd4fd-2494-4a26-a4db-ea02e2cdb5ee}",
+    "account_id": "5c88f88364a81c1dae2814f1",
+    "nickname": "Oleksandr Kyrdan"
+   },
+   "role": "PARTICIPANT",
+   "approved": false,
+   "state": null,
+   "participated_on": "2020-08-17T11:09:08.230444+00:00"
+  },
+  {
+   "type": "participant",
+   "user": {
+    "display_name": "Raul Gomis",
+    "type": "user",
+    "uuid": "{91630f90-12d1-479e-a2d4-8bc9d704f3e3}",
+    "account_id": "557058:d7586a23-84e7-4583-96e6-dabb01a16e87",
+    "nickname": "Raul Gomis"
+   },
+   "role": "REVIEWER",
+   "approved": true,
+   "state": "approved",
+   "participated_on": "2020-08-21T07:48:03.070449+00:00"
+  },
+  {
+   "type": "participant",
+   "user": {
+    "display_name": "Halyna Berezovska",
+    "type": "user",
+    "uuid": "{a63e7312-cd15-42c4-bb94-e92a0b044ac3}",
+    "account_id": "5e9545dc2b755a0c0918391f",
+    "nickname": "Halyna Berezovska"
+   },
+   "role": "REVIEWER",
+   "approved": true,
+   "state": "approved",
+   "participated_on": "2020-08-17T09:59:06.311875+00:00"
+  }
+ ],
+ "queued": false,
+ "links": {
+  "html": {
+   "href": "https://bitbucket.org/atlassian/bitbucket-upload-file/pull-requests/11"
+  }
+ }
+}

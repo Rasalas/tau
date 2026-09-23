@@ -1,0 +1,322 @@
+[
+ {
+  "id": 3173437,
+  "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/pulls/14535",
+  "number": 14535,
+  "user": {
+   "id": 943128,
+   "login": "omkar-foss",
+   "full_name": "Omkar P"
+  },
+  "title": "Fix LFS raw file test, add additional cases",
+  "body": "Resolves #14480.\r\n\r\nThis PR fixes the no-ops for 2 function calls in the LFS raw file\r\ntest along with additional cases.\r\n\r\n## Checklist\r\n\r\nThe [contributor guide](https://forgejo.org/docs/next/contri",
+  "labels": [
+   {
+    "id": 201029,
+    "name": "test/not-needed",
+    "color": "d4c5f9"
+   }
+  ],
+  "state": "open",
+  "draft": false,
+  "is_locked": false,
+  "comments": 1,
+  "review_comments": 0,
+  "additions": 25,
+  "deletions": 8,
+  "changed_files": 1,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14535",
+  "diff_url": "https://codeberg.org/forgejo/forgejo/pulls/14535.diff",
+  "patch_url": "https://codeberg.org/forgejo/forgejo/pulls/14535.patch",
+  "mergeable": true,
+  "merged": false,
+  "merged_at": null,
+  "merge_commit_sha": null,
+  "merged_by": null,
+  "base": {
+   "label": "forgejo",
+   "ref": "forgejo",
+   "sha": "e47654b4cad23579f8c0a5ab3c33bffa1c05d641",
+   "repo_id": 73144,
+   "repo": {
+    "full_name": "forgejo/forgejo",
+    "owner": {
+     "login": "forgejo"
+    }
+   }
+  },
+  "head": {
+   "label": "fix-lfs-raw-file-test",
+   "ref": "fix-lfs-raw-file-test",
+   "sha": "779470d4e3873a7632a90fee1c723dc1d61a1794",
+   "repo_id": 2427545,
+   "repo": {
+    "full_name": "omkar-foss/forgejo",
+    "owner": {
+     "login": "omkar-foss"
+    }
+   }
+  },
+  "merge_base": "0e87d8596beb1176fb8ee19b1b03f63c9d0e1269",
+  "created_at": "2026-09-23T13:58:57+02:00",
+  "updated_at": "2026-09-23T17:52:58+02:00",
+  "closed_at": null,
+  "requested_reviewers": [
+   {
+    "id": 94809,
+    "login": "Cyborus",
+    "full_name": ""
+   },
+   {
+    "id": 33716,
+    "login": "n0toose",
+    "full_name": "Panagiotis \"Ivory\" Vasilopoulos"
+   }
+  ]
+ },
+ {
+  "id": 2359685,
+  "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/pulls/13023",
+  "number": 13023,
+  "user": {
+   "id": 1053338,
+   "login": "sguiheux",
+   "full_name": "Steven GUIHEUX"
+  },
+  "title": "feat: add code suggestion",
+  "body": "Close #3933 \r\n\r\nHi, here a contribution to be able to add code suggestion during a review.\r\n\r\nI divided it into 3 commits for an easier review \r\n\r\n* Add the ability to create a suggestion block\r\n* App",
+  "labels": [
+   {
+    "id": 78139,
+    "name": "enhancement/feature",
+    "color": "207de5"
+   },
+   {
+    "id": 201030,
+    "name": "test/present",
+    "color": "009800"
+   }
+  ],
+  "state": "open",
+  "draft": false,
+  "is_locked": false,
+  "comments": 10,
+  "review_comments": 2,
+  "additions": 2396,
+  "deletions": 5,
+  "changed_files": 37,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/13023",
+  "diff_url": "https://codeberg.org/forgejo/forgejo/pulls/13023.diff",
+  "patch_url": "https://codeberg.org/forgejo/forgejo/pulls/13023.patch",
+  "mergeable": true,
+  "merged": false,
+  "merged_at": null,
+  "merge_commit_sha": null,
+  "merged_by": null,
+  "base": {
+   "label": "forgejo",
+   "ref": "forgejo",
+   "sha": "e47654b4cad23579f8c0a5ab3c33bffa1c05d641",
+   "repo_id": 73144,
+   "repo": {
+    "full_name": "forgejo/forgejo",
+    "owner": {
+     "login": "forgejo"
+    }
+   }
+  },
+  "head": {
+   "label": "suggestionFeature",
+   "ref": "suggestionFeature",
+   "sha": "16ad7511e4d7d09e2f3700b825dca18f862e8c4f",
+   "repo_id": 1684037,
+   "repo": {
+    "full_name": "ovh/forgejo",
+    "owner": {
+     "login": "ovh"
+    }
+   }
+  },
+  "merge_base": "49f7fb3ebc7849844643c9ffe2cc2dffe67a9cc1",
+  "created_at": "2026-06-09T18:03:07+02:00",
+  "updated_at": "2026-09-23T17:51:33+02:00",
+  "closed_at": null,
+  "requested_reviewers": [
+   {
+    "id": 39134,
+    "login": "Beowulf",
+    "full_name": ""
+   },
+   {
+    "id": 26734,
+    "login": "Gusted",
+    "full_name": ""
+   },
+   {
+    "id": 35856,
+    "login": "0ko",
+    "full_name": ""
+   },
+   {
+    "id": 94809,
+    "login": "Cyborus",
+    "full_name": ""
+   }
+  ]
+ },
+ {
+  "id": 3144247,
+  "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/pulls/14456",
+  "number": 14456,
+  "user": {
+   "id": 26734,
+   "login": "Gusted",
+   "full_name": ""
+  },
+  "title": "chore: improve robustness of `TestSearchPointerBlobs`",
+  "body": "This is quite a flaky test, and it seems to happen more frequent when CI\nis under load (as with any flaky test). My best guess is that due to the\norder of channels being closed: `pointerChan` and then",
+  "labels": [
+   {
+    "id": 201029,
+    "name": "test/not-needed",
+    "color": "d4c5f9"
+   }
+  ],
+  "state": "closed",
+  "draft": false,
+  "is_locked": false,
+  "comments": 3,
+  "review_comments": 2,
+  "additions": 0,
+  "deletions": 0,
+  "changed_files": 0,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14456",
+  "diff_url": "https://codeberg.org/forgejo/forgejo/pulls/14456.diff",
+  "patch_url": "https://codeberg.org/forgejo/forgejo/pulls/14456.patch",
+  "mergeable": true,
+  "merged": true,
+  "merged_at": "2026-09-23T17:16:47+02:00",
+  "merge_commit_sha": "e47654b4cad23579f8c0a5ab3c33bffa1c05d641",
+  "merged_by": null,
+  "base": {
+   "label": "forgejo",
+   "ref": "forgejo",
+   "sha": "e47654b4cad23579f8c0a5ab3c33bffa1c05d641",
+   "repo_id": 73144,
+   "repo": {
+    "full_name": "forgejo/forgejo",
+    "owner": {
+     "login": "forgejo"
+    }
+   }
+  },
+  "head": {
+   "label": "gusted/forgejo-search-pointer-blobs",
+   "ref": "refs/pull/14456/head",
+   "sha": "e0d9bdd97e3726a8f68a44e295b3032176140066",
+   "repo_id": 73144,
+   "repo": {
+    "full_name": "forgejo/forgejo",
+    "owner": {
+     "login": "forgejo"
+    }
+   }
+  },
+  "merge_base": "104411d6b82d40303ace1f14f997cac2e5e4933c",
+  "created_at": "2026-09-19T22:37:27+02:00",
+  "updated_at": "2026-09-23T17:18:14+02:00",
+  "closed_at": "2026-09-23T17:16:47+02:00",
+  "requested_reviewers": [
+   {
+    "id": 468676,
+    "login": "aahlenst",
+    "full_name": "Andreas Ahlenstorf"
+   }
+  ]
+ },
+ {
+  "id": 3140869,
+  "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/pulls/14445",
+  "number": 14445,
+  "user": {
+   "id": 26734,
+   "login": "Gusted",
+   "full_name": ""
+  },
+  "title": "feat: tighten JWK parsing and encoding for ECDSA curves",
+  "body": "Motivation is new linter error from https://codeberg.org/forgejo/forgejo/pulls/14155 about touching the X and Y coordinates directly when parsing. The parse function should be used instead.\n\n- Improve",
+  "labels": [
+   {
+    "id": 78139,
+    "name": "enhancement/feature",
+    "color": "207de5"
+   },
+   {
+    "id": 159443,
+    "name": "run-end-to-end-tests",
+    "color": "009800"
+   },
+   {
+    "id": 201029,
+    "name": "test/not-needed",
+    "color": "d4c5f9"
+   }
+  ],
+  "state": "closed",
+  "draft": false,
+  "is_locked": false,
+  "comments": 7,
+  "review_comments": 3,
+  "additions": 0,
+  "deletions": 0,
+  "changed_files": 0,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14445",
+  "diff_url": "https://codeberg.org/forgejo/forgejo/pulls/14445.diff",
+  "patch_url": "https://codeberg.org/forgejo/forgejo/pulls/14445.patch",
+  "mergeable": true,
+  "merged": true,
+  "merged_at": "2026-09-23T16:07:46+02:00",
+  "merge_commit_sha": "8921358345d7ee42daf4fb478adfd4c782402a6f",
+  "merged_by": null,
+  "base": {
+   "label": "forgejo",
+   "ref": "forgejo",
+   "sha": "e47654b4cad23579f8c0a5ab3c33bffa1c05d641",
+   "repo_id": 73144,
+   "repo": {
+    "full_name": "forgejo/forgejo",
+    "owner": {
+     "login": "forgejo"
+    }
+   }
+  },
+  "head": {
+   "label": "gusted/forgejo-jwk-ecdsa",
+   "ref": "refs/pull/14445/head",
+   "sha": "f84d42094521a88bd8ef55b7edcc9e0011ba3ca4",
+   "repo_id": 73144,
+   "repo": {
+    "full_name": "forgejo/forgejo",
+    "owner": {
+     "login": "forgejo"
+    }
+   }
+  },
+  "merge_base": "70a0e74b4fffa4910d6d764c7c3b3acca3be8098",
+  "created_at": "2026-09-19T18:00:59+02:00",
+  "updated_at": "2026-09-23T16:59:22+02:00",
+  "closed_at": "2026-09-23T16:07:46+02:00",
+  "requested_reviewers": [
+   {
+    "id": 222642,
+    "login": "mfenniak",
+    "full_name": "Mathieu Fenniak"
+   },
+   {
+    "id": 32636,
+    "login": "oliverpool",
+    "full_name": ""
+   }
+  ]
+ }
+]

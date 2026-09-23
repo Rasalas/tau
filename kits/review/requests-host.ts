@@ -1,30 +1,22 @@
-import { HostCommandError, type HostExtensionContext, type UiReviewRequest } from "tau/host-extension";
+import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import {
   THREAD_RAIL_EXTENSION_ID,
-  WORKSPACE_HOST_EXTENSION_ID,
   type MergeMethod,
-  type RequestService,
+  type ReviewRequest,
   type ReviewRequestContext,
   type ReviewRequestDraft,
   type ReviewRequestStatus,
 } from "./protocol.js";
+import type { RepositoryTarget, SourceControlProvider } from "./provider.js";
+import type { SourceControl } from "./provider-registry.js";
 import { withInstructions } from "./writing.js";
-import {
-  authArgs,
-  createArgs,
-  createdUrl,
-  defaultCliRunner,
-  draftArgs,
-  editArgs,
-  explainCliFailure,
-  mergeArgs,
-  serviceFor,
-  SERVICES,
-  type CliRunner,
-} from "./request-cli.js";
+import { SERVICES, type CliRunner } from "./request-cli.js";
 
 const AUTH_CACHE_MS = 60_000;
+/** A rail row's workspace keeps its provider this long; its remote rarely moves. */
+const WORKSPACE_KIND_MS = 10 * 60_000;
 const MERGE_METHODS: readonly MergeMethod[] = ["squash", "merge", "rebase"];
+const METHOD_WORDS: Record<MergeMethod, string> = { squash: "squash", merge: "merge commit", rebase: "rebase" };
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
@@ -73,96 +65,124 @@ export interface RequestCommandOptions {
   created?(url: string): void;
 }
 
+/** A checkout the lifecycle acts on: its Git facts, its provider and where the provider finds its repository. */
+interface Inspected {
+  current: ReviewRequestStatus;
+  git: ReviewRequestContext;
+  provider: SourceControlProvider;
+  target: RepositoryTarget & { cwd: string };
+}
+
 /**
  * Review Kit's request lifecycle: status, a generated draft, create, merge and
  * edit. Git goes through Workspace Kit's host entry (the commands that name
- * this kit as a caller); the hosting side goes through `gh` or `glab`, found
- * with `findCommand`. Every refusal names what is missing.
+ * this kit as a caller); the hosting side goes through the provider the
+ * remote belongs to. Every refusal names what is missing.
  */
-export function registerRequestCommands(context: HostExtensionContext, options: RequestCommandOptions = {}): void {
+export function registerRequestCommands(context: HostExtensionContext, sources: SourceControl, options: RequestCommandOptions = {}): void {
   const { services } = context;
-  const run = options.run ?? defaultCliRunner;
   const now = options.now ?? Date.now;
   // Only a login is remembered, so signing in shows on the next look.
   const signedIn = new Map<string, number>();
+  const workspaceKinds = new Map<string, { at: number; kind: ReviewRequest["provider"]; revision: number }>();
 
-  const workspace = async <T>(command: string, input?: unknown): Promise<T> => {
-    try {
-      return await context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input) as T;
-    } catch (error) {
-      throw new HostCommandError(message(error));
-    }
-  };
+  const workspace = async <T>(command: string, input?: unknown): Promise<T> => await sources.tools.workspace(command, input) as T;
 
-  const cli = async (service: RequestService, args: string[], cwd: string): Promise<string> => {
-    const command = services.findCommand(SERVICES[service].tool);
-    if (!command) throw new HostCommandError(missingTool(service));
-    services.noteSubprocess();
-    return run(command, args, cwd);
-  };
-
-  const authenticated = async (service: RequestService, cwd: string): Promise<boolean> => {
-    const at = signedIn.get(service);
+  /** True when signed in; a provider may answer with a sentence of its own for what is missing instead. */
+  const authenticated = async (provider: SourceControlProvider, target: RepositoryTarget & { cwd: string }): Promise<boolean | string> => {
+    const key = `${provider.kind}\0${target.host}`;
+    const at = signedIn.get(key);
     if (at !== undefined && now() - at < AUTH_CACHE_MS) return true;
-    const ok = await cli(service, authArgs(), cwd).then(() => true, () => false);
-    if (ok) signedIn.set(service, now());
+    const ok = await provider.signedIn(target).catch((error: unknown) => error instanceof HostCommandError ? error.message : false);
+    if (ok === true) signedIn.set(key, now());
     return ok;
   };
 
-  const missingTool = (service: RequestService) => {
-    const facts = SERVICES[service];
-    return `${facts.label} is not installed or not on your PATH. Install it from ${facts.install}, then run \`${facts.login}\`.`;
+  /** Where the provider finds the repository; a CLI that reads the checkout's remote needs no more than the checkout. */
+  const targetOf = (provider: SourceControlProvider, git: ReviewRequestContext): (RepositoryTarget & { cwd: string }) | undefined => {
+    const found = git.remote ? provider.repository(git.remote.url) : undefined;
+    if (found) return { ...found, cwd: git.root };
+    return provider.kind === "github" || provider.kind === "gitlab" ? { host: "", repo: "", cwd: git.root } : undefined;
   };
 
   /** The first thing missing before a request can be opened, or undefined. */
-  const problem = async (git: ReviewRequestContext, service: RequestService): Promise<string | undefined> => {
-    const facts = SERVICES[service];
-    if (!git.branch) return `Check out a branch to open a ${facts.noun}; HEAD is detached.`;
-    if (!git.remote) return `This repository has no remote. Publish it, or add one with \`git remote add origin <url>\`, to open a ${facts.noun}.`;
-    if (!services.findCommand(facts.tool)) return missingTool(service);
-    if (!await authenticated(service, git.root)) return `${facts.label} is not signed in. Run \`${facts.login}\` in a terminal, then try again.`;
+  const problem = async (git: ReviewRequestContext, provider: SourceControlProvider, target: (RepositoryTarget & { cwd: string }) | undefined): Promise<string | undefined> => {
+    const { info } = provider;
+    if (!git.branch) return `Check out a branch to open a ${info.noun}; HEAD is detached.`;
+    if (!git.remote) return `This repository has no remote. Publish it, or add one with \`git remote add origin <url>\`, to open a ${info.noun}.`;
+    const missing = provider.missing();
+    if (missing) return missing;
+    if (!target) return `${git.remote.name} (${git.remote.url}) names no ${info.name} repository Tau can read.`;
+    const signed = await authenticated(provider, target);
+    if (typeof signed === "string") return signed;
+    if (!signed) {
+      const facts = SERVICES[provider.kind];
+      return `${facts.label} is not signed in. Run \`${facts.login}\` in a terminal, then try again.`;
+    }
     return undefined;
   };
 
-  const inspect = async (fresh: boolean): Promise<{ current: ReviewRequestStatus; git: ReviewRequestContext }> => {
+  const inspect = async (fresh: boolean): Promise<Inspected> => {
     const git = await workspace<ReviewRequestContext>("review-request-context");
-    const service = serviceFor(git.remote?.url, (name) => services.findCommand(name));
-    const missing = await problem(git, service);
-    const request = git.branch && git.remote && services.findCommand(SERVICES[service].tool)
-      ? await workspace<UiReviewRequest | undefined>("review-request", { fresh })
+    const provider = sources.get(await sources.detect(git.remote?.url));
+    const target = targetOf(provider, git);
+    const missing = await problem(git, provider, target);
+    const request = git.branch && git.remote && target && !provider.missing()
+      ? await provider.current({ ...target, branch: git.branch, fresh }).catch(() => undefined)
       : undefined;
     const current: ReviewRequestStatus = {
       ...(git.branch ? { branch: git.branch } : {}),
       base: git.base,
       ...(git.remote ? { remote: git.remote.url } : {}),
       ...(git.upstream ? { upstream: git.upstream, ahead: git.ahead ?? 0 } : {}),
-      service,
+      service: provider.kind,
       ...(request ? { request } : {}),
       ...(missing ? { problem: missing } : {}),
     };
-    return { current, git };
+    return { current, git, provider, target: target ?? { host: "", repo: "", cwd: git.root } };
   };
   const status = async (fresh: boolean) => (await inspect(fresh)).current;
 
   /** Status for a step that needs everything in place; refuses with what is missing. */
-  const ready = async (): Promise<{ current: ReviewRequestStatus; git: ReviewRequestContext }> => {
+  const ready = async (): Promise<Inspected> => {
     const inspected = await inspect(true);
     if (inspected.current.problem) throw new HostCommandError(inspected.current.problem);
     return inspected;
   };
 
-  const openRequest = (current: ReviewRequestStatus): UiReviewRequest => {
-    const facts = SERVICES[current.service];
+  const openRequest = ({ current, provider }: Inspected): ReviewRequest => {
+    const { info } = provider;
     const request = current.request;
-    if (!request) throw new HostCommandError(`This branch has no ${facts.noun} yet.`);
-    if (request.state && request.state !== "open") throw new HostCommandError(`${facts.short} #${request.number} is ${request.state}.`);
+    if (!request) throw new HostCommandError(`This branch has no ${info.noun} yet.`);
+    if (request.state && request.state !== "open") throw new HostCommandError(`${info.short} #${request.number} is ${request.state}.`);
     return request;
+  };
+
+  /**
+   * A rail row's request. GitHub and GitLab come from Workspace Kit's detector
+   * as they always did; the other providers need the checkout's branch and remote.
+   */
+  const rowRequest = async (named: string): Promise<ReviewRequest | undefined> => {
+    const known = workspaceKinds.get(named);
+    let git: ReviewRequestContext | undefined;
+    let kind = known && now() - known.at < WORKSPACE_KIND_MS && known.revision === sources.revision() ? known.kind : undefined;
+    if (!kind) {
+      git = await workspace<ReviewRequestContext>("review-request-context", { workspace: named }).catch(() => undefined);
+      kind = await sources.detect(git?.remote?.url);
+      workspaceKinds.set(named, { at: now(), kind, revision: sources.revision() });
+    }
+    const provider = sources.get(kind);
+    if (kind === "github" || kind === "gitlab") return provider.current({ host: "", repo: "", cwd: named, branch: "", workspace: named, fresh: false });
+    git ??= await workspace<ReviewRequestContext>("review-request-context", { workspace: named }).catch(() => undefined);
+    const target = git ? targetOf(provider, git) : undefined;
+    if (!git?.branch || !target || provider.missing()) return undefined;
+    return provider.current({ ...target, branch: git.branch, workspace: named, fresh: false }).catch(() => undefined);
   };
 
   context.registerCommand("pr-status", async (input) => {
     const named = text(record(input).workspace);
     // A rail row asks about any thread's checkout and only wants the request.
-    if (named) return { request: await workspace<UiReviewRequest | undefined>("review-request", { workspace: named }) };
+    if (named) return { request: await rowRequest(named) };
     return status(record(input).fresh === true);
   }, { callers: [THREAD_RAIL_EXTENSION_ID] }); // a merged or closed request settles a Thread Rail thread
 
@@ -171,7 +191,7 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
     const read = await workspace<ReviewRequestContext>("review-request-context", { detail: true, ...(text(fields.base) ? { base: text(fields.base) } : {}) });
     // The repository's template shapes the description unless the user turned that off.
     const git = fields.template === false ? { ...read, template: undefined } : read;
-    const service = serviceFor(git.remote?.url, (name) => services.findCommand(name));
+    const { info } = sources.get(await sources.detect(git.remote?.url));
     const provider = text(fields.provider);
     const modelId = text(fields.modelId);
     // Pi attached to the runtime owns the model; the commits alone make the draft then.
@@ -179,7 +199,7 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
     services.log("request-draft.started", provider && modelId ? `${provider}/${modelId}` : "default model");
     let answer: string;
     try {
-      answer = await services.complete({ system: withInstructions(draftSystemPrompt(SERVICES[service].noun), fields.instructions), prompt: buildDraftPrompt(git), maxTokens: 900 }, provider && modelId ? { provider, id: modelId } : undefined);
+      answer = await services.complete({ system: withInstructions(draftSystemPrompt(info.noun), fields.instructions), prompt: buildDraftPrompt(git), maxTokens: 900 }, provider && modelId ? { provider, id: modelId } : undefined);
     } catch (error) {
       services.log("request-draft.failed", message(error));
       return { ...fallbackDraft(git), base: git.base, generated: false };
@@ -193,35 +213,36 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
     const fields = record(input);
     const title = text(fields.title)?.trim();
     if (!title) throw new HostCommandError("A title is required.");
-    const { current, git } = await ready();
-    const facts = SERVICES[current.service];
-    if (current.request?.state === "open") throw new HostCommandError(`${facts.short} #${current.request.number} is already open for this branch.`);
+    const inspected = await ready();
+    const { current, git, provider, target } = inspected;
+    const { info } = provider;
+    if (!info.capabilities.create) throw new HostCommandError(`${info.name} does not let Tau open a ${info.noun}; open it on the website.`);
+    if (current.request?.state === "open") throw new HostCommandError(`${info.short} #${current.request.number} is already open for this branch.`);
     const base = text(fields.base)?.trim() || git.base;
-    if (base === git.branch) throw new HostCommandError(`The ${facts.noun} would merge ${base} into itself; choose another base branch.`);
+    if (base === git.branch) throw new HostCommandError(`The ${info.noun} would merge ${base} into itself; choose another base branch.`);
+    const draft = fields.draft === true && info.capabilities.draft;
     await workspace("push");
-    let output: string;
-    try {
-      output = await cli(current.service, createArgs(current.service, { title, body: text(fields.body) ?? "", base, head: git.branch!, draft: fields.draft === true }), git.root);
-    } catch (error) {
-      throw new HostCommandError(explainCliFailure(current.service, `Creating the ${facts.noun}`, error));
-    }
-    services.log("request.created", createdUrl(output) ?? title);
+    const created = await provider.create(target, { title, body: text(fields.body) ?? "", base, head: git.branch!, draft });
+    services.log("request.created", created ?? title);
     const next = await status(true);
-    const url = createdUrl(output) ?? next.request?.url;
+    const url = created ?? next.request?.url;
     if (url) options.created?.(url);
-    return { status: next, url: createdUrl(output) };
+    return { status: next, url: created };
   }, { long: true });
 
   context.registerCommand("pr-merge", async (input) => {
     const method = MERGE_METHODS.find((candidate) => candidate === record(input).method);
     if (!method) throw new HostCommandError("Choose squash, merge or rebase.");
-    const { current, git } = await ready();
-    const request = openRequest(current);
-    try {
-      await cli(current.service, mergeArgs(current.service, request.number, method), git.root);
-    } catch (error) {
-      throw new HostCommandError(explainCliFailure(current.service, `Merging ${SERVICES[current.service].short} #${request.number}`, error));
+    const inspected = await ready();
+    const { provider, target } = inspected;
+    const request = openRequest(inspected);
+    const methods = provider.info.capabilities.merge;
+    if (!methods.includes(method)) {
+      throw new HostCommandError(methods.length === 0
+        ? `${provider.info.name} does not let Tau merge; merge it on the website.`
+        : `${provider.info.name} merges by ${methods.map((entry) => METHOD_WORDS[entry]).join(" or ")} only.`);
     }
+    await provider.merge(target, request, method);
     services.log("request.merged", `#${request.number} · ${method}`);
     return status(true);
   }, { long: true });
@@ -231,18 +252,17 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
     const title = text(fields.title)?.trim();
     const body = text(fields.body);
     if (title !== undefined && !title) throw new HostCommandError("A title is required.");
-    const { current, git } = await ready();
-    const request = openRequest(current);
-    const action = `Editing ${SERVICES[current.service].short} #${request.number}`;
-    try {
-      if (title !== undefined || body !== undefined) {
-        await cli(current.service, editArgs(current.service, request.number, { ...(title !== undefined ? { title } : {}), ...(body !== undefined ? { body } : {}) }), git.root);
-      }
-      if (typeof fields.draft === "boolean" && fields.draft !== request.draft) {
-        await cli(current.service, draftArgs(current.service, request.number, fields.draft), git.root);
-      }
-    } catch (error) {
-      throw new HostCommandError(explainCliFailure(current.service, action, error));
+    const inspected = await ready();
+    const { provider, target } = inspected;
+    const request = openRequest(inspected);
+    const { capabilities } = provider.info;
+    if (title !== undefined || body !== undefined) {
+      if (!capabilities.edit) throw new HostCommandError(`${provider.info.name} does not let Tau edit a ${provider.info.noun}.`);
+      await provider.edit(target, request, { ...(title !== undefined ? { title } : {}), ...(body !== undefined ? { body } : {}) });
+    }
+    if (typeof fields.draft === "boolean" && fields.draft !== request.draft) {
+      if (!capabilities.draft) throw new HostCommandError(`${provider.info.name} keeps no drafts Tau can switch.`);
+      await provider.setDraft(target, { ...request, ...(title !== undefined ? { title } : {}) }, fields.draft);
     }
     services.log("request.edited", `#${request.number}`);
     return status(true);

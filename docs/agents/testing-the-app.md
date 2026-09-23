@@ -66,6 +66,17 @@ git -C .tau-dev/workspace remote add origin git@github.com:acme/demo.git
 
 The host reads PATH from a login shell; with the user's real `ZDOTDIR` that shell puts Homebrew's real `gh` in front of the stub. A stub must read stdin only when the call passes `--input -` or `--body-file -`: the kit leaves stdin open otherwise, and a stub that waits for it never answers. The remote only names the repository; nothing is pushed to it.
 
+### Stub `tea` and `az`, a fake Bitbucket API
+
+The other providers are tested the same way. A stub `tea` answers `login list --output json` and `api --include …`, writing `HTTP/2.0 200 OK` to stderr (tea exits 0 on HTTP errors, and Review Kit reads the status there); a stub `az` answers `repos …` and `devops invoke …` and reads the body file `--in-file` names. Both can answer from `kits/review/fixtures/forgejo-*` and `azure-*`. Bitbucket has no CLI: start a local server that answers `/2.0/…` from `bitbucket-*`, point `TAU_BITBUCKET_API_URL=http://127.0.0.1:<port>/2.0` at it, and give the instance a Git config of its own whose credential helper prints a fake `username`/`password`, so the real keychain is never asked:
+
+```
+GIT_CONFIG_GLOBAL=$PWD/.tau-dev/stub/gitconfig GIT_CONFIG_NOSYSTEM=1 TAU_BITBUCKET_API_URL=http://127.0.0.1:9471/2.0 \
+  env -u ELECTRON_RUN_AS_NODE PATH="$PWD/.tau-dev/stub-bin:$PATH" ZDOTDIR="$PWD/.tau-dev/zdotdir" npm run dev:instance -- --build --fresh
+```
+
+A `pushInsteadOf` in that config sends a push for the fake remote to a bare repository under `.tau-dev/`. A self-hosted server is chosen in Settings → Review → Self-hosted servers and lands in `.tau-dev/userdata/kit-state/tau.review/source-hosts.json`.
+
 ### A runtime update without a real update
 
 The update toast of a runtime backend runs the program's update command in a

@@ -1,0 +1,18 @@
+{
+ "count": 1,
+ "value": [
+  {
+   "commitId": "c6269c2837279c5d33654905e51969011e18e0a0",
+   "author": {
+    "name": "GitOps",
+    "email": null,
+    "date": "2025-10-08T13:04:07Z"
+   },
+   "committer": {
+    "name": "MerlinBot",
+    "date": "2025-10-08T13:04:08Z"
+   },
+   "comment": "Inventory drift"
+  }
+ ]
+}

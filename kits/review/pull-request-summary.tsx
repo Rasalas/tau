@@ -56,20 +56,23 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
  * description, the checks, then every comment — active ones windowed, bots
  * and finished conversations folded away.
  */
-export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, candidates }: {
+export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, showChecks = true, candidates }: {
   detail: PullRequestDetail;
   checks: readonly PullRequestCheck[];
   threads: readonly PullRequestThread[];
   threadsError?: string;
   actions: WorkbenchActions;
   onSend(chip: ReviewCommentChip): void;
-  onSaveBody(body: string): Promise<void>;
+  /** Each of these is absent where the provider cannot do it; its control is hidden then. */
+  onSaveBody?: ((body: string) => Promise<void>) | undefined;
   onRetry(): void;
   onOpenPath(path: string): void;
   canEdit(comment: PullRequestComment): boolean;
   onEdit(comment: PullRequestComment, body: string): Promise<void>;
-  onReviewers(change: { add?: string[]; remove?: string[] }): Promise<void>;
-  onLabels(change: { add?: string[]; remove?: string[] }): Promise<void>;
+  onReviewers?: ((change: { add?: string[]; remove?: string[] }) => Promise<void>) | undefined;
+  onLabels?: ((change: { add?: string[]; remove?: string[] }) => Promise<void>) | undefined;
+  /** False where the provider reports no checks. */
+  showChecks?: boolean;
   candidates(): Promise<{ labels: Array<{ name: string }>; reviewers: string[] }>;
 }) {
   const [editingBody, setEditingBody] = useState(false);
@@ -114,37 +117,39 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
             <span key={reviewer.login} className={`pr-reviewer verdict-${reviewer.verdict}`} title={`${reviewer.login} — ${VERDICT_TITLES[reviewer.verdict]}`}>
               <i aria-hidden="true" />{reviewer.team ? `@${reviewer.login}` : reviewer.login}
               <span className="pr-sr"> — {VERDICT_TITLES[reviewer.verdict]}</span>
-              {reviewer.verdict === "pending" ? <button className="pr-chip-remove" aria-label={`Remove ${reviewer.login} from the reviewers`} title="Remove the review request" onClick={() => remove(() => onReviewers({ remove: [reviewer.login] }))}><X size={9} /></button> : null}
+              {reviewer.verdict === "pending" && onReviewers ? <button className="pr-chip-remove" aria-label={`Remove ${reviewer.login} from the reviewers`} title="Remove the review request" onClick={() => remove(() => onReviewers({ remove: [reviewer.login] }))}><X size={9} /></button> : null}
             </span>
           ))}
-          <ChipPicker label="Request a review" taken={detail.reviewers.map((reviewer) => reviewer.login)} allowTyped load={async () => (await candidates()).reviewers.filter((login) => login !== detail.author?.login)} onAdd={(login) => onReviewers({ add: [login] })} />
+          {onReviewers ? <ChipPicker label="Request a review" taken={detail.reviewers.map((reviewer) => reviewer.login)} allowTyped load={async () => (await candidates()).reviewers.filter((login) => login !== detail.author?.login)} onAdd={(login) => onReviewers({ add: [login] })} /> : null}
         </dd>
-        <dt>Labels</dt>
+        {onLabels || detail.labels.length > 0 ? <><dt>Labels</dt>
         <dd>
           {detail.labels.length === 0 ? <span className="pr-none">None</span> : detail.labels.map((label) => (
             <span key={label.name} className="pr-label">
               {/* The host's own label colour is data, drawn as a dot only. */}
               <i aria-hidden="true" style={label.color ? { background: `#${label.color}` } : undefined} />{label.name}
-              <button className="pr-chip-remove" aria-label={`Remove the label ${label.name}`} title="Remove the label" onClick={() => remove(() => onLabels({ remove: [label.name] }))}><X size={9} /></button>
+              {onLabels ? <button className="pr-chip-remove" aria-label={`Remove the label ${label.name}`} title="Remove the label" onClick={() => remove(() => onLabels({ remove: [label.name] }))}><X size={9} /></button> : null}
             </span>
           ))}
-          <ChipPicker label="Add a label" taken={detail.labels.map((label) => label.name)} load={async () => (await candidates()).labels.map((label) => label.name)} onAdd={(name) => onLabels({ add: [name] })} />
-        </dd>
+          {onLabels ? <ChipPicker label="Add a label" taken={detail.labels.map((label) => label.name)} load={async () => (await candidates()).labels.map((label) => label.name)} onAdd={(name) => onLabels({ add: [name] })} /> : null}
+        </dd></> : null}
       </dl>
       {chipError ? <p className="pr-error" role="alert">{chipError}</p> : null}
 
       <Section
         title="Description"
-        aside={editingBody ? null : <button className="icon-button compact" aria-label="Edit description" title="Edit description" onClick={() => setEditingBody(true)}><Pencil size={12} /></button>}
+        aside={editingBody || !onSaveBody ? null : <button className="icon-button compact" aria-label="Edit description" title="Edit description" onClick={() => setEditingBody(true)}><Pencil size={12} /></button>}
       >
-        {editingBody
+        {editingBody && onSaveBody
           ? <MarkdownEditor label="Description" initial={detail.body} allowEmpty onSave={async (body) => { await onSaveBody(body); setEditingBody(false); }} onCancel={() => setEditingBody(false)} />
           : detail.body.trim() ? <div className="pr-comment-body"><Markdown>{detail.body}</Markdown></div> : <p className="pr-empty"><em>No description provided.</em></p>}
       </Section>
 
-      <Section title="Checks" defaultOpen={rollup === "failing"} aside={<span className="pr-section-note">{rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</span>}>
-        <ChecksList checks={checks} actions={actions} />
-      </Section>
+      {showChecks ? (
+        <Section title="Checks" defaultOpen={rollup === "failing"} aside={<span className="pr-section-note">{rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</span>}>
+          <ChecksList checks={checks} actions={actions} />
+        </Section>
+      ) : null}
 
       <Section
         title={`Comments (${total})`}

@@ -1,0 +1,149 @@
+{
+ "count": 7,
+ "value": [
+  {
+   "id": 203,
+   "publishedDate": "2025-10-08T13:04:10.333Z",
+   "lastUpdatedDate": "2025-10-08T13:04:10.333Z",
+   "status": null,
+   "threadContext": null,
+   "isDeleted": false,
+   "comments": [
+    {
+     "id": 1,
+     "parentCommentId": 0,
+     "author": {
+      "displayName": "Microsoft.VisualStudio.Services.TFS",
+      "id": "00000002-0000-8888-8000-000000000000",
+      "uniqueName": null
+     },
+     "content": "MerlinBot set auto-complete",
+     "publishedDate": "2025-10-08T13:04:10.333Z",
+     "commentType": "system"
+    }
+   ]
+  },
+  {
+   "id": 204,
+   "publishedDate": "2025-10-08T13:04:12.473Z",
+   "lastUpdatedDate": "2025-10-08T13:04:12.473Z",
+   "status": null,
+   "threadContext": null,
+   "isDeleted": false,
+   "comments": [
+    {
+     "id": 1,
+     "parentCommentId": 0,
+     "author": {
+      "displayName": "MerlinBot",
+      "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+      "uniqueName": null
+     },
+     "content": "MerlinBot updated the pull request status to Completed",
+     "publishedDate": "2025-10-08T13:04:12.473Z",
+     "commentType": "system"
+    }
+   ]
+  },
+  {
+   "id": 301,
+   "publishedDate": "2026-09-20T08:00:00Z",
+   "lastUpdatedDate": "2026-09-20T09:00:00Z",
+   "status": "active",
+   "threadContext": null,
+   "isDeleted": false,
+   "comments": [
+    {
+     "id": 1,
+     "parentCommentId": 0,
+     "author": {
+      "displayName": "Mona Lisa",
+      "id": "1111",
+      "uniqueName": "mona@example.com"
+     },
+     "content": "Why a new cache?",
+     "publishedDate": "2026-09-20T08:00:00Z",
+     "commentType": "text"
+    },
+    {
+     "id": 2,
+     "parentCommentId": 1,
+     "author": {
+      "displayName": "Octo Cat",
+      "id": "2222",
+      "uniqueName": "octo@example.com"
+     },
+     "content": "The old one leaked.",
+     "publishedDate": "2026-09-20T09:00:00Z",
+     "commentType": "text"
+    }
+   ]
+  },
+  {
+   "id": 302,
+   "publishedDate": "2026-09-20T10:00:00Z",
+   "lastUpdatedDate": "2026-09-20T10:00:00Z",
+   "status": "active",
+   "threadContext": {
+    "filePath": "/src/app.ts",
+    "rightFileStart": {
+     "line": 12,
+     "offset": 1
+    },
+    "rightFileEnd": {
+     "line": 12,
+     "offset": 20
+    },
+    "leftFileStart": null,
+    "leftFileEnd": null
+   },
+   "isDeleted": false,
+   "comments": [
+    {
+     "id": 1,
+     "parentCommentId": 0,
+     "author": {
+      "displayName": "Mona Lisa",
+      "id": "1111",
+      "uniqueName": "mona@example.com"
+     },
+     "content": "Name this.",
+     "publishedDate": "2026-09-20T10:00:00Z",
+     "commentType": "text"
+    }
+   ]
+  },
+  {
+   "id": 303,
+   "publishedDate": "2026-09-20T11:00:00Z",
+   "lastUpdatedDate": "2026-09-20T12:00:00Z",
+   "status": "fixed",
+   "threadContext": {
+    "filePath": "/README.md",
+    "leftFileStart": {
+     "line": 4,
+     "offset": 1
+    },
+    "leftFileEnd": {
+     "line": 4,
+     "offset": 9
+    }
+   },
+   "isDeleted": false,
+   "comments": [
+    {
+     "id": 1,
+     "parentCommentId": 0,
+     "author": {
+      "displayName": "Octo Cat",
+      "id": "2222",
+      "uniqueName": "octo@example.com"
+     },
+     "content": "Typo.",
+     "publishedDate": "2026-09-20T11:00:00Z",
+     "commentType": "text"
+    }
+   ]
+  }
+ ]
+}

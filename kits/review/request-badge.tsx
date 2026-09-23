@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { UiSession } from "tau";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RowRequests } from "./requests.js";
+import { providerInfo } from "./protocol.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 
 /**
@@ -22,7 +23,7 @@ export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
     if (!request) {
       const first = linked[0];
       if (!first) return null;
-      const label = `${first.service === "gitlab" ? "MR" : "PR"} #${first.number}`;
+      const label = `${providerInfo(first.service).short} #${first.number}`;
       const state = first.state === "open" && first.draft ? "draft" : first.state ?? "open";
       return (
         <span className={`request-badge state-${state}`} title={[`${label} · ${state} · linked`, first.title ?? ""].filter(Boolean).join("\n")} aria-label={`${label} ${state}, linked${others.length ? `, ${others.length} more` : ""}`}>

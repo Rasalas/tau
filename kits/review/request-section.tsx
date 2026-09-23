@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ExternalLink, GitPullRequest, Link2, RefreshCw, X } from "lucide-react";
-import { errorMessage, type DesktopExtensionContext, type UiReviewRequest, type WorkbenchActions } from "tau";
+import { errorMessage, type DesktopExtensionContext, type WorkbenchActions } from "tau";
 import type { LinkDialogs } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 import { commitMessageModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
-import type { ChangesSectionProps, MergeMethod, ReviewRequestStatus, WorkspaceStoreApi } from "./protocol.js";
+import { providerInfo, type ChangesSectionProps, type MergeMethod, type ReviewRequest, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
 import { PublishForm } from "./publish-form.js";
@@ -71,7 +71,10 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
 
     const request = status?.request;
     const open = request && (request.state === undefined || request.state === "open") ? request : undefined;
-    const short = status?.service === "gitlab" ? "MR" : "PR";
+    const { short, capabilities } = providerInfo(status?.service ?? "github");
+    const methods = METHODS.filter((entry) => capabilities.merge.includes(entry.value));
+    // A provider without the chosen method merges by its first one.
+    const chosen = methods.some((entry) => entry.value === method) ? method : methods[0]?.value ?? method;
     const hasChanges = snapshot.changes.files.length > 0;
 
     const startCreate = () => run("Writing title and description…", async () => {
@@ -101,7 +104,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     });
 
     const merge = () => run(`Merging ${short}…`, async () => {
-      const next = await client.merge(method);
+      const next = await client.merge(chosen);
       publish(next);
       setMode("idle");
       void store.refresh();
@@ -141,13 +144,15 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
         {mode === "idle" && status && !status.problem && !busy ? (
           <div className="commit-actions request-actions">
             {!open ? (
-              <button className="primary" disabled={hasChanges && !message.trim()} onClick={() => void startCreate()}>
-                {hasChanges ? `Commit & create ${short}…` : `Create ${short}…`}
-              </button>
+              capabilities.create ? (
+                <button className="primary" disabled={hasChanges && !message.trim()} onClick={() => void startCreate()}>
+                  {hasChanges ? `Commit & create ${short}…` : `Create ${short}…`}
+                </button>
+              ) : null
             ) : (
               <>
-                <button onClick={() => { setForm({ title: open.title, body: open.body ?? "", base: open.baseRef, draft: Boolean(open.draft) }); setMode("edit"); }}>Edit…</button>
-                <button className="primary" onClick={() => setMode("merge")}>Merge…</button>
+                {capabilities.edit || capabilities.draft ? <button onClick={() => { setForm({ title: open.title, body: open.body ?? "", base: open.baseRef, draft: Boolean(open.draft) }); setMode("edit"); }}>Edit…</button> : null}
+                {methods.length > 0 ? <button className="primary" onClick={() => setMode("merge")}>Merge…</button> : null}
               </>
             )}
           </div>
@@ -173,14 +178,18 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
 
         {mode === "create" || mode === "edit" ? (
           <div className="request-form">
-            <input aria-label={`${short} title`} placeholder="Title" value={form.title} onChange={field("title")} />
-            <textarea aria-label={`${short} description`} placeholder="Description" value={form.body} onChange={field("body")} />
+            {mode === "create" || capabilities.edit ? <>
+              <input aria-label={`${short} title`} placeholder="Title" value={form.title} onChange={field("title")} />
+              <textarea aria-label={`${short} description`} placeholder="Description" value={form.body} onChange={field("body")} />
+            </> : null}
             {mode === "create" ? (
               <label className="request-base">into <input aria-label="Base branch" value={form.base} onChange={field("base")} /></label>
             ) : null}
-            <label className="request-draft">
-              <input type="checkbox" checked={form.draft} onChange={(event) => setForm((current) => ({ ...current, draft: event.target.checked }))} /> Draft
-            </label>
+            {capabilities.draft ? (
+              <label className="request-draft">
+                <input type="checkbox" checked={form.draft} onChange={(event) => setForm((current) => ({ ...current, draft: event.target.checked }))} /> Draft
+              </label>
+            ) : null}
             <div className="commit-actions">
               {mode === "create" ? (
                 <button className="primary" disabled={Boolean(busy) || !form.title.trim()} onClick={() => void create()}>
@@ -198,12 +207,12 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
         {mode === "merge" && open ? (
           <div className="request-form" role="group" aria-label={`Merge ${short} #${open.number}`}>
             <div className="toggle-group" role="radiogroup" aria-label="Merge method">
-              {METHODS.map((entry) => (
-                <button key={entry.value} role="radio" aria-checked={method === entry.value} className={method === entry.value ? "active" : ""} onClick={() => setMethod(entry.value)}>{entry.label}</button>
+              {methods.map((entry) => (
+                <button key={entry.value} role="radio" aria-checked={chosen === entry.value} className={chosen === entry.value ? "active" : ""} onClick={() => setMethod(entry.value)}>{entry.label}</button>
               ))}
             </div>
             <p className="request-confirm">
-              Merge {short} #{open.number} into <code>{open.baseRef}</code> ({METHODS.find((entry) => entry.value === method)?.label.toLowerCase()})?
+              Merge {short} #{open.number} into <code>{open.baseRef}</code> ({METHODS.find((entry) => entry.value === chosen)?.label.toLowerCase()})?
               {open.draft ? " It is still a draft." : ""}
               {open.checks && open.checks.failed > 0 ? ` ${open.checks.failed} check${open.checks.failed === 1 ? " is" : "s are"} failing.` : ""}
             </p>
@@ -220,7 +229,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
   };
 }
 
-function RequestSummary({ request, onOpen, onBrowse }: { request: UiReviewRequest; onOpen(): void; onBrowse(): void }) {
+function RequestSummary({ request, onOpen, onBrowse }: { request: ReviewRequest; onOpen(): void; onBrowse(): void }) {
   const state = requestStateLabel(request);
   const checks = checksLabel(request.checks);
   const short = requestShort(request);
@@ -271,7 +280,7 @@ function LinkedRequests({ actions, parts }: { actions: WorkbenchActions; parts: 
         </button>
       </div>
       {links.map((link) => {
-        const short = link.service === "gitlab" ? "MR" : "PR";
+        const short = providerInfo(link.service).short;
         const state = link.state === "open" && link.draft ? "draft" : link.state ?? "open";
         return (
           <div key={link.url} className="request-link-row">

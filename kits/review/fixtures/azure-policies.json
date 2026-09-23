@@ -1,0 +1,55 @@
+[
+ {
+  "evaluationId": "e1",
+  "status": "approved",
+  "configuration": {
+   "isBlocking": true,
+   "isEnabled": true,
+   "type": {
+    "displayName": "Build"
+   },
+   "settings": {
+    "displayName": "CI"
+   }
+  },
+  "context": {
+   "buildDefinitionName": "CI"
+  }
+ },
+ {
+  "evaluationId": "e2",
+  "status": "running",
+  "configuration": {
+   "isBlocking": true,
+   "isEnabled": true,
+   "type": {
+    "displayName": "Build"
+   },
+   "settings": {
+    "displayName": "Tests"
+   }
+  }
+ },
+ {
+  "evaluationId": "e3",
+  "status": "rejected",
+  "configuration": {
+   "isBlocking": true,
+   "isEnabled": true,
+   "type": {
+    "displayName": "Minimum number of reviewers"
+   }
+  }
+ },
+ {
+  "evaluationId": "e4",
+  "status": "notApplicable",
+  "configuration": {
+   "isBlocking": false,
+   "isEnabled": true,
+   "type": {
+    "displayName": "Comment requirements"
+   }
+  }
+ }
+]

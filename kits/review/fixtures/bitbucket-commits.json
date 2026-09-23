@@ -1,0 +1,35 @@
+{
+ "values": [
+  {
+   "hash": "187901792e4537197d6f02c5a051bf97fd2ac2be",
+   "date": "2020-08-21T09:18:19+00:00",
+   "message": "Merged in PIPES-17-add-upload-multiple-files (pull request #11)\n\nPIPES-17: Add support for upload multiple files by wildcard\n\nApproved-by: Raul Gomis\nApproved-by: Galyna Zholtkevych\n",
+   "author": {
+    "raw": "Oleksandr Kyrdan <okyrdan@atlassian.com>",
+    "user": {
+     "display_name": "Oleksandr Kyrdan",
+     "type": "user",
+     "uuid": "{c3cbd4fd-2494-4a26-a4db-ea02e2cdb5ee}",
+     "account_id": "5c88f88364a81c1dae2814f1",
+     "nickname": "Oleksandr Kyrdan"
+    }
+   }
+  },
+  {
+   "hash": "c6ee5d86f36e51221c2a8422a360f78dfda6ebaa",
+   "date": "2020-08-17T06:21:52+00:00",
+   "message": "PIPES-17: Add support for upload multiple files by wildcard\n",
+   "author": {
+    "raw": "Oleksandr Kyrdan <okyrdan@atlassian.com>",
+    "user": {
+     "display_name": "Oleksandr Kyrdan",
+     "type": "user",
+     "uuid": "{c3cbd4fd-2494-4a26-a4db-ea02e2cdb5ee}",
+     "account_id": "5c88f88364a81c1dae2814f1",
+     "nickname": "Oleksandr Kyrdan"
+    }
+   }
+  }
+ ],
+ "pagelen": 50
+}
