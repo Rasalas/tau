@@ -905,6 +905,8 @@ function parseNumstat(stdout: string): Map<string, { added: number; removed: num
   return counts;
 }
 
+const UNTRACKED_STAT_LIMIT = 500;
+
 export interface UntrackedStatsOptions {
   /** Never read a complete large file just to produce a review statistic. */
   maxBytes?: number;
@@ -1950,7 +1952,8 @@ export async function readProjectGitState(
     const [rootOut, remoteOut, statusOut, numstatOut, worktreeOut, refOut] = await Promise.all([
       run(["rev-parse", "--show-toplevel"]),
       run(["remote"]).catch(() => ""),
-      run(["status", "--porcelain", "-z"]),
+      // Every untracked file, so a new folder lists its files rather than one row the review cannot open.
+      run(["status", "--porcelain", "-z", "--untracked-files=all"]),
       run(["diff", "--numstat", "-z", "HEAD"]).catch(() => ""),
       run(["worktree", "list", "--porcelain"]),
       run(["for-each-ref", "--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)", "--sort=-committerdate", "refs/heads"]),
@@ -1961,7 +1964,8 @@ export async function readProjectGitState(
     const statuses = parseStatus(statusOut);
     const counts = parseNumstat(numstatOut);
     const files: UiChangedFile[] = [];
-    const untracked = [...statuses].filter(([, value]) => value.status === "untracked");
+    // A new build folder can hold thousands of files; line counts stop after the first few hundred.
+    const untracked = [...statuses].filter(([, value]) => value.status === "untracked").slice(0, UNTRACKED_STAT_LIMIT);
     const stats = new Map<string, number>();
     const limit = 4;
     for (let index = 0; index < untracked.length; index += limit) {
