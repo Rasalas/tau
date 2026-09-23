@@ -22,6 +22,15 @@ export interface AppearanceValues {
   codeFontSize?: number;
   /** Unset keeps core's 24-hour clock. */
   timestamps?: TimestampFormat;
+  /** How long panels take to open and close; 0 is at once, T3 Code's default. */
+  panelMotion: number;
+}
+
+export const PANEL_MOTION_RANGE = { min: 0, max: 400, step: 25 } as const;
+
+export function readPanelMotion(raw: unknown): number | undefined {
+  const value = typeof raw === "string" && /^\d+$/u.test(raw) ? Number(raw) : undefined;
+  return value !== undefined && value <= PANEL_MOTION_RANGE.max ? value : undefined;
 }
 
 export const FONT_SIZE_RANGE = { min: 10, max: 22 } as const;
@@ -56,6 +65,7 @@ export function readAppearance(preferences: PreferencesStore): AppearanceValues 
     codeFontFamily: value(SETTING_KEYS.codeFontFamily) ?? "",
     codeFontSize: readSize(value(SETTING_KEYS.codeFontSize)),
     timestamps: readTimestamps(value(SETTING_KEYS.timestamps)),
+    panelMotion: readPanelMotion(value(SETTING_KEYS.panelMotion)) ?? 0,
   };
 }
 
@@ -89,6 +99,7 @@ export class AppearanceApplier {
     set("--prompt-font-size", values.promptFontSize ? `${values.promptFontSize}px` : undefined);
     set("--code-font-family", cleanFontFamily(values.codeFontFamily) || undefined);
     set("--code-font-scale", values.codeFontSize ? String(values.codeFontSize / DEFAULT_CODE_FONT_SIZE) : undefined);
+    set("--panel-motion", values.panelMotion > 0 ? `${values.panelMotion}ms` : undefined);
 
     const side = (id: string, scheme: "light" | "dark") => {
       const theme = id ? themes.find((entry) => entry.id === id) : undefined;
@@ -108,7 +119,7 @@ export class AppearanceApplier {
     const root = this.doc.documentElement;
     delete root.dataset.density;
     delete root.dataset.timestamps;
-    for (const name of ["--prompt-font-family", "--prompt-font-size", "--code-font-family", "--code-font-scale"]) root.style.removeProperty(name);
+    for (const name of ["--prompt-font-family", "--prompt-font-size", "--code-font-family", "--code-font-scale", "--panel-motion"]) root.style.removeProperty(name);
     this.style?.remove();
     this.style = undefined;
   }
