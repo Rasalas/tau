@@ -84,6 +84,7 @@ async function defaultRunGit(cwd: string, args: string[]): Promise<string> {
     cwd,
     maxBuffer: 1024 * 1024,
     timeout: 10_000,
+    windowsHide: true,
   });
   return stdout;
 }

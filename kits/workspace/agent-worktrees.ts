@@ -32,6 +32,7 @@ export const runAgentGit: AgentGitRunner = async (cwd, args, options = {}) => {
     cwd,
     maxBuffer: PATCH_BUFFER,
     timeout: 120_000,
+    windowsHide: true,
     ...(options.indexFile ? { env: { ...process.env, GIT_INDEX_FILE: options.indexFile, GIT_OPTIONAL_LOCKS: "0" } } : {}),
   });
   if (options.stdin !== undefined) child.child.stdin?.end(options.stdin);

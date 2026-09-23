@@ -39,6 +39,7 @@ export async function rebuildWorkbench(root: string, options: { onOutput?(line: 
       {
         cwd: root,
         maxBuffer: 16 * 1024 * 1024,
+        windowsHide: true,
         // The build runs the electron binary as plain node, and so do the
         // tsc and vite processes it spawns with the same executable.
         env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },

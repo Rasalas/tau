@@ -91,7 +91,7 @@ function decodeRecords(value: unknown): WorktreeRecord[] {
 
 /** Removing a worktree deletes its `node_modules` too, which takes longer than a status read. */
 export const storageGit: GitRunner = async (cwd, args, maxBuffer = 8 * 1024 * 1024) => {
-  const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], { cwd, maxBuffer, timeout: 5 * 60_000 });
+  const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], { cwd, maxBuffer, timeout: 5 * 60_000, windowsHide: true });
   return stdout;
 };
 

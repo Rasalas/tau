@@ -322,7 +322,7 @@ export class HostProcessSupervisor {
 function defaultSpawn(command: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
   // Its own process group: a signal meant for the window (a terminal's Ctrl-C,
   // a stopped dev instance) must not take the host's threads with it.
-  return spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+  return spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], detached: true, windowsHide: true });
 }
 
 function portOf(url: string): number {

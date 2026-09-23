@@ -840,6 +840,7 @@ export async function runGitCommand(
     timeout: 10_000,
     signal,
     env,
+    windowsHide: true,
   });
   return stdout;
 }
@@ -2106,7 +2107,7 @@ async function streamFilePatch(
 ): Promise<StreamedPatch> {
   const { hunkOffset: offset, hunkLimit: limit } = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS);
   return new Promise((settle, reject) => {
-    const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     let pending = "";
