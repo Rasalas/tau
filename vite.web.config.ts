@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { dedupeLegalComments } from "./vite.legal-comments";
+import { stripIconKeys } from "./vite.icon-keys";
 
 /**
  * The browser client (`dist-web/`), served by a listening host at its own root.
@@ -9,7 +10,7 @@ import { dedupeLegalComments } from "./vite.legal-comments";
  * platform and the HTML around it differ, so this config differs only there.
  */
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), dedupeLegalComments()],
+  plugins: [react(), stripIconKeys(), dedupeLegalComments()],
   base: "/",
   build: {
     outDir: "dist-web",
