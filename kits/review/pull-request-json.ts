@@ -217,9 +217,20 @@ function githubViewed(state: string | undefined): PullRequestViewedState {
   return "unviewed";
 }
 
-/** The review threads and each file's viewed state, from `GITHUB_THREADS_QUERY`. */
-export function parseGitHubThreads(output: string): { threads: PullRequestThread[]; viewed: Map<string, PullRequestViewedState>; nodeId?: string } {
+/** Where a GraphQL connection carries on; undefined once it is read to its end. */
+function nextCursor(connection: unknown): string | undefined {
+  const info = record(record(connection).pageInfo);
+  return info.hasNextPage === true ? text(info.endCursor) : undefined;
+}
+
+/**
+ * The review threads and each file's viewed state, from one page of
+ * `GITHUB_THREADS_QUERY`, with the cursors of the connections that go on.
+ */
+export function parseGitHubThreads(output: string): { threads: PullRequestThread[]; viewed: Map<string, PullRequestViewedState>; nodeId?: string; threadsAfter?: string; filesAfter?: string } {
   const request = record(record(record(record(JSON.parse(output)).data).repository).pullRequest);
+  const threadsAfter = nextCursor(request.reviewThreads);
+  const filesAfter = nextCursor(request.files);
   const threads = list(record(request.reviewThreads).nodes).flatMap((thread): PullRequestThread[] => {
     const id = text(thread.id);
     const path = text(thread.path);
@@ -245,7 +256,13 @@ export function parseGitHubThreads(output: string): { threads: PullRequestThread
     const path = text(file.path);
     if (path) viewed.set(path, githubViewed(text(file.viewerViewedState)));
   }
-  return { threads, viewed, ...(text(request.id) ? { nodeId: text(request.id) } : {}) };
+  return {
+    threads,
+    viewed,
+    ...(text(request.id) ? { nodeId: text(request.id) } : {}),
+    ...(threadsAfter ? { threadsAfter } : {}),
+    ...(filesAfter ? { filesAfter } : {}),
+  };
 }
 
 function gitlabState(state: string | undefined): PullRequestDetail["state"] {
@@ -455,6 +472,34 @@ export function parseGitLabDiffs(output: string): Array<{ file: Omit<PullRequest
     const diff = fileDiff(path, parseHunks(typeof entry.diff === "string" ? entry.diff : ""));
     return [{ file: { path, ...(status === "renamed" ? { previousPath: oldPath } : {}), status, added: diff.added, removed: diff.removed }, diff }];
   });
+}
+
+const GITHUB_FILE_STATUS: Record<string, PullRequestFile["status"]> = { added: "added", removed: "deleted", renamed: "renamed" };
+
+/**
+ * `gh api --paginate …/pulls/N/files --jq '.[]'`: one file per line, each
+ * with its own patch. GitHub leaves the patch out of a file too large to
+ * show, so that file keeps its counts and says why it has no lines.
+ */
+export function parseGitHubFiles(output: string): Array<{ file: Omit<PullRequestFile, "viewed">; diff: UiFileDiff }> {
+  return output.split("\n").filter((line) => line.trim()).flatMap((line) => {
+    const entry = record(JSON.parse(line));
+    const path = text(entry.filename);
+    if (!path) return [];
+    const status = GITHUB_FILE_STATUS[text(entry.status) ?? ""] ?? "modified";
+    const previousPath = text(entry.previous_filename);
+    const patch = typeof entry.patch === "string" ? entry.patch : undefined;
+    const hunks = patch ? parseHunks(patch) : [];
+    const diff: UiFileDiff = patch
+      ? fileDiff(path, hunks)
+      : { path, added: count(entry.additions), removed: count(entry.deletions), hunks: [], note: count(entry.additions) + count(entry.deletions) > 0 ? "GitHub shows no diff for this file; it is too large." : "Binary file" };
+    return [{ file: { path, ...(status === "renamed" && previousPath ? { previousPath } : {}), status, added: diff.added, removed: diff.removed }, diff }];
+  });
+}
+
+/** `gh pr diff` refuses a request over 300 files or too large a diff; the per-file listing still answers. */
+export function isDiffTooLarge(message: string): boolean {
+  return /too.?large|exceeded the maximum|maximum number of files|HTTP 406|maxBuffer|stdout maxBuffer length exceeded/iu.test(message);
 }
 
 /** A fingerprint of a file's change, so a local viewed mark knows when the file moved on. */

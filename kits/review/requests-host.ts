@@ -68,6 +68,8 @@ export function fallbackDraft(context: ReviewRequestContext): { title: string; b
 export interface RequestCommandOptions {
   run?: CliRunner;
   now?(): number;
+  /** A request was just opened; its URL. */
+  created?(url: string): void;
 }
 
 /**
@@ -201,7 +203,10 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
       throw new HostCommandError(explainCliFailure(current.service, `Creating the ${facts.noun}`, error));
     }
     services.log("request.created", createdUrl(output) ?? title);
-    return { status: await status(true), url: createdUrl(output) };
+    const next = await status(true);
+    const url = createdUrl(output) ?? next.request?.url;
+    if (url) options.created?.(url);
+    return { status: next, url: createdUrl(output) };
   }, { long: true });
 
   context.registerCommand("pr-merge", async (input) => {
