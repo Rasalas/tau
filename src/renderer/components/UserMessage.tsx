@@ -1,5 +1,5 @@
 import { FileText, Sparkles } from "lucide-react";
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { LazyFeatureBoundary } from "./LazyFeature";
@@ -34,11 +34,23 @@ function SkillChip({ name }: { name: string }) {
   </span>;
 }
 
+const idle = () => () => undefined;
+const unversioned = () => 0;
+
+/**
+ * The block contributions for a role, following the registry: a transcript
+ * drawn before a kit activated redraws its blocks once the kit is there.
+ */
+export function useMessageBlocks(role: "user" | "assistant", active: boolean) {
+  const registry = useContext(WorkbenchShellContext)?.registry;
+  useSyncExternalStore(active && registry ? registry.subscribe : idle, active && registry ? registry.getVersion : unversioned);
+  return { registry, blocks: active && registry ? registry.getMessageBlocks().filter((block) => drawsBlocksFor(block, role)) : [] };
+}
+
 /** Tagged blocks an extension draws for user messages, split from the text the bubble shows. */
 function useUserBlocks(message: UiMessage): { text: string; blocks: ReactNode[] } {
-  const registry = useContext(WorkbenchShellContext)?.registry;
-  if (!registry || !message.text.includes("<")) return { text: message.text, blocks: [] };
-  const contributions = registry.getMessageBlocks().filter((block) => drawsBlocksFor(block, "user"));
+  const { registry, blocks: contributions } = useMessageBlocks("user", message.text.includes("<"));
+  if (!registry) return { text: message.text, blocks: [] };
   if (contributions.length === 0) return { text: message.text, blocks: [] };
   const parts = splitMessageBlocks(message.text, contributions.map((block) => block.tag));
   if (parts.every((part) => part.kind === "text")) return { text: message.text, blocks: [] };

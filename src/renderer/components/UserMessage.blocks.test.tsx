@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import { ExtensionRegistry, type MessageBlockProps, type WorkbenchActions } from "../extension-system";
@@ -45,5 +45,19 @@ describe("message blocks in a user message", () => {
   it("keeps an assistant reply's block out of a user-only contribution", () => {
     renderWith({ ...prompt, id: "a1", role: "assistant" }, ["user"]);
     expect(screen.queryByRole("region", { name: "Context card" })).toBeNull();
+  });
+
+  it("redraws a message drawn before the kit that owns its block activated", () => {
+    const registry = new ExtensionRegistry();
+    render(
+      <WorkbenchShellContext.Provider value={{ registry, actions: {} as WorkbenchActions }}>
+        <Message message={prompt} />
+      </WorkbenchShellContext.Provider>,
+    );
+    expect(screen.queryByRole("region", { name: "Context card" })).toBeNull();
+    act(() => {
+      registry.activate({ id: "test.late", name: "Late", activate(context) { context.registerMessageBlock({ id: "context", tag: "context_note", roles: ["user"], Component: Card }); } });
+    });
+    expect(screen.getByRole("region", { name: "Context card" })).toBeTruthy();
   });
 });
