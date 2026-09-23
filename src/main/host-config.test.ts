@@ -303,5 +303,15 @@ describe("HostConfigManager", () => {
       expect(layers.host.updates).toBeUndefined();
       expect((await manager.read()).updates).toBeUndefined();
     });
+
+    it("keeps the quit confirmations key by key and drops a mode it does not know", async () => {
+      await manager.update({ confirm: { quit: "double-press" } }, "global");
+      await manager.update({ confirm: { quitWhileRunning: false } }, "global");
+      expect((await manager.read()).confirm).toEqual({ quit: "double-press", quitWhileRunning: false });
+      await manager.update({ confirm: { quit: "never" as never } }, "global");
+      expect((await manager.read()).confirm?.quit).toBe("double-press");
+      await manager.clear(["confirm.quit"], "global");
+      expect((await manager.read()).confirm).toEqual({ quitWhileRunning: false });
+    });
   });
 });

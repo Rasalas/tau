@@ -103,3 +103,5 @@ export { createNewThreadRequestId } from "../../shared/contracts";
 export { HostClientProvider, setHostClient } from "../host-client-context";
 export { HOST_CAPABILITY } from "../../shared/host-transport";
 export { CLIENT_PROFILES, type ClientProfile } from "../../workbench/client-profile";
+export { APP_MENU_CHORDS } from "../../shared/window-shell";
+export { normalizeKeyChord } from "../keybindings";

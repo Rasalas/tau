@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Clock } from "lucide-react";
-import { Dialog, errorMessage, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
+import { ConfirmDialog, Dialog, errorMessage, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
@@ -17,7 +17,7 @@ import {
   unsettlePatch,
   type RailDrop,
 } from "./meta.js";
-import type { RailOrganizer, RailSections, ThreadMetaPatch, ThreadTitlesSlice, WorkspaceStoreSlice } from "./protocol.js";
+import type { RailOrganizer, RailQuestion, RailQuestionAction, RailSections, ThreadMetaPatch, ThreadTitlesSlice, WorkspaceStoreSlice } from "./protocol.js";
 import type { RailStore } from "./store.js";
 import type { ThreadUndo, UndoAction, UndoKind } from "./undo.js";
 
@@ -36,6 +36,8 @@ export interface RailOrganizerPort {
   workspace?(): WorkspaceStoreSlice | undefined;
   /** Thread Titles, while it is on; the row offers "Regenerate title" only then. */
   titles?(): ThreadTitlesSlice | undefined;
+  /** Asks before an action the user wants confirmed; true when it may go ahead. Absent, nothing asks. */
+  confirm?(action: RailQuestionAction, sessions: readonly UiSession[]): Promise<boolean>;
 }
 
 const EMPTY: RailSections = { pinned: [], active: [], snoozed: [], settled: [], archived: [] };
@@ -52,9 +54,9 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   togglePin(threadId: string): void;
   toggleSettledById(threadId: string): void;
   snooze(threadId: string, until: number): void;
-  archive(session: UiSession, actions: WorkbenchActions | undefined): Promise<void>;
+  archive(session: UiSession, actions: WorkbenchActions | undefined, confirmed?: boolean): Promise<void>;
   unarchive(threadId: string): void;
-  remove(session: UiSession, actions: WorkbenchActions | undefined, leaving?: ReadonlySet<string>): Promise<void>;
+  remove(session: UiSession, actions: WorkbenchActions | undefined, leaving?: ReadonlySet<string>, confirmed?: boolean): Promise<void>;
   restore(threadId: string): Promise<void>;
 } {
   const { send, undo } = port;
@@ -81,10 +83,20 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     });
   };
 
+  const ask = (action: RailQuestionAction, sessions: readonly UiSession[]) =>
+    sessions.length === 0 || !port.confirm ? Promise.resolve(true) : port.confirm(action, sessions);
+  const sessionOf = (threadId: string): UiSession => store.session(threadId) ?? ({ id: threadId, title: "this thread" } as UiSession);
+
   const togglePin = (threadId: string) => {
     const pinned = Boolean(meta(threadId)?.pinned);
-    if (!pinned) undo.invalidate("pin", threadId);
-    change({ [threadId]: pinPatch(store.getState(), threadId, !pinned, now()) }, pinned ? { threadId, kind: "pin", action: "Unpinned" } : undefined);
+    if (!pinned) {
+      undo.invalidate("pin", threadId);
+      change({ [threadId]: pinPatch(store.getState(), threadId, true, now()) });
+      return;
+    }
+    void ask("unpin", [sessionOf(threadId)]).then((confirmed) => {
+      if (confirmed && meta(threadId)?.pinned) change({ [threadId]: pinPatch(store.getState(), threadId, false, now()) }, { threadId, kind: "pin", action: "Unpinned" });
+    });
   };
   const toggleSettledById = (threadId: string) => {
     if (meta(threadId)?.settledAt !== undefined) {
@@ -141,8 +153,9 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
 
   /** As in T3 Code: a running thread cannot be archived, and archiving the thread on screen opens a new one in its project. */
-  const archive = async (session: UiSession, actions: WorkbenchActions | undefined) => {
+  const archive = async (session: UiSession, actions: WorkbenchActions | undefined, confirmed = false) => {
     if (port.running(session.id)) { notify(actions, "Cannot archive a running thread."); return; }
+    if (!confirmed && !await ask("archive", [session])) return;
     const shown = onScreen(actions, session.id);
     try {
       await port.archive(session.id);
@@ -164,8 +177,9 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
 
   /** Into the host's trash; the notice, `mod+z` and Settings → Archived bring it back. */
   /** `leaving`: threads going in the same batch, which the reader is never moved to. */
-  const remove = async (session: UiSession, actions: WorkbenchActions | undefined, leaving: ReadonlySet<string> = new Set()) => {
+  const remove = async (session: UiSession, actions: WorkbenchActions | undefined, leaving: ReadonlySet<string> = new Set(), confirmed = false) => {
     if (port.running(session.id)) { notify(actions, "Stop the thread before deleting it."); return; }
+    if (!confirmed && !await ask("delete", [session])) return;
     const shown = onScreen(actions, session.id);
     if (shown) {
       const next = fallbackThread(store.displayed.filter((thread) => !leaving.has(thread.id) || thread.id === session.id), session);
@@ -227,9 +241,11 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     store.threadStore = useThreadStore();
     const sessions = store.snoozeDialogFor;
     const renaming = store.renameDialogFor;
+    const question = store.question;
     return (
       <>
         <UndoNotice actions={actions} />
+        {question ? <RailConfirmation key={question.sessions.map((session) => session.id).join()} question={question} onDone={() => store.ask(undefined)} /> : null}
         {sessions && sessions.length > 0 ? (
           <SnoozeDialog
             key={sessions.map((session) => session.id).join()}
@@ -380,7 +396,12 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       store.actions = actions;
       const at = now();
       if (itemId === "unpin") {
-        changeMany(sessions.filter((session) => meta(session.id)?.pinned).map((session) => ({ threadId: session.id, patch: pinPatch(store.getState(), session.id, false, at), kind: "pin" as const, action: "Unpinned" as const })));
+        const pinned = sessions.filter((session) => meta(session.id)?.pinned);
+        void ask("unpin", pinned).then((confirmed) => {
+          if (!confirmed) return;
+          const when = now();
+          changeMany(pinned.filter((session) => meta(session.id)?.pinned).map((session) => ({ threadId: session.id, patch: pinPatch(store.getState(), session.id, false, when), kind: "pin" as const, action: "Unpinned" as const })));
+        });
       } else if (itemId === "settle") {
         changeMany(sessions.filter((session) => meta(session.id)?.settledAt === undefined).map((session) => ({ threadId: session.id, patch: settlePatch(at, "user"), kind: "settle" as const, action: "Settled" as const })));
       } else if (itemId === "snooze:custom") {
@@ -390,11 +411,14 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       } else if (itemId === "archive" || itemId === "delete") {
         // One after another: each may move the reader off the thread on screen.
         const leaving = new Set(sessions.map((session) => session.id));
+        const idle = sessions.filter((session) => !port.running(session.id));
         void (async () => {
-          for (const session of sessions) {
+          // One question for the whole selection.
+          if (!await ask(itemId === "archive" ? "archive" : "delete", idle)) return;
+          for (const session of idle) {
             if (port.running(session.id)) continue;
             // oxlint-disable-next-line no-await-in-loop
-            await (itemId === "archive" ? archive(session, actions) : remove(session, actions, leaving));
+            await (itemId === "archive" ? archive(session, actions, true) : remove(session, actions, leaving, true));
           }
         })();
       } else {
@@ -428,6 +452,34 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     remove,
     restore,
   };
+}
+
+const QUESTION_TEXT: Record<RailQuestionAction, { verb: string; message(count: number): string; destructive?: boolean }> = {
+  delete: { verb: "Delete", destructive: true, message: (count) => `${count === 1 ? "It goes" : "They go"} to the trash; Settings → Archived brings ${count === 1 ? "it" : "them"} back.` },
+  archive: { verb: "Archive", message: (count) => `${count === 1 ? "It leaves" : "They leave"} the rail until new work brings ${count === 1 ? "it" : "them"} back; Settings → Archived lists ${count === 1 ? "it" : "them"}.` },
+  unpin: { verb: "Unpin", message: (count) => `${count === 1 ? "It moves" : "They move"} back among the active threads.` },
+};
+
+/** T3 Code's confirmation before a delete, an archive or an unpin, with a way to stop asking. */
+function RailConfirmation({ question, onDone }: { question: RailQuestion; onDone(): void }) {
+  const text = QUESTION_TEXT[question.action];
+  const count = question.sessions.length;
+  const title = count === 1 ? `${text.verb} “${question.sessions[0]!.title}”?` : `${text.verb} ${count} threads?`;
+  const answer = (confirmed: boolean, dontAskAgain = false) => {
+    question.answer(confirmed, dontAskAgain);
+    onDone();
+  };
+  return (
+    <ConfirmDialog
+      title={title}
+      message={text.message(count)}
+      confirmLabel={text.verb}
+      destructive={text.destructive ?? false}
+      dontAskAgain
+      onConfirm={(dontAskAgain) => answer(true, dontAskAgain)}
+      onCancel={() => answer(false)}
+    />
+  );
 }
 
 type Unit = "minutes" | "hours" | "days";

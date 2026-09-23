@@ -1,3 +1,4 @@
+import type { WindowShellEvent } from "../shared/window-shell";
 import type { ExtensionUiAnswer, HostEvent, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import type { HostUpdate } from "../shared/host-protocol";
 import type { HostClient } from "./host-client";
@@ -64,6 +65,8 @@ export interface HostEventTargets {
   setUpdateReady(version: string): void;
   /** A Pi extension retitled the window; the page title is what the OS shows for it. */
   setWindowTitle?(title: string): void;
+  /** The window's own process: its menu, the quit shortcut, a quit waiting for an answer. */
+  windowShell?(event: WindowShellEvent): void;
 }
 
 /** Events an extension may observe through the workbench event bus. */
@@ -113,6 +116,9 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       return;
     case "window-title":
       targets.setWindowTitle?.(event.title);
+      return;
+    case "window-shell":
+      targets.windowShell?.(event.event);
       return;
     case "user-message": {
       const clientMessageId = event.message.clientMessageId;

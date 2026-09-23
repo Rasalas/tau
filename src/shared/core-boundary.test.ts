@@ -53,7 +53,7 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  * not. `test-support` is excluded from the walk, so harnesses are free.
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
-  "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
+  "./app-menu.js",   "./app-shell.js",   "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
   "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-tool-output.js",   "./client-turn-ledger.js",
   "./cli-versions.js",   "./clone-source.js",   "./config-watcher.js",   "./dangling-tool-calls.js",   "./desktop-extensions.js",
@@ -87,7 +87,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",   "./unavailable-thread-backend.js",
-  "./queued-messages.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
+  "./queued-messages.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
   "./window-attention.js",   "./window-context-menu.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",

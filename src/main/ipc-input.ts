@@ -16,6 +16,7 @@ import { createNewThreadRequestId } from "../shared/contracts.js";
 import { isHostTranscriptCursor, type HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { isUpdateChannel } from "../shared/app-version.js";
 import { MAX_ATTACHMENTS } from "../shared/prompt-attachment-limits.js";
+import { isQuitConfirmation } from "../shared/window-shell.js";
 
 /**
  * Hand-written decoders for every renderer→host IPC argument, in the style of
@@ -334,6 +335,16 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
       if (!isUpdateChannel(updates.channel)) fail(channel, `${field}.updates.channel`, 'must be "stable" or "nightly"');
       result.updates = { channel: updates.channel };
     }
+  }
+  if (item.confirm !== undefined) {
+    const confirm = record(channel, `${field}.confirm`, item.confirm);
+    const decoded: NonNullable<TauConfig["confirm"]> = {};
+    if (confirm.quit !== undefined) {
+      if (!isQuitConfirmation(confirm.quit)) fail(channel, `${field}.confirm.quit`, 'must be "hold", "double-press" or "off"');
+      decoded.quit = confirm.quit;
+    }
+    if (confirm.quitWhileRunning !== undefined) decoded.quitWhileRunning = decodeBoolean(channel, `${field}.confirm.quitWhileRunning`, confirm.quitWhileRunning);
+    if (Object.keys(decoded).length > 0) result.confirm = decoded;
   }
   if (item.fontFamily !== undefined) result.fontFamily = decodeString(channel, `${field}.fontFamily`, item.fontFamily);
   if (item.fontSize !== undefined) result.fontSize = decodeNumber(channel, `${field}.fontSize`, item.fontSize);

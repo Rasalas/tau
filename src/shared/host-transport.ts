@@ -35,6 +35,7 @@ export const CLIENT_SIDE_METHODS = [
   "notify",
   "set-badge",
   "context-menu",
+  "window-action",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>

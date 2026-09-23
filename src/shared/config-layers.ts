@@ -31,7 +31,7 @@ export const PI_OWNED_CONFIG_KEYS = [
 const PI_OWNED = new Set<string>(PI_OWNED_CONFIG_KEYS);
 
 /** Keys whose value is a record of settings in their own right, one per entry. */
-const RECORD_KEYS = new Set(["values", "options", "keybindings", "threads", "updates", "extensions"]);
+const RECORD_KEYS = new Set(["values", "options", "keybindings", "threads", "updates", "confirm", "extensions"]);
 
 /** What core applies when no level sets a key. Kit settings name their own default. */
 export const CONFIG_DEFAULTS: Readonly<Record<string, unknown>> = {
@@ -43,6 +43,8 @@ export const CONFIG_DEFAULTS: Readonly<Record<string, unknown>> = {
   prewarm: true,
   "threads.continueAfterRestart": false,
   "extensions.watch": true,
+  "confirm.quit": "hold",
+  "confirm.quitWhileRunning": true,
 };
 
 /**

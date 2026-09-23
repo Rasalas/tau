@@ -39,6 +39,8 @@ export interface PreferencesState {
   sendShortcut: SendShortcut;
   /** Leave the host process running when the app quits; its threads keep going. */
   hostBackground?: boolean;
+  /** Ask before a quit stops threads that are working (`confirm.quitWhileRunning`). */
+  confirmQuitWhileRunning: boolean;
 }
 
 /** Preferences that are keys of the host's config under the same name. */
@@ -58,6 +60,7 @@ const DEFAULTS: PreferencesState = {
   vimMode: false,
   sendShortcut: "enter",
   hostBackground: false,
+  confirmQuitWhileRunning: true,
 };
 
 function stringList(value: unknown): string[] {
@@ -116,6 +119,7 @@ function load(): PreferencesState {
       maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
       vimMode: typeof raw.vimMode === "boolean" ? raw.vimMode : false,
       sendShortcut: SEND_SHORTCUTS.includes(raw.sendShortcut as SendShortcut) ? raw.sendShortcut as SendShortcut : "enter",
+      confirmQuitWhileRunning: raw.confirmQuitWhileRunning !== false,
     };
   } catch {
     return DEFAULTS;
@@ -176,6 +180,8 @@ export class PreferencesStore {
     }
     if (config.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = config.threads.continueAfterRestart;
     else if (previous?.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = DEFAULTS.continueThreadsAfterRestart;
+    if (config.confirm?.quitWhileRunning !== undefined) patch.confirmQuitWhileRunning = config.confirm.quitWhileRunning;
+    else if (previous?.confirm?.quitWhileRunning !== undefined) patch.confirmQuitWhileRunning = DEFAULTS.confirmQuitWhileRunning;
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
     if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
     if (config.options || previous?.options) patch.extensionOptions = record(this.state.extensionOptions, previous?.options, config.options);
@@ -219,6 +225,10 @@ export class PreferencesStore {
 
   setContinueThreadsAfterRestart(continueThreadsAfterRestart: boolean): void {
     this.update({ continueThreadsAfterRestart });
+  }
+
+  setConfirmQuitWhileRunning(confirmQuitWhileRunning: boolean): void {
+    this.update({ confirmQuitWhileRunning });
   }
 
   setTheme(theme: ThemePreference): void {
@@ -341,6 +351,7 @@ export class PreferencesStore {
       const hostPatch: Partial<TauConfig> = {};
       for (const key of SCALARS) if (patch[key] !== undefined) (hostPatch as Record<string, unknown>)[key] = patch[key];
       if (patch.continueThreadsAfterRestart !== undefined) hostPatch.threads = { continueAfterRestart: patch.continueThreadsAfterRestart };
+      if (patch.confirmQuitWhileRunning !== undefined) hostPatch.confirm = { quitWhileRunning: patch.confirmQuitWhileRunning };
       if (patch.favouriteModels) hostPatch.favouriteModels = [...patch.favouriteModels];
       if (patch.disabledExtensions) hostPatch.disabledExtensions = [...patch.disabledExtensions];
       if (patch.extensionOptions) hostPatch.options = { ...patch.extensionOptions };
