@@ -14,22 +14,18 @@ interface Measured extends FooterBlockWidths {
   shortcuts: readonly string[];
 }
 
-/** Until the trigger has been drawn once: a chip holding one 13 px icon. */
-const OVERFLOW_ESTIMATE = 29;
 const NO_LAYOUT: FooterLayout = { iconOnly: 0, hidden: 0 };
 
 const px = (value: string) => Number.parseFloat(value) || 0;
 
-/** Width of the block with its chips reduced to their first icon. */
+/** A chip reduced to its icon: 8 px padding either side of a 13 px icon. Once drawn so, the real width counts. */
+const ICON_CHIP = 29;
+
+/** Width of the block with its chips reduced to their icons, before it has been drawn that way. */
 function iconWidth(block: HTMLElement, natural: number): number {
   let width = natural;
-  for (const chip of block.querySelectorAll<HTMLElement>(".runtime-chip")) {
-    const style = getComputedStyle(chip);
-    const icon = chip.firstElementChild?.getBoundingClientRect().width ?? 0;
-    const compact = px(style.paddingLeft) + px(style.paddingRight) + px(style.borderLeftWidth) + px(style.borderRightWidth) + icon;
-    width -= Math.max(0, chip.getBoundingClientRect().width - compact);
-  }
-  return Math.max(0, width);
+  for (const chip of block.querySelectorAll(".runtime-chip")) width -= Math.max(0, chip.getBoundingClientRect().width - ICON_CHIP);
+  return width;
 }
 
 /**
@@ -47,7 +43,7 @@ export function ComposerFooterControls({ leading, blocks, revision = "" }: {
   const row = useRef<HTMLDivElement>(null);
   const overflowRef = useRef<HTMLButtonElement>(null);
   const measured = useRef(new Map<string, Measured>());
-  const overflowWidth = useRef(OVERFLOW_ESTIMATE);
+  const overflowWidth = useRef(ICON_CHIP);
   const [layout, setLayout] = useState(NO_LAYOUT);
   const [open, setOpen] = useState(false);
   // Only blocks seen with content fold; an empty or unseen one stays in the row to be measured.
