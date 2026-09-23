@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WorkbenchActions } from "tau";
+import type { DesktopExtension, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import appearanceExtension from "./desktop.js";
-import { APPEARANCE_EXTENSION_ID as ID, APPEARANCE_SETTINGS_PAGE } from "./protocol.js";
+import { APPEARANCE_EXTENSION_ID as ID, APPEARANCE_SETTINGS_PAGE, TERMINAL_FONT_SERVICE, type TerminalFontService, type TerminalFontServiceState } from "./protocol.js";
+import { terminalSizeInput } from "./terminal-font.js";
 
 afterEach(() => {
   cleanup();
@@ -114,5 +115,76 @@ describe("Settings → Appearance", () => {
     const file = new File(["{ \"colors\": {} }"], "broken.json");
     fireEvent.change(screen.getByLabelText("VS Code theme file"), { target: { files: [file] } });
     await waitFor(() => expect(onNotify).toHaveBeenCalledWith(expect.stringMatching(/broken.json: .*editor.background/u)));
+  });
+});
+
+describe("the terminal's row on Settings → Appearance", () => {
+  /** Terminal Kit's font service as a fake: it keeps what it is told. */
+  function fakeTerminalFont() {
+    let state: TerminalFontServiceState = {
+      family: "", size: "",
+      resolved: { face: "JetBrains Mono", stack: "\"JetBrains Mono\", monospace", size: 13, familySource: "ghostty", sizeSource: "ghostty" },
+      ghostty: { face: "JetBrains Mono", size: 13, files: ["/home/.config/ghostty/config"], problems: ["font-size = x is no number"] },
+      sizeRange: { min: 6, max: 32 },
+    };
+    const listeners = new Set<() => void>();
+    const service: TerminalFontService = {
+      getSnapshot: () => state,
+      subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+      set: vi.fn((change: { family?: string; size?: string }) => {
+        state = { ...state, ...change };
+        listeners.forEach((listener) => listener());
+      }),
+      refresh: vi.fn(async () => undefined),
+    };
+    const kit: DesktopExtension = { id: "tau.terminal", name: "Terminal", activate: (plugin) => { plugin.provideService(TERMINAL_FONT_SERVICE, service); } };
+    return { service, kit };
+  }
+
+  it("shows the terminal's font while Terminal Kit is on, and sets it through its service", async () => {
+    const { registry, preferences } = activate();
+    const { service, kit } = fakeTerminalFont();
+    const page = registry.getSettingsPages().find((entry) => entry.id === APPEARANCE_SETTINGS_PAGE)!;
+    expect(page.keywords).toContain("terminal");
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    expect(screen.queryByRole("heading", { level: 3, name: "Terminal font" })).toBeNull();
+
+    act(() => registry.activate(kit));
+    expect(screen.getByRole("heading", { level: 3, name: "Terminal font" })).toBeTruthy();
+    expect(service.refresh).toHaveBeenCalled();
+    expect(screen.getByText("JetBrains Mono (from your Ghostty config) at 13px (from your Ghostty config).")).toBeTruthy();
+    expect(screen.getByText("/home/.config/ghostty/config")).toBeTruthy();
+    expect(screen.getByText(/is no number/u)).toBeTruthy();
+    const family = screen.getByRole("textbox", { name: "Terminal font family" }) as HTMLInputElement;
+    expect(family.placeholder).toBe("JetBrains Mono");
+
+    fireEvent.change(family, { target: { value: "Iosevka" } });
+    fireEvent.keyDown(family, { key: "Enter" });
+    expect(service.set).toHaveBeenLastCalledWith({ family: "Iosevka" });
+    const size = screen.getByRole("spinbutton", { name: "Terminal font size" }) as HTMLInputElement;
+    fireEvent.change(size, { target: { value: "99" } });
+    fireEvent.blur(size);
+    // Out of range: the field goes back, nothing is written.
+    expect(size.value).toBe("");
+    expect(service.set).toHaveBeenCalledTimes(1);
+    fireEvent.change(size, { target: { value: "14.5" } });
+    fireEvent.blur(size);
+    expect(service.set).toHaveBeenLastCalledWith({ size: "14.5" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(service.set).toHaveBeenLastCalledWith({ family: "", size: "" });
+
+    act(() => registry.deactivate(kit.id));
+    expect(screen.queryByRole("heading", { level: 3, name: "Terminal font" })).toBeNull();
+  });
+
+  it("takes a size the terminal draws, and nothing else", () => {
+    const range = { min: 6, max: 32 };
+    expect(terminalSizeInput(" 13 ", range)).toBe("13");
+    expect(terminalSizeInput("12.5", range)).toBe("12.5");
+    expect(terminalSizeInput("", range)).toBe("");
+    expect(terminalSizeInput("12.3", range)).toBeUndefined();
+    expect(terminalSizeInput("5", range)).toBeUndefined();
+    expect(terminalSizeInput("big", range)).toBeUndefined();
   });
 });
