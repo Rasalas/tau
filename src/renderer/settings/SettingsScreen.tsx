@@ -359,7 +359,7 @@ export function SettingsScreen({
               {page === "defaults" ? (
                 <DefaultsPage snapshot={snapshot} onSetModel={onSetModel} onSetThinking={onSetThinking} />
               ) : page === "keybindings" ? (
-                <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} />
+                <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} />
               ) : page === "pi" ? (
                 <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
               ) : onProviders ? (

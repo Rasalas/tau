@@ -654,6 +654,9 @@ export interface UserKeymapContribution {
   resetAll(): Promise<void>;
 }
 
+/** The owner of the chords config.json's `keybindings` sets. */
+export const USER_CONFIG_KEYBINDINGS = "user-config";
+
 /** A live binding a chord the user records would share its keys with. */
 export interface KeybindingCollision {
   binding: ResolvedKeybinding;
@@ -1720,7 +1723,7 @@ export class ExtensionRegistry {
     this.overrideDisposers.forEach((dispose) => dispose());
     this.overrideDisposers = [];
     if (!overrides) return;
-    const owner: ContributionOwner = { extensionId: "user-config", extensionName: "User Config" };
+    const owner: ContributionOwner = { extensionId: USER_CONFIG_KEYBINDINGS, extensionName: "User Config" };
     for (const [commandId, rawKeys] of Object.entries(overrides)) {
       if (!rawKeys || typeof rawKeys !== "string") continue;
       const chord = parseKeyChord(rawKeys);

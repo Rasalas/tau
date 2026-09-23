@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { HostThread } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
-import { createKeybindingsHostExtension, readPiUserKeybindings, readUserKeybindings } from "./host.js";
+import { createKeybindingsHostExtension, readPiUserKeybindings } from "./host.js";
 import { KEYBINDINGS_HOST_EXTENSION_ID } from "./protocol.js";
 
 describe("Keybindings host extension", () => {
@@ -35,10 +35,10 @@ describe("Keybindings host extension", () => {
       "broken": [{ when: "x" }],
     }));
     const registry = await activateHostKit(createKeybindingsHostExtension(), { agentDir, thread: () => undefined });
-    await expect(readUserKeybindings(agentDir)).resolves.toEqual({
+    await expect(registry.invoke(KEYBINDINGS_HOST_EXTENSION_ID, "pi-keybindings")).resolves.toMatchObject({ bindings: {
       "terminal.split": [{ key: "mod+\\", when: "terminalFocus" }],
       "runtime.new-session": ["ctrl+n", { key: "mod+t" }],
-    });
+    } });
     // Pi reads strings only; an entry with an object in it is not Pi's.
     await expect(readPiUserKeybindings(agentDir)).resolves.toEqual({});
   });
