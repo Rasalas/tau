@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSnapshot, instanceHostPid, keySpec, parseChord, parseCli, pidFromPsOutput, resolvePort, stopProcess } from "./tau-cdp.mjs";
+import { assertOwnInstance, formatSnapshot, instanceHostPid, keySpec, parseChord, parseCli, pidFromPsOutput, resolvePort, stopProcess } from "./tau-cdp.mjs";
 
 describe("parseCli", () => {
   it("splits a leading numeric token as the port", () => {
@@ -188,5 +188,22 @@ describe("formatSnapshot", () => {
     const text = formatSnapshot({ headings: [], buttons: [], threadRows, toasts: [], composer: null, activePanels: [] }, { maxLength: 200 });
     expect(text.length).toBeLessThanOrEqual(200 + "\n… (truncated)".length);
     expect(text.endsWith("… (truncated)")).toBe(true);
+  });
+});
+
+describe("assertOwnInstance", () => {
+  const ps = [
+    "  101 /w/tau-worktrees/E09/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron . --remote-debugging-port=9344",
+    "  102 /w/tau-worktrees/E09/node_modules/electron/dist/Electron Helper --type=renderer --remote-debugging-port=9344 --long",
+  ].join("\n");
+
+  it("accepts the port when this worktree's Electron owns it", () => {
+    expect(() => assertOwnInstance(ps, 9344, "/w/tau-worktrees/E09")).not.toThrow();
+  });
+
+  it("refuses a port another worktree's instance took over, and one nobody listens on", () => {
+    expect(() => assertOwnInstance(ps, 9344, "/w/tau-worktrees/E03")).toThrow(/belongs to another instance/);
+    expect(() => assertOwnInstance(ps, 9344, "/w/tau-worktrees/E0")).toThrow(/belongs to another instance/);
+    expect(() => assertOwnInstance(ps, 9399, "/w/tau-worktrees/E09")).toThrow(/instance is gone/);
   });
 });

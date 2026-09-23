@@ -258,6 +258,8 @@ async function main() {
     TAU_OPENCODE_HOME: openCodeHome,
     TAU_CURSOR_HOME: cursorHome,
     TAU_IMPORT_ROOTS: importRoots,
+    // An update toast clicked in a test instance must never update the machine's real CLIs.
+    TAU_RUNTIME_UPDATE_COMMAND: process.env.TAU_RUNTIME_UPDATE_COMMAND ?? JSON.stringify({ "*": "echo 'Tau test instance: this update was not run.'" }),
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),

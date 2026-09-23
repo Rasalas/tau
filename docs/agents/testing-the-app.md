@@ -174,6 +174,9 @@ This is about not restarting between passes of the same task, not about leaving 
 
 ## Known traps
 
+`npm run cdp` without a port only drives an instance started from this worktree: a port read from `.tau-dev/instance.json` whose process runs from another worktree is refused, because a dead instance's port can be reused by someone else's. `dev-instance` also sets `TAU_RUNTIME_UPDATE_COMMAND` to `{"*": "echo …"}`, so an update toast in a test instance never runs a real `brew upgrade`, `npm install -g` or `claude update`.
+
+
 `byText('button', /send/i)` can match a sidebar thread row whose title contains "send" (observed with the German "ungesendete"); the send button is the one with `aria-label === 'Send'`. While a turn streams, that button is replaced by a Stop button (`class="send-button stop"`, no `aria-label="Send"`) — `snapshot` reports this as the composer's `streaming` flag, and it is the more reliable signal that a reply is still in flight than the presence of a toast. The composer's `<textarea>` has no id or class of its own; querying the only `<textarea>` on the page is reliable because exactly one is ever mounted.
 
 Stop the instance before `npm run dist` in the same worktree: while it runs, Chromium keeps dangling `Singleton*` symlinks in `.tau-dev/userdata`, and electron-builder aborts on the first one it cannot `stat`.

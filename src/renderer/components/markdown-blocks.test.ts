@@ -1,13 +1,10 @@
-import remarkParse from "remark-parse";
-import { unified } from "unified";
 import type { Root, RootContent } from "mdast";
 import { describe, expect, it } from "vitest";
 import { StreamingMarkdownBlocks, type MarkdownBlock } from "./markdown-blocks";
-import { remarkGfm } from "./remark-gfm-parse";
+import { parseMarkdown } from "./markdown-pipeline";
 import { TRICKY_MARKDOWN } from "./markdown-fixtures";
 
-const parser = unified().use(remarkParse).use(remarkGfm);
-const parse = (source: string) => parser.parse(source);
+const parse = parseMarkdown;
 
 function withoutPositions(node: Root | RootContent): unknown {
   return JSON.parse(JSON.stringify(node, (key, value: unknown) => key === "position" ? undefined : value));
