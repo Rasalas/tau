@@ -239,26 +239,28 @@ describe("chips in the composer's text", () => {
     const kit = chipKit();
     const { textarea, onSubmit } = renderWith(kit.contribution);
     fireEvent.change(textarea, { target: { value: `see ${chipToken("gone.ts")}` } });
-    expect(document.querySelector(".composer-mirror-chip.unresolved")).toBeTruthy();
+    await waitFor(() => expect(document.querySelector(".composer-mirror-chip.unresolved")).toBeTruthy());
     fireEvent.keyDown(textarea, { key: "Enter" });
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit.mock.calls[0]?.[0]).toBe("see gone.ts");
   });
 
-  it("marks mentions and leaves the textarea alone without anything to draw", () => {
+  it("marks mentions and leaves the textarea alone without anything to draw", async () => {
     const kit = chipKit();
     const { textarea } = renderWith(kit.contribution);
+    fireEvent.change(textarea, { target: { value: "open @src/a.ts now" } });
+    await waitFor(() => expect(document.querySelector(".composer-mirror-mention")?.textContent).toBe("@src/a.ts"));
+    expect(textarea.className).toContain("mirrored");
     fireEvent.change(textarea, { target: { value: "plain words" } });
     expect(document.querySelector(".composer-mirror")).toBeNull();
     expect(textarea.className).not.toContain("mirrored");
-    fireEvent.change(textarea, { target: { value: "open @src/a.ts now" } });
-    expect(document.querySelector(".composer-mirror-mention")?.textContent).toBe("@src/a.ts");
   });
 
-  it("shows the textarea's own text while an input method composes", () => {
+  it("shows the textarea's own text while an input method composes", async () => {
     const kit = chipKit();
     const { textarea } = renderWith(kit.contribution);
     fireEvent.change(textarea, { target: { value: "open @src/a.ts " } });
+    await waitFor(() => expect(document.querySelector(".composer-mirror")).toBeTruthy());
     fireEvent.compositionStart(textarea);
     expect(document.querySelector(".composer-mirror")).toBeNull();
     fireEvent.compositionEnd(textarea);

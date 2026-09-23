@@ -16,7 +16,7 @@ import { expandFileMentions } from "../file-mention-expander.js";
 import type { ComposerInlineContext, ComposerInlineContribution, DocumentSourceContribution } from "../extension-system";
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
-import { plainChipText, withoutChipTokens } from "./composer-chips";
+import { plainChipText, withoutChipTokens } from "./composer-chip-token";
 
 /** `alternate` is a plain send with the modifier held, which an extension may claim for a new thread. */
 export type ComposerDelivery = "followUp" | "steer" | "alternate";

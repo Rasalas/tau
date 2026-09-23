@@ -914,7 +914,7 @@ The one real waste was the rows' subscription to the whole preferences snapshot 
 
 ### Chips in the composer's text
 
-Ticket E12 (2026-09-23) put the composer's chips (files, excerpts, pull requests, attachments, images) into the text. T3 Code does this with Tiptap. Tau does not: Tiptap 3.31.3 as its own lazy chunk, with the least a plain-text composer needs (`@tiptap/core`, Document, Paragraph, Text, UndoRedo and one inline node), bundled to 290.4 KB (89.5 KB gzip). That would have taken the desktop build's total JavaScript to 530,175 bytes of gzip, over its 500,000 budget. ProseMirror without Tiptap was 63.8 KB gzip and came to 504,458. The editor is still the textarea. A chip is a token in the draft's text, and a mirror behind the transparent glyphs draws the same characters as a chip (`ComposerInput.tsx`, `composer-chips.ts`).
+Ticket E12 (2026-09-23) put the composer's chips (files, excerpts, pull requests, attachments, images) into the text. T3 Code does this with Tiptap. Tau does not: Tiptap 3.31.3 as its own lazy chunk, with the least a plain-text composer needs (`@tiptap/core`, Document, Paragraph, Text, UndoRedo and one inline node), bundled to 290.4 KB (89.5 KB gzip). That would have taken the desktop build's total JavaScript to 530,175 bytes of gzip, over its 500,000 budget. ProseMirror without Tiptap was 63.8 KB gzip and came to 504,458. The editor is still the textarea. A chip is a token in the draft's text, and a mirror behind the transparent glyphs draws the same characters as a chip (`ComposerChipLayer.tsx`, `composer-chips.ts`).
 
 Desktop build, from `reports/build-report.json`:
 
@@ -924,7 +924,14 @@ Desktop build, from `reports/build-report.json`:
 | initial CSS | 111,047 (20,798 gzip) | 113,152 (21,162 gzip) | 140,000 (30,000) |
 | total JavaScript | 1,440,525 (440,639 gzip) | 1,455,745 (446,445 gzip) | 1,900,000 (500,000) |
 
-The browser client went from 435,652 to 440,654 bytes of total JavaScript gzip. The chip popover is its own chunk (1.1 KB) and loads on the first click on a chip.
+The browser client went from 435,652 to 440,654 bytes of total JavaScript gzip.
+
+Merged with `t3/wave-e` (E02's picker, E07's app shell), those 11.4 KB of initial script took the desktop build to 809,282 bytes, over the 800,000 budget; `t3/wave-e` alone measured 798,207. So the textarea, its handlers and the few functions the send path needs (`composer-chip-token.ts`) stay in the initial script, and everything else goes into `ComposerChipLayer`, a chunk of 12,792 bytes (5,210 gzip): the mirror, the chip bookkeeping, the popover and folding while scrolling. The composer mounts it right away, but the first key never waits for it: until it is there, a chip is plain text in the textarea. On the merged tree:
+
+| | `t3/wave-e` | with E12 | budget |
+| --- | ---: | ---: | ---: |
+| initial JavaScript | 798,207 (248,250 gzip) | 798,942 (248,535 gzip) | 800,000 (275,000) |
+| total JavaScript gzip | 459,562 | 463,066 | 500,000 |
 
 Typing latency comes from two renderer scenarios in `benchmarks/renderer-fixtures.json`, committed before the change so both sides ran the same harness. `composer-typing` types 120 characters into an empty composer. `composer-typing-long` types them after a 20 KB draft with twelve chips; on the base side its chips sat in the old strip above the text. The time per key runs from the `input` event's dispatch through React's commit and the auto-height's layout, measured on the development machine under a load average of 13 to 28:
 
@@ -932,6 +939,8 @@ Typing latency comes from two renderer scenarios in `benchmarks/renderer-fixture
 | --- | ---: | ---: |
 | `composer-typing` | 0.55 / 0.80 / 2.8 | 0.60 / 0.80 / 2.2 |
 | `composer-typing-long` | 2.4 / 3.3 / 6.1 | 3.4 / 5.0 / 12.0 |
+
+On the merged tree, with the layer in its own chunk and a load average of 15 to 36, `composer-typing` measured 0.60 / 1.1 / 2.4 ms and `composer-typing-long` 3.4 / 7.5 / 12.2 ms.
 
 With no chip, mention or selected skill in the text there is no mirror, and typing costs what it did before. With chips, the mirror is one block per line, and a line re-renders only when what it draws changed. The first version drew the whole mirror as one block, and the long draft measured 3.3 / 5.6 / 9.9 ms. What remains is the second layout of the changed line and the token scan, which only runs when the text contains a chip mark or an `@`. Both scenarios stay well inside the renderer's 24 ms commit budget, and a long frame did not occur on either side.
 

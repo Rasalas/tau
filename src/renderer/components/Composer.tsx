@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, Brain, ChevronDown, Paperclip, Sparkles, Terminal, X } from "lucide-react";
 import type {
@@ -56,10 +56,8 @@ import {
   selectedSkillDraft,
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
-import { ComposerInput } from "./ComposerInput";
-import { useComposerChips } from "./useComposerChips";
-import { useComposerCollapse } from "./useComposerCollapse";
-import { findChipTokens, plainChipText, repairChipTokens, withoutChipTokens } from "./composer-chips";
+import type { ChipLayerApi } from "./ComposerChipLayer";
+import { plainChipText, withoutChipTokens } from "./composer-chip-token";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
 import { takePasteAsText } from "../paste-as-text";
@@ -93,7 +91,8 @@ const NO_INLINES: readonly never[] = [];
 const NO_GATES: readonly ComposerGateContribution[] = [];
 // The picker is its own chunk: nothing of it is drawn until it opens.
 const ModelPicker = lazy(() => import("./ModelPicker").then((module) => ({ default: module.ModelPicker })));
-const ComposerChipPopover = lazy(() => import("./ComposerChipPopover").then((module) => ({ default: module.ComposerChipPopover })));
+// Chips in the text load after the textarea is up, so the first key never waits for them.
+const ComposerChipLayer = lazy(() => import("./ComposerChipLayer"));
 
 /** A gate that asked: where the run stopped, and what finishes it. */
 interface OpenGate {
@@ -107,7 +106,6 @@ interface OpenGate {
 /** Pi's out-of-the-box reasoning level; shown as the Default badge. */
 const DEFAULT_THINKING = "medium";
 const MAX_COMPOSER_HEIGHT = 220;
-const COLLAPSED_COMPOSER_HEIGHT = 46;
 
 /** Pi's level ids are identifiers; these are how they read in the menu. */
 const THINKING_LABELS: Record<string, string> = {
@@ -217,6 +215,19 @@ export function Composer({
   const chipInsertAt = useRef<number | undefined>(undefined);
   const [isExpanded, setIsExpanded] = useState(false);
   const text = value ?? activeScopeSnapshot.draft;
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const contentHeight = textarea.scrollHeight;
+    if (contentHeight <= 0) {
+      textarea.style.height = "";
+      return;
+    }
+    const currentMaxHeight = isExpanded ? 520 : MAX_COMPOSER_HEIGHT;
+    textarea.style.height = `${Math.min(contentHeight, currentMaxHeight)}px`;
+    textarea.style.overflowY = contentHeight > currentMaxHeight ? "auto" : "hidden";
+  }, [isExpanded, text, textareaRef]);
   // Extensions contribute slash commands and the rest of the toolbar; outside
   // the workbench shell (tests, previews) there are none.
   const registry = useContext(WorkbenchShellContext)?.registry;
@@ -339,6 +350,7 @@ export function Composer({
       scopeStore.setDraft(attachmentScope, seed);
     }
   }, [attachmentScope, scopeStore, seed, value]);
+  const readDraft = useCallback(() => value ?? scopeStore.getSnapshot(attachmentScope).draft, [attachmentScope, scopeStore, value]);
   const promptHistoryRef = useRef<PromptHistory>(null!);
   if (!promptHistoryRef.current) {
     promptHistoryRef.current = new PromptHistory({
@@ -359,9 +371,10 @@ export function Composer({
       }
     }
   }, [snapshot?.sessionId, snapshot?.messages, recordPrompt]);
+  const chipLayer = useRef<ChipLayerApi | undefined>(undefined);
   const updateDraft = useCallback((edited: string) => {
-    // A Vim or Readline edit that cut into a chip takes the whole chip.
-    const next = repairChipTokens(scopeStore.getSnapshot(attachmentScope).draft, edited)?.text ?? edited;
+    // An edit that cut into a chip (a Backspace, Vim's `x`, Readline's ctrl+w) takes the whole chip.
+    const next = chipLayer.current?.repair(scopeStore.getSnapshot(attachmentScope).draft, edited)?.text ?? edited;
     scopeStore.setDraft(attachmentScope, next);
     writeComposerDraft(clientStorage, draftStorageKey, next);
     onChange?.(next);
@@ -581,29 +594,6 @@ export function Composer({
     ...(inlineTakesFiles ? { takeFiles } : {}),
   });
 
-  const chips = useComposerChips({
-    scope: attachmentScope,
-    text,
-    readText: useCallback(() => value ?? scopeStore.getSnapshot(attachmentScope).draft, [attachmentScope, scopeStore, value]),
-    draftStorageKey,
-    clientStorage,
-    inlines,
-    attachments,
-    scopeStore,
-    textareaRef,
-    insertAt: chipInsertAt,
-    paused: activeScopeSnapshot.submissionPending,
-    updateDraft,
-    setCaret,
-  });
-  const [openChip, setOpenChip] = useState<{ label: string; point: { x: number; y: number } }>();
-  const chipTokens = useMemo(() => findChipTokens(text), [text]);
-  const openChipPopover = (label: string, anchor?: HTMLElement | null) => {
-    const drawn = anchor ?? [...document.querySelectorAll<HTMLElement>(".composer-mirror [data-chip]")].find((element) => element.dataset.chip === label);
-    const rect = (drawn ?? textareaRef.current)?.getBoundingClientRect();
-    setOpenChip({ label, point: { x: rect?.left ?? 0, y: rect?.top ?? 0 } });
-  };
-
   const { submit: submitPrompt, answer: answerWithDraft } = useComposerSubmission({
     scopeStore,
     scope: attachmentScope,
@@ -667,7 +657,7 @@ export function Composer({
         return;
       case "prompt": {
         if (gated) {
-          chips.dropOrphans(text);
+          chipLayer.current?.dropOrphans(text);
           submitPrompt(intent.delivery);
           return;
         }
@@ -685,7 +675,6 @@ export function Composer({
     answerHasFiles,
     answerWithDraft,
     answerable,
-    chips,
     held,
     onAnswerPrompt,
     onNotify,
@@ -750,13 +739,6 @@ export function Composer({
     textareaRef,
   });
 
-  const zoneRef = useRef<HTMLElement>(null);
-  const collapse = useComposerCollapse({
-    enabled: prefSnapshot.composerCollapseOnScroll,
-    idle: !text.includes("\n") && !prompt && !trigger && !historySearch.isSearching && !modelPickerOpen && !openChip && menu === undefined && !openGate,
-    zoneRef,
-  });
-
   const vim = useComposerVim({
     enabled: isVimEnabled,
     text,
@@ -767,7 +749,7 @@ export function Composer({
   });
 
   return (
-    <footer ref={zoneRef} className={`composer-zone${collapse.collapsed ? " collapsed" : ""}`} data-keybinding-context="composer">
+    <footer className="composer-zone" data-keybinding-context="composer">
       <div className="composer-surface" data-composer-surface="true">
       {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
       {prompt ? (() => {
@@ -849,22 +831,21 @@ export function Composer({
             <small>↵ accept · esc cancel · ctrl+r cycle</small>
           </div>
         ) : null}
-        <ComposerInput
-          textareaRef={textareaRef}
+        <div className="composer-input">
+        <textarea
+          ref={textareaRef}
+          rows={1}
           value={text}
-          maxHeight={collapse.collapsed ? COLLAPSED_COMPOSER_HEIGHT : isExpanded ? 520 : MAX_COMPOSER_HEIGHT}
-          skill={selectedSkill && text.slice(selectedSkill.start, selectedSkill.end) === selectedSkill.invocation ? selectedSkill : undefined}
-          lookChip={chips.lookChip}
-          onValueChange={(next, nextCaret) => {
+          onChange={(event) => {
             if (promptHistoryRef.current.isNavigating) {
               promptHistoryRef.current.resetCursor();
             }
-            updateDraft(next);
-            setCaret(nextCaret);
+            updateDraft(event.target.value);
+            setCaret(event.target.selectionStart);
             setCommandMenuDismissed(false);
           }}
-          onCaret={setCaret}
-          onOpenChip={openChipPopover}
+          onClick={(event) => setCaret(event.currentTarget.selectionStart)}
+          onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
             if (historySearch.handleSearchKeyDown(event)) {
               return;
@@ -966,17 +947,31 @@ export function Composer({
                 : sendHint(sendShortcut, streaming, streamingBase)
           }
         />
-        {chipTokens.length > 0 ? (
-          // For a screen reader and the keyboard's browse mode; the pointer clicks the chip itself.
-          <div className="composer-chip-list" role="group" aria-label="Chips in the prompt">
-            {chipTokens.map((token, index) => {
-              const image = chips.chipFor(token.label)?.image;
-              return image
-                ? <button key={index} type="button" tabIndex={-1} aria-label={`Preview ${image.name}`} onClick={() => setPreviewId(image.id)} />
-                : <button key={index} type="button" tabIndex={-1} aria-label={`Chip ${token.label}`} onClick={() => openChipPopover(token.label)} />;
-            })}
-          </div>
-        ) : null}
+        <Suspense fallback={null}>
+          <ComposerChipLayer
+            apiRef={chipLayer}
+            scope={attachmentScope}
+            text={text}
+            readText={readDraft}
+            draftStorageKey={draftStorageKey}
+            clientStorage={clientStorage}
+            inlines={inlines}
+            attachments={attachments}
+            scopeStore={scopeStore}
+            textareaRef={textareaRef}
+            insertAt={chipInsertAt}
+            paused={activeScopeSnapshot.submissionPending}
+            updateDraft={updateDraft}
+            setCaret={setCaret}
+            skill={selectedSkill && text.slice(selectedSkill.start, selectedSkill.end) === selectedSkill.invocation ? selectedSkill : undefined}
+            registry={registry}
+            onNotify={onNotify}
+            onPreview={setPreviewId}
+            collapseEnabled={prefSnapshot.composerCollapseOnScroll}
+            collapseIdle={!text.includes("\n") && !prompt && !trigger && !historySearch.isSearching && !modelPickerOpen && menu === undefined && !openGate}
+          />
+        </Suspense>
+        </div>
 
         <div className="composer-toolbar">
           <ComposerFooterControls
@@ -1139,21 +1134,6 @@ export function Composer({
         </div>
       </div>
 
-      {openChip ? (
-        <Suspense fallback={null}>
-        <ComposerChipPopover
-          label={openChip.label}
-          point={openChip.point}
-          entry={chips.chipFor(openChip.label)}
-          scope={attachmentScope}
-          registry={registry}
-          onNotify={onNotify}
-          onPreview={(id) => setPreviewId(id)}
-          onRemove={() => chips.removeChip(openChip.label)}
-          onClose={() => setOpenChip(undefined)}
-        />
-        </Suspense>
-      ) : null}
       {preview ? createPortal(
         <div className="attachment-lightbox" role="dialog" aria-modal="true" aria-label={preview.name} onMouseDown={() => setPreviewId(undefined)}>
           <figure onMouseDown={(event) => event.stopPropagation()}>

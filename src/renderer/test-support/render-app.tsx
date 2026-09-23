@@ -50,4 +50,4 @@ export function renderApp(client: HostClient | undefined, options?: RenderAppOpt
 }
 
 /** A composer draft as it is sent: every chip written as its label. */
-export { plainChipText } from "../components/composer-chips";
+export { plainChipText } from "../components/composer-chip-token";

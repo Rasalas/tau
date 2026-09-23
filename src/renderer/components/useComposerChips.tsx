@@ -4,7 +4,7 @@ import type { ComposerScope, ComposerScopeStore, PendingAttachment } from "../..
 import { readComposerDraftState, writeComposerDraftState } from "../../workbench/draft-store";
 import type { ComposerChipDetailProps, ComposerInlineContribution } from "../extension-system";
 import { findChipTokens, insertChipTokens, removeChipToken, uniqueChipLabel, chipLabelText } from "./composer-chips";
-import type { ChipLook } from "./ComposerInput";
+import type { ChipLook } from "./ComposerChipLayer";
 
 /** Core's own slot in a draft's state: which chip each label in the text stands for. */
 const LABELS_OWNER = "tau.composer.chips";
