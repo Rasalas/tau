@@ -108,3 +108,87 @@ export function explainCliFailure(service: RequestService, action: string, error
   const line = text.split(/\r?\n/u).map((entry) => entry.trim()).find(Boolean) ?? "unknown error";
   return `${action} failed: ${line}`;
 }
+
+export type RepositoryVisibility = "private" | "public";
+export type RemoteProtocol = "https" | "ssh";
+
+/** `owner/name` or `name`; GitLab also takes `group/subgroup/name`. Nothing that could read as an option. */
+export function isRepositoryPath(value: string): boolean {
+  return /^[A-Za-z0-9_.][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_.][A-Za-z0-9_.-]*)*$/u.test(value) && !value.endsWith(".git");
+}
+
+export function accountArgs(service: RequestService): string[] {
+  return service === "github" ? ["api", "user", "--jq", ".login"] : ["api", "user"];
+}
+
+/** The account a CLI is signed in as, from `accountArgs`' answer. */
+export function parseAccount(service: RequestService, output: string): string | undefined {
+  if (service === "github") return output.trim() || undefined;
+  try {
+    const user = JSON.parse(output) as { username?: unknown };
+    return typeof user.username === "string" && user.username ? user.username : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Both CLIs keep the protocol their clones use; the new remote follows it. */
+export function protocolArgs(): string[] {
+  return ["config", "get", "git_protocol"];
+}
+
+export function createRepositoryArgs(repository: string, visibility: RepositoryVisibility): string[] {
+  return ["repo", "create", repository, `--${visibility}`];
+}
+
+export function gitlabNamespaceArgs(namespace: string): string[] {
+  return ["api", `namespaces/${encodeURIComponent(namespace)}`];
+}
+
+export function gitlabCreateProjectArgs(path: string, visibility: RepositoryVisibility, namespaceId?: number): string[] {
+  return [
+    "api", "--method", "POST", "projects",
+    "--raw-field", `path=${path}`,
+    "--raw-field", `name=${path}`,
+    "--raw-field", `visibility=${visibility}`,
+    ...(namespaceId === undefined ? [] : ["--raw-field", `namespace_id=${namespaceId}`]),
+  ];
+}
+
+export interface CreatedRepository {
+  /** `owner/name` as the host spells it. */
+  nameWithOwner: string;
+  web: string;
+  https: string;
+  ssh: string;
+}
+
+/** What `gh repo create` printed: its web URL, from which the clone URLs follow. */
+export function githubCreatedRepository(output: string, repository: string): CreatedRepository | undefined {
+  const printed = /https?:\/\/\S+/u.exec(output)?.[0]?.replace(/\.git$/u, "");
+  try {
+    const url = new URL(printed ?? "");
+    const [owner, name, ...rest] = url.pathname.split("/").filter(Boolean);
+    if (!owner || !name || rest.length > 0) return undefined;
+    return { nameWithOwner: `${owner}/${name}`, web: `${url.origin}/${owner}/${name}`, https: `${url.origin}/${owner}/${name}.git`, ssh: `git@${url.host}:${owner}/${name}.git` };
+  } catch {
+    return repository.includes("/")
+      ? { nameWithOwner: repository, web: `https://github.com/${repository}`, https: `https://github.com/${repository}.git`, ssh: `git@github.com:${repository}.git` }
+      : undefined;
+  }
+}
+
+/** The project GitLab's API answered with. */
+export function gitlabCreatedRepository(output: string): CreatedRepository | undefined {
+  try {
+    const project = JSON.parse(output) as Record<string, unknown>;
+    const field = (key: string) => (typeof project[key] === "string" && project[key] ? project[key] as string : undefined);
+    const nameWithOwner = field("path_with_namespace");
+    const web = field("web_url");
+    const https = field("http_url_to_repo");
+    const ssh = field("ssh_url_to_repo");
+    return nameWithOwner && web && https && ssh ? { nameWithOwner, web, https, ssh } : undefined;
+  } catch {
+    return undefined;
+  }
+}

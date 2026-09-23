@@ -361,6 +361,17 @@ export function createWorkspaceHostExtension(): HostExtension {
           throw error;
         }
       }, { callers: [REVIEW_KIT_ID] });
+      // Review Kit publishes a repository that has no remote; the remote itself is Git's and set here.
+      context.registerCommand("add-remote", async (input) => {
+        const project = cwd();
+        try {
+          const added = await workspaceGit.addFirstRemote(project, optionalString(input, "name") ?? "origin", requiredString(input, "url"));
+          services.log("git.remote.added", requiredString(input, "url"));
+          return added;
+        } finally {
+          git.invalidate(project, ["branch", "status", "workspace"]);
+        }
+      }, { callers: [REVIEW_KIT_ID] });
       // Review Kit opens, merges and edits requests; the Git it needs is read here.
       context.registerCommand("review-request-context", (input) => readReviewRequestContext(cwd(), {
         detail: record(input).detail === true,

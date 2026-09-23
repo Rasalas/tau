@@ -116,7 +116,7 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
   const problem = async (git: ReviewRequestContext, service: RequestService): Promise<string | undefined> => {
     const facts = SERVICES[service];
     if (!git.branch) return `Check out a branch to open a ${facts.noun}; HEAD is detached.`;
-    if (!git.remote) return `This repository has no remote. Add one with \`git remote add origin <url>\` to open a ${facts.noun}.`;
+    if (!git.remote) return `This repository has no remote. Publish it, or add one with \`git remote add origin <url>\`, to open a ${facts.noun}.`;
     if (!services.findCommand(facts.tool)) return missingTool(service);
     if (!await authenticated(service, git.root)) return `${facts.label} is not signed in. Run \`${facts.login}\` in a terminal, then try again.`;
     return undefined;

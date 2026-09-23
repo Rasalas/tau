@@ -2,6 +2,7 @@ import { HostCommandError, type HostExtension, type HostExtensionContext } from 
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 import { registerPullRequestCommands } from "./pull-request-host.js";
 import { withInstructions } from "./writing.js";
+import { registerPublishCommands } from "./publish-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
@@ -50,6 +51,7 @@ export function createReviewHostExtension(options: RequestCommandOptions = {}): 
       context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input));
       registerRequestCommands(context, options);
       registerPullRequestCommands(context, options);
+      registerPublishCommands(context, options);
       context.registerCommand("suggest-commit-message", async (input) => {
         const fields = record(input);
         const provider = text(fields.provider);

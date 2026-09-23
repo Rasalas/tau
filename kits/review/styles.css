@@ -250,3 +250,6 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-file-viewed { color: var(--ready); font-size: 11px; }
 /* Too narrow for both: the diff keeps the room, the header's arrows step through the files. */
 @container (max-width: 520px) { .pr-file-list, .pr-tree-toggle { display: none; } }
+
+.publish-form input[aria-label="Repository"] { font-family: var(--mono); }
+.publish-options { display: flex; flex-wrap: wrap; gap: 8px; }

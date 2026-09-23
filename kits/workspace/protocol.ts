@@ -209,6 +209,8 @@ export interface WorkspaceHostCommands {
   "pull": { input: undefined; output: PullResult };
   /** Pushes the branch; one without an upstream is published to the primary remote. Review Kit may call it. */
   "push": { input: undefined; output: PushResult };
+  /** The first remote of a repository Review Kit just published; refused when it has one (callers: `tau.review`). */
+  "add-remote": { input: { name?: string; url: string }; output: { hasCommits: boolean } };
   /** Review Kit's reading of the branch before it opens a request (callers: `tau.review`). */
   "review-request-context": { input: { detail?: boolean; base?: string } | undefined; output: ReviewRequestContext };
   /** The branch's pull or merge request as `gh`/`glab` report it; `fresh` skips the short cache (callers: `tau.review`). */
