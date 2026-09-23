@@ -27,6 +27,7 @@ import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from ".
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
+import { promptTakesFiles } from "../../shared/extension-prompt-options";
 import {
   ComposerScopeStore,
   createDraftKey,
@@ -178,7 +179,8 @@ export function Composer({
   prompt?: ExtensionUiPrompt;
   promptsPending?: number;
   /** `typed` is set when the answer came from the text field rather than a choice. */
-  onAnswerPrompt?(value: string | boolean, typed?: boolean): void;
+  /** `attachments` are files the user sent with typed text, for a question that takes them. */
+  onAnswerPrompt?(value: string | boolean, typed?: boolean, attachments?: UiPromptAttachment[]): void;
   onCancelPrompt?(): void;
   onCompactContext(): void;
   /** An extension is changing the workspace; submitting would target the wrong thread. */
@@ -574,7 +576,7 @@ export function Composer({
     ...(inlineTakesFiles ? { takeFiles } : {}),
   });
 
-  const { submit: submitPrompt } = useComposerSubmission({
+  const { submit: submitPrompt, answer: answerWithDraft } = useComposerSubmission({
     scopeStore,
     scope: attachmentScope,
     draftStorageKey,
@@ -597,17 +599,21 @@ export function Composer({
   }, [prompt, updateDraft]);
 
   const answerable = prompt && prompt.answerElsewhere !== true;
+  // A question that takes typed text takes the files waiting in the composer with it.
+  const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
     if (held) return;
-    if (activeScopeSnapshot.submissionPending) return;
     const intent = classifyComposerInput({
       text,
       answerable: Boolean(answerable),
+      answerFiles: answerHasFiles,
       promptActionAvailable: Boolean(promptSubmit && !promptSubmit.disabled),
       shellActionAvailable: onRunShellAction !== undefined,
       delivery,
     });
+    // An answer never waits for a prompt in flight: the prompt that asked may be the one still running.
+    if (activeScopeSnapshot.submissionPending && intent.kind !== "prompt-answer" && intent.kind !== "prompt-action") return;
     switch (intent.kind) {
       case "noop":
         return;
@@ -615,6 +621,10 @@ export function Composer({
         promptSubmit?.submit();
         return;
       case "prompt-answer":
+        if (answerHasFiles) {
+          answerWithDraft((answer, files) => onAnswerPrompt?.(answer, true, files));
+          return;
+        }
         onAnswerPrompt?.(intent.text, true);
         updateDraft("");
         return;
@@ -639,6 +649,8 @@ export function Composer({
     }
   }, [
     activeScopeSnapshot.submissionPending,
+    answerHasFiles,
+    answerWithDraft,
     answerable,
     held,
     onAnswerPrompt,
@@ -1041,15 +1053,16 @@ export function Composer({
           />
 
           {answerable && prompt ? (() => {
-            const submitLabel = text.trim() ? "Send answer" : promptSubmit?.label ?? "Send answer";
+            const typedAnswer = Boolean(text.trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
+            const submitLabel = typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer";
             return (
               <button
                 className="prompt-submit-button"
                 {...tooltipProps(submitLabel)}
                 aria-label={submitLabel}
-                disabled={held || (text.trim().length === 0 && (promptSubmit?.disabled ?? true))}
+                disabled={held || (!typedAnswer && (promptSubmit?.disabled ?? true))}
                 onClick={() => {
-                  if (text.trim()) submitCurrent();
+                  if (typedAnswer) submitCurrent();
                   else promptSubmit?.submit();
                 }}
               >

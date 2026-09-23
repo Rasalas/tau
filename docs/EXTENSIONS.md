@@ -1159,6 +1159,48 @@ back. Only the shell goes — the program's own history (a CLI's session files)
 is never touched. A backend without the pair refuses deletion. Codex, the
 Agent SDK runtime and Antigravity have it.
 
+A streamed backend whose tool cards should return after a restart or a reload
+offers the capability group `activityHistory` (new in API 1.12.0):
+`load()` answers the thread's earlier turns as `UiTurnActivityEntry`s, oldest
+first, and core reads it when the thread opens; `save(entry)` is handed core's
+own record of one turn — its tools, their status and output, and the message
+the turn's tools follow — whenever a tool starts or ends and when the turn
+settles, a later call for the same `id` replacing the earlier one. The
+`anchorMessageId` is an id from the transcript, so `transcript()` has to answer
+the same message ids after a restart that the live events carried. A failing
+`load` opens the thread without cards, a failing `save` is logged; neither
+fails the turn. `TurnActivityStore` from `tau/host-extension` implements both
+halves: one JSON Lines file per thread in a folder of the backend's choosing,
+outputs clipped to their last 16 KiB and long arguments shortened, turns a
+restart cut short read back as interrupted, the newest 500 turns kept, and
+`take(threadId)`/`put(threadId, value)` for `removeThread`/`restoreThread`.
+Codex and Antigravity keep theirs beside their session stores
+(`codex-activity/`, `antigravity-activity/`).
+
+An MCP server may ask for a form (an *elicitation*: `requestedSchema` with
+text, number, integer, boolean, single- and multiple-choice fields — the same
+shape in MCP, Codex's app-server and ACP). `elicitationFields(schema)` from
+`tau/host-extension` (API 1.12.0) reads it — `[]` for a form that only asks
+yes or no, `undefined` for a field no dialog asks — and
+`askElicitation({ source, message, fields, ask, decorate? })` asks one dialog
+per field through the backend's `ask`, asks again with the reason when an
+answer does not fit, and answers `{ action: "accept", content }`, or
+`decline` when a required field (or every field) was skipped. `decorate`
+sees each dialog before it goes out; Codex and Antigravity use it to tag the
+dialogs with `extras["tau.questionnaire"]`, so Questionnaires pages through the
+form as through the ask-user tool's questions (`elicitationFieldTitle(field)`
+is the title each dialog carries).
+
+A question that takes typed text — an `input`, an `editor`, a `select` with a
+free-text row — may be answered with files (API 1.12.0): the value answer
+carries `attachments`, the files and images the user sent from the composer,
+typed text or none. Core writes images to a folder per thread under its
+temporary directory and folds every file into `value` as a list of paths after
+the text (`Attached files:` and one `- <path>` per file) before the answer
+reaches whoever asked, so a backend or Pi extension that reads answers as text
+gets them without doing anything. A pick among fixed choices (an approval)
+takes no files; they stay in the composer.
+
 `complete(request, model?)` asks a model for one short answer — a thread
 title, a branch name, a commit message. It runs on the user's own model
 configuration in `~/.pi/agent` and takes the model the extension names, or

@@ -55,3 +55,20 @@ export interface CodexStatusReport {
   models?: number;
   message?: string;
 }
+
+/**
+ * Questionnaire Kit pages through prompts that carry this extra; its shape is
+ * `UiQuestionnaire` in `kits/questionnaire/protocol.ts`.
+ */
+export const QUESTIONNAIRE_EXTRA = "tau.questionnaire";
+
+export interface QuestionnaireQuestion {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  options: Array<{ label: string; description: string }>;
+}
+
+export function tagQuestionnaire(prompt: { extras?: Record<string, unknown> }, index: number, questions: readonly QuestionnaireQuestion[]): void {
+  prompt.extras = { ...prompt.extras, [QUESTIONNAIRE_EXTRA]: { index, questions } };
+}

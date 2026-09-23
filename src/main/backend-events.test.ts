@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HostEvent, UiMessage, UiToolRun } from "../shared/contracts.js";
+import type { HostEvent, UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts.js";
 import type { HostUpdate } from "../shared/host-protocol.js";
 import { handleBackendRuntimeEvent, type BackendEventServices } from "./backend-events.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 
-function makeThread(): ThreadRuntime {
+function makeThread(capabilities: Record<string, unknown> = {}): ThreadRuntime {
   const backend = {
     kind: "external",
     runtimeAdapter: { id: "external", capabilities: { skillInvocationDialect: "claude-code" } },
@@ -13,7 +13,7 @@ function makeThread(): ThreadRuntime {
     providerSessionId: "provider-1",
     cwd: "/repo",
     turnReporting: "streamed",
-    capabilities: {},
+    capabilities,
     state: () => ({ streaming: false, idle: true, hasMessages: false, activeTools: [], supportsImageInput: false, extensionCount: 0 }),
     catalogView: () => ({ thinkingLevel: "off", thinkingLevels: [], allTools: [] }),
     transcript: async () => [],
@@ -160,5 +160,43 @@ describe("handleBackendRuntimeEvent", () => {
       { type: "queue", sessionId: "thread-1", steering: ["wait"], followUp: [] },
     ]);
     expect(updates.map((update) => update.type)).toEqual(["run"]);
+  });
+
+  it("hands a runtime that keeps tool history each change of the turn's activity", async () => {
+    const saved: UiTurnActivityEntry[] = [];
+    const thread = makeThread({ activityHistory: { load: async () => [], save: async (entry: UiTurnActivityEntry) => { saved.push(entry); } } });
+    const { services } = makeServices();
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "user-message", message: user }, thread, services);
+    handleBackendRuntimeEvent({ type: "tool-start", tool }, thread, services);
+    handleBackendRuntimeEvent({ type: "tool-update", id: "tool-1", output: "fi" }, thread, services);
+    handleBackendRuntimeEvent({ type: "tool-end", tool: { ...tool, status: "done", output: "file", endedAt: 9 } }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "completed" }, thread, services);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(saved.map((entry) => [entry.status, entry.tools.map((run) => run.status)])).toEqual([
+      ["running", ["running"]],
+      ["running", ["done"]],
+      ["completed", ["done"]],
+    ]);
+    expect(saved.at(-1)).toMatchObject({ id: thread.adapterActivity[0]!.id, anchorMessageId: "u1" });
+    // What was handed over is a copy; the host's own record moves on without it.
+    expect(saved[0]!.tools[0]!.status).toBe("running");
+  });
+
+  it("numbers a new turn past the turns a runtime kept, even when older ones were dropped", () => {
+    const thread = makeThread();
+    const { services } = makeServices();
+    thread.adapterActivity = [{ id: "activity-thread-1-7", status: "completed", tools: [tool] }, { id: "activity-thread-1-9", status: "interrupted", tools: [tool] }];
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    expect(thread.adapterActivity.at(-1)!.id).toBe("activity-thread-1-10");
+  });
+
+  it("logs a runtime that fails to keep the activity instead of failing the turn", async () => {
+    const thread = makeThread({ activityHistory: { load: async () => [], save: async () => { throw new Error("disk full"); } } });
+    const { services, logs } = makeServices();
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "tool-start", tool }, thread, services);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(logs).toContain("activity.save.failed");
   });
 });

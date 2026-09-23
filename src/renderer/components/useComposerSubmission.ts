@@ -25,6 +25,8 @@ const NO_INLINES: readonly ComposerInlineContribution[] = [];
 export interface ComposerSubmissionInput {
   text: string;
   answerable: boolean;
+  /** Files wait in the composer and the open question takes them with its answer. */
+  answerFiles?: boolean;
   promptActionAvailable: boolean;
   shellActionAvailable: boolean;
   delivery?: ComposerDelivery;
@@ -41,12 +43,13 @@ export type ComposerSubmissionIntent =
 export function classifyComposerInput({
   text,
   answerable,
+  answerFiles = false,
   promptActionAvailable,
   shellActionAvailable,
   delivery,
 }: ComposerSubmissionInput): ComposerSubmissionIntent {
   if (answerable) {
-    if (!text.trim()) return promptActionAvailable ? { kind: "prompt-action" } : { kind: "noop" };
+    if (!text.trim()) return promptActionAvailable ? { kind: "prompt-action" } : answerFiles ? { kind: "prompt-answer", text } : { kind: "noop" };
     return { kind: "prompt-answer", text };
   }
 
@@ -132,9 +135,18 @@ export interface UseComposerSubmissionOptions {
   clearPreviewForScope(scope: ComposerScope): void;
 }
 
+/** Takes the prepared text and files as the answer to the open question instead of a prompt. */
+export type ComposerAnswerSink = (text: string, attachments: UiPromptAttachment[]) => void;
+
 export interface UseComposerSubmissionResult {
-  /** Captures the current scope and starts its asynchronous host submission. */
+  /** Captures the current scope and starts its asynchronous host submission, or answers with it. */
   submit(delivery?: ComposerDelivery): void;
+  /**
+   * Hands the draft, its images and what the inline contributions add to
+   * `sink` as the answer to the open question, then clears them. It never waits
+   * for a prompt in flight: the prompt that asked may be the one still running.
+   */
+  answer(sink: ComposerAnswerSink): void;
 }
 
 /**
@@ -285,5 +297,35 @@ export function useComposerSubmission({
     selectedSkill,
   ]);
 
-  return { submit };
+  const answer = useCallback((sink: ComposerAnswerSink) => {
+    void (async () => {
+      await scopeStore.getSnapshot(scope).attachmentProcessing.catch(() => undefined);
+      const captured = scopeStore.getSnapshot(scope);
+      const ids = new Set(captured.attachments.map((attachment) => attachment.id));
+      const images: UiPromptAttachment[] = captured.attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
+      let inline: InlineSend = { context: "", attachments: [], asked: [] };
+      if (inlines.length > 0) {
+        try {
+          inline = await collectInlineSend(inlines, {
+            scope,
+            fileAttachments: inlineContext?.fileAttachments ?? false,
+            imageInput: inlineContext?.imageInput ?? false,
+            ...(inlineContext?.snapshot ? { snapshot: inlineContext.snapshot } : {}),
+            text: captured.draft,
+          });
+        } catch (error) {
+          scopeStore.setAttachmentError(scope, errorMessage(error), scopeStore.getAttachmentGeneration(scope));
+          return;
+        }
+      }
+      sink(withInlineContext(captured.draft, inline.context).text, [...images, ...inline.attachments]);
+      settleInlineSend(inline.asked, scope, true);
+      scopeStore.setAttachments(scope, scopeStore.getSnapshot(scope).attachments.filter((attachment) => !ids.has(attachment.id)));
+      if (scopeStore.getSnapshot(scope).draft === captured.draft) scopeStore.setDraft(scope, "");
+      if (draftStorageKey !== undefined) writeComposerDraft(clientStorage, scope, scopeStore.getSnapshot(scope).draft);
+      clearPreviewForScope(scope);
+    })();
+  }, [clearPreviewForScope, clientStorage, draftStorageKey, inlineContext, inlines, scope, scopeStore]);
+
+  return { submit, answer };
 }

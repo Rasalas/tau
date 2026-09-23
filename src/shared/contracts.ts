@@ -399,8 +399,11 @@ export interface ExtensionUiPrompt {
 
 export type ExtensionUiAnswer =
   | { cancelled: true }
-  /** `typed` marks free text entered for a select, as opposed to a clicked choice. */
-  | { value: string; typed?: boolean }
+  /**
+   * `typed` marks free text entered for a select, as opposed to a clicked choice.
+   * `attachments` travel with typed text; the host names them by path in `value`.
+   */
+  | { value: string; typed?: boolean; attachments?: UiPromptAttachment[] }
   | { confirmed: boolean }
   | { customResult?: unknown };
 

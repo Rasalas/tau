@@ -160,7 +160,7 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
           <span className="questionnaire-mode-badge">
             {viewing?.multiSelect
               ? (onCurrent && picked.length > 0 ? `Multiple choice · ${picked.length} selected` : "Multiple choice")
-              : "Single choice"}
+              : viewing && viewing.options.length === 0 ? "Free text" : "Single choice"}
           </span>
           {total > 1 ? (
             <nav className="extension-pager" aria-label="Questions">
@@ -179,7 +179,9 @@ export function createQuestionnairePrompt(store: QuestionnaireStore) {
           : !onCurrent
             ? (pick && pick.labels.length > 0
               ? `“${choiceSummary(pick)}” is sent when the extension gets here`
-              : `pick ${viewing?.multiSelect ? "any" : "one"} now — it is sent when the extension gets here`)
+              : viewing && viewing.options.length === 0
+                ? "answered below when the extension gets here"
+                : `pick ${viewing?.multiSelect ? "any" : "one"} now — it is sent when the extension gets here`)
             : multi
               ? "pick any that apply, or type your own answer below"
               : hasChoices

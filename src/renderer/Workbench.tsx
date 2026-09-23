@@ -867,9 +867,9 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     newThread={pendingNewThread}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}
-    onAnswerPrompt={(value, typed) => {
+    onAnswerPrompt={(value, typed, attachments) => {
       const active = prompts[0];
-      if (active) answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed } : { value });
+      if (active) answerUiPrompt(active.id, typeof value === "boolean" ? { confirmed: value } : typed ? { value, typed, ...(attachments?.length ? { attachments } : {}) } : { value });
     }}
     onCancelPrompt={() => {
       const active = prompts[0];
