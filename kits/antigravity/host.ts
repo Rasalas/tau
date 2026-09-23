@@ -81,6 +81,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           ...(input.authenticate === false ? { authenticate: false } : {}),
           onUpdate: input.onUpdate,
           onPermission: input.onPermission,
+          ...(input.onElicitation ? { onElicitation: input.onElicitation } : {}),
           onSignIn: input.onSignIn,
           onExit: input.onExit,
           onStderrLine: (line) => services.log("antigravity.stderr", line.slice(0, 500)),

@@ -25,8 +25,8 @@ import {
   type UiSkillDraft,
   type UiThreadUsage,
 } from "tau/host-extension";
-import type { AcpContentBlock, AcpInitializeResult, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "./acp-session.js";
-import { modeForLevel, permissionDialog } from "./approvals.js";
+import type { AcpContentBlock, AcpElicitationAnswer, AcpElicitationRequest, AcpInitializeResult, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "./acp-session.js";
+import { answerElicitation, modeForLevel, permissionDialog } from "./approvals.js";
 import { AcpTurnTranslator, addUsage, type AcpCommand, type AcpPromptResponse, type AcpSessionUpdate } from "./events.js";
 import type { AuthorizationLink } from "./profile.js";
 import type { AntigravityRuntimeAdapter } from "./runtime-adapter.js";
@@ -60,6 +60,7 @@ export interface AntigravitySessionInput {
   authenticate?: boolean;
   onUpdate(update: AcpSessionUpdate): void;
   onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse>;
+  onElicitation?(request: AcpElicitationRequest): Promise<AcpElicitationAnswer>;
   onSignIn(link: AuthorizationLink): void;
   onExit(error: Error | undefined): void;
 }
@@ -395,6 +396,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
       cwd: this.cwd,
       onUpdate: (update) => this.onUpdate(update),
       onPermission: (request) => this.onPermission(request),
+      onElicitation: (request) => answerElicitation(request, this.options.ask),
       onSignIn: (link) => {
         this.report({ type: "notice", message: "Antigravity needs a Google sign-in. Tau opened the link in your browser; finish it there and the turn continues.", level: "info" });
         this.options.onSignIn?.(link, this.threadId);

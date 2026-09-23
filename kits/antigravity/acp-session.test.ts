@@ -169,6 +169,30 @@ describe("AntigravitySession", () => {
     await session.close();
   });
 
+  it("says it takes forms, and answers the schema's and the SDK's elicitation in their own shapes", async () => {
+    const agent = fakeAgent();
+    scripted(agent);
+    const onElicitation = vi.fn(async () => ({ action: "accept" as const, content: { env: "prd" } }));
+    const session = await AntigravitySession.open(options(agent, await scratch(), { onElicitation }));
+    expect(agent.received.find((message) => message.method === "initialize")?.params).toMatchObject({ clientCapabilities: { elicitation: { form: {} } } });
+    await session.newSession();
+    const form = { mode: "form", message: "Where?", requestedSchema: { type: "object", properties: { env: { type: "string", enum: ["stg", "prd"] } } } };
+    agent.send({ jsonrpc: "2.0", id: 910, method: "session/elicitation", params: { sessionId: "acp-session", ...form } });
+    agent.send({ jsonrpc: "2.0", id: 911, method: "elicitation/create", params: { sessionId: "acp-session", ...form } });
+    agent.send({ jsonrpc: "2.0", id: 912, method: "session/elicitation", params: { sessionId: "acp-session", mode: "url", url: "https://example.com", elicitationId: "e", message: "Open" } });
+    agent.send({ jsonrpc: "2.0", id: 913, method: "session/elicitation", params: { sessionId: "another", ...form } });
+    await until(() => agent.received.filter((message) => typeof message.id === "number" && message.id >= 910).length === 4);
+    const answers = Object.fromEntries(agent.received.filter((message) => typeof message.id === "number" && message.id >= 910).map((message) => [message.id, message.result]));
+    expect(answers).toEqual({
+      910: { action: { action: "accept", content: { env: "prd" } } },
+      911: { action: "accept", content: { env: "prd" } },
+      912: { action: { action: "decline" } },
+      913: { action: { action: "cancel" } },
+    });
+    expect(onElicitation).toHaveBeenCalledTimes(2);
+    await session.close();
+  });
+
   it("cancels a running turn through the notification, and takes the process down when the agent ignores it", async () => {
     const agent = fakeAgent();
     scripted(agent);
