@@ -19,6 +19,9 @@ export const TWO_PAGE_THREAD_TITLE = "Two-page Pi thread";
 export const TWO_PAGE_THREAD_TURNS = 15;
 /** Older pages loaded with the reader at the top of the large thread, one after another. */
 export const OLDER_PAGES_AT_TOP = 3;
+/** Wheel notches up through rows the virtualizer has not measured yet, and the size of one. */
+export const SCROLL_UP_NOTCHES = 60;
+export const SCROLL_UP_NOTCH_PX = 240;
 
 async function sessionManager(tauRoot) {
   const url = pathToFileURL(join(tauRoot, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "index.js")).href;
@@ -56,45 +59,120 @@ export function newestTurnVisible(messageRow, turns, tag) {
 }
 
 /**
- * Resolves in the page after one "Load older turns" click. Samples, every
- * frame until a second after the label went away, how far the row that led
- * the viewport before the click has moved; a frame without that row counts
- * as the viewport's height.
+ * Resolves in the page once an older page has landed: after the reader jumped
+ * to the top of the loaded rows (`jump`), or after a wheel notch the caller
+ * sends. Where nothing loads on its own it clicks "Load older turns". Samples,
+ * every frame until a second after the label went away, how far the row that
+ * led the viewport just before the page landed has moved in the window; a
+ * frame without that row counts as the viewport's height.
  */
-export const OLDER_PAGE_DRIFT = `new Promise((resolvePromise, rejectPromise) => {
+export const olderPageDrift = ({ jump }) => `new Promise((resolvePromise, rejectPromise) => {
   const scroller = document.getElementById("thread-transcript");
-  const button = document.querySelector('[aria-label="Load older turns"]');
-  if (!scroller || !button) { rejectPromise(new Error("no transcript or no Load older turns button")); return; }
+  if (!scroller || !document.querySelector('[aria-label="Load older turns"], [aria-label="Loading older turns"]')) { rejectPromise(new Error("no transcript or no older turns")); return; }
   const viewportTop = () => scroller.getBoundingClientRect().top;
   const rows = () => [...scroller.querySelectorAll("[data-message-id]")];
-  const lead = rows().find((row) => row.getBoundingClientRect().bottom > viewportTop());
-  if (!lead) { rejectPromise(new Error("no transcript row in the viewport")); return; }
-  const id = lead.dataset.messageId;
-  const offset = (row) => row.getBoundingClientRect().top - viewportTop();
-  const before = offset(lead);
+  // In the window: the history line above the scroller coming or going moves rows as well.
+  const offset = (row) => row.getBoundingClientRect().top;
+  const find = (id) => rows().find((row) => row.dataset.messageId === id);
   const startedAt = performance.now();
+  let triggeredAt = startedAt;
+  let reference;
+  let landed = false;
+  let clicked = false;
   let loading = false;
   let loadedAt;
   let driftPx = 0;
   let lostFrames = 0;
   let frames = 0;
   const tick = () => {
-    const row = rows().find((candidate) => candidate.dataset.messageId === id);
     frames += 1;
-    if (!row) lostFrames += 1;
-    driftPx = Math.max(driftPx, row ? Math.abs(offset(row) - before) : scroller.clientHeight);
-    if (document.querySelector('[aria-label="Loading older turns"]')) loading = true;
-    else if (loading && loadedAt === undefined) loadedAt = performance.now();
+    const pending = Boolean(document.querySelector('[aria-label="Loading older turns"]'));
+    loading ||= pending;
+    if (!landed && reference) {
+      // A page can land within one frame, label and all: the reference row's index tells.
+      const previous = find(reference.id);
+      landed = !previous || Number(previous.dataset.index) > reference.index;
+    }
+    if (landed && !pending && loadedAt === undefined) loadedAt = performance.now();
+    if (!landed) {
+      const lead = rows().find((row) => row.getBoundingClientRect().bottom > viewportTop());
+      if (lead) reference = { id: lead.dataset.messageId, index: Number(lead.dataset.index), offset: offset(lead) };
+      if (!loading && !clicked && frames > 10) {
+        const button = document.querySelector('[aria-label="Load older turns"]');
+        if (button) { button.click(); clicked = true; triggeredAt = performance.now(); }
+      }
+    }
+    if (landed && reference) {
+      const row = find(reference.id);
+      if (!row) lostFrames += 1;
+      driftPx = Math.max(driftPx, row ? Math.abs(offset(row) - reference.offset) : scroller.clientHeight);
+    }
     if (loadedAt !== undefined && performance.now() - loadedAt > 1000) {
-      resolvePromise({ driftPx, lostFrames, frames, loadingMs: loadedAt - startedAt });
+      resolvePromise({ driftPx, lostFrames, frames, loadingMs: loadedAt - triggeredAt, clicked });
       return;
     }
     if (performance.now() - startedAt > 30000) { rejectPromise(new Error("older page did not load within 30 s")); return; }
     requestAnimationFrame(tick);
   };
-  button.click();
+  if (${jump}) scroller.scrollTop = 0;
   requestAnimationFrame(tick);
 })`;
+
+/** In the page: the row that leads the transcript's viewport, in window coordinates. */
+export const LEAD_ROW = `(() => {
+  const scroller = document.getElementById("thread-transcript");
+  const box = scroller.getBoundingClientRect();
+  const lead = [...scroller.querySelectorAll("[data-message-id]")].find((row) => row.getBoundingClientRect().bottom > box.top);
+  return {
+    id: lead?.dataset.messageId,
+    top: lead?.getBoundingClientRect().top,
+    scrollTop: scroller.scrollTop,
+    height: scroller.clientHeight,
+    hasOlder: Boolean(document.querySelector('[aria-label="Load older turns"], [aria-label="Loading older turns"]')),
+    x: box.left + box.width / 2,
+    y: box.top + box.height / 2,
+  };
+})()`;
+
+/**
+ * In the page, after one wheel notch: resolves once scrollTop has held for six
+ * frames and no older page is loading. Every frame, the row that led before the
+ * notch has to sit between where it was and where the notch takes it.
+ */
+export function notchSettled(id, top, expected) {
+  return `new Promise((resolvePromise, rejectPromise) => {
+  const scroller = document.getElementById("thread-transcript");
+  const low = ${top} - 0.5;
+  const high = ${top} + ${expected} + 0.5;
+  const startedAt = performance.now();
+  let last = scroller.scrollTop;
+  let still = 0;
+  let frames = 0;
+  let outsidePx = 0;
+  let lostFrames = 0;
+  let loadingSeen = false;
+  const tick = () => {
+    frames += 1;
+    const row = [...scroller.querySelectorAll("[data-message-id]")].find((candidate) => candidate.dataset.messageId === ${JSON.stringify(id)});
+    if (!row) lostFrames += 1;
+    else {
+      const current = row.getBoundingClientRect().top;
+      outsidePx = Math.max(outsidePx, low - current, current - high);
+    }
+    const loading = Boolean(document.querySelector('[aria-label="Loading older turns"]'));
+    loadingSeen ||= loading;
+    still = scroller.scrollTop === last ? still + 1 : 0;
+    last = scroller.scrollTop;
+    if (frames >= 6 && still >= 6 && !loading) {
+      resolvePromise({ top: row?.getBoundingClientRect().top, outsidePx, lostFrames, loadingSeen, scrollTop: last });
+      return;
+    }
+    if (performance.now() - startedAt > 30000) { rejectPromise(new Error("the transcript did not settle within 30 s")); return; }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+})`;
+}
 
 /** The table's rows: label and the aggregate path it reads. */
 export function largeThreadRows() {
@@ -107,6 +185,9 @@ export function largeThreadRows() {
     ["older page at the top: drift of the leading row (px)", "open.olderPageDriftPx"],
     ["older page at the top: frames without the leading row", "open.olderPageLostFrames"],
     ["two-page thread, older page at the top: drift (px)", "open.twoPageDriftPx"],
+    ["scrolling up through unmeasured rows: drift (px)", "open.scrollUpDriftPx"],
+    ["scrolling up: notches that reached the top with older turns left", "open.scrollUpTopHits"],
+    ["scrolling up: older pages loaded on the way", "open.scrollUpPages"],
     ["open: KiB over WebSocket", "open.wire.receivedKiB"],
     ["load average (1 min) at run start", "loadAtStart"],
   ];

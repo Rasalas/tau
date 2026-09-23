@@ -16,6 +16,8 @@ export interface TranscriptNavigation {
   canJumpToLatest: boolean;
   jumpToLatest: () => void;
   jumpToMessage: (messageId: string) => void;
+  /** False once the reader scrolled away from the tail or jumped to a turn. */
+  isFollowing: () => boolean;
   /** Reuse the controller's single scroll listener and ResizeObserver. */
   subscribeScroll: (listener: () => void) => () => void;
   subscribeResize: (listener: () => void) => () => void;
@@ -80,6 +82,7 @@ export function useTranscriptNavigation(
 
   const jumpToLatest = useCallback(() => controller.jumpToLatest(), [controller]);
   const jumpToMessage = useCallback((messageId: string) => controller.jumpToMessage(messageId), [controller]);
+  const isFollowing = useCallback(() => controller.mode !== "free", [controller]);
   const subscribeScroll = useCallback((listener: () => void) => controller.subscribeScroll(listener), [controller]);
   const subscribeResize = useCallback((listener: () => void) => controller.subscribeResize(listener), [controller]);
 
@@ -194,5 +197,5 @@ export function useTranscriptNavigation(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, updates);
 
-  return { canJumpToLatest, jumpToLatest, jumpToMessage, subscribeScroll, subscribeResize };
+  return { canJumpToLatest, jumpToLatest, jumpToMessage, isFollowing, subscribeScroll, subscribeResize };
 }

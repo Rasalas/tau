@@ -24,6 +24,9 @@ vi.mock("@tanstack/react-virtual", () => ({
     estimateSize?: (index: number) => number;
   }) => ({
     getTotalSize: () => count * 58,
+    measurementsCache: [],
+    scrollOffset: 0,
+    scrollRect: null,
     getVirtualItems: () => Array.from({ length: Math.min(count, VIRTUAL_WINDOW) }, (_, index) => ({
       index,
       key: getItemKey?.(index) ?? index,

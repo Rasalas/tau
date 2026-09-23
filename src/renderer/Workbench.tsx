@@ -743,7 +743,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     loadPage={loadTranscriptPage}
     applyPage={applyTranscriptPage}
   >
-    <TranscriptViewport
+    {(loadOlderOnReach) => <TranscriptViewport
       messages={messages}
       scrollRef={transcriptRef}
       sessionId={conversationSnapshot?.sessionId}
@@ -759,7 +759,8 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       onCopyMessage={onCopyMessage}
       onForkMessage={onForkMessage}
       onEditMessage={onEditMessage}
-    />
+      onReachStart={loadOlderOnReach}
+    />}
   </TranscriptHistoryBoundary>;
 }
 
