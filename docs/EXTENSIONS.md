@@ -800,7 +800,7 @@ It also exports the renderer's shared state and presentation:
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row), and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
 
@@ -856,7 +856,12 @@ into sections `{ id, label?, threads, shelf?, collapsed?, settled? }` in draw
 order, where the one section without a label is the main, paged list and a
 `shelf` folds away under its label with compact rows; `menu(session)` and
 `runMenu(session, itemId, actions)` are a row's right-click menu;
-`toggleSettled(session)` answers the row's own settle button; and
+`toggleSettled(session)` answers the row's own settle button; the optional
+`rowActions(session)` (new in API 1.11.0) lists buttons `{ id, label, icon,
+menu() }` the row shows beside Settle on hover and keyboard focus, each dropping
+the list `menu()` answers at that moment in a `Popover` — arrows, Home and End
+walk it, Escape closes it — and a pick goes to `runMenu` (Thread Rail's snooze
+clock with its presets and "Custom…"); and
 `dropLabel(threadId, { sectionId, beforeThreadId? })` / `drop(…)` say what a
 pointer drag of a row onto a section or between two rows does — the rail draws
 the gesture, the word ("Pin", "Settle") beside the pointer and the insertion

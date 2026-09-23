@@ -226,8 +226,8 @@ describe("Workspace Kit in the workbench", () => {
         threadIndex: {
           projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
           sessions: [
-            { id: "current", path: "/current.jsonl", title: "Current thread", modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 0 },
-            { id: "target", path: "/target.jsonl", title: "Target thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 },
+            { id: "current", path: "/current.jsonl", title: "Current thread", modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 1 },
+            { id: "target", path: "/target.jsonl", title: "Target thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1 },
           ],
         },
         detail: { sessionId: "current", messages: [], isStreaming: false, activeTools: [] },

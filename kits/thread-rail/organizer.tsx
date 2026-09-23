@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { Clock } from "lucide-react";
 import { Dialog, errorMessage, useThreadStore, useWorkbenchShell, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
@@ -242,7 +243,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
             : [{
               id: "snooze",
               label: "Snooze",
-              submenu: [{ items: [...snoozePresets(new Date(now())).map(({ id, label }) => ({ id, label })), { id: "snooze:custom", label: "Custom…" }] }],
+              submenu: [{ items: [...snoozePresets(new Date(now())).map(({ id, label, when }) => ({ id, label, hint: when })), { id: "snooze:custom", label: "Custom…" }] }],
             }],
         },
         {
@@ -270,6 +271,20 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       }
     },
     toggleSettled: (session) => toggleSettledById(session.id),
+    // T3 Code's clock beside Settle: the presets and Custom…, for a thread still in the rail.
+    rowActions(session) {
+      const section = sectionOf(meta(session.id), now());
+      if (section !== "pinned" && section !== "active") return [];
+      return [{
+        id: "snooze",
+        label: "Snooze thread",
+        icon: <Clock size={12} aria-hidden="true" />,
+        menu: () => [
+          { items: snoozePresets(new Date(now())).map(({ id, label, when }) => ({ id, label, hint: when })) },
+          { items: [{ id: "snooze:custom", label: "Custom…" }] },
+        ],
+      }];
+    },
     dropLabel: (threadId, target) => dropLabel(sectionOf(meta(threadId), now()), target.sectionId),
     drop,
     Layer,
@@ -303,7 +318,7 @@ export function SnoozeDialog({ session, now, onClose, onSnooze }: {
   const [mode, setMode] = useState<"duration" | "date">("duration");
   const [amount, setAmount] = useState("1");
   const [unit, setUnit] = useState<Unit>("hours");
-  const [date, setDate] = useState(() => localInput(snoozePresets(new Date(now()))[1]!.until));
+  const [date, setDate] = useState(() => localInput(snoozePresets(new Date(now())).find((preset) => preset.id === "snooze:tomorrow")!.until));
   const until = mode === "duration" ? now() + Number(amount) * UNIT_MS[unit] : new Date(date).getTime();
   const valid = Number.isFinite(until) && until > now() && (mode === "date" || Number(amount) > 0);
   return (

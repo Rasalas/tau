@@ -192,14 +192,24 @@ describe("the sweep", () => {
 });
 
 describe("snooze presets", () => {
-  it("offers an hour, tomorrow morning and next Monday morning, in local time", () => {
+  const until = (now: Date, id: string) => snoozePresets(now).find((preset) => preset.id === id)?.until;
+
+  it("offers T3 Code's presets, in local time", () => {
     const wednesday = new Date(2026, 8, 23, 15, 30);
-    const [hour, tomorrow, week] = snoozePresets(wednesday);
-    expect(hour.until - wednesday.getTime()).toBe(60 * 60 * 1_000);
-    expect(new Date(tomorrow.until)).toEqual(new Date(2026, 8, 24, 9, 0));
-    expect(new Date(week.until)).toEqual(new Date(2026, 8, 28, 9, 0));
-    const monday = new Date(2026, 8, 28, 8, 0);
-    expect(new Date(snoozePresets(monday)[2].until)).toEqual(new Date(2026, 9, 5, 9, 0));
+    expect(snoozePresets(wednesday).map((preset) => preset.label)).toEqual(["In 1 hour", "In 3 hours", "This evening", "Tomorrow", "Next week"]);
+    expect(until(wednesday, "snooze:1h")! - wednesday.getTime()).toBe(60 * 60 * 1_000);
+    expect(until(wednesday, "snooze:3h")! - wednesday.getTime()).toBe(3 * 60 * 60 * 1_000);
+    expect(new Date(until(wednesday, "snooze:evening")!)).toEqual(new Date(2026, 8, 23, 18, 0));
+    expect(new Date(until(wednesday, "snooze:tomorrow")!)).toEqual(new Date(2026, 8, 24, 9, 0));
+    expect(new Date(until(wednesday, "snooze:next-week")!)).toEqual(new Date(2026, 8, 28, 9, 0));
+    expect(new Date(until(new Date(2026, 8, 28, 8, 0), "snooze:next-week")!)).toEqual(new Date(2026, 9, 5, 9, 0));
+  });
+
+  it("drops the evening within its last hour and next week when that is tomorrow", () => {
+    expect(until(new Date(2026, 8, 23, 17, 30), "snooze:evening")).toBeUndefined();
+    const sunday = new Date(2026, 8, 27, 12, 0);
+    expect(until(sunday, "snooze:next-week")).toBeUndefined();
+    expect(new Date(until(sunday, "snooze:tomorrow")!)).toEqual(new Date(2026, 8, 28, 9, 0));
   });
 });
 

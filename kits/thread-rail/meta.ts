@@ -317,19 +317,34 @@ export function nextWake(state: RailState, now: number): number | undefined {
   return times.length > 0 ? Math.min(...times) : undefined;
 }
 
-/** The snooze presets of the row menu, in local time. */
-export function snoozePresets(now: Date): Array<{ id: string; label: string; until: number }> {
-  const at = (date: Date, days: number, hour: number) => {
-    const next = new Date(date);
+/** A clock time as a snooze row shows it: "9:00", "18:00". */
+export function clockLabel(epoch: number): string {
+  return new Date(epoch).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** The snooze presets of the row menu and the rail's clock, in local time, after T3 Code's. */
+export function snoozePresets(now: Date): Array<{ id: string; label: string; when: string; until: number }> {
+  const hour = 60 * 60 * 1_000;
+  const at = (days: number, hourOfDay: number) => {
+    const next = new Date(now);
     next.setDate(next.getDate() + days);
-    next.setHours(hour, 0, 0, 0);
+    next.setHours(hourOfDay, 0, 0, 0);
     return next.getTime();
   };
-  const toMonday = ((8 - now.getDay()) % 7) || 7;
+  const inOne = now.getTime() + hour;
+  const inThree = now.getTime() + 3 * hour;
+  const evening = at(0, 18);
+  const tomorrow = at(1, 9);
+  const nextWeek = at(((8 - now.getDay()) % 7) || 7, 9);
   return [
-    { id: "snooze:1h", label: "For an hour", until: now.getTime() + 60 * 60 * 1_000 },
-    { id: "snooze:tomorrow", label: "Until tomorrow, 9:00", until: at(now, 1, 9) },
-    { id: "snooze:next-week", label: "Until next week", until: at(now, toMonday, 9) },
+    { id: "snooze:1h", label: "In 1 hour", when: clockLabel(inOne), until: inOne },
+    { id: "snooze:3h", label: "In 3 hours", when: clockLabel(inThree), until: inThree },
+    ...(evening - now.getTime() > hour ? [{ id: "snooze:evening", label: "This evening", when: clockLabel(evening), until: evening }] : []),
+    { id: "snooze:tomorrow", label: "Tomorrow", when: clockLabel(tomorrow), until: tomorrow },
+    // On a Sunday next Monday is tomorrow.
+    ...(nextWeek !== tomorrow
+      ? [{ id: "snooze:next-week", label: "Next week", when: `${new Date(nextWeek).toLocaleDateString([], { weekday: "short" })} ${clockLabel(nextWeek)}`, until: nextWeek }]
+      : []),
   ];
 }
 
