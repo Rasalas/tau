@@ -120,6 +120,21 @@
   --diff-del-mark: light-dark(#f2b4a7, #8b433b);     /* the changed run inside a removed line */
   --diff-del-mark-ink: light-dark(#66200f, #ffd1c8); /* the run's text */
   --diff-del-mark-line: light-dark(#c8695c, #b95b50); /* the run's edge */
+  --diff-add-edge: light-dark(#1c7440, #7ade9f);     /* an addition as a bar, a sign or a count */
+  --diff-del-edge: light-dark(#b03a28, #f07a6a);     /* a removal as a bar, a sign or a count */
+  /* The blue and orange pair a diff switches to (Review Kit's colour option), same roles as above. */
+  --diff-blue-bg: light-dark(#e4eefc, #16223a);
+  --diff-blue-ink: light-dark(#1d4a8a, #a9c9f5);
+  --diff-blue-mark: light-dark(#abc9f4, #2f5388);
+  --diff-blue-mark-ink: light-dark(#0f2f5e, #dbeaff);
+  --diff-blue-mark-line: light-dark(#5b8fd6, #4f7fc2);
+  --diff-blue-edge: light-dark(#1f5cc0, #6ea8ff);
+  --diff-orange-bg: light-dark(#fdecdc, #2e1d12);
+  --diff-orange-ink: light-dark(#8a4210, #f0bf94);
+  --diff-orange-mark: light-dark(#f5c49a, #7a4520);
+  --diff-orange-mark-ink: light-dark(#5c2a05, #ffe2c8);
+  --diff-orange-mark-line: light-dark(#d9853f, #b86f35);
+  --diff-orange-edge: light-dark(#a54d0c, #f59a4a);
   --syntax-fn: light-dark(#5c6b13, #d9e88f);         /* highlight.js function and class names */
 
   /* ------------------------------------------------------------- project */

@@ -37,7 +37,8 @@ const AA_TEXT = ["ink", "ink-prose", "ink-2", "ink-3", "ink-code", "muted"];
 /** Accent and status tokens used as text or as an icon beside it. */
 const AA_ACCENT = [
   "acid-text", "working", "ready", "removed", "cyan", "info-ink", "danger", "warn", "fail-ink",
-  "syntax-fn", "diff-add-ink", "diff-del-ink",
+  "syntax-fn", "diff-add-ink", "diff-del-ink", "diff-add-edge", "diff-del-edge",
+  "diff-blue-ink", "diff-orange-ink", "diff-blue-edge", "diff-orange-edge",
 ];
 /** Marks, fills and small print: AA for large text and non-text contrast, 3:1. */
 const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "stale", "folder"];
@@ -46,6 +47,8 @@ const ON_FILL: ReadonlyArray<[string, string]> = [
   ["acid-ink", "acid"], ["acid-ink", "acid-strong"],
   ["diff-add-mark-ink", "diff-add-mark"], ["diff-del-mark-ink", "diff-del-mark"],
   ["diff-add-ink", "diff-add-bg"], ["diff-del-ink", "diff-del-bg"], ["acid-text", "acid-chip"],
+  ["diff-blue-mark-ink", "diff-blue-mark"], ["diff-orange-mark-ink", "diff-orange-mark"],
+  ["diff-blue-ink", "diff-blue-bg"], ["diff-orange-ink", "diff-orange-bg"],
 ];
 
 /** A shape rather than a glyph: non-text contrast, 3:1. */

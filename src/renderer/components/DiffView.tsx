@@ -148,7 +148,7 @@ const LINE_HEIGHT = 26;
 const WRAP_COLUMNS = 118;
 const FALLBACK_ROWS = 24;
 
-function rowEstimate(row: DiffStreamRow | undefined, split: boolean): number {
+function rowEstimate(row: DiffStreamRow | undefined, split: boolean, wrap = true): number {
   switch (row?.kind) {
     case "file": return 40;
     case "hunk": return 42;
@@ -156,9 +156,27 @@ function rowEstimate(row: DiffStreamRow | undefined, split: boolean): number {
     case "status": return 76;
     case "more": return 62;
     case "separator": return 14;
-    case "line": return LINE_HEIGHT * Math.max(1, Math.ceil(row.line.text.length / (split ? WRAP_COLUMNS / 2 : WRAP_COLUMNS)));
+    case "line": return wrap ? LINE_HEIGHT * Math.max(1, Math.ceil(row.line.text.length / (split ? WRAP_COLUMNS / 2 : WRAP_COLUMNS))) : LINE_HEIGHT;
     default: return LINE_HEIGHT;
   }
+}
+
+/**
+ * How wide an unwrapped stream is: every row as wide as the longest line, so
+ * backgrounds run edge to edge while the whole diff scrolls sideways. A tab
+ * counts as eight columns, which is what `pre` draws.
+ */
+export function unwrappedWidth(rows: readonly DiffStreamRow[], split: boolean): string {
+  let longest = 0;
+  for (const row of rows) {
+    if (row.kind !== "line") continue;
+    const text = row.line.text;
+    let columns = text.length;
+    for (let index = text.indexOf("\t"); index >= 0; index = text.indexOf("\t", index + 1)) columns += 7;
+    if (columns > longest) longest = columns;
+  }
+  // Per side: the 52 px gutter and 28 px of padding; unified adds the sign and its space.
+  return split ? `calc(${2 * longest}ch + 160px)` : `calc(${longest + 2}ch + 80px)`;
 }
 
 /** Flattens one file's diff into stream rows. Collapsible streams show context gaps instead of hunk headers. */
@@ -237,6 +255,8 @@ export interface DiffStreamProps {
   onLoadMore?(path: string): void;
   renderFileHeader?(file: UiChangedFile, diff?: UiFileDiff): ReactNode;
   onVisiblePathChange?(path: string): void;
+  /** Long lines wrap by default; `false` keeps each on one row and scrolls the diff sideways. */
+  wrap?: boolean;
 }
 
 const NO_LANGUAGES: readonly string[] = [];
@@ -253,10 +273,12 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
   onLoadMore,
   renderFileHeader,
   onVisiblePathChange,
+  wrap = true,
 }, ref) {
   const split = mode === "split";
   const version = useHighlightLanguages(languages);
-  const estimateSize = useCallback((index: number) => rowEstimate(rows[index], split), [rows, split]);
+  const estimateSize = useCallback((index: number) => rowEstimate(rows[index], split, wrap), [rows, split, wrap]);
+  const minWidth = useMemo(() => (wrap ? undefined : unwrappedWidth(rows, split)), [rows, split, wrap]);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -268,6 +290,13 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
     useAnimationFrameWithResizeObserver: true,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+  // Heights measured with the other wrapping no longer hold.
+  const measuredWrap = useRef(wrap);
+  useEffect(() => {
+    if (measuredWrap.current === wrap) return;
+    measuredWrap.current = wrap;
+    virtualizer.measure();
+  }, [virtualizer, wrap]);
 
   const hunkRowIndices = useMemo(() => {
     const indices: number[] = [];
@@ -354,7 +383,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
     }
   };
 
-  return <div className="diff-stream" style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
+  return <div className={`diff-stream${wrap ? "" : " nowrap"}`} style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative", ...(minWidth ? { minWidth } : {}) }}>
     {items.map((item) => {
       const row = rows[item.index];
       if (!row) return null;
@@ -379,13 +408,15 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
 });
 
 /** One file's diff with its own scroll element; review mode uses `DiffStream` directly. */
-export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, lines }: {
+export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, lines, wrap = true }: {
   diff?: UiFileDiff;
   mode: "unified" | "split";
   path?: string;
   onLoadMore?(): void;
   onExpandContext?(): void;
   lines?: DiffLineSlot;
+  /** Long lines wrap unless this is `false`. */
+  wrap?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<DiffStreamHandle>(null);
@@ -442,6 +473,7 @@ export function DiffView({ diff, mode, path, onLoadMore, onExpandContext, lines 
       mode={mode}
       scrollRef={scrollRef}
       languages={languages}
+      wrap={wrap}
       {...(lines ? { lines } : {})}
       {...(onExpandContext ? { onExpandContext } : {})}
       {...(onLoadMore ? { onLoadMore } : {})}
