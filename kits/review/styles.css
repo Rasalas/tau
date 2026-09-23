@@ -391,3 +391,24 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .review-color-swatch.blue-orange > i:first-child { background: var(--working); }
 .review-color-swatch.blue-orange > i:last-child { background: var(--info-ink); }
 .review-instructions { width: min(420px, 100%); min-height: 84px; resize: vertical; font: inherit; line-height: 1.45; }
+
+/* Settings → Review: the Git hosts and the self-hosted servers. */
+.review-source-list, .review-source-hosts { list-style: none; margin: 0; padding: 0; }
+.review-source-row { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; align-items: start; padding: 9px 0; border-top: 1px solid var(--line-soft); }
+.review-source-row:first-child { border-top: 0; }
+.review-source-dot { width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--fainter); }
+.review-source-row[data-tone="ready"] .review-source-dot { background: var(--ready); }
+.review-source-row[data-tone="warn"] .review-source-dot { background: var(--warn); }
+.review-source-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.review-source-name { display: flex; align-items: baseline; gap: 8px; }
+.review-source-name > strong { font-size: 12.5px; color: var(--ink-2); }
+.review-source-name > small { font: 10.5px var(--mono); color: var(--faint); }
+.review-source-summary { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.review-source-missing { font-size: 11px; color: var(--muted-2); }
+.review-source-empty, .review-source-lede { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.review-source-hosts > li { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-top: 1px solid var(--line-soft); }
+.review-source-hosts > li:first-child { border-top: 0; }
+.review-source-hosts code { font: 11.5px var(--mono); color: var(--ink-2); }
+.review-source-hosts span { flex: 1; font-size: 12px; color: var(--muted); }
+.review-source-add { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.review-source-add > input { flex: 1; min-width: 0; }

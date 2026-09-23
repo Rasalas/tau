@@ -4,7 +4,7 @@ import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-message
 import { ReviewCommentStore } from "./comments.js";
 import { createReviewOverlay } from "./overlay.js";
 import { trackDiffSettings } from "./diff-settings.js";
-import { ReviewSettingsPage } from "./settings-page.js";
+import { createReviewSettingsPage } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   REVIEW_HOST_EXTENSION_ID,
@@ -54,9 +54,10 @@ export const reviewExtension: DesktopExtension = {
       Icon: GitCompare,
       order: 36,
       scope: "both",
-      keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace"],
+      keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace",
+        "git hosts", "github", "gitlab", "forgejo", "gitea", "codeberg", "bitbucket", "azure devops", "self-hosted", "tea", "az"],
       profiles: ["desktop", "web"],
-      Component: ReviewSettingsPage,
+      Component: createReviewSettingsPage(plugin.host),
     });
     const untrackDiffSettings = trackDiffSettings(plugin.preferences);
     plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, (service) => {

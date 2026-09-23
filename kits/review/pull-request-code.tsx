@@ -97,7 +97,9 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
   }, [threads]);
   const viewedCount = ordered.filter(isViewed).length;
 
-  const reply = (thread: PullRequestThread) => (text: string) => onComment({ threadId: thread.id, body: text });
+  const capabilities = providerInfo(detail.ref.service).capabilities;
+  const reply = (thread: PullRequestThread) => capabilities.replies ? (text: string) => onComment({ threadId: thread.id, body: text }) : undefined;
+  const resolver = (thread: PullRequestThread) => capabilities.resolve ? (resolved: boolean) => onResolve(thread, resolved) : undefined;
 
   const lines = useMemo<DiffLineSlot | undefined>(() => {
     if (!current) return undefined;
@@ -120,7 +122,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
         if (here.length === 0 && mine.length === 0 && !editing) return null;
         return (
           <div className="pr-line-slot">
-            {here.map((thread) => <ThreadCard key={thread.id} thread={thread} onReply={reply(thread)} onSend={() => onSend(threadChip(detail, thread))} onResolve={(resolved) => onResolve(thread, resolved)} canEdit={canEdit} onEdit={onEdit} />)}
+            {here.map((thread) => <ThreadCard key={thread.id} thread={thread} onReply={reply(thread)} onSend={() => onSend(threadChip(detail, thread))} onResolve={resolver(thread)} canEdit={canEdit} onEdit={onEdit} />)}
             {mine.map((comment) => (
               <div key={comment.id} className="pr-pending-note" aria-label={`Pending comment on line ${comment.line}`}>
                 <span className="pr-tag">Pending</span>
@@ -133,16 +135,18 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
                 label={`Comment on line ${editing.line}`}
                 placeholder="Leave a comment"
                 submitLabel="Comment"
-                onSubmit={async (text) => { await onComment({ path: editing.path, line: editing.line, side: editing.side, body: text }); setDraft(undefined); }}
+                {...(capabilities.lineComments ? { onSubmit: async (text: string) => { await onComment({ path: editing.path, line: editing.line, side: editing.side, body: text }); setDraft(undefined); } } : {})}
                 onCancel={() => setDraft(undefined)}
                 extra={(text) => (
                   <>
                     <button className="text-button" disabled={!text.trim()} title="Hand the comment to the agent instead of posting it" onClick={() => { onSend(draftChip(detail, editing, text.trim())); setDraft(undefined); }}>
                       Send to agent
                     </button>
-                    <button className="text-button" disabled={!text.trim()} title="Hold the comment for your review; it posts when you submit the review" onClick={() => { onPend({ path: editing.path, line: editing.line, side: editing.side, body: text.trim() }); setDraft(undefined); }}>
-                      Add to review
-                    </button>
+                    {capabilities.lineComments ? (
+                      <button className="text-button" disabled={!text.trim()} title="Hold the comment for your review; it posts when you submit the review" onClick={() => { onPend({ path: editing.path, line: editing.line, side: editing.side, body: text.trim() }); setDraft(undefined); }}>
+                        Add to review
+                      </button>
+                    ) : null}
                   </>
                 )}
               />
@@ -223,7 +227,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
               {looseOpen ? loose.map((thread) => (
                 <div key={thread.id} className="pr-loose-thread">
                   <small>{thread.path}{thread.line !== undefined ? ` · Line ${thread.line}` : ""}</small>
-                  <ThreadCard thread={thread} onReply={reply(thread)} onSend={() => onSend(threadChip(detail, thread))} onResolve={(resolved) => onResolve(thread, resolved)} canEdit={canEdit} onEdit={onEdit} />
+                  <ThreadCard thread={thread} onReply={reply(thread)} onSend={() => onSend(threadChip(detail, thread))} onResolve={resolver(thread)} canEdit={canEdit} onEdit={onEdit} />
                 </div>
               )) : null}
             </section>

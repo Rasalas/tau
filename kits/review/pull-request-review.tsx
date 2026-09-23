@@ -12,22 +12,25 @@ const EVENTS: Array<{ value: PullRequestReviewEvent; label: string; hint: string
 /**
  * T3 Code's one composer for both: a plain comment on the request, or a
  * review that carries a verdict, a summary and every line comment held for
- * it. GitLab takes no request for changes through its API, so it offers two.
+ * it. The verdicts are the ones the provider takes: GitLab has no request
+ * for changes, Azure DevOps no review without a vote.
  */
-export function ReviewComposer({ service, pending, onRemovePending, onComment, onReview, onCancel }: {
+export function ReviewComposer({ service, events: offered, pending, onRemovePending, onComment, onReview, onCancel }: {
   service: RequestService;
+  /** The verdicts the provider takes; none leaves only the plain comment. */
+  events: readonly PullRequestReviewEvent[];
   pending: readonly PendingReviewComment[];
   onRemovePending(id: string): void;
   onComment(text: string): Promise<void>;
   onReview(event: PullRequestReviewEvent, text: string): Promise<void>;
   onCancel(): void;
 }) {
-  const [mode, setMode] = useState<"comment" | "review">(pending.length > 0 ? "review" : "comment");
-  const [event, setEvent] = useState<PullRequestReviewEvent>("comment");
+  const events = EVENTS.filter((entry) => offered.includes(entry.value));
+  const [mode, setMode] = useState<"comment" | "review">(pending.length > 0 && events.length > 0 ? "review" : "comment");
+  const [event, setEvent] = useState<PullRequestReviewEvent>(events[0]?.value ?? "comment");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const events = service === "gitlab" ? EVENTS.filter((entry) => entry.value !== "request-changes") : EVENTS;
   const noun = providerInfo(service).noun;
   const ready = mode === "comment" ? Boolean(text.trim()) : event === "approve" || Boolean(text.trim()) || pending.length > 0;
   const submit = async () => {
@@ -47,9 +50,11 @@ export function ReviewComposer({ service, pending, onRemovePending, onComment, o
     <div className="pr-composer" role="dialog" aria-label={mode === "comment" ? `Comment on the ${noun}` : `Review the ${noun}`}>
       <div className="toggle-group" role="tablist" aria-label="Comment or review">
         <button role="tab" aria-selected={mode === "comment"} className={mode === "comment" ? "active" : ""} onClick={() => setMode("comment")}>Comment</button>
-        <button role="tab" aria-selected={mode === "review"} className={mode === "review" ? "active" : ""} onClick={() => setMode("review")}>
-          Review{pending.length > 0 ? ` · ${pending.length}` : ""}
-        </button>
+        {events.length > 0 ? (
+          <button role="tab" aria-selected={mode === "review"} className={mode === "review" ? "active" : ""} onClick={() => setMode("review")}>
+            Review{pending.length > 0 ? ` · ${pending.length}` : ""}
+          </button>
+        ) : null}
       </div>
       <textarea
         autoFocus

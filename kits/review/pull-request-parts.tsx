@@ -120,7 +120,8 @@ export function ReplyBox({ label, placeholder, submitLabel, onSubmit, onCancel, 
   label: string;
   placeholder: string;
   submitLabel: string;
-  onSubmit(text: string): Promise<void>;
+  /** Absent where the host takes no such comment; `extra` still hands the text elsewhere. */
+  onSubmit?(text: string): Promise<void>;
   onCancel(): void;
   extra?: (text: string) => ReactNode;
   autoFocus?: boolean;
@@ -129,7 +130,7 @@ export function ReplyBox({ label, placeholder, submitLabel, onSubmit, onCancel, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const submit = async () => {
-    if (!text.trim() || busy) return;
+    if (!onSubmit || !text.trim() || busy) return;
     setBusy(true);
     setError(undefined);
     try {
@@ -157,10 +158,10 @@ export function ReplyBox({ label, placeholder, submitLabel, onSubmit, onCancel, 
       />
       {error ? <p className="pr-error" role="alert">{error}</p> : null}
       <footer>
-        <span>⌘↵ to send</span>
+        {onSubmit ? <span>⌘↵ to send</span> : null}
         {extra?.(text)}
         <button className="text-button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button className="mini-button" disabled={busy || !text.trim()} onClick={() => void submit()}>{busy ? "Posting…" : submitLabel}</button>
+        {onSubmit ? <button className="mini-button" disabled={busy || !text.trim()} onClick={() => void submit()}>{busy ? "Posting…" : submitLabel}</button> : null}
       </footer>
     </div>
   );
@@ -169,10 +170,11 @@ export function ReplyBox({ label, placeholder, submitLabel, onSubmit, onCancel, 
 /** A review thread on a line: its state as the toggle, its comments, a reply and a hand-over. */
 export function ThreadCard({ thread, onReply, onSend, onResolve, canEdit, onEdit }: {
   thread: PullRequestThread;
-  onReply(text: string): Promise<void>;
+  /** Absent where the host takes no replies. */
+  onReply?: ((text: string) => Promise<void>) | undefined;
   onSend(): void;
-  /** Marks the conversation resolved, or opens it again. */
-  onResolve?(resolved: boolean): Promise<void>;
+  /** Marks the conversation resolved, or opens it again; absent where the host cannot. */
+  onResolve?: ((resolved: boolean) => Promise<void>) | undefined;
   canEdit?(comment: PullRequestComment): boolean;
   onEdit?(comment: PullRequestComment, body: string): Promise<void>;
 }) {
@@ -214,7 +216,7 @@ export function ThreadCard({ thread, onReply, onSend, onResolve, canEdit, onEdit
               : comment.body.trim() ? <div className="pr-comment-body"><Markdown>{comment.body}</Markdown></div> : null}
           </div>
         ))}
-        {replying
+        {!onReply ? null : replying
           ? <ReplyBox label="Reply to this conversation" placeholder="Reply" submitLabel="Reply" onSubmit={async (text) => { await onReply(text); setReplying(false); }} onCancel={() => setReplying(false)} />
           : <button className="text-button pr-reply-open" onClick={() => setReplying(true)}>Reply</button>}
       </> : null}
