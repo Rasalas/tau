@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, Notification, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, session, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,8 @@ import { resolveHostTls } from "./host-tls.js";
 import { parseListen } from "./host-listen.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { createWindowAttention, OVERLAY_BADGE_SIZE, overlayBadgeBitmap } from "./window-attention.js";
+import { showWindowContextMenu } from "./window-context-menu.js";
+import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, readUpdateFeed, type AppUpdates } from "./app-updates.js";
@@ -233,6 +235,15 @@ const windowAttention = createWindowAttention({
   } : {}),
   log: (label, detail) => hostLog.info(label, { ...detail as object, ...(app.dock ? { dock: app.dock.getBadge() } : {}) }),
 });
+/** Right-click menus the page asks for; the coordinates arrive in CSS pixels of the page. */
+const windowContextMenu = (entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined> => showWindowContextMenu({
+  platform: process.platform,
+  popup: (template, at, closed) => {
+    if (!mainWindow || mainWindow.isDestroyed()) { closed(); return; }
+    const zoom = mainWindow.webContents.getZoomFactor();
+    Menu.buildFromTemplate(template).popup({ window: mainWindow, x: Math.round(at.x * zoom), y: Math.round(at.y * zoom), callback: closed });
+  },
+}, entries, point);
 /** Workspace files the page loads by URL; only a host on this machine has files here to serve. */
 const sharedFiles = new SharedFileStore(() => remoteHostUrl ? undefined : windowHost?.activeWorkspace || host?.activeWorkspacePath());
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
@@ -530,6 +541,7 @@ function createLocalHostMethods(): HostMethodTable {
       installUpdate: () => updates?.install() ?? false,
       notify: windowAttention.notify,
       setBadge: windowAttention.setBadge,
+      showContextMenu: windowContextMenu,
     },
   });
 }
@@ -566,6 +578,7 @@ function createWindowPlatform(): ClientHostPlatform {
     installUpdate: () => updates?.install() ?? false,
     notify: windowAttention.notify,
     setBadge: windowAttention.setBadge,
+    showContextMenu: windowContextMenu,
   };
 }
 

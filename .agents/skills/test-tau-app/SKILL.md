@@ -65,8 +65,10 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 - `snapshot` — a compact text outline of the workbench: headings, buttons with aria-labels, thread rows (marking the active one), toasts, composer state (`value`, `streaming`, `sendDisabled`, `sendBusy`), and active dock panels. Run this first on any turn, before clicking anything blind.
 - `eval <expr>` — runs an async JS expression in the renderer. In scope: `all(sel)`, `byText(sel, /re/)`, `rect(el)`, `setValue(el, v)`, `sleep(ms)`, `toasts()`.
 - `click <expr>` — resolves `expr` to an element and dispatches real `mouseMoved`/`mousePressed`/`mouseReleased` events at its center. A plain `el.click()` is ignored by React-controlled rows in the sidebar; this is why `click` exists instead of `eval`-ing `.click()`.
+- `hover <expr>` — moves the mouse onto the element's center without pressing, so a tooltip opens after its delay.
+- `rightclick <expr>` — a right-click at the element's center. Where the page asks for the OS's menu, that menu is a native window CDP cannot drive; capture it with `screencapture -l <id>` of a window your instance's PID owns and stop the instance to close it.
 - `type <expr> <text>` — sets a textarea's value through its native setter and fires `input`, the way React's controlled composer expects.
-- `press <key>` — dispatches a real key event: `Enter`, `Escape`, `Tab`, `Backspace`, an arrow, or any single character. Also takes a chord — `mod+shift+d`, `mod+k`, `ctrl+enter` — with the same spelling as the workbench's own keybindings; `mod` resolves to the platform's primary modifier (⌘ on macOS, Ctrl elsewhere). Use this to fire a keybinding instead of clicking.
+- `press <key>` — dispatches a real key event: `Enter`, `Escape`, `Tab`, `Backspace`, an arrow, `Home`, `End`, `F6`, or any single character. Also takes a chord — `mod+shift+d`, `mod+k`, `ctrl+enter` — with the same spelling as the workbench's own keybindings; `mod` resolves to the platform's primary modifier (⌘ on macOS, Ctrl elsewhere). Use this to fire a keybinding instead of clicking.
 - `wait-for <expr> [timeoutMs]` — polls `expr` until truthy (default 15 s timeout).
 - `screenshot <file.png>` — writes a PNG via `Page.captureScreenshot`.
 - `toasts` — the current toast list as JSON.

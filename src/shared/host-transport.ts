@@ -17,8 +17,8 @@ export const HOST_PUSH_BUFFER_BYTES = 8 * 1024 * 1024;
 
 /**
  * Methods the machine a client runs on answers for itself: its clipboard, the
- * files it can preview or hand the page by URL, the workbench build it started from, the notifications
- * and the icon badge its OS draws. A host in another
+ * files it can preview or hand the page by URL, the workbench build it started from, the notifications,
+ * the icon badge and the context menus its OS draws. A host in another
  * process — or on another machine — has none of that, so a client that speaks
  * to one routes these to its own transport instead (ADR 0021).
  */
@@ -34,6 +34,7 @@ export const CLIENT_SIDE_METHODS = [
   "install-update",
   "notify",
   "set-badge",
+  "context-menu",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>

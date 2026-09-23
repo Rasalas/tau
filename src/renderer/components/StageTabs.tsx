@@ -5,6 +5,7 @@ import type { ExtensionRegistry } from "../extension-system";
 import { useThreadShell } from "../use-thread-shell";
 import { FileKindIcon } from "./FileKindIcon";
 import { Menu, type MenuItem } from "./Menu";
+import { tooltipProps } from "./ui/Tooltip";
 
 function fileName(path: string): string {
   return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
@@ -37,7 +38,7 @@ function StageTabButton({ chrome, title, label, icon, marker }: {
     role="tab"
     tabIndex={0}
     aria-selected={chrome.active}
-    title={title}
+    {...tooltipProps(title, { side: "bottom" })}
     className={`stage-tab ${chrome.active ? "active" : ""} ${chrome.preview ? "preview" : ""}`}
     onClick={chrome.activate}
     onDoubleClick={chrome.pin}
@@ -144,7 +145,7 @@ export function StageTabs({
           title={tab.title}
           label={tab.title}
           icon={<Icon size={13} />}
-          marker={tab.dirty ? <em title="Unsaved work">●</em> : null}
+          marker={tab.dirty ? <em {...tooltipProps("Unsaved work")}>●</em> : null}
         />;
       }
       const name = fileName(tab.path);

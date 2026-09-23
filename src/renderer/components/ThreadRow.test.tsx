@@ -141,7 +141,7 @@ describe("ThreadRow cost", () => {
 
     const cost = container.querySelector(".thread-meta-line .thread-cost-meta");
     expect(cost?.textContent).toBe("$0.42");
-    expect(cost?.getAttribute("title")).toBe("12.3k in · 2.1k out · 8.0k cache read · 3 turns");
+    expect(cost?.getAttribute("data-tooltip")).toBe("12.3k in · 2.1k out · 8.0k cache read · 3 turns");
   });
 
   it("leaves the row alone when costs are hidden or unknown", () => {

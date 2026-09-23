@@ -188,7 +188,8 @@ describe("Workspace Kit in the workbench", () => {
 
     fireEvent.contextMenu(screen.getByText("Thread gamma"));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Pin Thread gamma" }));
-    expect(runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }), "pin", expect.anything());
+    // The page's own menu stands in for the OS's, which the fake host refuses; the choice arrives with the promise.
+    await waitFor(() => expect(runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }), "pin", expect.anything()));
 
     fireEvent.click(screen.getByRole("button", { name: "Settle Thread gamma" }));
     expect(toggleSettled).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }));
@@ -580,7 +581,8 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.change(composer, { target: { value: "newer draft" } });
     rejectNewSession(new Error("prompt rejected"));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("prompt rejected"));
-    expect(screen.getByText("Error: prompt rejected")).toBeTruthy();
+    // The notice is a toast now, drawn once the stack's chunk has loaded.
+    expect(await screen.findByText("Error: prompt rejected")).toBeTruthy();
     expect(composer.value).toBe("submitted text\n\nnewer draft");
     expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
 

@@ -9,7 +9,7 @@ import { useThreadTree } from "./use-thread-tree";
 import { readBootstrapCache } from "../workbench/bootstrap-cache";
 import { type ComposerAttachmentHandle, type ComposerControlHandle } from "./components/Composer";
 import { visibleUserMessageText } from "./components/MessageText";
-import { UpdateToast } from "./components/UpdateToast";
+import { useWorkbenchToasts } from "./use-workbench-toasts";
 import { createDraftKey } from "../workbench/composer-scope-store";
 import { hasActivityTools } from "./conversation-activities";
 import { draftKey, writeNewThreadDraft } from "../workbench/draft-store";
@@ -127,7 +127,6 @@ export default function App() {
   const turnHasActivity = useSyncExternalStore(viewStore.subscribeToTools, () => hasActivityTools(viewStore));
   const uiPrompts = useSyncExternalStore(viewStore.subscribeToPrompts, viewStore.getUiPrompts);
   const optimisticMessages = useSyncExternalStore(viewStore.subscribeToOptimistic, viewStore.getOptimisticMessages);
-  const notice = useSyncExternalStore(viewStore.subscribeToNotice, viewStore.getNotice);
   const events = useSyncExternalStore(viewStore.subscribeToEvents, viewStore.getEvents);
   const setNotice = viewStore.setNotice;
   const addEvent = viewStore.addEvent;
@@ -391,11 +390,10 @@ export default function App() {
   }, [snapshot?.sessionId]);
 
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(undefined), 5000);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
+  useWorkbenchToasts({
+    view: viewStore, toasts: workbenchSession.toasts, updateReady,
+    onRestart: () => { void client?.installUpdate(); }, onUpdateDismissed: () => setUpdateReady(undefined),
+  });
 
   const openPanel = useCallback((id: string) => {
     setActivePanel(id);
@@ -432,7 +430,7 @@ export default function App() {
     [newThreadController, threadCommands, viewStore],
   );
   const actions = useWorkbenchActions({
-    client, platform, threadStore, viewStore, composerScopeStore, threadCommands,
+    client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
     composerRef, transcriptRef, openPanel, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
     switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
@@ -536,11 +534,11 @@ export default function App() {
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
     commands, projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
-    notice: notice?.message, noticeLevel: notice?.level ?? "info", setNotice, activeOverlayId, closeOverlay,
+    setNotice, activeOverlayId, closeOverlay,
   }), [
     activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
-    documentSource, documentState, dockOpen, dockWidth, setDockOpen, setDockWidth, newThreadOpen, notice,
+    documentSource, documentState, dockOpen, dockWidth, setDockOpen, setDockWidth, newThreadOpen,
     openNewThreadPicker, openPanel, openedPanelIds,
     threadCommands, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage,
@@ -577,17 +575,12 @@ export default function App() {
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({
-    view: viewStore, actions, context: contextValue, shellContext: shellContextValue,
+    view: viewStore, toasts: workbenchSession.toasts, actions, context: contextValue, shellContext: shellContextValue,
     observatoryContext: observatoryContextValue, layout, thread, composer,
   }), [actions, composer, contextValue, layout, observatoryContextValue, shellContextValue, thread, viewStore]);
 
   return <PlatformProvider platform={platform}>
     <Workbench model={workbenchModel} />
-    {updateReady ? <UpdateToast
-      version={updateReady}
-      onRestart={() => { void client?.installUpdate(); }}
-      onDismiss={() => setUpdateReady(undefined)}
-    /> : null}
     {reloadUi}
   </PlatformProvider>;
 }

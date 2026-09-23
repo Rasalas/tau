@@ -1,6 +1,6 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Download, GitCommitHorizontal, TerminalSquare, Upload } from "lucide-react";
-import { Menu, useHostCapabilities, usePreferences, type RegionProps } from "tau";
+import { Menu, tooltipProps, useHostCapabilities, usePreferences, type RegionProps } from "tau";
 import { EditorIcon } from "./EditorIcon.js";
 import { ProjectActionsControl } from "./project-actions.js";
 import { resolveGitQuickAction, type GitQuickActionKind } from "./actions.js";
@@ -33,6 +33,8 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
     if (kind === "push") void workspaceStore.push();
   };
   void actions;
+  const mac = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
+  const terminalTip = tooltipProps(activeTerminal ? `Open in ${activeTerminal.name}` : "No supported terminal found", { side: "bottom", ...(activeTerminal ? { shortcut: mac ? "⌘J" : "Ctrl+J" } : {}) });
 
   return (
     <>
@@ -43,7 +45,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
           <button
             className="chrome-button split-main"
             disabled={!activeEditor}
-            title={activeEditor ? `Open in ${activeEditor.name} (${typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform) ? "⌘O" : "Ctrl+O"})` : "No supported editor found on PATH"}
+            {...tooltipProps(activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH", { side: "bottom", ...(activeEditor ? { shortcut: mac ? "⌘O" : "Ctrl+O" } : {}) })}
             onClick={() => activeEditor && void workspaceStore.openInEditor(undefined, activeEditor.id)}
           >
             <EditorIcon editorId={activeEditor?.id} className="editor-icon" />
@@ -82,7 +84,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
                 className="chrome-button split-main"
                 disabled={!activeTerminal}
                 aria-label="Open in terminal"
-                title={activeTerminal ? `Open in ${activeTerminal.name} (${typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform) ? "⌘J" : "Ctrl+J"})` : "No supported terminal found"}
+                {...terminalTip}
                 onClick={() => void workspaceStore.openTerminal()}
               >
                 <TerminalSquare size={13} />
@@ -100,7 +102,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
               className="chrome-button"
               disabled={!activeTerminal}
               aria-label="Open in terminal"
-              title={activeTerminal ? `Open in ${activeTerminal.name} (${typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform) ? "⌘J" : "Ctrl+J"})` : "No supported terminal found"}
+              {...terminalTip}
               onClick={() => void workspaceStore.openTerminal()}
             >
               <TerminalSquare size={13} />
@@ -128,7 +130,7 @@ export function WorkspaceTitleActions({ actions }: RegionProps) {
           <button
             className="chrome-button accent split-main"
             disabled={gitAction.disabled}
-            title={gitAction.hint}
+            {...tooltipProps(gitAction.hint, { side: "bottom" })}
             onClick={() => runGitAction(gitAction.kind)}
           >
             {gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />}

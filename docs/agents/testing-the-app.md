@@ -69,11 +69,13 @@ This is about not restarting between passes of the same task, not about leaving 
 | `snapshot` | A compact text outline: headings, buttons with aria-labels, thread rows (marking the active one), toasts, composer state, active dock panels. |
 | `eval <expr>` | Runs an async JS expression in the renderer with `all`, `byText`, `rect`, `setValue`, `sleep`, `toasts` in scope. |
 | `click <expr>` | Resolves `expr` to an element and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
+| `hover <expr>` | Moves the mouse onto the element's center and nowhere else, so a tooltip opens after its delay. |
+| `rightclick <expr>` | A right-click at the element's center. Where the page asks for the OS's menu (`useContextMenu`), that menu is a native window CDP cannot reach: read it with `screencapture -l <id>` of a window your instance's PID owns, and `stop` closes it with the instance. |
 | `type <expr> <text>` | Sets a textarea's value through its native setter and fires `input`. |
-| `press <key>` | Dispatches a real key event (`Enter`, `Escape`, `Tab`, an arrow, or any single character), or a chord (`mod+shift+d`, `mod+k`, `ctrl+enter`) using the same spelling as the workbench's own keybindings — `mod` resolves to the platform's primary modifier (⌘ on macOS, Ctrl elsewhere). |
+| `press <key>` | Dispatches a real key event (`Enter`, `Escape`, `Tab`, an arrow, `Home`, `End`, `F6`, or any single character), or a chord (`mod+shift+d`, `mod+k`, `ctrl+enter`) using the same spelling as the workbench's own keybindings — `mod` resolves to the platform's primary modifier (⌘ on macOS, Ctrl elsewhere). |
 | `wait-for <expr> [timeoutMs]` | Polls `expr` until truthy (15 s default). |
 | `screenshot <file.png>` | Writes a PNG via `Page.captureScreenshot`. |
-| `toasts` | The current toast list as JSON. |
+| `toasts` | The toast stack as JSON: each toast's `level` (its type) and text. |
 | `pid` | The instance's own Electron PID, found by checking the port's devtools endpoint and cross-referencing `ps`, so a caller kills only its own instance. |
 | `stop` | Stops the instance: SIGTERM, then SIGKILL if it is still alive after ~2s. Electron's main process installs no SIGTERM handler of its own and does not reliably quit from one alone; prefer this over a bare `kill <pid>`. |
 

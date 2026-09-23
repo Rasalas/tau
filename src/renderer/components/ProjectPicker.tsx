@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Trash2 } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
 import { VirtualList } from "./VirtualList";
+import { useFocusReturn } from "./ui/focus";
 
 interface ProjectPickerProps {
   open: boolean;
@@ -38,6 +39,8 @@ export function ProjectPicker({
   const [selected, setSelected] = useState(0);
   const [contextMenu, setContextMenu] = useState<{ project: UiProject; x: number; y: number }>();
   const inputRef = useRef<HTMLInputElement>(null);
+  const surfaceRef = useRef<HTMLElement>(null);
+  useFocusReturn(open, surfaceRef);
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return projects;
@@ -87,7 +90,7 @@ export function ProjectPicker({
   return (
     <>
       <button className="project-picker-scrim" aria-label="Close project picker" onClick={onClose} />
-      <section className="project-picker" role="dialog" aria-modal="true" aria-label="Search projects">
+      <section ref={surfaceRef} className="project-picker" role="dialog" aria-modal="true" aria-label="Search projects">
         <header>
           <span className="project-picker-search-glyph"><Search size={15} /></span>
           <input

@@ -89,7 +89,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",
   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
-  "./window-attention.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",
+  "./window-attention.js",   "./window-context-menu.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

@@ -466,6 +466,22 @@ In the isolated real app (all kits, GPT-5.6 Luna running `for i in $(seq 1 60); 
 
 `App.render-count.test.tsx` is the regression guard: a tool-output flush must not render `App`, the workbench chrome or the composer, and a kit reading `useWorkbench().tools` must still see every flush. Consumers of `useWorkbench()` still re-render per flush, since `tools` is part of that public context value.
 
+### UI primitives in core
+
+Tau's menus, tooltips, toasts, dialogs, popovers and loading states (ticket D05, 2026-09-23) are its own code rather than `@base-ui/react`, which T3 Code uses. Bundled with esbuild, minified and with React external, Base UI 1.8.0 costs 151,040 bytes (52,145 gzip) for Menu alone, 97,829 (34,282) for Tooltip, 72,377 (26,345) for Toast, 68,247 (23,464) for Dialog and 209,750 (68,632) for Menu, ContextMenu, Popover, Tooltip, Dialog and Toast together. Lazy loading moves bytes out of the initial script but not out of the total, and the total gzip budget had 17,056 bytes left, so even Dialog alone would have used more than it. `@floating-ui/dom` for positioning alone is 16,628 (6,720 gzip); `placeFloating` in `src/renderer/components/ui/floating.ts` is under 1 KB. Tau's primitives together bundle to 20,111 bytes (7,416 gzip) under the same measurement, before subtracting the menu and the two toasts they replace.
+
+The desktop build before and after, from `reports/build-report.json`:
+
+| | base `fcf4b9e` | current | budget |
+| --- | ---: | ---: | ---: |
+| initial JavaScript | 754,611 (231,658 gzip) | 771,074 (237,013 gzip) | 800,000 (275,000) |
+| initial CSS | 137,441 (24,706 gzip) | 137,839 (24,756 gzip) | 140,000 (30,000) |
+| total JavaScript | 1,608,860 (482,944 gzip) | 1,629,891 (490,556 gzip) | 1,900,000 (500,000) |
+
+The browser client went from 756,114 to 772,561 bytes of initial JavaScript (232,815 to 238,083 gzip) and from 478,074 to 485,541 bytes of total JavaScript gzip. The initial stylesheet had 2,559 bytes left, and the primitives' rules alone would have taken it over: the toast stack therefore loads with its own chunk and stylesheet (`src/renderer/components/ui/toasts.css`, 2,010 bytes) when the first toast is shown, which leaves 2,161 bytes of initial CSS.
+
+Tooltips cost no component per element: one `TooltipLayer` follows `pointerover` and `focusin` on the document and reads `data-tooltip`, so a rail of a thousand rows adds attributes, not listeners. The renderer benchmark, base and current built side by side and run on the development machine under a load average of 15 to 19, showed no change beyond noise: `app-tool-output-stream` (the whole workbench, which now mounts the three layers) measured a mount median of 30.8 ms on the base and 45.7 ms on the current side in the full runs, and 32.8/29.1 ms against 29.9/30.0 ms in two interleaved reruns of that scenario alone. `long-user-message` and `diff-2mb` fail their budgets on the base as well under that load.
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension

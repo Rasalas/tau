@@ -217,14 +217,16 @@ host somebody else runs;
 `TAU_HOST_INPROCESS=1` restores the old in-process host for one release.
 
 The method table has two halves. `CLIENT_SIDE_METHODS`
-(`src/shared/host-transport.ts`) are the ten the client's own machine
-answers — `copy-text`, `copy-image`, `read-image-preview`,
+(`src/shared/host-transport.ts`) are the ones the client's own machine
+answers — `copy-text`, `copy-image`, `read-image-preview`, `share-file`,
 `desktop-extensions`, `rebuild-workbench`, `workbench-source`,
-`relaunch-workbench`, `install-update`, and `notify` and `set-badge`, the
-notification and the app icon's count the OS draws for the window — and they
+`relaunch-workbench`, `install-update`, `notify` and `set-badge`, the
+notification and the app icon's count the OS draws for the window, and
+`context-menu`, a right-click menu the OS draws at a point of the page
+(`Menu.popup`; the answer is `{ id }` of the chosen item, or `{}`) — and they
 travel over the window's Electron bridge (`createClientHostMethods`), which
 stays installed beside the socket. Everything else goes to the host, whose
-own table refuses the ten.
+own table refuses them.
 `createHostClient(connection, local)` in the renderer does the routing; a
 window without a local side (the browser client) has one connection and sends
 everything to the host. `copy-thread-markdown` answers with the text rather

@@ -50,6 +50,8 @@ export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
     importModule: (url) => import(/* @vite-ignore */ url),
     // The window's own process draws both: the page itself holds no permission to.
     ...(ports.client ? { attention: electronAttention(ports.client) } : {}),
+    // Drawn by the window's process: `Menu.popup`.
+    ...(client ? { contextMenu: { show: (entries, point) => client.showContextMenu(entries, point) } } : {}),
   };
 }
 
