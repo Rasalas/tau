@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StageTab, StageTabHandle, UiEditor, UiFileContent, UiFileWriteResult, WorkbenchActions } from "tau";
 import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { useAppKeybindings } from "../../src/renderer/test-support/kit-harness.js";
 import filesExtension from "./desktop.js";
 import type { WorkspaceStoreLike } from "./kit.js";
 import { FILE_EDITOR_TAB, FILES_KIT_ID, WORKSPACE_STORE_SERVICE } from "./protocol.js";
@@ -86,8 +87,9 @@ function setup(files: Record<string, string>, actionsPatch: Partial<WorkbenchAct
 
 describe("Files Kit", () => {
   it("edits a file, marks the tab dirty and saves on mod+s before the stash binding hears it", async () => {
-    const { host, kind, actions, store } = setup({ "notes.md": "# Notes\n" });
     const tab = handle();
+    const shown: StageTab = { kind: "extension", id: tab.id, tabKind: FILE_EDITOR_TAB, params: { path: "notes.md" } } as StageTab;
+    const { host, kind, actions, store, registry } = setup({ "notes.md": "# Notes\n" }, { activeStageTab: () => shown });
     render(<>{kind.render({ path: "notes.md" }, tab, actions)}</>);
     const field = await screen.findByLabelText("Contents of notes.md") as HTMLTextAreaElement;
     expect(field.value).toBe("# Notes\n");
@@ -96,12 +98,16 @@ describe("Files Kit", () => {
     expect(tab.dirty.at(-1)).toBe(true);
     expect(screen.getByText("Unsaved")).toBeTruthy();
 
-    const windowSaw = vi.fn();
-    window.addEventListener("keydown", windowSaw);
+    // Prompt Tools' stash on the same chord, as it is bound in the app.
+    const stash = vi.fn();
+    registry.activate({ id: "test.stash", name: "Stash stand-in", activate: (context) => {
+      context.registerCommand({ id: "stash", label: "Stash", group: "Test", run: stash });
+      context.registerKeybinding({ keys: "mod+s", commandId: "stash", when: "!terminalFocus" });
+    } });
+    renderHook(() => useAppKeybindings(registry, actions, vi.fn()));
+    field.focus();
     fireEvent.keyDown(field, { key: "s", ctrlKey: !/mac/iu.test(navigator.platform), metaKey: /mac/iu.test(navigator.platform) });
-    window.removeEventListener("keydown", windowSaw);
-    // The editor claimed the chord, so the window's keybinding dispatcher leaves it alone.
-    expect(windowSaw.mock.calls.every(([event]) => (event as KeyboardEvent).defaultPrevented || (event as KeyboardEvent).key !== "s")).toBe(true);
+    expect(stash).not.toHaveBeenCalled();
 
     await waitFor(() => expect(host.writes).toEqual([{ relPath: "notes.md", text: "# Notes\nmore\n", expectedMtimeMs: 1_000 }]));
     await waitFor(() => expect(tab.dirty.at(-1)).toBe(false));

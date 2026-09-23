@@ -25,7 +25,7 @@ function insertText(field: HTMLTextAreaElement, text: string): void {
  * the same place. Big files stay plain text. CodeMirror 6 would not fit the
  * workbench's bundle budget; this costs nothing core does not already load.
  */
-export function CodeEditor({ text, language, label, readOnly, line, reveal, onChange, onSave, onCaretLine }: {
+export function CodeEditor({ text, language, label, readOnly, line, reveal, onChange, onCaretLine }: {
   text: string;
   language?: string;
   /** What a screen reader calls the field. */
@@ -35,7 +35,6 @@ export function CodeEditor({ text, language, label, readOnly, line, reveal, onCh
   line?: number;
   reveal?: number;
   onChange(text: string): void;
-  onSave(): void;
   onCaretLine?(line: number): void;
 }) {
   const field = useRef<HTMLTextAreaElement>(null);
@@ -89,7 +88,6 @@ export function CodeEditor({ text, language, label, readOnly, line, reveal, onCh
     if (outcome === "native") { event.stopPropagation(); return; }
     event.preventDefault();
     event.stopPropagation();
-    if (outcome === "save") { onSave(); return; }
     if (outcome === "swallow") return;
     const value = target.value;
     const unit = indentUnit(value);

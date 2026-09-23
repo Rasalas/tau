@@ -2,7 +2,7 @@ import { FilePen } from "lucide-react";
 import { errorMessage, type DesktopExtension, type StageTabHandle, type WorkbenchActions } from "tau";
 import type { FileDocument } from "./document.js";
 import { DocumentRegistry } from "./documents.js";
-import { fileEditorParams, fileName, FileEditorTab, MediaTab } from "./editor-tab.js";
+import { fileEditorParams, fileName, FileEditorTab, MediaTab, saveDocument } from "./editor-tab.js";
 import { fileViewKind } from "./file-kind.js";
 import { AUTOSAVE_OPTION, autosaveDelay, kit, workspaceRelative, type WorkspaceStoreLike } from "./kit.js";
 import { createFilesHost, FILE_EDITOR_TAB, FILES_KIT_ID, WORKSPACE_STORE_SERVICE, type FileEditorParams } from "./protocol.js";
@@ -93,6 +93,21 @@ export const filesExtension: DesktopExtension = {
         openFileEditor(actions, relPath, shown.line);
       },
     });
+
+    context.registerCommand({
+      id: "files.save",
+      label: "Save file",
+      group: "Project",
+      run: async (actions) => {
+        const shown = actions.activeStageTab?.();
+        const path = shown?.kind === "extension" && shown.tabKind === FILE_EDITOR_TAB ? fileEditorParams(shown.params).path : undefined;
+        const document = path ? documents.get(path) : undefined;
+        if (!path || !document) { actions.notify("Open a file in the editor first."); return; }
+        await saveDocument(document, fileName(path), actions);
+      },
+    });
+    // As in T3 Code, in the editor only: everywhere else `mod+s` stashes the draft.
+    context.registerKeybinding({ keys: "mod+s", commandId: "files.save", when: "editorFocus" });
 
     context.registerCommand({
       id: "files.save-all",

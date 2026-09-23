@@ -1,11 +1,10 @@
 import { Code2, Eye, Save, Table2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { errorMessage, getClientStorage, Markdown, type StageTabHandle, type UiSharedFile, type WorkbenchActions } from "tau";
 import { CodeEditor } from "./code-editor.js";
 import { parseDelimited } from "./delimited.js";
 import type { FileDocument } from "./document.js";
 import { fileViewKind, RENDERED_BY_DEFAULT, renderedMode, renderedToggleLabel, tableDelimiter, type RenderedMode } from "./file-kind.js";
-import { editorKeyOutcome } from "./keys.js";
 import { kit, type WorkspaceStoreLike } from "./kit.js";
 import { OpenInPicker } from "./open-in.js";
 import type { FileEditorParams } from "./protocol.js";
@@ -153,6 +152,16 @@ function statusText(state: ReturnType<FileDocument["getState"]>): string | undef
   return undefined;
 }
 
+/** Saves one document the way the tab's button does, saying why when it cannot. */
+export async function saveDocument(document: FileDocument, name: string, actions: Pick<WorkbenchActions, "notify">): Promise<void> {
+  const current = document.getState();
+  if (current.conflict) { actions.notify(`${name} changed on disk. Reload it or keep your version first.`); return; }
+  if (!current.editable) return;
+  const saved = await document.save();
+  if (saved) void kit.current?.workspace?.refresh();
+  else if (document.getState().saveError) actions.notify(`Could not save ${name}: ${document.getState().saveError}`);
+}
+
 /**
  * One workspace text file on the stage: an editor with save, and a rendered
  * view beside the source for Markdown, HTML and tables. The buffer is the
@@ -185,22 +194,7 @@ export function FileEditorTab({ params, handle, actions, document }: {
     return () => { clearInterval(timer); window.removeEventListener("focus", tick); };
   }, [document]);
 
-  const save = useCallback(async () => {
-    const current = document.getState();
-    if (current.conflict) { actions.notify(`${name} changed on disk. Reload it or keep your version first.`); return; }
-    if (!current.editable) return;
-    const saved = await document.save();
-    if (saved) void kit.current?.workspace?.refresh();
-    else if (document.getState().saveError) actions.notify(`Could not save ${name}: ${document.getState().saveError}`);
-  }, [actions, document, name]);
-
-  // `mod+s` anywhere in the tab saves, so the stash binding never takes it from here.
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (editorKeyOutcome(event, isMac()) !== "save") return;
-    event.preventDefault();
-    event.stopPropagation();
-    void save();
-  };
+  const save = useCallback(() => saveDocument(document, name, actions), [actions, document, name]);
 
   const toggleRendered = () => {
     if (!mode) return;
@@ -238,12 +232,12 @@ export function FileEditorTab({ params, handle, actions, document }: {
       readOnly={!state.editable}
       {...(params.line ? { line: params.line } : {})}
       onChange={(text) => document.edit(text)}
-      onSave={() => void save()}
       onCaretLine={(line) => { caretLine.current = line; }}
     />;
   }
 
-  return <div ref={root} tabIndex={-1} className="files-tab" data-dirty={state.dirty || undefined} onKeyDown={onKeyDown}>
+  // `editorFocus` holds anywhere in the tab, so `files.save` (`mod+s`) wins over the stash binding here.
+  return <div ref={root} tabIndex={-1} className="files-tab" data-keybinding-context="editor" data-dirty={state.dirty || undefined}>
     <header className="stage-pane-header files-header">
       <Breadcrumbs path={params.path} />
       {meta ? <small>{meta}</small> : null}

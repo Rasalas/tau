@@ -4,9 +4,9 @@ import { editorKeyOutcome, indentUnit, lineIndent, shiftLines, type KeyLike } fr
 const key = (value: string, modifiers: Partial<KeyLike> = {}): KeyLike => ({ key: value, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...modifiers });
 
 describe("editorKeyOutcome", () => {
-  it("saves on mod+s before the window's stash binding hears it", () => {
-    expect(editorKeyOutcome(key("s", { metaKey: true }), true)).toBe("save");
-    expect(editorKeyOutcome(key("s", { ctrlKey: true }), false)).toBe("save");
+  it("leaves mod+s to the window, where files.save holds it under editorFocus", () => {
+    expect(editorKeyOutcome(key("s", { metaKey: true }), true)).toBe("pass");
+    expect(editorKeyOutcome(key("s", { ctrlKey: true }), false)).toBe("pass");
     expect(editorKeyOutcome(key("S", { metaKey: true, shiftKey: true }), true)).toBe("pass");
   });
 

@@ -1,12 +1,9 @@
 /**
- * What a key in the editor does. Tau's keybindings are window-wide, with no
- * focus context yet, so the editor settles its own chords: it saves on
- * `mod+s` before Prompt Tools' stash sees it, keeps Escape from stopping the
- * agent, and keeps the text field's own editing keys from reaching a binding.
+ * What a key in the editor does: Escape does not stop the agent, and the text
+ * field's own editing keys never reach a binding. Saving is `files.save`, a
+ * keybinding under `editorFocus` that the window runs before the field.
  */
 export type EditorKeyOutcome =
-  /** Save the file; the window never sees the chord. */
-  | "save"
   | "indent"
   | "outdent"
   /** A new line indented like the one above. */
@@ -31,7 +28,6 @@ const EDITING_KEYS = new Set(["a", "c", "v", "x", "z", "y"]);
 export function editorKeyOutcome(event: KeyLike, mac: boolean, readOnly = false): EditorKeyOutcome {
   const mod = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-  if (mod && !event.altKey && !event.shiftKey && key === "s") return "save";
   // Stage tabs move with ctrl+tab even from inside the editor.
   if (event.key === "Tab" && event.ctrlKey && !event.metaKey) return "pass";
   const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
