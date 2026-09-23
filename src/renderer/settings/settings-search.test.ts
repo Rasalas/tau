@@ -10,6 +10,9 @@ const entries = settingsSearchEntries({
   keybindings: [
     { commandId: "search.files", keys: "mod+p", label: "⌘P", commandLabel: "Go to file…" },
     { commandId: "runtime.model", keys: "mod+shift+m", label: "⇧⌘M", commandLabel: "Set model…" },
+    { commandId: "runtime.new-session", keys: "mod+n", label: "⌘N", commandLabel: "Create new thread" },
+    { commandId: "terminal.new", keys: "mod+n", label: "⌘N", commandLabel: "New terminal" },
+    { commandId: "terminal.new", keys: "mod+n", label: "⌘N", commandLabel: "New terminal" },
   ],
 });
 
@@ -32,6 +35,8 @@ describe("settings search", () => {
     expect(searchSettings(entries, "go to file")).toEqual([expect.objectContaining({ page: "keybindings", filter: "search.files" })]);
     expect(ids("mod+p")).toEqual(["keybinding:mod+p"]);
     expect(ids("search.files")).toEqual(["keybinding:mod+p"]);
+    // One chord in two contexts is two results; the same binding twice is one.
+    expect(ids("mod+n")).toEqual(["keybinding:mod+n", "keybinding:mod+n:terminal.new"]);
   });
 
   it("ranks a label that starts with the query first and a keybinding after every other match", () => {

@@ -89,6 +89,10 @@ export async function expectKitActivatesCleanly(
  * the API, and its tests reach core through the two harnesses.
  */
 export { PreferencesStore } from "../preferences";
+/** Core's own chords, for tests that weigh a kit's chords against them. */
+export { runtimeControls } from "../settings/runtime-controls";
+/** The window's keydown dispatcher, for tests that press a kit's chords. */
+export { useAppKeybindings } from "../use-app-keybindings";
 export { RendererServicesProvider } from "../renderer-services-context";
 export { WorkbenchContext, WorkbenchShellContext, ObservatoryContext } from "../workbench-context";
 export { ClientStorageProvider } from "../client-storage-context";

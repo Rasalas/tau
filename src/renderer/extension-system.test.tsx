@@ -353,6 +353,90 @@ describe("ExtensionRegistry keybindings", () => {
   });
 });
 
+describe("ExtensionRegistry keybinding contexts", () => {
+  const mac = /mac/iu.test(navigator.platform);
+  const press = (key: string, init: Partial<KeyboardEventInit> = {}) => ({ key, code: "", metaKey: mac, ctrlKey: !mac, altKey: false, shiftKey: false, ...init }) as unknown as KeyboardEvent;
+  const within = (...names: string[]) => (name: string) => names.includes(name);
+  const commands = (context: Parameters<Parameters<ExtensionRegistry["activate"]>[0]["activate"]>[0], ...ids: string[]) => {
+    for (const id of ids) context.registerCommand({ id, label: id, group: "Test", run() {} });
+  };
+
+  it("gives a chord to the binding whose context holds, the specific one first", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "core", name: "Core", activate(context) {
+      commands(context, "close-tab", "new-thread");
+      context.registerKeybinding({ keys: "mod+w", commandId: "close-tab" });
+      context.registerKeybinding({ keys: "mod+n", commandId: "new-thread", when: "!terminalFocus" });
+    } });
+    registry.activate({ id: "terminal", name: "Terminal", activate(context) {
+      commands(context, "close-shell", "new-shell");
+      context.registerKeybinding({ keys: "mod+w", commandId: "close-shell", when: "terminalFocus && !stageFocus" });
+      context.registerKeybinding({ keys: "mod+n", commandId: "new-shell", when: "terminalFocus" });
+    } });
+    expect(registry.getKeybindingConflicts()).toEqual([]);
+    expect(registry.matchKeybinding(press("w"), within())?.command.id).toBe("close-tab");
+    expect(registry.matchKeybinding(press("w"), within("terminalFocus"))).toMatchObject({ command: { id: "close-shell" }, specific: true });
+    expect(registry.matchKeybinding(press("w"), within("terminalFocus", "stageFocus"))).toMatchObject({ command: { id: "close-tab" }, specific: false });
+    expect(registry.matchKeybinding(press("n"), within())?.command.id).toBe("new-thread");
+    expect(registry.matchKeybinding(press("n"), within("terminalFocus"))?.command.id).toBe("new-shell");
+    expect(registry.getKeybindings().find((binding) => binding.commandId === "new-shell")?.when).toBe("terminalFocus");
+  });
+
+  it("calls two bindings a conflict only when their clauses can hold together", () => {
+    const registry = new ExtensionRegistry();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    registry.activate({ id: "a", name: "A", activate(context) {
+      commands(context, "stash", "save", "other");
+      context.registerKeybinding({ keys: "mod+s", commandId: "stash", when: "!terminalFocus" });
+      context.registerKeybinding({ keys: "mod+s", commandId: "save", when: "editorFocus" });
+      context.registerKeybinding({ keys: "mod+s", commandId: "other", when: "!editorFocus" });
+    } });
+    expect(registry.getKeybindingConflicts()).toEqual([{ keys: "mod+s", commandId: "other", extensionId: "a", boundTo: { commandId: "stash", extensionId: "a" } }]);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(registry.matchKeybinding(press("s"), within("editorFocus"))?.command.id).toBe("save");
+    expect(registry.matchKeybinding(press("s"), within("terminalFocus"))).toBeUndefined();
+    expect(() => registry.activate({ id: "bad", name: "Bad", activate(context) {
+      context.registerKeybinding({ keys: "mod+k", commandId: "stash", when: "terminalFocus &&" });
+    } })).toThrow("when clause");
+    warn.mockRestore();
+  });
+
+  it("weighs chords as the platform presses them: mod+p is ctrl+p off macOS", () => {
+    const registry = new ExtensionRegistry();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    registry.activate({ id: "a", name: "A", activate(context) {
+      commands(context, "cycle", "files");
+      context.registerKeybinding({ keys: "ctrl+p", commandId: "cycle" });
+      context.registerKeybinding({ keys: "mod+p", commandId: "files" });
+    } });
+    expect(registry.getKeybindingConflicts(true)).toEqual([]);
+    expect(registry.getKeybindingConflicts(false).map((conflict) => conflict.commandId)).toEqual(["files"]);
+    vi.restoreAllMocks();
+  });
+
+  it("lets a replacing binding take another command's chord, and keeps the context of the default it replaces", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "kit", name: "Kit", activate(context) {
+      commands(context, "palette", "split");
+      context.registerKeybinding({ keys: "mod+k", commandId: "palette" });
+      context.registerKeybinding({ keys: "mod+d", commandId: "split", when: "terminalFocus" });
+    } });
+    registry.activate({ id: "user", name: "User", activate(context) {
+      context.registerKeybinding({ keys: "mod+k", commandId: "split", replaces: "split" });
+    } });
+    expect(registry.getKeybindingConflicts()).toEqual([]);
+    expect(registry.getKeybindings().find((binding) => binding.commandId === "split")).toMatchObject({ keys: "mod+k", when: "terminalFocus" });
+    expect(registry.matchKeybinding(press("k"), within("terminalFocus"))?.command.id).toBe("split");
+    expect(registry.matchKeybinding(press("k"), within())?.command.id).toBe("palette");
+    expect(registry.matchKeybinding(press("d"), within("terminalFocus"))).toBeUndefined();
+    registry.deactivate("user");
+    registry.activate({ id: "user", name: "User", activate(context) {
+      context.registerKeybinding({ keys: "mod+k", commandId: "split", replaces: "split", when: "true" });
+    } });
+    expect(registry.matchKeybinding(press("k"), within())?.command.id).toBe("split");
+  });
+});
+
 describe("ExtensionRegistry prompt renderers", () => {
   const prompt = (extras?: Record<string, unknown>) => ({ id: "p1", sessionId: "s1", kind: "select" as const, title: "Pick", options: ["a", "b"], extras });
 

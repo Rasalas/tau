@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord } from "./keybindings";
+import { chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord, platformChordId } from "./keybindings";
 
 const event = (init: Partial<KeyboardEvent> & { key: string }) =>
   ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...init }) as KeyboardEvent;
@@ -40,6 +40,24 @@ describe("key chords", () => {
     // Without alt in the chord the character decides, so a layout's own letters still count.
     expect(chordMatchesEvent(parseKeyChord("mod+j")!, event({ key: "∆", code: "KeyJ", metaKey: true }), true)).toBe(false);
     expect(chordMatchesEvent(parseKeyChord("alt+1")!, event({ key: "¡", code: "Digit1", altKey: true }), true)).toBe(true);
+  });
+
+  it("finds punctuation and digits by position when ⇧ or ⌥ changed the character", () => {
+    expect(chordMatchesEvent(parseKeyChord("mod+shift+]")!, event({ key: "}", code: "BracketRight", metaKey: true, shiftKey: true }), true)).toBe(true);
+    expect(chordMatchesEvent(parseKeyChord("mod+shift+[")!, event({ key: "{", code: "BracketLeft", ctrlKey: true, shiftKey: true }), false)).toBe(true);
+    expect(chordMatchesEvent(parseKeyChord("mod+alt+2")!, event({ key: "™", code: "Digit2", metaKey: true, altKey: true }), true)).toBe(true);
+  });
+
+  it("never takes a character AltGr typed off macOS", () => {
+    const altGr = { key: "²", code: "Digit2", ctrlKey: true, altKey: true, getModifierState: (key: string) => key === "AltGraph" } as Partial<KeyboardEvent> & { key: string };
+    expect(chordMatchesEvent(parseKeyChord("mod+alt+2")!, event(altGr), false)).toBe(false);
+  });
+
+  it("reads the plus key and names chords by the keys a platform presses", () => {
+    expect(parseKeyChord("mod++")).toMatchObject({ key: "+", mod: true });
+    expect(normalizeKeyChord("mod++")).toBe("mod++");
+    expect(platformChordId(parseKeyChord("mod+p")!, false)).toBe(platformChordId(parseKeyChord("ctrl+p")!, false));
+    expect(platformChordId(parseKeyChord("mod+p")!, true)).not.toBe(platformChordId(parseKeyChord("ctrl+p")!, true));
   });
 
   it("formats chords the way each platform writes them", () => {

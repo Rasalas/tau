@@ -86,7 +86,7 @@ export function Stage({
     onClose(current.id);
   };
 
-  return <section ref={focusRef} tabIndex={-1} className="stage" aria-label="Stage" onKeyDown={onKeyDown}>
+  return <section ref={focusRef} tabIndex={-1} className="stage" aria-label="Stage" data-keybinding-context="stage" onKeyDown={onKeyDown}>
     <StageTabs
       tabs={stage.tabs}
       activeId={stage.activeId}

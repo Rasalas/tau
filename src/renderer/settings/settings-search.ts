@@ -115,9 +115,16 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
       keywords: [extension.id, ...(extension.options ?? []).map((option) => option.label)],
     });
   }
+  const seen = new Set<string>();
+  const pairs = new Set<string>();
   for (const binding of sources.keybindings ?? []) {
+    // One chord may run different commands in different contexts, and one command may hold a chord twice.
+    if (pairs.has(`${binding.keys} ${binding.commandId}`)) continue;
+    pairs.add(`${binding.keys} ${binding.commandId}`);
+    const id = seen.has(`keybinding:${binding.keys}`) ? `keybinding:${binding.keys}:${binding.commandId}` : `keybinding:${binding.keys}`;
+    seen.add(id);
     entries.push({
-      id: `keybinding:${binding.keys}`,
+      id,
       page: "keybindings",
       label: binding.commandLabel ?? binding.commandId,
       section: `Keybindings · ${binding.label}`,

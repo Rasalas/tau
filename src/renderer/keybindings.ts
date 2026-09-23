@@ -40,7 +40,9 @@ const MODIFIERS: Record<string, keyof Omit<KeyChord, "key">> = {
 };
 
 export function parseKeyChord(keys: string): KeyChord | undefined {
-  const parts = keys.trim().toLowerCase().split("+").map((part) => part.trim());
+  const raw = keys.trim().toLowerCase();
+  // "mod++" binds the plus key itself.
+  const parts = (raw.endsWith("++") ? [...raw.slice(0, -2).split("+"), "+"] : raw === "+" ? ["+"] : raw.split("+")).map((part) => part.trim());
   if (parts.length === 0 || parts.some((part) => !part)) return undefined;
   const chord: KeyChord = { key: "", mod: false, ctrl: false, shift: false, alt: false, meta: false };
   for (const part of parts.slice(0, -1)) {
@@ -62,6 +64,13 @@ export function normalizeKeyChord(keys: string): string | undefined {
   return [...parts, chord.key].join("+");
 }
 
+/** The keys a chord presses on one platform: `mod+p` and `ctrl+p` are one chord off macOS. */
+export function platformChordId(chord: KeyChord, mac = isMacPlatform()): string {
+  const meta = chord.meta || (chord.mod && mac);
+  const ctrl = chord.ctrl || (chord.mod && !mac);
+  return [ctrl && "ctrl", meta && "meta", chord.alt && "alt", chord.shift && "shift", chord.key].filter(Boolean).join("+");
+}
+
 export function isModified(chord: KeyChord): boolean {
   return chord.mod || chord.ctrl || chord.alt || chord.meta;
 }
@@ -70,10 +79,27 @@ export function isMacPlatform(platform = typeof navigator === "undefined" ? "" :
   return /mac|iphone|ipad/iu.test(platform);
 }
 
+/** Punctuation and digits by position, so ⇧ or a layout that moves them still finds `mod+shift+]`. */
+const CODE_KEYS: Record<string, string> = {
+  Backquote: "`", Backslash: "\\", BracketLeft: "[", BracketRight: "]", Comma: ",", Equal: "=", Minus: "-",
+  Period: ".", Quote: "'", Semicolon: ";", Slash: "/",
+};
+
+function eventKeys(event: KeyboardEvent, chord: KeyChord): string[] {
+  const keys = [event.key.toLowerCase()];
+  const code = event.code ?? "";
+  const physical = CODE_KEYS[code] ?? /^Digit(\d)$/u.exec(code)?.[1];
+  if (physical) keys.push(physical);
+  // On macOS Option turns J into ∆, so an alt chord also matches by the physical letter.
+  const letter = /^Key([A-Z])$/u.exec(code)?.[1];
+  if (letter && chord.alt) keys.push(letter.toLowerCase());
+  return keys;
+}
+
 export function chordMatchesEvent(chord: KeyChord, event: KeyboardEvent, mac = isMacPlatform()): boolean {
-  const key = event.key.toLowerCase();
-  // On macOS Option turns J into ∆, so an alt chord also matches by the physical key.
-  if (key !== chord.key && !(chord.alt && event.code?.replace(/^Key|^Digit/u, "").toLowerCase() === chord.key)) return false;
+  // AltGr types characters on Windows and Linux; a chord never takes them.
+  if (!mac && event.getModifierState?.("AltGraph") && !/^[a-z0-9]$/iu.test(event.key)) return false;
+  if (!eventKeys(event, chord).includes(chord.key)) return false;
   const wantsMeta = chord.meta || (chord.mod && mac);
   const wantsCtrl = chord.ctrl || (chord.mod && !mac);
   return event.metaKey === wantsMeta && event.ctrlKey === wantsCtrl && event.altKey === chord.alt && event.shiftKey === chord.shift;

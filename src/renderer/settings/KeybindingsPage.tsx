@@ -24,13 +24,14 @@ export function KeybindingsPage({ registry, initialFilter = "" }: { registry: Ex
   const unimplemented = keybindings.filter((binding) => !commands.some((command) => command.id === binding.commandId));
 
   const matches = (...texts: Array<string | undefined>) => !query || texts.some((text) => text?.toLowerCase().includes(query));
-  const filteredBindings = implemented.filter((b) => matches(commands.find((c) => c.id === b.commandId)?.label, b.commandId, b.keys, b.label, b.extensionName));
+  const filteredBindings = implemented.filter((b) => matches(commands.find((c) => c.id === b.commandId)?.label, b.commandId, b.keys, b.label, b.extensionName, b.when));
+  const rowKey = (b: (typeof keybindings)[number]) => `${b.keys}|${b.when ?? ""}|${b.commandId}`;
   const filteredUnimplemented = unimplemented.filter((b) => matches(b.commandId, b.keys, b.extensionName));
   const filteredCommands = commands.filter((c) => matches(c.label, c.id, c.group));
 
   return (
     <div className="settings-page">
-      <p className="lede">Chords bound to workbench commands and Pi actions. Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>; run <code>/reload</code> after editing it.</p>
+      <p className="lede">Chords bound to workbench commands and Pi actions. Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>, as a chord or as <code>{"{"} "key": "mod+d", "when": "terminalFocus" {"}"}</code> to say where it applies; a rebound chord without <code>when</code> keeps the default&rsquo;s.</p>
 
       <label className="settings-filter">
         <Search size={14} />
@@ -48,10 +49,10 @@ export function KeybindingsPage({ registry, initialFilter = "" }: { registry: Ex
         headerAction={<button className="text-button" onClick={() => setShowAllCommands((v) => !v)}>{showAllCommands ? "Hide command ids" : "Show all command ids"}</button>}
       >
         {filteredBindings.map((binding) => (
-          <div className="keybinding-row" key={binding.keys}>
+          <div className="keybinding-row" key={rowKey(binding)}>
             <span>
               <strong>{commands.find((command) => command.id === binding.commandId)?.label ?? binding.commandId}</strong>
-              <small>{binding.commandId} · {binding.extensionName.toLowerCase()}</small>
+              <small>{binding.commandId} · {binding.extensionName.toLowerCase()}{binding.when ? <> · when <code>{binding.when}</code></> : null}</small>
             </span>
             <kbd>{binding.label}</kbd>
           </div>
@@ -67,7 +68,7 @@ export function KeybindingsPage({ registry, initialFilter = "" }: { registry: Ex
             <code>~/.pi/agent/keybindings.json</code> names these Pi actions, but Tau has no command for them, so pressing the chord does nothing.
           </p>
           {filteredUnimplemented.map((binding) => (
-            <div className="keybinding-row" key={binding.keys} data-level="unimplemented">
+            <div className="keybinding-row" key={rowKey(binding)} data-level="unimplemented">
               <span>
                 <strong>{binding.commandId}</strong>
                 <small>{binding.extensionName.toLowerCase()}</small>
@@ -96,7 +97,7 @@ export function KeybindingsPage({ registry, initialFilter = "" }: { registry: Ex
                   <small><code>{command.id}</code> ({command.group})</small>
                 </span>
                 <div className="keybinding-keys">
-                  {bound.length > 0 ? bound.map((b) => <kbd key={b.keys}>{b.label}</kbd>) : <span className="settings-row-empty">Unbound</span>}
+                  {bound.length > 0 ? [...new Set(bound.map((b) => b.label))].map((label) => <kbd key={label}>{label}</kbd>) : <span className="settings-row-empty">Unbound</span>}
                 </div>
               </div>
             );

@@ -223,13 +223,15 @@ export function ModelPicker({
       if (target) { event.preventDefault(); choose(target); }
       return;
     }
-    if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && (!needle || event.altKey)) {
+    // ⌘⇧↑/↓ as in T3 Code: the provider rail, from anywhere in the picker.
+    const railStep = (event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown");
+    if (railStep || ((event.key === "ArrowLeft" || event.key === "ArrowRight") && (!needle || event.altKey))) {
       if (railKeys.length > 1) {
         event.preventDefault();
         if (needle) setQuery("");
         setTab((held) => {
           const index = held ? railKeys.indexOf(held) : 0;
-          const delta = event.key === "ArrowRight" ? 1 : -1;
+          const delta = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
           return railKeys[(index + delta + railKeys.length) % railKeys.length];
         });
       }
@@ -268,6 +270,7 @@ export function ModelPicker({
     <div className="palette-backdrop" onMouseDown={onClose}>
       <section
         className="model-picker"
+        data-keybinding-context="modelPicker"
         role="dialog"
         aria-modal="true"
         aria-label="Select model"

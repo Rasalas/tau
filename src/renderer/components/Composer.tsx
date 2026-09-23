@@ -699,7 +699,7 @@ export function Composer({
   });
 
   return (
-    <footer className="composer-zone">
+    <footer className="composer-zone" data-keybinding-context="composer">
       <div className="composer-surface" data-composer-surface="true">
       {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
       {queue.length > 0 ? (
