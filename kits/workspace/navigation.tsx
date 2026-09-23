@@ -911,7 +911,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             setSelection((current) => event.shiftKey ? selectRange(current, id, orderIds, activityState.activeThreadId) : toggleSelected(current, id));
             return;
           }
-          setSelection({ ids: new Set(), anchor: id });
+          setSelection((current) => current.ids.size === 0 && current.anchor === id ? current : { ids: new Set(), anchor: id });
         }}
         onContextMenu={openMenu}
         onDragOver={(event) => {
