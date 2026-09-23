@@ -101,6 +101,7 @@ describe("helpers for a CLI's releases", () => {
     expect(runtimeUpdateCommand("codex", "brew upgrade --cask codex", { TAU_RUNTIME_UPDATE_COMMAND: JSON.stringify({ codex: " /tmp/stub-update.sh " }) })).toBe("/tmp/stub-update.sh");
     expect(runtimeUpdateCommand("codex", "codex update", { TAU_RUNTIME_UPDATE_COMMAND: JSON.stringify({ "claude-code": "/tmp/stub.sh", codex: "" }) })).toBe("codex update");
     expect(runtimeUpdateCommand("codex", "codex update", { TAU_RUNTIME_UPDATE_COMMAND: "{broken" })).toBe("codex update");
+    expect(runtimeUpdateCommand("opencode", "opencode upgrade", { TAU_RUNTIME_UPDATE_COMMAND: JSON.stringify({ codex: "/tmp/a.sh", "*": "echo skipped" }) })).toBe("echo skipped");
   });
 
   it("names the command that installs one release, for a package manager that can pin it", () => {
