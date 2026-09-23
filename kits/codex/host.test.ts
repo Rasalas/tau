@@ -141,6 +141,24 @@ describe("Codex host half", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("reads the CLI again on recheck and registers its backend anew, so core asks the version too", async () => {
+    const options: { installed?: string } = { installed: "0.154.0" };
+    const { registry, backends, provider } = await harness(options);
+    await expect(provider.version!()).resolves.toMatchObject({ installed: "0.154.0" });
+    options.installed = "0.155.1";
+    // Read once per path until something says the CLI changed.
+    await expect(provider.version!()).resolves.toMatchObject({ installed: "0.154.0" });
+    await expect(registry.invoke("tau.codex", "recheck", { instance: "default" })).resolves.toMatchObject({ installed: "0.155.1", latest: "0.155.1" });
+    expect(backends).toHaveLength(1);
+    expect(backends[0]).not.toBe(provider);
+    await expect(registry.invoke("tau.codex", "recheck", { instance: "nope" })).rejects.toThrow("no instance");
+  });
+
+  it("names the update command TAU_RUNTIME_UPDATE_COMMAND gives, for a test instance", async () => {
+    const { provider } = await harness({ env: { CODEX_HOME: "/nonexistent", TAU_RUNTIME_UPDATE_COMMAND: JSON.stringify({ codex: "/tmp/stub-update.sh" }) } });
+    await expect(provider.version!()).resolves.toMatchObject({ updateCommand: "/tmp/stub-update.sh" });
+  });
+
   it("refuses to open a thread on a CLI older than the protocol it speaks, or on none", async () => {
     const old = await harness({ installed: "0.150.0" });
     await expect(old.provider.open("t", "/repo", { resume: false }, context)).rejects.toThrow("Codex 0.150.0 is older than 0.154.0, the oldest release Tau speaks to. Update it with: brew upgrade --cask codex");

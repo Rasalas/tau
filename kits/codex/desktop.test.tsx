@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot, WorkbenchActions } from "tau";
+import type { HostSnapshot, ToastOptions, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { CodexInstances, CodexProviderCard, codexExtension, createVersionBanner } from "./desktop.js";
+import { CodexInstances, CodexProviderCard, codexExtension, createUpdateToasts, createVersionBanner } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -144,5 +144,40 @@ describe("Codex desktop extension", () => {
     expect(screen.queryByText(/has known problems/u)).toBeNull();
     rerender(<Banner snapshot={{ ...snapshot, backendKind: "pi" } as HostSnapshot} actions={actions} />);
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("offers a new release as a toast, runs its update command in Terminal Kit's shell on Update, and asks the instance again", async () => {
+    // The newest toast per id, as the workbench's stack keeps them.
+    const toasts = new Map<string, ToastOptions>();
+    const actions = { toast: (options: ToastOptions) => { toasts.set(options.id!, options); return { id: options.id!, update: () => undefined, dismiss: () => undefined }; }, openSettings: vi.fn() } as unknown as WorkbenchActions;
+    const invoke = vi.fn(async () => ({ tool: "codex", installed: "0.156.1", latest: "0.156.1" }));
+    const run = vi.fn(async () => ({ id: "term-1", exitCode: 0 }));
+    let terminal: { run: typeof run } | undefined;
+    const Toasts = createUpdateToasts(host(invoke), () => terminal);
+    const snapshot = (kind: string, label: string) => ({
+      backendKind: "pi",
+      runtimeBackends: [
+        { kind: "pi", label: "Pi" },
+        { kind, label, version: { tool: "codex", installed: "0.155.0", latest: "0.156.1", updateCommand: "brew upgrade --cask codex" } },
+      ],
+    }) as unknown as HostSnapshot;
+    render(<Toasts snapshot={snapshot("codex@work", "Codex · Work")} actions={actions} />);
+    await waitFor(() => expect(toasts.get("runtime-update:codex@work")).toBeTruthy());
+    const offered = toasts.get("runtime-update:codex@work")!;
+    expect(offered.title).toBe("Update available: Codex · Work v0.156.1");
+    // No terminal: only the card is offered.
+    expect(offered.actions!.map((action) => action.label)).toEqual(["Settings"]);
+    offered.actions![0]!.run();
+    expect(actions.openSettings).toHaveBeenCalledWith("codex.settings.work");
+
+    cleanup();
+    terminal = { run };
+    render(<Toasts snapshot={snapshot("codex@home", "Codex · Home")} actions={actions} />);
+    await waitFor(() => expect(toasts.get("runtime-update:codex@home")?.actions?.map((action) => action.label)).toEqual(["Settings", "Update"]));
+    expect(run).not.toHaveBeenCalled();
+    toasts.get("runtime-update:codex@home")!.actions![1]!.run();
+    await waitFor(() => expect(toasts.get("runtime-update:codex@home")).toMatchObject({ type: "success", title: "Codex · Home updated: v0.156.1" }));
+    expect(run).toHaveBeenCalledWith({ command: "brew upgrade --cask codex", label: "Update Codex · Home" }, actions);
+    expect(invoke).toHaveBeenCalledWith("recheck", { instance: "home" });
   });
 });

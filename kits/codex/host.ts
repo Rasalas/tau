@@ -11,6 +11,7 @@ import {
   npmLatestVersion,
   packageInstallCommand,
   packageUpdateCommand,
+  runtimeUpdateCommand,
   runtimeVersionPolicy,
   updateAvailable,
   versionCompatibility,
@@ -162,7 +163,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const locate = (id: string): string | undefined => services.findCommand(codexCommand(id));
       const updateCommand = async (path: string | undefined): Promise<string> => {
         const real = path ? await realpath(path).catch(() => path) : undefined;
-        return (real && packageUpdateCommand(real, CODEX_NPM_PACKAGE)) ?? "codex update";
+        return runtimeUpdateCommand(CODEX_BACKEND_KIND, (real && packageUpdateCommand(real, CODEX_NPM_PACKAGE)) ?? "codex update", env);
       };
       const compatibility = async (path: string, version: string | undefined): Promise<RuntimeCompatibility | undefined> => {
         const verdict = versionCompatibility(policy, version);
@@ -415,6 +416,13 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         await settings.save({ ...rest, ...(requested ? { command: requested } : {}) });
         register(id);
         return { command: codexCommand(id) };
+      });
+      // After the user ran the update command: the CLI is read again, and core asks its version anew.
+      context.registerCommand("recheck", async (input) => {
+        const id = instanceInput(input);
+        requireInstance(id);
+        register(id);
+        return versionOf(id).catch(() => undefined);
       });
       // Each thread's running total, for the Usage kit; read from the store, never from OpenAI.
       context.registerCommand("usage", async () => ({
