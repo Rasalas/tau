@@ -14,7 +14,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, type MenuSection, type StageTabHandle, type WorkbenchActions } from "tau";
-import type { PullRequestList, PullRequestListEntry, PullRequestListState } from "./protocol.js";
+import { providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import {
   arrangeList,
@@ -222,7 +222,7 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
   );
   const facets = useMemo(() => listFacets(entries), [entries]);
   const filterCount = [preferences.draft, preferences.review, preferences.checks, author].filter(Boolean).length + labels.length;
-  const noun = list ? SERVICES_NOUN[list.service] : "pull request";
+  const noun = list ? providerInfo(list.service).noun : "pull request";
   const openRow = useCallback((entry: PullRequestListEntry) => open(entry, workspace), [open, workspace]);
 
   const filterSections: MenuSection[] = [
@@ -354,6 +354,5 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
   );
 }
 
-const SERVICES_NOUN = { github: "pull request", gitlab: "merge request" } as const;
 
 export default PullRequestListView;

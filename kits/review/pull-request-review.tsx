@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { errorMessage, Popover, Spinner } from "tau";
-import type { PendingReviewComment, PullRequestReviewEvent, RequestService } from "./protocol.js";
+import { providerInfo, type PendingReviewComment, type PullRequestReviewEvent, type RequestService } from "./protocol.js";
 
 const EVENTS: Array<{ value: PullRequestReviewEvent; label: string; hint: string }> = [
   { value: "comment", label: "Comment", hint: "Feedback without a verdict." },
@@ -28,7 +28,7 @@ export function ReviewComposer({ service, pending, onRemovePending, onComment, o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const events = service === "gitlab" ? EVENTS.filter((entry) => entry.value !== "request-changes") : EVENTS;
-  const noun = service === "gitlab" ? "merge request" : "pull request";
+  const noun = providerInfo(service).noun;
   const ready = mode === "comment" ? Boolean(text.trim()) : event === "approve" || Boolean(text.trim()) || pending.length > 0;
   const submit = async () => {
     if (!ready || busy) return;

@@ -1,32 +1,36 @@
-import type { UiDiffLine, UiFileDiff, UiReviewRequest } from "tau";
-import type {
-  PullRequestCheck,
-  PullRequestCheckStatus,
-  PullRequestComment,
-  PullRequestDetail,
-  PullRequestFile,
-  PullRequestRef,
-  PullRequestThread,
-  ReviewCommentChip,
+import type { UiDiffLine, UiFileDiff } from "tau";
+import {
+  providerInfo,
+  REQUEST_SERVICES,
+  type PullRequestCheck,
+  type PullRequestCheckStatus,
+  type PullRequestComment,
+  type PullRequestDetail,
+  type PullRequestFile,
+  type PullRequestRef,
+  type PullRequestThread,
+  type RequestService,
+  type ReviewCommentChip,
+  type ReviewRequest,
 } from "./protocol.js";
 
 /** What a stage tab of the view holds: enough to name it before anything loaded. */
 export interface PullRequestTabParams extends Record<string, unknown> {
   url: string;
   number: number;
-  service: "github" | "gitlab";
+  service: RequestService;
   /** The checkout it was opened from, so the rail row follows what the view reads. */
   workspace?: string;
 }
 
 export function pullRequestTabParams(params: Record<string, unknown>): PullRequestTabParams | undefined {
   const { url, number, service, workspace } = params;
-  if (typeof url !== "string" || typeof number !== "number" || (service !== "github" && service !== "gitlab")) return undefined;
-  return { url, number, service, ...(typeof workspace === "string" ? { workspace } : {}) };
+  if (typeof url !== "string" || typeof number !== "number" || !REQUEST_SERVICES.includes(service as RequestService)) return undefined;
+  return { url, number, service: service as RequestService, ...(typeof workspace === "string" ? { workspace } : {}) };
 }
 
-export const shortNoun = (service: PullRequestRef["service"]): "PR" | "MR" => service === "gitlab" ? "MR" : "PR";
-export const hostName = (service: PullRequestRef["service"]): string => service === "gitlab" ? "GitLab" : "GitHub";
+export const shortNoun = (service: PullRequestRef["service"]): "PR" | "MR" => providerInfo(service).short;
+export const hostName = (service: PullRequestRef["service"]): string => providerInfo(service).name;
 
 export const CHECK_LABELS: Record<PullRequestCheckStatus, string> = {
   pending: "Running",
@@ -68,7 +72,7 @@ export function checksSummary(checks: readonly PullRequestCheck[]): string {
 }
 
 /** The rail row's request, as the view last read it. */
-export function asReviewRequest(detail: PullRequestDetail, checks: readonly PullRequestCheck[]): UiReviewRequest {
+export function asReviewRequest(detail: PullRequestDetail, checks: readonly PullRequestCheck[]): ReviewRequest {
   // As the rail's own detector counts: skipped and neutral runs pass.
   const failed = checks.filter((check) => check.status === "failed" || check.status === "cancelled").length;
   const pending = checks.filter((check) => check.status === "pending" || check.status === "action-required").length;

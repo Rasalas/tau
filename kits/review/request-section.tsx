@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ExternalLink, GitPullRequest, Link2, RefreshCw, X } from "lucide-react";
-import { errorMessage, type DesktopExtensionContext, type UiReviewRequest, type WorkbenchActions } from "tau";
+import { errorMessage, type DesktopExtensionContext, type WorkbenchActions } from "tau";
 import type { LinkDialogs } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 import { commitMessageModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
-import type { ChangesSectionProps, MergeMethod, ReviewRequestStatus, WorkspaceStoreApi } from "./protocol.js";
+import { providerInfo, type ChangesSectionProps, type MergeMethod, type ReviewRequest, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
 import { PublishForm } from "./publish-form.js";
@@ -71,7 +71,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
 
     const request = status?.request;
     const open = request && (request.state === undefined || request.state === "open") ? request : undefined;
-    const short = status?.service === "gitlab" ? "MR" : "PR";
+    const short = providerInfo(status?.service ?? "github").short;
     const hasChanges = snapshot.changes.files.length > 0;
 
     const startCreate = () => run("Writing title and description…", async () => {
@@ -220,7 +220,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
   };
 }
 
-function RequestSummary({ request, onOpen, onBrowse }: { request: UiReviewRequest; onOpen(): void; onBrowse(): void }) {
+function RequestSummary({ request, onOpen, onBrowse }: { request: ReviewRequest; onOpen(): void; onBrowse(): void }) {
   const state = requestStateLabel(request);
   const checks = checksLabel(request.checks);
   const short = requestShort(request);
@@ -271,7 +271,7 @@ function LinkedRequests({ actions, parts }: { actions: WorkbenchActions; parts: 
         </button>
       </div>
       {links.map((link) => {
-        const short = link.service === "gitlab" ? "MR" : "PR";
+        const short = providerInfo(link.service).short;
         const state = link.state === "open" && link.draft ? "draft" : link.state ?? "open";
         return (
           <div key={link.url} className="request-link-row">

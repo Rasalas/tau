@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { Check, Copy, ExternalLink, GitBranch, Link2, Link2Off, MessageSquare, MessageSquarePlus, Pencil, RefreshCw, SquarePlus } from "lucide-react";
 import { errorMessage, type PreferencesStore, type StageTabHandle, type WorkbenchActions } from "tau";
 import type { PendingReviewStore } from "./pending-review.js";
-import { REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
+import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { PullRequestCode } from "./pull-request-code.js";
 import { asReviewRequest, checksRollup, checksSummary, hostName, relativeTime, shortNoun, timelineCounts, type PullRequestTabParams } from "./pull-request-logic.js";
@@ -229,7 +229,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
       <div className="pr-view" aria-label={`${noun} #${params.number}`}>
         {data.detailError ? (
           <div className="pr-unavailable" role="alert">
-            <strong>Could not load the {params.service === "gitlab" ? "merge" : "pull"} request</strong>
+            <strong>Could not load the {providerInfo(params.service).noun}</strong>
             <p>{data.detailError}</p>
             <div className="pr-actions">
               <button className="mini-button" onClick={() => refresh(true)}>Retry</button>
@@ -248,7 +248,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const state = detail.state === "open" && detail.draft ? "draft" : detail.state;
   const rollup = checksRollup(checks);
   const counts = timelineCounts(detail, threads);
-  const checkout = params.service === "gitlab" ? `glab mr checkout ${detail.ref.number}` : `gh pr checkout ${detail.ref.number}`;
+  const checkout = providerInfo(params.service).checkout?.(detail.ref.number);
 
   return (
     <div className="pr-view" aria-label={`${noun} #${detail.ref.number}`}>
@@ -287,9 +287,11 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             <div className="pr-meta">
               {detail.author ? <span><strong>{detail.author.name ?? detail.author.login}</strong> opened {relativeTime(detail.createdAt)}</span> : null}
               {detail.updatedAt ? <span>· updated {relativeTime(detail.updatedAt)}</span> : null}
-              <button className="pr-copyable" title="Copy the checkout command" onClick={() => copy("checkout", checkout)}>
-                {copied === "checkout" ? "Copied" : checkout}
-              </button>
+              {checkout ? (
+                <button className="pr-copyable" title="Copy the checkout command" onClick={() => copy("checkout", checkout)}>
+                  {copied === "checkout" ? "Copied" : checkout}
+                </button>
+              ) : null}
             </div>
             <div className="pr-branches">
               <GitBranch size={12} aria-hidden="true" />

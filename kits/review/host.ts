@@ -1,7 +1,7 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 import { registerPullRequestCommands } from "./pull-request-host.js";
-import { createHosting } from "./pull-request-hosting.js";
+import { createSourceControl, type SourceControlOptions } from "./provider-registry.js";
 import { registerPullRequestListCommands } from "./pull-request-list-host.js";
 import { withInstructions } from "./writing.js";
 import { registerPublishCommands } from "./publish-host.js";
@@ -41,7 +41,7 @@ export function buildCommitPrompt(input: {
  * reads and writes of the pull-request view and the Pull Requests page, and
  * the requests each thread links, with the agent's tools for them.
  */
-export function createReviewHostExtension(options: RequestCommandOptions = {}): HostExtension {
+export function createReviewHostExtension(options: RequestCommandOptions & SourceControlOptions = {}): HostExtension {
   return {
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
@@ -53,12 +53,12 @@ export function createReviewHostExtension(options: RequestCommandOptions = {}): 
       // tau.review, so this proxy cannot be widened by renderer input.
       context.registerCommand("changes", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "changes", input));
       context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input));
-      const hosting = createHosting(context, options);
+      const sources = createSourceControl(context, options);
       const workspace = (command: string, input?: unknown) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input);
-      const reads = registerPullRequestCommands(context, hosting, options);
-      registerPullRequestListCommands(context, hosting, workspace);
-      const links = registerThreadLinks(context, reads, workspace);
-      registerRequestCommands(context, {
+      const reads = registerPullRequestCommands(context, sources, options);
+      registerPullRequestListCommands(context, sources, workspace);
+      const links = registerThreadLinks(context, reads, workspace, sources);
+      registerRequestCommands(context, sources, {
         ...options,
         // A request opened from the Changes panel belongs to the thread on screen.
         created: (url) => { const thread = services.thread(); if (thread) void links.link(thread.sessionId, url, "created"); },

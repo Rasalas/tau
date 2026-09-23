@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen, WrapText, X } from "lucide-react";
 import { DiffView, errorMessage, getClientStorage, type DiffLineSlot, type UiDiffLine, type WorkbenchActions } from "tau";
 import { currentDiffWordWrap } from "./diff-settings.js";
-import type { PendingReviewComment, PullRequestComment, PullRequestDetail, PullRequestFile, PullRequestFiles, PullRequestThread, ReviewCommentChip } from "./protocol.js";
+import { providerInfo, type PendingReviewComment, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestThread, type ReviewCommentChip } from "./protocol.js";
 import type { PullRequestCommentInput } from "./pull-request-client.js";
 import { hideWhitespace } from "./pull-request-diff.js";
 import { anchorThreads, lineKeys, orderFiles, shortNoun, threadChip, threadKey } from "./pull-request-logic.js";
@@ -189,7 +189,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
     );
   }
   if (!files) return <p className="pr-empty pr-pad" role="status">Loading the diff…</p>;
-  if (ordered.length === 0) return <p className="pr-empty pr-pad">This {detail.ref.service === "gitlab" ? "merge" : "pull"} request has no file changes.</p>;
+  if (ordered.length === 0) return <p className="pr-empty pr-pad">This {providerInfo(detail.ref.service).noun} has no file changes.</p>;
 
   return (
     <div className="pr-code">

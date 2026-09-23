@@ -1,8 +1,8 @@
 import { lazy, Suspense } from "react";
 import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
-import { Spinner, type DesktopExtensionContext, type UiReviewRequest, type WorkbenchActions } from "tau";
+import { Spinner, type DesktopExtensionContext, type WorkbenchActions } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
-import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
+import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips, type ReviewRequest } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
 import { pullRequestTabParams, shortNoun, type PullRequestTabParams } from "./pull-request-logic.js";
@@ -13,7 +13,7 @@ import type { RequestClient, RowRequests } from "./requests.js";
 const PullRequestListView = lazy(() => import("./pull-request-list-view.js"));
 
 /** Opens a request's view on the stage; the same request is always the same tab. */
-export function openPullRequest(actions: Pick<WorkbenchActions, "openStageTab">, request: Pick<UiReviewRequest, "url" | "number" | "provider">, workspace?: string): string {
+export function openPullRequest(actions: Pick<WorkbenchActions, "openStageTab">, request: Pick<ReviewRequest, "url" | "number" | "provider">, workspace?: string): string {
   const params: PullRequestTabParams = { url: request.url, number: request.number, service: request.provider, ...(workspace ? { workspace } : {}) };
   return actions.openStageTab(PULL_REQUEST_TAB, params, { key: request.url });
 }

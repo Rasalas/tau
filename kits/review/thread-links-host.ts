@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
 import { THREAD_LINKS_EVENT, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
-import { requestUrlFor } from "./pull-request-hosting.js";
+import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestReads } from "./pull-request-host.js";
 import { projectRepository } from "./pull-request-list-host.js";
 import { parseRequestUrl } from "./pull-request-json.js";
@@ -34,6 +34,7 @@ export function registerThreadLinks(
   context: HostExtensionContext,
   reads: PullRequestReads,
   workspace: (command: string, input?: unknown) => Promise<unknown>,
+  sources: SourceControl,
 ): ThreadLinks {
   const { services } = context;
   const store = new ThreadLinkStore(services.stateDir);
@@ -49,10 +50,10 @@ export function registerThreadLinks(
     if (reference.number === undefined || !Number.isInteger(reference.number) || reference.number < 1) {
       throw new HostCommandError("Pass a pull request URL, or its number.");
     }
-    const project = await projectRepository(workspace, (name) => services.findCommand(name), cwd);
+    const project = await projectRepository(workspace, sources, cwd);
     const host = reference.host?.toLowerCase() ?? project.host;
     const repo = reference.repository ?? project.repo;
-    const ref = parseRequestUrl(requestUrlFor(project.service, host, repo, reference.number));
+    const ref = parseRequestUrl(project.provider.requestUrl({ host, repo }, reference.number));
     if (!ref) throw new HostCommandError(`${host}/${repo} #${reference.number} names no request.`);
     return ref;
   };
