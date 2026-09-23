@@ -57,6 +57,7 @@ import {
 import { ComposerAttachmentsList } from "./ComposerAttachments";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
+import { takePasteAsText } from "../paste-as-text";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
@@ -741,6 +742,8 @@ export function Composer({
           void addFiles(event.dataTransfer.files);
         }}
         onPaste={(event) => {
+          // Paste as Text: the clipboard's text as it is, no fold and no file.
+          if (takePasteAsText()) return;
           if (event.clipboardData.files.length === 0) {
             const pasted = event.clipboardData.getData("text/plain");
             if (pasted && pasteText(pasted)) event.preventDefault();

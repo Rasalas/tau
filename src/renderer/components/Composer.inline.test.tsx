@@ -14,6 +14,7 @@ import { classifyThreadDrop } from "../../shared/thread-drop";
 import { createMemoryStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { readComposerDraftState } from "../../workbench/draft-store";
+import { armPasteAsText } from "../paste-as-text";
 
 const snapshot: HostSnapshot = {
   cwd: "/project", sessionId: "session", sessionTitle: "Thread", models: [],
@@ -150,6 +151,10 @@ describe("composer inline contributions", () => {
     expect(screen.getByText("paste 40")).toBeTruthy();
     fireEvent.paste(frame, { clipboardData: { files: [], getData: () => "short" } });
     expect(screen.queryByText("paste 5")).toBeNull();
+    // Paste as Text: the same paste stays the field's own text, once; the fold cancels the next one.
+    armPasteAsText();
+    expect(fireEvent.paste(frame, { clipboardData: { files: [], getData: () => "y".repeat(41) } })).toBe(true);
+    expect(fireEvent.paste(frame, { clipboardData: { files: [], getData: () => "y".repeat(41) } })).toBe(false);
 
     const attach = screen.getByRole("button", { name: "Attach files" }) as HTMLButtonElement;
     expect(attach.disabled).toBe(false);
