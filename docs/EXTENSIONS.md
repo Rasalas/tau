@@ -165,30 +165,54 @@ bundle `import.meta.url` is the compiled file's own URL, so an ESM dependency
 that builds a `require` from it (the Claude Agent SDK does) loads as bundled
 code.
 
-`registerKeybinding({ keys, commandId })` adds a chord; the first binding of a
+`registerKeybinding({ keys, commandId, when? })` adds a chord; the first binding of a
 chord wins and a later one is recorded as a conflict. Pass `replaces:
 <commandId>` when the chord is meant to *be* that command's key rather than
 another one beside it — every other binding of that command is hidden while
-yours lives and comes back when it is disposed, and if the chord you ask for is
-the very one that command already had, you take it over instead of colliding
-with it. Keybindings Kit uses it for the actions the user rebound in
-`~/.pi/agent/keybindings.json`: someone who wrote `app.session.new` there meant
-that key, not that key and Tau's default too. Without `replaces`, a binding is
-additive, which is what a package adding a chord of its own wants.
+yours lives and comes back when it is disposed, and a replacing binding wins
+over a default on the same chord instead of colliding with it. Keybindings Kit
+uses it for the actions the user rebound in `~/.pi/agent/keybindings.json`:
+someone who wrote `app.session.new` there meant that key, not that key and
+Tau's default too. Without `replaces`, a binding is additive, which is what a
+package adding a chord of its own wants.
 
-A binding is window-wide: there is no focus context. A chord that should only
-mean something while your own surface has the keyboard is handled by that
-surface — call `preventDefault()` on the keydown and the window's dispatcher
-leaves it alone. Terminal Kit does this for `mod+d`, `mod+shift+d`, `mod+n`
-and `mod+w` inside a focused shell (`kits/terminal/keys.ts`), and Files Kit for
-`mod+s` inside an editor tab, which saves the file there while the same chord
-stashes the draft everywhere else (`kits/files/keys.ts`). A surface that wants
-the text field's own keys — ⌘Z, ⌥-letters, ⌃A on macOS — calls
-`stopPropagation()` without `preventDefault()`: the field still acts, and no
-binding does. An `alt` chord
-also matches by the physical key, because on macOS Option turns the letter
-into another character. `kits/kit-lifecycle.test.tsx` fails when two shipped
-kits bind the same chord.
+`when` (new in API 1.10.0) says where a chord applies, as in VS Code and T3
+Code: context names joined by `!`, `&&`, `||` and parentheses, e.g.
+`"terminalFocus && !stageFocus"`; `true` and `false` are constants. Contexts
+come from the page when the key goes down. Mark an element
+`data-keybinding-context="<name>"` (several names may be space-separated) and
+`<name>Focus` holds while the keyboard is inside it, `<name>Open` while one is
+drawn (`src/renderer/keybinding-context.ts`). Core marks `composer`, `stage`
+and `modelPicker`; Terminal Kit marks `terminal`, Files Kit's editor `editor`
+and Preview Kit's panel `preview`. A clause Tau cannot read throws at
+registration.
+
+A clause that needs a context — false when nothing is focused or open, like
+`terminalFocus` but unlike `!terminalFocus` — makes the binding *specific*. On
+a keydown, of the bindings whose chord and clause match, a config.json
+override beats a replacing binding beats a default; within that, a specific
+one beats one that is not; then the first registered wins. A specific winner
+runs in the capture phase, before the focused element sees the key: that is
+how Terminal Kit's `mod+d` reaches its command before xterm, and Files Kit's
+`mod+s` saves the editor tab before Prompt Tools' stash could hear it. Every
+other binding waits for the bubble phase, so a field or a shell that handled a
+key (`preventDefault()`) keeps it. Two bindings conflict only when they press
+the same keys on the platform (`mod+p` is `ctrl+p` off macOS), sit in the same
+tier, are both specific or both not, and their clauses can hold together; so
+`mod+n` can be a new thread under `!terminalFocus` and a new shell under
+`terminalFocus`. A replacing binding without a `when` of its own takes the
+clause of the replaced command's first default, so a rebound key keeps its
+context.
+
+A surface that wants the text field's own keys — ⌘Z, ⌥-letters, ⌃A on macOS —
+calls `stopPropagation()` without `preventDefault()`: the field still acts, and
+no bubble-phase binding does. A chord matches punctuation and digits by the
+physical key too (⇧ turns `]` into `}`, ⌥ turns `2` into `™`), an `alt` chord
+matches letters by the physical key as well, and off macOS no chord takes a
+character AltGr typed. `kits/kit-lifecycle.test.tsx` fails when two bindings of
+core and the shipped kits conflict on either platform, and checks which
+command each shared chord reaches in each context. The defaults are listed in
+[`docs/keybindings.md`](keybindings.md).
 
 `registerCommand({ surfaces })` offers a command in a place besides the
 palette: `thread-title` puts it in the thread title's menu, and `file-tab`
