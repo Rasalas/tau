@@ -145,7 +145,7 @@ Session-file and Git invalidation events should update only changed shells. A fu
 
 ### Metadata actions return full host snapshots
 
-Model changes, thinking-level changes, compaction, title generation, and several workspace actions return a complete `HostSnapshot`. The payload includes messages, models, tool descriptions, and usage even when only one field changed.
+Compaction, title generation, and several workspace actions return a complete `HostSnapshot`. The payload includes messages, models, tool descriptions, and usage even when only one field changed. Model and thinking-level changes no longer do; see "Metadata commands without a snapshot" below.
 
 Split the protocol into thread shell updates, active detail, run events, model and extension catalogs, and project metadata. IPC cost for a metadata action should stay constant as transcript length grows.
 
@@ -556,6 +556,47 @@ on the host socket, the same prompt in the same thread) one turn measured 124
 messages, 232,788 decoded and 233,284 wire bytes before, and 99 messages, 60,236
 decoded and 5,945 wire bytes after. Those counts include a few pushes unrelated
 to the turn (the instance's theme watcher), which the fixture leaves out.
+
+### Metadata commands without a snapshot
+
+`setModel` and `setThinkingLevel` used to build the whole host snapshot, which
+maps every message of the thread, and then sent only its catalog. A model change
+also re-read the transcript to refresh the thread's shell, and the Pi backend
+summed the usage of every entry whenever its catalog view was read. Now the
+catalog comes straight from the thread's catalog view
+(`ThreadProjection.catalog`), a model change moves only the shell's provider
+(`ThreadIndex.publishModelProvider`), and usage and context usage are computed
+only when a caller reads them. The catalog a client receives is the same
+(`thread-projection.test.ts` compares it with `catalogFromSnapshot` of the full
+snapshot).
+
+`npm run benchmark:host:check` and `benchmark:host:full:check` time both commands
+in a short thread (8 entries) and in one of 5,000 turns (20,000 entries: user
+message, tool call, tool result, answer), 20 samples after one untimed round,
+in an agent directory of their own. The check fails when a p95 exceeds 10 ms
+(`metadataCommandP95Ms`) or the long thread shrinks below 10,000 entries.
+Before (`t3/wave-d`, same fixture and script) and after, two runs per side,
+median / p95 in ms, on a busy machine (load average about 17):
+
+| mode | command | short, before | long, before | short, after | long, after |
+| --- | --- | ---: | ---: | ---: | ---: |
+| safe | set model | 0.3–0.4 / 0.5–0.9 | 54–100 / 79–156 | 0.2 / 0.6 | 0.3–0.6 / 0.7–1.0 |
+| safe | set thinking | 0.2–0.3 / 0.2–0.8 | 41–70 / 57–135 | 0.1–0.3 / 0.5–0.7 | 0.3–0.6 / 0.7–1.4 |
+| full | set model | 0.2–0.7 / 0.3–0.9 | 90–113 / 133–152 | 0.1 / 0.2 | 0.3–0.9 / 0.8–1.9 |
+| full | set thinking | 0.2–0.5 / 0.3–0.8 | 69–89 / 110–157 | 0.1 / 0.2 | 0.3–0.7 / 0.9–1.5 |
+
+Before, the cost grew with the thread: 2.9, 12.5 and 71.7 ms median for a model
+change at 1,000, 4,000 and 20,000 entries. Dropping the projection alone left
+3.6 ms at 20,000 entries; the rest was the usage sums.
+
+In the real app (isolated instance, Full Mode with the shipped kits, a client on
+the host socket timing `set-model` and `set-thinking` round trips, 20 samples),
+the 20,000-entry thread measured 484–489 ms median for a model change and
+320–322 ms for a thinking level before, against 5.5–8 ms in a short thread.
+After, both threads measure 8–10 ms median; what is left is the 77 KB catalog
+the reply carries (every model the machine can use) and the socket. Picking a
+model in that thread's composer changes the picker's label 15–30 ms after the
+click.
 
 ## Execution order
 
