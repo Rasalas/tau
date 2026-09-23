@@ -1,7 +1,7 @@
-/** Shared bounds for image attachments accepted by the composer and host. */
-export const MAX_ATTACHMENTS = 4;
+/** Shared bounds for image attachments accepted by the composer and host; T3 Code's since 2026-09. */
+export const MAX_ATTACHMENTS = 100;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-export const MAX_TOTAL_IMAGE_BYTES = 24 * 1024 * 1024;
+export const MAX_TOTAL_IMAGE_BYTES = 80 * 1024 * 1024;
 /** A `kind: "file"` prompt attachment; the host never reads more than this per file. */
 export const MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 export const SUPPORTED_IMAGE_TYPES_LABEL = "PNG, JPEG, GIF, or WebP";

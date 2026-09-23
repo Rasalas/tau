@@ -49,8 +49,8 @@ export interface ComposerContextChips {
   subscribe(listener: () => void): () => void;
 }
 
-/** T3 Code's limits: eight files a message, 10 MB an image, 50 MB any other file. */
-export const MAX_ATTACHMENT_CHIPS = 8;
+/** T3 Code's limits: a hundred files a message, 10 MB an image, 50 MB any other file, videos included. */
+export const MAX_ATTACHMENT_CHIPS = 100;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 /** A paste this large becomes a text-file attachment instead of editor text. */

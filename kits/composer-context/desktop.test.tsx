@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerInlineContext, HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import composerContext, { parseFileQuery, storeInChunks } from "./desktop.js";
+import composerContext, { parseFileQuery, storeInChunks, storeWithRetry } from "./desktop.js";
 import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, UPLOAD_CHUNK_BYTES, type ComposerContextChips } from "./protocol.js";
 
 afterEach(cleanup);
@@ -135,6 +135,23 @@ describe("Composer Context desktop", () => {
       { bytes: 3, into: "/state/a.bin" },
     ]);
     expect(stored).toEqual({ path: "/state/a.bin", size });
+  });
+
+  it("uploads again after the connection dropped, and gives up on a refusal", async () => {
+    let calls = 0;
+    const host = (async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("The host connection dropped.");
+      return { path: "/state/a.bin", size: 1 };
+    }) as never;
+    const waits: number[] = [];
+    const wait = async (ms: number) => { waits.push(ms); };
+    await expect(storeWithRetry(host, { scope: SCOPE, name: "a.bin", mimeType: "", size: 1 }, async () => new Uint8Array(1), wait))
+      .resolves.toEqual({ path: "/state/a.bin", size: 1 });
+    expect(waits).toEqual([1_000]);
+    const refused = (async () => { throw new Error("Attachments must be 50 MB or smaller."); }) as never;
+    await expect(storeWithRetry(refused, { scope: SCOPE, name: "a.bin", mimeType: "", size: 1 }, async () => new Uint8Array(1), wait)).rejects.toThrow(/50 MB/u);
+    expect(waits).toEqual([1_000]);
   });
 
   it("reads a file query's line range", () => {

@@ -9,8 +9,8 @@ import type { ToolOutputDelta } from "./tool-output-delta.js";
  */
 export const HOST_TRANSPORT_VERSION = 1;
 
-/** Largest frame a socket transport accepts; prompt attachments are the big ones. */
-export const HOST_TRANSPORT_MAX_FRAME_BYTES = 64 * 1024 * 1024;
+/** Largest frame a socket transport accepts: a prompt with 80 MiB of images, base64, fits. */
+export const HOST_TRANSPORT_MAX_FRAME_BYTES = 112 * 1024 * 1024;
 
 /** How many bytes of pushes a host keeps for a reconnecting client. */
 export const HOST_PUSH_BUFFER_BYTES = 8 * 1024 * 1024;
