@@ -36,6 +36,7 @@ Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 | --- | --- | --- | --- | --- | --- |
 | `mod+b` | | `workbench.toggle-sidebar` | Hide or show the sidebar | core | `sidebar.toggle` |
 | `mod+alt+b` | | `workbench.toggle-dock` | Hide or show the dock | core | `rightPanel.toggle` |
+| `mod+alt+shift+b` | | `rightPanel.toggleMaximized` | Open the panel in front as a stage tab, or move it back | core | same (no default chord) |
 | `mod+k` | | `runtime.command-palette` | Command palette | core | `commandPalette.toggle` |
 | `mod+n` | `!terminalFocus` | `runtime.new-session` | New thread | core | `chat.new` |
 | `mod+shift+o` | `!terminalFocus` | `runtime.new-session` | New thread | core | `chat.new` |
@@ -118,8 +119,12 @@ reach the workbench as usual.
 - `mod+r` and the zoom chords under `previewFocus` are not bound: Electron's
   View menu owns ⌘R, ⌘0, ⌘+ and ⌘− for the window.
 - No Tau command yet for `chat.newLocal`, `composer.host`,
-  `composer.previousWorktree`, `pullRequest.copyNumber`,
-  `thread.copyReference` and `rightPanel.toggleMaximized`.
+  `composer.previousWorktree`, `pullRequest.copyNumber` and
+  `thread.copyReference`.
+- `rightPanel.toggleMaximized` has no default chord in T3 Code; Tau binds
+  `mod+alt+shift+b`, the dock's chord with Shift. Where T3 Code widens its
+  right panel to 70 % of the window, Tau opens the panel as a stage tab beside
+  the chat.
 - T3 Code's `composer.mode` opens its runtime-mode menu, which is Tau's
   access level, so it opens Access Kit's menu. Plan mode is Plan Kit's
   `plan.toggle`, without a chord: T3 Code toggles it with ⇧Tab in the
