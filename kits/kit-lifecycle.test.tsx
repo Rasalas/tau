@@ -24,6 +24,7 @@ import codex from "./codex/desktop.js";
 import openCode from "./opencode/desktop.js";
 import piProviders from "./pi-providers/desktop.js";
 import cursor from "./cursor/desktop.js";
+import grok from "./grok/desktop.js";
 import piUi from "./pi-ui/desktop.js";
 import plan from "./plan/desktop.js";
 import projectScripts from "./project-scripts/desktop.js";
@@ -40,7 +41,7 @@ import handoff from "./handoff/desktop.js";
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [access, agents, claudeCode, codex, openCode, cursor, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piProviders, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames, appearance, handoff];
+const kits = [access, agents, claudeCode, codex, openCode, cursor, grok, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piProviders, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames, appearance, handoff];
 
 afterEach(cleanup);
 
