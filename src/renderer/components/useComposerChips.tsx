@@ -10,8 +10,8 @@ import type { ChipLook } from "./ComposerInput";
 const LABELS_OWNER = "tau.composer.chips";
 const IMAGE_OWNER = "image";
 
-/** `a.ts 2` for `a.ts`: a label `uniqueChipLabel` made. */
-const isNumbered = (label: string, base: string) => label.startsWith(`${base} `) && /^\d+$/u.test(label.slice(base.length + 1));
+/** `a.ts 2` for `a.ts`: a label `uniqueChipLabel` made (its spaces are no-break spaces). */
+const isNumbered = (label: string, base: string) => label.startsWith(`${base}\u00a0`) && /^\d+$/u.test(label.slice(base.length + 1));
 
 type Inline = ComposerInlineContribution & { extensionId?: string; extensionName?: string };
 

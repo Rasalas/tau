@@ -19,16 +19,17 @@ describe("composer chip tokens", () => {
   it("finds tokens and writes them as their labels", () => {
     const text = `look at ${A} and ${B} please`;
     const tokens = findChipTokens(text);
-    expect(tokens.map((token) => token.label)).toEqual(["a.ts", "Terminal · 3 lines"]);
+    expect(tokens.map((token) => token.label)).toEqual(["a.ts", "Terminal\u00a0·\u00a03\u00a0lines"]);
     expect(text.slice(tokens[0]!.start, tokens[0]!.end)).toBe(A);
     expect(plainChipText(text)).toBe("look at a.ts and Terminal · 3 lines please");
     expect(plainChipText("no chips")).toBe("no chips");
   });
 
   it("keeps labels to one line and unique", () => {
-    expect(chipLabelText("  two\nlines\u2063 ")).toBe("two lines");
+    // No-break spaces: a line never breaks inside a chip.
+    expect(chipLabelText("  two\nlines\u2063 ")).toBe("two\u00a0lines");
     expect(chipLabelText("x".repeat(80))).toHaveLength(48);
-    expect(uniqueChipLabel("a.ts", new Set(["a.ts", "a.ts 2"]))).toBe("a.ts 3");
+    expect(uniqueChipLabel("a.ts", new Set(["a.ts", "a.ts\u00a02"]))).toBe("a.ts\u00a03");
     expect(uniqueChipLabel("b.ts", new Set(["a.ts"]))).toBe("b.ts");
   });
 
@@ -57,7 +58,7 @@ describe("composer chip tokens", () => {
     // Backspace right after the token removes its closing mark.
     expect(repairChipTokens(previous, previous.slice(0, end - 1) + previous.slice(end))).toEqual({ text: "fix  now", caret: 4 });
     // A word deletion from the middle of the label to after it.
-    expect(repairChipTokens(previous, `fix \u2063\u2003a now`)?.text).toBe("fix  now");
+    expect(repairChipTokens(previous, `fix \u2063\u2007\u2007a now`)?.text).toBe("fix  now");
     // Typing next to a token, or deleting it whole, leaves it be.
     expect(repairChipTokens(previous, `fix ${A}! now`)).toBeUndefined();
     expect(repairChipTokens(previous, "fix  now")).toBeUndefined();

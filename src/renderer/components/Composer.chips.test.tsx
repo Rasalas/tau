@@ -126,7 +126,7 @@ describe("chips in the composer's text", () => {
     const kit = chipKit();
     const { textarea } = renderWith(kit.contribution);
     act(() => { kit.add("index.ts"); kit.add("index.ts"); });
-    await waitFor(() => expect(findChipTokens(textarea.value).map((token) => token.label)).toEqual(["index.ts", "index.ts 2"]));
+    await waitFor(() => expect(findChipTokens(textarea.value).map((token) => token.label)).toEqual(["index.ts", "index.ts\u00a02"]));
   });
 
   it("sends chips as their labels, with what the kit adds before the text", async () => {

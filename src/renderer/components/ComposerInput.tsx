@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { CHIP_MARK, findChipTokens, mirrorSegments, removeChipToken, repairChipTokens, tokenAround, type ChipToken, type MirrorSegment } from "./composer-chips";
+import { CHIP_MARK, CHIP_SLOT, findChipTokens, mirrorSegments, removeChipToken, repairChipTokens, tokenAround, type ChipToken, type MirrorSegment } from "./composer-chips";
 
 /** How a chip token draws: resolved to what holds it, or `undefined` for a token nothing holds any more. */
 export interface ChipLook {
@@ -201,10 +201,10 @@ const MirrorLine = memo(function MirrorLine({ segments, lookChip }: {
         if (segment.kind !== "chip") return <span key={index} className={`composer-mirror-${segment.kind}`}>{segment.text}</span>;
         const look = lookChip(segment.label);
         const state = look ? look.state ?? "" : "unresolved";
-        // The same characters as the token: a mark, the icon's em space, the label, a mark.
+        // The same characters as the token: a mark, the icon's slot, the label, a mark.
         return (
           <span key={index} className={`composer-mirror-chip ${state}`} data-chip={segment.label}>
-            {CHIP_MARK}<span className="composer-chip-slot">{segment.text.slice(1, 2)}{look?.icon}</span>{segment.label}{CHIP_MARK}
+            {CHIP_MARK}<span className="composer-chip-slot">{CHIP_SLOT}{look?.icon}</span>{segment.label}{CHIP_MARK}
           </span>
         );
       })}
