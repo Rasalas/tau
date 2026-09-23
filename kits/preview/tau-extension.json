@@ -3,7 +3,7 @@
   "name": "Preview",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.10.0"
+    "api": "^1.11.0"
   },
   "permissions": [
     "runtime:extend",
