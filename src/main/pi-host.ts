@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -77,6 +76,7 @@ import type {
 import { ProjectHistory } from "./project-history.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ThreadIndex } from "./thread-index.js";
+import type { ThreadTrash } from "./thread-trash.js";
 import type { ThreadBinding } from "./thread-binding.js";
 import type { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
 import type { RuntimePrewarm } from "./runtime-prewarm.js";
@@ -193,6 +193,8 @@ export class PiHost {
   private readonly projects: ProjectFactsCache;
   /** Every persisted thread, the shell it is drawn as, and the publication of both. */
   private readonly index: ThreadIndex;
+  /** Deleted threads, restorable until their retention runs out. */
+  private readonly trash: ThreadTrash;
   /** Tau's dialog surface inside a runtime's extensions, and the events it lets through. */
   private readonly binding: ThreadBinding;
   /** A thread's runtime from build to teardown. */
@@ -270,6 +272,8 @@ export class PiHost {
       prepareThread: (session, manager, prepareOptions) => this.prepareThread(session, manager, prepareOptions),
       startThread: (startOptions) => this.startThread(startOptions),
       removeThread: (sessionId) => this.removeThread(sessionId),
+      restoreThread: (sessionId) => this.restoreThread(sessionId),
+      purgeThread: (sessionId) => this.purgeThread(sessionId),
       pendingHostExtensions: () => this.pendingHostExtensions,
     });
     this.agentDir = components.agentDir;
@@ -289,6 +293,7 @@ export class PiHost {
     this.workbenchReload = components.workbenchReload;
     this.projects = components.projects;
     this.index = components.index;
+    this.trash = components.trash;
     this.publication = components.publication;
     this.seam = components.seam;
     this.runtimeVersions = new RuntimeVersions({
@@ -747,6 +752,7 @@ export class PiHost {
           this.recordBackgroundLifecycle("session-index", indexStartedAt);
           this.log("bootstrap.full-ready");
           this.index.startRecovery();
+          this.trash.start();
           // Before anything else is opened for this run: the index is the only
           // way back to a marked thread's session file.
           await this.reconcileInterruptedTurns();
@@ -1016,10 +1022,10 @@ export class PiHost {
   }
 
   /**
-   * Deletes a persisted thread: its runtime is released, its file is removed
-   * and the `threadDeleted` hooks run before the index is republished. A
-   * thread that is running, or the one on screen, is refused — the caller
-   * stops or leaves it first.
+   * Moves a persisted thread to the trash: its runtime is released and the
+   * index republished without it. The `threadDeleted` hooks run when the
+   * trash purges it. A thread that is running, or the one on screen, is
+   * refused — the caller stops or leaves it first.
    */
   async removeThread(sessionId: string): Promise<void> {
     return this.lifecycle.run("remove-thread", async () => {
@@ -1027,12 +1033,23 @@ export class PiHost {
       if (!session) throw new Error(`No thread ${sessionId.slice(0, 8)} in this host's index.`);
       if (this.active?.threadId === sessionId) throw new Error("This thread is on screen; open another one before deleting it.");
       const live = this.threadFor(sessionId);
-      if (live?.state.streaming) throw new Error("This thread is still running; stop it before deleting it.");
+      if (live?.state.streaming || live?.adapterStreaming) throw new Error("This thread is still running; stop it before deleting it.");
+      if (live && this.ownedByPi(live)) throw new Error("Pi's terminal holds this thread; close it there first.");
       if (live) await this.threads.release(sessionId);
-      await rm(session.path, { force: true });
-      await this.index.announceDeleted(sessionId, session.projectPath);
+      await this.trash.trash({ sessionId, cwd: session.projectPath, title: session.title, backendKind: session.backendKind ?? "pi", path: session.path });
       await this.index.refresh("changes");
     });
+  }
+
+  async restoreThread(sessionId: string): Promise<void> {
+    return this.lifecycle.run("restore-thread", async () => {
+      await this.trash.restore(sessionId);
+      await this.index.refresh("changes");
+    });
+  }
+
+  purgeThread(sessionId: string): Promise<void> {
+    return this.trash.purge(sessionId);
   }
 
   async removeProject(path: string): Promise<HostActionResult> {
@@ -1882,6 +1899,7 @@ export class PiHost {
       this.watch?.close();
       this.toolOutputBatcher.dispose();
       this.prewarm.dispose();
+      this.trash.dispose();
       const teardownErrors: unknown[] = [];
       this.attached.session.detach();
       // Before the extensions are torn down: a hook that releases what belongs

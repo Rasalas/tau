@@ -28,6 +28,7 @@ function makeIndex(options: {
   projects?: Array<{ path: string; name: string; lastOpenedAt: number }>;
   live?: ThreadRuntime[];
   threadLifecycle?: HostThreadLifecycleSet;
+  inTrash?: (sessionId: string) => boolean;
 } = {}) {
   const events: HostEvent[] = [];
   const updates: HostUpdate[] = [];
@@ -37,6 +38,7 @@ function makeIndex(options: {
     errorMessage: (error) => String(error),
   });
   const index = new ThreadIndex({
+    ...(options.inTrash ? { inTrash: options.inTrash } : {}),
     cwd: () => "/repo",
     safeMode: true,
     sessionsDir: undefined,
@@ -213,5 +215,20 @@ describe("thread deletion", () => {
     await sweep([], [gone, kept], [kept]);
 
     expect(seen).toEqual(["gone"]);
+  });
+
+  it("leaves a thread in the trash unannounced until it is purged", async () => {
+    const seen: string[] = [];
+    const threadLifecycle = new HostThreadLifecycleSet();
+    threadLifecycle.add({ threadDeleted: async (sessionId) => { seen.push(sessionId); } });
+    const { index } = makeIndex({ threadLifecycle, inTrash: (id) => id === "trashed" });
+    const trashed = shell({ id: "trashed", path: "/sessions/trashed.jsonl" });
+    const sweep = (index as unknown as {
+      sweep(infos: unknown[], previous: UiSession[], next: UiSession[]): Promise<void>;
+    }).sweep.bind(index);
+
+    await sweep([], [trashed], []);
+
+    expect(seen).toEqual([]);
   });
 });

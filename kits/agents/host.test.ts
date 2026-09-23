@@ -136,7 +136,7 @@ function harness() {
         return { sessionId, cwd: startOptions.cwd, ...(startOptions.title ? { title: startOptions.title } : {}) };
       },
       exclusive: (work) => work(),
-      remove: async () => undefined,
+      remove: async () => undefined, restore: async () => undefined, trash: async () => [], purge: async () => undefined,
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
     clients: { observe: () => () => undefined, count: () => 1 },

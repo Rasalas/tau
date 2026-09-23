@@ -159,6 +159,9 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
         return { sessionId: "session-2", cwd: options.cwd, ...(options.title ? { title: options.title } : {}) };
       },
       remove: async (sessionId) => { recorder.removed.push(sessionId); },
+      restore: async () => undefined,
+      trash: async () => [],
+      purge: async () => undefined,
       exclusive: async (work) => {
         recorder.exclusiveDepth += 1;
         try { return await work(); } finally { recorder.exclusiveDepth -= 1; }
