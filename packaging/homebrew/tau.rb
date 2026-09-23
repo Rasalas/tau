@@ -24,7 +24,8 @@ cask "tau" do
 
   # Tau updates itself; `brew upgrade` leaves it alone unless asked with --greedy.
   auto_updates true
-  depends_on macos: ">= :big_sur"
+  # Electron 44's LSMinimumSystemVersion is 13.0.
+  depends_on macos: ">= :ventura"
 
   app "Tau.app"
 
