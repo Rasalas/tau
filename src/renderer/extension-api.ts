@@ -15,8 +15,10 @@ export { errorMessage } from "../workbench/error-message";
 // over its panel publishes that rectangle, and core's own floats keep clear of it.
 export { reserveRegion, reservedRegion, type ReservedRegion } from "./reserved-region";
 export type { MenuItem, MenuSection } from "./components/Menu";
-export { ExtensionPromptFrame, OptionRow, PromptSubmitContext, usePromptSubmit } from "./components/ExtensionPrompt";
-export type { PromptSubmitAction } from "./components/ExtensionPrompt";
+// Components drawn after a user action are deferred: each loads in its own chunk (./deferred-surfaces).
+export { ExtensionPromptFrame, OptionRow } from "./deferred-surfaces";
+export { PromptSubmitContext, usePromptSubmit } from "./components/prompt-submit";
+export type { PromptSubmitAction } from "./components/prompt-submit";
 export {
   choiceOptions,
   freeTextOption,

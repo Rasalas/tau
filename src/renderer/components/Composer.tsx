@@ -17,13 +17,13 @@ import type {
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
-import { Menu } from "../deferred-surfaces";
+import { ExtensionPrompt, Menu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { useRuntimeCatalogs } from "../use-runtime-catalog";
-import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
+import { PromptSubmitContext, type PromptSubmitAction } from "./prompt-submit";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";

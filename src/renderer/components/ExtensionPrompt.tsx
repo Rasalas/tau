@@ -1,31 +1,10 @@
 import { Circle, CircleDot, CircleHelp, Square, SquareCheck } from "lucide-react";
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { ExtensionUiPrompt } from "../../shared/contracts";
 import { choiceOptions, freeTextOption, splitInputTitle, splitOption, splitPromptTitle } from "../../shared/extension-prompt-options";
 
-export interface PromptSubmitAction {
-  label: string;
-  disabled: boolean;
-  submit(): void;
-}
-
-export const PromptSubmitContext = createContext<(action: PromptSubmitAction | undefined) => void>(() => {});
-
-/** Lets a prompt renderer put its commit action in the composer's action row. */
-export function usePromptSubmit(label: string | undefined, disabled: boolean, submit: (() => void) | undefined): void {
-  const register = useContext(PromptSubmitContext);
-  const submitRef = useRef(submit);
-  submitRef.current = submit;
-  const available = submit !== undefined;
-  useEffect(() => {
-    if (!label || !available) {
-      register(undefined);
-      return;
-    }
-    register({ label, disabled, submit: () => submitRef.current?.() });
-    return () => register(undefined);
-  }, [available, disabled, label, register]);
-}
+// Its own module, so the composer and the `tau` module reach it without loading the dialogs.
+export { PromptSubmitContext, usePromptSubmit, type PromptSubmitAction } from "./prompt-submit";
 
 export function OptionRow({
   index,
