@@ -566,7 +566,7 @@ describe("virtual transcript", () => {
   });
 
   it("keeps the leading row in place when unmeasured older rows are prepended", async () => {
-    // Older rows are 250 px once measured; the virtualizer first places them at its 180 px estimate.
+    // Older rows are 250 px once measured; the virtualizer first places them at the 100 px it learned from the newer rows.
     const heights = new Map<string, number>();
     const harness = installDelayedMeasurementHarness({
       rowHeight: (node) => heights.get(node.dataset.messageId ?? "") ?? 100,
@@ -594,7 +594,7 @@ describe("virtual transcript", () => {
       view.rerender(<Fixture messages={[...older, ...newer]} />);
       // Same commit: the leading row is mounted and still 30 px above the viewport top.
       expect(rowTop(container, "m110")).toBe(-30);
-      expect(container.scrollTop).toBeGreaterThan(50 * 180);
+      expect(container.scrollTop).toBeGreaterThan(50 * 100);
 
       // The virtualizer catches up with the new offset; a row above the leading one is measured late.
       await act(async () => { container.dispatchEvent(new Event("scroll")); });
@@ -605,15 +605,78 @@ describe("virtual transcript", () => {
       await harness.flushFrames();
       expect(rowTop(container, "m110")).toBe(-30);
 
-      // Once the reader scrolls, later measurements no longer move the transcript.
+      // After the reader scrolls, the row they are on keeps its place when it grows at its bottom.
       container.scrollTop -= 500;
       await act(async () => { container.dispatchEvent(new Event("scroll")); });
-      const readerScrollTop = container.scrollTop;
+      const readerTop = rowTop(container, "m108");
+      expect(readerTop).toBeLessThanOrEqual(0);
       heights.set("m108", 600);
-      const releasedRow = container.querySelector<HTMLElement>('[data-message-id="m108"]')!;
-      harness.trigger(releasedRow, 600);
+      const readerRow = container.querySelector<HTMLElement>('[data-message-id="m108"]')!;
+      harness.trigger(readerRow, 600);
       await harness.flushFrames();
-      expect(container.scrollTop).toBe(readerScrollTop);
+      expect(rowTop(container, "m108")).toBe(readerTop);
+    } finally {
+      view.unmount();
+      harness.restore();
+    }
+  });
+
+  it("moves the rows the reader sees by exactly the scroll while rows above them get measured", async () => {
+    // Heights differ within a kind, so every estimate is off.
+    const height = (index: number) => 60 + (index % 7) * 45;
+    const harness = installDelayedMeasurementHarness({
+      rowHeight: (node) => height(Number(node.dataset.index)),
+    });
+    const messages: UiMessage[] = Array.from({ length: 300 }, (_, index) => ({
+      id: `r${index}`,
+      role: index % 2 ? "assistant" : "user",
+      text: `Row ${index}`,
+      timestamp: index,
+    }));
+    const rowTop = (container: HTMLElement, id: string) => {
+      const row = container.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+      return row ? Number(row.style.transform.match(/translateY\((-?[\d.]+)px\)/u)?.[1]) - container.scrollTop : undefined;
+    };
+    const view = render(<Fixture messages={messages} />);
+    try {
+      const container = view.container.firstElementChild as HTMLDivElement;
+      container.scrollTop = 40_000;
+      await act(async () => { container.dispatchEvent(new Event("scroll")); });
+      await harness.flushFrames();
+      for (let step = 0; step < 40; step += 1) {
+        const visible = [...container.querySelectorAll<HTMLElement>(".virtual-transcript-row")]
+          .map((row) => ({ id: row.dataset.messageId!, top: rowTop(container, row.dataset.messageId!)! }))
+          .filter((row) => row.top >= 0 && row.top + 240 < 600)
+          .sort((left, right) => left.top - right.top);
+        expect(visible.length).toBeGreaterThan(0);
+        container.scrollTop -= 240;
+        await act(async () => { container.dispatchEvent(new Event("scroll")); });
+        await harness.flushFrames();
+        for (const row of visible) expect(rowTop(container, row.id)).toBe(row.top + 240);
+      }
+    } finally {
+      view.unmount();
+      harness.restore();
+    }
+  });
+
+  it("learns a row size per kind for rows it has not measured", async () => {
+    const harness = installDelayedMeasurementHarness({
+      rowHeight: (node) => node.dataset.rowKind === "user" ? 50 : 150,
+    });
+    const messages: UiMessage[] = Array.from({ length: 400 }, (_, index) => ({
+      id: `k${index}`,
+      role: index % 2 ? "assistant" : "user",
+      text: `Row ${index}`,
+      timestamp: index,
+    }));
+    const view = render(<Fixture messages={messages} />);
+    try {
+      await harness.flushFrames();
+      const content = view.container.querySelector<HTMLElement>(".virtual-transcript")!;
+      expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeLessThan(40);
+      // 200 prompts at 50 px and 200 answers at 150 px, most of them never mounted.
+      expect(content.style.height).toBe("40000px");
     } finally {
       view.unmount();
       harness.restore();

@@ -1,4 +1,4 @@
-import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
+import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject, type SyntheticEvent } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
@@ -10,7 +10,8 @@ import {
 } from "./transcript-activity";
 import { RowViewportKeeper } from "./transcript-scroll-controller";
 import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
-import { usePrependAnchor, type PrependAnchorVirtualizer } from "./usePrependAnchor";
+import { useLeadingRowAnchor } from "./useLeadingRowAnchor";
+import { TranscriptRowSizes, transcriptRowKind } from "./transcript-row-sizes";
 import { LazyFeatureBoundary } from "./LazyFeature";
 
 export interface VirtualTranscriptProps {
@@ -150,16 +151,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     [activeTurnStartId, messageIndex],
   );
 
-  const virtualizerRef = useRef<PrependAnchorVirtualizer | undefined>(undefined);
-  const pinnedRows = usePrependAnchor(virtualizerRef, scrollRef, messageIndex.positions, firstId);
-  const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
-    const indexes = defaultRangeExtractor(range);
-    const pinned = pinnedRows();
-    if (!pinned) return indexes;
-    const merged = new Set(indexes);
-    for (let index = pinned[0]; index <= pinned[1]; index += 1) merged.add(index);
-    return [...merged].sort((left, right) => left - right);
-  }, [pinnedRows]);
+  const [rowSizes] = useState(() => new TranscriptRowSizes());
+  const rowKind = (message: UiMessage) => transcriptRowKind(message, (activitiesByMessage.get(message.id)?.length ?? 0) > 0, detail);
   const [expandedState, setExpandedState] = useState<{ sessionKey: string; ids: ReadonlySet<string> }>(() => ({ sessionKey, ids: new Set() }));
   const expandedMessageIds = expandedState.sessionKey === sessionKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
   // The transcript index already owns this mapping. Reusing it avoids a second
@@ -188,8 +181,17 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 180,
+    estimateSize: (index) => {
+      const message = messages[index];
+      return message ? rowSizes.size(message.id, rowKind(message)) : 0;
+    },
     getItemKey: (index) => messages[index]?.id ?? index,
+    measureElement: (element, entry, instance) => {
+      const size = measureElement(element, entry, instance);
+      const { messageId, rowKind: kind } = (element as HTMLElement).dataset;
+      if (messageId && kind) rowSizes.record(messageId, kind, size);
+      return size;
+    },
     // The first pass only needs a small window. The real scroll element is
     // measured immediately after mount and expands the range on the next
     // frame, while this keeps the mount-critical work bounded for long logs.
@@ -197,16 +199,15 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     // Keep the initial/current-turn window small enough that long active turns
     // remain bounded without paying for a large hidden DOM on every update.
     overscan: messages.length >= 200 ? 0 : 3,
-    rangeExtractor,
     useAnimationFrameWithResizeObserver: true,
   });
-  // Not a `useVirtualizer` option in virtual-core 3.x. The controller owns
-  // every scroll write, so the virtualizer never compensates on its own.
+  // Not a `useVirtualizer` option in virtual-core 3.x. Its own compensation
+  // writes scrollTop a frame before the rows move; useLeadingRowAnchor does it in the same commit.
   useLayoutEffect(() => {
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
   }, [virtualizer]);
+  useLeadingRowAnchor(virtualizer, scrollRef, messageIndex.positions, rowSizes);
   const measureRow = useRowMeasurement(virtualizer);
-  useLayoutEffect(() => { virtualizerRef.current = virtualizer; }, [virtualizer]);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const activityLayout = useRef<ActivityLayoutSnapshot>({
@@ -441,6 +442,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
         ref={measureRow}
         data-index={row.index}
         data-message-id={message.id}
+        data-row-kind={rowKind(message)}
         data-focused={focusedIndex === row.index ? "true" : undefined}
         // Selecting text in a message ends in a click on its row. The cursor
         // follows so `y`/Enter act on the message the pointer is on — the ring
