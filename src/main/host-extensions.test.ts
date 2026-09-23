@@ -5,6 +5,7 @@ import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError } from "./host-extension-errors.js";
 import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
 import { WORKBENCH_CLIENT_PRINCIPAL } from "./host-invocation.js";
+import { TurnAttachmentRegistry } from "./turn-attachments.js";
 
 function services(): HostExtensionServices & { logs: string[] } {
   const logs: string[] = [];
@@ -150,6 +151,40 @@ describe("HostExtensionRegistry", () => {
     await r.activate(kit("two.kit"));
     expect(seen).toEqual([join("/state", "one.kit"), join("/state", "two.kit")]);
     expect(existsSync(join("/state", "one.kit"))).toBe(false);
+  });
+
+  it("binds turn attachments and settings to the extension that asks", async () => {
+    const attachments = new TurnAttachmentRegistry();
+    const settings = vi.fn(async (extensionId: string, cwd?: string) => ({ options: { [extensionId]: true }, values: { cwd: cwd ?? "" } }));
+    const r = new HostExtensionRegistry({ ...services(), turnAttachments: attachments as never, settings: settings as never }, () => undefined);
+    const seen: Record<string, unknown> = {};
+    await r.activate({
+      id: "maker.kit",
+      name: "Maker",
+      permissions: ["sessions"],
+      activate: async (ctx) => {
+        ctx.services.turnAttachments?.provide({
+          list: () => [{ id: "f1", at: 1, mediaType: "image/jpeg", size: 3 }],
+          read: async () => ({ mediaType: "image/jpeg", data: "abc" }),
+        });
+        seen.settings = await ctx.services.settings?.("/project");
+      },
+    });
+    await r.activate({
+      id: "reader.kit",
+      name: "Reader",
+      permissions: ["sessions"],
+      activate: async (ctx) => {
+        seen.list = await ctx.services.turnAttachments?.list("t1");
+        seen.read = await ctx.services.turnAttachments?.read("t1", "maker.kit", "f1");
+      },
+    });
+    await r.activate({ id: "blind.kit", name: "Blind", permissions: [], activate: (ctx) => { seen.blind = (() => { try { return ctx.services.turnAttachments; } catch (error) { return String(error); } })(); } });
+
+    expect(seen.settings).toEqual({ options: { "maker.kit": true }, values: { cwd: "/project" } });
+    expect(seen.list).toEqual([{ id: "f1", source: "maker.kit", at: 1, mediaType: "image/jpeg", size: 3 }]);
+    expect(seen.read).toEqual({ mediaType: "image/jpeg", data: "abc" });
+    expect(seen.blind).toContain("lacks permission sessions");
   });
 
   it("enforces permissions on HostExtensionServices methods", async () => {
