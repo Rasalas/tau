@@ -167,6 +167,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         adapter,
         modelProvider: "openai",
         listThreads: async () => (await store.list()).map(record),
+        removeThread: (threadId) => store.take(threadId),
+        restoreThread: (threadId, value) => store.put(threadId, value),
         lookup: async (threadId) => {
           const entry = await store.get(threadId);
           return entry ? record(entry) : undefined;

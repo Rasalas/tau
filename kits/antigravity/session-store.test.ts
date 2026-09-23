@@ -44,4 +44,17 @@ describe("AntigravitySessionStore", () => {
     await store.setModels([]);
     expect(await new AntigravitySessionStore({ filePath }).listModels()).toEqual([{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }]);
   });
+
+  it("hands a thread's record to the trash and takes the same record back", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-agy-store-"));
+    directories.push(directory);
+    const filePath = join(directory, "sessions.json");
+    const store = new AntigravitySessionStore({ filePath });
+    await store.ensure("thread", "/repo");
+    await store.setAcpSession("thread", "/repo", "acp-1");
+    const taken = await store.take("thread");
+    expect(await new AntigravitySessionStore({ filePath }).get("thread")).toBeUndefined();
+    await store.put("thread", JSON.parse(JSON.stringify(taken)));
+    expect(await new AntigravitySessionStore({ filePath }).get("thread")).toMatchObject({ acpSessionId: "acp-1" });
+  });
 });

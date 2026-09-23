@@ -308,4 +308,14 @@ describe("the model a thread ran on", () => {
     expect(record?.observedModel).toBe("claude-haiku-4-5");
     expect(record?.model).toBeUndefined();
   });
+
+  it("hands a thread's record to the trash and takes the same record back", async () => {
+    const { filePath } = await temporaryStore();
+    const store = new ClaudeRuntimeSessionStore({ filePath, now: () => 10 });
+    const record = await store.ensure("thread", "/repo");
+    const taken = await store.take("thread");
+    expect(await new ClaudeRuntimeSessionStore({ filePath }).get("thread")).toBeUndefined();
+    await store.put("thread", JSON.parse(JSON.stringify(taken)));
+    expect(await new ClaudeRuntimeSessionStore({ filePath }).get("thread")).toMatchObject({ claudeSessionId: record.claudeSessionId, cwd: "/repo" });
+  });
 });
