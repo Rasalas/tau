@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { CLIENT_PROFILES, createKitHarness, expectKitActivatesCleanly, runtimeControls } from "../src/renderer/test-support/kit-harness.js";
+import { APP_MENU_CHORDS, CLIENT_PROFILES, createKitHarness, expectKitActivatesCleanly, normalizeKeyChord, runtimeControls } from "../src/renderer/test-support/kit-harness.js";
 import agents from "./agents/desktop.js";
 import preview from "./preview/desktop.js";
 import packages from "./packages/desktop.js";
@@ -102,6 +102,19 @@ describe("client profiles", () => {
       for (const extension of kits) registry.deactivate(extension.id);
     });
   }
+
+  // The app menu takes its accelerators before the page sees them; Settings is
+  // the one chord both bind, to the same command. A preview that wants the zoom
+  // chords for its own page takes them in that view (`src/main/app-menu.ts`).
+  it("leaves the app menu's chords to the menu, but Settings, which both bind to one command", () => {
+    const { registry } = createKitHarness(workspaceHostStub());
+    registry.activateCore(runtimeControls);
+    for (const extension of kits) registry.activate(extension);
+    const menu = new Set(Object.values(APP_MENU_CHORDS).map((chord) => normalizeKeyChord(chord)));
+    const taken = registry.getKeybindings().filter((binding) => menu.has(normalizeKeyChord(binding.keys)));
+    expect(taken.map((binding) => `${binding.keys}: ${binding.commandId}`)).toEqual([`${APP_MENU_CHORDS.settings}: runtime.settings`]);
+    for (const extension of kits) registry.deactivate(extension.id);
+  });
 
   it("gives a shared chord to the binding whose context the keyboard is in", () => {
     const { registry } = createKitHarness(workspaceHostStub());

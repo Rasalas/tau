@@ -1,6 +1,7 @@
 import { createNewThreadRequestId, type NewThreadRequestId } from "../shared/contracts";
 import type { ClientStorage } from "./client-storage";
-import { draftKey, readNewThreadDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import type { UiModel } from "../shared/contracts";
+import { draftKey, readNewThreadDraft, writeNewThreadDraft, type DraftRuntimeSelection, type NewThreadDraft } from "./draft-store";
 import { createDraftKey, type DraftKey } from "./composer-scope-store";
 
 let draftIdentityCounter = 0;
@@ -30,6 +31,8 @@ export class NewThreadController {
   private pending: NewThreadDraft | undefined;
   private request: NewThreadRequestId;
   private awaitingPromotion: { scope: DraftKey; requestId: NewThreadRequestId } | undefined;
+  /** A model chosen for the next draft before it exists; `begin` takes it. */
+  private carried: { runtime: string; model: UiModel } | undefined;
   private readonly listeners = new Set<() => void>();
   private readonly storage: ClientStorage;
 
@@ -57,7 +60,13 @@ export class NewThreadController {
 
   begin = (draft: NewThreadDraft): void => {
     this.request = newRequestIdentity();
-    const scopedDraft = { ...draft, draftId: draft.draftId ?? newDraftIdentity() };
+    const carried = this.carried;
+    this.carried = undefined;
+    const scopedDraft = {
+      ...draft,
+      draftId: draft.draftId ?? newDraftIdentity(),
+      ...(carried ? { model: { provider: carried.model.provider, id: carried.model.id, name: carried.model.name }, ...selectionRuntime(carried.runtime) } : {}),
+    };
     writeNewThreadDraft(this.storage, scopedDraft);
     this.set(scopedDraft);
   };
@@ -114,6 +123,42 @@ export class NewThreadController {
     writeNewThreadDraft(this.storage);
     this.set(undefined);
     return scope;
+  };
+
+  /** The next draft that begins starts on `model` of `runtime`: another runtime's model picked in a thread that exists. */
+  carryToNextDraft = (runtime: string, model: UiModel): void => {
+    this.carried = { runtime, model };
+  };
+
+  /**
+   * The draft moves from one runtime to another: what it chose for `from` is
+   * kept aside and what it chose for `to` before comes back. A runtime it never
+   * chose for keeps the mode it has.
+   */
+  switchRuntime = (from: string, to: string): void => {
+    const pending = this.pending;
+    if (!pending || pending.sessionId || from === to) return;
+    const selections = { ...pending.runtimeSelections };
+    const chosen = (pending.selectionRuntime ?? "pi") === from;
+    const leaving: DraftRuntimeSelection = {
+      ...(chosen && pending.model ? { model: pending.model } : {}),
+      ...(chosen && pending.thinkingLevel ? { thinkingLevel: pending.thinkingLevel } : {}),
+      ...(pending.mode ? { mode: pending.mode } : {}),
+    };
+    if (Object.keys(leaving).length) selections[from] = leaving;
+    else delete selections[from];
+    const back = selections[to];
+    delete selections[to];
+    const { mode: _mode, runtimeSelections: _selections, ...rest } = withoutSelection(pending);
+    const mode = back ? back.mode : pending.mode;
+    this.store({
+      ...rest,
+      ...(back?.model || back?.thinkingLevel ? selectionRuntime(to) : {}),
+      ...(back?.model ? { model: back.model } : {}),
+      ...(back?.thinkingLevel ? { thinkingLevel: back.thinkingLevel } : {}),
+      ...(mode ? { mode } : {}),
+      ...(Object.keys(selections).length ? { runtimeSelections: selections } : {}),
+    });
   };
 
   /** A draft keeps the model for the thread it becomes; `runtime` is the one it was chosen from. */

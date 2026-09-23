@@ -122,14 +122,24 @@ esbuild binary.
 electron-builder writes it into `app-update.yml` inside the app. From there:
 
 1. An installed Tau asks that repository for a newer release a few seconds
-   after it starts, and downloads one in the background. A Tau running from a
-   checkout never checks (`src/main/app-updates.ts`).
-2. When the download finishes the host publishes an `app-update` event and the
-   workbench offers a toast: *Tau 0.2.0 downloaded, restart to install*, with a
-   Restart button that quits into the new version.
+   after it starts and then every hour, on the update track the config holds at
+   that moment, and downloads one in the background. It stops asking while a
+   downloaded version waits for a restart. A Tau running from a checkout never
+   checks (`src/main/app-updates.ts`).
+2. When the download finishes the window's process publishes an `app-update`
+   event and the workbench offers a toast: *Tau 0.2.0 downloaded, restart to
+   install*, with a Restart button that quits into the new version. A page that
+   loads later asks for it (`window-action` `status`).
 3. A user who ignores the toast gets the update the next time they quit Tau.
-4. "Check for updates…" in the application menu asks on demand and reports what
-   it found.
+4. "Check for Updates…" in the application menu (and on Settings → About) asks
+   on demand and reports what it found.
+5. The first start of the new version shows its release notes once: a toast,
+   *Tau 0.3.0 is installed*, whose What's new opens the list
+   (`src/main/release-notes.ts`, state in `<userData>/release-notes.json`). The
+   notes are the ones the download brought, else the GitHub release of that
+   version read through the public API (the moving `nightly` tag for a
+   nightly). A dev instance reads `TAU_RELEASE_NOTES_FILE` instead and fetches
+   nothing; set `lastVersion` in that file to an older version to see them.
 
 electron-updater reads the `latest-mac.yml`, `latest-linux.yml` and
 `latest.yml` files the release carries. A release published without them

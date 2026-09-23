@@ -24,10 +24,41 @@ export interface NewThreadDraft {
   selectionRuntime?: string;
   /** The interaction mode the thread starts in; `default` when absent. */
   mode?: string;
+  /** What was chosen for each runtime the draft left, so coming back finds it again. */
+  runtimeSelections?: Record<string, DraftRuntimeSelection>;
   /** Text-only recovery state; pending attachments remain memory-only. */
   draft?: string;
   /** What extensions keep beside the text, as JSON, by extension id. */
   extensions?: Record<string, string>;
+}
+
+/** A draft's model, level and mode for one runtime. */
+export interface DraftRuntimeSelection {
+  model?: UiModel;
+  thinkingLevel?: string;
+  mode?: string;
+}
+
+function readModel(value: unknown): UiModel | undefined {
+  const model = value as Partial<UiModel> | undefined;
+  return model && typeof model === "object" && typeof model.provider === "string" && typeof model.id === "string" && typeof model.name === "string"
+    ? { provider: model.provider, id: model.id, name: model.name }
+    : undefined;
+}
+
+function readSelections(value: unknown): Record<string, DraftRuntimeSelection> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const result: Record<string, DraftRuntimeSelection> = {};
+  for (const [runtime, raw] of Object.entries(value as Record<string, Record<string, unknown>>)) {
+    if (!raw || typeof raw !== "object") continue;
+    const model = readModel(raw.model);
+    result[runtime] = {
+      ...(model ? { model } : {}),
+      ...(typeof raw.thinkingLevel === "string" ? { thinkingLevel: raw.thinkingLevel } : {}),
+      ...(typeof raw.mode === "string" && raw.mode ? { mode: raw.mode } : {}),
+    };
+  }
+  return Object.keys(result).length ? result : undefined;
 }
 
 let draftSequence = 0;
@@ -139,15 +170,11 @@ export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | und
       ...(typeof value.workspaceId === "string" ? { workspaceId: value.workspaceId } : {}),
       projectName: value.projectName,
       ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
-      ...(value.model && typeof value.model === "object"
-        && typeof value.model.provider === "string"
-        && typeof value.model.id === "string"
-        && typeof value.model.name === "string"
-        ? { model: { provider: value.model.provider, id: value.model.id, name: value.model.name } }
-        : {}),
+      ...(readModel(value.model) ? { model: readModel(value.model) } : {}),
       ...(typeof value.thinkingLevel === "string" ? { thinkingLevel: value.thinkingLevel } : {}),
       ...(typeof value.selectionRuntime === "string" ? { selectionRuntime: value.selectionRuntime } : {}),
       ...(typeof value.mode === "string" && value.mode ? { mode: value.mode } : {}),
+      ...(readSelections(value.runtimeSelections) ? { runtimeSelections: readSelections(value.runtimeSelections) } : {}),
       ...(typeof value.draft === "string" ? { draft: value.draft } : {}),
       ...(isStringRecord(value.extensions) ? { extensions: value.extensions } : {}),
     };

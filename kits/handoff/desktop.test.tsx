@@ -86,6 +86,16 @@ describe("Continue in…", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("continues in the runtime the model picker names, without its own menu", async () => {
+    const { invoke, registry, command } = setup();
+    const actions = actionsFor();
+    expect(registry.getCommandsFor("runtime-switch").map((entry) => entry.id)).toEqual(["handoff.continue-in"]);
+    act(() => { void command("handoff.continue-in").run(actions, { runtime: "codex" }); });
+    await vi.waitFor(() => expect(actions.newSession).toHaveBeenCalledWith({ workspace: "ws1" }));
+    expect(invoke).toHaveBeenCalledWith(HANDOFF_EXTENSION_ID, "create-transfer", { threadId: "parent", target: "codex" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("forks natively when the thread stays on a runtime that forks itself", async () => {
     const { command, drawTitle } = setup({ "create-transfer": { transferId: "t1", native: true, sourceTitle: "Parser work" } });
     const actions = actionsFor();

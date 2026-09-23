@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
-  Menu: { getApplicationMenu: () => null, setApplicationMenu: vi.fn() },
-  MenuItem: class {},
   dialog: { showMessageBox: vi.fn() },
 }));
 
@@ -60,17 +58,69 @@ describe("app updates", () => {
   it("checks on startup once the app has settled", async () => {
     vi.useFakeTimers();
     const { subject, updater } = updates();
-    subject.checkOnStartup();
+    subject.start();
     expect(updater.checkForUpdates).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
+  it("checks again every poll interval, following the channel as it is then", async () => {
+    vi.useFakeTimers();
+    let channel: "stable" | "nightly" = "stable";
+    const { subject, updater } = updates({ channel: async () => channel });
+    subject.start();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    channel = "nightly";
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    expect(updater.allowPrerelease).toBe(true);
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(3);
+    subject.stop();
+    await vi.advanceTimersByTimeAsync(3 * 60 * 60_000);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
+  it("stops polling while a downloaded version waits for a restart", async () => {
+    vi.useFakeTimers();
+    const { subject, updater, emit } = updates();
+    subject.start();
+    await vi.advanceTimersByTimeAsync(1);
+    emit("update-downloaded", { version: "0.2.0" });
+    await vi.advanceTimersByTimeAsync(5 * 60 * 60_000);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    subject.stop();
+    vi.useRealTimers();
+  });
+
+  it("joins a check already in flight instead of starting a second one", async () => {
+    const { subject, updater, emit, told } = updates();
+    let finish = () => {};
+    updater.checkForUpdates.mockImplementation(() => new Promise<void>((resolve) => { finish = () => { emit("update-not-available", { version: "0.1.0" }); resolve(); }; }));
+    const asked = subject.checkForUpdates();
+    const again = subject.checkForUpdates();
+    await vi.waitFor(() => expect(updater.checkForUpdates).toHaveBeenCalled());
+    finish();
+    await Promise.all([asked, again]);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(told).toEqual(["Tau is up to date."]);
+  });
+
+  it("hands the release notes of a download on", () => {
+    const { updater, emit } = fakeUpdater();
+    const onDownloaded = vi.fn();
+    createAppUpdates({ updater, enabled: true, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, onDownloaded, tell: () => undefined });
+    emit("update-downloaded", { version: "0.5.0", releaseNotes: "## What's Changed\n* One thing" });
+    expect(onDownloaded).toHaveBeenCalledWith("0.5.0", { version: "0.5.0", releaseNotes: "## What's Changed\n* One thing" });
+  });
+
   it("never checks from a checkout", async () => {
     vi.useFakeTimers();
     const { subject, updater, log } = updates({ enabled: false });
-    subject.checkOnStartup();
+    subject.start();
     await vi.advanceTimersByTimeAsync(10_000);
     expect(updater.checkForUpdates).not.toHaveBeenCalled();
     expect(log.info).toHaveBeenCalledWith("update.disabled", expect.any(String));

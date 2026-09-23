@@ -90,6 +90,23 @@ newer `latest` comes from seeding the kit's registry cache before the start,
 and `TAU_VERSION_POLICY='{"codex":{"ranges":[]}}'` keeps the policy banner out
 of the way.
 
+### Release notes without a release
+
+The notes a new version shows once come from GitHub in an installed Tau. Start
+an instance with `TAU_RELEASE_NOTES_FILE=<abs path>` (a Markdown body, the way
+GitHub writes one) and it reads that file instead and fetches nothing. The
+notes are due when `.tau-dev/userdata/release-notes.json` names an older
+`lastVersion` than the running one: stop the instance, write
+`{"version":1,"lastVersion":"0.0.1"}` there, and start it again without
+`--fresh`.
+
+### What CDP keys do not reach
+
+`npm run cdp -- press` goes to the page. The app menu's accelerators (zoom,
+Paste as Text) and the window's `before-input-event` (the ⌘Q hold) never see
+it; drive those from the main process (`webContents.sendInputEvent`, a menu
+item's `click`) or leave them to the unit tests.
+
 ## Keeping an instance alive across turns
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.
@@ -104,7 +121,7 @@ This is about not restarting between passes of the same task, not about leaving 
 | --- | --- |
 | `snapshot` | A compact text outline: headings, buttons with aria-labels, thread rows (marking the active one), toasts, composer state, active dock panels. |
 | `eval <expr>` | Runs an async JS expression in the renderer with `all`, `byText`, `rect`, `setValue`, `sleep`, `toasts` in scope. |
-| `click <expr>` | Resolves `expr` to an element and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
+| `click <expr>` | Resolves `expr` to an element, scrolls it into view (a button below a short window's fold was clicked in empty space before) and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
 | `hover <expr>` | Moves the mouse onto the element's center and nowhere else, so a tooltip opens after its delay. |
 | `rightclick <expr>` | A right-click at the element's center. Where the page asks for the OS's menu (`useContextMenu`), that menu is a native window CDP cannot reach: read it with `screencapture -l <id>` of a window your instance's PID owns, and `stop` closes it with the instance. |
 | `type <expr> <text>` | Sets a textarea's value through its native setter and fires `input`. |
@@ -114,6 +131,14 @@ This is about not restarting between passes of the same task, not about leaving 
 | `toasts` | The toast stack as JSON: each toast's `level` (its type) and text. |
 | `pid` | The instance's own Electron PID, found by checking the port's devtools endpoint and cross-referencing `ps`, so a caller kills only its own instance. |
 | `stop` | Stops the instance: SIGTERM, then SIGKILL if it is still alive after ~2s. Electron's main process installs no SIGTERM handler of its own and does not reliably quit from one alone; prefer this over a bare `kill <pid>`. |
+
+## A test prompt from a fresh instance
+
+`.agents/skills/test-tau-app/SKILL.md` has the commands, checked against the current picker. Three things make it more than "type and press Enter":
+
+- A `--fresh` instance opens the welcome wizard first (Continue, "Do not add projects", "Do not import").
+- The instance copies the user's Pi `settings.json`, so a new draft starts on the user's default model, which may be expensive. Pick the cheap model in the picker by its option's aria-label (`GPT-5.6 Luna, Pi, …`), and check the chip's label before sending.
+- Proof that the turn ran on it is the session file under `.tau-dev/pi-sessions/`: a `model_change` to the cheap model before the user message, and the assistant message's `"model"`.
 
 ## Known traps
 

@@ -239,7 +239,12 @@ the tab the stage shows, of any kind — so the same command also works from
 the palette. Files Kit's "Edit file" is the shipped caller. A command marked
 `destructive` (new in API 1.11.0) is drawn in the danger colour and, in the
 title menu, in a section of its own at the end — Thread Rail's "Delete
-thread"; a `MenuItem` takes the same `destructive` flag.
+thread"; a `MenuItem` takes the same `destructive` flag. `runtime-switch`
+(new in API 1.12.0) offers the command in the model picker while a thread that
+exists looks at another runtime's models: the picker draws the label with the
+runtime's name in place of a trailing ellipsis ("Continue in…" → "Continue in
+Codex") and runs it with a second argument, `{ runtime }`; from the palette the
+command runs without one. Handoff Kit's "Continue in…" is the shipped caller.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -789,6 +794,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `actions.toast(options)` | A toast on the window's stack, top right, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`; the icon, and an `error` is an ARIA alert), `title`, `description`, `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message)` is still the one-line way: every notice is a toast. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
 | `MiddleTruncate`, `splitMiddle` | `<MiddleTruncate value={branch} />` cuts in the middle, as Finder does, for values that mean something at both ends — branches, paths, shas: a head that ellipsizes and a tail that stays (a short last path segment, else `tail` characters, 10 by default). No measuring and inline styles only, so it costs what an end cut costs in a long list; both halves are real text, so copy and screen readers get the whole value. Other props go to the outer `span`. `splitMiddle(value, tail?)` answers the cut, or `undefined` when the value is too short to be worth one. The rail's branch line uses it. |
 | `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. |
+| `ConfirmDialog` | A yes-or-no question on `Dialog`, after T3 Code's: `title`, `message`, `confirmLabel` (`destructive` draws it red), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
@@ -1282,7 +1288,9 @@ client as a `runtime-catalog` event only when it changed, and the
 A model in the answer (`HostCatalogModel`) may say more than its name:
 `billing` (`subscription`, `api-key`, `free`, `local`), `price` (USD per
 million tokens: `input`, `output`, `cacheRead`, `cacheWrite`),
-`contextWindow`, `maxOutput`, `images` and `reasoning`. Whatever it leaves out
+`contextWindow`, `maxOutput`, `images`, `reasoning` and `releasedAt` (new in
+API 1.12.0, `YYYY-MM-DD`; the host fills it from models.dev's release dates,
+which it keeps from the catalog it fetches for Pi). Whatever it leaves out
 the host fills from Pi's model data when Pi knows the model — the same
 provider and id first, then any provider that prices the id — so a
 subscription offering still carries the price the model has over its API.

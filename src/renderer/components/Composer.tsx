@@ -19,7 +19,7 @@ import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
 import { tooltipProps } from "./ui/Tooltip";
-import { modelKey } from "./model-picker-rail";
+import { modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
 import { useRuntimeCatalogs } from "../use-runtime-catalog";
@@ -59,6 +59,7 @@ import {
 import { ComposerAttachmentsList } from "./ComposerAttachments";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
+import { takePasteAsText } from "../paste-as-text";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
@@ -174,8 +175,8 @@ export function Composer({
   onSetThinking(level: string): void;
   /** Offered while the composer targets a thread that does not exist yet. */
   runtimeChoice?: ComposerRuntimeChoice;
-  /** Starts a new thread on another runtime, which an existing thread cannot change to. */
-  onNewThreadOnRuntime?(kind: ThreadBackendKind): void;
+  /** Starts a new thread on another runtime, which an existing thread cannot change to; on `model` when one was chosen. */
+  onNewThreadOnRuntime?(kind: ThreadBackendKind, model?: UiModel): void;
   prompt?: ExtensionUiPrompt;
   promptsPending?: number;
   /** `typed` is set when the answer came from the text field rather than a choice. */
@@ -477,7 +478,7 @@ export function Composer({
     const runtime = from ?? snapshot?.backendKind;
     // A thread keeps its runtime; another runtime's model means a thread of its own.
     if (from && from !== snapshot?.backendKind && !runtimeChoice) {
-      onNewThreadOnRuntime?.(from);
+      onNewThreadOnRuntime?.(from, model);
       return;
     }
     passGates(
@@ -490,6 +491,13 @@ export function Composer({
       () => setModelPickerOpen(true),
     );
   };
+  // Kits' actions with another runtime than an existing thread's ("Continue in…").
+  const switchCommands = modelPickerOpen && !runtimeChoice ? registry?.getCommandsFor?.("runtime-switch") : undefined;
+  const runtimeActions = useMemo(() => (switchCommands ?? []).flatMap((command) => shellContext?.actions ? [{
+    id: command.id,
+    label: command.label.replace(/…$/u, ""),
+    run: (runtime: string) => { void command.run(shellContext.actions!, { runtime }); },
+  }] : []), [shellContext?.actions, switchCommands]);
   const supportsImageInput = snapshot?.supportsImageInput ?? false;
   const streaming = Boolean(snapshot?.isStreaming);
   // An external runtime may pick model and reasoning itself; the pickers then only show what it reports.
@@ -761,6 +769,8 @@ export function Composer({
           void addFiles(event.dataTransfer.files);
         }}
         onPaste={(event) => {
+          // Paste as Text: the clipboard's text as it is, no fold and no file.
+          if (takePasteAsText()) return;
           if (event.clipboardData.files.length === 0) {
             const pasted = event.clipboardData.getData("text/plain");
             if (pasted && pasteText(pasted)) event.preventDefault();
@@ -1112,6 +1122,7 @@ export function Composer({
             catalogs={runtimeCatalogs}
             onSelectRuntime={runtimeChoice?.onSelect}
             onNewThreadOnRuntime={onNewThreadOnRuntime}
+            runtimeActions={runtimeActions}
             badges={registry?.getModelBadges?.()}
             multiSelect={gatedModelSet}
             anchor={modelChipRef}

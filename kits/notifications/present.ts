@@ -68,6 +68,7 @@ const HEADLINES: Record<AttentionReason, string> = {
   completed: "Finished",
   failed: "Stopped with an error",
   question: "Waiting for your answer",
+  approval: "Waiting for your approval",
 };
 
 /** Title and body of one notification for one or several threads, newest first. */

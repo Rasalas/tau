@@ -25,6 +25,8 @@ import {
   TRASH_EVENT,
   WORKSPACE_STORE_SERVICE,
   type TrashedThread,
+  RAIL_CONFIRMATIONS,
+  type RailQuestionAction,
   type RailSettings,
   type RailState,
   type ThreadMetaPatch,
@@ -118,9 +120,10 @@ const INACTIVE_CHOICES: Array<{ days?: number; label: string }> = [
   { label: "Off" }, { days: 1, label: "1 day" }, { days: 3, label: "3 days" }, { days: 7, label: "7 days" }, { days: 30, label: "30 days" },
 ];
 
-function createSettingsPage(store: RailStore, update: (settings: Partial<Record<keyof RailSettings, unknown>>) => Promise<void>) {
+function createSettingsPage(store: RailStore, preferences: PreferencesStore, update: (settings: Partial<Record<keyof RailSettings, unknown>>) => Promise<void>) {
   return function ThreadRailSettings({ onNotify }: SettingsPageProps) {
     useSyncExternalStore(store.subscribe, store.getVersion);
+    useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
     const settings = store.getState().settings;
     const change = (patch: Partial<Record<keyof RailSettings, unknown>>) => { update(patch).catch((error: unknown) => onNotify(errorMessage(error))); };
     const toggle = (key: "onMerged" | "onClosed", label: string, hint: string) => (
@@ -153,6 +156,17 @@ function createSettingsPage(store: RailStore, update: (settings: Partial<Record<
         </div>
         {toggle("onMerged", "When its pull request merges", "Worktree threads only: their branch is theirs alone")}
         {toggle("onClosed", "When its pull request is closed", "Closed without merging")}
+        <div className="settings-label">Ask first</div>
+        {(Object.keys(RAIL_CONFIRMATIONS) as RailQuestionAction[]).map((action) => {
+          const { option, fallback, label, hint } = RAIL_CONFIRMATIONS[action];
+          const on = preferences.optionValue(THREAD_RAIL_EXTENSION_ID, option, fallback);
+          return (
+            <div className="settings-field-row" key={action}>
+              <span className="settings-field-label"><strong>{label}</strong><small>{hint}</small></span>
+              <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "on" : ""}`} onClick={() => preferences.setOption(THREAD_RAIL_EXTENSION_ID, option, !on)}><i /></button>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -291,6 +305,18 @@ export const threadRailExtension: DesktopExtension = {
       running: (threadId) => store.running.has(threadId),
       workspace: () => workspace,
       titles: () => titles,
+      confirm: (action, sessions) => {
+        const { option, fallback } = RAIL_CONFIRMATIONS[action];
+        if (!context.preferences.optionValue(THREAD_RAIL_EXTENSION_ID, option, fallback)) return Promise.resolve(true);
+        return new Promise<boolean>((resolve) => store.ask({
+          action,
+          sessions,
+          answer: (confirmed, dontAskAgain) => {
+            if (confirmed && dontAskAgain) context.preferences.setOption(THREAD_RAIL_EXTENSION_ID, option, false);
+            resolve(confirmed);
+          },
+        }));
+      },
     });
     const load = (state: unknown, preferences: PreferencesStore) => {
       const { pinnedThreadIds, settledThreadIds } = preferences.getSnapshot();
@@ -372,7 +398,7 @@ export const threadRailExtension: DesktopExtension = {
         Icon: ListTree,
         order: 40,
         profiles: ["desktop", "web"],
-        Component: createSettingsPage(store, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
+        Component: createSettingsPage(store, context.preferences, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
       }),
       context.registerCommand({ id: "thread.pin", label: "Pin or unpin thread", group: "Thread", run: (app) => withActive(app, organizer.togglePin) }),
       context.registerCommand({ id: "thread.settle", label: "Settle or un-settle thread", group: "Thread", run: (app) => withActive(app, organizer.toggleSettledById) }),
