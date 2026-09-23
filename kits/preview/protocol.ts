@@ -12,6 +12,55 @@ export const DEFAULT_PREVIEW_PROFILE = "default";
 /** Event the host pushes whenever the browsed page changes. */
 export const PREVIEW_STATE_EVENT = "state";
 
+/** `prefers-color-scheme` the page sees; `system` follows the OS. */
+export type PreviewAppearance = "system" | "light" | "dark";
+
+/** The page's viewport: the panel's whole rectangle, or a fixed CSS size scaled to fit it. */
+export type PreviewViewport = { mode: "fill" } | { mode: "fixed"; width: number; height: number; preset?: string };
+
+export interface PreviewRecordingOptions {
+  frameRate: number;
+  /** Draw each key press into the recording; never inside a password field. */
+  showKeys: boolean;
+  /** Draw a ring where the pointer presses. */
+  showClicks: boolean;
+}
+
+/** What a new page opens with, from Settings → Preview. */
+export interface PreviewDefaults {
+  viewport: PreviewViewport;
+  zoom: number;
+  appearance: PreviewAppearance;
+  recording: PreviewRecordingOptions;
+}
+
+export type PreviewMiniCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+/** Where the floating preview sits and how wide it is at rest, for every client. */
+export interface PreviewMiniPrefs {
+  corner: PreviewMiniCorner;
+  width: number;
+}
+
+/** The thread whose agent last drove the page or a window, until its turn ends. */
+export interface PreviewDriver {
+  threadId: string;
+  source: "browser" | "screen";
+  since: number;
+  /** The user hid the floating preview for this drive. */
+  dismissed?: boolean;
+}
+
+/** A page the preview showed, newest first in the list. */
+export interface PreviewHistoryEntry {
+  url: string;
+  title?: string;
+  visitedAt: number;
+}
+
+/** What the preview page's own keys asked for: T3 Code's `preview.refresh` and zoom chords. */
+export type PreviewChord = "reload" | "hard-reload" | "zoom-in" | "zoom-out" | "zoom-reset";
+
 /** Where the panel wants the view drawn, in the window's CSS pixels. */
 export interface PreviewBounds {
   x: number;
@@ -39,6 +88,12 @@ export interface PreviewState {
   recordingSince?: number;
   /** The last recording that ended without being asked to, e.g. at the length cap. */
   recordingNotice?: string;
+  /** The page's own zoom, apart from the workbench's. */
+  zoom: number;
+  viewport: PreviewViewport;
+  appearance: PreviewAppearance;
+  driver?: PreviewDriver;
+  mini: PreviewMiniPrefs;
 }
 
 /** A local server the address bar suggests. */
@@ -61,8 +116,24 @@ export interface PreviewImage {
 }
 
 export interface PreviewProfiles {
+  /** Profile ids; an id names the profile's partition and never changes. */
   profiles: string[];
   active: string;
+  /** A name the user gave a profile, by id; the id is its name otherwise. */
+  names?: Record<string, string>;
+}
+
+/** What a profile is called in the panel and in Settings. */
+export function profileLabel(profiles: PreviewProfiles | undefined, id: string): string {
+  return profiles?.names?.[id] ?? id;
+}
+
+/** A small picture of the page for the floating preview. */
+export interface PreviewFrame {
+  /** JPEG, base64. */
+  data: string;
+  width: number;
+  height: number;
 }
 
 export interface PreviewRecording {
@@ -92,6 +163,17 @@ export interface PreviewHostCommands {
   "record-stop": { input: undefined; output: PreviewRecording | null };
   "profiles": { input: undefined; output: PreviewProfiles };
   "use-profile": { input: { name: string }; output: PreviewProfiles };
+  "rename-profile": { input: { id: string; name: string }; output: PreviewProfiles };
+  "delete-profile": { input: { id: string }; output: PreviewProfiles };
+  "zoom": { input: { step: "in" | "out" | "reset" } | { factor: number }; output: PreviewState };
+  "viewport": { input: PreviewViewport; output: PreviewState };
+  "appearance": { input: { appearance: PreviewAppearance }; output: PreviewState };
+  "defaults": { input: PreviewDefaults; output: void };
+  "history": { input: undefined; output: PreviewHistoryEntry[] };
+  "forget": { input: { url: string }; output: PreviewHistoryEntry[] };
+  "mini-frame": { input: undefined; output: PreviewFrame | null };
+  "mini-prefs": { input: Partial<PreviewMiniPrefs>; output: PreviewState };
+  "mini-dismiss": { input: undefined; output: PreviewState };
 }
 
 export type PreviewHostClient = {
@@ -119,8 +201,21 @@ export function createPreviewHostClient(invoke: (command: string, input?: unknow
     "record-stop": call("record-stop"),
     profiles: call("profiles"),
     "use-profile": call("use-profile"),
+    "rename-profile": call("rename-profile"),
+    "delete-profile": call("delete-profile"),
+    zoom: call("zoom"),
+    viewport: call("viewport"),
+    appearance: call("appearance"),
+    defaults: call("defaults"),
+    history: call("history"),
+    forget: call("forget"),
+    "mini-frame": call("mini-frame"),
+    "mini-prefs": call("mini-prefs"),
+    "mini-dismiss": call("mini-dismiss"),
   } as PreviewHostClient;
 }
+
+export const DEFAULT_MINI_PREFS: PreviewMiniPrefs = { corner: "bottom-right", width: 280 };
 
 export const EMPTY_PREVIEW_STATE: PreviewState = {
   url: "",
@@ -131,6 +226,10 @@ export const EMPTY_PREVIEW_STATE: PreviewState = {
   consoleErrors: [],
   available: true,
   profile: DEFAULT_PREVIEW_PROFILE,
+  zoom: 1,
+  viewport: { mode: "fill" },
+  appearance: "system",
+  mini: DEFAULT_MINI_PREFS,
 };
 
 /**
@@ -142,6 +241,12 @@ export const PREVIEW_BROWSER_SERVICE = "tau.preview/browser";
 
 export interface PreviewBrowserService {
   open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
+  /**
+   * Brings forward what an agent drives: the Preview panel with the page
+   * (`browser`), or the window of `threadId`'s agent in front of every app
+   * (`app`). A handover asking the user to take over uses these.
+   */
+  jump(target: { kind: "browser" } | { kind: "app"; threadId: string }, actions: { openPanel(id: string): void }): Promise<void>;
 }
 
 /**
