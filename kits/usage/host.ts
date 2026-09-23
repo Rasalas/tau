@@ -80,7 +80,7 @@ export function readLimitsAnswer(value: unknown): UsageLimitAccount[] | undefine
     const checkedAt = finite(raw.checkedAt);
     if (typeof raw.id !== "string" || typeof raw.runtime !== "string" || typeof raw.label !== "string" || checkedAt === undefined) return [];
     const unavailable = raw.unavailable && typeof raw.unavailable === "object" ? raw.unavailable as { reason?: unknown; message?: unknown } : undefined;
-    const reason = unavailable?.reason === "unsupported" || unavailable?.reason === "failed" || unavailable?.reason === "signed-out" ? unavailable.reason : undefined;
+    const why = unavailable?.reason === "unsupported" || unavailable?.reason === "failed" || unavailable?.reason === "signed-out" ? unavailable.reason : undefined;
     return [{
       id: raw.id,
       runtime: raw.runtime,
@@ -88,7 +88,7 @@ export function readLimitsAnswer(value: unknown): UsageLimitAccount[] | undefine
       ...(typeof raw.plan === "string" && raw.plan ? { plan: raw.plan } : {}),
       checkedAt,
       windows: Array.isArray(raw.windows) ? raw.windows.flatMap((window) => windowOf(window) ?? []) : [],
-      ...(reason ? { unavailable: { reason, ...(typeof unavailable?.message === "string" ? { message: unavailable.message } : {}) } } : {}),
+      ...(why ? { unavailable: { reason: why, ...(typeof unavailable?.message === "string" ? { message: unavailable.message } : {}) } } : {}),
     }];
   });
 }
@@ -226,14 +226,14 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
             return { source, error: reason(error) };
           }
         }));
-        const sources = answers.map(({ source, accounts, error }): UsageLimitSourceReport => {
+        const reports = answers.map(({ source, accounts, error }): UsageLimitSourceReport => {
           const base = { extensionId: source.extensionId, label: source.label };
           if (!accounts) return { ...base, status: "unavailable", detail: `Not available: ${error ?? "no answer"}.` };
           if (accounts.length === 0) return { ...base, status: "empty", detail: source.extensionId === "tau.pi-limits" ? "No subscription provider has reported limits yet; they come with its next answer." : "No account reports limits." };
           const windows = accounts.reduce((sum, account) => sum + account.windows.length, 0);
           return { ...base, status: "ok", detail: `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}, ${windows} ${windows === 1 ? "window" : "windows"}.` };
         });
-        return { checkedAt: now(), accounts: answers.flatMap((answer) => answer.accounts ?? []), sources };
+        return { checkedAt: now(), accounts: answers.flatMap((answer) => answer.accounts ?? []), sources: reports };
       };
       context.registerCommand(USAGE_LIMITS_COMMAND, async (input): Promise<UsageLimitsSummary> => {
         const refresh = Boolean(input && typeof input === "object" && (input as { refresh?: unknown }).refresh);
