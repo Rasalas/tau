@@ -148,4 +148,22 @@ describe("Cursor host half", () => {
     await expect(usage.call!("usage")).resolves.toMatchObject({ threads: [{ threadId: "thread-1", model: "gpt-5.4", usage: { totalTokens: 12 } }] });
     await expect(stranger.call!("usage")).rejects.toThrow(/not allowed/u);
   });
+
+  it("hands the text of its threads to the Search kit and to no other kit", async () => {
+    const { registry, root } = await harness();
+    const store = new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    await store.appendMessages("thread-1", "/repo", [
+      { id: "u1", role: "user", text: "Rename the queue", timestamp: 1 },
+      { id: "a1", role: "assistant", text: "Renamed it.", timestamp: 2 },
+    ] as never);
+    const search = caller("tau.search");
+    const usage = caller("tau.usage");
+    await registry.activate(search);
+    await registry.activate(usage);
+    await expect(search.call!("thread-texts", {})).resolves.toMatchObject({
+      threads: [{ threadId: "thread-1", messages: [{ role: "user", text: "Rename the queue" }, { role: "assistant", text: "Renamed it." }] }],
+      removed: [],
+    });
+    await expect(usage.call!("thread-texts", {})).rejects.toThrow(/not allowed/u);
+  });
 });

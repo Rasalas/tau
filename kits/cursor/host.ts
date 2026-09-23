@@ -4,9 +4,11 @@ import {
   DEFAULT_INSTANCE_ID,
   HostCommandError,
   RuntimeInstanceSettings,
+  THREAD_TEXTS_COMMAND,
   TurnActivityStore,
   runtimeUpdateCommand,
   runtimeVersionPolicy,
+  threadTextsDelta,
   updateAvailable,
   type HostBackendThreadRecord,
   type HostExtension,
@@ -25,6 +27,7 @@ import {
   CURSOR_HOME_VARIABLE,
   CURSOR_HOST_EXTENSION_ID,
   INSTANCES_EVENT,
+  SEARCH_KIT_ID,
   USAGE_KIT_ID,
   type CursorInstancesReport,
   type CursorStatusReport,
@@ -374,6 +377,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),
       }), { callers: [USAGE_KIT_ID] });
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
 
       for (const instance of settings.list()) register(instance.id);
       return () => { for (const id of [...states.keys()]) unregister(id); };
