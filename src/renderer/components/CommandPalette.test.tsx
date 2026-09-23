@@ -109,7 +109,7 @@ describe("command palette focus", () => {
   it("keeps Tab inside itself and closes on Escape from wherever focus is in it", () => {
     const onClose = vi.fn();
     const actions = { notify: vi.fn(), focusComposer: vi.fn() } as unknown as WorkbenchActions;
-    render(<CommandPalette open commands={[{ id: "a", label: "Alpha", extensionName: "Test", run: vi.fn() }]} extensionCount={0} actions={actions} onClose={onClose} />);
+    render(<CommandPalette open commands={[]} extensionCount={0} actions={actions} onClose={onClose} />);
     const input = screen.getByRole("textbox", { name: "Command" });
     act(() => { input.focus(); });
     // jsdom lays out no rows, so the field is the only stop and Tab stays on it.

@@ -92,7 +92,7 @@ describe("keySpec", () => {
   });
 
   it("throws on an unknown multi-character name", () => {
-    expect(() => keySpec("Home")).toThrow(/unknown key/);
+    expect(() => keySpec("PageDown")).toThrow(/unknown key/);
   });
 });
 

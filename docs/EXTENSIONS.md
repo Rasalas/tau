@@ -671,13 +671,30 @@ signatures), the `ThreadLineage` type (what `context.setThreadLineage`
 takes), `reserveRegion` / `reservedRegion` with the `ReservedRegion` type — the
 placement seam of [ADR 0012](adr/0012-preview-browser.md): a package whose host
 half draws a native view over its panel publishes that rectangle with
-`reserveRegion`, and the workbench's own floats — menus, popovers; a toast is
-pinned to the window's bottom-left corner and never reaches the dock — slide
-out of it rather than disappear behind it; `reserveRegion(undefined)` gives the
-window back, and nothing is reserved until a package asks for it — and `Menu`
-with its `MenuItem` and `MenuSection` types, the popover list a composer chip
-drops, with the scrim, the Escape handling and the shift that keeps it clear of
-a native view.
+`reserveRegion`, and the workbench's own floats — menus, popovers, the toast
+stack — slide out of it rather than disappear behind it;
+`reserveRegion(undefined)` gives the window back, and nothing is reserved
+until a package asks for it — and `Menu` with its `MenuItem` and `MenuSection`
+types, the popover list a composer chip drops, with the scrim, the keyboard
+and the shift that keeps it clear of a native view (below).
+
+#### The UI primitives (new in API 1.11.0)
+
+Core draws its menus, tooltips, toasts and dialogs with the pieces below, and
+a package that uses them behaves like core without drawing a look-alike. They
+are Tau's own, not a component library; the reasons and the numbers are in
+[PERFORMANCE.md](PERFORMANCE.md#ui-primitives-in-core).
+
+| Export | What it does |
+|---|---|
+| `Menu` | `items` or `sections` (`MenuSection`: an optional `heading` and `MenuItem`s). Arrows, Home and End move between the enabled items, typing jumps to an item by its label, Enter or a click picks one, Escape and Tab close it, and focus goes back to whatever had it when it opened — the trigger, usually. Opened from the keyboard it focuses its first item (or the `selected` one), opened by a click it takes focus itself. A `MenuItem` with `submenu: MenuSection[]` opens beside it on ArrowRight, Enter or hover, and ArrowLeft comes back. It flips above its anchor or slides sideways to stay inside the window. With `at: { x, y }` it opens at that point over the whole window instead of inside the trigger's `.menu-anchor`; `label` names it for a screen reader when no heading does. |
+| `useContextMenu()` | `(event, sections) => Promise<string \| undefined>` for an `onContextMenu` handler: the OS draws the menu where the client's platform offers one (Electron's `Menu.popup`, through the client-side `context-menu` method), the page draws a `Menu` at the pointer everywhere else — the browser client, a test — and when the OS refuses. It answers the chosen item's id, or `undefined`. Headings become macOS menu headers, `selected` a check mark, a `badge` part of the label; icons, descriptions and hints stay in the page's version. Opened from the keyboard (Shift-F10, the menu key) it opens under the element instead of at 0,0. Workspace Kit's rail rows are the shipped caller. |
+| `tooltipProps(text, options?)`, `Tooltip` | A tooltip on any element: spread `tooltipProps("Settle thread", { shortcut: "⌘S", side: "bottom" })` on it, or wrap it in `<Tooltip content="…">`. Both only set `data-tooltip` (and `data-tooltip-side`, `-shortcut`, `-when`, `-variant`), which core's one `TooltipLayer` reads from the document, so a list of a thousand rows costs attributes, not components. It opens after the pointer rests for 600 ms, at once while another tooltip was open in the last 400 ms, at once on keyboard focus, and closes on Escape, a press, a scroll that moves its element or leaving. `when: "truncated"` shows it only while the element's own text is cut off (a thread title); `variant: "code"` sets it in the monospace face (a path). A trigger whose `aria-label` differs from the text gets `aria-describedby` while it shows. Use it instead of `title=`, whose OS tooltip waits a second and cannot show a shortcut. |
+| `actions.toast(options)` | A toast on the window's stack, top right, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`; the icon, and an `error` is an ARIA alert), `title`, `description`, `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message)` is still the one-line way: every notice is a toast. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
+| `Dialog` | A modal over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. |
+| `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
+| `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
+| `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
 
 A package that takes over a Pi dialog (`registerPromptRenderer`) gets the
 pieces core draws its own four with, so its dialog is not a look-alike:
@@ -775,7 +792,7 @@ It also exports the renderer's shared state and presentation:
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
 
