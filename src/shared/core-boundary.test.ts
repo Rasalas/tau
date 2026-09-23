@@ -79,7 +79,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",   "./remote-host-trust.js",
   "./prompt-attachments.js",   "./prompt-preparation.js",   "./resource-discovery-cache.js",
   "./runtime-adapters.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
-  "./runtime-types.js",   "./runtime-versions.js",   "./self-signed-certificate.js",   "./session-entries.js",   "./session-events.js",
+  "./runtime-instance-settings.js",   "./runtime-types.js",   "./runtime-versions.js",   "./self-signed-certificate.js",   "./session-entries.js",   "./session-events.js",
   "./session-lineage.js",   "./session-model-provider.js",   "./session-usage.js",
   "./shared-files.js",   "./shell-environment.js",   "./single-instance.js",   "./skill-invocation.js",   "./small-completion-model.js",
   "./startup-workspace.js",   "./system-prompt-resolver.js",   "./tau-runtime-owner.js",

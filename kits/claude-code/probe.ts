@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AccountInfo, ModelInfo, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { commandInvocation, type UiModel } from "tau/host-extension";
+import { commandInvocation, type HostRuntimeNewThreadCatalog, type UiModel } from "tau/host-extension";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -143,3 +143,22 @@ export async function probeClaude(input: ProbeInput): Promise<ClaudeProbe> {
     await consumed;
   }
 }
+
+/**
+ * What a new thread may start on, from a probe: the plan's models, the one the
+ * CLI would pick itself, and each model's efforts after the CLI's own default.
+ */
+export function probeNewThreadCatalog(probe: Pick<ClaudeProbe, "modelInfos" | "defaultModel" | "effort">): HostRuntimeNewThreadCatalog {
+  const infos = probe.modelInfos;
+  const start = infos.find((info) => info.value === probe.defaultModel)
+    ?? infos.find((info) => info.value !== "default" && info.resolvedModel === probe.defaultModel)
+    ?? infos.find((info) => info.value === "default")
+    ?? infos[0];
+  const own = probe.effort ? `default (${probe.effort})` : "default";
+  return {
+    models: infos.map(uiModel),
+    ...(start ? { model: uiModel(start) } : {}),
+    thinkingLevels: Object.fromEntries(infos.map((info) => [info.value, [own, ...(info.supportedEffortLevels ?? EFFORT_LEVELS)]])),
+  };
+}
+

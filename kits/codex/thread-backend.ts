@@ -28,6 +28,7 @@ import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type Co
 import { approvalDialog, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
+import type { CodexConfiguredModel } from "./config.js";
 import type { CodexSessionStore, CodexStoredModel } from "./session-store.js";
 import { codexToolsWrite } from "./tools.js";
 import { PLAN_MODE } from "./events.js";
@@ -62,6 +63,10 @@ export interface CodexSessionInput {
 export interface CodexThreadBackendOptions {
   adapter: CodexRuntimeAdapter;
   store: CodexSessionStore;
+  /** The instance the thread runs on; the default one when absent. */
+  instance?: string;
+  /** What the instance's `config.toml` sets, which a thread runs on until Codex names its model. */
+  configuredModel?(): Promise<CodexConfiguredModel>;
   openSession(input: CodexSessionInput): Promise<CodexSessionLike>;
   /** The account's models as last seen; cheap, read when the thread opens. */
   storedModels?(): Promise<readonly CodexStoredModel[]>;
@@ -142,7 +147,7 @@ function wait(ms: number): Promise<false> {
  * workbench's dialog surface.
  */
 export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
-  readonly kind = "codex" as const;
+  readonly kind: string;
   readonly runtimeAdapter: CodexRuntimeAdapter;
   readonly turnReporting = "streamed" as const;
   readonly capabilities: ThreadBackendCapabilities;
@@ -165,12 +170,15 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** The effort Codex applies when Tau names none: the thread's own, or the user's config. */
   private observedEffort?: string;
   private modelList: CodexStoredModel[] = [];
+  /** The home's `config.toml`, for a thread Codex has not answered yet. */
+  private configured: CodexConfiguredModel = {};
   private persisting: Promise<void> = Promise.resolve();
   /** The only tools this thread keeps, from its record. */
   private tools?: string[];
 
   constructor(readonly threadId: string, readonly cwd: string, private readonly options: CodexThreadBackendOptions) {
     this.runtimeAdapter = options.adapter;
+    this.kind = options.adapter.id;
     this.store = options.store;
     this.now = options.now ?? Date.now;
     this.capabilities = {
@@ -194,7 +202,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   get providerSessionId(): string { return this.codexThreadId ?? this.threadId; }
 
   async start(mode: "create" | "resume"): Promise<void> {
-    let record = mode === "create" ? await this.store.ensure(this.threadId, this.cwd) : await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
+    const instance = this.options.instance;
+    let record = mode === "create" ? await this.store.ensure(this.threadId, this.cwd, instance) : await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd, instance);
     if (record.cwd !== this.cwd) throw new Error("This Codex thread belongs to another workspace.");
     if (mode === "create" && this.options.tools) {
       await this.store.setTools(this.threadId, this.cwd, this.options.tools);
@@ -217,6 +226,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.mode = record.mode ?? DEFAULT_MODE;
     this.observedModel = record.observedModel;
     this.modelList = [...await this.options.storedModels?.().catch(() => []) ?? []];
+    this.configured = await this.options.configuredModel?.().catch(() => ({})) ?? {};
   }
 
   async transcript(): Promise<UiMessage[]> { return this.messages.map((message) => ({ ...message })); }
@@ -238,15 +248,20 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     };
   }
 
+  /** The model the next turn runs on: the thread's pick, what Codex last named, `config.toml`, the account's default. */
+  private currentModelId(): string | undefined {
+    return this.chosenModel ?? this.observedModel ?? this.configured.model;
+  }
+
   private currentModel(): CodexStoredModel | undefined {
-    const id = this.chosenModel ?? this.observedModel;
+    const id = this.currentModelId();
     return id ? this.modelList.find((model) => model.id === id) : this.modelList.find((model) => model.isDefault);
   }
 
   catalogView(): ThreadCatalogView {
     const info = this.currentModel();
-    const id = this.chosenModel ?? this.observedModel ?? info?.id;
-    const applied = this.observedEffort ?? info?.defaultEffort;
+    const id = this.currentModelId() ?? info?.id;
+    const applied = this.observedEffort ?? this.configured.effort ?? info?.defaultEffort;
     const fallback = applied ? `${DEFAULT_EFFORT} (${applied})` : DEFAULT_EFFORT;
     return {
       ...(id ? { model: { provider: MODEL_PROVIDER, id, name: info?.name ?? id } } : {}),
@@ -443,7 +458,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private async openSession(): Promise<CodexSessionLike> {
     const level = this.permissionLevel();
     if (level === "ask" && !this.options.ask) throw new Error("Codex cannot ask for approvals on this host; choose read-only or full access.");
-    await this.store.ensure(this.threadId, this.cwd);
+    await this.store.ensure(this.threadId, this.cwd, this.options.instance);
     // A process that dies during the handshake exits before `session` is assigned.
     let session: CodexSessionLike | undefined;
     session = await this.options.openSession({

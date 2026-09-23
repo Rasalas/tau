@@ -54,4 +54,26 @@ describe("CodexSessionStore", () => {
     expect(await make().get("tau-1")).toMatchObject({ codexThreadId: "codex-1", cwd: "/repo" });
     await expect(first.put("tau-1", taken)).rejects.toThrow(/exists again/u);
   });
+
+  it("files each thread under its instance and keeps each instance's models apart", async () => {
+    const { filePath, make } = await store();
+    const first = make();
+    await first.ensure("old", "/repo");
+    await first.ensure("work-1", "/repo", "work");
+    await first.setModels([{ id: "gpt-5.5", name: "GPT-5.5", efforts: [] }]);
+    await first.setModels([{ id: "gpt-5.6-luna", name: "GPT-5.6 Luna", efforts: ["low"] }], "work");
+    await expect(first.ensure("work-1", "/repo", "default")).rejects.toThrow("another instance");
+
+    const again = make();
+    await expect(again.list("default")).resolves.toEqual([expect.objectContaining({ tauThreadId: "old" })]);
+    await expect(again.list("work")).resolves.toEqual([expect.objectContaining({ tauThreadId: "work-1", instance: "work" })]);
+    await expect(again.list()).resolves.toHaveLength(2);
+    await expect(again.listModels()).resolves.toEqual([{ id: "gpt-5.5", name: "GPT-5.5", efforts: [] }]);
+    await expect(again.listModels("work")).resolves.toEqual([{ id: "gpt-5.6-luna", name: "GPT-5.6 Luna", efforts: ["low"] }]);
+    // A file from before instances reads the same: the default instance's models stay under `models`.
+    const saved = JSON.parse(await readFile(filePath, "utf8")) as { models: unknown[]; instanceModels: Record<string, unknown[]>; sessions: Array<{ instance?: string }> };
+    expect(saved.models).toHaveLength(1);
+    expect(Object.keys(saved.instanceModels)).toEqual(["work"]);
+    expect(saved.sessions.map((session) => session.instance)).toEqual([undefined, "work"]);
+  });
 });

@@ -14,6 +14,7 @@ import type {
   ShellActionResult,
   UiComposerCommand,
   UiModel,
+  UiRuntimeCatalog,
   UiPromptAttachment,
   UiRuntimeBackend,
   SubmissionResult,
@@ -1290,6 +1291,7 @@ export class PiHost {
             configuration.model.id,
           );
         }
+        if (configuration?.thinkingLevel) await requireCapability(thread.backend, "catalogWrite").setThinkingLevel(configuration.thinkingLevel);
         if (configuration?.mode) await requireCapability(thread.backend, "mode").set(configuration.mode);
         // Decode and validate attachment data before promoting a prepared
         // runtime, so malformed input cannot leave an adopted blank thread.
@@ -1322,7 +1324,7 @@ export class PiHost {
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
         if (lifecycle === "prepared") {
-          if (isLocalPiRuntime(thread) && !configuration?.model && !configuration?.mode) this.prewarm.retainSpare(thread);
+          if (isLocalPiRuntime(thread) && !configuration?.model && !configuration?.thinkingLevel && !configuration?.mode) this.prewarm.retainSpare(thread);
           else {
             await this.runtimes.dispose(thread);
             if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd, true);
@@ -2105,6 +2107,13 @@ export class PiHost {
     const models = await active.backend.models();
     this.modelCatalogCache.set(key, models);
     return models;
+  }
+
+  /** What a registered backend offers a thread that does not exist yet; Pi's catalog is the snapshot's. */
+  async runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined> {
+    const provider = this.seam.backends.get(kind);
+    const catalog = await provider?.newThreadCatalog?.();
+    return provider && catalog ? { ...catalog, kind, runtimeCapabilities: provider.adapter.capabilities } : undefined;
   }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {

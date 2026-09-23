@@ -30,6 +30,14 @@ describe("ProviderIconStack", () => {
     expect(stack.classList).toContain("single");
   });
 
+  it("draws a runtime instance with its program's mark", () => {
+    const { getByLabelText } = render(<ProviderIconStack modelProvider="openai" runtimeProvider="codex@work" />);
+    const stack = getByLabelText("OpenAI via Codex");
+    expect(stack.querySelector(".provider-family-codex .provider-mark")).toBeTruthy();
+    cleanup();
+    expect(render(<ProviderIconStack runtimeProvider="claude-code@second" />).getByLabelText("Claude Code")).toBeTruthy();
+  });
+
   it("pairs a non-Pi runtime beside the model provider", () => {
     const { getByLabelText } = render(<ProviderIconStack modelProvider="google" runtimeProvider="opencode" />);
     const stack = getByLabelText("Google Gemini via OpenCode");

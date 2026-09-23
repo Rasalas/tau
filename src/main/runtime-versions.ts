@@ -19,7 +19,8 @@ export interface RuntimeVersionsOptions {
  */
 export class RuntimeVersions {
   private readonly known = new Map<ThreadBackendKind, RuntimeToolVersion>();
-  private readonly asked = new Map<ThreadBackendKind, number>();
+  /** When each kind was last asked, and of which provider: a kind registered anew is asked again. */
+  private readonly asked = new Map<ThreadBackendKind, { at: number; provider: HostRuntimeBackendProvider }>();
 
   constructor(private readonly options: RuntimeVersionsOptions) {}
 
@@ -28,14 +29,14 @@ export class RuntimeVersions {
     return version ? { ...version } : undefined;
   }
 
-  /** Asks every backend it has not asked today. */
+  /** Asks every backend it has not asked today, and one registered since. */
   refresh(): void {
     const now = (this.options.now ?? Date.now)();
     for (const provider of this.options.providers()) {
       if (!provider.version) continue;
-      const askedAt = this.asked.get(provider.kind);
-      if (askedAt !== undefined && now - askedAt < (this.options.maxAgeMs ?? DAY_MS)) continue;
-      this.asked.set(provider.kind, now);
+      const asked = this.asked.get(provider.kind);
+      if (asked?.provider === provider && now - asked.at < (this.options.maxAgeMs ?? DAY_MS)) continue;
+      this.asked.set(provider.kind, { at: now, provider });
       void this.ask(provider);
     }
   }

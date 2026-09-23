@@ -17,6 +17,7 @@ import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { AttachedSessionHost } from "./attached-pi-session.js";
 import { assertRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
 import { findExecutable } from "./shell-environment.js";
+import { runtimeDriver } from "../shared/runtime-instances.js";
 import {
   installExtensionSource,
   listExtensionSources,
@@ -153,6 +154,8 @@ export interface ExtensionServicesPort {
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
   /** A yes/no question on one thread's dialog surface; aborting `signal` cancels it as `false`. */
   confirmInThread(threadId: string, title: string, message: string, signal: AbortSignal): Promise<boolean>;
+  /** A backend came or went; the host republishes what names them once it runs. */
+  runtimeBackendsChanged?(): void;
 }
 
 export function createAttachedSessionHost(port: AttachedSessionPort): AttachedSessionHost {
@@ -210,6 +213,9 @@ export interface HostExtensionSeam {
   /** The local MCP endpoint the `mcp` services front; the host closes it when it stops. */
   readonly mcp: McpEndpoint;
 }
+
+/** A program's kind, and `<kind>@<instance>` for another setup of it. */
+const BACKEND_KIND = /^[A-Za-z][A-Za-z0-9_.-]*(?:@[a-z][a-z0-9_-]*)?$/u;
 
 export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtensionSeam {
   const backends = new Map<ThreadBackendKind, HostRuntimeBackendProvider>();
@@ -360,12 +366,18 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       : Promise.reject(new Error("This host has no client process that can answer."))) as unknown as HostExtensionServices["callClient"],
     setPermissionLevel: (provider) => { permissionLevelProvider = provider; },
     registerRuntimeBackend: (provider) => {
-      if (provider.kind === "pi" || !provider.kind) throw new Error(`Runtime backend kind "${provider.kind}" is reserved.`);
+      if (runtimeDriver(provider.kind ?? "") === "pi" || !provider.kind) throw new Error(`Runtime backend kind "${provider.kind}" is reserved.`);
+      if (!BACKEND_KIND.test(provider.kind)) throw new Error(`Runtime backend kind "${provider.kind}" is not a name: letters, digits, - and _, and at most one @ before an instance.`);
       if (backends.has(provider.kind)) throw new Error(`Runtime backend "${provider.kind}" is already registered.`);
       assertRuntimeAdapter(provider.adapter);
       if (provider.adapter.id !== provider.kind) throw new Error(`Runtime backend "${provider.kind}" must carry an adapter of the same kind.`);
       backends.set(provider.kind, provider);
-      return () => { if (backends.get(provider.kind) === provider) backends.delete(provider.kind); };
+      port.runtimeBackendsChanged?.();
+      return () => {
+        if (backends.get(provider.kind) !== provider) return;
+        backends.delete(provider.kind);
+        port.runtimeBackendsChanged?.();
+      };
     },
     presentUi: (presenter) => {
       uiPresenters.add(presenter);

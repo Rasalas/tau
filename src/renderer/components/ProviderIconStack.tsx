@@ -9,6 +9,7 @@ import piIcon from "@lobehub/icons-static-svg/icons/pi.svg?no-inline";
 import vertexAiIcon from "@lobehub/icons-static-svg/icons/vertexai-color.svg?no-inline";
 import kiConnectIcon from "../assets/providers/ki-connect.png";
 import { providerMarks } from "../runtime-marks";
+import { runtimeDriver } from "../../shared/runtime-instances";
 
 interface ProviderIdentity {
   family: string;
@@ -25,7 +26,8 @@ export function providerLabel(value: string): string {
 
 function providerIdentity(value: string | undefined): ProviderIdentity | undefined {
   if (!value) return undefined;
-  const key = value.toLocaleLowerCase().replace(/[_.\s]/gu, "-");
+  // A runtime instance (`codex@work`) is drawn as its program.
+  const key = runtimeDriver(value).toLocaleLowerCase().replace(/[_.\s]/gu, "-");
   if (["anthropic", "claude"].includes(key)) return { family: "anthropic", label: "Anthropic", source: anthropicIcon, fallback: "A" };
   if (key === "claude-code") return { family: "claude-code", label: "Claude Code", source: claudeCodeIcon, fallback: "C" };
   if (key === "antigravity") return { family: "antigravity", label: "Antigravity", source: antigravityIcon, color: true, fallback: "A" };

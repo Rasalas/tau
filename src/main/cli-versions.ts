@@ -77,3 +77,16 @@ export function packageUpdateCommand(realPath: string, npmPackage: string): stri
   if (lower.includes(`/node_modules/${npmPackage.toLowerCase()}/`)) return `npm install -g ${npmPackage}@latest`;
   return undefined;
 }
+
+/**
+ * The command that installs one release of an npm-published CLI with the
+ * package manager that owns the executable's resolved path: npm, pnpm or
+ * bun. `undefined` for Homebrew and anything else, which cannot pin a release.
+ */
+export function packageInstallCommand(realPath: string, npmPackage: string, version: string): string | undefined {
+  const path = realPath.replaceAll("\\", "/").toLowerCase();
+  if (path.includes("/.bun/")) return `bun add -g ${npmPackage}@${version}`;
+  if (path.includes("/pnpm/")) return `pnpm add -g ${npmPackage}@${version}`;
+  if (path.includes(`/node_modules/${npmPackage.toLowerCase()}/`)) return `npm install -g ${npmPackage}@${version}`;
+  return undefined;
+}

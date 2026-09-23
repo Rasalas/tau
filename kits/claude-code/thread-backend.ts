@@ -82,6 +82,8 @@ const STDERR_TAIL_BYTES = 8 * 1024;
 export interface ClaudeThreadBackendOptions {
   adapter: ClaudeCodeAgentRuntimeAdapter;
   store: ClaudeRuntimeSessionStore;
+  /** The instance the thread runs on; the default one when absent. */
+  instance?: string;
   commands?: readonly UiComposerCommand[] | (() => readonly UiComposerCommand[] | Promise<readonly UiComposerCommand[]>);
   /** Whole messages, for a host that offers no event route. */
   onMessage?(message: UiMessage): void;
@@ -126,7 +128,7 @@ interface Turn {
  * turn; a follow-up waits behind it.
  */
 export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
-  readonly kind = "claude-code" as const;
+  readonly kind: string;
   readonly runtimeAdapter: ClaudeCodeAgentRuntimeAdapter;
   readonly turnReporting = "streamed" as const;
   readonly capabilities: ThreadBackendCapabilities;
@@ -158,6 +160,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     options: ClaudeThreadBackendOptions,
   ) {
     this.runtimeAdapter = options.adapter;
+    this.kind = options.adapter.id;
     this.store = options.store;
     this.options = options;
     this.now = options.now ?? Date.now;
@@ -192,13 +195,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   async start(mode: "create" | "resume"): Promise<void> {
     if (mode === "create") {
-      this.record = await this.store.ensure(this.threadId, this.cwd);
+      this.record = await this.store.ensure(this.threadId, this.cwd, this.options.instance);
       if (this.options.tools) {
         await this.store.setTools(this.threadId, this.cwd, this.options.tools);
         this.record = await this.store.get(this.threadId) ?? this.record;
       }
     } else {
-      this.record = await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
+      this.record = await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd, this.options.instance);
       if (this.record.cwd !== this.cwd) throw new Error("Claude session belongs to another workspace.");
     }
     this.restoreRecord(this.record);

@@ -628,7 +628,8 @@ receiving `SettingsPageProps`: `cwd` and `onNotify`). A page that also names a
 `runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
 card on its Providers page, under the runtime's mark and `label`, in `order`,
 and opens Providers for its `id`. The backend kits Tau ships put the CLI, its
-version and update, the login and a path override there. `inspectPackages(cwd)`
+version and update, the login and a path override there, one card per
+instance (below). `inspectPackages(cwd)`
 answers core's own scan of the package folders and the shipped kits
 (`ExtensionInspection`) without loading any code — including `distribution`,
 the name and version of the set the `bundled` entries came in, absent in safe
@@ -1123,6 +1124,85 @@ packageName)` names the Homebrew, npm, pnpm or bun command that owns an
 executable's resolved path, or `undefined` for the program's own updater. The
 registry request needs the `network` permission. Claude Code and Codex use
 both; Antigravity reports the release it pins.
+
+#### A new thread's model before it exists (new in API 1.11.0)
+
+`newThreadCatalog()` on the provider answers what a thread that does not
+exist yet may start on: `models`, the `model` it would run on unasked, and
+`thinkingLevels` by model id with the runtime's own default first
+(`HostRuntimeNewThreadCatalog`). The host adds the kind and the adapter's
+capabilities and serves it as the `runtime-catalog` method
+(`UiRuntimeCatalog`), which a client asks while a draft is bound for that
+backend; a `note` without models says the runtime names them only in a
+session. The draft's choice arrives as `NewThreadConfiguration` —
+`model` and `thinkingLevel` — and the host applies both through the new
+thread's `catalogWrite` right after `open`, before the first prompt. Codex
+answers from `model/list` (cached per instance) and the instance home's
+`config.toml`, the Agent SDK runtime from its cached probe, Antigravity from
+the models its last session named.
+
+#### Versions a backend works with (new in API 1.11.0)
+
+`RuntimeToolVersion.compatibility` is a backend's verdict on the installed
+version: `{ status: "supported" | "unsafe" | "broken", message?,
+recommendedVersion?, installCommand? }`. The backend keeps a `VersionPolicy` —
+ranges with a status, the first one the version satisfies decides, and the
+release it was tested with — and `versionCompatibility(policy, installed)` on
+`tau/host-extension` applies it. A range is comparators joined by spaces
+(`>=0.150.0 <0.154.0`), groups joined by `||`, with `^`, `~`, `=`, `<`, `<=`,
+`>` and `>=`; a prerelease or a release tag matches no range, so it goes
+unjudged. `runtimeVersionPolicy(kind, bundled)` returns the policy
+`TAU_VERSION_POLICY` names for that kind (JSON keyed by backend kind; a test
+instance's way to fake a range, or a fix that cannot wait for a release) and
+the bundled one otherwise. `packageInstallCommand(realPath, packageName,
+version)` names the npm, pnpm or bun command that installs exactly that
+release; Homebrew cannot pin one, so it answers `undefined` and the update
+command stands. The picker's runtime tab and Settings → Defaults put an unsafe
+or broken version before an available update. Tau never runs either command:
+the shipped kits draw `RuntimeVersionBanner` above the composer of the thread
+and on the card, and its button types the command into a new Terminal Kit
+shell without pressing Enter (without Terminal Kit it is copied). A backend
+should refuse to open a thread on a `broken` version; Codex's policy calls
+every release older than its protocol broken.
+
+#### Instances of one program (new in API 1.11.0)
+
+A backend kit may offer several setups of the program it drives — a second
+Codex with its own `CODEX_HOME` and login, say. Each is a backend of its own:
+the default instance keeps the plain kind (`codex`), so threads from before
+instances stay where they were, and every other one registers
+`<kind>@<id>` (`codex@work`), a kind the seam accepts alongside the plain
+names. Threads carry the kind, so a thread keeps its instance, the picker
+shows one tab per instance and the marks draw an instance as its program
+(`runtimeDriver`, `isRuntimeInstanceOf`, `runtimeInstanceKind` on both
+`tau` and `tau/host-extension`). A backend registered or dropped after the
+host started republishes `runtimeBackends` and the thread index, and a kind
+registered anew is asked for its version again — so a kit re-registers an
+instance's provider when the user edits it.
+
+`RuntimeInstanceSettings` on `tau/host-extension` keeps a kit's instances in a
+file of its own (`<stateDir>/settings.json`): the default instance at the top
+level, where the path override always lived, the others under `instances`.
+Each has an `id`, a `name`, a `command` (the executable; the kit's variable,
+such as `TAU_CODEX_COMMAND`, still wins for the default instance), a `home`
+(`~` expanded; it becomes the kit's `homeVariable`), `env` and `args` (one
+string, split as a shell would with `splitArguments`, nothing expanded).
+`environment(id, base)`, `command(id)`, `args(id)`, `kind(id)` and `label(id)`
+("Codex · Work") answer what a launch needs; `save` and `remove` refuse a
+taken or malformed id and a relative home. A kit keeps a thread's instance in
+its own store, so removing an instance only takes its threads out of the list
+until an instance with that id comes back.
+
+On the desktop side `loadRuntimeInstanceUi()` on `tau` loads one chunk (with
+its stylesheet) that holds `RuntimeInstanceSetup` — the SETUP rows of a card:
+how the instance is set up, Edit, Remove with a confirmation in place, and on
+the default instance's card "Add instance…" — the dialog behind it
+(`RuntimeInstanceDialog`: name, id taken from the name, executable, home,
+environment as `NAME=value` lines, launch arguments) and
+`RuntimeVersionBanner`. Codex and the Agent SDK runtime use all three: the
+default card keeps its page id, each other instance gets a page naming its
+kind, and an `instances` event from the host half keeps every client's cards
+in step.
 
 `services.sessions.start(options)` (`sessions`) creates a thread off screen:
 `cwd`, the first `prompt`, and optionally `title`, `model`, `parent` and

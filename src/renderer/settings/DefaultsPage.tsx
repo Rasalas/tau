@@ -147,7 +147,7 @@ export function DefaultsPage({
             description="Which program runs a new thread. Threads that exist keep theirs; the composer offers the same choice before the first message."
             status={(snapshot?.runtimeBackends ?? []).map((backend) => {
               const update = runtimeUpdate(backend);
-              return update ? <p key={backend.kind} role="status">{update.text}{update.command ? <> Update with <code>{update.command}</code>.</> : null}</p> : null;
+              return update ? <p key={backend.kind} role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null;
             })}
             control={<div className="segmented" role="group" aria-label="Runtime for new threads">
               {(snapshot?.runtimeBackends ?? []).map((backend) => (

@@ -122,8 +122,15 @@ export class SubmissionController {
   private newThreadStart(pending: NewThreadDraft) {
     const snapshot = this.ports.view.getSnapshot();
     const runtime = effectiveNewThreadRuntime(this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
-    const inherited = (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
-    return { runtime, model: runtime === "pi" ? pending.model ?? inherited : undefined };
+    const inherited = runtime === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
+    // What the draft chose goes to the runtime it was chosen from and no other.
+    const chosen = (pending.selectionRuntime ?? "pi") === runtime;
+    const model = (chosen ? pending.model : undefined) ?? inherited;
+    const thinkingLevel = chosen ? pending.thinkingLevel : undefined;
+    // A mode goes only to a runtime that offers it; a host that lists no runtimes decides itself.
+    const backend = snapshot?.runtimeBackends?.find((entry) => entry.kind === runtime);
+    const mode = pending.mode && (!backend || backend.modes?.includes(pending.mode)) ? pending.mode : undefined;
+    return { runtime, model, ...(thinkingLevel ? { thinkingLevel } : {}), ...(mode ? { mode } : {}) };
   }
 
   /** Offers the first prompt to an extension that starts the thread itself; true when one took it. */
@@ -379,8 +386,8 @@ export class SubmissionController {
         // The draft's project is named by identity; its path is only for display.
         // An unchanged model chip is still a choice. Carry the shown Pi model
         // into the new runtime instead of silently falling back to host defaults.
-        const requestedModel = this.newThreadStart(pending).model;
-        const result = requestedModel || pending.mode
+        const { model: requestedModel, thinkingLevel, mode } = this.newThreadStart(pending);
+        const result = requestedModel || thinkingLevel || mode
           ? await client.newSession(
             text,
             attachments,
@@ -389,7 +396,8 @@ export class SubmissionController {
             prepared,
             {
               ...(requestedModel ? { model: { provider: requestedModel.provider, id: requestedModel.id } } : {}),
-              ...(pending.mode ? { mode: pending.mode } : {}),
+              ...(thinkingLevel ? { thinkingLevel } : {}),
+              ...(mode ? { mode } : {}),
             },
           )
           : await client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared);
