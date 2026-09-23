@@ -23,7 +23,7 @@ const HELPERS = `
 // Collects a compact description of the workbench; see docs/agents/testing-the-app.md
 // for the DOM conventions this leans on (thread-row, send-button, panel-rail…).
 const SNAPSHOT_EXPR = `(() => {
-  const text = (el) => (el.textContent ?? "").replace(/\\s+/g, " ").trim();
+  const text = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
   const headings = all("h1, h2, h3").map(text).filter(Boolean);
   const buttons = all("button[aria-label]").map((el) => el.getAttribute("aria-label"));
   const threadRows = all(".thread-row").map((row) => ({
