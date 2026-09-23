@@ -74,6 +74,8 @@ export async function tauPaletteRun(ctx, label) {
   await ctx.press("mod+k");
   await ctx.waitFor(`document.activeElement?.tagName === "INPUT"`);
   await ctx.type(label);
+  // Enter runs the highlighted row, so wait until the palette has caught up with the query.
+  await ctx.waitFor(`[...document.querySelectorAll("[role=option], [role=dialog] button")].some((row) => row.textContent.trim().startsWith(${JSON.stringify(label)}))`);
   await ctx.wait(300);
   await ctx.keyDownUp("Enter");
   await ctx.wait(500);
