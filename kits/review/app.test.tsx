@@ -266,11 +266,39 @@ describe("Review Kit request lifecycle in the workbench", () => {
     expect(screen.getByText(/Merge PR #7 into/u)).toBeTruthy();
     expect(review).not.toHaveBeenCalledWith("pr-merge", expect.anything());
     fireEvent.click(screen.getByRole("radio", { name: "Rebase" }));
-    fireEvent.click(screen.getByRole("button", { name: "Merge PR #7" }));
+    // A check is still running, so the host could merge it later; merging now stays one click away.
+    expect(screen.getByRole("button", { name: "Enable auto-merge" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Merge now" }));
 
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-merge", { method: "rebase" }));
     expect(await screen.findByText("merged")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Merge…" })).toBeNull();
+  });
+
+  it("arms auto-merge, deletes the branch when asked, and disarms it again", async () => {
+    let status: Record<string, unknown> = { ...NO_REQUEST, request: { ...OPEN_REQUEST, draft: false, headRef: "feature/pr" } };
+    const review = vi.fn(async (command: string, input?: unknown) => {
+      if (command === "pr-status") return status;
+      if (command === "pr-auto-merge") {
+        const enable = (input as { enable: boolean }).enable;
+        status = { ...NO_REQUEST, request: { ...OPEN_REQUEST, draft: false, headRef: "feature/pr", ...(enable ? { autoMerge: { method: "squash" } } : {}) } };
+        return status;
+      }
+      if (command === "pr-merge") return { ...NO_REQUEST, request: { ...OPEN_REQUEST, state: "merged" }, merge: { branchDeleted: "feature/pr" } };
+      return undefined;
+    });
+    renderApp(workbench({}, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Merge…" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Delete feature\/pr after merging/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Enable auto-merge" }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-auto-merge", { enable: true, method: "squash", deleteBranch: true }));
+    expect(await screen.findByText("auto-merge · squash")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable auto-merge" }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-auto-merge", { enable: false }));
+    await waitFor(() => expect(screen.queryByText("auto-merge · squash")).toBeNull());
   });
 
   it("edits the title and marks the request ready", async () => {

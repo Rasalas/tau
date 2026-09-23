@@ -4,7 +4,10 @@ import { errorMessage, type PreferencesStore, type StageTabHandle, type Workbenc
 import type { PendingReviewStore } from "./pending-review.js";
 import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
+import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
 import { PullRequestCode } from "./pull-request-code.js";
+import { PullRequestHeaderActions } from "./pull-request-header-actions.js";
+import { PullRequestStackControl } from "./pull-request-stack.js";
 import { asReviewRequest, checksRollup, checksSummary, hostName, relativeTime, shortNoun, timelineCounts, type PullRequestTabParams } from "./pull-request-logic.js";
 import { handOver, RollupIcon } from "./pull-request-parts.js";
 import { PullRequestSummary } from "./pull-request-summary.js";
@@ -120,7 +123,7 @@ function usePullRequest(client: PullRequestClient, url: string) {
       : current);
   }, []);
 
-  return { data, setData: patch, refresh, loadThreads, loadFiles, loadDetail, markViewed };
+  return { data, setData: patch, refresh, loadThreads, loadFiles, loadDetail, loadChecks, markViewed };
 }
 
 function useCopied(): [string | undefined, (key: string) => void] {
@@ -142,7 +145,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   rows: RowRequests;
   shared: PullRequestViewShared;
 }) {
-  const { data, setData, refresh, loadThreads, loadFiles, loadDetail, markViewed } = usePullRequest(client, params.url);
+  const { data, setData, refresh, loadThreads, loadFiles, loadDetail, loadChecks, markViewed } = usePullRequest(client, params.url);
   const pending = useSyncExternalStore(shared.pending.subscribe, () => shared.pending.comments(params.url));
   useSyncExternalStore(shared.preferences.subscribe, shared.preferences.getSnapshot, shared.preferences.getSnapshot);
   const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
@@ -163,6 +166,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const [composing, setComposing] = useState(false);
   const [focusPath, setFocusPath] = useState<string>();
   const [copied, setCopied] = useCopied();
+  const [picking, setPicking] = useState(false);
+  const linkedThreads = useLinkedThreads(client, params.url);
   const noun = shortNoun(params.service);
   const host = hostName(params.service);
   const { capabilities } = providerInfo(params.service);
@@ -261,6 +266,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           </button>
           <span className={`pr-state state-${state}`}>{state}</span>
           {condensed ? <strong className="pr-head-title" title={detail.title}>{detail.title}</strong> : <span className="spacer" />}
+          <PullRequestStackControl detail={detail} client={client} actions={actions} {...(params.workspace ? { workspace: params.workspace } : {})} onChanged={(next) => setData({ detail: next })} />
+          <LinkedThreadsControl threadIds={linkedThreads} actions={actions} />
           <button className="icon-button compact" aria-label={`Add ${noun} #${detail.ref.number} to the composer`} title="Add to the composer" onClick={() => handOver({ kind: "pull-request", payload: { number: detail.ref.number, title: detail.title, url: detail.ref.url, ...(detail.headRef ? { branch: detail.headRef } : {}) } }, chips(), actions)}>
             <SquarePlus size={13} />
           </button>
@@ -275,6 +282,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           <button className="icon-button compact" aria-label={`Refresh ${noun} #${detail.ref.number}`} title="Refresh" onClick={() => refresh(true)}>
             <RefreshCw size={13} />
           </button>
+          <PullRequestHeaderActions detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId}
+            onDetail={(next) => { setData({ detail: next }); void loadChecks(); }} onPickThread={() => setPicking(true)} />
         </div>
         {condensed ? null : (
           <div className="pr-fold">
@@ -397,6 +406,10 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           </div>
         ) : null}
       </div>
+
+      {picking ? (
+        <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={(message) => actions.notify(message)} />
+      ) : null}
 
       {composing ? (
         <ReviewComposer

@@ -38,6 +38,11 @@ function client(detail: PullRequestDetail, threads: PullRequestThread[], files?:
     links: vi.fn(async () => []),
     link: vi.fn(async () => { throw new Error("not in this test"); }),
     unlink: vi.fn(async () => true),
+    listMany: vi.fn(async () => ({ lists: [], failures: [] })),
+    action: vi.fn(async () => { throw new Error("not in this test"); }),
+    stack: vi.fn(async () => null),
+    stackAction: vi.fn(async () => { throw new Error("not in this test"); }),
+    linkedThreads: vi.fn(async () => []),
     onLinksChanged: () => () => undefined,
   };
 }
