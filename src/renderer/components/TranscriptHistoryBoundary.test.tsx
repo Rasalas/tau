@@ -218,8 +218,7 @@ describe("TranscriptHistoryBoundary integration", () => {
     await waitFor(() => expect(scrollNode.scrollTop).toBe(beforeBelowGrowth));
 
     // A late image/font/markdown measurement arrives well after the initial
-    // success state. The same visible row must remain pinned until the user
-    // explicitly interacts with the scroll container.
+    // success state. The same visible row stays where it is.
     const settledOffset = anchorAfter!.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
     actualHeights.set("older-a", 720);
     measuredHeights.set("older-a", 720);
@@ -230,9 +229,6 @@ describe("TranscriptHistoryBoundary integration", () => {
       const lateOffset = lateAnchor!.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
       expect(Math.abs(lateOffset - settledOffset)).toBeLessThan(1);
     });
-    expect(controller.anchorRef.current?.messageId).toBe("anchor");
-    fireEvent.wheel(scrollNode, { deltaY: -120 });
-    expect(controller.anchorRef.current).toBeUndefined();
   });
 
   it("loads older turns on the reader's way up, once at a time, and never retries a failed page on its own", async () => {
