@@ -1049,7 +1049,12 @@ both; Antigravity reports the release it pins.
 `backend`. `backend` is the kind the thread runs on — `"pi"`, the default, or
 any registered kind — and a kind nobody registered is refused before anything
 is created. A model is applied through the runtime's `catalogWrite`
-capability, so a runtime without model selection refuses one. `parent` is
+capability, so a runtime without model selection refuses one. `tools` (new in
+API 1.11.0) keeps the thread to those tools for its whole life, named as Pi
+names them (`read`, `bash`, `tau_spawn_thread`); it is for a backend whose
+provider sets `restrictsTools` and receives the list in `open(threadId, cwd,
+{ resume: false, tools })`. Any other backend — Pi included, whose tools a
+runtime extension sets — is refused before anything is created. `parent` is
 written into a Pi thread's session file; a thread of another backend has no
 such file, so the host keeps its link in the index for as long as it runs and
 the extension that asked for it is the durable record. Agents Kit starts a
@@ -1067,14 +1072,23 @@ credential per thread.
 |---|---|
 | `registerTools(provider)` | `provider(thread)` answers the tools for one thread (`{ sessionId, cwd }`) as Pi `ToolDefinition`s — the very objects the kit registers with `pi.registerTool`. It is asked on every list and every call, with the thread the credential names and no other. Over MCP `execute` gets no `ExtensionContext`: its last argument is `undefined`. Arguments are validated against `parameters` the way Pi validates them, and `executionMode: "sequential"` runs one call of that thread at a time. Returns the disposer. |
 | `gate(gate)` | Runs before each call with `{ threadId, cwd, toolName, input, signal, confirm(title, message) }`; answering `{ block: true, reason }` refuses the call with that text. `confirm` is a yes/no question on the thread's own dialog surface. A gate that throws blocks. Access Kit's gate is the shipped one. |
-| `connect(thread)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
+| `connect(thread, options?)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). `options.tools` narrows what the credential lists and calls to those names, for a thread started with `tools`. The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
 
 The three runtime kits are the reference: Codex passes the entry as
 `codex app-server -c mcp_servers.tau.…` overrides with the token in the
 process environment (`bearer_token_env_var`), the Agent SDK runtime as an
 `http` entry of `mcpServers`, Antigravity as an ACP `http` server on
-`session/new` and `session/resume`. Each lets Tau's gate ask instead of asking
-again itself. Preview Kit and Agents Kit offer their tools this way.
+`session/new` and `session/resume` (agy_acp_server 1.1.1 announces
+`mcpCapabilities: { http: true, sse: true }`; an agent that does not announce a
+transport is not sent servers of it). Each lets Tau's gate ask instead of
+asking again itself. Preview Kit and Agents Kit offer their tools this way.
+
+A thread started with `tools` keeps them on every runtime that can: Codex
+switches off its shell, web search, image viewing, image generation, apps and
+plugins as the list leaves them out (`kits/codex/tools.ts`) and runs read-only
+without `bash`, `edit` or `write`; the Agent SDK runtime gets Claude's own tools by their Pi
+names (`read` → `Read`, `find` → `Glob`, …) and no MCP server but Tau's.
+Antigravity cannot restrict its tools and refuses such a thread.
 
 ### Lifecycle hooks a host half may step into
 

@@ -59,8 +59,12 @@ describe("the agent definition format", () => {
     expect(parse("description: d\naccess: root")).toThrow('"access" must be read-only, ask or full');
     expect(parse("description: d\nworkspace: elsewhere")).toThrow('"workspace" must be worktree or shared');
     expect(parse("description: d\ntools: []")).toThrow('"tools" lists no tool');
-    expect(parse("description: d\nruntime: claude-code\ntools: read")).toThrow("only apply on the pi runtime");
-    expect(parse("description: d\nruntime: claude-code\naccess: ask")).toThrow("only apply on the pi runtime");
+    expect(parse("description: d\nruntime: claude-code\naccess: ask")).toThrow('"access" only applies on the pi runtime');
+  });
+
+  it("takes tools for any runtime, Tau's own in either spelling", () => {
+    const { definition } = parseAgentDefinition("/x/a.md", "---\ndescription: d\nruntime: codex\ntools: [read, mcp__tau__tau_spawn_thread, tau_list_threads]\n---\nPrompt");
+    expect(definition.tools).toEqual(["read", "tau_spawn_thread", "tau_list_threads"]);
   });
 });
 

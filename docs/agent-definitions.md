@@ -25,7 +25,7 @@ Saved as `.tau/agents/reviewer.md`, this is the agent `reviewer`.
 | `description` | required | When to use it. The Agents panel shows it, and a thread that may spawn is told it. |
 | `model` | the parent's model on Pi, the runtime's default elsewhere | `provider/model-id`, as the model picker spells it. |
 | `runtime` | `pi` | The runtime backend the thread runs on: `pi` or the kind a runtime kit registered (`claude-code`, …). The thread fails to start when no kit registered that kind. |
-| `tools` | every tool | The only tools the thread keeps, as Pi names them (`read`, `grep`, `find`, `ls`, `bash`, `edit`, `write`, the `tau_*` tools, an extension's tools). A name the runtime does not have is ignored. Pi only. |
+| `tools` | every tool | The only tools the thread keeps, as Pi names them (`read`, `grep`, `find`, `ls`, `bash`, `edit`, `write`, the `tau_*` tools — `mcp__tau__tau_*` reads the same — an extension's tools). A name the runtime does not have is ignored. See below for other runtimes. |
 | `access` | the workbench's level | `read-only`, `ask` or `full`. It can narrow the level Access Kit gives the thread, never widen it. Pi only. |
 | `workspace` | `worktree` in a Git repository | `worktree` for a checkout of its own, branched from the parent's state; `shared` to work in the parent's checkout — for an agent that only reads. |
 
@@ -38,6 +38,28 @@ The frontmatter is a small subset of YAML: `key: value` lines, values quoted or
 not, `#` comments, and lists either inline (`[read, grep]`), comma-separated
 (`read, grep`) or as `- item` lines under an empty key. Anything else is an
 error that names its line.
+
+## `tools` on another runtime
+
+A runtime other than Pi narrows its own tools as far as it can, and a runtime
+that cannot refuses the spawn with that reason:
+
+- **Codex** keeps its shell for any of `bash`, `read`, `grep`, `find`, `ls`
+  (it reads through the shell) and runs in its read-only sandbox unless the
+  list names `bash`, `edit` or `write`, whatever the workbench's level. Web
+  search and image viewing stay only when listed as `web_search` and
+  `view_image`; image generation, apps, plugins and goals are off. What
+  codex-cli 0.154 cannot switch off stays: its patch tool (refused by the
+  read-only sandbox), its question to the user, and its own sub-agents, which
+  run under the thread's configuration. MCP servers from the user's
+  `config.toml` stay too.
+- **The Agent SDK runtime** gets Claude's tools by their Pi names (`read` →
+  `Read`, `grep` → `Grep`, `find` and `ls` → `Glob`, `bash` → `Bash`, `edit` →
+  `Edit`, `write` → `Write`) or Claude's own (`WebFetch`), and no MCP server but
+  Tau's; the user's own servers are left out.
+- **Antigravity** cannot narrow its tools; such a definition fails to spawn.
+
+On every runtime Tau's own tools over MCP are only the `tau_*` names listed.
 
 ## Using one
 
@@ -71,7 +93,7 @@ instead.
 ## Problems
 
 A file that cannot be used — no frontmatter, a missing `description`, an
-unknown `access`, `tools` on a runtime other than Pi, a name taken twice —
+unknown `access`, `access` on a runtime other than Pi, a name taken twice —
 is listed in Settings → Inspector under PROBLEMS with its reason, and the
 Agents panel says how many there are. An unknown field is a warning and is
 ignored. A broken file never stops the others or a spawn without `agent`; a
