@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
-import { Markdown, loadHighlightLanguage, pendingHighlightCount } from "./Markdown";
+import { Markdown, inlineCodeFile, loadHighlightLanguage, pendingHighlightCount } from "./Markdown";
 import { TRICKY_MARKDOWN } from "./markdown-fixtures";
 
 beforeAll(async () => {
@@ -74,6 +74,26 @@ describe("code block head", () => {
     expect(wrap.getAttribute("aria-pressed")).toBe("true");
     expect(wrap.getAttribute("aria-label")).toBe("Disable line wrap");
     expect(container.querySelector(".md-code")?.hasAttribute("data-wrap")).toBe(true);
+    unmount();
+  });
+});
+
+describe("paths in inline code", () => {
+  it("reads a workspace path or a source file's name as a file chip, and leaves other code alone", () => {
+    expect(inlineCodeFile("src/main/pi-host.ts")).toBe("pi-host.ts");
+    expect(inlineCodeFile("./kits/plan/desktop.tsx")).toBe("desktop.tsx");
+    expect(inlineCodeFile("package.json")).toBe("package.json");
+    for (const text of ["npm test", "a.b", "https://example.com/a.js", "/Users/me/file.ts", "src/", "x = y/2.5", "v1.2.3"]) expect(inlineCodeFile(text)).toBeUndefined();
+  });
+
+  it("draws the chip with the name and gives the whole path as its tooltip", () => {
+    const { container, unmount } = render(<Markdown>{"Pass 1.1 reviewed `src/main/pi-host.ts` and `npm test`."}</Markdown>);
+    const [chip, plain] = [...container.querySelectorAll("code")];
+    expect(chip!.classList).toContain("md-file-chip");
+    expect(chip!.textContent).toBe("pi-host.ts");
+    expect(chip!.getAttribute("data-tooltip")).toBe("src/main/pi-host.ts");
+    expect(plain!.classList.length).toBe(0);
+    expect(plain!.textContent).toBe("npm test");
     unmount();
   });
 });

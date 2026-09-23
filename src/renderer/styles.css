@@ -792,6 +792,8 @@ button > svg { pointer-events: none; }
   border: 1px solid var(--line-control); border-radius: 5px;
   padding: 1px 6px; color: var(--ink-2); word-break: break-word;
 }
+.markdown code.md-file-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: -1px; font: 500 12px var(--sans); word-break: normal; white-space: nowrap; }
+.md-file-chip > svg { color: var(--muted); }
 .message.user .markdown :not(pre) > code {
   background: var(--line-control); border-color: transparent; color: var(--ink-2);
 }
