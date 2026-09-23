@@ -31,6 +31,8 @@ import {
   type UiModel,
   type UiModelBilling,
   type VersionPolicy,
+  THREAD_TEXTS_COMMAND,
+  threadTextsDelta,
 } from "tau/host-extension";
 import { CodexAppServer, type CodexAccount, type CodexLoginCompleted, type CodexModel } from "./app-server.js";
 import { codexHome, readCodexConfiguredModel } from "./config.js";
@@ -45,6 +47,7 @@ import {
   INSTANCES_EVENT,
   MIN_CODEX_VERSION,
   ONBOARDING_KIT_ID,
+  SEARCH_KIT_ID,
   USAGE_KIT_ID,
   type CodexInstancesReport,
   type CodexStatusReport,
@@ -502,6 +505,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),
       }), { callers: [USAGE_KIT_ID] });
+      // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
       // Sessions the default instance's CLI ran on its own, for Onboarding to list and import as threads.
       context.registerCommand("import-scan", async () => {
         const held = await store.codexThreadIds();

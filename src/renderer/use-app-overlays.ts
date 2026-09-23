@@ -2,17 +2,25 @@ import { useCallback, useState } from "react";
 
 export function useAppOverlays() {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** The command whose level the palette opened on, if any. */
+  const [paletteMenu, setPaletteMenu] = useState<string>();
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [projectSourcesOpen, setProjectSourcesOpen] = useState(false);
+  /** The source whose own view the project sources opened on, if any. */
+  const [projectSource, setProjectSource] = useState<string>();
   const [activeOverlayId, setActiveOverlayId] = useState<string>();
   const [settingsPage, setSettingsPage] = useState<string>();
 
-  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const openPalette = useCallback((options?: { menu?: string }) => {
+    setPaletteMenu(options?.menu);
+    setPaletteOpen(true);
+  }, []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const openNewThreadPicker = useCallback(() => setNewThreadOpen(true), []);
   const closeNewThreadPicker = useCallback(() => setNewThreadOpen(false), []);
-  const openProjectSources = useCallback(() => {
+  const openProjectSources = useCallback((source?: string) => {
     setNewThreadOpen(false);
+    setProjectSource(source);
     setProjectSourcesOpen(true);
   }, []);
   const closeProjectSources = useCallback(() => setProjectSourcesOpen(false), []);
@@ -21,6 +29,7 @@ export function useAppOverlays() {
 
   return {
     paletteOpen,
+    paletteMenu,
     setPaletteOpen,
     openPalette,
     closePalette,
@@ -29,6 +38,7 @@ export function useAppOverlays() {
     openNewThreadPicker,
     closeNewThreadPicker,
     projectSourcesOpen,
+    projectSource,
     setProjectSourcesOpen,
     openProjectSources,
     closeProjectSources,

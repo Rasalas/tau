@@ -27,6 +27,7 @@ describe("runtime controls theme commands", () => {
       "runtime.theme-system": "Theme: follow the system",
       "runtime.theme-dark": "Theme: dark",
       "runtime.theme-light": "Theme: light",
+      "runtime.theme-menu": "Change theme…",
       "runtime.theme": "Cycle the theme",
     });
   });
@@ -44,6 +45,23 @@ describe("runtime controls theme commands", () => {
 
     await registry.getCommands().find((item) => item.id === "runtime.theme-light")!.run(actions);
     expect(preferences.getSnapshot().theme).toBe("light");
+  });
+
+  it("offers a level of themes in the palette, and opens the palette on it from a chord", async () => {
+    const preferences = new PreferencesStore();
+    const registry = new ExtensionRegistry(undefined, { preferences });
+    registry.activate(runtimeControls);
+    const notify = vi.fn();
+    const openCommandPalette = vi.fn();
+    const actions = { notify, openCommandPalette } as unknown as WorkbenchActions;
+    const command = registry.getCommands().find((item) => item.id === "runtime.theme-menu")!;
+    const rows = await command.submenu!.items("", { actions, index: { projects: [], threads: [] }, signal: new AbortController().signal });
+    expect(rows.map((row) => [row.label, row.current])).toEqual([["System", true], ["Dark", false], ["Light", false]]);
+    await rows[2]!.run!(actions);
+    expect(preferences.getSnapshot().theme).toBe("light");
+    expect(notify).toHaveBeenCalledWith("Theme: light");
+    await command.run(actions);
+    expect(openCommandPalette).toHaveBeenCalledWith({ menu: "runtime.theme-menu" });
   });
 });
 

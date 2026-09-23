@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paletteRows, type PaletteCommand, type PaletteRow } from "./palette-results";
+import { menuRows, paletteRows, type PaletteCommand, type PaletteRow } from "./palette-results";
 
 const command = (id: string, label: string, group = "Runtime", extensionName = "Runtime Controls"): PaletteCommand =>
   ({ id, label, group, extensionId: "core", extensionName, run: () => undefined });
@@ -45,5 +45,28 @@ describe("palette results", () => {
     const many = Array.from({ length: 12 }, (_, index) => item(`t${index}`));
     const rows = paletteRows([], "x", [{ id: "threads", label: "Threads", items: [item("t0"), ...many] }], 5);
     expect(keys(rows)).toEqual(["threads:t0", "threads:t1", "threads:t2", "threads:t3", "threads:t4"]);
+  });
+});
+
+describe("menu rows", () => {
+  const rows = [
+    { id: "dark", label: "Dark", run: () => undefined },
+    { id: "codex", label: "7 models", keywords: ["Codex"], run: () => undefined },
+    { id: "light", label: "Light", detail: "follows the day", run: () => undefined },
+    { id: "dark", label: "Dark again", run: () => undefined },
+  ];
+
+  it("keeps the level's order and drops a repeated id when nothing is typed", () => {
+    expect(keys(menuRows(rows, ""))).toEqual(["menu:dark", "menu:codex", "menu:light"]);
+  });
+
+  it("matches label, detail and keywords, label starts first", () => {
+    expect(keys(menuRows(rows, "codex"))).toEqual(["menu:codex"]);
+    expect(keys(menuRows(rows, "day"))).toEqual(["menu:light"]);
+    expect(keys(menuRows([{ id: "a", label: "The dark", run: () => undefined }, ...rows], "dark"))).toEqual(["menu:dark", "menu:a"]);
+  });
+
+  it("shows a level that searches itself as it answered", () => {
+    expect(keys(menuRows(rows, "nothing like it", true))).toEqual(["menu:dark", "menu:codex", "menu:light"]);
   });
 });

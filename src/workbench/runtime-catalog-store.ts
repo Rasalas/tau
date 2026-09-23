@@ -34,7 +34,7 @@ export class RuntimeCatalogStore {
   private readonly entries = new Map<ThreadBackendKind, { entry: RuntimeCatalogEntry; at: number }>();
   private readonly listeners = new Set<() => void>();
   private view: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> = EMPTY;
-  private listing = false;
+  private listing: Promise<void> | undefined;
 
   constructor(private readonly port: RuntimeCatalogPort, private readonly now: () => number = Date.now) {}
 
@@ -59,19 +59,23 @@ export class RuntimeCatalogStore {
     );
   }
 
-  /** A picker opened: every catalog not held yet, and the host asks again the ones some minutes old. */
-  refresh(): void {
-    if (this.listing) return;
-    this.listing = true;
+  /**
+   * A picker opened: every catalog not held yet, and the host asks again the
+   * ones some minutes old. Resolves once the host answered with what it holds.
+   */
+  refresh(): Promise<void> {
+    if (this.listing) return this.listing;
     const known: Record<string, number> = {};
     for (const [kind, { entry }] of this.entries) {
       const checkedAt = entry.status === "loading" ? undefined : entry.catalog?.checkedAt;
       if (checkedAt !== undefined) known[kind] = checkedAt;
     }
-    this.port.runtimeCatalogs(true, known).then(
+    const listing = this.port.runtimeCatalogs(true, known).then(
       (catalogs) => { for (const catalog of catalogs) this.apply(catalog); },
       () => undefined,
-    ).finally(() => { this.listing = false; });
+    ).finally(() => { if (this.listing === listing) this.listing = undefined; });
+    this.listing = listing;
+    return listing;
   }
 
   /** A catalog the host sent, asked for or not. */

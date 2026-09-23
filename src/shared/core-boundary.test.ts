@@ -95,6 +95,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./turn-activity-store.js",   "./elicitation-form.js",   "./answer-attachments.js",
   // Signing in from the window: the flows a kit runs and Pi's provider credentials (API 1.12.0).
   "./sign-in-flows.js",   "./model-auth.js",
+  // The text of a backend's threads for a search index, answered as a delta (API 1.12.0).
+  "./thread-texts.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

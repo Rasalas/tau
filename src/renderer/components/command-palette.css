@@ -37,3 +37,28 @@
   font: 10px var(--mono); color: var(--faint);
 }
 .command-palette > footer .spacer { flex: 1; }
+/* Levels: the trail above the field, a back button in place of the prompt mark. */
+.palette-crumbs {
+  display: flex; align-items: center; gap: 4px; min-width: 0; height: 30px;
+  padding: 0 14px; border-bottom: 1px solid var(--line);
+  font: 11px var(--sans); color: var(--faint); white-space: nowrap; overflow: hidden;
+}
+.palette-crumbs button {
+  border: 0; background: transparent; padding: 2px 4px; border-radius: var(--radius-sm);
+  font: inherit; color: var(--muted); cursor: pointer;
+}
+.palette-crumbs button:hover { color: var(--ink); background: var(--raised); }
+.palette-crumb { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.palette-crumb > strong { font-weight: 600; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; padding: 2px 4px; }
+.palette-back {
+  display: grid; place-items: center; width: 22px; height: 22px; flex: none;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer;
+}
+.palette-back:hover { color: var(--ink); background: var(--raised); }
+.palette-results .palette-icon {
+  display: grid; place-items: center; width: 20px; height: 20px; flex: none;
+  font-style: normal; color: var(--muted);
+}
+.palette-results button > .palette-current { font: 10.5px var(--sans); color: var(--muted); }
+.palette-results .palette-chevron { flex: none; color: var(--faint); }
+.palette-loading { display: flex; align-items: center; gap: 8px; }

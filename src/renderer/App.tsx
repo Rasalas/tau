@@ -144,9 +144,9 @@ export default function App() {
   // streamed delta must re-render the transcript and nothing above it.
   const transcriptUserRevision = useSyncExternalStore(viewStore.subscribeToUserMessages, viewStore.getUserRevision);
   const {
-    paletteOpen, openPalette, closePalette,
+    paletteOpen, paletteMenu, openPalette, closePalette,
     newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
-    projectSourcesOpen, openProjectSources, closeProjectSources,
+    projectSourcesOpen, projectSource, openProjectSources, closeProjectSources,
     activeOverlayId, openOverlay, closeOverlay,
     settingsPage, setSettingsPage,
   } = useAppOverlays();
@@ -489,7 +489,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles,
+    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
@@ -594,8 +594,8 @@ export default function App() {
     openedPanels: openedPanelIds, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockWidth, onDockWidthChange: setDockWidth,
     centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, stageTabs, activateStageTab: activateStage,
-    pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
-    commands, projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker,
+    pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette,
+    commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay,
   }), [
@@ -603,7 +603,7 @@ export default function App() {
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
     documentSource, documentState, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
     openNewThreadPicker, openPanel, openedPanelIds,
-    threadCommands, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
+    threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage,
     sidebarContributions, stage, takeOverThread, threadStore, visibleStreaming, workspaceCwd,
   ]);

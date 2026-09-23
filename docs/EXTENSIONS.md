@@ -652,6 +652,55 @@ commands that matched only by their group. An empty query lists the commands
 alone. Search Kit (`kits/search/`) is the shipped caller: threads by title and
 by what was said in them, and projects.
 
+#### Levels under a row (new in API 1.12.0)
+
+A command or a row may open a level of the palette instead of running: give
+it a `submenu`, a `PaletteMenu` with a `title`, an optional `placeholder` and
+`empty` line, and `items(query, context)`:
+
+```ts
+plugin.registerCommand({
+  id: "example.pick-issue",
+  label: "Link issue…",
+  group: "Project",
+  submenu: {
+    title: "Link issue",
+    placeholder: "Search open issues…",
+    items: async (query, { actions, signal }) => (await openIssues({ signal })).map((issue) => ({
+      id: issue.id,
+      label: issue.title,
+      detail: `#${issue.number}`,
+      keywords: [String(issue.number)],
+      run: () => linkIssue(issue),
+    })),
+  },
+  // What a chord or another surface does; here, the palette on the level.
+  run: (actions) => actions.openCommandPalette({ menu: "example.pick-issue" }),
+});
+```
+
+The level has its own search field: the palette asks `items` when the level
+opens and again per keystroke, with the context and the signal rules of a
+source, and hands it the query as typed, case and all (a path or a URL). It
+keeps the rows whose label, `detail` or `keywords` hold every word of the
+query, the label's matches first; `searches: true` says the answer already is
+the search and is shown as it comes. A row with its own `submenu` opens the
+next level — a folder in a folder browser, say — so levels nest as deep as
+the data does. The breadcrumb above the field names them and goes back to any;
+the back button and Backspace in an empty field go back one, and the level
+below gets its query back. A row may carry an `icon` (a node; name it with
+`aria-label` when it means something, as a runtime drawn only as its logo) and
+`current: true`, which the row shows as "Current". An `items` that throws
+shows its message in place of the rows. `run` on a row is optional when it has
+a `submenu`; on a command it stays what a chord or a `surfaces` entry does,
+and `actions.openCommandPalette({ menu: id })` opens the palette on the
+command's level. Core's levels are Set model… (every runtime's models,
+through `actions.runtimeModels()`), Change theme… and New thread on…
+(`actions.startThreadOn(runtime, model?)`); Workspace Kit's Add project…
+browses the host's folders level by level and opens the clone form with
+`actions.openProjectSources("workspace.git-clone")`; Review Kit's Link pull
+request… lists the project's open requests.
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, stage tabs,
@@ -1056,6 +1105,30 @@ row to `SESSION_SOURCES` in `kits/onboarding/protocol.ts`. Each reads its CLI's
 own home unless `TAU_IMPORT_ROOTS` names fixture homes — directories laid out
 as `<root>/<backend kind>/…`, like the CLI's own — and then reads nothing else;
 tests and dev instances use it so they never scan the user's history.
+
+Search Kit asks the backend kits for what their threads said, so the palette
+finds a thread nobody has open by its text and not only by its title. A
+backend that keeps its transcripts in its own store registers
+`THREAD_TEXTS_COMMAND` (`thread-texts`) granted to `tau.search`, and
+`threadTextsDelta(records, input)` from `tau/host-extension` (new in API
+1.12.0) answers it from the store's records (`{ tauThreadId, updatedAt,
+messages: [{ role, text }] }`):
+
+```ts
+context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: ["tau.search"] });
+```
+
+The input names what the caller holds, `{ known: { [threadId]: updatedAt },
+limit }`; the answer is `{ threads: [{ threadId, updatedAt, messages }],
+removed, more }` — new and newer threads newest first, `limit` of them (25 by
+default), the known ids the store no longer has, and whether more are left.
+Only user and assistant text travels, the first 64,000 characters of a
+thread (`THREAD_TEXT_CHARS`). Codex, the Agent SDK runtime, Antigravity and
+OpenCode answer it; a backend that adds it adds its id to
+`THREAD_TEXT_SOURCES` in `kits/search/protocol.ts`. Search Kit asks at most
+every five seconds, four pages per backend at a time, and past four million
+characters forgets the oldest threads' text but keeps their `updatedAt`, so it
+does not ask for them again until they change.
 
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a

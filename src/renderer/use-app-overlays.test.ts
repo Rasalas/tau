@@ -47,4 +47,14 @@ describe("useAppOverlays", () => {
     expect(result.current.newThreadOpen).toBe(false);
     expect(result.current.projectSourcesOpen).toBe(true);
   });
+
+  it("remembers the level the palette and the source the project sources open on, until the next open", () => {
+    const { result } = renderHook(() => useAppOverlays());
+    act(() => result.current.openPalette({ menu: "runtime.theme-menu" }));
+    expect(result.current.paletteMenu).toBe("runtime.theme-menu");
+    act(() => result.current.openPalette());
+    expect(result.current.paletteMenu).toBeUndefined();
+    act(() => result.current.openProjectSources("workspace.git-clone"));
+    expect(result.current.projectSource).toBe("workspace.git-clone");
+  });
 });

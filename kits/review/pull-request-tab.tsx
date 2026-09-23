@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
 import { Spinner, type DesktopExtensionContext } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
+import { linkPullRequestMenu } from "./link-menu.js";
 import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
 import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
@@ -91,6 +92,8 @@ export function registerPullRequestTab(
       id: "review.pull-request.link",
       label: "Link pull request…",
       group: "Project",
+      // The palette picks from the open requests; a chord opens the dialog.
+      submenu: linkPullRequestMenu(client, shared.links),
       run: (actions) => {
         const thread = actions.activeThread();
         if (!thread?.sessionId) { actions.notify("Open a thread first; a pull request is linked to a thread."); return; }
