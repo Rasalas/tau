@@ -229,7 +229,7 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
   const busy = state.busy === "projects";
   const toggle = (project: ProjectCandidate, on: boolean) => flow.select("projects", on ? [...selected, project.path] : [...selected].filter((path) => path !== project.path));
   return (
-    <StepShell title="Choose your projects" description="Folders Claude Code, Codex and Pi have worked in. The ones you choose are added to Tau.">
+    <StepShell title="Choose your projects" description="Folders Claude Code, Codex, OpenCode and Pi have worked in. The ones you choose are added to Tau.">
       {state.discoverError ? <p className="onboarding-error" role="alert">Could not check projects. {state.discoverError} <button type="button" className="onboarding-button ghost small" onClick={() => flow.discover()}>Retry</button></p> : null}
       {candidates.length > 0 ? <Selection count={chosen.length} total={candidates.length} busy={busy} onAll={() => flow.select("projects", candidates.map((project) => project.path))} onNone={() => flow.select("projects", [])} /> : null}
       <fieldset className="onboarding-list rows" disabled={busy}>
@@ -275,7 +275,7 @@ function ConversationsStep({ state, flow, actions, known, finish }: { state: Flo
     if (result.failed === 0) finish();
   };
   return (
-    <StepShell title="Import conversations" description="Earlier Claude Code and Codex conversations become threads you can read and continue in Tau. Their text comes along; tool activity and attachments do not.">
+    <StepShell title="Import conversations" description="Earlier Claude Code, Codex and OpenCode conversations become threads you can read and continue in Tau. Their text comes along; tool activity and attachments do not.">
       {pending.length > 0 ? <Selection count={chosen.length} total={pending.length} busy={importing} onAll={() => flow.select("sessions", pending.map((session) => session.path))} onNone={() => flow.select("sessions", [])} /> : null}
       <fieldset className="onboarding-list rows" disabled={importing}>
         <legend className="onboarding-sr">Conversations to import</legend>

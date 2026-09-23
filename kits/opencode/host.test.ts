@@ -104,7 +104,7 @@ describe("OpenCode host half", () => {
     const { provider, registry } = await harness();
     await expect(provider.version!()).resolves.toMatchObject({ tool: "opencode", installed: "1.18.32", latest: "1.19.0" });
     await expect(registry.invoke("tau.opencode", "status")).resolves.toMatchObject({
-      instance: "default", command: "opencode", path: FAKE_CLI, version: "1.18.32", latest: "1.19.0", updateAvailable: true, signedIn: true,
+      instance: "default", command: "opencode", path: FAKE_CLI, version: "1.18.32", latest: "1.19.0", updateAvailable: true, signedIn: true, account: "OpenCode Zen, GitHub Copilot",
       providers: [{ id: "opencode", name: "OpenCode Zen", models: 3 }, { id: "github-copilot", name: "GitHub Copilot", models: 1 }],
     });
   });

@@ -394,6 +394,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
             ...(verdict ? { compatibility: verdict } : {}),
             ...(verdict?.status === "broken" ? { unsupported: true } : {}),
             providers,
+            ...(providers.length ? { account: `${providers.slice(0, 2).map((provider) => provider.name).join(", ")}${providers.length > 2 ? ` +${providers.length - 2}` : ""}` } : {}),
             signedIn: providers.length > 0,
             models: providers.reduce((sum, provider) => sum + provider.models, 0),
           };

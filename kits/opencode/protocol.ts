@@ -61,6 +61,8 @@ export interface OpenCodeStatusReport {
   serverUrl?: string;
   /** Providers with a login or key, so a thread can use their models. */
   providers?: OpenCodeProviderSummary[];
+  /** The providers in a few words, for a line that names who a runtime is signed in as. */
+  account?: string;
   signedIn?: boolean;
   models?: number;
   message?: string;
