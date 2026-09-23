@@ -32,6 +32,20 @@ vi.mock("./components/TitleBar", () => ({
   },
 }));
 
+// The composer sits beside the transcript; a flush of tool output leaves it alone too.
+const composerRenders = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./components/Composer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./components/Composer")>();
+  const Real = actual.Composer;
+  return {
+    ...actual,
+    Composer: (props: Parameters<typeof Real>[0]) => {
+      composerRenders.count += 1;
+      return <Real {...props} />;
+    },
+  };
+});
+
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
 describe("app render isolation", () => {
@@ -40,6 +54,7 @@ describe("app render isolation", () => {
   beforeEach(() => {
     appRenders.count = 0;
     workbenchRenders.count = 0;
+    composerRenders.count = 0;
     client = createFakeHostClient({
       platform: "darwin",
       bootstrap: async () => ({
@@ -131,6 +146,7 @@ describe("app render isolation", () => {
 
       const appBefore = appRenders.count;
       const workbenchBefore = workbenchRenders.count;
+      const composerBefore = composerRenders.count;
       for (const output of ["line-1\nline-2\n", "line-1\nline-2\nline-3\n"]) {
         act(() => client.emit({ type: "tool-update", sessionId: "session", id: "tool-1", output }));
         flushFrames();
@@ -139,6 +155,7 @@ describe("app render isolation", () => {
       await waitFor(() => expect(transcriptText(view)).toContain("line-3"));
       expect(appRenders.count).toBe(appBefore);
       expect(workbenchRenders.count).toBe(workbenchBefore);
+      expect(composerRenders.count).toBe(composerBefore);
     } finally {
       requestFrame.mockRestore();
     }

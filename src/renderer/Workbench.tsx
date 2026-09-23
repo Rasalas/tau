@@ -35,7 +35,7 @@ import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
-import { contextBreakdownFor, conversationMessagesFor } from "../workbench/app-state";
+import { contextBreakdownFor, conversationMessagesFor, toolOutputKiloTokens } from "../workbench/app-state";
 import type { TranscriptHistoryController } from "../workbench/transcript-history";
 import type { useThreadDropController } from "./use-thread-drop-controller";
 import {
@@ -748,7 +748,8 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   actions?: WorkbenchActions;
 }) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
-  const tools = useSyncExternalStore(view.subscribeToTools, view.getToolView).tools;
+  // Only at the meter's precision: tool output would otherwise re-render the composer every frame.
+  const toolKiloTokens = useSyncExternalStore(view.subscribeToTools, () => toolOutputKiloTokens(view.getToolView().tools));
   const preferences = usePreferences();
   const { showCosts, newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   // The runtime is a property of the thread; it is chosen before the thread exists and never after.
@@ -761,8 +762,8 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
   } = composer;
   const contextBreakdown = useMemo(
-    () => contextBreakdownFor(snapshot?.contextUsage, transcript.tokenEstimate, tools),
-    [snapshot?.contextUsage, tools, transcript.tokenEstimate],
+    () => contextBreakdownFor(snapshot?.contextUsage, transcript.tokenEstimate, toolKiloTokens * 1000),
+    [snapshot?.contextUsage, toolKiloTokens, transcript.tokenEstimate],
   );
   return <Composer
     snapshot={conversationSnapshot}
