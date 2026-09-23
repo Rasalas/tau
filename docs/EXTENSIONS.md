@@ -1989,6 +1989,13 @@ window's registry, so a package can only call its own half. `context.invokeHost`
 goes the other way, into the package's own host commands — that is how a view
 reports that the page changed.
 
+`context.loadDependency(packageName)` (new in API 1.12.0) is `services.loadDependency`
+for this process: a module from Tau's own npm dependencies, by package name
+only, resolved where npm put it. It is for a native addon that must act on the
+machine the user sits at rather than the one the host runs on — SnapShots
+reads the accessibility tree of a window this way. A half written for an older
+Tau checks that the member exists.
+
 Two limits: an isolated (worker) package cannot use `callClient` at all, and a
 client that has no window half (the browser client, a host nobody is attached
 to) makes the call reject. Treat it as an optional capability and say what is
