@@ -20,18 +20,16 @@ export interface CommandInvocationOptions {
 /** Characters `cmd.exe` treats specially outside quotes; each gets a caret. */
 const CMD_SPECIAL = /[()[\]%!^"`<>&|;, *?=]/gu;
 
-/** One argument as a C runtime parses it back: quoted, with quotes and the backslashes before them escaped. */
-function quoteArgument(arg: string): string {
-  return `"${arg.replace(/(\\*)"/gu, "$1$1\\\"").replace(/(\\+)$/u, "$1$1")}"`;
-}
-
 /**
- * Escaped twice: once for the `cmd /c` line, once more for the batch file,
- * which re-parses its arguments when it forwards them with `%*`, as npm's
- * shims and VS Code's `code.cmd` do.
+ * One argument for a batch file: double-quoted (trailing backslashes doubled,
+ * so the closing quote stays one), then caret-escaped for the `cmd /c` line.
+ * The batch file sees it quoted, whether it reads `%1` or forwards `%*` as
+ * npm's shims and `code.cmd` do. A double quote or a line break cannot be
+ * passed safely through both parses, so it is refused.
  */
 export function batchArgument(arg: string): string {
-  return quoteArgument(arg).replace(CMD_SPECIAL, "^$&").replace(CMD_SPECIAL, "^$&");
+  if (/["\r\n]/u.test(arg)) throw new Error(`A batch file cannot take this argument safely: ${JSON.stringify(arg)}`);
+  return `"${arg.replace(/(\\+)$/u, "$1$1")}"`.replace(CMD_SPECIAL, "^$&");
 }
 
 /**

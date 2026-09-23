@@ -37,27 +37,33 @@ describe("commandInvocation", () => {
 });
 
 describe("batchArgument", () => {
-  it("quotes, escapes quotes and trailing backslashes, and carets every cmd.exe special twice", () => {
-    expect(batchArgument("plain")).toBe("^^^\"plain^^^\"");
-    expect(batchArgument("a b")).toBe("^^^\"a^^^ b^^^\"");
-    expect(batchArgument("C:\\dir\\")).toBe("^^^\"C:\\dir\\\\^^^\"");
-    expect(batchArgument("say \"hi\"")).toBe("^^^\"say^^^ \\^^^\"hi\\^^^\"^^^\"");
-    expect(batchArgument("a&b|c>d<e^f%PATH%!x!")).toBe("^^^\"a^^^&b^^^|c^^^>d^^^<e^^^^f^^^%PATH^^^%^^^!x^^^!^^^\"");
+  it("quotes, doubles trailing backslashes and carets every cmd.exe special", () => {
+    expect(batchArgument("plain")).toBe("^\"plain^\"");
+    expect(batchArgument("a b")).toBe("^\"a^ b^\"");
+    expect(batchArgument("C:\\dir\\")).toBe("^\"C:\\dir\\\\^\"");
+    expect(batchArgument("a&b|c>d<e^f%PATH%!x!")).toBe("^\"a^&b^|c^>d^<e^^f^%PATH^%^!x^!^\"");
+  });
+
+  it("refuses what cannot pass through cmd.exe and a batch file intact", () => {
+    expect(() => batchArgument("say \"hi\"")).toThrow(/cannot take this argument/u);
+    expect(() => batchArgument("two\nlines")).toThrow(/cannot take this argument/u);
   });
 
   /**
-   * cmd.exe drops one caret per parse, and a batch file forwarding `%*` is a
-   * second parse; after both, the program must see the C-runtime quoting of the
-   * original argument, with every special character literal.
+   * cmd.exe drops the carets when it parses the `/c` line; the batch file then
+   * holds the argument in double quotes, where every special character is
+   * literal, and a program reading it with the C runtime gets the original.
    */
-  it("survives both cmd.exe parses back to the original argument", () => {
-    const unescapeOnce = (text: string) => text.replace(/\^(.)/gu, "$1");
-    const parseQuoted = (text: string) => {
+  it("reaches the batch file quoted, and the program as it was", () => {
+    const cmdParse = (text: string) => text.replace(/\^(.)/gu, "$1");
+    const runtimeParse = (text: string) => {
       expect(text.startsWith("\"") && text.endsWith("\"")).toBe(true);
-      return text.slice(1, -1).replace(/(\\*)\\"/gu, (_all, slashes: string) => `${slashes.slice(slashes.length / 2)}"`).replace(/(\\+)$/u, (slashes: string) => slashes.slice(slashes.length / 2));
+      return text.slice(1, -1).replace(/(\\+)$/u, (slashes: string) => slashes.slice(slashes.length / 2));
     };
-    for (const arg of ["plain", "a b", "a\"&b", "C:\\Program Files (x86)\\x\\", "100%", "x^y", "!bang!", "=", ""]) {
-      expect(parseQuoted(unescapeOnce(unescapeOnce(batchArgument(arg))))).toBe(arg);
+    for (const arg of ["plain", "a b", "a&b", "C:\\Program Files (x86)\\x\\", "100%", "x^y", "!bang!", "=", ""]) {
+      const seen = cmdParse(batchArgument(arg));
+      expect(seen.slice(1, -1)).not.toContain("\"");
+      expect(runtimeParse(seen)).toBe(arg);
     }
   });
 });
