@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 import { join } from "node:path";
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
@@ -66,6 +67,12 @@ export interface HostBackendOpenContext {
    * the thread waits for it. Aborting the thread answers it as cancelled.
    */
   ask(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
+  /**
+   * The thread's total from its tallies, priced as core prices every thread,
+   * for `catalogView().usage`. Prices can change under a thread, so ask on
+   * each read. Absent before API 1.12.0.
+   */
+  priceUsage?(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
 }
 
 /** A backend's question; the host names the prompt and its thread. */
@@ -638,6 +645,13 @@ export interface HostExtensionServices {
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   /** The models `complete` can be asked for: the user's Pi catalog, those with a key or a login. Absent before API 1.11.0. */
   completionModels?(): Promise<UiModel[]>;
+  /**
+   * Tallies priced the way core prices a thread: the user's own prices first,
+   * then the runtime's, then the provider's API list for a subscription or an
+   * API key. A subscription's figure is `apiValueUsd`, never `costUsd`.
+   * Absent before API 1.12.0.
+   */
+  priceUsage?(tallies: readonly UsageTally[]): Promise<PricedUsage[]>;
   /** Renames a thread the way the title menu does, and publishes the change. */
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** The Pi terminal owning a thread while Tau is attached; `undefined` when Tau runs it. */

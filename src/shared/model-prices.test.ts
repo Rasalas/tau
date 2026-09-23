@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { costAt, priceOverride, readModelPrices, withPriceOverride } from "./model-prices";
+import { costAt, priceOverride, readModelPrices, withPriceOverride } from "./model-prices.js";
 
 describe("model prices", () => {
   it("keeps valid entries and drops the rest", () => {

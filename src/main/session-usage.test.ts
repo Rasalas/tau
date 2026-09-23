@@ -2,7 +2,13 @@ import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { SessionUsageIndex, readSessionFileStamp, readSessionUsage } from "./session-usage.js";
+import { SessionUsageIndex, readSessionFileStamp, readSessionUsage, sessionTalliesFromEntries } from "./session-usage.js";
+import type { UsageTally } from "./usage-pricing.js";
+
+/** One figure over every tally, for tests that only sum. */
+function sum(tallies: readonly UsageTally[] | undefined, field: keyof Omit<UsageTally, "provider" | "model" | "billing">): number | undefined {
+  return tallies?.reduce((total, tally) => total + tally[field], 0);
+}
 
 const directories: string[] = [];
 
@@ -50,7 +56,8 @@ describe("session usage", () => {
     ]);
 
     const result = await readSessionUsage(path);
-    expect(result?.usage).toMatchObject({
+    expect(result?.tallies).toHaveLength(1);
+    expect(result?.tallies[0]).toMatchObject({
       inputTokens: 13_300,
       outputTokens: 2_600,
       cacheReadTokens: 8_000,
@@ -58,14 +65,14 @@ describe("session usage", () => {
       totalTokens: 23_900,
       turns: 2,
     });
-    expect(result?.usage.costUsd).toBeCloseTo(0.42, 10);
+    expect(sum(result?.tallies, "costUsd")).toBeCloseTo(0.42, 10);
     expect(result?.skipped).toBe(0);
   });
 
   it("reports a thread nobody was billed for as zero rather than as unreadable", async () => {
     const path = await sessionFile([JSON.stringify({ type: "session", version: 3, id: "thread", cwd: "/project" })]);
     const result = await readSessionUsage(path);
-    expect(result?.usage).toMatchObject({ costUsd: 0, turns: 0, totalTokens: 0 });
+    expect(result?.tallies).toEqual([]);
     expect(result?.skipped).toBe(0);
     expect(await readSessionUsage(join(await workspace(), "missing.jsonl"))).toBeUndefined();
   });
@@ -84,8 +91,8 @@ describe("session usage", () => {
     expect(result).toBeDefined();
     // Two valid turns, one skipped corrupt line.
     expect(result?.skipped).toBe(1);
-    expect(result?.usage.turns).toBe(2);
-    expect(result?.usage.costUsd).toBeCloseTo(0.30, 10);
+    expect(sum(result?.tallies, "turns")).toBe(2);
+    expect(sum(result?.tallies, "costUsd")).toBeCloseTo(0.30, 10);
   });
 
   it("logs IO read failures and returns undefined without hiding them", async () => {
@@ -99,16 +106,16 @@ describe("session usage", () => {
   it("serves a cached total until the file's size and mtime move, then refills it", async () => {
     const path = await sessionFile([assistant("a1", 0.25, 1_000, 100)]);
     const resolved: number[] = [];
-    const index = new SessionUsageIndex({ onResolved: (_, usage) => resolved.push(usage.costUsd) });
+    const index = new SessionUsageIndex({ onResolved: (_, tallies) => resolved.push(sum(tallies, "costUsd") ?? 0) });
 
     expect(index.lookup(path, await readSessionFileStamp(path))).toBeUndefined();
     await index.idle();
     expect(resolved).toEqual([0.25]);
 
     const stamp = await readSessionFileStamp(path);
-    expect(index.lookup(path, stamp)?.costUsd).toBe(0.25);
+    expect(sum(index.lookup(path, stamp), "costUsd")).toBe(0.25);
     // A second lookup with the same stamp must not read the file again.
-    expect(index.lookup(path, stamp)?.costUsd).toBe(0.25);
+    expect(sum(index.lookup(path, stamp), "costUsd")).toBe(0.25);
     await index.idle();
     expect(resolved).toEqual([0.25]);
 
@@ -116,10 +123,10 @@ describe("session usage", () => {
     const grown = await readSessionFileStamp(path);
     expect(grown?.size).toBeGreaterThan(stamp?.size ?? 0);
     // The stale value stays visible while the refill runs.
-    expect(index.lookup(path, grown)?.costUsd).toBe(0.25);
+    expect(sum(index.lookup(path, grown), "costUsd")).toBe(0.25);
     await index.idle();
     expect(resolved.map((cost) => Math.round(cost * 100))).toEqual([25, 75]);
-    expect(index.lookup(path, grown)?.costUsd).toBeCloseTo(0.75, 10);
+    expect(sum(index.lookup(path, grown), "costUsd")).toBeCloseTo(0.75, 10);
 
     await index.dispose();
   });
@@ -129,7 +136,7 @@ describe("session usage", () => {
     const cachePath = join(directory, "session-usage.json");
     const path = await sessionFile([assistant("a1", 0.25, 1_000, 100)]);
     const stamp = await readSessionFileStamp(path);
-    const live = { inputTokens: 9, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 10, costUsd: 9.99, turns: 4 };
+    const live = [{ provider: "anthropic", model: "claude-haiku-4-5", inputTokens: 9, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 10, costUsd: 9.99, turns: 4 }];
 
     const index = new SessionUsageIndex({ path: cachePath });
     index.record(path, stamp, live);
@@ -146,9 +153,26 @@ describe("session usage", () => {
     const path = await sessionFile([assistant("a1", 0.25, 1_000, 100)]);
     const stamp = await readSessionFileStamp(path);
     const index = new SessionUsageIndex();
-    index.record(path, stamp, { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 1, turns: 1 });
+    index.record(path, stamp, [{ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 1, turns: 1 }]);
     index.retain([]);
     expect(index.lookup(path, undefined)).toBeUndefined();
     await index.dispose();
+  });
+
+  it("keeps one tally per provider and model, and counts a summary for the model that ran last", () => {
+    const message = (provider: string, model: string, cost: number) => ({
+      type: "message",
+      message: { role: "assistant", provider, model, usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { total: cost } } },
+    });
+    const tallies = sessionTalliesFromEntries([
+      message("openai-codex", "gpt-5.6-luna", 0),
+      message("anthropic", "claude-haiku-4-5", 0.1),
+      { type: "compaction", usage: { input: 100, output: 10, totalTokens: 110, cost: { total: 0.2 } } },
+      message("openai-codex", "gpt-5.6-luna", 0),
+    ]);
+    expect(tallies).toEqual([
+      { provider: "openai-codex", model: "gpt-5.6-luna", inputTokens: 20, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 30, costUsd: 0, turns: 2 },
+      { provider: "anthropic", model: "claude-haiku-4-5", inputTokens: 110, outputTokens: 15, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 125, costUsd: expect.closeTo(0.3) as number, turns: 1 },
+    ]);
   });
 });

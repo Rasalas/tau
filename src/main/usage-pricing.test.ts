@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { UsagePricing, mergeTallies, priceTally, readUsageTally, threadUsageFrom, type UsagePriceSource, type UsageTally } from "./usage-pricing";
+import { UsagePricing, mergeTallies, priceTally, readUsageTally, threadUsageFrom, type UsagePriceSource, type UsageTally } from "./usage-pricing.js";
 
 const MTOK = 1_000_000;
 

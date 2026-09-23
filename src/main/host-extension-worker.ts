@@ -1,4 +1,5 @@
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
+import type { PricedUsage } from "./usage-pricing.js";
 import Module, { createRequire } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";
 import {
@@ -189,6 +190,7 @@ const services: WorkerHostServices = {
   workspaceRef: (path) => rpc("workspaceRef", path) as Promise<WorkspaceRef>,
   admitWorkspace: (path) => rpc("admitWorkspace", path) as Promise<WorkspaceRef>,
   projectName: (cwd) => rpc("projectName", cwd) as Promise<string>,
+  priceUsage: (tallies) => rpc("priceUsage", tallies) as Promise<PricedUsage[]>,
   rememberProjectName: async (cwd, name) => { await rpc("rememberProjectName", cwd, name); },
   pickDirectory: (options) => rpc("pickDirectory", options) as Promise<string | undefined>,
   runtimeOwner: () => rpc("runtimeOwner") as Promise<"tau" | "pi">,

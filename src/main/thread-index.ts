@@ -20,6 +20,7 @@ import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ProjectHistory } from "./project-history.js";
 import { PARENT_LINK_ENTRY, SessionLineageIndex, parentLinkEntry } from "./session-lineage.js";
 import { SessionUsageIndex, hasThreadUsage, readSessionFileStamp } from "./session-usage.js";
+import type { UsageTally } from "./usage-pricing.js";
 import { ThreadRuntime, threadBackendKind } from "./thread-runtime.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
 
@@ -40,6 +41,8 @@ export interface ThreadIndexPort {
   projectHistory: ProjectHistory;
   threadLifecycle: HostThreadLifecycleSet;
   backends(): ReadonlyMap<string, HostRuntimeBackendProvider>;
+  /** Tallies as the host prices them: the user's prices, a subscription's share apart. */
+  priceUsage(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
   /** Threads with a live runtime; their own totals supersede the cache. */
   liveThreads(): readonly ThreadRuntime[];
   hostThread(thread: ThreadRuntime): HostThread;
@@ -94,7 +97,7 @@ export class ThreadIndex {
     this.usage = new SessionUsageIndex({
       ...(options.usageCachePath ? { path: options.usageCachePath } : {}),
       ...(options.logger ? { logger: options.logger } : {}),
-      onResolved: (sessionPath, usage) => this.applyScannedUsage(sessionPath, usage),
+      onResolved: (sessionPath, tallies) => this.applyScannedUsage(sessionPath, this.port.priceUsage(tallies)),
     });
     this.lineage = new SessionLineageIndex({
       ...(options.lineageCachePath ? { path: options.lineageCachePath } : {}),
@@ -186,7 +189,7 @@ export class ThreadIndex {
       async (cwd) => this.port.projects.label(cwd),
       (cwd) => this.port.projects.name(cwd),
       new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, session.modelProvider]] : [])),
-      (info) => this.liveUsage(info.id) ?? usageOrUndefined(this.usage.lookup(info.path, stamps.get(info.path))),
+      (info) => this.liveUsage(info.id) ?? this.cachedUsage(info.path, stamps.get(info.path)),
       (info) => parents.get(info.path) ?? this.parents.get(info.id),
     );
     const previous = this.sessions;
@@ -303,14 +306,34 @@ export class ThreadIndex {
    * cache, and seeds it, so an open thread is never re-read from disk.
    */
   private rememberUsage(thread: ThreadRuntime): UiThreadUsage | undefined {
-    const usage = usageOrUndefined(thread.backend.catalogView().usage);
+    const view = thread.backend.catalogView();
+    const usage = usageOrUndefined(view.usage);
     const file = thread.sessionFile;
-    if (usage && file) {
+    const tallies = view.usageTallies;
+    if (tallies && file) {
       void readSessionFileStamp(file)
-        .then((stamp) => this.usage.record(file, stamp, usage))
+        .then((stamp) => this.usage.record(file, stamp, tallies))
         .catch(() => undefined);
     }
     return usage;
+  }
+
+  private cachedUsage(path: string, stamp: Parameters<SessionUsageIndex["lookup"]>[1]): UiThreadUsage | undefined {
+    const tallies = this.usage.lookup(path, stamp);
+    return tallies ? usageOrUndefined(this.port.priceUsage(tallies)) : undefined;
+  }
+
+  /** Prices changed: every shell's total is worked out again, and the changed ones are published. */
+  repriceAll(): void {
+    const cached = this.usage.cached();
+    for (const shell of this.sessions) {
+      const tallies = cached.get(shell.path);
+      const usage = this.liveUsage(shell.id) ?? (tallies ? usageOrUndefined(this.port.priceUsage(tallies)) : undefined);
+      if (!usage || threadUsageEqual(shell.usage, usage)) continue;
+      const updated = { ...shell, usage };
+      this.sessions = this.sessions.map((entry) => entry.id === shell.id ? updated : entry);
+      this.publishShellSoon(updated);
+    }
   }
 
   private liveUsage(threadId: string): UiThreadUsage | undefined {
@@ -319,9 +342,9 @@ export class ThreadIndex {
   }
 
   /** A deferred session-file read finished; the thread's shell carries the number now. */
-  private applyScannedUsage(sessionPath: string, usage: UiThreadUsage): void {
+  private applyScannedUsage(sessionPath: string, usage: UiThreadUsage | undefined): void {
     const shell = this.byPath(sessionPath);
-    if (!shell || threadUsageEqual(shell.usage, usage)) return;
+    if (!shell || !usage || threadUsageEqual(shell.usage, usage)) return;
     const updated = usageOrUndefined(usage) ? { ...shell, usage } : shell;
     if (updated === shell) return;
     this.sessions = this.sessions.map((entry) => entry.id === shell.id ? updated : entry);

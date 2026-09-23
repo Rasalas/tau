@@ -77,6 +77,11 @@ import { TurnSettlement } from "./turn-settlement.js";
 import { ModelPriceBook, piNewThreadCatalog } from "./model-price-book.js";
 import { modelReleaseDate } from "./pi-model-runtime.js";
 import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
+import { UsagePricing, type UsageTally } from "./usage-pricing.js";
+import { readModelPrices } from "../shared/model-prices.js";
+
+/** Pi's model data is read this long after the first price is asked for, clear of the start. */
+const PRICING_LOAD_DELAY_MS = 2_000;
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
@@ -199,6 +204,8 @@ export interface PiHostComponents {
   readonly settlement: TurnSettlement;
   /** What every runtime offers a new thread, kept across runs. */
   readonly catalogs: RuntimeCatalogs;
+  /** What threads cost: the user's prices, the runtimes', a subscription's value. */
+  readonly pricing: UsagePricing;
   /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
   readonly continueThreadsAfterRestart: () => boolean;
 }
@@ -219,6 +226,32 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     ...(options.logger ? { logger: options.logger } : {}),
   }, lifecycleMetrics);
   const completions = new HostCompletions({ agentDir: getAgentDir(), cwd: () => deps.getCwd(), ...(options.createModelRuntime ? { createRuntime: options.createModelRuntime } : {}) });
+  /**
+   * What threads cost. Pi's model data loads a moment after start, off the
+   * start path; totals published before that are worked out again.
+   */
+  const pricing = new UsagePricing({
+    load: async () => {
+      const data = await completions.catalogData();
+      const book = new ModelPriceBook(data.known, modelReleaseDate);
+      return { apiPrice: (provider, model) => book.lookup(provider ?? "", model)?.price, subscription: data.subscription };
+    },
+    readPrices: () => readModelPrices(defaultHostConfigManager.readSync().modelPrices),
+    onChange: () => {
+      if (!index.scanned) return;
+      index.repriceAll();
+      void deps.publishActiveCatalog().catch((error: unknown) => deps.log("usage-pricing.publish-failed", deps.errorMessage(error)));
+    },
+    log: (label, detail) => deps.log(label, detail),
+  });
+  let pricingScheduled = false;
+  const priceUsage = (tallies: readonly UsageTally[]) => {
+    if (!pricingScheduled) {
+      pricingScheduled = true;
+      setTimeout(() => void pricing.ready(), PRICING_LOAD_DELAY_MS).unref?.();
+    }
+    return pricing.threadUsage(tallies);
+  };
   const piAdapter = assertRuntimeAdapter(safeMode ? PI_AGENT_RUNTIME_ADAPTER : options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER);
   if (piAdapter.id !== "pi") throw new Error("The host's own runtime adapter must be Pi; other backends come from host extensions.");
   const defaultBackendKind: ThreadBackendKind = safeMode ? "pi" : options.defaultBackendKind ?? "pi";
@@ -312,6 +345,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     threadLifecycle,
     backends: () => seam.backends,
     liveThreads: () => threads.list().map((record) => record.runtime),
+    priceUsage,
     hostThread: (thread) => deps.hostThreadFor(thread),
     emit: (event) => emit(event),
     emitUpdate: (update) => deps.emitUpdate(update),
@@ -365,6 +399,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     thread: (sessionId) => deps.hostThread(sessionId),
     complete: (request, model) => completions.complete(request, model),
     completionModels: () => completions.models(),
+    priceUsage: async (tallies) => {
+      await pricing.ready();
+      return tallies.map((tally) => pricing.price(tally));
+    },
     setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(deps.requireThread(sessionId), title, source); },
     attachedRuntime: (sessionId) => deps.ownedByPi(deps.threadFor(sessionId)) ? attached.hostRuntime : undefined,
     describeProjects: (facts) => projects.add(facts),
@@ -480,6 +518,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     runtimeExtensions: (settingsManager, session) => deps.runtimeExtensionsFor(settingsManager, session),
     runtimeExtensionNames: () => seam.runtimeExtensions.map((entry) => entry.name),
     runtimeModes: () => runtimeExtensionModes(seam.runtimeExtensions),
+    priceUsage,
     threadLifecycle,
     turnObservers,
     clientTurns,
@@ -518,6 +557,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       // The host re-reads nothing for anyone: it says what moved, and the kits
       // and clients that own those files decide.
       seam.notifyConfigChange({ kind: change.kind, paths: change.paths });
+      pricing.reloadPrices();
       emit({ type: "config-changed", kind: change.kind, paths: [...change.paths] });
     },
     log: (label, detail) => deps.log(label, detail),
@@ -622,6 +662,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     limits,
     settlement,
     catalogs,
+    pricing,
     continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
   };
 }

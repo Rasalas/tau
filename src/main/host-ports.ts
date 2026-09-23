@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getAgentDir, loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
@@ -129,6 +130,7 @@ export interface ExtensionServicesPort {
   thread(sessionId?: string): HostThread | undefined;
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   completionModels(): Promise<UiModel[]>;
+  priceUsage(tallies: readonly UsageTally[]): Promise<PricedUsage[]>;
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined;
   describeProjects(facts: HostProjectFacts): () => void;
@@ -291,6 +293,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     thread: (sessionId) => port.thread(sessionId),
     complete: (request, model) => port.complete(request, model),
     completionModels: () => port.completionModels(),
+    priceUsage: (tallies) => port.priceUsage(tallies),
     setThreadTitle: (sessionId, title, source) => port.setThreadTitle(sessionId, title, source),
     attachedRuntime: (sessionId) => port.attachedRuntime(sessionId),
     describeProjects: (facts) => port.describeProjects(facts),
