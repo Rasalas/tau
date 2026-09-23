@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryStorage } from "./client-storage";
-import { EMPTY_STAGE, openFileTab, openThreadTab, type StageState } from "./stage";
+import { EMPTY_STAGE, openFileTab, openPanelTab, openThreadTab, type StageState } from "./stage";
 import { stageStateKey } from "./storage-keys";
 import {
   EMPTY_DOCK,
@@ -62,6 +62,15 @@ describe("stage persistence", () => {
     expect(pruneStageState(restored, { workspacePath: "/repo", knownThreadIds: new Set() })).toBe(restored);
   });
 
+  it("round-trips a maximized panel's tab and drops one without a panel id", () => {
+    const storage = createMemoryStorage();
+    const stage = openPanelTab(openFileTab(EMPTY_STAGE, "/repo/a.ts", { pin: true }), "tau.changes");
+    writeStageState(storage, workspace, stage);
+    expect(readStageState(storage, workspace)).toEqual(stage);
+    storage.set(stageStateKey(workspace), JSON.stringify({ tabs: [{ id: "panel:", kind: "panel", preview: false }] }));
+    expect(readStageState(storage, workspace)).toEqual(EMPTY_STAGE);
+  });
+
   it("survives a value that is not JSON", () => {
     const storage = createMemoryStorage();
     storage.set(stageStateKey(workspace), "{not json");
@@ -113,6 +122,14 @@ describe("dock persistence", () => {
     expect(readDockState(storage, workspace)).toEqual({
       open: true, activePanel: "tau.agents", openedPanels: ["tau.agents", "tau.terminal"], width: 380,
     });
+  });
+
+  it("keeps which drawer panel was open, and drops a drawer that is not a panel id", () => {
+    const storage = createMemoryStorage();
+    writeDockState(storage, workspace, { open: false, openedPanels: [], drawer: "terminal" });
+    expect(readDockState(storage, workspace).drawer).toBe("terminal");
+    storage.set(`tau.dock.v1:${workspace}`, JSON.stringify({ open: false, openedPanels: [], drawer: 3 }));
+    expect(readDockState(storage, workspace)).toEqual(EMPTY_DOCK);
   });
 
   it("starts closed for a workspace it has not seen", () => {

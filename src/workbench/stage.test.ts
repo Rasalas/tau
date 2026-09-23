@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeTab, closeTab, cycleTab, EMPTY_STAGE, extensionTabId, fileTabId, openExtensionTab, openFileTab,
   openThreadTab, otherTabIds, pinTab, setExtensionTabDirty, setExtensionTabTitle, setFileView, stageParamsKey,
-  tabIdsToTheRight, threadTabId, unpinTab,
+  openPanelTab, panelTabId, stagedPanelIds, tabIdsToTheRight, threadTabId, unpinTab,
 } from "./stage";
 
 const A = "/repo/src/a.ts";
@@ -10,6 +10,20 @@ const B = "/repo/src/b.ts";
 const C = "/repo/src/c.ts";
 
 describe("stage tabs", () => {
+  it("opens a maximized panel pinned, after the active tab, and only once", () => {
+    let state = openFileTab(EMPTY_STAGE, A, { pin: true });
+    state = openPanelTab(state, "changes");
+    expect(state.tabs.map((tab) => tab.id)).toEqual([fileTabId(A), panelTabId("changes")]);
+    expect(activeTab(state)).toMatchObject({ kind: "panel", panelId: "changes", preview: false });
+    // A preview opened next does not replace it.
+    state = openFileTab(state, B);
+    expect(stagedPanelIds(state)).toEqual(["changes"]);
+    state = openPanelTab(state, "changes");
+    expect(state.tabs).toHaveLength(3);
+    expect(state.activeId).toBe(panelTabId("changes"));
+    expect(stagedPanelIds(closeTab(state, panelTabId("changes")))).toEqual([]);
+  });
+
   it("replaces a preview tab with the next preview instead of piling tabs up", () => {
     const state = openFileTab(openFileTab(EMPTY_STAGE, A), B);
     expect(state.tabs.map((tab) => tab.id)).toEqual([fileTabId(B)]);

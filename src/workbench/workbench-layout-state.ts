@@ -17,6 +17,8 @@ export interface DockState {
   /** Panels that were mounted at least once; a panel keeps its state that way. */
   openedPanels: readonly string[];
   width?: number;
+  /** The drawer panel shown below the conversation; absent while the drawer is closed. */
+  drawer?: string;
 }
 
 export const EMPTY_DOCK: DockState = { open: false, openedPanels: [] };
@@ -48,6 +50,7 @@ function decodeTab(value: unknown): StageTab | undefined {
   if (typeof tab.preview !== "boolean") return undefined;
   if (tab.kind === "file" && (typeof tab.path !== "string" || (tab.view !== "source" && tab.view !== "diff"))) return undefined;
   if (tab.kind === "thread" && typeof tab.sessionId !== "string") return undefined;
+  if (tab.kind === "panel" && (typeof tab.panelId !== "string" || !tab.panelId)) return undefined;
   return tab as unknown as StageTab;
 }
 
@@ -83,6 +86,7 @@ export function decodeDockState(value: unknown): DockState {
     ...(typeof stored.activePanel === "string" ? { activePanel: stored.activePanel } : {}),
     openedPanels,
     ...(typeof stored.width === "number" && Number.isFinite(stored.width) ? { width: stored.width } : {}),
+    ...(typeof stored.drawer === "string" && stored.drawer ? { drawer: stored.drawer } : {}),
   };
 }
 
