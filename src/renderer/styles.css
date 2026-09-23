@@ -40,6 +40,11 @@ button > svg { pointer-events: none; }
 }
 .spinner.acid { border-color: var(--acid-text); border-top-color: transparent; }
 .spinner.small { width: 9px; height: 9px; }
+.spinner-sm { width: 12px; height: 12px; }
+.spinner-md { width: 14px; height: 14px; border-width: 2px; }
+.spinner-lg { width: 20px; height: 20px; border-width: 2px; }
+.spinner.tone-accent { border-color: var(--acid-text); border-top-color: transparent; }
+.spinner.tone-current { border-color: currentColor; border-top-color: transparent; }
 
 /* ---------------------------------------------------------------- shell */
 
@@ -153,6 +158,12 @@ button > svg { pointer-events: none; }
 .menu.below.left { right: auto; left: 0; }
 .menu.above { bottom: calc(100% + 9px); left: 0; }
 .menu.above.right { left: auto; right: 0; }
+.menu.at-point { position: fixed; left: 0; top: 0; }
+.menu { translate: calc(var(--keep-clear-x, 0px) + var(--menu-shift-x, 0px)) var(--menu-shift-y, 0px); outline: none; }
+.menu-sub-anchor { position: relative; }
+.menu.submenu { top: -7px; left: calc(100% + 8px); }
+.menu.submenu.flip { left: auto; right: calc(100% + 8px); }
+.menu button:focus, .menu button.expanded { outline: none; background: var(--raised); color: var(--ink); }
 
 /* Sections are layout-transparent, so headings, rules and items share one column. */
 .menu-section { display: contents; }
@@ -2530,71 +2541,42 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 @keyframes reload-breathe { 50% { transform: scale(1.22); opacity: .55; } }
 @keyframes reload-field { 50% { transform: scale(1.08); opacity: .32; } }
 
-/*
- * A toast is a corner note: pinned to the window's bottom-left, over the tail
- * of the thread rail. That corner holds the settled shelf and the rail's own
- * scrollback, and a notice may cover those. While the rail is on screen the
- * note stays inside that column and stops above the rail's footer row (46 px:
- * 8 px of padding around the settings gear's 30 px button, the one way into
- * Settings), so it reaches neither the gear nor the composer next door.
- *
- * Its width is the corner's, never a band's: an error arrives as one long
- * unbreakable string, and a note sized by whatever space happened to be left
- * would push its own text out of its box.
- */
-.app-shell {
-  /* Without a rail the corner is free, and a note there is short-lived. */
-  --toast-bottom: 12px;
-  --toast-max-width: 420px;
+/* The one tooltip of the window (`TooltipLayer`). */
+.tooltip {
+  position: fixed; z-index: 140; left: 0; top: 0; pointer-events: none;
+  display: flex; align-items: center; gap: 8px; max-width: 320px; padding: 4px 8px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-sm);
+  background: var(--float); color: var(--ink-2); box-shadow: var(--elevation-1);
+  font: 12px/16px var(--sans); overflow-wrap: anywhere;
 }
-.app-shell:not(.no-sidebar, .sidebar-closed) {
-  --toast-bottom: 58px;
-  --toast-max-width: calc(var(--sidebar-width) - 24px);
+.tooltip.code { max-width: 480px; font: 11px/16px var(--mono); }
+.tooltip > kbd { color: var(--faint); font: 11px var(--mono); }
+
+.popover {
+  position: fixed; z-index: 70; left: 0; top: 0; padding: 8px; outline: none;
+  border: 1px solid var(--line-float); border-radius: var(--radius-md); background: var(--float); box-shadow: var(--elevation-2);
 }
-.toast {
-  position: fixed; left: 12px; bottom: var(--toast-bottom, 12px); z-index: 90;
-  width: max-content;
-  max-width: min(420px, calc(100vw - 24px), var(--toast-max-width, 420px));
-  display: flex; align-items: flex-start; gap: 10px;
-  border: 1px solid var(--line-float); border-radius: 9px;
-  background: var(--float); color: var(--ink-2); box-shadow: var(--elevation-2);
-  padding: 10px 12px; text-align: left; animation: toast-enter .16s ease;
-  /* A pathological message scrolls inside the note instead of growing tall
-     enough to bury the rail; the copy button stays at the top, where it is
-     reached. */
-  max-height: calc(100vh - var(--toast-bottom, 12px) - 12px);
-  overflow: auto;
+
+.skeleton { background: var(--wash-2); border-radius: var(--radius-xs); animation: blink 1.6s ease-in-out infinite; }
+.skeleton.card { border-radius: var(--radius-md); }
+.skeleton.pill { border-radius: var(--radius-pill); }
+
+.empty-state {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: var(--space-7); text-align: center; color: var(--muted); font: 13px/1.45 var(--sans);
 }
-@keyframes toast-enter {
-  from { opacity: 0; transform: translateY(7px) scale(.985); }
-  to { opacity: 1; transform: none; }
+.empty-state > strong { color: var(--ink); font-size: 15px; }
+.empty-state > p { margin: 0; max-width: 380px; }
+.empty-state.compact { padding: var(--space-6); font-size: 12px; }
+.empty-state.hero > strong { font-size: 24px; }
+.empty-state-icon {
+  display: grid; place-items: center; width: 36px; height: 36px; margin-bottom: 6px;
+  border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--raised);
 }
-/* The level keeps the first line's optical centre; the message may run long. */
-.toast b { font: 500 10px var(--mono); color: var(--working); letter-spacing: .1em; padding-top: 1px; }
-.toast[data-level="warning"] b { color: var(--warn); }
-.toast[data-level="error"] b { color: var(--danger); }
-/* `anywhere` because a copied error is often a bare URL or a JSON blob with no
-   space to break at; without it the text escapes the box it was sized for. */
-.toast span { min-width: 0; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-.toast-copy, .toast-dismiss {
-  flex: none; display: grid; place-items: center;
-  border: 0; border-radius: 6px; background: transparent;
-  color: var(--faint); cursor: pointer;
-}
-.toast-copy { padding: 3px; }
-.toast-dismiss { padding: 1px 4px; font-size: 13px; line-height: 1; }
-.toast-copy:hover, .toast-dismiss:hover { background: var(--chip-hover); color: var(--ink-2); }
-.toast-copy.copied { color: var(--ready); }
-.update-toast { cursor: default; }
-.update-toast button {
-  border: 1px solid var(--line-float); border-radius: 6px; background: transparent;
-  color: var(--ink-2); font: 500 11px var(--sans); padding: 4px 10px; cursor: pointer;
-}
-.update-toast button:hover { border-color: var(--working); color: var(--ink); }
-.update-toast button.dismiss { border: 0; color: var(--faint); padding: 4px 2px; font-size: 13px; }
+.empty-state-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .project-picker, .project-modal, .toast, .reload-conflict, .tool-activity, .tool-activity-detail, .tool-run,
+  .project-picker, .project-modal, .skeleton, .reload-conflict, .tool-activity, .tool-activity-detail, .tool-run,
   .work-fold,
   .task-progress-spinner, .task-progress.dock .task-progress-list, .reload-curtain::before,
   .reload-orbit-outer, .reload-orbit-inner, .reload-pulse, .reload-ellipsis { animation: none; }
