@@ -448,6 +448,28 @@ export function hostBundleHash(code: string): string {
   return createHash("sha256").update(code).digest("hex").slice(0, 16);
 }
 
+const INLINE_SOURCE_MAP = /\n?\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)\s*$/u;
+
+/**
+ * Moves a bundle's inline source map into a file beside it. A module's source
+ * and its `sourceMappingURL` both stay in the heap for the life of the process,
+ * so an inline map costs the host twice its size and nothing reads it there.
+ */
+export function linkSourceMap(code: string, mapFileName: string): { code: string; map?: string } {
+  const match = INLINE_SOURCE_MAP.exec(code);
+  if (!match) return { code };
+  return {
+    code: `${code.slice(0, match.index)}\n//# sourceMappingURL=${mapFileName}\n`,
+    map: Buffer.from(match[1], "base64").toString("utf8"),
+  };
+}
+
+async function writeOnce(file: string, contents: string): Promise<void> {
+  await writeFile(file, contents, { encoding: "utf8", flag: "wx", mode: 0o600 }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "EEXIST") throw error;
+  });
+}
+
 export async function writeHostExtensionBundle(
   code: string,
   manifest: ExtensionManifest,
@@ -456,13 +478,15 @@ export async function writeHostExtensionBundle(
   half: "host" | "window" = "host",
 ): Promise<string> {
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
-  const file = join(cacheDir, `${manifest.id}-${half === "host" ? "" : `${half}-`}${hostBundleHash(code)}.cjs`);
+  const name = `${manifest.id}-${half === "host" ? "" : `${half}-`}${hostBundleHash(code)}.cjs`;
+  const file = join(cacheDir, name);
   // The content hash in the file name keys Node's module cache and lets an
   // unchanged package reuse its compiled file instead of rewriting it.
   if (!await stat(file).then((info) => info.isFile()).catch(() => false)) {
-    await writeFile(file, code, { encoding: "utf8", flag: "wx", mode: 0o600 }).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== "EEXIST") throw error;
-    });
+    const linked = linkSourceMap(code, `${name}.map`);
+    // The map first, so a module that exists always finds its map.
+    if (linked.map !== undefined) await writeOnce(`${file}.map`, linked.map);
+    await writeOnce(file, linked.code);
   }
   return file;
 }

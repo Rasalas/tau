@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
-import { bundleHostExtension, importHostExtension, inspectExtensionPackages, isThemeManifest, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest } from "./extension-packages.js";
+import { bundleHostExtension, importHostExtension, inspectExtensionPackages, isThemeManifest, linkSourceMap, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest, writeHostExtensionBundle } from "./extension-packages.js";
 import { grantPackage } from "./extension-grants.js";
 
 const dirs: string[] = [];
@@ -204,6 +204,27 @@ describe("extension packages", () => {
     const where = await registry.invoke("acme.meta", "where") as { here: string; join: string };
     expect(where.join).toBe("function");
     expect(where.here).toMatch(/^file:\/\/.*acme\.meta-[0-9a-f]+\.cjs$/u);
+  });
+
+  it("keeps a host bundle's source map in a file beside it, not in the module", async () => {
+    const home = await scratch();
+    const cache = await scratch();
+    const dir = await writePackage(home, "mapped", { id: "acme.mapped", name: "Mapped", host: "./host.ts" }, {
+      "host.ts": "export default { activate() {} };",
+    });
+    const code = await bundleHostExtension(join(dir, "host.ts"));
+    expect(code).toContain("sourceMappingURL=data:");
+    const file = await writeHostExtensionBundle(code, { id: "acme.mapped", name: "Mapped" }, cache);
+    const written = await readFile(file, "utf8");
+    expect(written).not.toContain("data:application/json");
+    expect(written.trimEnd().endsWith(`//# sourceMappingURL=${file.split("/").at(-1)}.map`)).toBe(true);
+    const map = JSON.parse(await readFile(`${file}.map`, "utf8")) as { sources: string[] };
+    expect(map.sources.some((source) => source.endsWith("host.ts"))).toBe(true);
+    expect((await readdir(cache)).sort()).toEqual([file.split("/").at(-1), `${file.split("/").at(-1)}.map`].sort());
+  });
+
+  it("leaves a bundle without an inline map as it is", () => {
+    expect(linkSourceMap("module.exports = 1;\n", "x.cjs.map")).toEqual({ code: "module.exports = 1;\n" });
   });
 
   it("bundles and imports a host entry that then serves commands through the registry", async () => {
