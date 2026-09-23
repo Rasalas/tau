@@ -141,6 +141,16 @@ The production renderer is minified and does not ship source maps unless `TAU_SO
 
 `npm run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter.html) over the whole repository except `dist/`, `dist-electron/` and `node_modules/` (config in `.oxlintrc.json`: `correctness` and `suspicious` rules as errors, `perf` as warnings); an override turns `no-await-in-loop` and `no-map-spread` off under `kits/`, `scripts/`, `src/main/` and `.pi/`, where sequential awaits and immutable per-element updates are the point, and keeps both on elsewhere. CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full Vitest suite, and a production build on every pull request and push to `main`; `.github/workflows/performance.yml` stays the separate, slower gate for build/startup/renderer budgets, and `.github/workflows/release.yml` builds and publishes the artifacts of a `v*.*.*` tag ([docs/RELEASE.md](docs/RELEASE.md)).
 
+### Windows
+
+Tau builds for Windows and the host has a Windows path wherever it assumed a
+POSIX system: PATH comes from the registry instead of a login shell, commands
+resolve through PATHEXT, `.cmd` shims start through `cmd.exe`, process trees end
+with `taskkill`, the terminal opens PowerShell. Nobody has used it on Windows
+yet; what is verified by tests only and what is known not to work is in
+[docs/windows.md](docs/windows.md), with how to try it. Pi needs Git for Windows
+there (its `bash` tool runs Git Bash).
+
 ### Open a folder from a terminal
 
 `tau app [path]` opens a folder in the Tau that is running — the current
@@ -462,8 +472,9 @@ still open:
 
 - **A week of real use.** Phase 1's own completion check — working across several projects without
   reaching for the Pi TUI for a missing interaction — has not been run.
-- **Windows.** Every verification so far is macOS and Linux. The login-shell environment read
-  (`src/main/shell-environment.ts`) and the `findCommand` lookups it feeds assume a POSIX shell.
+- **Windows, run for real.** The host has a Windows path for everything it found POSIX-only (see
+  [Windows](#windows)), but it is verified by tests on macOS and by a manual Windows workflow, not
+  by a person using it on Windows.
 - **Kits in a desktop window pointed at a remote host.** A `file://` page may not evaluate the
   bundle the host sends as source, so that window loads no kits. The browser client, served over
   HTTP, has no such problem.

@@ -906,6 +906,12 @@ types that `HostThread.shortcuts` and `runShortcut` speak, the workspace
 vocabulary core renders itself (`src/shared/workspace-kit-types.ts`:
 changed files, diffs, worktrees, editors), `HostActionResult`, `WorkspaceRef`,
 `isWorkspaceRelativePath`, `gitExecutable`/`findExecutable`,
+`commandInvocation`/`killProcessTree` (how to start a command and end what
+it started on this platform: on Windows `findExecutable` resolves through
+PATHEXT, a `.cmd` shim such as `npm.cmd` or `code.cmd` runs through `cmd.exe`
+— Node refuses to spawn one directly — and `killProcessTree` is
+`taskkill /T /F`; spawn with `commandInvocation(command, args)`'s `command`,
+`args` and `windowsVerbatimArguments`, see [docs/windows.md](windows.md)),
 `assertAllowedCloneSource`, `readBoundedImagePreview`,
 `assistantAnchorForBranch` (the persisted entry id of an assistant message)
 and the `PiKit*` types above. The Git and checkpoint engine that 1.3.0 briefly
