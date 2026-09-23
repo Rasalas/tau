@@ -27,6 +27,7 @@ import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from
 import { HOST_CORE_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
+import { TurnAttachmentRegistry } from "./turn-attachments.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -406,6 +407,62 @@ export interface HostClientServices {
   count(): number;
 }
 
+/**
+ * A piece of media an extension attached to one turn of a thread: an image, a
+ * recording. Core knows its media type and nothing about what it shows.
+ */
+export interface TurnAttachment {
+  /** Unique within its source and thread. */
+  id: string;
+  /** The extension that provided it; `read` takes it back. Filled in by core. */
+  source: string;
+  /** The host's id of the turn (`HostTurnObserver`), when the provider knew it. */
+  turnId?: string;
+  /** When that turn started and, once settled, ended; epoch ms. */
+  turnStartedAt?: number;
+  turnEndedAt?: number;
+  /** When it was taken; epoch ms. */
+  at: number;
+  /** `image/jpeg`, `video/webm`, … */
+  mediaType: string;
+  /** Bytes. */
+  size: number;
+  width?: number;
+  height?: number;
+  caption?: string;
+}
+
+export interface TurnAttachmentData {
+  mediaType: string;
+  /** Base64. */
+  data: string;
+}
+
+/** What an extension offers; core adds `source`. */
+export interface TurnAttachmentProvider {
+  list(threadId: string): Promise<readonly Omit<TurnAttachment, "source">[]> | readonly Omit<TurnAttachment, "source">[];
+  read(threadId: string, id: string): Promise<TurnAttachmentData | undefined>;
+}
+
+/** Media on a thread's turns: extensions provide it, any extension reads it. */
+export interface HostTurnAttachmentServices {
+  /** Offers this extension's attachments; a second call replaces the first. */
+  provide(provider: TurnAttachmentProvider): () => void;
+  /** Tells the readers that this extension's attachments of a thread changed. */
+  changed(threadId: string): void;
+  /** Every provider's attachments of a thread, oldest first; a provider that fails is left out. */
+  list(threadId: string): Promise<TurnAttachment[]>;
+  read(threadId: string, source: string, id: string): Promise<TurnAttachmentData | undefined>;
+  /** Hears every `changed`, with the thread and the source. */
+  observe(listener: (threadId: string, source: string) => void): () => void;
+}
+
+/** An extension's own `options` and `values` entries, keyed without the `<id>.` in front. */
+export interface HostExtensionSettings {
+  options: Record<string, boolean>;
+  values: Record<string, string>;
+}
+
 export interface RuntimeSessionInfo {
   sessionId: string;
   cwd: string;
@@ -726,6 +783,14 @@ export interface HostExtensionServices {
   loadRuntimeExtension(packageName: string): Promise<RuntimeExtensionFactory>;
   /** Tau's tools for the runtimes that are not Pi, over a local MCP endpoint (ADR 0022). */
   readonly mcp: HostMcpServices;
+  /** Media extensions attach to a thread's turns (`sessions`). Absent before API 1.12.0 and in a worker. */
+  readonly turnAttachments?: HostTurnAttachmentServices;
+  /**
+   * This extension's own settings as the levels resolve them: the project's
+   * `.tau/config.json` over this machine's, for `cwd`, else this machine's
+   * alone. Ungated. Absent before API 1.12.0.
+   */
+  settings?(cwd?: string): Promise<HostExtensionSettings>;
   /**
    * A module from Tau's own npm dependencies, resolved from the host's modules
    * for the same reason: a native addon finds its binary beside itself only
@@ -847,9 +912,17 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
   // here, never passed by the caller, so no kit can drive another kit's.
   const callClient = (command: string, input?: unknown): Promise<unknown> =>
     (services.callClient as unknown as (id: string, command: string, input?: unknown) => Promise<unknown>)(extension.id, command, input);
+  // Settings and attachments speak for the extension that asks, never for another.
+  const rawSettings = services.settings as unknown as ((id: string, cwd?: string) => Promise<HostExtensionSettings>) | undefined;
+  const settings = rawSettings ? (cwd?: string) => rawSettings(extension.id, cwd) : undefined;
   return new Proxy(guarded, {
     get: (target, prop, receiver) => {
       if (prop === "callClient") return callClient;
+      if (prop === "settings") return settings;
+      if (prop === "turnAttachments") {
+        const raw: unknown = Reflect.get(target, prop, receiver);
+        return raw instanceof TurnAttachmentRegistry ? raw.forExtension(extension.id) : raw;
+      }
       if (prop === "stateDir" && stateDir) return stateDir;
       return Reflect.get(target, prop, receiver) as unknown;
     },

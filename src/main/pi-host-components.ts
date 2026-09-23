@@ -412,6 +412,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       await pricing.ready();
       return tallies.map((tally) => pricing.price(tally));
     },
+    readConfig: (cwd) => defaultHostConfigManager.read(cwd),
     modelAuth: createModelAuth({
       runtime: () => completions.modelRuntime(),
       changed: () => {

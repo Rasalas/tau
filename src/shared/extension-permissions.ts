@@ -84,6 +84,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   registerThreadLifecycle: "sessions",
   registerTurnObserver: "sessions",
   pinTranscriptEntries: "sessions",
+  turnAttachments: "sessions",
   registerRuntimeExtension: "runtime:extend",
   loadRuntimeExtension: "runtime:extend",
   decorateUiPrompt: "runtime:extend",
