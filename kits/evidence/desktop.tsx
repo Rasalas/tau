@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Images } from "lucide-react";
 import { ConfirmDialog, errorMessage, useWorkbench, type DesktopExtension, type DesktopExtensionContext, type RegionProps, type TranscriptRowsHandle } from "tau";
 import { settledTurn, turnAnchor } from "./anchor.js";
@@ -15,6 +15,25 @@ import {
 import { EvidenceSettingsPage } from "./settings-page.js";
 import { EvidenceViewer, type ViewerRequest } from "./viewer.js";
 
+/** What the controller shows over the workbench; kept outside it, so a row drawn by an earlier mount still reaches it. */
+class ViewState {
+  private value: { viewer?: ViewerRequest; deleting?: { threadId: string; turnId: string } } = {};
+
+  private readonly listeners = new Set<() => void>();
+
+  get = () => this.value;
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+
+  set(next: ViewState["value"]): void {
+    this.value = next;
+    for (const listener of [...this.listeners]) listener();
+  }
+}
+
 interface Placed {
   turn: EvidenceTurn;
   anchor?: string;
@@ -26,14 +45,14 @@ interface Placed {
  * each turn's answer, and hosts the viewer and the delete question.
  */
 function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
+  const view = new ViewState();
   return function EvidenceController({ actions }: RegionProps) {
     const { snapshot } = useWorkbench();
     useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
     const sessionId = snapshot?.sessionId;
     const streaming = Boolean(snapshot?.isStreaming);
     const messages = snapshot?.messages;
-    const [viewer, setViewer] = useState<ViewerRequest>();
-    const [deleting, setDeleting] = useState<{ threadId: string; turnId: string }>();
+    const { viewer, deleting } = useSyncExternalStore(view.subscribe, view.get, view.get);
     const shown = useRef<string | undefined>(undefined);
 
     useEffect(() => {
@@ -68,7 +87,7 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
             turn={entry.turn}
             running={entry.running}
             {...(entry.running && paused ? { paused } : {})}
-            onOpen={(index, play) => setViewer({ threadId: sessionId, turn: entry.turn, index, ...(play ? { play } : {}) })}
+            onOpen={(index, play) => view.set({ viewer: { threadId: sessionId, turn: entry.turn, index, ...(play ? { play } : {}) } })}
           />
         ),
       })));
@@ -82,11 +101,10 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
           message="The turn's pictures are deleted from this machine. The conversation stays as it is."
           confirmLabel="Delete"
           destructive
-          onCancel={() => setDeleting(undefined)}
+          onCancel={() => view.set({ ...(viewer ? { viewer } : {}) })}
           onConfirm={() => {
             const target = deleting;
-            setDeleting(undefined);
-            setViewer(undefined);
+            view.set({});
             void client.deleteTurn(target.threadId, target.turnId).catch((error: unknown) => actions.notify(errorMessage(error)));
           }}
         />
@@ -98,8 +116,8 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle) {
         key={`${viewer.turn.turnId}:${String(viewer.index)}`}
         client={client}
         request={viewer}
-        onClose={() => setViewer(undefined)}
-        onDelete={() => setDeleting({ threadId: viewer.threadId, turnId: viewer.turn.turnId })}
+        onClose={() => view.set({})}
+        onDelete={() => view.set({ viewer, deleting: { threadId: viewer.threadId, turnId: viewer.turn.turnId } })}
         notify={(message) => actions.notify(message)}
       />
     );
