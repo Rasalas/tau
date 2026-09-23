@@ -871,7 +871,8 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
       if (model) composer.carryModel?.(kind, model);
       preferences.setNewThreadRuntime(kind);
       // The new thread stays in this thread's project.
-      actions.newSession(snapshot?.workspaceId ? { workspace: snapshot.workspaceId } : undefined);
+      const workspace = snapshot?.workspaceId ?? snapshot?.cwd;
+      actions.newSession(workspace ? { workspace } : undefined);
     } : undefined}
     newThread={pendingNewThread}
     prompt={prompts[0]}
