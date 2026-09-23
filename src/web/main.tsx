@@ -7,6 +7,7 @@ import { setClientStorage } from "../workbench/client-storage";
 import { browserClientProfile } from "../workbench/client-profile";
 import { createSocketHostClient } from "../workbench/host-connection-socket";
 import { TokenGate } from "./TokenGate";
+import { accessRefusal } from "../workbench/access-refusal";
 import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
 import { WEB_TOKEN_KEY, hostSocketUrl, resolveHostToken, takePairingCode } from "./host-token";
 import "../renderer/styles.css";
@@ -37,7 +38,9 @@ function showGate(notice?: string): void {
 function connect(token: string): void {
   const host = createSocketHostClient(hostSocketUrl(window.location), token, {
     // A refused token cannot be repaired by retrying, so ask for another one.
-    onUnauthorized: () => { storage.remove(WEB_TOKEN_KEY); showGate("The host refused that token."); },
+    onUnauthorized: (reason) => { storage.remove(WEB_TOKEN_KEY); showGate(accessRefusal(reason)); },
+    // An owner who rotated the host token from this tab keeps working after a reload.
+    onTokenChanged: (next) => storage.set(WEB_TOKEN_KEY, next),
   });
   setHostClient(host.client);
   void host.connection.start(profile).catch(() => undefined);

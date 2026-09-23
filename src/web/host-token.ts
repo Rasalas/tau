@@ -1,6 +1,6 @@
 import type { ClientStorage } from "../workbench/client-storage";
 
-/** Where a paired browser keeps the host's token. One host per origin, so one key. */
+/** Where a paired browser keeps its token: its own after pairing, or the host token its owner pasted. One host per origin, so one key. */
 export const WEB_TOKEN_KEY = "tau.web.host-token";
 
 export interface PairingPage {
@@ -27,8 +27,9 @@ export function hostSocketUrl(location: { protocol: string; host: string }): str
 }
 
 /**
- * Trades a single-use code for the host token. A refused code is not an error
- * to show: it usually means the link had already been opened once.
+ * Trades a single-use code for a token of this browser's own (ADR 0023). A
+ * refused code is not an error to show: it usually means the link had already
+ * been opened once, or expired.
  */
 export async function redeemPairingCode(
   code: string,

@@ -26,6 +26,12 @@ export interface HostUplinkOptions {
   fingerprint?: string;
   /** The pinned host presented another certificate. The uplink does not retry. */
   onCertificateRefused?(error: HostCertificateRefusedError): void;
+  /**
+   * After a refusal: the token as it is now, such as re-read from the host's
+   * token file after a rotation. A different one is tried once; the same one
+   * ends the uplink as before.
+   */
+  refreshToken?(): string | undefined;
 }
 
 interface Pending {
@@ -49,8 +55,10 @@ export class HostUplink {
   private closed = false;
   private delayMs = RECONNECT_MIN_MS;
   private helloSent = false;
+  private token: string;
 
   constructor(private readonly options: HostUplinkOptions) {
+    this.token = options.token;
     this.connect();
   }
 
@@ -99,7 +107,7 @@ export class HostUplink {
       }, this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
       this.pending.set(id, { resolve, reject, timer });
       const frame = method === "hello"
-        ? { type: "hello", id, hello: { ...(params[0] as object), token: this.options.token } }
+        ? { type: "hello", id, hello: { ...(params[0] as object), token: this.token } }
         : { type: "request", request: { id, method, params } };
       this.write(JSON.stringify(frame));
     });
@@ -142,6 +150,13 @@ export class HostUplink {
       this.failPending("The host connection dropped.");
       if (this.closed) return;
       if (code === UNAUTHORIZED) {
+        const next = this.options.refreshToken?.();
+        if (next && next !== this.token) {
+          this.token = next;
+          this.options.logger?.info("host-uplink.token-refreshed", { url: this.options.url });
+          this.connect();
+          return;
+        }
         this.closed = true;
         this.options.logger?.error("host-uplink.unauthorized", { url: this.options.url });
         return;
