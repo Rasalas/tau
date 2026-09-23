@@ -153,6 +153,64 @@ export function readUsageTally(value: unknown): UsageTally | undefined {
   };
 }
 
+/** Reads a stored turn; undefined when it is not one. */
+export function readUsageTurn(value: unknown): UsageTurn | undefined {
+  const tally = readUsageTally(value);
+  const at = value && typeof value === "object" ? (value as { at?: unknown }).at : undefined;
+  return tally && typeof at === "number" && Number.isFinite(at) ? { ...tally, at } : undefined;
+}
+
+/** Every readable turn of a stored list; undefined when the value is no list. */
+export function readUsageTurns(value: unknown): UsageTurn[] | undefined {
+  return Array.isArray(value) ? value.flatMap((item) => readUsageTurn(item) ?? []) : undefined;
+}
+
+/** Turns a thread keeps one by one; older ones are folded into the first. */
+export const MAX_USAGE_TURNS = 2_000;
+
+/** The list with `turn` appended; past the limit the two oldest become one. */
+export function appendUsageTurn(turns: readonly UsageTurn[], turn: UsageTurn, max = MAX_USAGE_TURNS): UsageTurn[] {
+  const next = [...turns, turn];
+  while (next.length > Math.max(2, max)) {
+    const [first, second] = next.splice(0, 2) as [UsageTurn, UsageTurn];
+    const folded: UsageTurn = { ...emptyTally(), at: second.at };
+    if (first.model === second.model && first.model) folded.model = first.model;
+    if (first.provider === second.provider && first.provider) folded.provider = first.provider;
+    if (first.billing === second.billing && first.billing) folded.billing = first.billing;
+    addTally(folded, first);
+    addTally(folded, second);
+    next.unshift(folded);
+  }
+  return next;
+}
+
+/**
+ * The turns of a thread that kept only a running total before it kept turns:
+ * one entry, dated by its last activity, with no billing known.
+ */
+export function legacyUsageTurn(usage: Omit<UsageTally, "provider" | "model" | "billing">, at: number, model?: { provider?: string; model?: string }): UsageTurn {
+  return {
+    ...(model?.provider ? { provider: model.provider } : {}),
+    ...(model?.model ? { model: model.model } : {}),
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheWriteTokens: usage.cacheWriteTokens,
+    totalTokens: usage.totalTokens,
+    costUsd: usage.costUsd,
+    turns: usage.turns,
+    at,
+  };
+}
+
+/** A thread's total from its turns without any pricing: the runtime's own figures, all billed. */
+export function unpricedUsage(tallies: readonly UsageTally[]): UiThreadUsage | undefined {
+  if (tallies.length === 0) return undefined;
+  const total = emptyTally();
+  for (const tally of tallies) addTally(total, tally);
+  return { inputTokens: total.inputTokens, outputTokens: total.outputTokens, cacheReadTokens: total.cacheReadTokens, cacheWriteTokens: total.cacheWriteTokens, totalTokens: total.totalTokens, costUsd: total.costUsd, turns: total.turns };
+}
+
 export interface UsagePricingOptions {
   /** Pi's model data and logins; loaded once, off the start path. */
   load(): Promise<{ apiPrice: UsagePriceSource["apiPrice"]; subscription: UsagePriceSource["subscription"] } | undefined>;

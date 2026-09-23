@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { UsagePricing, mergeTallies, priceTally, readUsageTally, threadUsageFrom, type UsagePriceSource, type UsageTally } from "./usage-pricing.js";
+import { UsagePricing, appendUsageTurn, legacyUsageTurn, mergeTallies, priceTally, readUsageTally, readUsageTurns, threadUsageFrom, unpricedUsage, type UsagePriceSource, type UsageTally, type UsageTurn } from "./usage-pricing.js";
 
 const MTOK = 1_000_000;
 
@@ -78,5 +78,21 @@ describe("usage pricing", () => {
     pricing.reloadPrices();
     expect(onChange).toHaveBeenCalledTimes(2);
     expect(pricing.price(tally({ model: "m" }))).toMatchObject({ costUsd: 4, source: "custom" });
+  });
+});
+
+describe("usage turns", () => {
+  it("folds the oldest turns once a thread keeps too many", () => {
+    let turns: UsageTurn[] = [];
+    for (let at = 1; at <= 5; at += 1) turns = appendUsageTurn(turns, { ...tally({ model: "m" }), at }, 3);
+    expect(turns.map((turn) => [turn.at, turn.turns])).toEqual([[3, 3], [4, 1], [5, 1]]);
+    expect(turns[0]?.model).toBe("m");
+  });
+
+  it("reads stored turns and keeps an old running total as one", () => {
+    expect(readUsageTurns([{ ...tally({}), at: 5 }, { ...tally({}) }, "x"])).toEqual([{ ...tally({}), at: 5 }]);
+    expect(readUsageTurns(undefined)).toBeUndefined();
+    expect(legacyUsageTurn({ ...tally({}), turns: 4 }, 9, { model: "gpt-5.6-luna" })).toMatchObject({ at: 9, model: "gpt-5.6-luna", turns: 4 });
+    expect(unpricedUsage([tally({ costUsd: 1 }), tally({ costUsd: 2 })])).toMatchObject({ costUsd: 3, turns: 2 });
   });
 });

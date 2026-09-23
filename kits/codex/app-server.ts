@@ -124,6 +124,14 @@ export class CodexAppServer {
     return result.account ?? undefined;
   }
 
+  /**
+   * The account's quota windows, read without changing anything on the
+   * account: no reset-credit detail, no experiment flags.
+   */
+  async rateLimits(): Promise<unknown> {
+    return this.connection.request("account/rateLimits/read", { excludeResetCreditDetails: true }, { timeoutMs: this.timeouts.requestMs });
+  }
+
   /** Every model the account may pick, hidden ones left out. */
   async models(): Promise<CodexModel[]> {
     const models: CodexModel[] = [];

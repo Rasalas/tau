@@ -75,4 +75,15 @@ export { TurnActivityStore, type TurnActivityStoreOptions } from "./turn-activit
 /** An MCP elicitation form asked field by field on the dialog surface (API 1.12.0). */
 export { askElicitation, elicitationFieldTitle, elicitationFields, type ElicitationField, type ElicitationFormInput, type ElicitationOutcome, type ElicitationValue } from "./elicitation-form.js";
 // A turn's tokens per model, and how core prices them (API 1.12.0).
-export { addTally, emptyTally, mergeTallies, type PricedUsage, type UsageTally, type UsageTurn } from "./usage-pricing.js";
+export {
+  addTally,
+  appendUsageTurn,
+  emptyTally,
+  legacyUsageTurn,
+  mergeTallies,
+  readUsageTurns,
+  unpricedUsage,
+  type PricedUsage,
+  type UsageTally,
+  type UsageTurn,
+} from "./usage-pricing.js";

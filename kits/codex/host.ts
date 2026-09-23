@@ -47,7 +47,10 @@ import {
 } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore, type CodexStoredModel } from "./session-store.js";
-import { CodexThreadRuntimeBackend, MODEL_PROVIDER, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
+import { CodexThreadRuntimeBackend, MODEL_PROVIDER, codexBilling, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
+import { codexLimitWindows, codexReadSnapshot, mergeCodexSnapshot, type CodexRateSnapshot, type LimitAccount } from "./limits.js";
+
+export { codexBilling };
 
 export { CODEX_BACKEND_KIND, CODEX_HOST_EXTENSION_ID };
 
@@ -65,6 +68,8 @@ export interface CodexHostExtensionOptions {
 /** What `status` and the model list need of the CLI, asked without a thread. */
 interface Probe { account?: CodexAccount; models: CodexModel[]; codexHome?: string; at: number }
 const PROBE_TTL_MS = 10 * 60 * 1000;
+/** Quota windows move with every turn; reading them more often than this only costs requests. */
+const LIMITS_TTL_MS = 5 * 60 * 1000;
 
 export const CODEX_COMMAND_VARIABLE = "TAU_CODEX_COMMAND";
 
@@ -77,12 +82,6 @@ export const CODEX_VERSION_POLICY: VersionPolicy = {
   ranges: [{ range: `<${MIN_CODEX_VERSION}`, status: "broken", message: `Tau speaks the app-server protocol of Codex ${MIN_CODEX_VERSION} and newer; threads do not start on an older one.` }],
   recommendedVersion: MIN_CODEX_VERSION,
 };
-
-/** A ChatGPT login is the subscription; an API key is billed per token. */
-export function codexBilling(account: CodexAccount | undefined): UiModelBilling | undefined {
-  if (account?.type === "chatgpt") return "subscription";
-  return account?.type === "apiKey" ? "api-key" : undefined;
-}
 
 /**
  * The models a new thread may start on, with the effort each offers; the first
@@ -262,6 +261,51 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         return next;
       };
 
+      /** Per instance: the quota windows last read or reported by a turn, and the login they belong to. */
+      const limits = new Map<string, { at: number; snapshot?: CodexRateSnapshot; account?: CodexAccount; error?: string }>();
+      const reading = new Map<string, Promise<void>>();
+      const noteRateLimits = (id: string, update: unknown): void => {
+        const held = limits.get(id);
+        limits.set(id, { ...held, at: Date.now(), snapshot: mergeCodexSnapshot(held?.snapshot, update) });
+      };
+      /** Reads the windows through a short-lived app-server; nothing on the account changes. */
+      const readLimits = (id: string): Promise<void> => {
+        const running = reading.get(id);
+        if (running) return running;
+        const next = (async () => {
+          await mkdir(services.stateDir, { recursive: true });
+          const session = await spawnSession(id, {
+            cwd: services.stateDir,
+            onNotification: () => undefined,
+            onRequest: async () => { throw new Error("No thread runs in a probe."); },
+            onExit: () => undefined,
+          });
+          try {
+            const account = await session.account?.();
+            const read = account?.type === "chatgpt" ? await session.rateLimits?.() : undefined;
+            limits.set(id, { at: Date.now(), ...(account ? { account } : {}), ...(read ? { snapshot: codexReadSnapshot(read) } : {}) });
+          } finally {
+            await session.close().catch(() => undefined);
+          }
+        })().catch((error: unknown) => {
+          limits.set(id, { ...limits.get(id), at: Date.now(), error: error instanceof Error ? error.message : String(error) });
+        }).finally(() => reading.delete(id));
+        reading.set(id, next);
+        return next;
+      };
+      const limitAccount = (id: string): LimitAccount => {
+        const held = limits.get(id);
+        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at ?? Date.now() };
+        const account = held?.account as { type?: string; planType?: string } | undefined;
+        const plan = account?.planType ?? held?.snapshot?.planType ?? undefined;
+        const windows = codexLimitWindows(held?.snapshot);
+        if (windows.length > 0) return { ...base, ...(plan ? { plan } : {}), windows };
+        if (held?.error) return { ...base, windows: [], unavailable: { reason: "failed", message: held.error } };
+        if (account?.type === "apiKey") return { ...base, windows: [], unavailable: { reason: "unsupported", message: "An API key has no subscription limits." } };
+        if (!account) return { ...base, windows: [], unavailable: { reason: "signed-out", message: "Codex is not signed in." } };
+        return { ...base, ...(plan ? { plan } : {}), windows: [] };
+      };
+
       const cachedModels = async (id: string): Promise<CodexStoredModel[]> => {
         const stored = await store.listModels(id);
         if (stored.length > 0) return stored;
@@ -329,6 +373,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
               models: () => cachedModels(id),
               onModels: (models) => void store.setModels(models, id).catch(() => undefined),
               permissionLevel: thread.permissionLevel,
+              ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
+              onRateLimits: (snapshot) => noteRateLimits(id, snapshot),
               ...(tools ? { tools } : {}),
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,
@@ -461,13 +507,31 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         register(id);
         return versionOf(id).catch(() => undefined);
       });
-      // Each thread's running total, for the Usage kit; read from the store, never from OpenAI.
+      // Each thread's running total and its turns, for the Usage kit; read from the store, never from OpenAI.
       context.registerCommand("usage", async () => ({
         threads: (await store.list()).map((entry) => {
           const model = entry.model ?? entry.observedModel;
-          return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
+          return {
+            threadId: entry.tauThreadId,
+            cwd: entry.cwd,
+            updatedAt: entry.updatedAt,
+            ...(model ? { model } : {}),
+            ...(entry.usage ? { usage: { ...entry.usage } } : {}),
+            ...(entry.usageTurns ? { turns: entry.usageTurns } : {}),
+          };
         }),
       }), { callers: [USAGE_KIT_ID] });
+      // The account's quota windows, for the Usage kit: read at most every few minutes, fresher when a turn reported them.
+      context.registerCommand("usage-limits", async (input) => {
+        const refresh = Boolean(input && typeof input === "object" && (input as { refresh?: unknown }).refresh);
+        const ids = settings.list().map((instance) => instance.id).filter((id) => locate(id));
+        await Promise.all(ids.map(async (id) => {
+          const held = limits.get(id);
+          if (!refresh && held && !held.error && Date.now() - held.at < LIMITS_TTL_MS) return;
+          await Promise.race([readLimits(id), new Promise<void>((resolve) => setTimeout(resolve, 20_000).unref?.())]);
+        }));
+        return { accounts: ids.map(limitAccount) };
+      }, { long: true, callers: [USAGE_KIT_ID] });
       // Sessions the default instance's CLI ran on its own, for Onboarding to list and import as threads.
       context.registerCommand("import-scan", async () => {
         const held = await store.codexThreadIds();
