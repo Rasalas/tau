@@ -1,4 +1,5 @@
 import type { UiModel, UiModelBilling, UiModelPrice } from "../shared/contracts.js";
+import { priceIds } from "../shared/model-prices.js";
 import type { HostCatalogModel, HostRuntimeNewThreadCatalog } from "./host-extensions.js";
 
 /** What Pi's model data says of a model, as far as a catalog shows it. */
@@ -38,12 +39,6 @@ function factsOf(model: PiModelData): ModelFacts {
     ...(model.input ? { images: model.input.includes("image") } : {}),
     ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
   };
-}
-
-/** Ids a model may be priced under: as named, without a bracketed variant (`[1m]`), without a date suffix. */
-function priceIds(id: string): string[] {
-  const bare = id.replace(/\[[^\]]*\]$/u, "");
-  return [...new Set([id, bare, bare.replace(/-\d{8}$/u, "")])];
 }
 
 /**

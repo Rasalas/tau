@@ -93,6 +93,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./window-attention.js",   "./window-context-menu.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",
   // Runtime-neutral helpers backends share (API 1.12.0), and files that go with an answer.
   "./turn-activity-store.js",   "./elicitation-form.js",   "./answer-attachments.js",
+  // What tokens cost: the user's prices, the runtime's, a subscription's value (API 1.12.0).
+  "./usage-pricing.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([
