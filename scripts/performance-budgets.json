@@ -13,6 +13,7 @@
   "rendererMountP95Ms": 24,
   "rendererLongTaskMs": 50,
   "rendererCommitP95Ms": 24,
+  "rendererStreamEndCommitMs": 16,
   "rendererScenarioBudgets": {
     "transcript-1000-turns": {
       "mountP95Ms": 40,
@@ -41,6 +42,7 @@
   "gitBytesRead": 524288,
   "rendererRequiredScenarios": [
     "markdown-code-stream-150kb",
+    "markdown-fenced-stream-150kb",
     "markdown-plain-stream-150kb",
     "tool-output-1mb",
     "transcript-1000-turns",
