@@ -1681,7 +1681,12 @@ if it means one:
 ```
 
 `examples/theme-terracotta/` is that example in full: a manifest, one
-stylesheet, a new accent and a new code face.
+stylesheet, a new accent and a new code face. Two more sit beside it:
+`examples/theme-mono-labels/` sets the four label tokens back to the
+monospace capitals Tau's labels had before API 1.11.0 (label texts are written
+in sentence case, so `--label-case: uppercase` is all it takes), and
+`examples/theme-t3-like/` lays T3 Code's greys, indigo primary and radii over
+the tokens, for telling a difference of colour from one of layout.
 
 ### The table
 
