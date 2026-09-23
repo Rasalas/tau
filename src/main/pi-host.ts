@@ -1939,6 +1939,7 @@ export class PiHost {
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
       this.watch?.close();
+      this.threads.stopIdleRelease();
       this.prewarm.dispose();
       this.trash.dispose();
       const teardownErrors: unknown[] = [];

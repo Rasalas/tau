@@ -85,6 +85,18 @@ describe("performance report checks", () => {
     ]);
   });
 
+  it("fails an idle host heap over its budget, and one that was not reported", () => {
+    const report = { mode: "safe", summaries: {
+      bootstrap: { median: 100, p95: 100, maximum: 100 },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [], background: [{ name: "project-label", durationMs: 10 }] };
+    expect(evaluateHostBudgets({ ...report, idleHeapMiB: 80 }, { hostIdleHeapSafeMiB: 70 })).toEqual(["safe idle heap 80.0 MiB > 70 MiB"]);
+    expect(evaluateHostBudgets({ ...report, idleHeapMiB: 60 }, { hostIdleHeapSafeMiB: 70 })).toEqual([]);
+    expect(evaluateHostBudgets(report, { hostIdleHeapSafeMiB: 70 })).toEqual(["the idle heap was not reported by the host fixture"]);
+    // Full Mode reads the user's Pi setup, so it has no idle heap budget of its own.
+    expect(evaluateHostBudgets({ ...report, mode: "full", idleHeapMiB: 500, summaries: { ...report.summaries, "cold-switch": { median: 1, p95: 1, maximum: 1 } } }, { hostIdleHeapSafeMiB: 70 })).toEqual([]);
+  });
+
   it("rejects serial extension binding during a Full Mode cold switch", () => {
     const failures = evaluateHostBudgets({ mode: "full", summaries: {
       bootstrap: { median: 100, p95: 100, maximum: 100 },

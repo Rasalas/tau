@@ -7,6 +7,7 @@ import type { DesktopExtensionBundle, DesktopExtensionLoadResult, ExtensionPacka
 import { bundleDesktopExtension, themeExtensionModule, type BundleOptions } from "./desktop-extensions.js";
 import {
   MANIFEST_FILE,
+  absoluteSourceMapLink,
   bundleHostExtension,
   importHostExtension,
   isThemeManifest,
@@ -197,7 +198,8 @@ export async function loadBundledKitWindowHalves(
 async function hostHalf(kit: BundledKit, entry: string, cacheDir?: string): Promise<HostExtension> {
   const isolated = packageIsolation(kit.manifest) === "worker";
   if (kit.prebuilt && !isolated) return requireHostExtension(entry, kit.manifest);
-  const code = kit.prebuilt ? await readFile(entry, "utf8") : await bundleHostExtension(entry);
+  // The worker runs a copy, so its map link has to name the shipped map.
+  const code = kit.prebuilt ? absoluteSourceMapLink(await readFile(entry, "utf8"), entry) : await bundleHostExtension(entry);
   if (!isolated) return importHostExtension(code, kit.manifest, cacheDir);
   // A worker starts from a real path, which a file inside the app archive is not.
   return createWorkerHostExtension({

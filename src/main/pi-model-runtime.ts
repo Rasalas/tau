@@ -2,12 +2,13 @@ import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { opencodeProvider } from "@earendil-works/pi-ai/providers/opencode";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-import { withOpenCodeCatalog } from "./opencode-catalog.js";
+import { openCodeCatalogSubset, withOpenCodeCatalog } from "./opencode-catalog.js";
 
 const MODEL_REFRESH_TIMEOUT_MS = 5_000;
 /** models.dev's catalog is a few megabytes; one process fetches and parses it once an hour, not once per thread. */
 const CATALOG_TTL_MS = 60 * 60 * 1_000;
 const CATALOG_URL = "https://models.dev/api.json";
+const CATALOG_PROVIDERS = [opencodeGoProvider().id, opencodeProvider().id];
 
 export interface PiModelRuntimeOptions {
   /** Upper bound for the catalog refresh at start-up; a slow CI host needs more than a laptop. */
@@ -45,7 +46,7 @@ function openCodeCatalog(): Promise<unknown> {
     try {
       const response = await fetch(CATALOG_URL, { signal: controller.signal });
       if (!response.ok) throw new Error(`OpenCode catalog request failed: ${response.status}`);
-      return await response.json() as unknown;
+      return openCodeCatalogSubset(await response.json() as unknown, CATALOG_PROVIDERS);
     } finally {
       clearTimeout(timeout);
     }

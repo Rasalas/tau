@@ -122,10 +122,11 @@ try {
   await writeTextFile(join(alternate, "README.md"), "# benchmark\n");
   execFileSync("git", ["-C", alternate, "add", "README.md"], { stdio: "ignore" });
   execFileSync("git", ["-C", alternate, "-c", "user.name=Tau Benchmark", "-c", "user.email=tau@example.invalid", "commit", "-m", "fixture"], { stdio: "ignore" });
-  const [{ PiHost }, { ProjectHistory }, { SessionManager }] = await Promise.all([
+  const [{ PiHost }, { ProjectHistory }, { SessionManager }, { compactHeap }] = await Promise.all([
     import(pathToFileURL(join(root, "dist-electron", "main", "pi-host.js")).href),
     import(pathToFileURL(join(root, "dist-electron", "main", "project-history.js")).href),
     import("@earendil-works/pi-coding-agent"),
+    import(pathToFileURL(join(root, "dist-electron", "main", "host-idle-compaction.js")).href),
   ]);
   const sessionDir = join(alternate, "sessions");
   const sessionPaths = ["First fixture", "Second fixture"].map((name, index) => {
@@ -137,6 +138,7 @@ try {
   const wallClock = [];
   let phases = [];
   let background = [];
+  let idleHeapMiB;
   for (let hostRun = 0; hostRun < HOST_RUNS; hostRun += 1) {
     const history = new ProjectHistory(historyPath);
     await history.load();
@@ -156,6 +158,16 @@ try {
       await host.switchSession(path);
       wallClock.push({ scenario: "warm-switch", durationMs: performance.now() - switchStarted });
     }
+    // A thread whose runtime was released for idleness reopens from its session file.
+    for (const path of sessionPaths) {
+      await host.threads.releaseIdle(0);
+      const reopenStarted = performance.now();
+      await host.switchSession(path);
+      wallClock.push({ scenario: "reopen-released", durationMs: performance.now() - reopenStarted });
+    }
+    // What the host holds once it went quiet, as the host process's idle compaction leaves it.
+    compactHeap();
+    idleHeapMiB = process.memoryUsage().heapUsed / 1024 / 1024;
     await host.dispose();
     await history.flush();
     // Phases describe one host; the last start stands for the report.
@@ -174,6 +186,7 @@ try {
       return [scenario, scenario === "bootstrap" ? { ...summarize(samples), cold: samples[0] } : summarize(samples)];
     })),
     hostRuns: HOST_RUNS,
+    idleHeapMiB,
     phases,
     background,
     metadata,

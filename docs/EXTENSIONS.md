@@ -734,9 +734,10 @@ and cost the thread index carries and a "Take over" button, while the composer
 goes on addressing the thread it was already addressing. Both take
 `{ pin: true }` for a tab the next preview must not replace. Agents Kit opens a
 spawned thread that way rather than switching to it. A thread reads whether or
-not the host still holds a runtime for it: runtimes are capped and idle ones are
-released oldest first, so a released thread's transcript is projected from its
-session file, with the same paging, cursors and client-message correlation.
+not the host still holds a runtime for it: runtimes are capped, idle ones are
+released oldest first, and one nobody used for ten minutes is released too, so a
+released thread's transcript is projected from its session file, with the same
+paging, cursors and client-message correlation.
 
 `actions.newSession()` opens the project picker for a new thread, as the rail's
 button does. `actions.newSession({ workspace })` puts a new thread's draft

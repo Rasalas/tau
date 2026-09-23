@@ -39,6 +39,7 @@
   "hostBootstrapSafeMs": 1000,
   "metadataCommandP95Ms": 10,
   "metadataLongThreadEntries": 10000,
+  "hostIdleHeapSafeMiB": 70,
   "gitSubprocesses": 6,
   "gitOverlapSubprocesses": 6,
   "gitMaxParallelSubprocesses": 4,

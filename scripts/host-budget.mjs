@@ -37,6 +37,11 @@ export function evaluateHostBudgets(report, budgets = {}) {
     if (criticalBind) failures.push(`full cold-switch still uses serial extension binding (${criticalBind.durationMs.toFixed(1)}ms)`);
   }
   failures.push(...evaluateMetadataBudgets(report, budgets));
+  const idleHeapBudget = report.mode === "full" ? budgets.hostIdleHeapFullMiB : budgets.hostIdleHeapSafeMiB;
+  if (idleHeapBudget !== undefined) {
+    if (!Number.isFinite(report.idleHeapMiB)) failures.push("the idle heap was not reported by the host fixture");
+    else if (report.idleHeapMiB > idleHeapBudget) failures.push(`${report.mode} idle heap ${report.idleHeapMiB.toFixed(1)} MiB > ${idleHeapBudget} MiB`);
+  }
   const warm = report.summaries?.["warm-switch"];
   if (!warm || ![warm.median, warm.p95, warm.maximum].every(Number.isFinite)) {
     failures.push("warm-switch median, p95, and maximum were not reported by the host fixture");
