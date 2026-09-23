@@ -23,7 +23,7 @@ export function createThreadTitlesHostExtension(): HostExtension {
         const modelId = text(fields.modelId);
         const preferred = record(fields.prefer);
         const prefer = text(preferred.provider) && text(preferred.id) ? { provider: text(preferred.provider), id: text(preferred.id) } : undefined;
-        const chooseModel = async () => provider && modelId ? { provider, id: modelId } : smallCompletionModel(services, prefer);
+        const chooseModel = async (hint = prefer) => provider && modelId ? { provider, id: modelId } : smallCompletionModel(services, hint);
         const force = fields.force === true;
         const sessionId = typeof fields.sessionId === "string" ? fields.sessionId : undefined;
         const prompt = typeof fields.prompt === "string" ? fields.prompt : "";
@@ -53,7 +53,8 @@ export function createThreadTitlesHostExtension(): HostExtension {
           throw new Error("The thread has no conversation to title yet.");
         }
 
-        const model = await chooseModel();
+        // The thread knows its model even where a new thread's draft named none.
+        const model = await chooseModel(thread.model ?? prefer);
         services.log("title.started", model ? `${model.provider}/${model.id}` : "default model");
         // Titling runs on the user's own model configuration, whichever runtime owns the thread;
         // without a small model there, on its default.

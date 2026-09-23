@@ -1052,7 +1052,9 @@ provider first, then the longest shared id, so a thread on `gpt-5.6-sol` gets
 `gpt-5.6-luna`; `undefined` when none is small, which leaves `complete` on
 the default. Thread Title Generator and Worktree Names take the model their
 setting names, else this pick with the thread's or draft's model as `prefer`,
-for a thread of any runtime.
+for a thread of any runtime. `HostThread.model` (new in API 1.11.0) is that
+model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
+— so a thread whose draft named none still gives the hint.
 
 A registered backend's `label` is what the workbench calls it where a new
 thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
