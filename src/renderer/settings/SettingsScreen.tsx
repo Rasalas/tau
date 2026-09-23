@@ -9,6 +9,7 @@ import { PanelIcon } from "../components/PanelIcon";
 import { PiSettingsPage } from "../components/PiSettingsPage";
 import { WindowControlsInset } from "../components/WindowControlsInset";
 import { isMacPlatform } from "../keybindings";
+import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { ConfigLayersStore, type SettingsProject } from "../../workbench/config-layers-store";
 import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "./settings-search";
 import { SettingsLevelsProvider, useSettingsLevels } from "./settings-layout";
@@ -205,6 +206,7 @@ export function SettingsScreen({
     // Capture: the workbench's own ⌘, would open Settings again.
     const toggle = (event: KeyboardEvent) => {
       if (event.key !== "," || event.altKey || event.shiftKey || (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
+      if (event.target instanceof Element && event.target.closest(`[${KEYBINDING_CAPTURE_ATTRIBUTE}]`)) return;
       event.preventDefault();
       event.stopPropagation();
       onClose();

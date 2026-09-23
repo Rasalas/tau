@@ -58,4 +58,27 @@ describe("useAppKeybindings", () => {
     expect(palette).not.toHaveBeenCalled();
     shell.remove();
   });
+
+  it("runs no chord while a field that records chords has the keyboard", async () => {
+    const registry = new ExtensionRegistry();
+    const run = vi.fn();
+    await registry.activate({ id: "test", name: "Test", activate(context) {
+      context.registerCommand({ id: "split", label: "Split", group: "Test", run });
+      context.registerKeybinding({ keys: "mod+d", commandId: "split", when: "terminalFocus" });
+      context.registerKeybinding({ keys: "mod+k", commandId: "split" });
+    } });
+    renderHook(() => useAppKeybindings(registry, {} as WorkbenchActions, vi.fn()));
+    // Inside a terminal too, so the capture-phase binding would match.
+    const shell = document.createElement("div");
+    shell.setAttribute("data-keybinding-context", "terminal");
+    const recorder = document.createElement("input");
+    recorder.setAttribute("data-keybinding-capture", "");
+    shell.append(recorder);
+    document.body.append(shell);
+    recorder.focus();
+    const isMac = /mac|iphone|ipad/iu.test(navigator.platform);
+    for (const key of ["d", "k"]) recorder.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: isMac, ctrlKey: !isMac, bubbles: true }));
+    expect(run).not.toHaveBeenCalled();
+    shell.remove();
+  });
 });

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { errorMessage } from "../workbench/error-message";
+import { KEYBINDING_CAPTURE_ATTRIBUTE } from "./keybinding-context";
 
 /**
  * Window keydown to commands. A binding whose `when` needs a context (the
@@ -16,6 +17,8 @@ export function useAppKeybindings(
   useEffect(() => {
     const dispatch = (event: KeyboardEvent, capture: boolean) => {
       if (event.defaultPrevented) return;
+      // A field that records chords gets every key, the workbench's own included.
+      if (event.target instanceof Element && event.target.closest(`[${KEYBINDING_CAPTURE_ATTRIBUTE}]`)) return;
       const match = registry.matchKeybinding(event);
       if (!match || (capture && !match.specific)) return;
       if (!match.modified && document.querySelector('[aria-modal="true"]')) return;

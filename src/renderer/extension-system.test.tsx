@@ -437,6 +437,65 @@ describe("ExtensionRegistry keybinding contexts", () => {
   });
 });
 
+describe("ExtensionRegistry recorded chords", () => {
+  const commands = (context: DesktopExtensionContext, ...ids: string[]) => {
+    for (const id of ids) context.registerCommand({ id, label: id, group: "Test", run() {} });
+  };
+  const defaults = () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "core", name: "Core", activate(context) {
+      commands(context, "palette", "split", "review", "new-thread", "cycle");
+      context.registerKeybinding({ keys: "mod+k", commandId: "palette" });
+      context.registerKeybinding({ keys: "mod+d", commandId: "split", when: "terminalFocus" });
+      context.registerKeybinding({ keys: "mod+d", commandId: "review", when: "!terminalFocus" });
+      context.registerKeybinding({ keys: "mod+n", commandId: "new-thread" });
+      context.registerKeybinding({ keys: "ctrl+p", commandId: "cycle" });
+    } });
+    return registry;
+  };
+
+  it("names the bindings a recorded chord shares keys with, and who gets the key", () => {
+    const registry = defaults();
+    // A user chord outranks a default wherever both clauses hold.
+    expect(registry.findKeybindingCollisions({ commandId: "new-thread", key: "mod+k" }, true)).toEqual([expect.objectContaining({ binding: expect.objectContaining({ commandId: "palette" }), outcome: "wins" })]);
+    // Without a `when` it keeps new-thread's clause (none), so both mod+d bindings overlap it.
+    expect(registry.findKeybindingCollisions({ commandId: "new-thread", key: "mod+d" }, true).map((hit) => hit.binding.commandId)).toEqual(["split", "review"]);
+    // A clause that cannot hold with the other's is no collision.
+    expect(registry.findKeybindingCollisions({ commandId: "new-thread", key: "mod+d", when: "terminalFocus" }, true).map((hit) => hit.binding.commandId)).toEqual(["split"]);
+    // The command's own chords never count, nor an unreadable chord or clause.
+    expect(registry.findKeybindingCollisions({ commandId: "palette", key: "mod+k" }, true)).toEqual([]);
+    expect(registry.findKeybindingCollisions({ commandId: "palette", key: "mod+d", when: "terminalFocus &&" }, true)).toEqual([]);
+  });
+
+  it("weighs a recorded chord as the platform presses it", () => {
+    const registry = defaults();
+    expect(registry.findKeybindingCollisions({ commandId: "new-thread", key: "mod+p" }, true)).toEqual([]);
+    expect(registry.findKeybindingCollisions({ commandId: "new-thread", key: "mod+p" }, false).map((hit) => hit.binding.commandId)).toEqual(["cycle"]);
+  });
+
+  it("calls two user chords of the same rank a clash, and a specific one the winner", () => {
+    const registry = defaults();
+    registry.activate({ id: "user", name: "User", activate(context) {
+      context.registerKeybinding({ keys: "mod+j", commandId: "palette", replaces: "palette" });
+    } });
+    expect(registry.findKeybindingCollisions({ commandId: "cycle", key: "mod+j" }, true)).toMatchObject([{ outcome: "clash" }]);
+    expect(registry.findKeybindingCollisions({ commandId: "cycle", key: "mod+j", when: "composerFocus" }, true)).toMatchObject([{ outcome: "wins" }]);
+  });
+
+  it("keeps a command's defaults while a user chord replaces them, and offers the last keymap registered", async () => {
+    const registry = defaults();
+    registry.activate({ id: "user", name: "User", activate(context) {
+      context.registerKeybinding({ keys: "mod+t", commandId: "new-thread", replaces: "new-thread" });
+      context.registerUserKeymap({ id: "file", label: "keys.json", setChords: async () => {}, resetAll: async () => {} });
+    } });
+    expect(registry.getKeybindings().filter((binding) => binding.commandId === "new-thread").map((binding) => binding.keys)).toEqual(["mod+t"]);
+    expect(registry.getDefaultKeybindings("new-thread").map((binding) => binding.keys)).toEqual(["mod+n"]);
+    expect(registry.getUserKeymap()).toMatchObject({ label: "keys.json", extensionId: "user" });
+    registry.deactivate("user");
+    expect(registry.getUserKeymap()).toBeUndefined();
+  });
+});
+
 describe("ExtensionRegistry prompt renderers", () => {
   const prompt = (extras?: Record<string, unknown>) => ({ id: "p1", sessionId: "s1", kind: "select" as const, title: "Pick", options: ["a", "b"], extras });
 
