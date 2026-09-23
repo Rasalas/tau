@@ -17,7 +17,7 @@ import {
   unsettlePatch,
   type RailDrop,
 } from "./meta.js";
-import type { RailOrganizer, RailSections, ThreadMetaPatch, WorkspaceStoreSlice } from "./protocol.js";
+import type { RailOrganizer, RailSections, ThreadMetaPatch, ThreadTitlesSlice, WorkspaceStoreSlice } from "./protocol.js";
 import type { RailStore } from "./store.js";
 import type { ThreadUndo, UndoAction, UndoKind } from "./undo.js";
 
@@ -34,10 +34,9 @@ export interface RailOrganizerPort {
   running(threadId: string): boolean;
   /** Workspace Kit's store, for the rail's project filter and project settings. */
   workspace?(): WorkspaceStoreSlice | undefined;
+  /** Thread Titles, while it is on; the row offers "Regenerate title" only then. */
+  titles?(): ThreadTitlesSlice | undefined;
 }
-
-/** Thread Titles' command; the row offers it only while that kit is on. */
-export const REGENERATE_TITLE_COMMAND = "thread-titles.regenerate";
 
 const EMPTY: RailSections = { pinned: [], active: [], snoozed: [], settled: [], archived: [] };
 
@@ -55,7 +54,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   snooze(threadId: string, until: number): void;
   archive(session: UiSession, actions: WorkbenchActions | undefined): Promise<void>;
   unarchive(threadId: string): void;
-  remove(session: UiSession, actions: WorkbenchActions | undefined): Promise<void>;
+  remove(session: UiSession, actions: WorkbenchActions | undefined, leaving?: ReadonlySet<string>): Promise<void>;
   restore(threadId: string): Promise<void>;
 } {
   const { send, undo } = port;
@@ -129,11 +128,13 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     { items: [{ id: "snooze:custom", label: "Custom…" }] },
   ];
 
-  /** Thread Titles names the thread on screen; one elsewhere is opened first. */
+  /** Titles are made from a thread's live runtime, so one elsewhere is opened first. */
   const regenerateTitle = async (session: UiSession, actions: WorkbenchActions) => {
+    const titles = port.titles?.();
+    if (!titles) return;
     if (!onScreen(actions, session.id) && !await actions.switchSession(session.path)) return;
     try {
-      await actions.executeCommand?.(REGENERATE_TITLE_COMMAND);
+      await titles.regenerate(actions);
     } catch (error) {
       notify(actions, errorMessage(error));
     }
@@ -162,11 +163,12 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
 
   /** Into the host's trash; the notice, `mod+z` and Settings → Archived bring it back. */
-  const remove = async (session: UiSession, actions: WorkbenchActions | undefined) => {
+  /** `leaving`: threads going in the same batch, which the reader is never moved to. */
+  const remove = async (session: UiSession, actions: WorkbenchActions | undefined, leaving: ReadonlySet<string> = new Set()) => {
     if (port.running(session.id)) { notify(actions, "Stop the thread before deleting it."); return; }
     const shown = onScreen(actions, session.id);
     if (shown) {
-      const next = fallbackThread(store.displayed, session);
+      const next = fallbackThread(store.displayed.filter((thread) => !leaving.has(thread.id) || thread.id === session.id), session);
       if (!next) { notify(actions, "Open another thread before deleting this one."); return; }
       await actions?.switchSession(next.path);
     }
@@ -223,7 +225,6 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     useSyncExternalStore(store.subscribe, store.getVersion);
     // Commands and the Archived page find a thread by id through the index this client holds.
     store.threadStore = useThreadStore();
-    store.registry = useWorkbenchShell().registry;
     const sessions = store.snoozeDialogFor;
     const renaming = store.renameDialogFor;
     return (
@@ -304,7 +305,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         {
           items: [
             { id: "rename", label: "Rename thread" },
-            ...(store.registry?.getCommand(REGENERATE_TITLE_COMMAND) ? [{ id: "regenerate-title", label: "Regenerate title" }] : []),
+            ...(port.titles?.() ? [{ id: "regenerate-title", label: "Regenerate title" }] : []),
             { id: "mark-unread", label: "Mark unread" },
             ...(workspace?.setRailProjectFilter ? [{ id: "filter-project", label: filtered ? "Show all projects" : `Filter by ${session.projectName}` }] : []),
           ],
@@ -388,11 +389,12 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         for (const session of sessions) store.threadStore?.markUnread(session.id);
       } else if (itemId === "archive" || itemId === "delete") {
         // One after another: each may move the reader off the thread on screen.
+        const leaving = new Set(sessions.map((session) => session.id));
         void (async () => {
           for (const session of sessions) {
             if (port.running(session.id)) continue;
             // oxlint-disable-next-line no-await-in-loop
-            await (itemId === "archive" ? archive(session, actions) : remove(session, actions));
+            await (itemId === "archive" ? archive(session, actions) : remove(session, actions, leaving));
           }
         })();
       } else {

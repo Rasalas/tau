@@ -19,8 +19,6 @@ export class RailStore implements ThreadSiblingsService {
   snoozeDialogFor?: readonly UiSession[];
   /** The thread the rename dialog is open for. */
   renameDialogFor?: UiSession;
-  /** Commands the workbench has, as the rail last saw them. */
-  registry?: { getCommand(id: string): unknown };
   /** The client's thread index, once the rail has drawn: how a command finds a thread by id. */
   threadStore?: { getSnapshot(): { threads: readonly UiSession[] }; markUnread(threadId: string): void };
   /** The workbench's actions as the rail last saw them, for a page that has none of its own. */

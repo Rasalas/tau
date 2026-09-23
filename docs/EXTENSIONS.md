@@ -911,7 +911,10 @@ the row's `session` (Terminal Kit draws a thread's open shells this way).
 `setRailProjectFilter(projectName | undefined)` shows only one repository's
 threads in the rail and `openProjectSettings(thread)` opens the settings of the
 project a thread runs in — its name, path and icon (both new in API 1.11.0,
-called from Thread Rail's row menu). `refresh()` re-reads the project's changes and Git facts
+called from Thread Rail's row menu). Thread Title Generator publishes
+`tau.thread-titles/titles` the same way: `regenerate(actions)` names the thread
+on screen again, and the row menu offers "Regenerate title" only while it is
+there. `refresh()` re-reads the project's changes and Git facts
 after another kit changed them. Review Kit fills both with the pull or merge
 request of the branch. `registerFileEditor(open)` is the offer to edit a file:
 a double-click in the Files panel calls `open(relPath, actions)` instead of

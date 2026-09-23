@@ -7,6 +7,11 @@ export const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
 export const META_EVENT = "meta";
 /** Workspace Kit's store, which lends the rail's organizer slot. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
+/** Thread Titles' desktop service (`kits/thread-titles/protocol.ts`): names the thread on screen again. */
+export const THREAD_TITLES_SERVICE = "tau.thread-titles/titles";
+export interface ThreadTitlesSlice {
+  regenerate(actions: WorkbenchActions): Promise<void>;
+}
 /** Review Kit's host entry; its `pr-status` names Thread Rail as a caller. */
 export const REVIEW_EXTENSION_ID = "tau.review";
 /**

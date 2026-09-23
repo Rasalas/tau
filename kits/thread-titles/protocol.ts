@@ -1,8 +1,15 @@
+import type { WorkbenchActions } from "tau";
 /**
  * Thread Title Generator's contract between its host entry and its desktop
  * entry. Core knows nothing about generated titles; it only renames threads.
  */
 export const THREAD_TITLES_HOST_EXTENSION_ID = "tau.thread-titles";
+
+/** Desktop service another kit reaches to name the thread on screen again (Thread Rail's row menu). */
+export const THREAD_TITLES_SERVICE = "tau.thread-titles/titles";
+export interface ThreadTitlesService {
+  regenerate(actions: WorkbenchActions): Promise<void>;
+}
 
 /**
  * How the kit asks a model for a title, wherever it runs: the host half sends

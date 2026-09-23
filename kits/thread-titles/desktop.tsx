@@ -1,5 +1,5 @@
 import { errorMessage, type DesktopExtension, type HostExtensionClient, type PreferencesStore, type PromptSubmittedEvent, type WorkbenchActions } from "tau";
-import { THREAD_TITLES_HOST_EXTENSION_ID } from "./protocol.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID, THREAD_TITLES_SERVICE, type ThreadTitlesService } from "./protocol.js";
 
 const MODEL_OPTION = "model";
 
@@ -57,6 +57,9 @@ export const titleGeneratorExtension: DesktopExtension = {
       { id: "automatic", kind: "toggle", label: "Name a thread after its first prompt", defaultValue: true },
       { id: MODEL_OPTION, kind: "model", label: "Model that names threads" },
     ]);
+    context.provideService<ThreadTitlesService>(THREAD_TITLES_SERVICE, {
+      regenerate: (actions) => generate(context.host, actions, context.preferences, actions.activeThread(), true),
+    });
     context.registerCommand({
       id: "thread-titles.regenerate",
       label: "Regenerate title",

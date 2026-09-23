@@ -312,7 +312,7 @@ describe("Thread Rail on the desktop", () => {
     const { organizer, registry } = setup();
     await flush();
     const branched = { ...thread("a"), projectLabel: "feature/rail" };
-    registry.activate({ id: "tau.thread-titles", name: "Titles", activate: (context) => context.registerCommand({ id: "thread-titles.regenerate", label: "Regenerate title", group: "Thread", run: () => undefined }) });
+    registry.activate({ id: "tau.thread-titles", name: "Titles", activate: (context) => context.provideService("tau.thread-titles/titles", { regenerate: async () => undefined }) });
     const Layer = organizer().Layer!;
     render(<WorkbenchShellContext.Provider value={{ registry } as never}>
       <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={{ toast: vi.fn(() => ({ id: "t", update: vi.fn(), dismiss: vi.fn() })) } as never} /></ThreadStoreContext.Provider>
@@ -333,8 +333,10 @@ describe("Thread Rail on the desktop", () => {
     expect(plain[2]!.items[0]!.submenu![0]!.items.map((item) => item.id)).toEqual(["copy-path", "copy-thread-id"]);
   });
 
-  it("runs the row menu's new items against the workbench and Workspace Kit", async () => {
-    const { organizer, actions, workspace } = setup();
+  it("runs the row menu's new items against the workbench, Workspace Kit and Thread Titles", async () => {
+    const { organizer, actions, workspace, registry } = setup();
+    const regenerate = vi.fn(async () => undefined);
+    registry.activate({ id: "tau.thread-titles", name: "Titles", activate: (context) => context.provideService("tau.thread-titles/titles", { regenerate }) });
     await flush();
     const branched = { ...thread("a"), projectLabel: "feature/rail", workspaceId: "ws-a" };
     organizer().runMenu(branched, "new-on-branch", actions);
@@ -356,7 +358,7 @@ describe("Thread Rail on the desktop", () => {
     organizer().runMenu(branched, "regenerate-title", actions);
     await flush();
     expect(actions.switchSession).toHaveBeenCalledWith("/sessions/a.jsonl");
-    expect(actions.executeCommand).toHaveBeenCalledWith("thread-titles.regenerate");
+    expect(regenerate).toHaveBeenCalledWith(actions);
   });
 
   it("renames a thread from the row menu, opening it first", async () => {
@@ -419,5 +421,17 @@ describe("Thread Rail on the desktop", () => {
     expect(patches.a!.snoozedUntil).toBe(patches.b!.snoozedUntil);
     push({ threads: { d: { settledAt: 1, settledBy: "user" } }, settings: { onMerged: true, onClosed: false } });
     expect(organizer().bulkMenu!([thread("a"), thread("d")])[0]!.items.map((item) => item.id)).not.toContain("snooze");
+  });
+
+  it("never moves the reader to a thread deleted in the same batch", async () => {
+    const { organizer, actions } = setup();
+    await flush();
+    // "b" is on screen; "a" and "b" go together, so the reader lands on "c".
+    const threads = [thread("b", 3), thread("a", 2), thread("c", 1)];
+    organizer().sections(threads);
+    organizer().runBulkMenu!([thread("a", 2), thread("b", 3)], "delete", actions);
+    await flush();
+    await flush();
+    expect(vi.mocked(actions.switchSession).mock.calls.map((call) => call[0])).toEqual(["/sessions/c.jsonl"]);
   });
 });
