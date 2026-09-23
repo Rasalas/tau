@@ -38,7 +38,7 @@ const NOISE_ACTIONS = new Set(["focus", "show_menu", "scroll_to_visible", "scrol
 const SILENT_ROLES = new Set(["group", "unknown", "generic", "none"]);
 const TEXT_ROLES = new Set(["static_text", "text"]);
 /** Chromium reports `expanded: false` on every element; only these can really open. */
-const EXPANDABLE_ROLES = new Set(["combo_box", "pop_up_button", "menu_button", "menu_item", "tree_item", "disclosure_triangle", "row", "outline_row", "button"]);
+const EXPANDABLE_ROLES = new Set(["combo_box", "pop_up_button", "menu_button", "menu_item", "tree_item", "disclosure_triangle", "row", "outline_row"]);
 
 function safe<T>(read: () => T): T | undefined {
   try {
