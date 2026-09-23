@@ -53,6 +53,23 @@ export interface ThreadMeta {
   archivedAt?: number;
 }
 
+/** Actions the rail can ask about first, T3 Code's confirmations. */
+export type RailQuestionAction = "delete" | "archive" | "unpin";
+
+/** The kit option behind each question and whether it asks by default, as T3 Code does. */
+export const RAIL_CONFIRMATIONS: Record<RailQuestionAction, { option: string; fallback: boolean; label: string; hint: string }> = {
+  delete: { option: "confirm-delete", fallback: true, label: "Before deleting a thread", hint: "Deleted threads wait in the trash under Settings → Archived" },
+  archive: { option: "confirm-archive", fallback: false, label: "Before archiving a thread", hint: "Archived threads leave the rail until new work brings them back" },
+  unpin: { option: "confirm-unpin", fallback: false, label: "Before unpinning a thread", hint: "From the row menu, the command or a selection" },
+};
+
+/** A question the rail is waiting on; `answer` settles it. */
+export interface RailQuestion {
+  action: RailQuestionAction;
+  sessions: readonly UiSession[];
+  answer(confirmed: boolean, dontAskAgain?: boolean): void;
+}
+
 /** A field set to `null` is removed; a patch of `null` forgets the thread. */
 export type ThreadMetaPatch = { [Key in keyof ThreadMeta]?: ThreadMeta[Key] | null };
 

@@ -19,13 +19,15 @@ import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
 import { tooltipProps } from "./ui/Tooltip";
-import { modelKey } from "./model-picker-rail";
+import { modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
+import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import { ExtensionPrompt, PromptSubmitContext, type PromptSubmitAction } from "./ExtensionPrompt";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
+import { promptTakesFiles } from "../../shared/extension-prompt-options";
 import {
   ComposerScopeStore,
   createDraftKey,
@@ -60,6 +62,7 @@ import { useComposerCollapse } from "./useComposerCollapse";
 import { findChipTokens, plainChipText, repairChipTokens } from "./composer-chips";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
+import { takePasteAsText } from "../paste-as-text";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
@@ -177,12 +180,13 @@ export function Composer({
   onSetThinking(level: string): void;
   /** Offered while the composer targets a thread that does not exist yet. */
   runtimeChoice?: ComposerRuntimeChoice;
-  /** Starts a new thread on another runtime, which an existing thread cannot change to. */
-  onNewThreadOnRuntime?(kind: ThreadBackendKind): void;
+  /** Starts a new thread on another runtime, which an existing thread cannot change to; on `model` when one was chosen. */
+  onNewThreadOnRuntime?(kind: ThreadBackendKind, model?: UiModel): void;
   prompt?: ExtensionUiPrompt;
   promptsPending?: number;
   /** `typed` is set when the answer came from the text field rather than a choice. */
-  onAnswerPrompt?(value: string | boolean, typed?: boolean): void;
+  /** `attachments` are files the user sent with typed text, for a question that takes them. */
+  onAnswerPrompt?(value: string | boolean, typed?: boolean, attachments?: UiPromptAttachment[]): void;
   onCancelPrompt?(): void;
   onCompactContext(): void;
   /** An extension is changing the workspace; submitting would target the wrong thread. */
@@ -426,6 +430,7 @@ export function Composer({
     });
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const runtimeCatalogs = useRuntimeCatalogs(modelPickerOpen);
   const modelChipRef = useRef<HTMLButtonElement>(null);
   const preferences = usePreferences();
   const gates = registry?.getComposerGates?.() ?? NO_GATES;
@@ -460,22 +465,35 @@ export function Composer({
   }, [modelSet, passGates, snapshot]);
   const [promptSubmit, setPromptSubmit] = useState<PromptSubmitAction>();
   const registerPromptSubmit = useCallback((action: PromptSubmitAction | undefined) => setPromptSubmit(action), []);
-  // A model of the visible catalog brings a draft bound elsewhere back to that catalog's runtime.
-  const applyModel = (model: UiModel) => {
-    if (runtimeChoice && snapshot?.backendKind && runtimeChoice.kind !== snapshot.backendKind) runtimeChoice.onSelect(snapshot.backendKind);
+  // A model binds a draft to the runtime that offers it: the visible catalog's, or the one it came from.
+  const applyModel = (model: UiModel, runtime = snapshot?.backendKind) => {
+    if (runtimeChoice && runtime && runtimeChoice.kind !== runtime) runtimeChoice.onSelect(runtime);
     onSetModel(model.provider, model.id);
   };
-  const chooseModel = (model: UiModel) => {
+  const chooseModel = (model: UiModel, from?: ThreadBackendKind) => {
+    const runtime = from ?? snapshot?.backendKind;
+    // A thread keeps its runtime; another runtime's model means a thread of its own.
+    if (from && from !== snapshot?.backendKind && !runtimeChoice) {
+      onNewThreadOnRuntime?.(from, model);
+      return;
+    }
     passGates(
-      { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
+      { action: "model", model, ...(runtime ? { runtime } : {}), ...(snapshot ? { snapshot } : {}) },
       () => {
-        applyModel(model);
+        applyModel(model, runtime);
         // The popover hands focus back to its chip; with a model chosen, the prompt is next.
         requestAnimationFrame(() => textareaRef.current?.focus());
       },
       () => setModelPickerOpen(true),
     );
   };
+  // Kits' actions with another runtime than an existing thread's ("Continue in…").
+  const switchCommands = modelPickerOpen && !runtimeChoice ? registry?.getCommandsFor?.("runtime-switch") : undefined;
+  const runtimeActions = useMemo(() => (switchCommands ?? []).flatMap((command) => shellContext?.actions ? [{
+    id: command.id,
+    label: command.label.replace(/…$/u, ""),
+    run: (runtime: string) => { void command.run(shellContext.actions!, { runtime }); },
+  }] : []), [shellContext?.actions, switchCommands]);
   const supportsImageInput = snapshot?.supportsImageInput ?? false;
   const streaming = Boolean(snapshot?.isStreaming);
   // An external runtime may pick model and reasoning itself; the pickers then only show what it reports.
@@ -586,7 +604,7 @@ export function Composer({
     setOpenChip({ label, point: { x: rect?.left ?? 0, y: rect?.top ?? 0 } });
   };
 
-  const { submit: submitPrompt } = useComposerSubmission({
+  const { submit: submitPrompt, answer: answerWithDraft } = useComposerSubmission({
     scopeStore,
     scope: attachmentScope,
     draftStorageKey,
@@ -609,17 +627,21 @@ export function Composer({
   }, [prompt, updateDraft]);
 
   const answerable = prompt && prompt.answerElsewhere !== true;
+  // A question that takes typed text takes the files waiting in the composer with it.
+  const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
     if (held) return;
-    if (activeScopeSnapshot.submissionPending) return;
     const intent = classifyComposerInput({
       text: plainChipText(text),
       answerable: Boolean(answerable),
+      answerFiles: answerHasFiles,
       promptActionAvailable: Boolean(promptSubmit && !promptSubmit.disabled),
       shellActionAvailable: onRunShellAction !== undefined,
       delivery,
     });
+    // An answer never waits for a prompt in flight: the prompt that asked may be the one still running.
+    if (activeScopeSnapshot.submissionPending && intent.kind !== "prompt-answer" && intent.kind !== "prompt-action") return;
     switch (intent.kind) {
       case "noop":
         return;
@@ -627,6 +649,11 @@ export function Composer({
         promptSubmit?.submit();
         return;
       case "prompt-answer":
+        if (answerHasFiles) {
+          chips.dropOrphans(text);
+          answerWithDraft((answer, files) => onAnswerPrompt?.(answer, true, files));
+          return;
+        }
         onAnswerPrompt?.(intent.text, true);
         updateDraft("");
         return;
@@ -655,6 +682,8 @@ export function Composer({
     }
   }, [
     activeScopeSnapshot.submissionPending,
+    answerHasFiles,
+    answerWithDraft,
     answerable,
     chips,
     held,
@@ -773,6 +802,8 @@ export function Composer({
           void addFiles(event.dataTransfer.files);
         }}
         onPaste={(event) => {
+          // Paste as Text: the clipboard's text as it is, no fold and no file.
+          if (takePasteAsText()) return;
           if (event.clipboardData.files.length === 0) {
             const pasted = event.clipboardData.getData("text/plain");
             if (pasted && pasteText(pasted)) event.preventDefault();
@@ -1073,15 +1104,16 @@ export function Composer({
           />
 
           {answerable && prompt ? (() => {
-            const submitLabel = text.trim() ? "Send answer" : promptSubmit?.label ?? "Send answer";
+            const typedAnswer = Boolean(text.trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
+            const submitLabel = typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer";
             return (
               <button
                 className="prompt-submit-button"
                 {...tooltipProps(submitLabel)}
                 aria-label={submitLabel}
-                disabled={held || (text.trim().length === 0 && (promptSubmit?.disabled ?? true))}
+                disabled={held || (!typedAnswer && (promptSubmit?.disabled ?? true))}
                 onClick={() => {
-                  if (text.trim()) submitCurrent();
+                  if (typedAnswer) submitCurrent();
                   else promptSubmit?.submit();
                 }}
               >
@@ -1143,8 +1175,10 @@ export function Composer({
             runtime={runtimeChoice?.kind ?? snapshot?.backendKind}
             catalogRuntime={snapshot?.backendKind}
             runtimeBackends={runtimeChoice?.backends ?? snapshot?.runtimeBackends}
+            catalogs={runtimeCatalogs}
             onSelectRuntime={runtimeChoice?.onSelect}
             onNewThreadOnRuntime={onNewThreadOnRuntime}
+            runtimeActions={runtimeActions}
             badges={registry?.getModelBadges?.()}
             multiSelect={gatedModelSet}
             anchor={modelChipRef}

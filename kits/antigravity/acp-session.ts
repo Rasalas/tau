@@ -19,6 +19,9 @@ export interface AcpPermissionRequest {
   toolCall: { toolCallId: string; title?: string | null; kind?: string | null; rawInput?: unknown; locations?: Array<{ path: string }> | null; content?: unknown };
 }
 export type AcpPermissionResponse = { outcome: { outcome: "cancelled" } | { outcome: "selected"; optionId: string } };
+/** `session/elicitation`, or the SDK's `elicitation/create`: a form (or a URL, which Tau does not offer) the agent wants filled. */
+export interface AcpElicitationRequest { sessionId?: string; mode?: string; message?: string; requestedSchema?: unknown; url?: string }
+export type AcpElicitationAnswer = { action: "accept"; content: Record<string, string | number | boolean | string[]> } | { action: "decline" } | { action: "cancel" };
 
 export interface AcpSelectOption { value: string; name: string; description?: string | null }
 export interface AcpConfigOption {
@@ -67,6 +70,8 @@ export interface AntigravitySessionOptions {
   spawn?(input: AcpSpawnInput): AcpProcess;
   onUpdate(update: AcpSessionUpdate): void;
   onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse>;
+  /** A form the agent wants filled; declined without this. */
+  onElicitation?(request: AcpElicitationRequest): Promise<AcpElicitationAnswer>;
   /** The sign-in link the agent wants opened; without this the handshake fails when one appears. */
   onSignIn?(link: AuthorizationLink): void;
   onExit?(error: AcpExitedError | undefined): void;
@@ -146,6 +151,9 @@ export class AntigravitySession {
       onExit: (error) => options.onExit?.(error),
     });
     this.client.handle("session/request_permission", (params) => this.onPermission(params as AcpPermissionRequest));
+    // The schema nests the answer under `action`; the SDK's alias answers it flat.
+    this.client.handle("session/elicitation", async (params) => ({ action: await this.onElicitation(params as AcpElicitationRequest) }));
+    this.client.handle("elicitation/create", (params) => this.onElicitation(params as AcpElicitationRequest));
     this.client.handle("fs/read_text_file", (params) => this.readTextFile(params as { path: string; line?: number | null; limit?: number | null }));
     this.client.handle("fs/write_text_file", (params) => this.writeTextFile(params as { path: string; content: string }));
   }
@@ -156,7 +164,7 @@ export class AntigravitySession {
     try {
       session.initialized = await session.guarded(session.client.request<AcpInitializeResult>("initialize", {
         protocolVersion: 1,
-        clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
+        clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {} } },
         clientInfo: { name: ANTIGRAVITY_CLIENT_NAME, version: options.clientVersion },
       }, { timeoutMs: session.timeouts.handshakeMs }));
       if (options.authenticate === false) return session;
@@ -320,6 +328,12 @@ export class AntigravitySession {
   private async onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse> {
     if (!this.setup || request.sessionId !== this.setup.sessionId) return { outcome: { outcome: "cancelled" } };
     return this.options.onPermission(request);
+  }
+
+  private async onElicitation(request: AcpElicitationRequest): Promise<AcpElicitationAnswer> {
+    if (!this.setup || (request.sessionId !== undefined && request.sessionId !== this.setup.sessionId)) return { action: "cancel" };
+    if (request.mode !== undefined && request.mode !== "form") return { action: "decline" };
+    return this.options.onElicitation ? this.options.onElicitation(request) : { action: "decline" };
   }
 
   /** A path the agent may touch through Tau: inside the workspace or another root, symlinks on the parent followed. */

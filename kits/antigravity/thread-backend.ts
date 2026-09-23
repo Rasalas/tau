@@ -16,6 +16,7 @@ import {
   type ThreadRuntimeBackend,
   type ThreadRuntimeEvent,
   type ThreadTitleSource,
+  type TurnActivityStore,
   type UiComposerCommand,
   type UiContextUsage,
   type UiMessage,
@@ -24,8 +25,8 @@ import {
   type UiSkillDraft,
   type UiThreadUsage,
 } from "tau/host-extension";
-import type { AcpContentBlock, AcpInitializeResult, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "./acp-session.js";
-import { modeForLevel, permissionDialog } from "./approvals.js";
+import type { AcpContentBlock, AcpElicitationAnswer, AcpElicitationRequest, AcpInitializeResult, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "./acp-session.js";
+import { answerElicitation, modeForLevel, permissionDialog } from "./approvals.js";
 import { AcpTurnTranslator, addUsage, type AcpCommand, type AcpPromptResponse, type AcpSessionUpdate } from "./events.js";
 import type { AuthorizationLink } from "./profile.js";
 import type { AntigravityRuntimeAdapter } from "./runtime-adapter.js";
@@ -59,11 +60,14 @@ export interface AntigravitySessionInput {
   authenticate?: boolean;
   onUpdate(update: AcpSessionUpdate): void;
   onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse>;
+  onElicitation?(request: AcpElicitationRequest): Promise<AcpElicitationAnswer>;
   onSignIn(link: AuthorizationLink): void;
   onExit(error: Error | undefined): void;
 }
 
 export interface AntigravityThreadBackendOptions {
+  /** Where the thread's tool cards are kept across restarts. */
+  activity?: TurnActivityStore;
   adapter: AntigravityRuntimeAdapter;
   store: AntigravitySessionStore;
   /** Spawns and shakes hands with the agent; the backend creates or resumes the session itself. */
@@ -114,6 +118,11 @@ export function promptBlocks(text: string, attachments: readonly UiPromptAttachm
       : { type: "resource_link", uri: pathToFileURL(attachment.path).href, name: attachment.name, mimeType: attachment.mimeType });
   }
   return blocks;
+}
+
+/** The capability over the kit's store; the agent's own history is not read back. */
+function activityHistory(threadId: string, store: TurnActivityStore | undefined): Pick<ThreadBackendCapabilities, "activityHistory"> {
+  return store ? { activityHistory: { load: () => store.load(threadId), save: (entry) => store.save(threadId, entry) } } : {};
 }
 
 function imagesOf(attachments: readonly UiPromptAttachment[] | undefined): Array<{ mimeType: string; data: string }> {
@@ -171,6 +180,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
         hiddenPrompt: false,
         notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
       },
+      ...activityHistory(threadId, options.activity),
     };
   }
 
@@ -182,7 +192,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
       : await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
     if (this.record.cwd !== this.cwd) throw new Error("Antigravity session belongs to another workspace.");
     this.messages = this.record.messages.map((message, index) => ({
-      id: `antigravity-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
+      id: message.id ?? `antigravity-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
       role: message.role,
       text: message.text,
       timestamp: message.timestamp,
@@ -386,6 +396,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
       cwd: this.cwd,
       onUpdate: (update) => this.onUpdate(update),
       onPermission: (request) => this.onPermission(request),
+      onElicitation: (request) => answerElicitation(request, this.options.ask),
       onSignIn: (link) => {
         this.report({ type: "notice", message: "Antigravity needs a Google sign-in. Tau opened the link in your browser; finish it there and the turn continues.", level: "info" });
         this.options.onSignIn?.(link, this.threadId);

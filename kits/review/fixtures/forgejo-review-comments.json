@@ -1,0 +1,46 @@
+[
+ {
+  "id": 23383834,
+  "body": "er and err are certainly a choice ^^'",
+  "user": {
+   "id": 1280705,
+   "login": "famfo-cb",
+   "full_name": ""
+  },
+  "resolver": null,
+  "pull_request_review_id": 1894897,
+  "created_at": "2026-09-21T12:42:55+02:00",
+  "updated_at": "2026-09-21T12:42:55+02:00",
+  "path": "tests/integration/lfs_getobject_test.go",
+  "commit_id": "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
+  "original_commit_id": "",
+  "diff_hunk": "{\n \t\t\t\tvar er lfs.ErrorResponse\n \t\t\t\terr := json.Unmarshal(resp.Body.Bytes(), &er)\n \t\t\t\trequire.NoError(t, err)\n+\t\t\t\tassert.Equal(t, \"https://codeberg.org/forgejo/forgejo/issues\", er.DocumentationURL)",
+  "position": 287,
+  "original_position": 0,
+  "extra_lines_count": 0,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23383834",
+  "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14486"
+ },
+ {
+  "id": 23398465,
+  "body": "I decided not to change that but I think some cleanup is otherwise needed there. Planned after this PR.",
+  "user": {
+   "id": 33716,
+   "login": "n0toose",
+   "full_name": "Panagiotis \"Ivory\" Vasilopoulos"
+  },
+  "resolver": null,
+  "pull_request_review_id": 1894897,
+  "created_at": "2026-09-21T18:28:50+02:00",
+  "updated_at": "2026-09-21T18:28:50+02:00",
+  "path": "tests/integration/lfs_getobject_test.go",
+  "commit_id": "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
+  "original_commit_id": "",
+  "diff_hunk": "{\n \t\t\t\tvar er lfs.ErrorResponse\n \t\t\t\terr := json.Unmarshal(resp.Body.Bytes(), &er)\n \t\t\t\trequire.NoError(t, err)\n+\t\t\t\tassert.Equal(t, \"https://codeberg.org/forgejo/forgejo/issues\", er.DocumentationURL)",
+  "position": 287,
+  "original_position": 0,
+  "extra_lines_count": 0,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23398465",
+  "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14486"
+ }
+]

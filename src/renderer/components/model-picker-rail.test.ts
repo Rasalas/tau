@@ -1,38 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { FAVOURITES_ENTRY, pickerRail, railKeyForModel } from "./model-picker-rail";
+import { pickerViews, runtimeStatus } from "./model-picker-rail";
+import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 
-const backends = [
-  { kind: "pi", label: "Pi" },
-  { kind: "claude-code", label: "Claude Code" },
-  { kind: "antigravity", label: "Antigravity" },
-];
+const backends = [{ kind: "pi", label: "Pi" }, { kind: "codex", label: "Codex" }, { kind: "claude-code", label: "Claude Code" }];
+const ready: RuntimeCatalogEntry = { status: "ready", catalog: { kind: "codex", models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }], thinkingLevels: {} } };
 
-describe("pickerRail", () => {
-  it("splits Pi's catalog by provider and gives every other runtime one tab", () => {
-    const rail = pickerRail({ providers: ["anthropic", "openai-codex"], catalogRuntime: "pi", backends, favourites: true });
-    expect(rail.map((entry) => entry.key)).toEqual([FAVOURITES_ENTRY, "anthropic", "openai-codex", "runtime:claude-code", "runtime:antigravity"]);
-    expect(rail.filter((entry) => entry.kind === "runtime").every((entry) => entry.kind === "runtime" && !entry.listed)).toBe(true);
+describe("the picker's left column", () => {
+  it("lists Favourites, Recent once something was chosen, then every runtime in the host's order", () => {
+    const views = pickerViews({ catalogRuntime: "pi", backends, catalogs: new Map([["codex", ready]]), recent: true });
+    expect(views.map((entry) => entry.key)).toEqual(["favourites", "recent", "runtime:pi", "runtime:codex", "runtime:claude-code"]);
+    expect(pickerViews({ catalogRuntime: "pi", backends, catalogs: new Map(), recent: false }).map((entry) => entry.key)[1]).toBe("runtime:pi");
   });
 
-  it("lists another runtime's catalog under its own tab and folds Pi into one", () => {
-    const rail = pickerRail({ providers: ["anthropic"], catalogRuntime: "claude-code", backends, favourites: false });
-    expect(rail.map((entry) => [entry.key, entry.kind === "runtime" && entry.listed])).toEqual([
-      ["runtime:pi", false],
-      ["runtime:claude-code", true],
-      ["runtime:antigravity", false],
-    ]);
+  it("adds the catalog's own runtime on a host that lists none", () => {
+    expect(pickerViews({ catalogRuntime: undefined, backends: undefined, catalogs: new Map(), recent: false }).map((entry) => entry.key)).toEqual(["favourites", "runtime:pi"]);
   });
 
-  it("stands alone on a host that offers only Pi", () => {
-    expect(pickerRail({ providers: ["anthropic"], catalogRuntime: undefined, backends: undefined, favourites: false }).map((entry) => entry.key)).toEqual(["anthropic"]);
-    expect(pickerRail({ providers: [], catalogRuntime: "pi", backends: [], favourites: false })).toEqual([
-      { kind: "runtime", key: "runtime:pi", backend: { kind: "pi", label: "Pi" }, listed: true },
-    ]);
-  });
-
-  it("files a model under its provider on Pi and under the runtime elsewhere", () => {
-    expect(railKeyForModel("anthropic", "pi")).toBe("anthropic");
-    expect(railKeyForModel("anthropic", undefined)).toBe("anthropic");
-    expect(railKeyForModel("anthropic", "claude-code")).toBe("runtime:claude-code");
+  it("gives each runtime a status: ready, update, loading, sign-in, not installed", () => {
+    expect(runtimeStatus(backends[1]!, ready, false)).toEqual({ status: "ready", listed: true });
+    expect(runtimeStatus({ ...backends[1]!, version: { tool: "codex", installed: "1.0.0", latest: "1.1.0" } }, ready, false).status).toBe("update");
+    expect(runtimeStatus(backends[1]!, { status: "loading" }, false)).toEqual({ status: "loading", listed: false });
+    expect(runtimeStatus(backends[1]!, { status: "unavailable", reason: "sign-in-required" }, false).status).toBe("sign-in");
+    expect(runtimeStatus(backends[1]!, { status: "unavailable", reason: "not-installed" }, false).status).toBe("not-installed");
+    expect(runtimeStatus(backends[1]!, undefined, false)).toEqual({ status: "unlisted", listed: false });
+    // The catalog on hand is listed whatever the host's cache says.
+    expect(runtimeStatus(backends[0]!, undefined, true)).toEqual({ status: "ready", listed: true });
   });
 });

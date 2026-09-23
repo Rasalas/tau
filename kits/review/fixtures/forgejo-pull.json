@@ -1,0 +1,84 @@
+{
+ "id": 3151249,
+ "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/pulls/14486",
+ "number": 14486,
+ "user": {
+  "id": 33716,
+  "login": "n0toose",
+  "full_name": "Panagiotis \"Ivory\" Vasilopoulos"
+ },
+ "title": "feat(lfs): server: add documentation_url to response",
+ "body": "This isn't used consistently everywhere yet, so further work is needed.\r\n\r\nSee: https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md\r\n\r\n\r\n## Checklist\r\n\r\nThe [contributor guide](https://forgejo.org/docs/next/contributor/) contains information that will be helpful to first time contributors. All work and communication must conform to Forgejo's [AI Agreement](https://codeberg.org/forgejo/governance/src/branch/main/AIAgreement.md). There also are a few [conditions for merging Pull Requests in Forgejo repositories](https://codeberg.org/forgejo/governance/src/branch/main/PullRequestsAgree",
+ "labels": [
+  {
+   "id": 78139,
+   "name": "enhancement/feature",
+   "color": "207de5"
+  },
+  {
+   "id": 201030,
+   "name": "test/present",
+   "color": "009800"
+  }
+ ],
+ "state": "closed",
+ "draft": false,
+ "is_locked": false,
+ "comments": 5,
+ "review_comments": 2,
+ "additions": 5,
+ "deletions": 1,
+ "changed_files": 2,
+ "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486",
+ "diff_url": "https://codeberg.org/forgejo/forgejo/pulls/14486.diff",
+ "patch_url": "https://codeberg.org/forgejo/forgejo/pulls/14486.patch",
+ "mergeable": true,
+ "merged": true,
+ "merged_at": "2026-09-23T14:23:19+02:00",
+ "merge_commit_sha": "089b2fe2fca71c51e57a416407efd7374daa02b7",
+ "merged_by": {
+  "id": 26734,
+  "login": "Gusted",
+  "full_name": ""
+ },
+ "base": {
+  "label": "forgejo",
+  "ref": "forgejo",
+  "sha": "e47654b4cad23579f8c0a5ab3c33bffa1c05d641",
+  "repo_id": 73144,
+  "repo": {
+   "full_name": "forgejo/forgejo",
+   "owner": {
+    "login": "forgejo"
+   }
+  }
+ },
+ "head": {
+  "label": "lfs/add-documentation-url",
+  "ref": "lfs/add-documentation-url",
+  "sha": "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
+  "repo_id": 104937,
+  "repo": {
+   "full_name": "n0toose/forgejo",
+   "owner": {
+    "login": "n0toose"
+   }
+  }
+ },
+ "merge_base": "733016624cdf910550346912d12ef01df845c45b",
+ "created_at": "2026-09-21T03:32:25+02:00",
+ "updated_at": "2026-09-23T14:26:44+02:00",
+ "closed_at": "2026-09-23T14:23:19+02:00",
+ "requested_reviewers": [
+  {
+   "id": 1280705,
+   "login": "famfo-cb",
+   "full_name": ""
+  },
+  {
+   "id": 26734,
+   "login": "Gusted",
+   "full_name": ""
+  }
+ ]
+}

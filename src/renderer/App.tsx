@@ -10,6 +10,7 @@ import { readBootstrapCache } from "../workbench/bootstrap-cache";
 import { type ComposerAttachmentHandle, type ComposerControlHandle } from "./components/Composer";
 import { visibleUserMessageText } from "./components/MessageText";
 import { useWorkbenchToasts } from "./use-workbench-toasts";
+import { useWindowShell } from "./use-window-shell";
 import { createDraftKey } from "../workbench/composer-scope-store";
 import { hasActivityTools } from "./conversation-activities";
 import { draftKey, writeNewThreadDraft } from "../workbench/draft-store";
@@ -347,6 +348,10 @@ export default function App() {
     void runtimeExtensions.resync(only).catch((error) => setNotice(errorMessage(error)));
   }, [runtimeExtensions, setNotice]);
 
+  const windowShell = useWindowShell({
+    client, threadStore, preferences, toasts: workbenchSession.toasts, setUpdateReady,
+    openSettings: setSettingsPage, openExternal: (url) => platform.openExternal(url),
+  });
   const hostEventTargets = useMemo<HostEventTargets>(() => ({
     client, registry, threadStore, view: viewStore, submission: newThreadDelivery, preferences,
     viewerHidden: () => document.hidden, currentDraftKey,
@@ -355,8 +360,9 @@ export default function App() {
     syncDesktopExtensions, setUpdateReady, setNotice,
     // Electron titles the window after the page; a browser tab shows it too.
     setWindowTitle: (title) => { document.title = title; },
+    windowShell: windowShell.handle,
   }), [
-    client, currentDraftKey, preferences, registry, setNotice,
+    client, currentDraftKey, preferences, registry, setNotice, windowShell.handle,
     newThreadDelivery, syncDesktopExtensions, threadStore, turnScope, viewStore,
   ]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
@@ -463,6 +469,11 @@ export default function App() {
     (level: string) => newThreadController.setThinking(level, threadCommands.setThinking, draftRuntime()),
     [draftRuntime, newThreadController, threadCommands],
   );
+  // A draft keeps what it chose per runtime, so switching back and forth loses nothing.
+  const selectDraftRuntime = useCallback((kind: string) => {
+    newThreadController.switchRuntime(draftRuntime(), kind);
+    preferences.setNewThreadRuntime(kind);
+  }, [draftRuntime, newThreadController, preferences]);
   const setComposerMode = useCallback(async (mode: string) => {
     let accepted = true;
     await newThreadController.setMode(mode, async (next) => { accepted = await threadCommands.setMode(next); });
@@ -620,10 +631,12 @@ export default function App() {
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
     submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue, returnQueued,
     setModel: setComposerModel, setThinking: setComposerThinking,
+    selectRuntime: selectDraftRuntime, carryModel: newThreadController.carryToNextDraft,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
     conversationPrompts, queue, reorderQueue, returnQueued, setComposerModel, setComposerThinking, steerQueued, submitPrompt,
+    selectDraftRuntime, newThreadController,
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({
@@ -634,5 +647,6 @@ export default function App() {
   return <PlatformProvider platform={platform}>
     <Workbench model={workbenchModel} />
     {reloadUi}
+    {windowShell.ui}
   </PlatformProvider>;
 }

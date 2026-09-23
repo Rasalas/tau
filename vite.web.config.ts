@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { dedupeLegalComments } from "./vite.legal-comments";
 import { stripIconKeys } from "./vite.icon-keys";
 import { rendererBuild } from "./vite.renderer-build";
+import { thirdPartyLicenses } from "./vite.third-party-licenses";
 
 /**
  * The browser client (`dist-web/`), served by a listening host at its own root.
@@ -11,7 +12,7 @@ import { rendererBuild } from "./vite.renderer-build";
  * platform and the HTML around it differ, so this config differs only there.
  */
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), stripIconKeys(), dedupeLegalComments()],
+  plugins: [react(), stripIconKeys(), dedupeLegalComments(), thirdPartyLicenses()],
   resolve: rendererBuild.resolve,
   base: "/",
   build: {

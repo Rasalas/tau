@@ -90,3 +90,12 @@ export function choiceOptions(options: readonly string[] | undefined): string[] 
   const sentinel = freeTextOption(options);
   return (options ?? []).filter((option) => option !== sentinel);
 }
+
+/**
+ * Whether files may go with the answer: a question that takes typed text
+ * does, a pick among fixed choices (an approval, say) does not.
+ */
+export function promptTakesFiles(prompt: { kind: string; options?: readonly string[]; answerElsewhere?: boolean }): boolean {
+  if (prompt.answerElsewhere === true) return false;
+  return prompt.kind === "input" || prompt.kind === "editor" || (prompt.kind === "select" && freeTextOption(prompt.options) !== undefined);
+}

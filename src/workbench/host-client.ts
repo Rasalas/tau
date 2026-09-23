@@ -38,6 +38,7 @@ import type { HostBootstrap } from "../shared/contracts";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
+import type { WindowAction } from "../shared/window-shell";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
 /**
@@ -127,6 +128,13 @@ export interface HostClient {
   getModelsConfig(): Promise<CustomProviderConfig[]>;
   /** What a runtime offers a thread that does not exist yet; undefined when it cannot say. */
   runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined>;
+  /**
+   * Every runtime's catalog the host holds, stale or not, less those the
+   * client names in `known` (kind to `checkedAt`); `revalidate` makes it ask
+   * again those that are some minutes old, and a change arrives as a
+   * `runtime-catalog` event.
+   */
+  runtimeCatalogs(revalidate?: boolean, known?: Record<string, number>): Promise<UiRuntimeCatalog[]>;
   addModelProvider(input: CustomProviderInput): Promise<UiModel[]>;
   inspectSystemPrompt(threadId?: string, workspaceId?: string): Promise<SystemPromptInspection>;
   listUserThemes(workspaceId?: string): Promise<UserTheme[]>;
@@ -142,6 +150,8 @@ export interface HostClient {
   setBadge(count: number): Promise<void>;
   /** A menu the client's OS draws at a point of the window; the chosen id, or undefined. Refused where none is drawn. */
   showContextMenu(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
+  /** Asks the window's own process (`src/shared/window-shell.ts`); refused where the client has none. */
+  windowAction(action: WindowAction): Promise<unknown>;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
   /**
    * Whether the host announced a capability in its hello. `local-files` means
@@ -169,6 +179,8 @@ export interface HostClient {
  * a window whose host runs in another process still copies to its own
  * clipboard and rebuilds its own workbench (ADR 0021).
  */
+const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell"]);
+
 export function createHostClient(connection: HostConnection, local?: HostConnection): HostClient {
   const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
   const call = <T>(method: string, params: readonly unknown[] = []) => route(method).request<T>(method, params);
@@ -258,6 +270,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     clearConfig: (keys, scope, workspaceId) => call<ConfigLayers>("clear-config", [keys, scope, workspaceId]),
     getModelsConfig: () => call<CustomProviderConfig[]>("get-models-config"),
     runtimeCatalog: (kind) => call<UiRuntimeCatalog | undefined>("runtime-catalog", [kind]),
+    runtimeCatalogs: (revalidate, known) => call<UiRuntimeCatalog[]>("runtime-catalogs", [revalidate === true, known ?? {}]),
     addModelProvider: (input) => call<UiModel[]>("add-model-provider", [input]),
     inspectSystemPrompt: (threadId, workspaceId) => call<SystemPromptInspection>("inspect-system-prompt", [threadId, workspaceId]),
     listUserThemes: (workspaceId) => call<UserTheme[]>("list-user-themes", [workspaceId]),
@@ -270,7 +283,13 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     showNotification: (notification) => call<SystemNotificationOutcome>("notify", [notification]),
     setBadge: (count) => call<void>("set-badge", [count]),
     showContextMenu: async (entries, point) => (await call<{ id?: string } | undefined>("context-menu", [entries, point]))?.id,
-    onHostEvent: (listener) => connection.onEvent(listener),
+    windowAction: (action) => call<unknown>("window-action", [action]),
+    // The window's own process publishes these on its own transport; the host never does.
+    onHostEvent: (listener) => {
+      const offHost = connection.onEvent(listener);
+      const offWindow = local?.onEvent((event) => { if (WINDOW_EVENT_TYPES.has(event.type)) listener(event); });
+      return () => { offHost(); offWindow?.(); };
+    },
     hasCapability: connection.hasCapability,
     getConnectionState: connection.getState,
     getConnectionRefusal: connection.getRefusal,

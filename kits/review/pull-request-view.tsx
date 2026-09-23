@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { Check, Copy, ExternalLink, GitBranch, Link2, Link2Off, MessageSquare, MessageSquarePlus, Pencil, RefreshCw, SquarePlus } from "lucide-react";
 import { errorMessage, type PreferencesStore, type StageTabHandle, type WorkbenchActions } from "tau";
 import type { PendingReviewStore } from "./pending-review.js";
-import { REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
+import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { PullRequestCode } from "./pull-request-code.js";
 import { asReviewRequest, checksRollup, checksSummary, hostName, relativeTime, shortNoun, timelineCounts, type PullRequestTabParams } from "./pull-request-logic.js";
@@ -165,6 +165,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const [copied, setCopied] = useCopied();
   const noun = shortNoun(params.service);
   const host = hostName(params.service);
+  const { capabilities } = providerInfo(params.service);
+  const tabs = capabilities.files ? (["summary", "timeline", "code"] as const) : (["summary", "timeline"] as const);
   const { detail } = data;
   const checks = data.checks ?? detail?.checks ?? [];
   const threads = data.threads ?? [];
@@ -192,7 +194,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
     setData({ detail: await client.update(params.url, input) });
   }, [client, params.url, setData]);
 
-  const canEdit = useCallback((target: PullRequestComment) => Boolean(data.detail?.viewer) && target.author.login.toLowerCase() === data.detail!.viewer!.toLowerCase(), [data.detail]);
+  const canEdit = useCallback((target: PullRequestComment) => capabilities.editComments.includes(target.kind) && Boolean(data.detail?.viewer) && target.author.login.toLowerCase() === data.detail!.viewer!.toLowerCase(), [capabilities, data.detail]);
   const editComment = useCallback(async (target: PullRequestComment, body: string) => {
     await client.editComment(params.url, target, body);
     void loadThreads(true);
@@ -229,7 +231,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
       <div className="pr-view" aria-label={`${noun} #${params.number}`}>
         {data.detailError ? (
           <div className="pr-unavailable" role="alert">
-            <strong>Could not load the {params.service === "gitlab" ? "merge" : "pull"} request</strong>
+            <strong>Could not load the {providerInfo(params.service).noun}</strong>
             <p>{data.detailError}</p>
             <div className="pr-actions">
               <button className="mini-button" onClick={() => refresh(true)}>Retry</button>
@@ -248,7 +250,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const state = detail.state === "open" && detail.draft ? "draft" : detail.state;
   const rollup = checksRollup(checks);
   const counts = timelineCounts(detail, threads);
-  const checkout = params.service === "gitlab" ? `glab mr checkout ${detail.ref.number}` : `gh pr checkout ${detail.ref.number}`;
+  const checkout = providerInfo(params.service).checkout?.(detail.ref.number);
 
   return (
     <div className="pr-view" aria-label={`${noun} #${detail.ref.number}`}>
@@ -281,15 +283,17 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             ) : (
               <div className="pr-title-row">
                 <h1 className="pr-title">{detail.title}</h1>
-                <button className="icon-button compact pr-edit" aria-label="Edit title" title="Edit title" onClick={() => setEditingTitle(true)}><Pencil size={12} /></button>
+                {capabilities.edit ? <button className="icon-button compact pr-edit" aria-label="Edit title" title="Edit title" onClick={() => setEditingTitle(true)}><Pencil size={12} /></button> : null}
               </div>
             )}
             <div className="pr-meta">
               {detail.author ? <span><strong>{detail.author.name ?? detail.author.login}</strong> opened {relativeTime(detail.createdAt)}</span> : null}
               {detail.updatedAt ? <span>· updated {relativeTime(detail.updatedAt)}</span> : null}
-              <button className="pr-copyable" title="Copy the checkout command" onClick={() => copy("checkout", checkout)}>
-                {copied === "checkout" ? "Copied" : checkout}
-              </button>
+              {checkout ? (
+                <button className="pr-copyable" title="Copy the checkout command" onClick={() => copy("checkout", checkout)}>
+                  {copied === "checkout" ? "Copied" : checkout}
+                </button>
+              ) : null}
             </div>
             <div className="pr-branches">
               <GitBranch size={12} aria-hidden="true" />
@@ -297,7 +301,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               <span aria-hidden="true">←</span>
               {detail.headRef ? <button className="pr-ref" title="Copy the branch name" onClick={() => copy("branch", detail.headRef!)}>{copied === "branch" ? "Copied" : detail.headRef}</button> : null}
               <span className="spacer" />
-              <span>{detail.changedFiles} {detail.changedFiles === 1 ? "file" : "files"}</span>
+              {capabilities.files ? <span>{detail.changedFiles} {detail.changedFiles === 1 ? "file" : "files"}</span> : null}
               {detail.additions || detail.deletions ? <><span className="stat-add">+{detail.additions}</span><span className="stat-del">−{detail.deletions}</span></> : null}
             </div>
           </div>
@@ -306,7 +310,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
 
       <nav className="pr-tabs">
         <div className="toggle-group" role="tablist" aria-label={`${noun} sections`}>
-          {(["summary", "timeline", "code"] as const).map((entry) => (
+          {tabs.map((entry) => (
             <button
               key={entry}
               role="tab"
@@ -351,13 +355,14 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               threadsError={data.threadsError}
               actions={actions}
               onSend={(chip) => handOver(chip, chips(), actions)}
-              onSaveBody={(body) => update({ body })}
+              onSaveBody={capabilities.edit ? (body) => update({ body }) : undefined}
               onRetry={() => void loadThreads(true)}
               onOpenPath={(path) => { setFocusPath(path); open("code"); }}
               canEdit={canEdit}
               onEdit={editComment}
-              onReviewers={async (change) => { setData({ detail: await client.reviewers(params.url, change) }); }}
-              onLabels={async (change) => { setData({ detail: await client.labels(params.url, change) }); }}
+              onReviewers={capabilities.reviewers ? async (change) => { setData({ detail: await client.reviewers(params.url, change) }); } : undefined}
+              onLabels={capabilities.labels ? async (change) => { setData({ detail: await client.labels(params.url, change) }); } : undefined}
+              showChecks={capabilities.checks}
               candidates={candidates}
             />
           </div>
@@ -367,7 +372,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             <PullRequestTimeline detail={detail} oldestFirst={oldestFirst} actions={actions} />
           </div>
         ) : null}
-        {visited.has("code") ? (
+        {visited.has("code") && capabilities.files ? (
           <div hidden={tab !== "code"} className="pr-code-frame">
             <PullRequestCode
               detail={detail}
@@ -396,6 +401,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
       {composing ? (
         <ReviewComposer
           service={params.service}
+          events={capabilities.reviewEvents}
           pending={pending}
           onRemovePending={(id) => shared.pending.remove(params.url, id)}
           onComment={async (text) => { await comment({ body: text }); setComposing(false); actions.notify(`Commented on ${noun} #${detail.ref.number}.`); }}

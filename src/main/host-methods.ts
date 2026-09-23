@@ -9,6 +9,7 @@ import type {
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
 import { decodeBadgeCount, decodeSystemNotification, type SystemNotification, type SystemNotificationOutcome } from "../shared/system-attention.js";
 import { decodeMenuPoint, decodeNativeMenu, type MenuPoint, type NativeMenuEntry } from "../shared/context-menu.js";
+import { decodeWindowAction, type WindowAction } from "../shared/window-shell.js";
 import type { PiHost } from "./pi-host.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
@@ -26,6 +27,7 @@ import {
   decodeNavigateOptions,
   decodeNewThreadConfiguration,
   decodeSettingKeys,
+  decodeKnownCatalogs,
   decodeOptionalBoolean,
   decodeOptionalExtensionIds,
   decodeOptionalString,
@@ -65,6 +67,8 @@ export interface HostMethodPlatform {
   setBadge(count: number): void;
   /** A menu the OS draws at a point of the window; answers the chosen id. Absent where no window draws one. */
   showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
+  /** The app around the workbench: menu, quit, release notes (`src/shared/window-shell.ts`). Absent without a window. */
+  windowAction?(action: WindowAction): Promise<unknown>;
 }
 
 /**
@@ -88,11 +92,17 @@ export interface ClientHostPlatform {
   notify(notification: SystemNotification): Promise<SystemNotificationOutcome>;
   setBadge(count: number): void;
   showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
+  windowAction?(action: WindowAction): Promise<unknown>;
 }
 
 function shareFile(platform: { shareFile?(path: string): Promise<UiSharedFile> }, path: string): Promise<UiSharedFile> {
   if (!platform.shareFile) throw Object.assign(new Error("This client serves no files to the page."), { code: HOST_ERROR.unsupported });
   return platform.shareFile(path);
+}
+
+async function windowAction(platform: { windowAction?(action: WindowAction): Promise<unknown> }, params: readonly unknown[]): Promise<unknown> {
+  if (!platform.windowAction) throw Object.assign(new Error("This client has no window of its own."), { code: HOST_ERROR.unsupported });
+  return platform.windowAction(decodeWindowAction("window-action", params[0]));
 }
 
 async function contextMenu(platform: { showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined> }, params: readonly unknown[]): Promise<{ id?: string }> {
@@ -124,6 +134,7 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
     "notify": async (params) => platform.notify(decodeSystemNotification("notify", params[0])),
     "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
     "context-menu": async (params) => contextMenu(platform, params),
+    "window-action": async (params) => windowAction(platform, params),
   };
 }
 
@@ -290,6 +301,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "notify": async (params) => platform.notify(decodeSystemNotification("notify", params[0])),
     "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
     "context-menu": async (params) => contextMenu(platform, params),
+    "window-action": async (params) => windowAction(platform, params),
     "read-tool-output": async (params) => (await host()).readToolOutput(
       decodeString("read-tool-output", "sessionId", params[0]),
       decodeString("read-tool-output", "toolCallId", params[1]),
@@ -345,6 +357,10 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     },
     "get-models-config": async () => (await host()).modelsConfig(),
     "runtime-catalog": async (params) => (await host()).runtimeCatalog(decodeString("runtime-catalog", "kind", params[0])),
+    "runtime-catalogs": async (params) => (await host()).runtimeCatalogs(
+      decodeOptionalBoolean("runtime-catalogs", "revalidate", params[0]) === true,
+      decodeKnownCatalogs("runtime-catalogs", "known", params[1]),
+    ),
     "add-model-provider": async (params) => (await host()).addModelProvider(decodeCustomProviderInput("add-model-provider", "input", params[0])),
     "inspect-system-prompt": async (params) => (await host()).inspectSystemPrompt(
       decodeOptionalString("inspect-system-prompt", "threadId", params[0]),

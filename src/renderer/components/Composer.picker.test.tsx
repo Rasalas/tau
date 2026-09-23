@@ -6,6 +6,9 @@ import type { HostSnapshot, UiModel } from "../../shared/contracts";
 import { Composer } from "./Composer";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { TestProviders } from "../test-support/test-providers";
+import { HostClientProvider } from "../host-client-context";
+import { createFakeHostClient } from "../test-support/fake-host-client";
+import type { ComposerRuntimeChoice } from "./Composer";
 
 const luna: UiModel = { provider: "openai-codex", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
 const sol: UiModel = { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
@@ -13,15 +16,22 @@ const sol: UiModel = { provider: "openai-codex", id: "gpt-5.6-sol", name: "GPT-5
 const snapshot: HostSnapshot = {
   cwd: "/project", sessionId: "session", sessionTitle: "Thread", backendKind: "pi",
   model: luna, models: [luna, sol],
+  runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "codex", label: "Codex" }],
   thinkingLevel: "medium", thinkingLevels: ["medium"],
   messages: [], isStreaming: false, activeTools: [], allTools: [], extensionCount: 0,
 };
 
-function renderComposer() {
+function renderComposer(options: { runtimeChoice?: ComposerRuntimeChoice; onNewThreadOnRuntime?: (kind: string) => void } = {}) {
   const onSetModel = vi.fn();
   const textareaRef = createRef<HTMLTextAreaElement>();
-  render(<TestProviders>
+  // The host's cache holds Codex's catalog; no Codex thread has ever run.
+  const client = createFakeHostClient({
+    runtimeCatalogs: async () => [{ kind: "codex", models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" }], thinkingLevels: {}, checkedAt: 1 }],
+  });
+  render(<TestProviders><HostClientProvider client={client}>
     <Composer
+      runtimeChoice={options.runtimeChoice}
+      onNewThreadOnRuntime={options.onNewThreadOnRuntime}
       scopeStore={new ComposerScopeStore()}
       snapshot={snapshot}
       queue={[]}
@@ -35,8 +45,8 @@ function renderComposer() {
       onSetThinking={() => {}}
       onCompactContext={() => {}}
     />
-  </TestProviders>);
-  const chip = screen.getByLabelText(/^Select model:/u);
+  </HostClientProvider></TestProviders>);
+  const chip = screen.getByLabelText(/^Select (runtime and )?model:/u);
   return { onSetModel, chip, textareaRef };
 }
 
@@ -44,7 +54,7 @@ async function openPicker(chip: HTMLElement) {
   chip.focus();
   fireEvent.click(chip);
   const picker = await screen.findByRole("dialog", { name: "Select model" });
-  const input = screen.getByRole("textbox", { name: "Search models" });
+  const input = screen.getByRole("combobox", { name: "Search models" });
   await waitFor(() => expect(document.activeElement).toBe(input));
   return { picker, input };
 }
@@ -90,6 +100,28 @@ describe("model picker at the model chip", () => {
     await openPicker(chip);
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("dialog", { name: "Select model" })).toBeNull();
+  });
+
+  it("binds a draft to another runtime's model from the host's cache", async () => {
+    const onSelect = vi.fn();
+    const { chip, onSetModel } = renderComposer({ runtimeChoice: { kind: "pi", backends: snapshot.runtimeBackends!, onSelect } });
+    await openPicker(chip);
+    fireEvent.click(await screen.findByRole("button", { name: "Codex, ready" }));
+    fireEvent.click(screen.getByText("GPT-5.6 Luna", { selector: ".model-row:not(.current) strong" }));
+    expect(onSelect).toHaveBeenCalledWith("codex");
+    expect(onSetModel).toHaveBeenCalledWith("openai", "gpt-5.6-luna");
+  });
+
+  it("offers a thread that exists a new thread for another runtime's model", async () => {
+    const onNewThreadOnRuntime = vi.fn();
+    const { chip, onSetModel } = renderComposer({ onNewThreadOnRuntime });
+    await openPicker(chip);
+    fireEvent.click(await screen.findByRole("button", { name: "Codex, ready" }));
+    expect(screen.getByText("Choosing one starts a new thread on Codex; this one stays on Pi.")).toBeTruthy();
+    fireEvent.click(screen.getByText("GPT-5.6 Luna", { selector: ".model-row:not(.current) strong" }));
+    // The new thread starts on the model chosen for it.
+    expect(onNewThreadOnRuntime).toHaveBeenCalledWith("codex", expect.objectContaining({ provider: "openai", id: "gpt-5.6-luna" }));
+    expect(onSetModel).not.toHaveBeenCalled();
   });
 
   it("keeps Tab inside the popover", async () => {

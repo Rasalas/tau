@@ -176,6 +176,20 @@ someone who wrote `app.session.new` there meant that key, not that key and
 Tau's default too. Without `replaces`, a binding is additive, which is what a
 package adding a chord of its own wants.
 
+`registerUserKeymap({ id, label, setChords, resetAll })` (new in API 1.12.0)
+offers the file Settings → Keybindings writes the chords the user records.
+`setChords(commandId, chords)` replaces a command's chords (`{ key, when? }`,
+`when` absent keeps the replaced default's clause, `"true"` applies
+everywhere) and `undefined` gives the command its defaults back;
+`resetAll()` gives every command its defaults. Resolve once the new chords
+are bound: the owner still binds what the file holds with `registerKeybinding`
+and `replaces`, and the page marks those chords, the owner's, as the user's.
+One keymap at a time, the last registered wins; without one the page only
+lists. Keybindings Kit registers `keybindings.json`. An element marked
+`data-keybinding-capture` (new in API 1.12.0) gets every key while it has
+the keyboard: no workbench chord runs, so a field that records chords can
+take ⌘K.
+
 `when` (new in API 1.10.0) says where a chord applies, as in VS Code and T3
 Code: context names joined by `!`, `&&`, `||` and parentheses, e.g.
 `"terminalFocus && !stageFocus"`; `true` and `false` are constants. Contexts
@@ -225,7 +239,12 @@ the tab the stage shows, of any kind — so the same command also works from
 the palette. Files Kit's "Edit file" is the shipped caller. A command marked
 `destructive` (new in API 1.11.0) is drawn in the danger colour and, in the
 title menu, in a section of its own at the end — Thread Rail's "Delete
-thread"; a `MenuItem` takes the same `destructive` flag.
+thread"; a `MenuItem` takes the same `destructive` flag. `runtime-switch`
+(new in API 1.12.0) offers the command in the model picker while a thread that
+exists looks at another runtime's models: the picker draws the label with the
+runtime's name in place of a trailing ellipsis ("Continue in…" → "Continue in
+Codex") and runs it with a second argument, `{ runtime }`; from the palette the
+command runs without one. Handoff Kit's "Continue in…" is the shipped caller.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -811,6 +830,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `actions.toast(options)` | A toast on the window's stack, top right, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`; the icon, and an `error` is an ARIA alert), `title`, `description`, `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message)` is still the one-line way: every notice is a toast. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
 | `MiddleTruncate`, `splitMiddle` | `<MiddleTruncate value={branch} />` cuts in the middle, as Finder does, for values that mean something at both ends — branches, paths, shas: a head that ellipsizes and a tail that stays (a short last path segment, else `tail` characters, 10 by default). No measuring and inline styles only, so it costs what an end cut costs in a long list; both halves are real text, so copy and screen readers get the whole value. Other props go to the outer `span`. `splitMiddle(value, tail?)` answers the cut, or `undefined` when the value is too short to be worth one. The rail's branch line uses it. |
 | `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. |
+| `ConfirmDialog` | A yes-or-no question on `Dialog`, after T3 Code's: `title`, `message`, `confirmLabel` (`destructive` draws it red), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
@@ -1181,6 +1201,48 @@ back. Only the shell goes — the program's own history (a CLI's session files)
 is never touched. A backend without the pair refuses deletion. Codex, the
 Agent SDK runtime and Antigravity have it.
 
+A streamed backend whose tool cards should return after a restart or a reload
+offers the capability group `activityHistory` (new in API 1.12.0):
+`load()` answers the thread's earlier turns as `UiTurnActivityEntry`s, oldest
+first, and core reads it when the thread opens; `save(entry)` is handed core's
+own record of one turn — its tools, their status and output, and the message
+the turn's tools follow — whenever a tool starts or ends and when the turn
+settles, a later call for the same `id` replacing the earlier one. The
+`anchorMessageId` is an id from the transcript, so `transcript()` has to answer
+the same message ids after a restart that the live events carried. A failing
+`load` opens the thread without cards, a failing `save` is logged; neither
+fails the turn. `TurnActivityStore` from `tau/host-extension` implements both
+halves: one JSON Lines file per thread in a folder of the backend's choosing,
+outputs clipped to their last 16 KiB and long arguments shortened, turns a
+restart cut short read back as interrupted, the newest 500 turns kept, and
+`take(threadId)`/`put(threadId, value)` for `removeThread`/`restoreThread`.
+Codex and Antigravity keep theirs beside their session stores
+(`codex-activity/`, `antigravity-activity/`).
+
+An MCP server may ask for a form (an *elicitation*: `requestedSchema` with
+text, number, integer, boolean, single- and multiple-choice fields — the same
+shape in MCP, Codex's app-server and ACP). `elicitationFields(schema)` from
+`tau/host-extension` (API 1.12.0) reads it — `[]` for a form that only asks
+yes or no, `undefined` for a field no dialog asks — and
+`askElicitation({ source, message, fields, ask, decorate? })` asks one dialog
+per field through the backend's `ask`, asks again with the reason when an
+answer does not fit, and answers `{ action: "accept", content }`, or
+`decline` when a required field (or every field) was skipped. `decorate`
+sees each dialog before it goes out; Codex and Antigravity use it to tag the
+dialogs with `extras["tau.questionnaire"]`, so Questionnaires pages through the
+form as through the ask-user tool's questions (`elicitationFieldTitle(field)`
+is the title each dialog carries).
+
+A question that takes typed text — an `input`, an `editor`, a `select` with a
+free-text row — may be answered with files (API 1.12.0): the value answer
+carries `attachments`, the files and images the user sent from the composer,
+typed text or none. Core writes images to a folder per thread under its
+temporary directory and folds every file into `value` as a list of paths after
+the text (`Attached files:` and one `- <path>` per file) before the answer
+reaches whoever asked, so a backend or Pi extension that reads answers as text
+gets them without doing anything. A pick among fixed choices (an approval)
+takes no files; they stay in the composer.
+
 `complete(request, model?)` asks a model for one short answer — a thread
 title, a branch name, a commit message. It runs on the user's own model
 configuration in `~/.pi/agent` and takes the model the extension names, or
@@ -1246,6 +1308,37 @@ thread's `catalogWrite` right after `open`, before the first prompt. Codex
 answers from `model/list` (cached per instance) and the instance home's
 `config.toml`, the Agent SDK runtime from its cached probe, Antigravity from
 the models its last session named.
+
+Since API 1.12.0 the host keeps that answer instead of asking per draft
+(`src/main/runtime-catalogs.ts`). It holds every runtime's catalog, Pi's
+included, in memory and in `<userData>/runtime-catalogs.json`; after
+start-up it asks, one runtime at a time, those whose answer is missing or
+half a day old, and a client that opens a picker gets what is held at once
+while the host asks again, behind the answer, any runtime last asked ten
+minutes ago or more. `newThreadCatalog` may therefore start the program; it
+is never asked twice at once and gives up after 30 s. A catalog reaches every
+client as a `runtime-catalog` event only when it changed, and the
+`runtime-catalogs` method answers only the catalogs a client does not hold
+(it names what it holds by `checkedAt`, which an unchanged answer keeps).
+
+A model in the answer (`HostCatalogModel`) may say more than its name:
+`billing` (`subscription`, `api-key`, `free`, `local`), `price` (USD per
+million tokens: `input`, `output`, `cacheRead`, `cacheWrite`),
+`contextWindow`, `maxOutput`, `images`, `reasoning` and `releasedAt` (new in
+API 1.12.0, `YYYY-MM-DD`; the host fills it from models.dev's release dates,
+which it keeps from the catalog it fetches for Pi). Whatever it leaves out
+the host fills from Pi's model data when Pi knows the model — the same
+provider and id first, then any provider that prices the id — so a
+subscription offering still carries the price the model has over its API.
+`apiModelId` names the id to look up when `id` is an alias (the Agent SDK
+runtime's `opus` resolves to `claude-opus-5`); it never reaches a client. A
+runtime that cannot run answers `status: "not-installed"` or
+`"sign-in-required"` with a `note`, and the host lists none of its models;
+one whose answer throws or times out keeps the models it named last with
+`status: "unavailable"` and the error as `note`. Codex answers `billing` from
+its account (a ChatGPT login is the subscription), the Agent SDK runtime from
+its login; both answer `not-installed` without their CLI, and Codex
+`sign-in-required` without an account.
 
 #### Versions a backend works with (new in API 1.11.0)
 

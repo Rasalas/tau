@@ -1,12 +1,20 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
-import { ChevronDown, ChevronRight, Plus, Search, Star } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { ArrowDownUp, ChevronDown, ChevronRight, Clock, Eye, ListFilter, Plus, Search, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
-import { modelPresentation, type ModelPresentation } from "../model-manifest";
+import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
+import { modelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { runtimeUpdate } from "../runtime-update";
-import { modelKey, pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
+import {
+  RUNTIME_STATUS_LABELS, pickerViews, runtimeView, type ViewEntry,
+} from "./model-picker-rail";
+import {
+  NO_FILTERS, filterCount, modelKey, offeringKey, orderedPositions, passesFilters, searchOfferings, sortOfferings,
+  type BillingFilter, type CapabilityFilter, type Offering, type OfferingFilters, type OfferingSort,
+} from "./model-offerings";
+import { OfferingRow, wears, type RowCell } from "./ModelPickerRow";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
 import { useFocusTrap } from "./ui/focus";
@@ -15,27 +23,38 @@ import "./model-picker.css";
 
 const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
 
-const ROW_HEIGHT = 54;
 /** ⌘1 to ⌘9 reach the first nine favourites, in the order they were starred. */
 const JUMP_KEYS = 9;
+/** Below this window width the provider column becomes a filter above the list, and the runtimes icons. */
+const NARROW_WIDTH = 760;
 const NO_SELECTION: readonly string[] = [];
+const NO_CATALOGS: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> = new Map();
+const NO_BADGES: readonly ModelBadgeContribution[] = [];
+const NO_ACTIONS: readonly RuntimeAction[] = [];
 const noSubscription = () => () => undefined;
 
 export { modelKey };
 
-interface Entry {
-  key: string;
-  model: UiModel;
-  favourite: boolean;
-  /** Position among the favourites, when one of the first nine. */
-  jump?: number;
-  presentation: ModelPresentation;
+/** Something to do with another runtime than the thread's, besides a new thread on it ("Continue in…"). */
+export interface RuntimeAction {
+  id: string;
+  /** Drawn with the runtime's name: "Continue in" → "Continue in Codex". */
+  label: string;
+  run(runtime: ThreadBackendKind): void;
 }
 
-/** One line of the list: a model, or the fold that hides a tab's legacy models. */
+/** One line of the list. */
 type Row =
-  | { kind: "model"; key: string; entry: Entry }
-  | { kind: "legacy"; key: string; group: string; count: number; expanded: boolean };
+  | { kind: "offering"; key: string; offering: Offering; grouped: boolean; cross: boolean }
+  | { kind: "group"; key: string; name: string; count: number }
+  | { kind: "legacy"; key: string; count: number; expanded: boolean };
+
+const rowHeight = (row: Row): number => row.kind === "group" ? 26 : row.kind === "legacy" ? 44 : row.grouped ? 42 : 52;
+const selectable = (row: Row | undefined): boolean => row !== undefined && row.kind !== "group";
+
+const SORT_LABELS: Record<OfferingSort, string> = { relevance: "Relevance", price: "Price", context: "Context", newest: "Newest" };
+const BILLING_FILTERS: ReadonlyArray<[BillingFilter, string]> = [["subscription", "Plan"], ["api", "API key"], ["free", "Free or local"]];
+const CAPABILITY_FILTERS: ReadonlyArray<[CapabilityFilter, string]> = [["images", "Reads images"], ["reasoning", "Reasoning"]];
 
 /** "added", or "×2" for a model chosen twice. */
 function selectedLabel(chosen: readonly string[], key: string): string {
@@ -43,20 +62,57 @@ function selectedLabel(chosen: readonly string[], key: string): string {
   return count > 1 ? `×${count}` : "added";
 }
 
-function matches(entry: Entry, needle: string): boolean {
-  if (!needle) return true;
-  return `${entry.model.name} ${entry.model.provider} ${entry.model.id}`.toLowerCase().includes(needle);
-}
-
-const NO_BADGES: readonly ModelBadgeContribution[] = [];
-
-function wears(badge: ModelBadgeContribution, model: UiModel, runtime: ThreadBackendKind | undefined): boolean {
-  try { return badge.applies(model, runtime); } catch (error) { console.error(`Model badge ${badge.id} failed`, error); return false; }
+/** Why a runtime lists no models, in the words its catalog gives. */
+function unlistedReason(label: string, entry: RuntimeCatalogEntry | undefined): string | undefined {
+  if (entry?.status === "loading") return `Asking ${label} for its models…`;
+  if (entry?.status !== "unavailable") return undefined;
+  if (entry.message) return entry.message;
+  if (entry.reason === "not-installed") return `${label} is not installed.`;
+  if (entry.reason === "sign-in-required") return `${label} needs you to sign in.`;
+  return undefined;
 }
 
 function runtimeName(kind: string | undefined, backends: readonly UiRuntimeBackend[] | undefined): string {
   const runtime = kind ?? DEFAULT_RUNTIME;
   return backends?.find((backend) => backend.kind === runtime)?.label ?? (runtime === DEFAULT_RUNTIME ? "Pi" : runtime);
+}
+
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth > 0 && window.innerWidth < NARROW_WIDTH);
+  useEffect(() => {
+    const update = () => setNarrow(window.innerWidth > 0 && window.innerWidth < NARROW_WIDTH);
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return narrow;
+}
+
+function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
+  const next = new Set(set);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+/** A printable key typed while a column has focus belongs in the search field. */
+function typedCharacter(event: KeyboardEvent): string | undefined {
+  return event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey && event.key !== " " ? event.key : undefined;
+}
+
+/** Moves focus to the previous or next button of a column and returns it. */
+function stepColumn(column: HTMLElement | null, delta: 1 | -1): HTMLButtonElement | undefined {
+  const buttons = [...column?.querySelectorAll<HTMLButtonElement>("button[data-column-item]") ?? []];
+  if (buttons.length === 0) return undefined;
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = buttons[(index + delta + buttons.length) % buttons.length];
+  next?.focus();
+  return next;
+}
+
+function focusColumn(column: HTMLElement | null): boolean {
+  const button = column?.querySelector<HTMLButtonElement>("button[data-column-item][aria-pressed=true]") ?? column?.querySelector<HTMLButtonElement>("button[data-column-item]");
+  button?.focus();
+  return Boolean(button);
 }
 
 export function ModelPicker({
@@ -67,27 +123,35 @@ export function ModelPicker({
   runtime,
   catalogRuntime = runtime,
   runtimeBackends,
+  catalogs = NO_CATALOGS,
   onSelectRuntime,
   onNewThreadOnRuntime,
+  runtimeActions = NO_ACTIONS,
   badges = NO_BADGES,
   multiSelect,
   anchor,
   side = "top",
 }: {
   models: readonly UiModel[];
+  /** `provider/id` of the model in use, from the catalog on hand. */
   activeKey?: string;
-  onSelect(model: UiModel): void;
+  /** `runtime` is set for a model of another runtime's catalog than the one on hand. */
+  onSelect(model: UiModel, runtime?: ThreadBackendKind): void;
   onClose(): void;
   /** The runtime the thread runs on, or the one a thread that does not exist yet will start on. */
   runtime?: ThreadBackendKind;
   /** The runtime `models` belongs to, when a new thread is bound for another one. */
   catalogRuntime?: ThreadBackendKind;
-  /** Every runtime the host offers; each one the thread is not on is a tab of its own. */
+  /** Every runtime the host offers; each is an entry of the left column. */
   runtimeBackends?: readonly UiRuntimeBackend[];
+  /** The host's catalogs of every runtime, so another runtime lists its models too. */
+  catalogs?: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry>;
   /** Set while the thread does not exist yet: its runtime can still change. */
   onSelectRuntime?(kind: ThreadBackendKind): void;
-  /** For a thread that exists: another runtime means another thread. */
-  onNewThreadOnRuntime?(kind: ThreadBackendKind): void;
+  /** For a thread that exists: another runtime means another thread, which starts on `model` when one was chosen. */
+  onNewThreadOnRuntime?(kind: ThreadBackendKind, model?: UiModel): void;
+  /** For a thread that exists: what else can be done with another runtime (`runtime-switch` commands). */
+  runtimeActions?: readonly RuntimeAction[];
   /** Marks extensions put on model rows (`registerModelBadge`). */
   badges?: readonly ModelBadgeContribution[];
   /** Shift-click builds a set of models here instead of picking one; a new thread's picker only. */
@@ -99,63 +163,144 @@ export function ModelPicker({
 }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const narrow = useNarrow();
+  const onHand = catalogRuntime ?? DEFAULT_RUNTIME;
+  const threadRuntime = runtime ?? onHand;
+  const draft = onSelectRuntime !== undefined;
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<string>();
-  const [cursor, setCursor] = useState(0);
+  const [view, setView] = useState(() => runtimeView(threadRuntime));
+  const [providers, setProviders] = useState<Record<string, string | undefined>>(() => {
+    const active = activeKey && threadRuntime === onHand ? models.find((model) => modelKey(model) === activeKey) : undefined;
+    return active ? { [onHand]: active.provider } : {};
+  });
+  const [sort, setSort] = useState<OfferingSort>("relevance");
+  const [filters, setFilters] = useState<OfferingFilters>(NO_FILTERS);
+  const [showHidden, setShowHidden] = useState(false);
+  const [menu, setMenu] = useState<"sort" | "filter">();
+  const [cursor, setCursor] = useState<number>();
   const [expandedLegacy, setExpandedLegacy] = useState<ReadonlySet<string>>(() => new Set());
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const draft = onSelectRuntime !== undefined;
-  const threadRuntime = runtime ?? catalogRuntime ?? DEFAULT_RUNTIME;
+  const runtimeColumnRef = useRef<HTMLElement>(null);
+  const providerColumnRef = useRef<HTMLElement>(null);
   const chosen = useSyncExternalStore(
     multiSelect?.subscribe ?? noSubscription,
     () => multiSelect?.selected() ?? NO_SELECTION,
     () => NO_SELECTION,
   );
 
-  const entries = useMemo<Entry[]>(
-    () => models.map((model) => {
-      const key = modelKey(model);
-      const position = settings.favouriteModels.indexOf(key);
-      return {
-        key,
-        model,
-        favourite: position >= 0,
-        ...(position >= 0 && position < JUMP_KEYS ? { jump: position + 1 } : {}),
-        presentation: modelPresentation(model),
-      };
-    }),
-    [models, settings.favouriteModels],
+  const views = useMemo(() => pickerViews({ catalogRuntime: onHand, backends: runtimeBackends, catalogs, recent: settings.recentModels.length > 0 }), [catalogs, onHand, runtimeBackends, settings.recentModels.length]);
+  const labels = useMemo(() => new Map(views.flatMap((entry) => entry.kind === "runtime" ? [[entry.backend.kind, entry.backend.label] as const] : [])), [views]);
+  const activeOffering = activeKey && threadRuntime === onHand ? (onHand === DEFAULT_RUNTIME ? activeKey : `${onHand}:${activeKey}`) : undefined;
+
+  // Every offering of every runtime whose models are on hand: the thread's own catalog, the host's for the rest.
+  const offerings = useMemo<Offering[]>(() => {
+    const favourites = new Set(settings.favouriteModels);
+    const result: Offering[] = [];
+    for (const entry of views) {
+      if (entry.kind !== "runtime" || !entry.listed) continue;
+      const kind = entry.backend.kind;
+      const cached = catalogs.get(kind);
+      const catalog = cached?.status === "ready" ? cached.catalog : undefined;
+      let list: readonly UiModel[];
+      if (kind === onHand) {
+        // A thread's own list is lean; the host's catalog knows price, context and billing.
+        const facts = new Map(catalog?.models.map((model) => [modelKey(model), model] as const));
+        list = models.map((model) => ({ ...facts.get(modelKey(model)), ...model }));
+      } else {
+        list = catalog?.models ?? [];
+      }
+      const arranged = settings.modelPreferences[kind];
+      const hidden = new Set(arranged?.hidden);
+      const positions = orderedPositions(list, arranged?.order);
+      for (const model of list) {
+        const key = offeringKey(kind, model);
+        const presentation = modelPresentation(model);
+        result.push({
+          key,
+          runtime: kind,
+          runtimeLabel: entry.backend.label,
+          model,
+          levels: catalog?.thinkingLevels[model.id] ?? [],
+          favourite: favourites.has(key),
+          hidden: hidden.has(modelKey(model)),
+          legacy: presentation.legacy,
+          isNew: presentation.badge === "new",
+          position: positions.get(modelKey(model)) ?? 0,
+        });
+      }
+    }
+    return result;
+  }, [catalogs, models, onHand, settings.favouriteModels, settings.modelPreferences, views]);
+  const byKey = useMemo(() => new Map(offerings.map((offering) => [offering.key, offering] as const)), [offerings]);
+  const jumps = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const key of settings.favouriteModels) {
+      if (map.size >= JUMP_KEYS) break;
+      if (byKey.has(key)) map.set(key, map.size + 1);
+    }
+    return map;
+  }, [byKey, settings.favouriteModels]);
+
+  const current = views.find((entry) => entry.key === view) ?? views.find((entry) => entry.kind === "runtime");
+  const currentRuntime = current?.kind === "runtime" ? current : undefined;
+  const runtimeOfferings = useMemo(() => currentRuntime ? offerings.filter((offering) => offering.runtime === currentRuntime.backend.kind) : [], [currentRuntime, offerings]);
+  const providerCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const offering of runtimeOfferings) if (!offering.hidden || showHidden) counts.set(offering.model.provider, (counts.get(offering.model.provider) ?? 0) + 1);
+    return [...counts].sort(([a], [b]) => providerLabel(a).localeCompare(providerLabel(b)));
+  }, [runtimeOfferings, showHidden]);
+  const providerColumn = currentRuntime !== undefined && providerCounts.length > 1;
+  const chosenProvider = currentRuntime ? providers[currentRuntime.backend.kind] : undefined;
+  const provider = chosenProvider && providerCounts.some(([name]) => name === chosenProvider) ? chosenProvider : undefined;
+
+  const needle = query.trim();
+  const shown = useCallback(
+    (offering: Offering) => (showHidden || !offering.hidden || offering.key === activeOffering) && passesFilters(offering, filters),
+    [activeOffering, filters, showHidden],
   );
+  const hiddenCount = (needle ? offerings : runtimeOfferings).filter((offering) => offering.hidden).length;
 
-  const rail = useMemo<RailEntry[]>(() => pickerRail({
-    providers: [...new Set(entries.map((entry) => entry.model.provider))].sort(),
-    catalogRuntime,
-    backends: runtimeBackends,
-    favourites: entries.some((entry) => entry.favourite),
-  }), [catalogRuntime, entries, runtimeBackends]);
-  const railKeys = useMemo(() => rail.map((item) => item.key), [rail]);
-  const current = rail.find((item) => item.key === tab);
+  const rows = useMemo<Row[]>(() => {
+    const offeringRow = (offering: Offering, grouped = false, cross = false): Row => ({ kind: "offering", key: offering.key, offering, grouped, cross });
+    if (needle) {
+      const found: Row[] = [];
+      for (const group of searchOfferings(offerings.filter(shown), needle, sort, providerLabel, threadRuntime)) {
+        if (group.length > 1) found.push({ kind: "group", key: `group:${group[0]!.key}`, name: group[0]!.model.name, count: group.length });
+        for (const offering of group) found.push(offeringRow(offering, group.length > 1, true));
+      }
+      return found;
+    }
+    if (!current) return [];
+    if (current.kind === "favourites" || current.kind === "recent") {
+      const keys = current.kind === "favourites" ? settings.favouriteModels : settings.recentModels;
+      const listed = keys.flatMap((key) => { const offering = byKey.get(key); return offering && passesFilters(offering, filters) ? [offering] : []; });
+      return (sort === "relevance" ? listed : sortOfferings(listed, sort)).map((offering) => offeringRow(offering, false, true));
+    }
+    if (!current.listed) return [];
+    const scoped = sortOfferings(runtimeOfferings.filter((offering) => shown(offering) && (!provider || offering.model.provider === provider)), sort);
+    const latest = scoped.filter((offering) => !offering.legacy);
+    const legacy = scoped.filter((offering) => offering.legacy);
+    // The fold is the runtime's own order's; a sort or filter lists everything.
+    if (legacy.length === 0 || sort !== "relevance" || filterCount(filters) > 0) return scoped.map((offering) => offeringRow(offering));
+    const group = `${current.key}/${provider ?? ""}`;
+    const expanded = expandedLegacy.has(group) || legacy.some((offering) => offering.key === activeOffering);
+    return [
+      ...latest.map((offering) => offeringRow(offering)),
+      { kind: "legacy", key: `legacy:${group}`, count: legacy.length, expanded },
+      ...(expanded ? legacy.map((offering) => offeringRow(offering)) : []),
+    ];
+  }, [activeOffering, byKey, current, expandedLegacy, filters, needle, offerings, provider, runtimeOfferings, settings.favouriteModels, settings.recentModels, shown, sort, threadRuntime]);
 
-  // Open where the thread already is: its runtime's tab, or its model's.
-  useEffect(() => {
-    setTab((held) => {
-      if (held && railKeys.includes(held)) return held;
-      if (threadRuntime !== (catalogRuntime ?? DEFAULT_RUNTIME)) return runtimeEntryKey(threadRuntime);
-      const active = entries.find((entry) => entry.key === activeKey);
-      if (active) return railKeyForModel(active.model.provider, catalogRuntime);
-      return (catalogRuntime ?? DEFAULT_RUNTIME) === DEFAULT_RUNTIME ? railKeys[0] : runtimeEntryKey(catalogRuntime as string);
-    });
-  }, [activeKey, catalogRuntime, entries, railKeys, threadRuntime]);
-
-  // A legacy model in use is not hidden from the person using it.
-  useEffect(() => {
-    const active = entries.find((entry) => entry.key === activeKey);
-    if (!active?.presentation.legacy) return;
-    const group = railKeyForModel(active.model.provider, catalogRuntime);
-    setExpandedLegacy((held) => held.has(group) ? held : new Set([...held, group]));
-  }, [activeKey, catalogRuntime, entries]);
+  // The cursor starts on the model in use, else on the first row; it follows every new list.
+  const initialCursor = useMemo(() => {
+    const active = rows.findIndex((row) => row.kind === "offering" && row.key === activeOffering);
+    // A search, sort or filter starts at the top of what it produced.
+    return active >= 0 && !needle && sort === "relevance" && filterCount(filters) === 0 ? active : rows.findIndex(selectable);
+  }, [activeOffering, filters, needle, rows, sort]);
+  useEffect(() => setCursor(undefined), [needle, view, provider, sort, filters]);
+  const at = cursor !== undefined && selectable(rows[cursor]) ? cursor : initialCursor;
 
   // Again after the add-provider form, which a popover picker gives its place to.
   useEffect(() => {
@@ -163,151 +308,211 @@ export function ModelPicker({
   }, [addProviderOpen]);
   useFocusTrap(surfaceRef, !addProviderOpen);
 
-  const needle = query.trim().toLowerCase();
-
-  // A query searches the whole catalog; without one, the rail tab scopes the list.
-  const rows = useMemo<Row[]>(() => {
-    const filtered = entries.filter((entry) => matches(entry, needle));
-    const asRows = (list: Entry[]): Row[] => list.map((entry) => ({ kind: "model", key: entry.key, entry }));
-    if (needle) return asRows(filtered);
-    if (!current) return [];
-    if (current.kind === "favourites") return asRows(filtered.filter((entry) => entry.favourite));
-    if (current.kind === "runtime" && !current.listed) return [];
-    const scoped = current.kind === "provider" ? filtered.filter((entry) => entry.model.provider === current.provider) : filtered;
-    const latest = scoped.filter((entry) => !entry.presentation.legacy);
-    const legacy = scoped.filter((entry) => entry.presentation.legacy);
-    if (legacy.length === 0) return asRows(scoped);
-    const expanded = expandedLegacy.has(current.key);
-    return [
-      ...asRows(latest),
-      { kind: "legacy", key: `legacy:${current.key}`, group: current.key, count: legacy.length, expanded },
-      ...(expanded ? asRows(legacy) : []),
-    ];
-  }, [current, entries, expandedLegacy, needle]);
-
-  useEffect(() => setCursor(0), [needle, tab]);
-
   const notes = useMemo(() => {
-    const listed = rows.flatMap((row) => row.kind === "model" ? [row.entry.model] : []);
-    return [...new Set(badges.filter((badge) => badge.note && listed.some((model) => wears(badge, model, catalogRuntime))).map((badge) => badge.note as string))];
-  }, [badges, catalogRuntime, rows]);
+    const listed = rows.flatMap((row) => row.kind === "offering" ? [row.offering] : []);
+    return [...new Set(badges.filter((badge) => badge.note && listed.some((offering) => wears(badge, offering.model, offering.runtime))).map((badge) => badge.note as string))];
+  }, [badges, rows]);
 
-  const toggleLegacy = (group: string) => {
-    setExpandedLegacy((held) => {
-      const next = new Set(held);
-      if (next.has(group)) next.delete(group);
-      else next.add(group);
-      return next;
-    });
-  };
-
-  const update = !needle && current?.kind === "runtime" ? runtimeUpdate(current.backend) : undefined;
-
-  // A runtime whose models are not on hand: say what choosing it means.
-  const elsewhere = !needle && current?.kind === "runtime" && !current.listed ? current.backend : undefined;
   const threadRuntimeName = runtimeName(threadRuntime, runtimeBackends);
+  const update = !needle && currentRuntime ? runtimeUpdate(currentRuntime.backend) : undefined;
+  // A runtime whose models are not on hand: say what choosing it means.
+  const elsewhere = !needle && currentRuntime && !currentRuntime.listed ? currentRuntime.backend : undefined;
+  // Another runtime's models: what picking one does.
+  const foreign = !needle && currentRuntime && currentRuntime.listed && currentRuntime.backend.kind !== threadRuntime ? currentRuntime.backend : undefined;
+  const foreignNote = foreign
+    ? draft ? `Choosing one runs this thread on ${foreign.label} instead of ${threadRuntimeName}.` : `Choosing one starts a new thread on ${foreign.label}; this one stays on ${threadRuntimeName}.`
+    : undefined;
+  const foreignEntry = foreign ? catalogs.get(foreign.kind) : undefined;
+  const staleNote = foreignEntry?.status === "ready" && foreignEntry.catalog.status ? foreignEntry.catalog.note : undefined;
+  const otherRuntime = !draft && currentRuntime && currentRuntime.backend.kind !== threadRuntime && !needle ? currentRuntime.backend : undefined;
   const paneAction = elsewhere && elsewhere.kind !== threadRuntime
     ? draft
       ? { label: `Start this thread on ${elsewhere.label}`, run: () => onSelectRuntime?.(elsewhere.kind) }
       : onNewThreadOnRuntime ? { label: `New thread on ${elsewhere.label}`, run: () => { onNewThreadOnRuntime(elsewhere.kind); onClose(); } } : undefined
     : undefined;
 
-  const choose = (entry: Entry, add = false) => {
+  const choose = (offering: Offering, add = false) => {
+    if (offering.runtime !== onHand) {
+      multiSelect?.reset();
+      preferences.noteModelUsed(offering.key);
+      onSelect(offering.model, offering.runtime);
+      onClose();
+      return;
+    }
     if (multiSelect && add) {
-      multiSelect.toggle(entry.model, entries.find((candidate) => candidate.key === activeKey)?.model);
+      multiSelect.toggle(offering.model, models.find((model) => modelKey(model) === activeKey));
       return;
     }
     multiSelect?.reset();
-    onSelect(entry.model);
+    preferences.noteModelUsed(offering.key);
+    onSelect(offering.model);
     onClose();
   };
+  const toggleLegacy = (key: string) => setExpandedLegacy((held) => toggled(held, key.replace(/^legacy:/u, "")));
   const activate = (row: Row | undefined, alt: boolean, add = false) => {
-    if (!row) return;
-    if (row.kind === "legacy") { toggleLegacy(row.group); return; }
+    if (!row || row.kind === "group") return;
+    if (row.kind === "legacy") { toggleLegacy(row.key); return; }
     if (alt) preferences.toggleFavouriteModel(row.key);
-    else choose(row.entry, add);
+    else choose(row.offering, add);
+  };
+  const selectView = (key: string) => {
+    setQuery("");
+    setMenu(undefined);
+    setView(key);
+  };
+  const stepCursor = (delta: 1 | -1) => {
+    if (!rows.some(selectable)) return;
+    let next = at < 0 ? (delta === 1 ? -1 : rows.length) : at;
+    do next = (next + delta + rows.length) % rows.length; while (!selectable(rows[next]));
+    setCursor(next);
   };
 
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") { onClose(); return; }
+  const onKeyDown = (event: KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && /^[1-9]$/u.test(event.key)) {
-      const target = entries.find((entry) => entry.jump === Number(event.key));
-      if (target) { event.preventDefault(); choose(target); }
+      const target = [...jumps].find(([, position]) => position === Number(event.key));
+      const offering = target ? byKey.get(target[0]) : undefined;
+      if (offering) { event.preventDefault(); choose(offering); }
       return;
     }
-    // ⌘⇧↑/↓ as in T3 Code: the provider rail, from anywhere in the picker.
-    const railStep = (event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown");
-    if (railStep || ((event.key === "ArrowLeft" || event.key === "ArrowRight") && (!needle || event.altKey))) {
-      if (railKeys.length > 1) {
-        event.preventDefault();
-        if (needle) setQuery("");
-        setTab((held) => {
-          const index = held ? railKeys.indexOf(held) : 0;
-          const delta = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-          return railKeys[(index + delta + railKeys.length) % railKeys.length];
-        });
-      }
-      return;
-    }
-    if (event.key === "ArrowDown") {
+    // ⌘⇧↑/↓ as in T3 Code: the next entry of the left column, from anywhere in the picker.
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
       event.preventDefault();
-      setCursor((value) => (rows.length ? (value + 1) % rows.length : 0));
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setCursor((value) => (rows.length ? (value - 1 + rows.length) % rows.length : 0));
-    }
-    // Enter on a focused button is that button's own click; only the field selects the cursor row.
-    if (event.key === "Enter" && event.target === inputRef.current) {
-      event.preventDefault();
-      if (paneAction) paneAction.run();
-      else activate(rows[cursor], event.altKey, event.shiftKey);
+      const index = Math.max(0, views.findIndex((entry) => entry.key === current?.key));
+      const next = views[(index + (event.key === "ArrowDown" ? 1 : -1) + views.length) % views.length];
+      if (next) selectView(next.key);
     }
   };
 
-  const tabLabel = (item: RailEntry): string => {
-    if (item.kind === "favourites") return `Favourites (${entries.filter((entry) => entry.favourite).length})`;
-    if (item.kind === "provider") return `${providerLabel(item.provider)} (${entries.filter((entry) => entry.model.provider === item.provider).length})`;
-    return item.listed ? `${item.backend.label} (${entries.length})` : item.backend.label;
+  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    if (event.key === "ArrowLeft" && !event.metaKey && !event.ctrlKey && !event.shiftKey && (input.selectionStart ?? 0) === 0 && input.selectionEnd === input.selectionStart) {
+      if ((providerColumn && !narrow && focusColumn(providerColumnRef.current)) || focusColumn(runtimeColumnRef.current)) event.preventDefault();
+      return;
+    }
+    if (event.metaKey || event.ctrlKey) return;
+    if (event.key === "ArrowDown") { event.preventDefault(); stepCursor(1); }
+    if (event.key === "ArrowUp") { event.preventDefault(); stepCursor(-1); }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (paneAction && !rows.length) paneAction.run();
+      else activate(rows[at], event.altKey, event.shiftKey);
+    }
   };
-  const tabTitle = (item: RailEntry): string => {
-    const note = item.kind === "runtime" ? runtimeUpdate(item.backend) : undefined;
-    if (note) return `${tabLabel(item).replace(/ \((\d+)\)$/u, "")} · ${note.tag}`;
-    if (item.kind !== "runtime" || item.listed) return tabLabel(item).replace(/ \((\d+)\)$/u, " · $1");
-    if (item.backend.kind === threadRuntime) return `${item.backend.label} · this thread's runtime`;
-    return draft ? `${item.backend.label} · run this thread on it` : `${item.backend.label} · starts a new thread`;
+
+  const onColumnKeyDown = (column: "runtimes" | "providers") => (event: KeyboardEvent) => {
+    const typed = typedCharacter(event);
+    if (typed) {
+      event.preventDefault();
+      setQuery((held) => held + typed);
+      inputRef.current?.focus();
+      return;
+    }
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      stepColumn(column === "runtimes" ? runtimeColumnRef.current : providerColumnRef.current, event.key === "ArrowDown" ? 1 : -1)?.click();
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      if (column === "providers" || !providerColumn || narrow || !focusColumn(providerColumnRef.current)) inputRef.current?.focus();
+    } else if (event.key === "ArrowLeft" && column === "providers") {
+      event.preventDefault();
+      focusColumn(runtimeColumnRef.current);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      (event.target as HTMLElement).click();
+      inputRef.current?.focus();
+    }
   };
-  const inUse = (key: string) => key === activeKey && threadRuntime === (catalogRuntime ?? DEFAULT_RUNTIME);
+
+  const viewLabel = (entry: ViewEntry): string => {
+    if (entry.kind === "favourites") return "Favourites";
+    if (entry.kind === "recent") return "Recent";
+    return entry.backend.label;
+  };
+  const viewTitle = (entry: ViewEntry): string => {
+    if (entry.kind !== "runtime") return viewLabel(entry);
+    const note = runtimeUpdate(entry.backend);
+    if (note) return `${entry.backend.label} · ${note.tag}`;
+    if (entry.listed) return `${entry.backend.label} · ${offerings.filter((offering) => offering.runtime === entry.backend.kind).length} models`;
+    if (entry.backend.kind === threadRuntime) return `${entry.backend.label} · this thread's runtime`;
+    if (entry.status !== "unlisted") return `${entry.backend.label} · ${RUNTIME_STATUS_LABELS[entry.status]}`;
+    return draft ? `${entry.backend.label} · run this thread on it` : `${entry.backend.label} · starts a new thread`;
+  };
+  const inUse = (key: string) => key === activeOffering && chosen.length === 0;
+  const cells: RowCell = {
+    badges,
+    inUse,
+    chosen: (key) => chosen.includes(key) ? selectedLabel(chosen, key) : undefined,
+    jump: (key) => jumps.get(key),
+    onFavourite: (offering) => preferences.toggleFavouriteModel(offering.key),
+    onHide: (offering) => preferences.toggleHiddenModel(offering.runtime, modelKey(offering.model)),
+    showLegacy: Boolean(needle),
+  };
+  const listId = "model-picker-list";
+  const activeRow = rows[at];
+
+  const providerChoices = providerColumn ? [
+    { key: undefined, label: "All providers", count: providerCounts.reduce((sum, [, count]) => sum + count, 0) },
+    ...providerCounts.map(([name, count]) => ({ key: name, label: providerLabel(name), count })),
+  ] : [];
+  const chooseProvider = (key: string | undefined) => {
+    if (!currentRuntime) return;
+    setQuery("");
+    setProviders((held) => ({ ...held, [currentRuntime.backend.kind]: key }));
+  };
 
   const content: ReactNode = (
     <div
       ref={surfaceRef}
-      className="model-picker-content"
+      className={`model-picker-content${narrow ? " narrow" : ""}`}
       data-keybinding-context="modelPicker"
       onKeyDown={onKeyDown}
     >
       <div className="model-picker-body">
-        <nav className="model-rail" aria-label="Providers">
-          {rail.map((item) => (
-            <button
-              key={item.key}
-              className={[
-                !needle && item.key === tab ? "active" : "",
-                item.kind === "runtime" && !item.listed && !draft && item.backend.kind !== threadRuntime ? "elsewhere" : "",
-              ].filter(Boolean).join(" ")}
-              aria-label={tabLabel(item)}
-              aria-pressed={!needle && item.key === tab}
-              title={tabTitle(item)}
-              onClick={() => { setQuery(""); setTab(item.key); }}
-            >
-              {item.kind === "favourites"
-                ? <Star size={16} fill="currentColor" />
-                : item.kind === "provider"
-                  ? <ProviderIconStack modelProvider={item.provider} className="rail-icon" />
-                  : <ProviderIconStack runtimeProvider={item.backend.kind} className="rail-icon" />}
-            </button>
+        <nav ref={runtimeColumnRef} className="model-rail" aria-label="Runtimes" onKeyDown={onColumnKeyDown("runtimes")}>
+          {views.map((entry, index) => (
+            <div key={entry.key} className="model-rail-slot">
+              {index === 1 + (views[1]?.kind === "recent" ? 1 : 0) ? <hr aria-hidden /> : null}
+              <button
+                data-column-item
+                className={!needle && entry.key === current?.key ? "active" : ""}
+                aria-label={entry.kind === "runtime" ? `${entry.backend.label}, ${RUNTIME_STATUS_LABELS[entry.status]}` : viewLabel(entry)}
+                aria-pressed={!needle && entry.key === current?.key}
+                title={viewTitle(entry)}
+                tabIndex={!needle && entry.key === current?.key ? 0 : -1}
+                onClick={() => selectView(entry.key)}
+              >
+                {entry.kind === "favourites"
+                  ? <Star size={15} fill="currentColor" className="rail-glyph" />
+                  : entry.kind === "recent"
+                    ? <Clock size={15} className="rail-glyph" />
+                    : <ProviderIconStack runtimeProvider={entry.backend.kind === DEFAULT_RUNTIME ? "pi" : entry.backend.kind} className="rail-icon" />}
+                <span className="model-rail-label">{viewLabel(entry)}</span>
+                {entry.kind === "runtime" ? <i className={`runtime-dot runtime-dot-${entry.status}`} aria-hidden /> : null}
+              </button>
+            </div>
           ))}
         </nav>
+
+        {providerColumn && !narrow && !needle ? (
+          <nav ref={providerColumnRef} className="model-providers" aria-label={`${currentRuntime!.backend.label} providers`} onKeyDown={onColumnKeyDown("providers")}>
+            {providerChoices.map((choice) => (
+              <button
+                key={choice.key ?? "all"}
+                data-column-item
+                className={choice.key === provider ? "active" : ""}
+                aria-pressed={choice.key === provider}
+                aria-label={`${choice.label} (${choice.count})`}
+                tabIndex={choice.key === provider ? 0 : -1}
+                onClick={() => chooseProvider(choice.key)}
+              >
+                {choice.key ? <ProviderIconStack modelProvider={choice.key} className="provider-column-icon" /> : null}
+                <span>{choice.label}</span>
+                <small>{choice.count}</small>
+              </button>
+            ))}
+          </nav>
+        ) : null}
 
         <div className="model-main">
           <div className="palette-input-wrap model-search">
@@ -315,11 +520,64 @@ export function ModelPicker({
             <input
               ref={inputRef}
               value={query}
+              role="combobox"
+              aria-expanded
+              aria-controls={listId}
+              aria-activedescendant={activeRow && selectable(activeRow) ? `model-option-${at}` : undefined}
+              aria-autocomplete="list"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search models…"
+              onKeyDown={onSearchKeyDown}
+              placeholder="Search all runtimes…"
               aria-label="Search models"
             />
-            <kbd>esc</kbd>
+            <div className="model-tool">
+              <button
+                className={`model-tool-button${sort !== "relevance" ? " on" : ""}`}
+                aria-label={`Sort: ${SORT_LABELS[sort]}`}
+                title={`Sort by ${SORT_LABELS[sort].toLowerCase()}`}
+                aria-haspopup="menu"
+                aria-expanded={menu === "sort"}
+                onClick={() => setMenu((held) => held === "sort" ? undefined : "sort")}
+              >
+                <ArrowDownUp size={13} />{narrow ? null : <span>{SORT_LABELS[sort]}</span>}
+              </button>
+              {menu === "sort" ? (
+                <div className="model-menu" role="menu" aria-label="Sort models">
+                  {(Object.keys(SORT_LABELS) as OfferingSort[]).map((option) => (
+                    <button key={option} role="menuitemradio" aria-checked={sort === option} onClick={() => { setSort(option); setMenu(undefined); inputRef.current?.focus(); }}>
+                      {SORT_LABELS[option]}
+                      {option === "price" ? <small>plans first</small> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="model-tool">
+              <button
+                className={`model-tool-button${filterCount(filters) > 0 || showHidden ? " on" : ""}`}
+                aria-label={filterCount(filters) > 0 ? `Filter (${filterCount(filters)} on)` : "Filter"}
+                title="Filter models"
+                aria-haspopup="menu"
+                aria-expanded={menu === "filter"}
+                onClick={() => setMenu((held) => held === "filter" ? undefined : "filter")}
+              >
+                <ListFilter size={13} />{filterCount(filters) > 0 ? <span>{filterCount(filters)}</span> : null}
+              </button>
+              {menu === "filter" ? (
+                <div className="model-menu" role="menu" aria-label="Filter models">
+                  <span className="model-menu-heading">Billing</span>
+                  {BILLING_FILTERS.map(([value, label]) => (
+                    <button key={value} role="menuitemcheckbox" aria-checked={filters.billing.has(value)} onClick={() => setFilters((held) => ({ ...held, billing: toggled(held.billing, value) }))}>{label}</button>
+                  ))}
+                  <span className="model-menu-heading">Can</span>
+                  {CAPABILITY_FILTERS.map(([value, label]) => (
+                    <button key={value} role="menuitemcheckbox" aria-checked={filters.capabilities.has(value)} onClick={() => setFilters((held) => ({ ...held, capabilities: toggled(held.capabilities, value) }))}>{label}</button>
+                  ))}
+                  <hr />
+                  <button role="menuitemcheckbox" aria-checked={showHidden} onClick={() => setShowHidden((held) => !held)}>Show hidden models</button>
+                </div>
+              ) : null}
+            </div>
             <button
               className="model-provider-add"
               aria-label="Add custom model provider"
@@ -330,78 +588,120 @@ export function ModelPicker({
             </button>
           </div>
 
+          {providerColumn && narrow && !needle ? (
+            <div className="model-provider-filter" role="group" aria-label={`${currentRuntime!.backend.label} providers`}>
+              {providerChoices.map((choice) => (
+                <button key={choice.key ?? "all"} className={choice.key === provider ? "active" : ""} aria-pressed={choice.key === provider} onClick={() => chooseProvider(choice.key)}>
+                  {choice.key ? choice.label : "All"} <small>{choice.count}</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           {elsewhere ? (
             <div className="model-runtime-pane" role="region" aria-label={elsewhere.label}>
               <ProviderIconStack runtimeProvider={elsewhere.kind} className="runtime-pane-icon" />
               <strong>{elsewhere.label}</strong>
-              <p>{elsewhere.kind === threadRuntime
+              <p>{unlistedReason(elsewhere.label, catalogs.get(elsewhere.kind)) ?? (elsewhere.kind === threadRuntime
                 ? `This thread starts on ${elsewhere.label} with its default model. Its models are listed once the thread exists.`
                 : draft
                   ? `${elsewhere.label} runs the thread instead of ${threadRuntimeName}; choose it to pick one of its models.`
-                  : `This thread runs on ${threadRuntimeName}, and a thread keeps the runtime it started on. ${elsewhere.label} runs a thread of its own.`}</p>
-              {paneAction ? <button className="primary" onClick={paneAction.run}>{paneAction.label}</button> : null}
-            </div>
-          ) : <VirtualList
-            items={rows}
-            itemHeight={ROW_HEIGHT}
-            className="model-list"
-            scrollToIndex={cursor}
-            empty={<p className="palette-empty">{needle ? `No model matches “${query}”.` : "No models from this provider."}</p>}
-            renderItem={(row, index) => row.kind === "legacy"
-              ? <div key={row.key} className={`model-row model-legacy ${index === cursor ? "selected" : ""}`} onMouseMove={() => setCursor(index)}>
-                <button className="model-choose" aria-expanded={row.expanded} onClick={() => toggleLegacy(row.group)}>
-                  <span className="model-line"><strong>Legacy models</strong></span>
-                  <small className="model-sub">{row.count} {row.count === 1 ? "model" : "models"}</small>
-                </button>
-                <span className="model-chevron">{row.expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+                  : `This thread runs on ${threadRuntimeName}, and a thread keeps the runtime it started on. ${elsewhere.label} runs a thread of its own.`)}</p>
+              <div className="model-runtime-pane-actions">
+                {paneAction ? <button className="primary" onClick={paneAction.run}>{paneAction.label}</button> : null}
+                {otherRuntime ? runtimeActions.map((action) => (
+                  <button key={action.id} onClick={() => { action.run(elsewhere.kind); onClose(); }}>{`${action.label} ${elsewhere.label}`}</button>
+                )) : null}
               </div>
-              : <div
-                key={row.key}
-                data-provider={row.entry.model.provider}
-                className={`model-row ${index === cursor ? "selected" : ""} ${inUse(row.key) ? "current" : ""}`}
-                onMouseMove={() => setCursor(index)}
-              >
-                <button className="model-choose" onClick={(event) => choose(row.entry, event.shiftKey)}>
-                  <span className="model-line">
-                    <strong>{row.entry.model.name}</strong>
-                    {row.entry.presentation.badge === "new" ? <span className="model-badge model-badge-new">NEW</span> : null}
-                    {needle && row.entry.presentation.legacy ? <span className="model-badge">legacy</span> : null}
-                    {row.entry.model.login === "subscription" ? <span className="model-badge">subscription login</span> : null}
-                    {badges.filter((badge) => wears(badge, row.entry.model, catalogRuntime)).map((badge) => (
-                      <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
-                    ))}
-                  </span>
-                  <small className="model-sub">
-                    <ProviderIconStack modelProvider={row.entry.model.provider} runtimeProvider={catalogRuntime} className="sub-icon" />
-                    {providerLabel(row.entry.model.provider)}
-                    <span className="model-id">{row.entry.model.id}</span>
-                  </small>
-                </button>
-                {inUse(row.key) && chosen.length === 0 ? <em>in use</em> : null}
-                {chosen.includes(row.key) ? <em className="model-chosen">{selectedLabel(chosen, row.key)}</em> : null}
-                {row.entry.jump ? <kbd className="model-kbd">⌘{row.entry.jump}</kbd> : null}
-                <button className={`model-star ${row.entry.favourite ? "on" : ""}`} aria-label={row.entry.favourite ? `Unfavourite ${row.entry.model.name}` : `Favourite ${row.entry.model.name}`} aria-pressed={row.entry.favourite} onClick={() => preferences.toggleFavouriteModel(row.key)}><Star size={14} fill={row.entry.favourite ? "currentColor" : "none"} /></button>
-              </div>}
-          />}
+            </div>
+          ) : <>
+            {narrow ? null : (
+              <div className="model-columns" aria-hidden>
+                <span>{needle ? "Model · runtime" : "Model"}</span>
+                <span>Context</span>
+                <span>Price / MTok</span>
+              </div>
+            )}
+            <VirtualList
+              id={listId}
+              items={rows}
+              itemHeight={rowHeight}
+              className="model-list"
+              role="listbox"
+              ariaLabel={needle ? "Models in every runtime" : current ? `${viewLabel(current)} models` : "Models"}
+              scrollToIndex={at >= 0 ? at : undefined}
+              empty={<p className="palette-empty">{needle
+                ? `No model matches “${query}”.`
+                : current?.kind === "favourites" ? "No favourites yet. Star a model to keep it here; ⌘1–9 reach the first nine."
+                  : current?.kind === "recent" ? "Nothing chosen yet."
+                    : filterCount(filters) > 0 ? "No model passes the filters." : "No models."}</p>}
+              renderItem={(row, index) => row.kind === "group"
+                ? <div key={row.key} className="model-group" role="presentation"><span>{row.name}</span><small>{row.count} offerings</small></div>
+                : row.kind === "legacy"
+                  ? <div key={row.key} id={`model-option-${index}`} role="option" aria-selected={index === at} aria-expanded={row.expanded} aria-label={`Legacy models, ${row.count}`} className={`model-row model-legacy ${index === at ? "selected" : ""}`} onMouseMove={() => setCursor(index)} onClick={() => toggleLegacy(row.key)}>
+                    <div className="model-cell-main">
+                      <span className="model-line"><strong>Legacy models</strong></span>
+                      <small className="model-sub">{row.count} {row.count === 1 ? "model" : "models"}</small>
+                    </div>
+                    <span className="model-chevron">{row.expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+                  </div>
+                  : <OfferingRow
+                    key={row.key}
+                    id={`model-option-${index}`}
+                    offering={row.offering}
+                    grouped={row.grouped}
+                    cross={row.cross}
+                    selected={index === at}
+                    narrow={narrow}
+                    cells={cells}
+                    onPoint={() => setCursor(index)}
+                    onChoose={(add) => choose(row.offering, add)}
+                  />}
+            />
+          </>}
         </div>
       </div>
 
+      {foreignNote ? (
+        <p className="model-picker-note">
+          {foreignNote}
+          {draft && foreign ? (
+            // The draft moves over with what it last chose there, or the runtime's default.
+            <button className="model-note-action" onClick={() => { onSelectRuntime?.(foreign.kind); onClose(); }}>{`Start this thread on ${foreign.label}`}</button>
+          ) : null}
+          {otherRuntime ? runtimeActions.map((action) => (
+            <button key={action.id} className="model-note-action" onClick={() => { action.run(otherRuntime.kind); onClose(); }}>{`${action.label} ${otherRuntime.label}`}</button>
+          )) : null}
+        </p>
+      ) : null}
+      {staleNote ? <p className="model-picker-note" role="status">{staleNote}</p> : null}
       {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
       {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
 
       <footer>
-        {anchor ? null : <>
-          <span>↑↓ navigate</span>
+        {narrow ? null : <>
+          <span>↑↓ move</span>
+          <span>←→ columns</span>
           <span>↵ select</span>
           <span>⌥↵ favourite</span>
-          <span>⌘1–9 favourite n</span>
         </>}
         {multiSelect ? <span>{chosen.length > 1 ? `${chosen.length} models chosen` : "⇧click add a model"}</span> : null}
         <span className="spacer" />
-        <span>{entries.length} models · {new Set(entries.map((entry) => entry.model.provider)).size} providers</span>
+        {hiddenCount > 0 ? (
+          <button className="model-footer-link" onClick={() => setShowHidden((held) => !held)}>
+            <Eye size={11} /> {showHidden ? `Hide ${hiddenCount} hidden` : `${hiddenCount} hidden · show`}
+          </button>
+        ) : null}
+        <span>{offerings.length} {offerings.length === 1 ? "model" : "models"} · {labels.size} {labels.size === 1 ? "runtime" : "runtimes"}</span>
       </footer>
     </div>
   );
+  // Escape or a press outside closes an open menu first.
+  const dismiss = () => {
+    if (!menu) { onClose(); return; }
+    setMenu(undefined);
+    inputRef.current?.focus();
+  };
   const addProvider = addProviderOpen ? (
     <Suspense fallback={null}>
       <LazyAddModelProviderModal
@@ -409,7 +709,10 @@ export function ModelPicker({
         onProviderAdded={(newModels) => {
           setAddProviderOpen(false);
           const latest = newModels[newModels.length - 1];
-          if (latest) setTab(railKeyForModel(latest.provider, catalogRuntime));
+          if (latest) {
+            setView(runtimeView(onHand));
+            setProviders((held) => ({ ...held, [onHand]: latest.provider }));
+          }
         }}
       />
     </Suspense>
@@ -417,7 +720,7 @@ export function ModelPicker({
 
   // A press in the form would count as outside the popover, so the form takes the popover's place.
   return addProvider ?? (
-    <Popover anchor={anchor} side={side} align="start" label="Select model" className="model-picker" onClose={onClose}>
+    <Popover anchor={anchor} side={side} align="start" label="Select model" className="model-picker" onClose={dismiss}>
       {content}
     </Popover>
   );

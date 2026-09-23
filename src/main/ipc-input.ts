@@ -15,6 +15,9 @@ import type {
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import { isHostTranscriptCursor, type HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { isUpdateChannel } from "../shared/app-version.js";
+import { readModelPreferenceRecord } from "../shared/model-preferences.js";
+import { MAX_ATTACHMENTS } from "../shared/prompt-attachment-limits.js";
+import { isQuitConfirmation } from "../shared/window-shell.js";
 
 /**
  * Hand-written decoders for every renderer→host IPC argument, in the style of
@@ -199,9 +202,12 @@ export function decodeExtensionUiAnswer(channel: string, field: string, value: u
   if ("confirmed" in item) return { confirmed: decodeBoolean(channel, `${field}.confirmed`, item.confirmed) };
   if ("customResult" in item) return { customResult: item.customResult };
   if ("value" in item) {
+    const attachments = decodeUiPromptAttachments(channel, `${field}.attachments`, item.attachments);
+    if (attachments && attachments.length > MAX_ATTACHMENTS) fail(channel, `${field}.attachments`, `must hold at most ${MAX_ATTACHMENTS} files`);
     return {
       value: decodeString(channel, `${field}.value`, item.value),
       ...(item.typed !== undefined ? { typed: decodeBoolean(channel, `${field}.typed`, item.typed) } : {}),
+      ...(attachments?.length ? { attachments } : {}),
     };
   }
   fail(channel, field, 'must have "cancelled", "confirmed", "customResult" or "value"');
@@ -222,6 +228,15 @@ export function decodeSharedExports(channel: string, field: string, value: unkno
     result[key] = exports as string[];
   }
   return result;
+}
+
+/** What a client holds of each runtime's catalog: kind to `checkedAt`. */
+export function decodeKnownCatalogs(channel: string, field: string, value: unknown): Record<string, number> {
+  if (value === undefined || value === null) return {};
+  const item = record(channel, field, value);
+  const known: Record<string, number> = {};
+  for (const [kind, checkedAt] of Object.entries(item).slice(0, 64)) known[kind] = decodeNumber(channel, `${field}.${kind}`, checkedAt);
+  return known;
 }
 
 /** Mirrors the manifest id grammar in extension-packages.ts: lowercase, dot-separated. */
@@ -322,6 +337,16 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
       result.updates = { channel: updates.channel };
     }
   }
+  if (item.confirm !== undefined) {
+    const confirm = record(channel, `${field}.confirm`, item.confirm);
+    const decoded: NonNullable<TauConfig["confirm"]> = {};
+    if (confirm.quit !== undefined) {
+      if (!isQuitConfirmation(confirm.quit)) fail(channel, `${field}.confirm.quit`, 'must be "hold", "double-press" or "off"');
+      decoded.quit = confirm.quit;
+    }
+    if (confirm.quitWhileRunning !== undefined) decoded.quitWhileRunning = decodeBoolean(channel, `${field}.confirm.quitWhileRunning`, confirm.quitWhileRunning);
+    if (Object.keys(decoded).length > 0) result.confirm = decoded;
+  }
   if (item.fontFamily !== undefined) result.fontFamily = decodeString(channel, `${field}.fontFamily`, item.fontFamily);
   if (item.fontSize !== undefined) result.fontSize = decodeNumber(channel, `${field}.fontSize`, item.fontSize);
   if (item.temperature !== undefined) result.temperature = decodeNumber(channel, `${field}.temperature`, item.temperature);
@@ -345,6 +370,14 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
     const vals = record(channel, `${field}.values`, item.values);
     if (Object.values(vals).some((v) => typeof v !== "string")) fail(channel, `${field}.values`, "must be a Record<string, string>");
     result.values = vals as Record<string, string>;
+  }
+  if (item.modelPreferences !== undefined) {
+    const entries = record(channel, `${field}.modelPreferences`, item.modelPreferences);
+    const preferences = readModelPreferenceRecord(entries);
+    if (!preferences || Object.keys(preferences).length !== Object.keys(entries).length) {
+      fail(channel, `${field}.modelPreferences`, "must map runtimes to { hidden?: string[]; order?: string[] }");
+    }
+    result.modelPreferences = preferences;
   }
   if (item.keybindings !== undefined) {
     const kb = record(channel, `${field}.keybindings`, item.keybindings);

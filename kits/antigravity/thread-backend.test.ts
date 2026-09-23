@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ThreadRuntimeEvent } from "tau/host-extension";
+import { TurnActivityStore, type ThreadRuntimeEvent, type UiMessage, type UiToolRun } from "tau/host-extension";
 import type { AcpContentBlock, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "./acp-session.js";
 import type { AcpPromptResponse, AcpSessionUpdate } from "./events.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
@@ -55,7 +55,7 @@ class FakeSession implements AntigravitySessionLike {
   async close(): Promise<void> { this.closed = true; this.input.onExit(undefined); }
 }
 
-function harness(store: AntigravitySessionStore, script: Script, options: { ask?: AntigravityThreadRuntimeBackend extends never ? never : (prompt: unknown) => Promise<{ value?: string; confirmed?: boolean; cancelled?: true }>; level?: "read-only" | "ask" | "full"; resumeFails?: boolean; cachedModels?: AcpSelectOption[] } = {}) {
+function harness(store: AntigravitySessionStore, script: Script, options: { activity?: TurnActivityStore; ask?: AntigravityThreadRuntimeBackend extends never ? never : (prompt: unknown) => Promise<{ value?: string; confirmed?: boolean; cancelled?: true }>; level?: "read-only" | "ask" | "full"; resumeFails?: boolean; cachedModels?: AcpSelectOption[] } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const sessions: FakeSession[] = [];
   const reportedModels: AcpSelectOption[][] = [];
@@ -67,6 +67,7 @@ function harness(store: AntigravitySessionStore, script: Script, options: { ask?
     ...(options.cachedModels ? { cachedModels: async () => options.cachedModels! } : {}),
     onModels: (models) => reportedModels.push([...models]),
     ask: options.ask as never,
+    ...(options.activity ? { activity: options.activity } : {}),
     projectName: "repo",
     permissionLevel: () => options.level ?? "full",
     now: (() => { let clock = 1_000; return () => clock++; })(),
@@ -197,5 +198,40 @@ describe("AntigravityThreadRuntimeBackend", () => {
     expect(events.filter((event) => event.type === "notice").map((event) => event.level)).toEqual(["error"]);
     expect(events.filter((event) => event.type === "turn-settled").map((event) => event.status)).toEqual(["error"]);
     expect(backend.state().idle).toBe(true);
+  });
+
+  it("keeps a turn's tool cards for the next open, anchored to a message the transcript shows again", async () => {
+    const store = await scratchStore();
+    const directory = await mkdtemp(join(tmpdir(), "tau-agy-activity-"));
+    directories.push(directory);
+    const activity = new TurnActivityStore({ directory });
+    const tool: Script = async (_blocks, session) => {
+      session.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Listing." } });
+      session.update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Run `ls`", kind: "execute", status: "pending", rawInput: { command: "ls" } });
+      session.update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed", rawOutput: { combinedOutput: "a.txt" } });
+      session.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done." } });
+      return { stopReason: "end_turn" };
+    };
+    const first = harness(store, tool, { activity });
+    await first.backend.start("create");
+    await first.backend.capabilities.activityHistory!.load();
+    await first.backend.prompt({ text: "list", delivery: "prompt", identity: { clientMessageId: "c1", clientTurnId: "t1" } });
+    const shown: UiMessage[] = [];
+    let anchor: string | undefined;
+    const tools: UiToolRun[] = [];
+    for (const event of first.events) {
+      if (event.type === "user-message" || event.type === "assistant-end") shown.push(event.message);
+      if (event.type === "tool-start") anchor ??= shown.at(-1)?.id;
+      if (event.type === "tool-end") tools.push(event.tool);
+    }
+    await first.backend.capabilities.activityHistory!.save({ id: "activity-thread-1", anchorMessageId: anchor!, status: "completed", tools });
+    await first.backend.dispose();
+
+    const second = harness(store, reply("again"), { activity });
+    await second.backend.start("resume");
+    const [entry] = await second.backend.capabilities.activityHistory!.load();
+    expect(entry).toMatchObject({ status: "completed", tools: [{ id: "t1", status: "done" }] });
+    expect(shown.map((message) => message.id)).toContain(entry!.anchorMessageId);
+    expect((await second.backend.transcript()).map((message) => message.id)).toEqual(shown.map((message) => message.id));
   });
 });

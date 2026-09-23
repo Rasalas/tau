@@ -1,5 +1,6 @@
 import {
   DEFAULT_THREAD_MODE as DEFAULT_MODE,
+  askElicitation,
   clientMessageFingerprint,
   knownSkillNames,
   prepareSkillPrompt,
@@ -16,6 +17,7 @@ import {
   type ThreadRuntimeBackend,
   type ThreadRuntimeEvent,
   type ThreadTitleSource,
+  type TurnActivityStore,
   type UiComposerCommand,
   type UiContextUsage,
   type UiMessage,
@@ -25,7 +27,7 @@ import {
   type UiThreadUsage,
 } from "tau/host-extension";
 import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
-import { approvalDialog, policyForLevel, refusal } from "./approvals.js";
+import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
 import type { CodexConfiguredModel } from "./config.js";
@@ -61,6 +63,8 @@ export interface CodexSessionInput {
 }
 
 export interface CodexThreadBackendOptions {
+  /** Where the thread's tool cards are kept across restarts. */
+  activity?: TurnActivityStore;
   adapter: CodexRuntimeAdapter;
   store: CodexSessionStore;
   /** The instance the thread runs on; the default one when absent. */
@@ -117,6 +121,7 @@ export function storedModel(model: CodexModel): CodexStoredModel {
     efforts: model.supportedReasoningEfforts.map((effort) => effort.reasoningEffort),
     ...(model.defaultReasoningEffort ? { defaultEffort: model.defaultReasoningEffort } : {}),
     ...(model.isDefault ? { isDefault: true } : {}),
+    ...(model.inputModalities ? { images: model.inputModalities.includes("image") } : {}),
   };
 }
 
@@ -133,6 +138,11 @@ export function userInput(text: string, attachments: readonly UiPromptAttachment
 
 function imagesOf(attachments: readonly UiPromptAttachment[] | undefined): Array<{ mimeType: string; data: string }> {
   return (attachments ?? []).flatMap((attachment) => attachment.kind === "image" ? [{ mimeType: attachment.mimeType, data: attachment.data }] : []);
+}
+
+/** The capability over the kit's store; Codex's own rollout is not read back. */
+function activityHistory(threadId: string, store: TurnActivityStore | undefined): Pick<ThreadBackendCapabilities, "activityHistory"> {
+  return store ? { activityHistory: { load: () => store.load(threadId), save: (entry) => store.save(threadId, entry) } } : {};
 }
 
 function wait(ms: number): Promise<false> {
@@ -198,6 +208,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         hiddenPrompt: false,
         notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
       },
+      ...activityHistory(threadId, options.activity),
     };
   }
 
@@ -213,7 +224,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
     this.tools = record.tools;
     this.messages = record.messages.map((message, index) => ({
-      id: `codex-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
+      id: message.id ?? `codex-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
       role: message.role,
       text: message.text,
       timestamp: message.timestamp,
@@ -542,6 +553,11 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async onRequest(method: string, raw: unknown): Promise<unknown> {
     const params = (raw ?? {}) as Record<string, unknown>;
+    const form = method === "mcpServer/elicitation/request" ? elicitationForm(params) : undefined;
+    if (form && form.fields.length > 0) {
+      if (!this.options.ask) return elicitationResult({ action: "decline" });
+      return elicitationResult(await askElicitation({ ...form, ask: this.options.ask, decorate: pageElicitation(form.source) }));
+    }
     const turn = this.turns[0];
     const dialog = approvalDialog(method, params, (itemId) => turn?.translator.changes.get(itemId) ?? []);
     if (!dialog) {

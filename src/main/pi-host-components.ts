@@ -21,6 +21,7 @@ import {
   HostThreadLifecycleSet,
   HostTurnObserverSet,
   runtimeExtensionModes,
+  sortByRuntimeOrder,
   type HostExtension,
   type HostPreparedThread,
   type HostRuntimeBackendProvider,
@@ -73,6 +74,9 @@ import { markTauHostRuntime } from "./tau-runtime-owner.js";
 import { QueuedMessages, type QueuedMessage } from "./queued-messages.js";
 import { LIMIT_CONTINUATION_PROMPT, ThreadLimits } from "./thread-limits.js";
 import { TurnSettlement } from "./turn-settlement.js";
+import { ModelPriceBook, piNewThreadCatalog } from "./model-price-book.js";
+import { modelReleaseDate } from "./pi-model-runtime.js";
+import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
@@ -193,6 +197,8 @@ export interface PiHostComponents {
   /** Threads a provider limit stopped, and the resumes scheduled for their reset. */
   readonly limits: ThreadLimits;
   readonly settlement: TurnSettlement;
+  /** What every runtime offers a new thread, kept across runs. */
+  readonly catalogs: RuntimeCatalogs;
   /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
   readonly continueThreadsAfterRestart: () => boolean;
 }
@@ -380,6 +386,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     refreshThreadIndex: () => index.refresh("none").catch(() => index.snapshot()),
     // Before the first scan the start publishes both anyway.
     runtimeBackendsChanged: () => {
+      catalogs.sourcesChanged();
       if (!index.scanned || backendsChangePending) return;
       backendsChangePending = true;
       queueMicrotask(() => {
@@ -406,6 +413,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
   };
   const seam = createHostExtensionSeam(port);
+  const catalogs = runtimeCatalogs(options, deps, completions, piAdapter, () => seam.backends.values(), emit);
   const hostExtensions = new HostExtensionRegistry(seam.services, (event) => emit(event));
   const loadPackages = safeMode ? undefined : options.hostExtensionPackages;
   const packages = loadPackages && new ExtensionPackageActivator({
@@ -613,6 +621,44 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     queue,
     limits,
     settlement,
+    catalogs,
     continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
   };
+}
+
+/** Pi's catalog from the user's own configuration, and one per backend that can name its models before a thread. */
+function runtimeCatalogs(
+  options: PiHostOptions,
+  deps: PiHostDeps,
+  completions: HostCompletions,
+  piAdapter: AgentRuntimeAdapter,
+  backends: () => Iterable<HostRuntimeBackendProvider>,
+  emit: Emit,
+): RuntimeCatalogs {
+  let book: Promise<ModelPriceBook | undefined> | undefined;
+  const priceBook = () => book ??= completions.catalogData().then((data) => new ModelPriceBook(data.known, modelReleaseDate), () => {
+    book = undefined;
+    return undefined;
+  });
+  const pi: RuntimeCatalogSource = {
+    kind: "pi",
+    owner: completions,
+    capabilities: piAdapter.capabilities,
+    complete: true,
+    load: async () => {
+      const data = await completions.catalogData();
+      return piNewThreadCatalog({ ...data, book: await priceBook() ?? new ModelPriceBook(data.known, modelReleaseDate) });
+    },
+  };
+  return new RuntimeCatalogs({
+    sources: () => [pi, ...sortByRuntimeOrder([...backends()]).flatMap((provider): RuntimeCatalogSource[] => provider.newThreadCatalog
+      ? [{ kind: provider.kind, owner: provider, capabilities: provider.adapter.capabilities, load: () => provider.newThreadCatalog!() }]
+      : [])],
+    priceBook,
+    publish: (catalog) => emit({ type: "runtime-catalog", catalog }),
+    automatic: options.warmRuntimeCatalogs === true && !deps.safeMode,
+    log: (label, detail) => deps.log(label, detail),
+    ...(options.runtimeCatalogsPath ? { file: options.runtimeCatalogsPath } : {}),
+    ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),
+  });
 }

@@ -16,6 +16,15 @@ const commands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill", des
  * ships one. The host must reach an external runtime through this seam and
  * nothing else, so the tests below need no real backend kit.
  */
+/** The user's model configuration without the user's files: one OpenAI model on a key. */
+const LUNA_DATA = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", baseUrl: "https://api.openai.com/v1", cost: { input: 0.2, output: 1.2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 272_000 };
+const fakeModelRuntime = async () => ({
+  getAvailable: async () => [LUNA_DATA],
+  getModels: () => [LUNA_DATA],
+  getModel: () => undefined,
+  isUsingSubscription: () => false,
+}) as never;
+
 function backendKit(adapter: AgentRuntimeAdapter, composerCommands: readonly UiComposerCommand[] = [], order?: number): HostExtension {
   return {
     id: `test.${adapter.id}`,
@@ -340,14 +349,22 @@ describe("PiHost skill delivery", () => {
         newThreadCatalog: async () => ({ models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }], thinkingLevels: { "gpt-5.6-luna": ["default (low)", "low"] } }),
       }),
     };
-    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [kit] });
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [kit], createModelRuntime: fakeModelRuntime });
     await (host as unknown as { activateHostExtensions(): Promise<void> }).activateHostExtensions();
     await expect(host.runtimeCatalog("codex@work")).resolves.toEqual({
       kind: "codex@work",
-      models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }],
+      // Pi's model data prices a model of another runtime.
+      models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", price: { input: 0.2, output: 1.2 }, contextWindow: 272_000 }],
       thinkingLevels: { "gpt-5.6-luna": ["default (low)", "low"] },
       runtimeCapabilities: { skillInvocationDialect: "codex", fileAttachments: true },
+      checkedAt: expect.any(Number),
     });
+    // Pi's own catalog, before any thread, from the user's configuration.
+    await host.runtimeCatalog("pi");
+    await expect(host.runtimeCatalogs()).resolves.toMatchObject([
+      { kind: "pi", models: [{ provider: "openai", id: "gpt-5.6-luna", billing: "api-key", price: { input: 0.2, output: 1.2 } }] },
+      { kind: "codex@work" },
+    ]);
   });
 
   it("lists runtimes Pi first, then by their order whatever order the kits activated in", async () => {
@@ -371,9 +388,8 @@ describe("PiHost skill delivery", () => {
     await internals.activateHostExtensions();
 
     expect(internals.runtimeBackends()).toEqual([{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "claude-code" }]);
-    // Without `newThreadCatalog` a backend offers a draft nothing; Pi's catalog is the snapshot's.
+    // Without `newThreadCatalog` a backend offers a draft nothing.
     await expect(host.runtimeCatalog("claude-code")).resolves.toBeUndefined();
-    await expect(host.runtimeCatalog("pi")).resolves.toBeUndefined();
     await expect(host.preparePrompt("hello", undefined, undefined, "claude-code")).resolves.toMatchObject({ backendKind: "claude-code" });
     await expect(host.preparePrompt("hello")).resolves.toMatchObject({ backendKind: "pi" });
     await expect(host.preparePrompt("hello", undefined, undefined, "acme")).rejects.toThrow(/not installed/u);

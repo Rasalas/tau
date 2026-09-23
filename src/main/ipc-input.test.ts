@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeKnownCatalogs,
   decodeBoolean,
   decodeClientTurnIdentity,
   decodeCommandName,
@@ -213,6 +214,13 @@ describe("ipc-input decoders", () => {
     it("accepts a typed value answer", () => {
       expect(decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", typed: true })).toEqual({ value: "x", typed: true });
     });
+    it("accepts files attached to a typed answer and refuses a malformed one", () => {
+      const file = { kind: "file", name: "a.txt", mimeType: "text/plain", path: "/tmp/a.txt", size: 3 };
+      expect(decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", typed: true, attachments: [file] })).toEqual({ value: "x", typed: true, attachments: [file] });
+      expect(decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", attachments: [] })).toEqual({ value: "x" });
+      expect(() => decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", attachments: [{ kind: "file" }] })).toThrow();
+      expect(() => decodeExtensionUiAnswer(CHANNEL, "field", { value: "x", attachments: Array.from({ length: 101 }, () => file) })).toThrow();
+    });
     it("rejects an object with none of the known shapes", () => {
       expect(() => decodeExtensionUiAnswer(CHANNEL, "field", {})).toThrow();
     });
@@ -267,6 +275,15 @@ describe("ipc-input decoders", () => {
     it("rejects a non-string", () => {
       expect(() => decodeCommandName(CHANNEL, 5)).toThrow();
     });
+  });
+});
+
+describe("decodeKnownCatalogs", () => {
+  it("takes kind to checkedAt and nothing else", () => {
+    expect(decodeKnownCatalogs("runtime-catalogs", "known", undefined)).toEqual({});
+    expect(decodeKnownCatalogs("runtime-catalogs", "known", { codex: 5, pi: 7 })).toEqual({ codex: 5, pi: 7 });
+    expect(() => decodeKnownCatalogs("runtime-catalogs", "known", { codex: "5" })).toThrow("known.codex must be a finite number");
+    expect(() => decodeKnownCatalogs("runtime-catalogs", "known", [1])).toThrow("must be an object");
   });
 });
 
@@ -352,10 +369,23 @@ describe("decodeConfigPatch", () => {
       .toThrow("update-config: patch.threads.continueAfterRestart must be a boolean");
   });
 
+  it("takes the model picker's preferences per runtime, and rejects a malformed entry", () => {
+    expect(decodeConfigPatch(CH, "patch", { modelPreferences: { codex: { hidden: ["openai/o4-mini"], order: [] } } }))
+      .toEqual({ modelPreferences: { codex: { hidden: ["openai/o4-mini"] } } });
+    expect(() => decodeConfigPatch(CH, "patch", { modelPreferences: { codex: { hidden: [1] } } }))
+      .toThrow("update-config: patch.modelPreferences must map runtimes");
+  });
+
   it("takes the update channel, and only a known one", () => {
     expect(decodeConfigPatch(CH, "patch", { updates: { channel: "nightly" } })).toEqual({ updates: { channel: "nightly" } });
     expect(() => decodeConfigPatch(CH, "patch", { updates: { channel: "beta" } }))
       .toThrow('update-config: patch.updates.channel must be "stable" or "nightly"');
+  });
+
+  it("takes the quit confirmations, and only a known mode", () => {
+    expect(decodeConfigPatch(CH, "patch", { confirm: { quit: "hold", quitWhileRunning: false } })).toEqual({ confirm: { quit: "hold", quitWhileRunning: false } });
+    expect(() => decodeConfigPatch(CH, "patch", { confirm: { quit: "never" } }))
+      .toThrow('update-config: patch.confirm.quit must be "hold", "double-press" or "off"');
   });
 
   it("decodes the keys clear-config removes", () => {

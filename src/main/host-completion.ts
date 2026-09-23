@@ -2,6 +2,7 @@ import { SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-ag
 import type { UiModel } from "../shared/contracts.js";
 import { modelAttribution } from "./model-attribution.js";
 import { modelLogin } from "./model-login.js";
+import type { PiModelData } from "./model-price-book.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
 import type { CompletionRequest } from "./runtime-types.js";
 
@@ -35,6 +36,21 @@ export class HostCompletions {
       name: model.name ?? model.id,
       ...(modelLogin(runtime, model.provider) ? { login: "subscription" as const } : {}),
     }));
+  }
+
+  /**
+   * The same configuration as a catalog's source: what it reaches, everything
+   * Pi's model data knows (for prices), and the default a new Pi thread takes.
+   */
+  async catalogData(): Promise<{ available: readonly PiModelData[]; known(): readonly PiModelData[]; subscription(provider: string): boolean; defaultModel?: PiModelData }> {
+    const runtime = await this.runtime();
+    const defaultModel = this.resolve(runtime, undefined);
+    return {
+      available: await runtime.getAvailable(),
+      known: () => runtime.getModels(),
+      subscription: (provider) => modelLogin(runtime, provider) === "subscription",
+      ...(defaultModel ? { defaultModel } : {}),
+    };
   }
 
   private runtime(): Promise<ModelRuntime> {

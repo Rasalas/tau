@@ -21,7 +21,7 @@ It builds only if `dist-electron/main/index.js` is missing (pass `--build` to fo
 [dev-instance] pid=<pid> port=<port> userData=<path> workspace=<path> sessions=<path> log=<path>
 ```
 
-The instance also gets its own Pi session store, `.tau-dev/pi-sessions`, via `PI_CODING_AGENT_SESSION_DIR`. Pi normally keeps every session under `~/.pi/agent/sessions/<encoded cwd>/`, and Tau's thread index lists all of them across every project — without this, an instance's test threads (a verification run's "Index n" sub-agent threads, for example) would land in the user's real session store and show up in their own Tau sidebar under "All projects". Pi's own directory is the instance's too: `PI_CODING_AGENT_DIR=<worktree>/.tau-dev/pi-agent`, where `auth.json`, `models.json`, `npm`, `extensions` and `keybindings.json` link to the real `~/.pi/agent` and `settings.json`, `models-store.json` and `trust.json` are copied once. Pi writes into its agent dir by itself (`lastChangelogVersion`, the default model when one is picked), so an instance on the real one changes the user's settings. Pass `--real-agent-dir` only for a test that must run on it. Pass `--shared-sessions` for the rare test that needs the user's own real threads (it skips the override and reads/writes `~/.pi/agent/sessions` directly — treat it like `--workspace` pointing outside `.tau-dev`: only use it when the test is specifically about the user's existing threads).
+The instance also gets its own Pi session store, `.tau-dev/pi-sessions`, via `PI_CODING_AGENT_SESSION_DIR`. Pi normally keeps every session under `~/.pi/agent/sessions/<encoded cwd>/`, and Tau's thread index lists all of them across every project — without this, an instance's test threads (a verification run's "Index n" sub-agent threads, for example) would land in the user's real session store and show up in their own Tau sidebar under "All projects". Pi's own directory is the instance's too: `PI_CODING_AGENT_DIR=<worktree>/.tau-dev/pi-agent`, where `auth.json`, `models.json`, `npm` and `extensions` link to the real `~/.pi/agent` and `settings.json`, `models-store.json`, `trust.json` and `keybindings.json` are copied once (Settings → Keybindings writes that file; a link an older instance made becomes a copy on the next start). Pi writes into its agent dir by itself (`lastChangelogVersion`, the default model when one is picked), so an instance on the real one changes the user's settings. Pass `--real-agent-dir` only for a test that must run on it. Pass `--shared-sessions` for the rare test that needs the user's own real threads (it skips the override and reads/writes `~/.pi/agent/sessions` directly — treat it like `--workspace` pointing outside `.tau-dev`: only use it when the test is specifically about the user's existing threads).
 
 Run it with `run_in_background` (or the harness's own backgrounding) — you need the terminal free to drive it. Flags: `--safe` (`TAU_NO_EXTENSIONS=1`), `--fresh` (wipes this instance's userData and its `.tau-dev/pi-sessions` first — safe, since it never wipes outside `.tau-dev`), `--shared-sessions` (use the real `~/.pi/agent/sessions` instead of the isolated one), `--workspace <path>` (an existing repo instead of the scratch one), `--port <n>` (pin the port), `--agent-dir <path>` (sets `PI_CODING_AGENT_DIR`, Pi's own config directory, for this instance).
 
@@ -38,7 +38,7 @@ echo '{"app.session.new": "mod+shift+d"}' > /tmp/tau-shadow-agent/keybindings.js
 npm run dev:instance -- --build --agent-dir /tmp/tau-shadow-agent
 ```
 
-Symlink whatever the test needs from the real dir (auth, settings, the `npm` extension cache, …) so models and extensions keep working; write `keybindings.json` itself as a plain file so the instance reads your test's bindings. Never write into the real `~/.pi/agent` — the shadow directory is the only thing that ever changes.
+Symlink whatever the test needs from the real dir (auth, settings, the `npm` extension cache, …) so models and extensions keep working; write `keybindings.json` itself as a plain file so the instance reads your test's bindings — never a link, since Settings → Keybindings writes through a symlink to its target. Never write into the real `~/.pi/agent` — the shadow directory is the only thing that ever changes.
 
 ### Codex runs in a shadow home
 
@@ -64,7 +64,7 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 
 - `snapshot` — a compact text outline of the workbench: headings, buttons with aria-labels, thread rows (marking the active one), toasts, composer state (`value`, `streaming`, `sendDisabled`, `sendBusy`), and active dock panels. Run this first on any turn, before clicking anything blind.
 - `eval <expr>` — runs an async JS expression in the renderer. In scope: `all(sel)`, `byText(sel, /re/)`, `rect(el)`, `setValue(el, v)`, `sleep(ms)`, `toasts()`.
-- `click <expr>` — resolves `expr` to an element and dispatches real `mouseMoved`/`mousePressed`/`mouseReleased` events at its center. A plain `el.click()` is ignored by React-controlled rows in the sidebar; this is why `click` exists instead of `eval`-ing `.click()`.
+- `click <expr>` — resolves `expr` to an element, scrolls it into view and dispatches real `mouseMoved`/`mousePressed`/`mouseReleased` events at its center. A plain `el.click()` is ignored by React-controlled rows in the sidebar; this is why `click` exists instead of `eval`-ing `.click()`.
 - `hover <expr>` — moves the mouse onto the element's center without pressing, so a tooltip opens after its delay.
 - `rightclick <expr>` — a right-click at the element's center. Where the page asks for the OS's menu, that menu is a native window CDP cannot drive; capture it with `screencapture -l <id>` of a window your instance's PID owns and stop the instance to close it.
 - `type <expr> <text>` — sets a textarea's value through its native setter and fires `input`, the way React's controlled composer expects.
@@ -74,6 +74,35 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 - `toasts` — the current toast list as JSON.
 - `pid` — the instance's own Electron PID, found by cross-checking the port's devtools endpoint against `ps`. Kill only this PID.
 - `stop` — stops the instance: SIGTERM, then SIGKILL if it is still alive after ~2s. Electron's main process does not reliably quit on SIGTERM alone (it installs no handler of its own) — use this instead of a bare `kill <pid>`, which can leave the process running indefinitely.
+
+## Recipe: from a fresh instance to a test reply
+
+A `--fresh` instance opens the welcome wizard, and it inherits the user's Pi default model from the copied `settings.json`, which may be an expensive one. Never send before the chip names a cheap model: GPT-5.6 Luna (or Codex's smallest with the shadow `CODEX_HOME`); never Sol, Fable or Opus.
+
+```
+# welcome wizard: agents → projects → conversations
+npm run cdp -- click "byText('button', /^Continue/)"
+npm run cdp -- click "byText('button', /^Do not add projects/)"
+npm run cdp -- click "byText('button', /^Do not import/)"
+
+# a new thread's draft, then the model
+npm run cdp -- press mod+n
+npm run cdp -- click "all('button').find(b => /^Select model/.test(b.getAttribute('aria-label') ?? ''))"
+npm run cdp -- click "all('[role=option]').find(o => /^GPT-5\.6 Luna, Pi\b/.test(o.getAttribute('aria-label') ?? ''))"
+npm run cdp -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select model/.test(t))"
+#   must print "Select model: GPT-5.6 Luna" — otherwise stop here
+
+# send, then wait for the assistant's message and the end of the stream
+npm run cdp -- type "document.querySelector('textarea')" "Reply with one word: ok"
+npm run cdp -- press Enter
+npm run cdp -- wait-for "document.querySelector('.message.assistant') && !document.querySelector('.send-button.stop')" 90000
+npm run cdp -- snapshot
+```
+
+- Picker rows are `role="option"` with an aria-label `<model>, <runtime or instance>, <billing>[, in use]`; the search field has the focus when the picker opens, so typing narrows it across all runtimes. Pick by aria-label, not by text: several runtimes can offer the same model.
+- Proof of the model: the thread's session file under `.tau-dev/pi-sessions/` has a `model_change` to `gpt-5.6-luna` before the user message, and the assistant message carries `"model":"gpt-5.6-luna"`. A `model_change` to the inherited default at the very start is normal.
+- Waiting for a word of the reply in the page's text is a trap: the prompt itself contains it.
+- In zsh, call `npm run cdp -- …` per step; a command kept in a variable (`C="npm run cdp --"; $C …`) is not split into words.
 
 ## Known traps
 

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { errorMessage, type HostExtensionClient } from "tau";
-import type { PublishInfo, PublishResult, RequestService } from "./protocol.js";
+import { PROVIDERS, type PublishInfo, type PublishResult, type RequestService } from "./protocol.js";
 
-const LABELS: Record<RequestService, string> = { github: "GitHub", gitlab: "GitLab" };
+const LABELS: Record<RequestService, string> = Object.fromEntries(Object.values(PROVIDERS).map((entry) => [entry.kind, entry.name])) as Record<RequestService, string>;
 const VALID_PATH = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_.][A-Za-z0-9_.-]*)*$/u;
 
 type Visibility = "private" | "public";

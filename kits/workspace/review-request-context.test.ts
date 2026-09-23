@@ -59,6 +59,21 @@ describe("review request context", () => {
     expect(context.template).toBe("## Summary\n\n## Testing");
   });
 
+  it("reads the template folders of Forgejo, Gitea and Azure DevOps", async () => {
+    for (const path of [".gitea/pull_request_template.md", ".forgejo/PULL_REQUEST_TEMPLATE.md", ".azuredevops/pull_request_template.md"]) {
+      const { work } = await repositoryWithRemote();
+      await git(work, "switch", "main");
+      await rm(join(work, ".github"), { recursive: true });
+      await mkdir(join(work, path.split("/")[0]!));
+      await writeFile(join(work, path), `## From ${path}\n`);
+      await git(work, "add", "-A");
+      await git(work, "commit", "-m", "chore: move the template");
+      await git(work, "push");
+      await git(work, "switch", "feature/pr");
+      expect((await readReviewRequestContext(work, { detail: true })).template).toBe(`## From ${path}`);
+    }
+  });
+
   it("ignores a template that is a symlink in the base tree", async () => {
     const { work } = await repositoryWithRemote();
     await git(work, "switch", "main");

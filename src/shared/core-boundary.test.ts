@@ -53,7 +53,7 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  * not. `test-support` is excluded from the walk, so harnesses are free.
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
-  "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
+  "./app-menu.js",   "./app-shell.js",   "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
   "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-tool-output.js",   "./client-turn-ledger.js",
   "./cli-versions.js",   "./clone-source.js",   "./config-watcher.js",   "./dangling-tool-calls.js",   "./desktop-extensions.js",
@@ -71,14 +71,14 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-transcript.js",   "./host-transport-clients.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
-  "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-login.js",   "./models-config.js",   "./packaged-app.js",
+  "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",
   "./opencode-catalog.js",
   "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
   "./pi-host-components.js",   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
   "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",   "./platform-process.js",
   "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",   "./remote-host-trust.js",
   "./prompt-attachments.js",   "./prompt-preparation.js",   "./resource-discovery-cache.js",
-  "./runtime-adapters.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
+  "./runtime-adapters.js",   "./runtime-catalogs.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
   "./runtime-instance-settings.js",   "./runtime-types.js",   "./runtime-versions.js",   "./self-signed-certificate.js",   "./session-entries.js",   "./session-events.js",
   "./session-lineage.js",   "./session-model-provider.js",   "./session-usage.js",
   "./shared-files.js",   "./shell-environment.js",   "./single-instance.js",   "./skill-invocation.js",   "./small-completion-model.js",
@@ -87,10 +87,12 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",   "./unavailable-thread-backend.js",
-  "./queued-messages.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
+  "./queued-messages.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
   "./window-attention.js",   "./window-context-menu.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",
+  // Runtime-neutral helpers backends share (API 1.12.0), and files that go with an answer.
+  "./turn-activity-store.js",   "./elicitation-form.js",   "./answer-attachments.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "../../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot } from "../../shared/contracts";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { TestProviders } from "../test-support/test-providers";
 import { WorkbenchShellContext } from "../workbench-context";
@@ -57,6 +57,97 @@ describe("prompt controls in the composer", () => {
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
     expect(onAnswerPrompt).toHaveBeenCalledWith("Continue", true);
+  });
+
+  it("sends the files waiting in the composer with a typed answer, or alone, and keeps them from a choice", async () => {
+    const onAnswerPrompt = vi.fn();
+    const onSubmit = vi.fn(async () => ({ accepted: true as const }));
+    const scopeStore = new ComposerScopeStore();
+    const view = (prompt: ExtensionUiPrompt) => (
+      <TestProviders>
+        <Composer
+          scopeStore={scopeStore}
+          snapshot={{ ...snapshot, supportsImageInput: true }}
+          prompt={prompt}
+          queue={[]}
+          contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+          textareaRef={createRef<HTMLTextAreaElement>()}
+          onSubmit={onSubmit}
+          onAbort={() => {}}
+          onCancelQueued={() => {}}
+          onSteerQueued={() => {}}
+          onSetModel={() => {}}
+          onSetThinking={() => {}}
+          onAnswerPrompt={onAnswerPrompt}
+          onCompactContext={() => {}}
+        />
+      </TestProviders>
+    );
+    const approval: ExtensionUiPrompt = { id: "approve", sessionId: "session", kind: "select", title: "Run it?", options: ["Allow", "Deny"] };
+    const { rerender } = render(view(approval));
+    const attach = async (name: string) => {
+      fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [new File([new Uint8Array([137, 80, 78, 71])], name, { type: "image/png" })] } });
+      await screen.findByRole("button", { name: `Preview ${name}` });
+    };
+    await attach("shot.png");
+    // A pick among fixed choices takes no files; an image alone does not answer it.
+    expect((screen.getByRole("button", { name: "Send answer" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/or answer below$/u)).toBeTruthy();
+
+    rerender(view({ id: "why", sessionId: "session", kind: "input", title: "Why?" }));
+    expect(screen.getByText("answer below; attached files go with it")).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText(/Answer yourself/u), { target: { value: "Because" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
+    await waitFor(() => expect(onAnswerPrompt).toHaveBeenCalledOnce());
+    expect(onAnswerPrompt.mock.calls[0]).toEqual(["Because", true, [expect.objectContaining({ kind: "image", name: "shot.png" })]]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Preview shot.png" })).toBeNull());
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    rerender(view({ id: "more", sessionId: "session", kind: "input", title: "Anything else?" }));
+    await attach("second.png");
+    const send = screen.getByRole("button", { name: "Send answer" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+    fireEvent.click(send);
+    await waitFor(() => expect(onAnswerPrompt).toHaveBeenCalledTimes(2));
+    expect(onAnswerPrompt.mock.calls[1]).toEqual(["", true, [expect.objectContaining({ name: "second.png" })]]);
+  });
+
+  it("answers the question a prompt still in flight asked, with its files", async () => {
+    const onAnswerPrompt = vi.fn();
+    // The prompt that runs the asking command settles only once the question is answered.
+    const onSubmit = vi.fn(() => new Promise<{ accepted: true }>(() => {}));
+    const scopeStore = new ComposerScopeStore();
+    const view = (prompt?: ExtensionUiPrompt) => (
+      <TestProviders>
+        <Composer
+          scopeStore={scopeStore}
+          snapshot={{ ...snapshot, isStreaming: false, supportsImageInput: true }}
+          {...(prompt ? { prompt } : {})}
+          queue={[]}
+          contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+          textareaRef={createRef<HTMLTextAreaElement>()}
+          onSubmit={onSubmit}
+          onAbort={() => {}}
+          onCancelQueued={() => {}}
+          onSteerQueued={() => {}}
+          onSetModel={() => {}}
+          onSetThinking={() => {}}
+          onAnswerPrompt={onAnswerPrompt}
+          onCompactContext={() => {}}
+        />
+      </TestProviders>
+    );
+    const { rerender } = render(view());
+    fireEvent.change(screen.getByPlaceholderText(/./u), { target: { value: "/ask" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+
+    rerender(view({ id: "why", sessionId: "session", kind: "input", title: "Why?" }));
+    fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [new File([new Uint8Array([137, 80, 78, 71])], "late.png", { type: "image/png" })] } });
+    await screen.findByRole("button", { name: "Preview late.png" });
+    fireEvent.change(screen.getByPlaceholderText(/Answer yourself/u), { target: { value: "Here" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
+    await waitFor(() => expect(onAnswerPrompt).toHaveBeenCalledWith("Here", true, [expect.objectContaining({ name: "late.png" })]));
   });
 
   it("submits registered prompt actions from the composer button and on Enter", () => {

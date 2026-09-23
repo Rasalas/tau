@@ -43,7 +43,12 @@ import { showWindowContextMenu } from "./window-context-menu.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
-import { createAppUpdates, installUpdateMenuItem, readUpdateFeed, type AppUpdates } from "./app-updates.js";
+import { createAppUpdates, readUpdateFeed, type AppUpdates } from "./app-updates.js";
+import { appMenuTemplate, nextZoomLevel } from "./app-menu.js";
+import { createAppShell } from "./app-shell.js";
+import { createQuitShortcut } from "./quit-shortcut.js";
+import { ReleaseNotesStore, fileReleaseNotes, githubReleaseNotes } from "./release-notes.js";
+import { DEFAULT_QUIT_CONFIRMATION, type QuitConfirmation, type WindowShellEvent } from "../shared/window-shell.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 /** The packaged launcher sets this when it hands execution to a built checkout. */
@@ -130,6 +135,8 @@ const hostOptions = {
   threadLimitsPath: join(app.getPath("userData"), "thread-limits.json"),
   threadTrashDir: join(app.getPath("userData"), "thread-trash"),
   sessionLineageCachePath: join(app.getPath("userData"), "session-lineage.json"),
+  runtimeCatalogsPath: join(app.getPath("userData"), "runtime-catalogs.json"),
+  warmRuntimeCatalogs: true,
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {
@@ -226,15 +233,14 @@ const windowAttention = createWindowAttention({
     mainWindow.focus();
     return true;
   },
+  platform: process.platform,
   setBadgeCount: (count) => app.setBadgeCount(count),
-  ...(process.platform === "win32" ? {
-    setOverlayBadge: (count: number) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return false;
-      const icon = count > 0 ? nativeImage.createFromBitmap(overlayBadgeBitmap(), { width: OVERLAY_BADGE_SIZE, height: OVERLAY_BADGE_SIZE }) : null;
-      mainWindow.setOverlayIcon(icon, count > 0 ? `${count} unseen` : "");
-      return true;
-    },
-  } : {}),
+  setOverlayBadge: (count: number) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    const icon = count > 0 ? nativeImage.createFromBitmap(overlayBadgeBitmap(), { width: OVERLAY_BADGE_SIZE, height: OVERLAY_BADGE_SIZE }) : null;
+    mainWindow.setOverlayIcon(icon, count > 0 ? `${count} unseen` : "");
+    return true;
+  },
   log: (label, detail) => hostLog.info(label, { ...detail as object, ...(app.dock ? { dock: app.dock.getBadge() } : {}) }),
 });
 /** Right-click menus the page asks for; the coordinates arrive in CSS pixels of the page. */
@@ -248,6 +254,34 @@ const windowContextMenu = (entries: NativeMenuEntry[], point: MenuPoint): Promis
 }, entries, point);
 /** Workspace files the page loads by URL; only a host on this machine has files here to serve. */
 const sharedFiles = new SharedFileStore(() => remoteHostUrl ? undefined : windowHost?.activeWorkspace || host?.activeWorkspacePath());
+/** The notes of the version that just started, shown once; created with the update feed. */
+let releaseNotes: ReleaseNotesStore | undefined;
+/** How ⌘Q quits, from this machine's config; read again when the config changes. */
+let quitConfirmation: QuitConfirmation = DEFAULT_QUIT_CONFIRMATION;
+async function readShellConfig(): Promise<void> {
+  const config = await defaultHostConfigManager.read().catch(() => undefined);
+  quitConfirmation = config?.confirm?.quit ?? DEFAULT_QUIT_CONFIRMATION;
+}
+/** Menu, quit and release notes between this process and its page (`src/shared/window-shell.ts`). */
+const appShell = createAppShell({
+  publish: (event) => publishWindowShell(event),
+  hasPage: () => Boolean(mainWindow && !mainWindow.isDestroyed()),
+  pasteAsText: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.pasteAndMatchStyle(); },
+  showWindow: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setOpacity(1); },
+  checkForUpdates: () => void updates?.checkForUpdates(),
+  updateReady: () => updates?.downloaded(),
+  releaseNotes: {
+    pending: async () => releaseNotes?.pending(),
+    seen: async (version) => releaseNotes?.seen(version),
+  },
+});
+const quitShortcut = createQuitShortcut({
+  platform: process.platform,
+  mode: () => quitConfirmation,
+  hint: (event) => publishWindowShell({ kind: "quit-shortcut", ...event }),
+  conceal: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setOpacity(0); },
+  quit: () => app.quit(),
+});
 /** Tracks repeated renderer crashes so a second one within the window gives up on reloading. */
 let lastRenderProcessGoneAt: number | undefined;
 
@@ -261,8 +295,25 @@ function publish(event: HostEvent): void {
   // Drop a deactivated extension's bundle so tau-ext: returns 404 for it rather
   // than serving code the user switched off until the next full reload.
   if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId);
-  if (event.type === "config-changed") void updates?.channelChanged();
+  if (event.type === "config-changed") onConfigChanged();
   broadcast(event);
+}
+
+/** Only this window's page listens; the host never publishes these. */
+function publishWindowShell(event: WindowShellEvent): void {
+  publish({ type: "window-shell", event });
+}
+
+function onConfigChanged(): void {
+  void updates?.channelChanged();
+  void readShellConfig();
+}
+
+/** The workbench page's own zoom, never the preview's, whichever view has the keyboard. */
+function zoomWorkbench(direction: "in" | "out" | "reset"): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const contents = mainWindow.webContents;
+  contents.setZoomLevel(nextZoomLevel(contents.getZoomLevel(), direction));
 }
 
 /** One sequence for every transport, so a replay is the same list everywhere. */
@@ -329,6 +380,7 @@ function openWindow(): BrowserWindow {
     event.preventDefault();
     openExternally(url);
   });
+  mainWindow.webContents.on("before-input-event", quitShortcut);
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     hostLog.error("renderer.render-process-gone", details);
     const now = Date.now();
@@ -433,7 +485,7 @@ async function startHostProcess(): Promise<void> {
       // Drop a deactivated extension's bundle so tau-ext: returns 404 for it
       // rather than serving code the user switched off.
       if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId);
-      if (event.type === "config-changed") void updates?.channelChanged();
+      if (event.type === "config-changed") onConfigChanged();
     },
     onCertificateRefused: (error) => remoteTrust?.refuse(error.presented),
   });
@@ -543,6 +595,7 @@ function createLocalHostMethods(): HostMethodTable {
       notify: windowAttention.notify,
       setBadge: windowAttention.setBadge,
       showContextMenu: windowContextMenu,
+      windowAction: appShell.act,
     },
   });
 }
@@ -580,6 +633,7 @@ function createWindowPlatform(): ClientHostPlatform {
     notify: windowAttention.notify,
     setBadge: windowAttention.setBadge,
     showContextMenu: windowContextMenu,
+    windowAction: appShell.act,
   };
 }
 
@@ -649,18 +703,36 @@ if (primaryInstance) app.whenReady().then(async () => {
     userData: app.getPath("userData"),
   });
   if (appIconPath) app.dock?.setIcon(appIconPath);
+  const feed = app.isPackaged ? readUpdateFeedFile() : undefined;
+  // A fixture stands in for the release where nothing may be fetched (a dev instance, a test).
+  const notesFile = process.env.TAU_RELEASE_NOTES_FILE;
+  releaseNotes = new ReleaseNotesStore({
+    file: join(app.getPath("userData"), "release-notes.json"),
+    currentVersion: app.getVersion(),
+    ...(notesFile ? { source: fileReleaseNotes(notesFile) } : feed ? { source: githubReleaseNotes(feed) } : {}),
+    log: (label, detail) => hostLog.warn(label, detail),
+  });
+  void releaseNotes.start();
   updates = createAppUpdates({
     updater: electronUpdater.autoUpdater,
     enabled: app.isPackaged,
     log: hostLog,
-    onDownloaded: (version) => publish({ type: "app-update", version }),
+    onDownloaded: (version, info) => {
+      publish({ type: "app-update", version });
+      void releaseNotes?.downloaded(version, info.releaseNotes);
+    },
     currentVersion: app.getVersion(),
-    ...(app.isPackaged ? { feed: readUpdateFeedFile() } : {}),
+    ...(feed ? { feed } : {}),
     // This machine's config file: the updater belongs to the machine, not to a remote host.
     channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
   });
-  installUpdateMenuItem(() => void updates?.checkForUpdates());
-  updates.checkOnStartup();
+  Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(process.platform, app.name, {
+    checkForUpdates: () => void updates?.checkForUpdates(),
+    pageAction: (action) => publishWindowShell({ kind: "menu", action }),
+    zoom: zoomWorkbench,
+  })));
+  void readShellConfig();
+  updates.start();
   serveDesktopBundles(desktopBundles, sharedFiles);
   // Nothing in the workbench asks for a camera, a microphone or a location, and
   // an extension rendering inside it must not be able to ask on its behalf.
@@ -714,14 +786,22 @@ if (primaryInstance) app.on("before-quit", (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   void (async () => {
-    if (host) await host.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
-    if (windowHost) await windowHost.stop(quitAfterWindowClosed || await keepHostRunning());
-  })()
-    .catch((error: unknown) => hostLog.error("host.shutdown.failed", error))
-    .finally(() => {
-      shutdownComplete = true;
-      app.quit();
-    });
+    const hostStays = Boolean(windowHost) && (quitAfterWindowClosed || await keepHostRunning());
+    // Threads stop with the host; the page asks first when any are working.
+    if (!hostStays && !await appShell.confirmQuit()) {
+      shutdownStarted = false;
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setOpacity(1);
+      return;
+    }
+    try {
+      if (host) await host.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
+      if (windowHost) await windowHost.stop(hostStays);
+    } catch (error: unknown) {
+      hostLog.error("host.shutdown.failed", error);
+    }
+    shutdownComplete = true;
+    app.quit();
+  })();
 });
 
 function readUpdateFeedFile() {

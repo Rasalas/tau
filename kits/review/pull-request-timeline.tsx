@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CircleCheck, CircleX, GitCommitHorizontal, GitMerge, GitPullRequest, GitPullRequestClosed, MessageSquare } from "lucide-react";
 import { Markdown, type WorkbenchActions } from "tau";
-import type { PullRequestDetail } from "./protocol.js";
+import { providerInfo, type PullRequestDetail } from "./protocol.js";
 import { buildTimeline, relativeTime, shortNoun, type TimelineItem } from "./pull-request-logic.js";
 import { verdictWord } from "./pull-request-parts.js";
 
@@ -36,7 +36,7 @@ function Conversation({ item, actions }: { item: Extract<TimelineItem, { kind: "
  */
 export function PullRequestTimeline({ detail, oldestFirst, actions }: { detail: PullRequestDetail; oldestFirst: boolean; actions: WorkbenchActions }) {
   const items = useMemo(() => buildTimeline(detail, oldestFirst), [detail, oldestFirst]);
-  const noun = detail.ref.service === "gitlab" ? "Merge request" : "Pull request";
+  const noun = providerInfo(detail.ref.service).noun.replace(/^./u, (first) => first.toUpperCase());
   if (items.length === 0) return <p className="pr-empty pr-pad">No activity yet.</p>;
   return (
     <ol className="pr-timeline" aria-label={`${shortNoun(detail.ref.service)} #${detail.ref.number} timeline`}>

@@ -1362,6 +1362,286 @@
      ]
     }
    }
+  ],
+  "elicitation": [
+   {
+    "method": "turn/started",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "status": "inProgress",
+      "error": null
+     }
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "mcpToolCall",
+      "id": "mcp-1",
+      "server": "deploy",
+      "tool": "release",
+      "status": "inProgress",
+      "arguments": {},
+      "result": null,
+      "error": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}"
+    }
+   },
+   {
+    "method": "mcpServer/elicitation/request",
+    "id": 0,
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "serverName": "deploy",
+     "mode": "form",
+     "_meta": null,
+     "message": "Where should it go?",
+     "requestedSchema": {
+      "type": "object",
+      "properties": {
+       "env": {
+        "type": "string",
+        "title": "Environment",
+        "oneOf": [
+         {
+          "const": "stg",
+          "title": "Staging"
+         },
+         {
+          "const": "prd",
+          "title": "Production"
+         }
+        ]
+       },
+       "note": {
+        "type": "string",
+        "title": "Note"
+       }
+      },
+      "required": [
+       "env"
+      ]
+     }
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "mcpToolCall",
+      "id": "mcp-1",
+      "server": "deploy",
+      "tool": "release",
+      "status": "completed",
+      "arguments": {},
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "released"
+        }
+       ]
+      },
+      "error": null
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}"
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg-e1",
+      "text": "",
+      "phase": "final_answer"
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}"
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg-e1",
+      "text": "released",
+      "phase": "final_answer"
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}"
+    }
+   },
+   {
+    "method": "turn/completed",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "status": "completed",
+      "error": null
+     }
+    }
+   }
+  ],
+  "permissions": [
+   {
+    "method": "turn/started",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "status": "inProgress",
+      "error": null
+     }
+    }
+   },
+   {
+    "method": "item/permissions/requestApproval",
+    "id": 0,
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "perm-1",
+     "environmentId": null,
+     "startedAtMs": 1790104690000,
+     "cwd": "{cwd}",
+     "reason": "Fetch the release notes",
+     "permissions": {
+      "network": {
+       "enabled": true
+      },
+      "fileSystem": {
+       "read": null,
+       "write": [
+        "{cwd}/notes"
+       ]
+      }
+     }
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg-p1",
+      "text": "",
+      "phase": "final_answer"
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}"
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg-p1",
+      "text": "ok",
+      "phase": "final_answer"
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}"
+    }
+   },
+   {
+    "method": "turn/completed",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "status": "completed",
+      "error": null
+     }
+    }
+   }
+  ],
+  "question": [
+   {
+    "method": "turn/started",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "status": "inProgress",
+      "error": null
+     }
+    }
+   },
+   {
+    "method": "item/tool/requestUserInput",
+    "id": 0,
+    "params": {
+     "threadId": "{thread}",
+     "turnId": "{turn}",
+     "itemId": "ask-1",
+     "isBlocking": true,
+     "autoResolutionMs": null,
+     "questions": [
+      {
+       "id": "why",
+       "header": "Reason",
+       "question": "Why?",
+       "isOther": true,
+       "isSecret": false,
+       "options": null
+      }
+     ]
+    }
+   },
+   {
+    "method": "item/started",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg-q1",
+      "text": "",
+      "phase": "final_answer"
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}"
+    }
+   },
+   {
+    "method": "item/completed",
+    "params": {
+     "item": {
+      "type": "agentMessage",
+      "id": "msg-q1",
+      "text": "thanks",
+      "phase": "final_answer"
+     },
+     "threadId": "{thread}",
+     "turnId": "{turn}"
+    }
+   },
+   {
+    "method": "turn/completed",
+    "params": {
+     "threadId": "{thread}",
+     "turn": {
+      "id": "{turn}",
+      "items": [],
+      "status": "completed",
+      "error": null
+     }
+    }
+   }
   ]
  }
 }

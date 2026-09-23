@@ -316,8 +316,10 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         id: "handoff.continue-in",
         label: "Continue in…",
         group: "Thread",
-        surfaces: ["thread-title"],
-        run: (actions) => {
+        // From the model picker, with the runtime the user pointed at.
+        surfaces: ["thread-title", "runtime-switch"],
+        run: (actions, target) => {
+          if (target?.runtime) return continueIn(target.runtime, actions);
           const thread = currentThread(actions);
           if (thread) store.openPicker(thread.sessionId);
           else actions.notify("Open a thread to continue it elsewhere.");

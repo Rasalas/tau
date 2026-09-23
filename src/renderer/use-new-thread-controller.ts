@@ -36,5 +36,7 @@ export function useNewThreadController(storage: ClientStorage) {
     promoteFromUserMessage: controller.promoteFromUserMessage,
     setModel: controller.setModel,
     setMode: controller.setMode,
+    switchRuntime: controller.switchRuntime,
+    carryToNextDraft: controller.carryToNextDraft,
   };
 }

@@ -1,6 +1,7 @@
-import type { BackendPrompt, ExtensionUiAnswer, RuntimePermissionLevel } from "tau/host-extension";
+import { elicitationFieldTitle, elicitationFields, type BackendPrompt, type ElicitationField, type ElicitationOutcome, type ExtensionUiAnswer, type RuntimePermissionLevel } from "tau/host-extension";
 import type { CodexPolicy } from "./app-server.js";
 import { displayCommand } from "./events.js";
+import { tagQuestionnaire, type QuestionnaireQuestion } from "./protocol.js";
 
 /**
  * Codex's requests to Tau on the workbench's dialog surface, and Tau's access
@@ -59,12 +60,19 @@ function approval(title: string, message: string, words: typeof V2_WORDS, wrap: 
 
 interface Question { id: string; header?: string; question: string; isOther?: boolean; options?: Array<{ label: string; description?: string }> | null }
 
-/** One dialog per question; a question without choices is free text. */
+/** One dialog per question, paged together; a question without choices is free text. */
 function questions(list: readonly Question[]): ApprovalDialog {
+  const titled = list.map((question) => ({ question: clip(question.question || question.header || "Codex asks"), header: question.header?.trim() ?? "", options: question.options ?? [] }));
+  const paged: QuestionnaireQuestion[] = titled.map((question) => ({ ...question, multiSelect: false, options: question.options.map((option) => ({ label: option.label, description: option.description ?? "" })) }));
   return {
-    prompts: list.map((question): BackendPrompt => question.options?.length
-      ? { kind: "select", title: clip(question.question || question.header || "Codex asks"), options: question.options.map((option) => option.label) }
-      : { kind: "input", title: clip(question.question || question.header || "Codex asks") }),
+    prompts: titled.map((question, index): BackendPrompt => {
+      const title = question.header ? `[${question.header}] ${question.question}` : question.question;
+      const prompt: BackendPrompt = question.options.length
+        ? { kind: "select", title, options: question.options.map((option) => option.label) }
+        : { kind: "input", title };
+      if (list.length > 1) tagQuestionnaire(prompt, index, paged);
+      return prompt;
+    }),
     resultFor: (answers) => ({
       answers: Object.fromEntries(list.flatMap((question, index) => {
         const answer = answers[index];
@@ -94,7 +102,7 @@ export function approvalDialog(method: string, params: Record<string, unknown>, 
     case "item/permissions/requestApproval": {
       const requested = (params.permissions ?? {}) as Record<string, unknown>;
       const granted = Object.fromEntries(Object.entries(requested).filter(([, value]) => value !== null && value !== undefined));
-      return approval("Codex asks for more permissions", [reason, JSON.stringify(granted)].filter(Boolean).join("\n"), V2_WORDS, (word) => word === "accept" || word === "acceptForSession"
+      return approval("Codex asks for more permissions", [reason, ...permissionLines(granted)].filter(Boolean).join("\n"), V2_WORDS, (word) => word === "accept" || word === "acceptForSession"
         ? { permissions: granted, scope: word === "acceptForSession" ? "session" : "turn" }
         : { permissions: {}, scope: "turn" });
     }
@@ -109,9 +117,8 @@ export function approvalDialog(method: string, params: Record<string, unknown>, 
       return approval("Codex wants to edit files", [paths.join("\n"), reason].filter(Boolean).join("\n"), LEGACY_WORDS, (word) => ({ decision: word === "denied" ? { denied: { rejection: "The user declined." } } : word }));
     }
     case "mcpServer/elicitation/request": {
-      // Only a plain yes/no is answerable here; a form with fields is declined.
-      const schema = (params.requestedSchema ?? {}) as { properties?: Record<string, unknown> };
-      if (params.mode !== "form" || Object.keys(schema.properties ?? {}).length > 0) return undefined;
+      // A form with fields is asked field by field (`elicitationForm`); this is the plain yes/no.
+      if (elicitationForm(params)?.fields.length !== 0) return undefined;
       return {
         prompts: [{ kind: "select", title: `${String(params.serverName ?? "An MCP server")} asks`, message: clip(String(params.message ?? "")), options: [ALLOW, DENY] }],
         resultFor: ([answer]) => ({ action: answer && "value" in answer && answer.value === ALLOW ? "accept" : "decline", content: {}, _meta: null }),
@@ -120,6 +127,51 @@ export function approvalDialog(method: string, params: Record<string, unknown>, 
     default:
       return undefined;
   }
+}
+
+/** What a permission profile grants, one line per kind, as the card reads it. */
+export function permissionLines(permissions: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+  const network = permissions.network as { enabled?: unknown } | undefined;
+  if (network?.enabled === true) lines.push("Network access");
+  const files = permissions.fileSystem as { read?: unknown; write?: unknown; entries?: unknown } | undefined;
+  const paths = (value: unknown) => Array.isArray(value) ? value.filter((path): path is string => typeof path === "string") : [];
+  if (paths(files?.read).length) lines.push(`Read: ${paths(files?.read).join(", ")}`);
+  if (paths(files?.write).length) lines.push(`Write: ${paths(files?.write).join(", ")}`);
+  const entries = Array.isArray(files?.entries) ? files.entries.length : 0;
+  if (entries > 0 && !paths(files?.read).length && !paths(files?.write).length) lines.push(`File system: ${entries} ${entries === 1 ? "entry" : "entries"}`);
+  const known = new Set(["network", "fileSystem"]);
+  for (const [kind, value] of Object.entries(permissions)) {
+    if (!known.has(kind)) lines.push(`${kind}: ${clip(JSON.stringify(value))}`);
+  }
+  return lines;
+}
+
+/** Form modes Codex spells differently; the URL and user-verification modes are not forms. */
+const FORM_MODES = new Set(["form", "openai/form", "openaiForm"]);
+
+/** An elicitation Tau can ask as a form, or undefined. */
+export function elicitationForm(params: Record<string, unknown>): { source: string; message: string; fields: ElicitationField[] } | undefined {
+  if (!FORM_MODES.has(String(params.mode))) return undefined;
+  const fields = elicitationFields(params.requestedSchema ?? { properties: {} });
+  return fields ? { source: String(params.serverName ?? "MCP server"), message: clip(String(params.message ?? "")), fields } : undefined;
+}
+
+/** Tags each field's dialog so Questionnaire Kit pages through the form; one field needs no pager. */
+export function pageElicitation(source: string) {
+  return (prompt: BackendPrompt, index: number, fields: readonly ElicitationField[]): void => {
+    if (fields.length < 2) return;
+    tagQuestionnaire(prompt, index, fields.map((field) => ({
+      question: elicitationFieldTitle(field),
+      header: source,
+      multiSelect: field.kind === "choices",
+      options: field.kind === "boolean" ? [{ label: "Yes", description: "" }, { label: "No", description: "" }] : (field.options ?? []).map((option) => ({ label: option.label, description: "" })),
+    })));
+  };
+}
+
+export function elicitationResult(outcome: ElicitationOutcome): unknown {
+  return outcome.action === "accept" ? { action: "accept", content: outcome.content, _meta: null } : { action: outcome.action, content: null, _meta: null };
 }
 
 /** What Codex gets back for a request no dialog answers. */

@@ -2,7 +2,8 @@
 // and thread requests and replays turns recorded from codex-cli 0.154.0
 // (app-server-frames.json). A prompt containing `[scenario:<name>]` picks the
 // recording; `interrupt` stops at its approval and waits for `turn/interrupt`,
-// `crash` exits mid-turn.
+// `crash` exits mid-turn. `elicitation`, `permissions` and `question` are
+// written from the protocol's schema (codex-cli 0.156.1), not recorded.
 // STUB_LOG names a file every client message is appended to; STUB_THREADS a
 // file of thread ids that survive a restart.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -65,7 +66,8 @@ async function handle(message) {
   if (id === undefined) return;
   switch (method) {
     case "initialize": return send({ id, result: { userAgent: "stub", codexHome: process.env.CODEX_HOME ?? "/stub/.codex", platformFamily: "unix", platformOs: "macos" } });
-    case "account/read": return send({ id, result: { account: { type: "chatgpt", email: null, planType: "pro" }, requiresOpenaiAuth: true } });
+    // A `signed-out` file in the home stands for a CLI nobody logged in to.
+    case "account/read": return send({ id, result: { account: process.env.CODEX_HOME && existsSync(join(process.env.CODEX_HOME, "signed-out")) ? null : { type: "chatgpt", email: null, planType: "pro" }, requiresOpenaiAuth: true } });
     case "model/list": return send({ id, result: { data: fixture.models, nextCursor: null } });
     case "thread/start": {
       const thread = `thread-${process.pid}-${threads.size + 1}`;

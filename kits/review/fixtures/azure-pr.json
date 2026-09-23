@@ -1,0 +1,50 @@
+{
+ "repository": {
+  "id": "cc34ec63-a94e-408c-b535-28738497e59b",
+  "name": "PowerShell",
+  "project": {
+   "id": "2972bb5c-f20c-4a60-8bd9-00ffe9987edc",
+   "name": "PowerShell"
+  }
+ },
+ "pullRequestId": 46,
+ "codeReviewId": 46,
+ "status": "completed",
+ "createdBy": {
+  "displayName": "MerlinBot",
+  "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+  "uniqueName": null
+ },
+ "creationDate": "2025-10-08T13:04:09.3138765Z",
+ "closedDate": "2025-10-08T13:04:12.2206314Z",
+ "title": "Inventory bootstrapping",
+ "description": "This **automated pull request**, created by **1ES**, is part of the **[Inventory-As-Code](https://aka.ms/inventory-as-code)** onboarding to improve **bug-routing** and **incident response**.\n \n#\ud83d\ude80 What\u2019s Changing?\n\n- This PR adds inventory metadata to your repository sourced from Product Catalog.\n- O",
+ "sourceRefName": "refs/heads/invBootstrap",
+ "targetRefName": "refs/heads/master",
+ "mergeStatus": "succeeded",
+ "isDraft": false,
+ "mergeId": "392ca035-7f0c-4ee2-96e4-aedc5d4ade87",
+ "lastMergeSourceCommit": {
+  "commitId": "c6269c2837279c5d33654905e51969011e18e0a0"
+ },
+ "lastMergeTargetCommit": {
+  "commitId": "31015a23728793afbf1ef9789019ff64defa7cc2"
+ },
+ "lastMergeCommit": {
+  "commitId": "cf1b58dae74184aec9bdc0fde5a4b297bbfd14e8"
+ },
+ "reviewers": [],
+ "url": "https://dev.azure.com/powershell/2972bb5c-f20c-4a60-8bd9-00ffe9987edc/_apis/git/repositories/cc34ec63-a94e-408c-b535-28738497e59b/pullRequests/46",
+ "supportsIterations": true,
+ "closedBy": {
+  "displayName": "MerlinBot",
+  "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+  "uniqueName": null
+ },
+ "completionOptions": {
+  "deleteSourceBranch": true,
+  "squashMerge": true,
+  "mergeStrategy": "squash",
+  "triggeredByAutoComplete": true
+ }
+}

@@ -12,6 +12,8 @@ const MAX_TITLE_LENGTH = 120;
 const MAX_ID_LENGTH = 200;
 
 export interface AntigravityStoredMessage {
+  /** The id the transcript showed it under, so tool cards anchored to it find it again. */
+  id?: string;
   role: "user" | "assistant";
   text: string;
   timestamp: number;
@@ -73,7 +75,8 @@ function storedMessage(value: unknown): AntigravityStoredMessage | undefined {
   const timestamp = typeof item.timestamp === "number" && Number.isFinite(item.timestamp) ? item.timestamp : undefined;
   if (text === undefined || timestamp === undefined) return undefined;
   const clientMessageId = boundedString(item.clientMessageId, MAX_ID_LENGTH);
-  return { role: item.role, text, timestamp, ...(clientMessageId ? { clientMessageId } : {}) };
+  const id = boundedString(item.id, MAX_ID_LENGTH);
+  return { ...(id ? { id } : {}), role: item.role, text, timestamp, ...(clientMessageId ? { clientMessageId } : {}) };
 }
 
 function storedRecord(value: unknown): AntigravitySessionRecord | undefined {
@@ -234,7 +237,8 @@ export class AntigravitySessionStore {
       for (const message of messages) {
         if (message.role !== "user" && message.role !== "assistant") continue;
         const clientMessageId = boundedString(message.clientMessageId, MAX_ID_LENGTH);
-        const stored: AntigravityStoredMessage = { role: message.role, text: message.text, timestamp: message.timestamp, ...(clientMessageId ? { clientMessageId } : {}) };
+        const id = boundedString(message.id, MAX_ID_LENGTH);
+        const stored: AntigravityStoredMessage = { ...(id ? { id } : {}), role: message.role, text: message.text, timestamp: message.timestamp, ...(clientMessageId ? { clientMessageId } : {}) };
         if (clientMessageId) {
           const existing = record.messages.find((item) => item.clientMessageId === clientMessageId);
           if (existing) {

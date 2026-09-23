@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { SettingRow, SettingsSection, useSetting, type SettingHandle } from "tau";
+import { SettingRow, SettingsSection, useSetting, type HostExtensionClient, type SettingHandle } from "tau";
 import { REVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
 import { COLLAPSED_OPTION, COLORS_KEY, SPLIT_OPTION, WHITESPACE_OPTION, WRAP_OPTION, type DiffColorScheme } from "./diff-settings.js";
+import { SourceControlSettings } from "./source-settings.js";
 import { INSTRUCTIONS_OPTION, TEMPLATE_OPTION } from "./writing.js";
 
 const value = (key: string) => `values.${ID}.${key}`;
@@ -55,12 +56,18 @@ function Instructions({ setting }: { setting: SettingHandle<string> }) {
     onChange={(event) => setDraft(event.target.value)} onBlur={commit} />;
 }
 
+/** The page bound to the kit's host half, which answers for the Git hosts. */
+export function createReviewSettingsPage(host: HostExtensionClient) {
+  return function ReviewSettings() { return <ReviewSettingsPage host={host} />; };
+}
+
 /**
  * Settings → Review: how commit messages and request descriptions are written
- * (T3 Code's writing settings) and how diffs are drawn. The model that writes
- * them stays on Review Kit's own page, beside the extension's switch.
+ * (T3 Code's writing settings), how diffs are drawn and which Git hosts this
+ * machine reaches. The model that writes them stays on Review Kit's own page,
+ * beside the extension's switch.
  */
-export function ReviewSettingsPage() {
+export function ReviewSettingsPage({ host }: { host?: HostExtensionClient } = {}) {
   const propose = useSetting<boolean>(option("propose-message"), { defaultValue: true, read: readBoolean });
   const format = useSetting<string>(value("commit-style"), { defaultValue: "conventional", scope: "both", read: readString, format: (next) => FORMATS.find((entry) => entry.value === next)?.label ?? next });
   const instructions = useSetting<string>(value(INSTRUCTIONS_OPTION), { defaultValue: "", scope: "both", read: readString, format: (next) => (next ? `${next.slice(0, 40)}${next.length > 40 ? "…" : ""}` : "None") });
@@ -93,6 +100,7 @@ export function ReviewSettingsPage() {
         <SettingRow id="setting-review-whitespace" title="Hide whitespace changes" setting={whitespace} control={<Toggle label="Hide whitespace changes" setting={whitespace} />} />
         <SettingRow id="setting-review-collapsed" title="Files start collapsed" setting={collapsed} control={<Toggle label="Files start collapsed" setting={collapsed} />} />
       </SettingsSection>
+      {host ? <SourceControlSettings host={host} /> : null}
     </div>
   );
 }

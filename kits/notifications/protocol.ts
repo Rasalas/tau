@@ -9,7 +9,16 @@ export const NOTIFY_EVENT = "notify";
 /** A client left; the others say again what they show, so the host knows who is still looking. */
 export const PRESENCE_REQUEST_EVENT = "presence-request";
 
-export type AttentionReason = "completed" | "failed" | "question";
+/** `approval` is a question that asks for permission, as the rail's status tells them apart. */
+export type AttentionReason = "completed" | "failed" | "question" | "approval";
+
+const APPROVAL_OPTION = /^(?:allow|approve|deny|reject)\b/iu;
+
+/** A yes/no confirmation, or a choice that offers Allow or Deny, asks for permission. */
+export function promptReason(prompt: { kind: string; options?: readonly string[] }): "question" | "approval" {
+  if (prompt.kind === "confirm") return "approval";
+  return prompt.kind === "select" && prompt.options?.some((option) => APPROVAL_OPTION.test(option)) ? "approval" : "question";
+}
 
 /** A thread whose news nobody has seen yet. */
 export interface AttentionItem {
@@ -54,7 +63,7 @@ export function decodeAttentionItems(value: unknown): AttentionItem[] {
   return items.filter((item): item is AttentionItem =>
     typeof item === "object" && item !== null
     && typeof (item as AttentionItem).threadId === "string"
-    && ["completed", "failed", "question"].includes((item as AttentionItem).reason)
+    && ["completed", "failed", "question", "approval"].includes((item as AttentionItem).reason)
     && typeof (item as AttentionItem).at === "number");
 }
 

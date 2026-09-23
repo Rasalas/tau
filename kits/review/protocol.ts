@@ -56,8 +56,118 @@ export interface ReviewRequestContext {
   template?: string;
 }
 
-export type RequestService = "github" | "gitlab";
+/** The source-control hosts Review Kit reaches, each through its own CLI or credential helper. */
+export type RequestService = "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops";
+export const REQUEST_SERVICES: readonly RequestService[] = ["github", "gitlab", "forgejo", "bitbucket", "azure-devops"];
 export type MergeMethod = "merge" | "squash" | "rebase";
+
+/**
+ * What a provider can do. The desktop hides what is missing rather than
+ * offering a step that would fail; the host refuses it with the same words.
+ */
+export interface ProviderCapabilities {
+  create: boolean;
+  /** Title and description after creation. */
+  edit: boolean;
+  /** Create as a draft and switch between draft and ready. */
+  draft: boolean;
+  /** Merge methods offered from Tau; empty when merging is left to the website. */
+  merge: readonly MergeMethod[];
+  checks: boolean;
+  /** The diff, so the view has a Code tab. */
+  files: boolean;
+  /** Conversations anchored on lines of the diff. */
+  conversations: boolean;
+  /** A new comment on a line, posted at once or held for a review. */
+  lineComments: boolean;
+  replies: boolean;
+  resolve: boolean;
+  /** The verdicts a review can carry; `comment` alone means reviews are plain comments. */
+  reviewEvents: readonly PullRequestReviewEvent[];
+  /** The kinds of comment the signed-in account can edit. */
+  editComments: ReadonlyArray<"comment" | "review" | "review-comment">;
+  reviewers: boolean;
+  labels: boolean;
+  /** Where viewed marks live: on the host, or in this Tau. */
+  viewed: "host" | "local";
+  /** Create a repository for a checkout without a remote. */
+  publish: boolean;
+}
+
+/** How a provider is named in the UI, and what it can do. */
+export interface ProviderInfo {
+  kind: RequestService;
+  name: string;
+  /** "pull request" or "merge request". */
+  noun: string;
+  short: "PR" | "MR";
+  /** The command that checks a request out, when the provider's CLI has one. */
+  checkout?(number: number): string;
+  /** The repository's web page. */
+  repositoryUrl(host: string, repo: string): string;
+  capabilities: ProviderCapabilities;
+}
+
+const EVERYTHING: ProviderCapabilities = {
+  create: true, edit: true, draft: true, merge: ["squash", "merge", "rebase"], checks: true, files: true,
+  conversations: true, lineComments: true, replies: true, resolve: true,
+  reviewEvents: ["comment", "approve", "request-changes"], editComments: ["comment", "review", "review-comment"],
+  reviewers: true, labels: true, viewed: "host", publish: true,
+};
+
+const plainUrl = (host: string, repo: string) => `https://${host}/${repo}`;
+
+export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
+  github: { kind: "github", name: "GitHub", noun: "pull request", short: "PR", checkout: (number) => `gh pr checkout ${number}`, repositoryUrl: plainUrl, capabilities: EVERYTHING },
+  gitlab: {
+    kind: "gitlab", name: "GitLab", noun: "merge request", short: "MR", checkout: (number) => `glab mr checkout ${number}`, repositoryUrl: plainUrl,
+    // GitLab's API has no "request changes"; viewed marks are kept by the kit.
+    capabilities: { ...EVERYTHING, reviewEvents: ["comment", "approve"], viewed: "local" },
+  },
+  forgejo: {
+    kind: "forgejo", name: "Forgejo", noun: "pull request", short: "PR", checkout: (number) => `tea pr checkout ${number}`, repositoryUrl: plainUrl,
+    capabilities: { ...EVERYTHING, replies: false, resolve: false, editComments: ["comment"], viewed: "local", publish: false },
+  },
+  bitbucket: {
+    kind: "bitbucket", name: "Bitbucket", noun: "pull request", short: "PR", repositoryUrl: plainUrl,
+    capabilities: { ...EVERYTHING, merge: ["merge", "squash"], resolve: false, editComments: ["comment", "review-comment"], reviewers: false, labels: false, viewed: "local", publish: false },
+  },
+  "azure-devops": {
+    kind: "azure-devops", name: "Azure DevOps", noun: "pull request", short: "PR", checkout: (number) => `az repos pr checkout --id ${number}`,
+    repositoryUrl: (host, repo) => {
+      const [organization, project, name] = repo.split("/");
+      return `https://${host}/${organization}/${project}/_git/${name}`;
+    },
+    // `az` gives no diff and no labels; conversations and comments go through `az devops invoke`.
+    capabilities: {
+      ...EVERYTHING, merge: ["squash", "merge"], files: false, lineComments: false, reviewEvents: ["approve", "request-changes"],
+      editComments: [], labels: false, viewed: "local", publish: false,
+    },
+  },
+};
+
+export const providerInfo = (service: RequestService): ProviderInfo => PROVIDERS[service] ?? PROVIDERS.github;
+
+/** Whether a provider can be used on this machine, for Settings → Review. */
+export interface SourceProviderStatus {
+  service: RequestService;
+  name: string;
+  /** The program or credential store the provider goes through. */
+  tool: string;
+  installed: boolean;
+  /** Undefined when the tool cannot tell without a repository. */
+  signedIn?: boolean;
+  /** Who it is signed in as, or the servers it holds logins for. */
+  account?: string;
+  /** What to do next, in words. */
+  hint?: string;
+}
+
+/** A self-hosted server's provider, chosen by the user, by host (with a port when it has one). */
+export type SourceHosts = Record<string, RequestService>;
+
+/** A branch's request as Review Kit reports it; core's type names only the first two hosts. */
+export type ReviewRequest = Omit<UiReviewRequest, "provider"> & { provider: RequestService };
 
 /**
  * Where the current branch stands on the way to a merged request: its Git
@@ -72,7 +182,7 @@ export interface ReviewRequestStatus {
   upstream?: string;
   ahead?: number;
   service: RequestService;
-  request?: UiReviewRequest;
+  request?: ReviewRequest;
   problem?: string;
 }
 

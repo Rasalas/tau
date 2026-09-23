@@ -632,7 +632,7 @@ describe("App render isolation", () => {
     await screen.findByRole("heading", { name: "What do you want to build?" });
     fireEvent.click(screen.getByRole("button", { name: /Select model: GPT-5.6 Sol/u }));
     const modelPicker = await screen.findByRole("dialog", { name: "Select model" });
-    fireEvent.click((await within(modelPicker).findByText("GPT-6 Astra")).closest("button")!);
+    fireEvent.click((await within(modelPicker).findByText("GPT-6 Astra")).closest("[role=option]")!);
 
     expect(await screen.findByRole("button", { name: /Select model: GPT-6 Astra/u })).toBeTruthy();
     expect(setModel).not.toHaveBeenCalled();
@@ -722,8 +722,8 @@ describe("App render isolation", () => {
     await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", asHostTranscriptCursor("opaque:2")));
 
     fireEvent.click(screen.getByRole("button", { name: /Current model/u }));
-    const modelPicker = await screen.findByRole("dialog", { name: "Select model" }); console.log("DBG", modelPicker.textContent);
-    fireEvent.click(within(modelPicker).getByText("Next model").closest("button")!);
+    const modelPicker = await screen.findByRole("dialog", { name: "Select model" });
+    fireEvent.click(within(modelPicker).getByText("Next model").closest("[role=option]")!);
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("provider", "next"));
 
     resolvePage({

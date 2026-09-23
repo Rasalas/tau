@@ -34,7 +34,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
     case "turn-started":
       thread.turnError = undefined;
       thread.adapterStreaming = true;
-      thread.adapterActivity.push({ id: `activity-${sessionId}-${thread.adapterActivity.length + 1}`, tools: [], status: "running" });
+      thread.adapterActivity.push({ id: nextActivityId(thread), tools: [], status: "running" });
       services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
       services.emit({ type: "agent-status", sessionId, running: true });
       services.log("agent.started", sessionId.slice(0, 8));
@@ -70,6 +70,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
     case "tool-start":
       thread.tools.set(event.tool.id, event.tool);
       recordTool(thread, event.tool);
+      saveActivity(thread, services);
       services.ownTool(event.tool.id, sessionId);
       services.emit({ type: "tool-start", sessionId, tool: event.tool });
       services.log("tool.started", event.tool.name);
@@ -105,11 +106,17 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
   }
 }
 
+/** Past every number in use: turns a runtime kept may have been thinned out, and ids must stay the ones a client saw. */
+function nextActivityId(thread: ThreadRuntime): string {
+  const used = thread.adapterActivity.map((entry) => Number(/-(\d+)$/u.exec(entry.id)?.[1] ?? 0));
+  return `activity-${thread.threadId}-${Math.max(thread.adapterActivity.length, ...used) + 1}`;
+}
+
 /** The turn's activity entry; a tool arriving outside a turn opens one. */
 function currentActivity(thread: ThreadRuntime): UiTurnActivityEntry {
   const last = thread.adapterActivity.at(-1);
   if (last?.status === "running") return last;
-  const entry: UiTurnActivityEntry = { id: `activity-${thread.threadId}-${thread.adapterActivity.length + 1}`, tools: [], status: "running" };
+  const entry: UiTurnActivityEntry = { id: nextActivityId(thread), tools: [], status: "running" };
   thread.adapterActivity.push(entry);
   return entry;
 }
@@ -126,6 +133,16 @@ function recordTool(thread: ThreadRuntime, tool: UiToolRun): void {
   else entry.tools[at] = tool;
 }
 
+/** Hands the turn's activity to a runtime that keeps it across restarts. */
+function saveActivity(thread: ThreadRuntime, services: BackendEventServices): void {
+  const history = thread.backend.capabilities.activityHistory;
+  const entry = thread.adapterActivity.at(-1);
+  if (!history || !entry) return;
+  const copy = { ...entry, tools: entry.tools.map((tool) => ({ ...tool })) };
+  Promise.resolve().then(() => history.save(copy))
+    .catch((error: unknown) => services.log("activity.save.failed", error instanceof Error ? error.message : String(error)));
+}
+
 /** The transcript the host holds for a thread without a journal; a re-sent id replaces its row. */
 function remember(thread: ThreadRuntime, message: UiMessage): void {
   const at = thread.adapterMessages.findIndex((existing) => existing.id === message.id);
@@ -138,6 +155,7 @@ function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEve
   const previous = thread.tools.get(tool.id);
   const ended: UiToolRun = { ...tool, args: Object.keys(tool.args).length > 0 ? tool.args : previous?.args ?? {}, startedAt: previous?.startedAt ?? tool.startedAt, endedAt: tool.endedAt ?? Date.now() };
   recordTool(thread, ended);
+  saveActivity(thread, services);
   services.toolEnded(thread.threadId, ended, thread.cwd);
   services.emit({ type: "tool-end", sessionId: thread.threadId, tool: ended });
   thread.tools.delete(tool.id);
@@ -158,7 +176,10 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
   if (entry?.status === "running") {
     // A turn without tools leaves no fold behind.
     if (entry.tools.length === 0) thread.adapterActivity.pop();
-    else entry.status = status;
+    else {
+      entry.status = status;
+      saveActivity(thread, services);
+    }
   }
   services.clientTurns.settle(sessionId);
   const reason = status === "error" ? failure?.trim() || thread.turnError || "The turn failed." : undefined;

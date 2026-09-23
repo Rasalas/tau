@@ -1,5 +1,6 @@
-import type { BackendPrompt, ExtensionUiAnswer, RuntimePermissionLevel } from "tau/host-extension";
-import type { AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption } from "./acp-session.js";
+import { askElicitation, elicitationFieldTitle, elicitationFields, type BackendPrompt, type ElicitationField, type ExtensionUiAnswer, type RuntimePermissionLevel } from "tau/host-extension";
+import type { AcpElicitationAnswer, AcpElicitationRequest, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption } from "./acp-session.js";
+import { QUESTIONNAIRE_EXTRA } from "./protocol.js";
 
 /**
  * The agent's `session/request_permission` on the workbench's dialog surface.
@@ -99,4 +100,29 @@ export function modeForLevel(level: RuntimePermissionLevel, available: readonly 
     case "full": return first("yolo", "auto_edit", "default");
     default: return undefined;
   }
+}
+
+/** Tags each field's dialog so Questionnaire Kit pages through the form; one field needs no pager. */
+function pageForm(prompt: BackendPrompt, index: number, fields: readonly ElicitationField[]): void {
+  if (fields.length < 2) return;
+  const questions = fields.map((field) => ({
+    question: elicitationFieldTitle(field),
+    header: "Antigravity",
+    multiSelect: field.kind === "choices",
+    options: field.kind === "boolean" ? [{ label: "Yes", description: "" }, { label: "No", description: "" }] : (field.options ?? []).map((option) => ({ label: option.label, description: "" })),
+  }));
+  prompt.extras = { ...prompt.extras, [QUESTIONNAIRE_EXTRA]: { index, questions } };
+}
+
+/** A form the agent wants filled, asked field by field; a form without fields is a yes or no. */
+export async function answerElicitation(request: AcpElicitationRequest, ask: ((prompt: BackendPrompt) => Promise<ExtensionUiAnswer>) | undefined): Promise<AcpElicitationAnswer> {
+  const fields = elicitationFields(request.requestedSchema ?? { properties: {} });
+  const message = (request.message ?? "").slice(0, LABEL_MAX);
+  if (!fields || !ask) return { action: "decline" };
+  if (fields.length === 0) {
+    const answer = await ask({ kind: "select", title: "Antigravity asks", ...(message.trim() ? { message } : {}), options: [ALLOW, DENY] });
+    if ("cancelled" in answer) return { action: "cancel" };
+    return "value" in answer && answer.value === ALLOW && !answer.typed ? { action: "accept", content: {} } : { action: "decline" };
+  }
+  return askElicitation({ source: "Antigravity", message, fields, ask, decorate: pageForm });
 }

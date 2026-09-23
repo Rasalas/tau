@@ -12,6 +12,7 @@ import type {
   UiThreadUsage,
   UiToolOutputReadResult,
   UiToolRun,
+  UiTurnActivityEntry,
   ThreadBackendKind,
   SystemPromptInspection,
 } from "../shared/contracts.js";
@@ -241,6 +242,18 @@ export interface ThreadTranscriptPagingCapability {
   readToolOutput(toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
 }
 
+/**
+ * A runtime that keeps the tool cards of its turns, so they return after a
+ * restart. The host reads them when the thread opens and hands over its own
+ * record of a turn whenever a tool starts or ends and when the turn settles.
+ */
+export interface ThreadActivityHistoryCapability {
+  /** Earlier turns, oldest first; none may still be running. */
+  load(): Promise<UiTurnActivityEntry[]>;
+  /** The whole turn as the host holds it; a later call for the same `id` replaces it. */
+  save(entry: UiTurnActivityEntry): Promise<void>;
+}
+
 /** A runtime that normalizes its own chat transcript for export. */
 export interface ThreadMarkdownExportCapability {
   exportTranscript(): Promise<RuntimeChatTranscript>;
@@ -282,6 +295,7 @@ export interface ThreadBackendCapabilities {
   resume?: ThreadResumeCapability;
   events?: ThreadEventCapability;
   transcriptPaging?: ThreadTranscriptPagingCapability;
+  activityHistory?: ThreadActivityHistoryCapability;
   markdownExport?: ThreadMarkdownExportCapability;
   newThread?: ThreadNewThreadCapability;
   systemPrompt?: ThreadSystemPromptCapability;
@@ -315,6 +329,7 @@ const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
   resume: "Continuing an interrupted turn",
   events: "Runtime events",
   transcriptPaging: "Runtime-paged transcripts",
+  activityHistory: "Tool history",
   markdownExport: "Markdown export",
   newThread: "Runtime-owned new threads",
   systemPrompt: "System prompt inspection",

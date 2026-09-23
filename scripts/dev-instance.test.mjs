@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { derivePort, findFreePort, parseArgs, prepareCodexHome, preparePiAgentDir, seedConfigFile } from "./dev-instance.mjs";
@@ -172,5 +172,23 @@ describe("preparePiAgentDir", () => {
     expect(readFileSync(join(own, "settings.json"), "utf8")).toContain("0.85.1");
     expect(readFileSync(join(real, "settings.json"), "utf8")).toContain("0.84.4");
     expect(readdirSync(own).sort()).toEqual(["auth.json", "npm", "settings.json"]);
+  });
+
+  it("copies keybindings.json, and turns a link an older instance made into a copy", () => {
+    const root = mkdtempSync(join(tmpdir(), "tau-dev-pi-agent-"));
+    const real = join(root, "real");
+    mkdirSync(real, { recursive: true });
+    writeFileSync(join(real, "keybindings.json"), '{"app.exit":"ctrl+d"}');
+    const own = join(root, "own");
+    preparePiAgentDir(own, real);
+    expect(lstatSync(join(own, "keybindings.json")).isSymbolicLink()).toBe(false);
+
+    const older = join(root, "older");
+    mkdirSync(older);
+    symlinkSync(join(real, "keybindings.json"), join(older, "keybindings.json"));
+    preparePiAgentDir(older, real);
+    expect(lstatSync(join(older, "keybindings.json")).isSymbolicLink()).toBe(false);
+    writeFileSync(join(older, "keybindings.json"), "{}");
+    expect(readFileSync(join(real, "keybindings.json"), "utf8")).toBe('{"app.exit":"ctrl+d"}');
   });
 });

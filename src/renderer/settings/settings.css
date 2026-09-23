@@ -287,9 +287,100 @@
   border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px;
 }
 .keybinding-keys { display: flex; gap: 4px; }
+/* The editor: a chord is a button that records, a draft opens a strip under its row. */
+.keybinding-row > span > strong { display: inline-flex; align-items: center; gap: 6px; }
+.keybinding-badge { padding: 0 5px; border: 1px solid var(--line-strong); border-radius: 4px; font: 500 10px var(--sans); font-style: normal; color: var(--muted); }
+.keybinding-chord {
+  display: inline-flex; align-items: center; min-height: 26px; padding: 0 4px;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; cursor: pointer;
+}
+.keybinding-chord:hover, .keybinding-chord:focus-visible { border-color: var(--line-control); background: var(--raised); }
+.keybinding-chord[data-drafted] kbd { border-color: var(--line-focus); color: var(--ink); }
+.keybinding-recorder {
+  width: 150px; height: 26px; padding: 0 8px;
+  border: 1px solid var(--line-focus); border-radius: var(--radius-sm); background: var(--field);
+  color: var(--ink); font: 11.5px var(--mono); caret-color: transparent; outline: none;
+}
+.keybinding-recorder::placeholder { color: var(--muted-2); }
+.settings-filter > .keybinding-recorder { flex: 1; height: 24px; border: 0; padding: 0; background: transparent; }
+.keybinding-row > .keybinding-row-menu { flex: none; }
+.keybinding-row-menu > .text-button { display: grid; place-items: center; width: 24px; height: 24px; opacity: 0; }
+.keybinding-row:hover .keybinding-row-menu > .text-button, .keybinding-row-menu > .text-button:focus-visible, .keybinding-row-menu > .text-button[aria-expanded="true"] { opacity: 1; }
+.keybinding-row-group[data-editing] { background: var(--inset); }
+.keybinding-add-row { padding-top: 0; }
+.keybinding-draft { display: flex; flex-direction: column; gap: 6px; padding: 0 var(--space-6) 10px; }
+.keybinding-when { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.keybinding-when > .settings-input { width: 260px; height: 26px; font: 11.5px var(--mono); }
+.keybinding-when > .settings-input[aria-invalid] { border-color: var(--danger-line); }
+.keybinding-draft-error { margin: 0; font-size: 11.5px; color: var(--danger); }
+.keybinding-collision { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.keybinding-collision > svg { flex: none; margin-top: 2px; color: var(--warn); }
+.keybinding-collision[data-outcome="clash"] { color: var(--warn); }
+.keybinding-draft-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.keybinding-search { display: flex; align-items: center; gap: 8px; }
+.keybinding-search > .settings-filter { flex: 1; }
+.keybinding-search > .icon-button[aria-pressed="true"] { color: var(--ink); border-color: var(--line-focus); }
+.settings-page > p.lede + .keybinding-search { margin-top: var(--space-7); }
+.settings-page > .keybinding-search + .settings-section, .settings-page > .keybinding-search + .keybinding-reset-confirm { margin-top: var(--space-6); }
+.keybinding-key-filter { flex: 1; display: flex; align-items: center; gap: 4px; }
+.keybinding-key-filter kbd { font: 10.5px var(--mono); color: var(--ink-2); border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px; }
+.keybinding-reset-confirm { display: flex; align-items: center; gap: 8px; max-width: none; }
+.keybinding-reset-confirm > span { flex: 1; }
 
 /* The narrow client stacks the section column over the page. */
 body[data-profile="compact"] .settings-nav { max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }
 body[data-profile="compact"] .settings-nav-header { display: none; }
 body[data-profile="compact"] .settings-nav-search { margin-top: 8px; }
 body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }
+
+/* Settings → About: the version and the licences of what Tau ships. */
+.about-version { font: 12px var(--mono); color: var(--ink-2); }
+.about-licenses-filter { margin: 0 var(--space-6); }
+.about-licenses-loading { display: grid; gap: 8px; padding: var(--space-5) var(--space-6); }
+.about-licenses { list-style: none; margin: 0; padding: 0 0 var(--space-3); }
+.about-license-row { display: flex; align-items: center; gap: 6px; padding: 0 var(--space-5) 0 var(--space-4); }
+.about-license-row:hover { background: var(--hover); }
+.about-license-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 var(--space-2);
+  border: 0; background: transparent; color: var(--ink-2); font: 13px var(--sans); text-align: left; cursor: pointer;
+}
+.about-license-toggle > svg { flex: none; color: var(--faint); transition: transform .12s ease; }
+.about-license-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.about-license-toggle > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink); }
+.about-license-toggle > code { flex: none; font: 11px var(--mono); color: var(--faint); }
+.about-license-toggle > small { margin-left: auto; flex: none; font: 11px var(--sans); color: var(--muted); }
+.about-license-source {
+  width: 24px; height: 24px; flex: none; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--faint); cursor: pointer;
+}
+.about-license-source:hover, .about-license-source:focus-visible { background: var(--raised); color: var(--ink-2); }
+.about-license-text {
+  margin: 0 var(--space-6) var(--space-4) calc(var(--space-6) + 21px); max-width: 84ch; max-height: 320px; overflow: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.55 var(--mono); color: var(--ink-3);
+}
+
+/* Providers → Models: one runtime's models to favourite, reorder and hide. */
+.runtime-models-filter {
+  width: 220px; max-width: 100%; height: 28px; margin: 10px 0 4px; padding: 0 9px;
+  border: 1px solid var(--line-control); border-radius: 7px; background: var(--field); color: var(--ink); font: 12px var(--sans);
+}
+.runtime-models { max-height: 280px; overflow-y: auto; margin-top: 8px; }
+.runtime-models-group { padding: 10px 6px 4px; font-size: 11px; color: var(--muted); }
+.runtime-model {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 50px auto; align-items: center; gap: 8px;
+  min-height: 30px; padding: 0 6px; border-radius: 6px;
+}
+.runtime-model:hover { background: var(--wash-2); }
+.runtime-model.hidden .runtime-model-name { opacity: .55; }
+.runtime-model-star, .runtime-model-moves > button {
+  width: 22px; height: 22px; display: inline-grid; place-items: center;
+  border: 0; border-radius: 5px; background: transparent; color: var(--faint); cursor: pointer;
+}
+.runtime-model-star:hover, .runtime-model-moves > button:hover:not(:disabled) { background: var(--hover-strong); color: var(--ink-2); }
+.runtime-model-moves > button:disabled { opacity: .3; cursor: default; }
+.runtime-model-star.on { color: var(--acid-text); }
+.runtime-model-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--ink-2); }
+.runtime-model-name > span, .runtime-model-name > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-model-name > code { font: 10.5px var(--mono); color: var(--faint); }
+.runtime-model-facts { display: flex; gap: 8px; font: 10.5px var(--mono); color: var(--muted); white-space: nowrap; }
+.runtime-model-moves { display: flex; justify-content: flex-end; }

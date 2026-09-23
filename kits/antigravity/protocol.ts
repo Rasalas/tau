@@ -22,3 +22,9 @@ export interface AntigravityInstallEvent {
 
 /** Usage Kit may read each thread's running total through the `usage` command. */
 export const USAGE_KIT_ID = "tau.usage";
+
+/**
+ * Questionnaire Kit pages through prompts that carry this extra; its shape is
+ * `UiQuestionnaire` in `kits/questionnaire/protocol.ts`.
+ */
+export const QUESTIONNAIRE_EXTRA = "tau.questionnaire";

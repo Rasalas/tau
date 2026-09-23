@@ -1,0 +1,434 @@
+{
+ "values": [
+  {
+   "comment_count": 0,
+   "task_count": 0,
+   "type": "pullrequest",
+   "id": 27,
+   "title": "BCAT-6005: Support API token",
+   "description": "Support API token  \n  \nTested uploading a file from one of my pipeline",
+   "state": "MERGED",
+   "draft": false,
+   "merge_commit": {
+    "hash": "c802fc4b251a",
+    "type": "commit"
+   },
+   "close_source_branch": true,
+   "closed_by": {
+    "display_name": "Albert Sundjaja",
+    "type": "user",
+    "uuid": "{7177c565-3bb4-44d3-b17b-e791dfb8fed8}",
+    "account_id": "712020:0f3e0dc4-4f17-4c0f-be18-c3d6dfa60987",
+    "nickname": "Albert Sundjaja"
+   },
+   "author": {
+    "display_name": "Albert Sundjaja",
+    "type": "user",
+    "uuid": "{7177c565-3bb4-44d3-b17b-e791dfb8fed8}",
+    "account_id": "712020:0f3e0dc4-4f17-4c0f-be18-c3d6dfa60987",
+    "nickname": "Albert Sundjaja"
+   },
+   "reason": "",
+   "created_on": "2025-07-23T05:59:47.298224+00:00",
+   "updated_on": "2025-07-23T11:15:31.990589+00:00",
+   "destination": {
+    "branch": {
+     "name": "master"
+    },
+    "commit": {
+     "hash": "c522201d16c0",
+     "type": "commit"
+    }
+   },
+   "source": {
+    "branch": {
+     "name": "asundjaja/BCAT-6005"
+    },
+    "commit": {
+     "hash": "9777bca47119",
+     "type": "commit"
+    }
+   },
+   "participants": [
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Wendy G",
+      "type": "user",
+      "uuid": "{b0670c4c-4b6c-4f89-b47c-be2de5a64d58}",
+      "account_id": "5ebbbc49ad226b0ba4518e11",
+      "nickname": "Wendy G"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Chandravadan",
+      "type": "user",
+      "uuid": "{7699c705-6e87-4084-9be2-e990cf74bd76}",
+      "account_id": "5baabaee99f8c8584576cf48",
+      "nickname": "Chandravadan"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Justin Venkitachalam",
+      "type": "user",
+      "uuid": "{b3d26175-f9c7-48fc-941e-56309c991326}",
+      "account_id": "70121:ce90d02a-6fd0-4f01-8fdf-038b887d32dc",
+      "nickname": "Justin Venkitachalam"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Schuman Zhang",
+      "type": "user",
+      "uuid": "{8e08a025-7cca-46ce-ab28-7c3e3b2ffef3}",
+      "account_id": "712020:42de692c-9022-401e-b6b3-cb860b2af203",
+      "nickname": "Schuman Zhang"
+     },
+     "role": "REVIEWER",
+     "approved": true,
+     "state": "approved",
+     "participated_on": "2025-07-23T07:38:49.004351+00:00"
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Shiwani Balaji",
+      "type": "user",
+      "uuid": "{890e4239-5d9d-428a-8342-5913ed1993ed}",
+      "account_id": "712020:ce9d51f1-37af-4a9a-a521-f1341e7e3be5",
+      "nickname": "Shiwani Balaji"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Jeroen De Raedt",
+      "type": "user",
+      "uuid": "{bd8818fe-9750-4512-9862-0b4bc90276d8}",
+      "account_id": "557057:4cf280b8-808a-4c63-8e92-4a714e9359f2",
+      "nickname": "Jeroen De Raedt"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Joshua Tang",
+      "type": "user",
+      "uuid": "{cc8e193d-7603-4dfd-8771-fcc8960aa0fb}",
+      "account_id": "5ffed3379edf280075d75b20",
+      "nickname": "Joshua Tang"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Daniel Fraser",
+      "type": "user",
+      "uuid": "{1e3613d8-53f3-4256-8590-6221969bd9c3}",
+      "account_id": "5d5356cc53184f0da389e894",
+      "nickname": "Dan Fraser"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    }
+   ],
+   "queued": false,
+   "links": {
+    "html": {
+     "href": "https://bitbucket.org/atlassian/bitbucket-upload-file/pull-requests/27"
+    }
+   }
+  },
+  {
+   "comment_count": 0,
+   "task_count": 0,
+   "type": "pullrequest",
+   "id": 26,
+   "title": "PIPES-1654: Add logs and warnings about directory from upload.",
+   "description": "",
+   "state": "MERGED",
+   "draft": false,
+   "merge_commit": {
+    "hash": "ddbc0ea7a71a",
+    "type": "commit"
+   },
+   "close_source_branch": true,
+   "closed_by": {
+    "display_name": "Igor Stoyanov",
+    "type": "user",
+    "uuid": "{5d6d69c0-bfad-4ee1-9e60-6af86e640907}",
+    "account_id": "6132486f44c8ed0068a6ba6a",
+    "nickname": "Igor Stoyanov"
+   },
+   "author": {
+    "display_name": "Igor Stoyanov",
+    "type": "user",
+    "uuid": "{5d6d69c0-bfad-4ee1-9e60-6af86e640907}",
+    "account_id": "6132486f44c8ed0068a6ba6a",
+    "nickname": "Igor Stoyanov"
+   },
+   "reason": "",
+   "created_on": "2024-11-20T11:29:49.479475+00:00",
+   "updated_on": "2024-11-21T14:51:51.177991+00:00",
+   "destination": {
+    "branch": {
+     "name": "master"
+    },
+    "commit": {
+     "hash": "9c2e7d9655b6",
+     "type": "commit"
+    }
+   },
+   "source": {
+    "branch": {
+     "name": "feature/PIPES-1654"
+    },
+    "commit": {
+     "hash": "b467819f28a4",
+     "type": "commit"
+    }
+   },
+   "participants": [
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Oleksandr Kyrdan",
+      "type": "user",
+      "uuid": "{c3cbd4fd-2494-4a26-a4db-ea02e2cdb5ee}",
+      "account_id": "5c88f88364a81c1dae2814f1",
+      "nickname": "Oleksandr Kyrdan"
+     },
+     "role": "REVIEWER",
+     "approved": true,
+     "state": "approved",
+     "participated_on": "2024-11-21T10:55:45.687730+00:00"
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Dhananjay Goyani",
+      "type": "user",
+      "uuid": "{fadbe5b7-5ca2-4965-8321-eb3fe94b226a}",
+      "account_id": "6065bd5890e3950069d87354",
+      "nickname": "Dhananjay Goyani"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    }
+   ],
+   "queued": false,
+   "links": {
+    "html": {
+     "href": "https://bitbucket.org/atlassian/bitbucket-upload-file/pull-requests/26"
+    }
+   }
+  },
+  {
+   "comment_count": 0,
+   "task_count": 0,
+   "type": "pullrequest",
+   "id": 23,
+   "title": "Fixed invalid pipe name in one of the readme examples.",
+   "description": "Fixed invalid pipe name in one of the readme examples.",
+   "state": "DECLINED",
+   "draft": false,
+   "merge_commit": null,
+   "close_source_branch": false,
+   "closed_by": {
+    "display_name": "Igor Stoyanov",
+    "type": "user",
+    "uuid": "{5d6d69c0-bfad-4ee1-9e60-6af86e640907}",
+    "account_id": "6132486f44c8ed0068a6ba6a",
+    "nickname": "Igor Stoyanov"
+   },
+   "author": {
+    "display_name": "Oleg Karasik",
+    "type": "user",
+    "uuid": "{1d179962-bee1-4c9d-875d-ca50f2605de4}",
+    "account_id": "5a7313dff8321921e181c03d",
+    "nickname": "Oleg Karasik"
+   },
+   "reason": "Obsolete",
+   "created_on": "2024-04-25T12:19:18.466940+00:00",
+   "updated_on": "2024-11-21T08:55:27.005401+00:00",
+   "destination": {
+    "branch": {
+     "name": "master"
+    },
+    "commit": {
+     "hash": "9c2e7d9655b6",
+     "type": "commit"
+    }
+   },
+   "source": {
+    "branch": {
+     "name": "Oleg-Karasik/fixed-invalid-pipe-name-in-one-of-the-re-1714047549555"
+    },
+    "commit": {
+     "hash": "6f5e932645eb",
+     "type": "commit"
+    }
+   },
+   "participants": [
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Oleg Karasik",
+      "type": "user",
+      "uuid": "{1d179962-bee1-4c9d-875d-ca50f2605de4}",
+      "account_id": "5a7313dff8321921e181c03d",
+      "nickname": "Oleg Karasik"
+     },
+     "role": "PARTICIPANT",
+     "approved": true,
+     "state": "approved",
+     "participated_on": "2024-05-31T07:49:47.138267+00:00"
+    }
+   ],
+   "queued": false,
+   "links": {
+    "html": {
+     "href": "https://bitbucket.org/atlassian/bitbucket-upload-file/pull-requests/23"
+    }
+   }
+  },
+  {
+   "comment_count": 0,
+   "task_count": 0,
+   "type": "pullrequest",
+   "id": 25,
+   "title": "PIPES-1569: Internal maintenance: Bump release pipe version. Add multi-platform build: linux/arm64 and linux/amd64.",
+   "description": "PIPES-1569: Internal maintenance: Bump release pipe version. Add multi-platform build: linux/arm64 and linux/amd64.",
+   "state": "MERGED",
+   "draft": false,
+   "merge_commit": {
+    "hash": "88c0ab7cf23d",
+    "type": "commit"
+   },
+   "close_source_branch": true,
+   "closed_by": {
+    "display_name": "Igor Stoyanov",
+    "type": "user",
+    "uuid": "{5d6d69c0-bfad-4ee1-9e60-6af86e640907}",
+    "account_id": "6132486f44c8ed0068a6ba6a",
+    "nickname": "Igor Stoyanov"
+   },
+   "author": {
+    "type": "app_user",
+    "created_on": "2024-01-15T06:45:10.583933+00:00",
+    "display_name": "BBC Pipes - Project Access Token",
+    "uuid": "{9083eea7-b743-43a3-84d9-77e87fae59fb}",
+    "account_id": "712020:f524733b-8c99-4269-a1db-50f693c20264",
+    "account_status": "active",
+    "kind": "project_access_token"
+   },
+   "reason": "",
+   "created_on": "2024-08-08T16:08:23.819167+00:00",
+   "updated_on": "2024-08-08T17:12:08.205259+00:00",
+   "destination": {
+    "branch": {
+     "name": "master"
+    },
+    "commit": {
+     "hash": "9e8bdd839b53",
+     "type": "commit"
+    }
+   },
+   "source": {
+    "branch": {
+     "name": "feature/PIPES-1569"
+    },
+    "commit": {
+     "hash": "c3b7fefa182d",
+     "type": "commit"
+    }
+   },
+   "participants": [
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Oleksandr Kyrdan",
+      "type": "user",
+      "uuid": "{c3cbd4fd-2494-4a26-a4db-ea02e2cdb5ee}",
+      "account_id": "5c88f88364a81c1dae2814f1",
+      "nickname": "Oleksandr Kyrdan"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Dhananjay Goyani",
+      "type": "user",
+      "uuid": "{fadbe5b7-5ca2-4965-8321-eb3fe94b226a}",
+      "account_id": "6065bd5890e3950069d87354",
+      "nickname": "Dhananjay Goyani"
+     },
+     "role": "REVIEWER",
+     "approved": false,
+     "state": null,
+     "participated_on": null
+    },
+    {
+     "type": "participant",
+     "user": {
+      "display_name": "Igor Stoyanov",
+      "type": "user",
+      "uuid": "{5d6d69c0-bfad-4ee1-9e60-6af86e640907}",
+      "account_id": "6132486f44c8ed0068a6ba6a",
+      "nickname": "Igor Stoyanov"
+     },
+     "role": "REVIEWER",
+     "approved": true,
+     "state": "approved",
+     "participated_on": "2024-08-08T17:11:59.185171+00:00"
+    }
+   ],
+   "queued": false,
+   "links": {
+    "html": {
+     "href": "https://bitbucket.org/atlassian/bitbucket-upload-file/pull-requests/25"
+    }
+   }
+  }
+ ],
+ "pagelen": 50,
+ "size": 4,
+ "page": 1
+}

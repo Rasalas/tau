@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { HostCommandError, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
+import { dirname, join } from "node:path";
+import { HostCommandError, TurnActivityStore, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
 import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
 import { CommandOverride } from "./command-override.js";
 import { installAntigravity, resolveAntigravity, type AntigravityExecutable } from "./install.js";
@@ -46,7 +46,9 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const arch = options.arch ?? process.arch;
       const geminiDir = options.geminiDir ?? geminiConfigDirectory();
       const adapter = createAntigravityRuntimeAdapter();
-      const store = new AntigravitySessionStore({ filePath: AntigravitySessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir) });
+      const storePath = AntigravitySessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
+      const store = new AntigravitySessionStore({ filePath: storePath });
+      const activity = new TurnActivityStore({ directory: join(dirname(storePath), "antigravity-activity") });
       const override = new CommandOverride(join(services.stateDir, "settings.json"), ANTIGRAVITY_COMMAND_VARIABLE, env);
       const resolveExecutable = (command = override.current()?.command) => resolveAntigravity({ override: command, stateDir: services.stateDir, platform, arch, findCommand: services.findCommand });
 
@@ -79,6 +81,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           ...(input.authenticate === false ? { authenticate: false } : {}),
           onUpdate: input.onUpdate,
           onPermission: input.onPermission,
+          ...(input.onElicitation ? { onElicitation: input.onElicitation } : {}),
           onSignIn: input.onSignIn,
           onExit: input.onExit,
           onStderrLine: (line) => services.log("antigravity.stderr", line.slice(0, 500)),
@@ -100,8 +103,15 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         adapter,
         modelProvider: "google",
         listThreads: async () => (await store.list()).map(record),
-        removeThread: (threadId) => store.take(threadId),
-        restoreThread: (threadId, value) => store.put(threadId, value),
+        removeThread: async (threadId) => {
+          const taken = await store.take(threadId);
+          const tools = await activity.take(threadId);
+          return taken && tools ? { ...taken, activity: tools } : taken;
+        },
+        restoreThread: async (threadId, value) => {
+          await store.put(threadId, value);
+          await activity.put(threadId, (value as { activity?: unknown } | undefined)?.activity);
+        },
         lookup: async (threadId) => {
           const entry = await store.get(threadId);
           return entry ? record(entry) : undefined;
@@ -111,6 +121,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           const backend = new AntigravityThreadRuntimeBackend(threadId, cwd, {
             adapter,
             store,
+            activity,
             openSession,
             cachedModels: async () => (await store.listModels()).map((model): AcpSelectOption => ({ value: model.value, name: model.name })),
             onModels: (models) => void store.setModels(models.map((model) => ({ value: model.value, name: model.name }))).catch(() => undefined),

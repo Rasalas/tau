@@ -8,8 +8,21 @@ Settings → Keybindings lists what is live, with its clause.
 
 ## Rebinding
 
-Chords live in Pi's `~/.pi/agent/keybindings.json`, by Pi action id or Tau
-command id; the file is watched, so a save applies at once.
+Settings → Keybindings edits the chords: click a chord and press the new
+keys, change where it applies (the `when` field suggests the contexts in use
+and checks the clause), add another chord or remove one of several, reset a
+command to its default, or reset all. Before a save the page names every
+binding that would press the same keys where both clauses hold, on this
+platform and on the other (`mod+p` is `ctrl+p` off macOS), and says which of
+the two gets the key. The keyboard button beside the filter searches by keys
+instead of text. While a chord is being recorded no workbench chord runs.
+
+The chords live in Pi's `~/.pi/agent/keybindings.json`, by Pi action id or Tau
+command id; the file is watched, so a save from the page or from an editor
+applies at once. The page writes the whole file anew with a temp file and a
+rename, keeps every entry it did not change, writes where a symlink points
+(a dotfiles checkout keeps the change), and leaves a file that is not a JSON
+object alone.
 
 ```json
 {
@@ -23,6 +36,13 @@ A chord you write replaces the command's defaults. Without `when` it keeps the
 clause of the default it replaces (a rebound `terminal.split` still only
 splits inside a terminal); `"when": "true"` makes it apply everywhere. Pi reads
 only the string entries, so an entry with an object in it is Tau's alone.
+
+The page writes under the Tau command id. Where the file also names the
+command through a Pi action (`app.session.new` for `runtime.new-session`), the
+entry under the command id wins in Tau and Pi keeps its own key; an empty list
+(`"runtime.new-session": []`) gives the command Tau's defaults. Reset all
+drops every entry that is not a Pi action (`app.*`, `tui.*`) and writes that
+empty list for a command a Pi action still names.
 
 Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 `stageFocus`, `modelPickerFocus`, and the matching `…Open` (`modelPickerOpen`,
@@ -116,8 +136,16 @@ reach the workbench as usual.
 - Stage tabs moved off `mod+shift+[`/`]` (now thread navigation, as in T3 Code)
   to `ctrl+tab`; the focus chords moved from `mod+1`–`mod+3` (now thread jumps)
   to `mod+alt+1`–`mod+alt+3`.
-- `mod+r` and the zoom chords under `previewFocus` are not bound: Electron's
-  View menu owns ⌘R, ⌘0, ⌘+ and ⌘− for the window.
+- `mod+r` and the zoom chords under `previewFocus` are not bound. The app menu
+  (`src/main/app-menu.ts`, after T3 Code's) owns ⌘R and ⌘⇧R (reload), ⌘0, ⌘=
+  (and ⌘+) and ⌘− (the workbench's own zoom, whichever view has the keyboard),
+  ⇧⌘V (Paste as Text: the next paste lands as plain text, not as a folded
+  file or a chip) and ⌘Q (hold it, or press it twice; Settings → Defaults →
+  Quitting). ⌘, is Settings on both sides. `APP_MENU_CHORDS` in
+  `src/shared/window-shell.ts` lists them and `kits/kit-lifecycle.test.tsx`
+  keeps every other binding off them. A view that wants the zoom chords for its
+  own page (a preview) takes them in that view's `before-input-event` and calls
+  `preventDefault`, which also keeps the menu's accelerator from firing.
 - No Tau command yet for `chat.newLocal`, `composer.host`,
   `composer.previousWorktree`, `pullRequest.copyNumber` and
   `thread.copyReference`.

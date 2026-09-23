@@ -14,6 +14,8 @@ import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { SettingRow, SettingsSection, Switch, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
 import { UPDATE_CHANNELS, defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
+import { QUIT_CONFIRMATIONS, isQuitConfirmation, type QuitConfirmation } from "../../shared/window-shell";
+import { isMacPlatform } from "../keybindings";
 import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
 
@@ -26,6 +28,8 @@ const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
 const DETAIL_LABELS: Record<TranscriptDetail, string> = { focused: "Focused", detailed: "Detailed", everything: "Everything" };
 
 const CHANNEL_LABELS: Record<UpdateChannel, string> = { stable: "Stable", nightly: "Nightly" };
+
+const QUIT_LABELS: Record<QuitConfirmation, string> = { hold: "Hold", "double-press": "Press twice", off: "At once" };
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
 const readNumber = (raw: unknown) => (typeof raw === "number" && Number.isFinite(raw) ? raw : undefined);
@@ -105,6 +109,13 @@ export function DefaultsPage({
   });
   // The updater reads this machine's config; a host elsewhere would store a choice nothing here applies.
   const { localFiles: hostIsThisMachine } = useHostCapabilities();
+  const quitShortcut = useSetting<QuitConfirmation>("confirm.quit", {
+    defaultValue: CONFIG_DEFAULTS["confirm.quit"] as QuitConfirmation, read: (raw) => (isQuitConfirmation(raw) ? raw : undefined), format: (value) => QUIT_LABELS[value],
+  });
+  const quitWhileRunning = useSetting<boolean>("confirm.quitWhileRunning", {
+    defaultValue: CONFIG_DEFAULTS["confirm.quitWhileRunning"] as boolean, read: readBoolean, offline: (value) => preferences.setConfirmQuitWhileRunning(value),
+  });
+  const quitChord = isMacPlatform() ? "⌘Q" : "Ctrl+Q";
   const temperature = useSetting<number | undefined>("temperature", { defaultValue: undefined, scope: "both", read: readNumber, format: (value) => (value === undefined ? "Model default" : String(value)) });
   const maxTokens = useSetting<number | undefined>("maxTokens", { defaultValue: undefined, scope: "both", read: readNumber, format: (value) => (value === undefined ? "Model default" : String(value)) });
 
@@ -253,6 +264,29 @@ export function DefaultsPage({
           control={<Switch label="Continue threads after restarts" checked={continueAfterRestart.value} onChange={continueAfterRestart.set} />}
         />
       </SettingsSection>
+
+      {hostIsThisMachine ? (
+        <SettingsSection title="Quitting">
+          <SettingRow
+            id={settingAnchor("Quit shortcut")}
+            title="Quit shortcut"
+            description={`How ${quitChord} quits: held for a moment, pressed twice, or at once. Hold also quits on two quick presses; Quit in the menu always quits at once.`}
+            setting={quitShortcut}
+            control={<div className="segmented" role="group" aria-label="Quit shortcut">
+              {QUIT_CONFIRMATIONS.map((mode) => (
+                <button key={mode} className={mode === quitShortcut.value ? "active" : ""} aria-pressed={mode === quitShortcut.value} onClick={() => quitShortcut.set(mode)}>{QUIT_LABELS[mode]}</button>
+              ))}
+            </div>}
+          />
+          <SettingRow
+            id={settingAnchor("Ask before quitting while threads work")}
+            title="Ask before quitting while threads work"
+            description="Quitting stops the threads that are working, unless the host keeps running in the background."
+            setting={quitWhileRunning}
+            control={<Switch label="Ask before quitting while threads work" checked={quitWhileRunning.value} onChange={quitWhileRunning.set} />}
+          />
+        </SettingsSection>
+      ) : null}
 
       {hostIsThisMachine ? (
         <SettingsSection title="Updates">

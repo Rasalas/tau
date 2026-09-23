@@ -25,7 +25,7 @@ echo '{"app.session.new": "mod+shift+d"}' > /tmp/tau-shadow-agent/keybindings.js
 npm run dev:instance -- --build --agent-dir /tmp/tau-shadow-agent
 ```
 
-Symlink whatever the real dir has that the test still needs — auth, settings, the `npm` extension cache — so models and extensions keep working, and write `keybindings.json` as a plain file so it holds the test's own bindings. Never write to the real `~/.pi/agent`; only the shadow directory changes.
+Symlink whatever the real dir has that the test still needs — auth, settings, the `npm` extension cache — so models and extensions keep working, and write `keybindings.json` as a plain file so it holds the test's own bindings. Never link it: Settings → Keybindings writes through a symlink to the file it points at. Never write to the real `~/.pi/agent`; only the shadow directory changes.
 
 Because the default userData and workspace live under the worktree's own `.tau-dev/`, and there is no flag to point userData anywhere else, an isolated instance structurally cannot reach the user's real Tau data.
 
@@ -33,7 +33,7 @@ Because the default userData and workspace live under the worktree's own `.tau-d
 
 Pi (the coding agent Tau embeds) keeps every session under `~/.pi/agent/sessions/<encoded cwd>/`, and Tau's thread index lists all of them across every project the user has ever opened — that is how the sidebar's "All projects" grouping works. Without isolating this store, an instance's test threads would write into that real store and show up in the user's own Tau sidebar (this happened: a verification run once left twenty "Index n" sub-agent threads in a real user's projects).
 
-By default `dev-instance.mjs` sets `PI_CODING_AGENT_SESSION_DIR=<worktree>/.tau-dev/pi-sessions`, so every session the instance creates, opens, or lists lives under that path instead — it never reaches `~/.pi/agent/sessions`, and threads it writes never reach the user's real sidebar. Pi's own directory is the instance's too: `PI_CODING_AGENT_DIR=<worktree>/.tau-dev/pi-agent`, where `auth.json`, `models.json`, `npm`, `extensions` and `keybindings.json` link to the real `~/.pi/agent` and `settings.json`, `models-store.json` and `trust.json` are copied once. Pi writes into its agent dir by itself (`lastChangelogVersion`, the default model when one is picked), so an instance on the real one changes the user's settings. Pass `--real-agent-dir` only for a test that must run on it. `--fresh` wipes `.tau-dev/pi-sessions` along with userData. Pass `--shared-sessions` to skip the override and use the real session store — only for a test that specifically needs the user's existing threads.
+By default `dev-instance.mjs` sets `PI_CODING_AGENT_SESSION_DIR=<worktree>/.tau-dev/pi-sessions`, so every session the instance creates, opens, or lists lives under that path instead — it never reaches `~/.pi/agent/sessions`, and threads it writes never reach the user's real sidebar. Pi's own directory is the instance's too: `PI_CODING_AGENT_DIR=<worktree>/.tau-dev/pi-agent`, where `auth.json`, `models.json`, `npm` and `extensions` link to the real `~/.pi/agent` and `settings.json`, `models-store.json`, `trust.json` and `keybindings.json` are copied once (Settings → Keybindings writes that file; a link an older instance made becomes a copy on the next start). Pi writes into its agent dir by itself (`lastChangelogVersion`, the default model when one is picked), so an instance on the real one changes the user's settings. Pass `--real-agent-dir` only for a test that must run on it. `--fresh` wipes `.tau-dev/pi-sessions` along with userData. Pass `--shared-sessions` to skip the override and use the real session store — only for a test that specifically needs the user's existing threads.
 
 Tau's own settings get the same treatment: `TAU_CONFIG_FILE=<worktree>/.tau-dev/tau-config.json`, seeded once as a copy of the user's `~/.tau/config.json` (read, never written), `TAU_WORKTREES_DIR=<worktree>/.tau-dev/worktrees` for the worktrees its threads create, `TAU_THEMES_DIR=<worktree>/.tau-dev/themes` for the themes it saves (so the real `~/.tau/themes` is neither read nor written), and `TAU_HOST_TOKEN_FILE=<worktree>/.tau-dev/host-token` for the secret its host process and window share. A setting toggled in the instance — `hostBackground`, `threads.continueAfterRestart` — stays in the instance. `--fresh` reseeds the config.
 
@@ -66,6 +66,17 @@ git -C .tau-dev/workspace remote add origin git@github.com:acme/demo.git
 
 The host reads PATH from a login shell; with the user's real `ZDOTDIR` that shell puts Homebrew's real `gh` in front of the stub. A stub must read stdin only when the call passes `--input -` or `--body-file -`: the kit leaves stdin open otherwise, and a stub that waits for it never answers. The remote only names the repository; nothing is pushed to it.
 
+### Stub `tea` and `az`, a fake Bitbucket API
+
+The other providers are tested the same way. A stub `tea` answers `login list --output json` and `api --include …`, writing `HTTP/2.0 200 OK` to stderr (tea exits 0 on HTTP errors, and Review Kit reads the status there); a stub `az` answers `repos …` and `devops invoke …` and reads the body file `--in-file` names. Both can answer from `kits/review/fixtures/forgejo-*` and `azure-*`. Bitbucket has no CLI: start a local server that answers `/2.0/…` from `bitbucket-*`, point `TAU_BITBUCKET_API_URL=http://127.0.0.1:<port>/2.0` at it, and give the instance a Git config of its own whose credential helper prints a fake `username`/`password`, so the real keychain is never asked:
+
+```
+GIT_CONFIG_GLOBAL=$PWD/.tau-dev/stub/gitconfig GIT_CONFIG_NOSYSTEM=1 TAU_BITBUCKET_API_URL=http://127.0.0.1:9471/2.0 \
+  env -u ELECTRON_RUN_AS_NODE PATH="$PWD/.tau-dev/stub-bin:$PATH" ZDOTDIR="$PWD/.tau-dev/zdotdir" npm run dev:instance -- --build --fresh
+```
+
+A `pushInsteadOf` in that config sends a push for the fake remote to a bare repository under `.tau-dev/`. A self-hosted server is chosen in Settings → Review → Self-hosted servers and lands in `.tau-dev/userdata/kit-state/tau.review/source-hosts.json`.
+
 ### A runtime update without a real update
 
 The update toast of a runtime backend runs the program's update command in a
@@ -78,6 +89,23 @@ newer `latest` comes from seeding the kit's registry cache before the start,
 (`{"version":1,"packages":{"@openai/codex":{"version":"<newer>","checkedAt":<now ms>}}}`),
 and `TAU_VERSION_POLICY='{"codex":{"ranges":[]}}'` keeps the policy banner out
 of the way.
+
+### Release notes without a release
+
+The notes a new version shows once come from GitHub in an installed Tau. Start
+an instance with `TAU_RELEASE_NOTES_FILE=<abs path>` (a Markdown body, the way
+GitHub writes one) and it reads that file instead and fetches nothing. The
+notes are due when `.tau-dev/userdata/release-notes.json` names an older
+`lastVersion` than the running one: stop the instance, write
+`{"version":1,"lastVersion":"0.0.1"}` there, and start it again without
+`--fresh`.
+
+### What CDP keys do not reach
+
+`npm run cdp -- press` goes to the page. The app menu's accelerators (zoom,
+Paste as Text) and the window's `before-input-event` (the ⌘Q hold) never see
+it; drive those from the main process (`webContents.sendInputEvent`, a menu
+item's `click`) or leave them to the unit tests.
 
 ## Keeping an instance alive across turns
 
@@ -93,7 +121,7 @@ This is about not restarting between passes of the same task, not about leaving 
 | --- | --- |
 | `snapshot` | A compact text outline: headings, buttons with aria-labels, thread rows (marking the active one), toasts, composer state, active dock panels. |
 | `eval <expr>` | Runs an async JS expression in the renderer with `all`, `byText`, `rect`, `setValue`, `sleep`, `toasts` in scope. |
-| `click <expr>` | Resolves `expr` to an element and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
+| `click <expr>` | Resolves `expr` to an element, scrolls it into view (a button below a short window's fold was clicked in empty space before) and dispatches real mouse events at its center, since a plain `.click()` is ignored by React-controlled sidebar rows. |
 | `hover <expr>` | Moves the mouse onto the element's center and nowhere else, so a tooltip opens after its delay. |
 | `rightclick <expr>` | A right-click at the element's center. Where the page asks for the OS's menu (`useContextMenu`), that menu is a native window CDP cannot reach: read it with `screencapture -l <id>` of a window your instance's PID owns, and `stop` closes it with the instance. |
 | `type <expr> <text>` | Sets a textarea's value through its native setter and fires `input`. |
@@ -103,6 +131,14 @@ This is about not restarting between passes of the same task, not about leaving 
 | `toasts` | The toast stack as JSON: each toast's `level` (its type) and text. |
 | `pid` | The instance's own Electron PID, found by checking the port's devtools endpoint and cross-referencing `ps`, so a caller kills only its own instance. |
 | `stop` | Stops the instance: SIGTERM, then SIGKILL if it is still alive after ~2s. Electron's main process installs no SIGTERM handler of its own and does not reliably quit from one alone; prefer this over a bare `kill <pid>`. |
+
+## A test prompt from a fresh instance
+
+`.agents/skills/test-tau-app/SKILL.md` has the commands, checked against the current picker. Three things make it more than "type and press Enter":
+
+- A `--fresh` instance opens the welcome wizard first (Continue, "Do not add projects", "Do not import").
+- The instance copies the user's Pi `settings.json`, so a new draft starts on the user's default model, which may be expensive. Pick the cheap model in the picker by its option's aria-label (`GPT-5.6 Luna, Pi, …`), and check the chip's label before sending.
+- Proof that the turn ran on it is the session file under `.tau-dev/pi-sessions/`: a `model_change` to the cheap model before the user message, and the assistant message's `"model"`.
 
 ## Known traps
 

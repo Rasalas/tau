@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AccountInfo, ModelInfo, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { commandInvocation, type HostRuntimeNewThreadCatalog, type UiModel } from "tau/host-extension";
+import { commandInvocation, type HostCatalogModel, type HostRuntimeNewThreadCatalog, type UiModel, type UiModelBilling } from "tau/host-extension";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -144,20 +144,39 @@ export async function probeClaude(input: ProbeInput): Promise<ClaudeProbe> {
   }
 }
 
+/** A plan login is the subscription; a key or a cloud provider's account is billed per token. */
+export function probeBilling(account: AccountInfo | undefined): UiModelBilling | undefined {
+  if (!account) return undefined;
+  if (account.apiProvider && account.apiProvider !== "firstParty") return "api-key";
+  if (account.subscriptionType) return "subscription";
+  return account.tokenSource === "apiKey" || (account.apiKeySource && account.apiKeySource !== "none") ? "api-key" : undefined;
+}
+
+/** A catalog row: the alias the CLI takes, priced by the wire id it resolves to. */
+function catalogModel(info: ModelInfo, billing: UiModelBilling | undefined): HostCatalogModel {
+  return {
+    ...uiModel(info),
+    ...(billing ? { billing } : {}),
+    ...(info.resolvedModel ? { apiModelId: info.resolvedModel } : {}),
+    ...(info.supportsEffort || info.supportsAdaptiveThinking || info.supportedEffortLevels?.length ? { reasoning: true } : {}),
+  };
+}
+
 /**
  * What a new thread may start on, from a probe: the plan's models, the one the
  * CLI would pick itself, and each model's efforts after the CLI's own default.
  */
-export function probeNewThreadCatalog(probe: Pick<ClaudeProbe, "modelInfos" | "defaultModel" | "effort">): HostRuntimeNewThreadCatalog {
+export function probeNewThreadCatalog(probe: Pick<ClaudeProbe, "modelInfos" | "defaultModel" | "effort" | "account">): HostRuntimeNewThreadCatalog {
   const infos = probe.modelInfos;
   const start = infos.find((info) => info.value === probe.defaultModel)
     ?? infos.find((info) => info.value !== "default" && info.resolvedModel === probe.defaultModel)
     ?? infos.find((info) => info.value === "default")
     ?? infos[0];
   const own = probe.effort ? `default (${probe.effort})` : "default";
+  const billing = probeBilling(probe.account);
   return {
-    models: infos.map(uiModel),
-    ...(start ? { model: uiModel(start) } : {}),
+    models: infos.map((info) => catalogModel(info, billing)),
+    ...(start ? { model: catalogModel(start, billing) } : {}),
     thinkingLevels: Object.fromEntries(infos.map((info) => [info.value, [own, ...(info.supportedEffortLevels ?? EFFORT_LEVELS)]])),
   };
 }

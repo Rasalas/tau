@@ -622,8 +622,17 @@ export interface PaletteSourceContribution {
   search(query: string, context: PaletteSearchContext): readonly PaletteItem[] | Promise<readonly PaletteItem[]>;
 }
 
-/** `thread-title` is the thread title's menu; `file-tab` a button in a file tab's header, which reads the tab from `actions.activeStageTab()`. */
-export type CommandSurface = "thread-title" | "file-tab";
+/**
+ * `thread-title` is the thread title's menu; `file-tab` a button in a file tab's header, which reads the tab from `actions.activeStageTab()`;
+ * `runtime-switch` an action the model picker offers with another runtime than the thread's, run with `{ runtime }`.
+ */
+export type CommandSurface = "thread-title" | "file-tab" | "runtime-switch";
+
+/** What a surface hands the command it runs; the palette hands nothing. */
+export interface CommandContext {
+  /** On `runtime-switch`: the runtime backend kind the user pointed at. */
+  runtime?: string;
+}
 
 export interface CommandContribution {
   id: string;
@@ -632,7 +641,7 @@ export interface CommandContribution {
   surfaces?: readonly CommandSurface[];
   /** Deletes or discards something: a surface menu draws it last, in the danger colour. */
   destructive?: boolean;
-  run(actions: WorkbenchActions): void | Promise<void>;
+  run(actions: WorkbenchActions, context?: CommandContext): void | Promise<void>;
 }
 
 /**
@@ -669,6 +678,41 @@ export interface KeybindingConflict {
   extensionId: string;
   /** The binding that holds the chord. */
   boundTo: { commandId: string; extensionId: string };
+}
+
+/**
+ * A chord the user set for a command. Without `when` it keeps the clause of
+ * the default it replaces; `"true"` makes it apply everywhere. New in API 1.12.0.
+ */
+export interface UserKeybinding {
+  key: string;
+  when?: string;
+}
+
+/**
+ * The file Settings → Keybindings writes the chords the user records to. Its
+ * owner binds what the file holds with `registerKeybinding` and `replaces`, as
+ * before; the page only hands over a command's new chords. One at a time, the
+ * last registered wins. New in API 1.12.0.
+ */
+export interface UserKeymapContribution {
+  id: string;
+  /** The file as the page names it, e.g. `~/.pi/agent/keybindings.json`. */
+  label: string;
+  /** Replaces a command's chords; `undefined` gives it its defaults back. Resolves once written. */
+  setChords(commandId: string, chords: readonly UserKeybinding[] | undefined): Promise<void>;
+  /** Gives every command its defaults back. */
+  resetAll(): Promise<void>;
+}
+
+/** The owner of the chords config.json's `keybindings` sets. */
+export const USER_CONFIG_KEYBINDINGS = "user-config";
+
+/** A live binding a chord the user records would share its keys with. */
+export interface KeybindingCollision {
+  binding: ResolvedKeybinding;
+  /** Where both clauses hold: the new chord `wins` the key, `loses` it, or they rank the same (`clash`) and one of them is dropped. */
+  outcome: "wins" | "loses" | "clash";
 }
 
 export interface ResolvedKeybinding extends KeybindingContribution, ContributionOwner {
@@ -990,6 +1034,8 @@ export interface DesktopExtensionContext {
   registerSlashCommand(command: SlashCommandContribution): () => void;
   /** Binds a chord to a command of any extension; core dispatches window keydown. */
   registerKeybinding(binding: KeybindingContribution): () => void;
+  /** Offers the file the Keybindings page writes recorded chords to. New in API 1.12.0. */
+  registerUserKeymap(keymap: UserKeymapContribution): () => void;
   registerPromptHook(hook: PromptHookContribution): () => void;
   /** Lets a new thread's model picker hold several models; one extension at a time, the last one wins. */
   registerModelSelection(selection: ModelSelectionContribution): () => void;
@@ -1155,6 +1201,7 @@ export class ExtensionRegistry {
   private messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
+  private userKeymaps = new Map<string, Owned<UserKeymapContribution>>();
   /** Values one extension published for another; core only routes them by id. */
   private extensionServices = new Map<string, ContributionOwner & { value: unknown }>();
   private serviceUsers = new Map<string, Set<ServiceUser>>();
@@ -1468,6 +1515,10 @@ export class ExtensionRegistry {
         note("message blocks");
         return this.register(this.messageBlocks, block.id, { ...block, ...owner }, disposers);
       },
+      registerUserKeymap: (keymap) => {
+        note("user keymap");
+        return this.register(this.userKeymaps, keymap.id, { ...keymap, ...owner }, disposers);
+      },
       registerDocumentSource: (source) => {
         if (!this.scopeToProfile(owner, "document source", source.id, undefined, source)) return noContribution;
         note("documents");
@@ -1723,7 +1774,7 @@ export class ExtensionRegistry {
     this.overrideDisposers.forEach((dispose) => dispose());
     this.overrideDisposers = [];
     if (!overrides) return;
-    const owner: ContributionOwner = { extensionId: "user-config", extensionName: "User Config" };
+    const owner: ContributionOwner = { extensionId: USER_CONFIG_KEYBINDINGS, extensionName: "User Config" };
     for (const [commandId, rawKeys] of Object.entries(overrides)) {
       if (!rawKeys || typeof rawKeys !== "string") continue;
       const chord = parseKeyChord(rawKeys);
@@ -1807,6 +1858,37 @@ export class ExtensionRegistry {
   /** Chords that lost to an earlier binding; `mac` asks about the other platform, where `mod` is another key. */
   getKeybindingConflicts(mac?: boolean): readonly KeybindingConflict[] {
     return this.resolveKeybindings(mac).conflicts;
+  }
+
+  /** A command's default chords, live or replaced, in the order they were registered. */
+  getDefaultKeybindings(commandId: string): ResolvedKeybinding[] {
+    return this.keybindingEntries.filter((entry) => entry.tier === 0 && entry.binding.commandId === commandId).map((entry) => entry.binding);
+  }
+
+  /** Where recorded chords are written, from the extension that registered last. */
+  getUserKeymap(): Owned<UserKeymapContribution> | undefined {
+    return [...this.userKeymaps.values()].at(-1);
+  }
+
+  /**
+   * The live bindings of other commands a chord the user sets for `commandId`
+   * would press the same keys as on this platform (or `mac`), where both
+   * clauses can hold. The chord ranks as a replacing binding and, without a
+   * `when`, takes the clause of the command's first default.
+   */
+  findKeybindingCollisions(candidate: UserKeybinding & { commandId: string }, mac = isMacPlatform()): KeybindingCollision[] {
+    const chord = parseKeyChord(candidate.key);
+    const when = candidate.when?.trim() || undefined;
+    const ast = when ? parseWhen(when) : this.keybindingEntries.find((entry) => entry.tier === 0 && entry.binding.commandId === candidate.commandId)?.ast;
+    if (!chord || (when && !ast)) return [];
+    const specific = isSpecificWhen(ast);
+    const keys = platformChordId(chord, mac);
+    return this.resolveKeybindings(mac).live
+      .filter((other) => other.binding.commandId !== candidate.commandId && platformChordId(other.binding.chord, mac) === keys && whenOverlaps(other.whenAst, ast))
+      .map((other) => ({
+        binding: other.effective,
+        outcome: other.tier !== 1 ? (other.tier < 1 ? "wins" : "loses") : other.specific === specific ? "clash" : specific ? "wins" : "loses",
+      }));
   }
 
   /** The display label of the chord bound to a command, if any. */

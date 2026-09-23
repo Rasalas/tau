@@ -1,53 +1,66 @@
 import type { ThreadBackendKind, UiRuntimeBackend } from "../../shared/contracts";
+import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
+import { runtimeUpdate } from "../runtime-update";
 
-export const FAVOURITES_ENTRY = "\u0000favourites";
+export const FAVOURITES_VIEW = "favourites";
+export const RECENT_VIEW = "recent";
 
-export function modelKey(model: { provider: string; id: string }): string {
-  return `${model.provider}/${model.id}`;
-}
+/** What the dot beside a runtime says. */
+export type RuntimeStatus = "ready" | "update" | "loading" | "sign-in" | "not-installed" | "unavailable" | "unlisted";
 
-/**
- * One tab of the picker's rail. Pi's catalog is split by model provider; any
- * other runtime is one tab, whose models are listed only when the catalog on
- * hand is its own (`listed`), because a runtime's models are known once a
- * thread of it runs.
- */
-export type RailEntry =
+export const RUNTIME_STATUS_LABELS: Record<RuntimeStatus, string> = {
+  ready: "ready",
+  update: "update available",
+  loading: "asking for its models",
+  "sign-in": "sign-in needed",
+  "not-installed": "not installed",
+  unavailable: "unavailable",
+  unlisted: "models listed once a thread runs",
+};
+
+/** One entry of the picker's left column. */
+export type ViewEntry =
   | { kind: "favourites"; key: string }
-  | { kind: "provider"; key: string; provider: string }
-  | { kind: "runtime"; key: string; backend: UiRuntimeBackend; listed: boolean };
+  | { kind: "recent"; key: string }
+  | { kind: "runtime"; key: string; backend: UiRuntimeBackend; status: RuntimeStatus; listed: boolean };
 
-export interface RailInput {
-  /** Model providers of the catalog on hand, sorted. */
-  providers: readonly string[];
-  /** The runtime that catalog belongs to. */
-  catalogRuntime: ThreadBackendKind | undefined;
-  /** Every runtime the host offers, Pi first; absent on a host that offers only Pi. */
-  backends: readonly UiRuntimeBackend[] | undefined;
-  favourites: boolean;
-}
-
-export function runtimeEntryKey(kind: ThreadBackendKind): string {
+export function runtimeView(kind: ThreadBackendKind): string {
   return `runtime:${kind}`;
 }
 
-export function pickerRail({ providers, catalogRuntime = DEFAULT_RUNTIME, backends, favourites }: RailInput): RailEntry[] {
-  const offered = backends?.length ? [...backends] : [];
-  if (!offered.some((backend) => backend.kind === catalogRuntime)) offered.unshift({ kind: catalogRuntime, label: catalogRuntime === DEFAULT_RUNTIME ? "Pi" : catalogRuntime });
-  const rail: RailEntry[] = favourites ? [{ kind: "favourites", key: FAVOURITES_ENTRY }] : [];
-  for (const backend of offered) {
-    const listed = backend.kind === catalogRuntime;
-    if (listed && backend.kind === DEFAULT_RUNTIME && providers.length > 0) {
-      rail.push(...providers.map((provider): RailEntry => ({ kind: "provider", key: provider, provider })));
-    } else {
-      rail.push({ kind: "runtime", key: runtimeEntryKey(backend.kind), backend, listed });
-    }
+/**
+ * A runtime's state as far as the picker knows it: whether its models are on
+ * hand, and if not why; a ready runtime with a newer or troubled program says so.
+ */
+export function runtimeStatus(backend: UiRuntimeBackend, entry: RuntimeCatalogEntry | undefined, onHand: boolean): { status: RuntimeStatus; listed: boolean } {
+  const listed = onHand || (entry?.status === "ready" && entry.catalog.models.length > 0);
+  if (listed) return { status: runtimeUpdate(backend) ? "update" : "ready", listed };
+  if (entry?.status === "loading") return { status: "loading", listed };
+  if (entry?.status === "unavailable") {
+    if (entry.reason === "not-installed") return { status: "not-installed", listed };
+    if (entry.reason === "sign-in-required") return { status: "sign-in", listed };
+    return { status: entry.message ? "unavailable" : "unlisted", listed };
   }
-  return rail;
+  return { status: "unlisted", listed };
 }
 
-/** The tab a model of the catalog on hand lives under. */
-export function railKeyForModel(provider: string, catalogRuntime: ThreadBackendKind | undefined): string {
-  return (catalogRuntime ?? DEFAULT_RUNTIME) === DEFAULT_RUNTIME ? provider : runtimeEntryKey(catalogRuntime as string);
+export interface ViewInput {
+  /** The runtime the models on hand belong to. */
+  catalogRuntime: ThreadBackendKind | undefined;
+  /** Every runtime the host offers; absent on a host that offers only Pi. */
+  backends: readonly UiRuntimeBackend[] | undefined;
+  catalogs: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry>;
+  recent: boolean;
+}
+
+/** Favourites, Recent when something was chosen before, then every runtime in the host's order. */
+export function pickerViews({ catalogRuntime = DEFAULT_RUNTIME, backends, catalogs, recent }: ViewInput): ViewEntry[] {
+  const offered = backends?.length ? [...backends] : [];
+  if (!offered.some((backend) => backend.kind === catalogRuntime)) offered.unshift({ kind: catalogRuntime, label: catalogRuntime === DEFAULT_RUNTIME ? "Pi" : catalogRuntime });
+  return [
+    { kind: "favourites", key: FAVOURITES_VIEW },
+    ...(recent ? [{ kind: "recent", key: RECENT_VIEW } as const] : []),
+    ...offered.map((backend): ViewEntry => ({ kind: "runtime", key: runtimeView(backend.kind), backend, ...runtimeStatus(backend, catalogs.get(backend.kind), backend.kind === catalogRuntime) })),
+  ];
 }

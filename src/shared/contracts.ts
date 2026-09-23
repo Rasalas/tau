@@ -162,6 +162,34 @@ export interface UiModel {
   name: string;
   /** Reached through a consumer-subscription login the runtime performs, not an API key. */
   login?: "subscription";
+  /**
+   * How using it is paid for, where the runtime knows. Runtime catalogs carry
+   * it and the fields below; a thread's own `models` leave them out.
+   */
+  billing?: UiModelBilling;
+  /** What the same model costs over its provider's API; a subscription offering carries it as the price it would have had. */
+  price?: UiModelPrice;
+  /** Tokens of context the model reads. */
+  contextWindow?: number;
+  /** Tokens it may write in one response. */
+  maxOutput?: number;
+  /** It takes images as input. */
+  images?: boolean;
+  /** It reasons before answering; its levels are the catalog's `thinkingLevels`. */
+  reasoning?: boolean;
+  /** When the model came out, `YYYY-MM-DD` (or `YYYY-MM`), where models.dev knows it. */
+  releasedAt?: string;
+}
+
+/** A subscription login, an API key, a free offering, or a model on the user's own machine. */
+export type UiModelBilling = "subscription" | "api-key" | "free" | "local";
+
+/** US dollars per million tokens. */
+export interface UiModelPrice {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
 }
 
 /** A runtime backend a new thread can be created on; Pi is always one of them. */
@@ -373,8 +401,11 @@ export interface ExtensionUiPrompt {
 
 export type ExtensionUiAnswer =
   | { cancelled: true }
-  /** `typed` marks free text entered for a select, as opposed to a clicked choice. */
-  | { value: string; typed?: boolean }
+  /**
+   * `typed` marks free text entered for a select, as opposed to a clicked choice.
+   * `attachments` travel with typed text; the host names them by path in `value`.
+   */
+  | { value: string; typed?: boolean; attachments?: UiPromptAttachment[] }
   | { confirmed: boolean }
   | { customResult?: unknown };
 
@@ -491,9 +522,19 @@ export interface UiRuntimeCatalog {
   /** The levels each model offers, by model id; the first is the runtime's own default. */
   thinkingLevels: Record<string, string[]>;
   runtimeCapabilities?: RuntimeCapabilities;
-  /** Why the models are known only once a thread runs, when they are. */
+  /** Why the models are known only once a thread runs, or why the runtime cannot run now. */
   note?: string;
+  /**
+   * Absent while the runtime can run a thread. `not-installed` and
+   * `sign-in-required` come with no models; `unavailable` keeps the models
+   * the runtime named last, if any, and `note` says what failed.
+   */
+  status?: UiRuntimeCatalogStatus;
+  /** When the runtime named this list, in ms since the epoch; an unchanged answer keeps it. */
+  checkedAt?: number;
 }
+
+export type UiRuntimeCatalogStatus = "not-installed" | "sign-in-required" | "unavailable";
 
 export interface PreparedThreadCapability {
   cwd: string;
@@ -581,10 +622,14 @@ export type GlobalHostEvent =
   | { type: "error"; message: string; sessionId?: undefined }
   /** How many clients are attached to this host, after one arrived or left. */
   | { type: "client-count"; count: number; sessionId?: undefined }
+  /** A runtime's catalog for new threads changed; only the one that changed is sent. */
+  | { type: "runtime-catalog"; catalog: UiRuntimeCatalog; sessionId?: undefined }
   /** What a Pi extension titled the window with (`ctx.ui.setTitle`); each client applies it to its own. */
   | { type: "window-title"; title: string; sessionId?: undefined }
   /** A new Tau finished downloading and installs on the next restart. */
   | { type: "app-update"; version: string; sessionId?: undefined }
+  /** The window's own process to its page: the app menu, the quit shortcut, a quit waiting for an answer. */
+  | { type: "window-shell"; event: import("./window-shell.js").WindowShellEvent; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
 /** Events emitted by a runtime always carry the owning session explicitly. */
@@ -818,14 +863,25 @@ export interface TauUpdatesConfig {
   channel?: import("./app-version.js").UpdateChannel;
 }
 
+/** What the app asks before it quits; read by the window's process on this machine. */
+export interface TauConfirmConfig {
+  /** How ⌘Q quits: held, pressed twice, or at once. */
+  quit?: import("./window-shell.js").QuitConfirmation;
+  /** Ask before quitting while threads are working and the host would stop with the app. */
+  quitWhileRunning?: boolean;
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
   extensions?: TauConfigExtensions;
   threads?: TauThreadsConfig;
   updates?: TauUpdatesConfig;
+  confirm?: TauConfirmConfig;
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];
+  /** What the model picker hides and in which order it lists models, by runtime backend kind. */
+  modelPreferences?: Record<string, TauModelPreferences>;
   disabledExtensions?: string[];
   prewarm?: boolean;
   /** Leave the host process running after the app quits, so its threads keep going. */
@@ -849,6 +905,13 @@ export interface TauConfig {
   quietStartup?: boolean;
   defaultProjectTrust?: "ask" | "always" | "never";
   vimMode?: boolean;
+}
+
+/** One runtime's model list as the user arranged it; models are keyed `provider/id`. */
+export interface TauModelPreferences {
+  hidden?: string[];
+  /** Listed first, in this order; the rest follow in the runtime's own order. */
+  order?: string[];
 }
 
 export interface CustomModelDefinition {

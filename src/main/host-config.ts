@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TauConfig } from "../shared/contracts.js";
 import { isUpdateChannel, type UpdateChannel } from "../shared/app-version.js";
+import { isQuitConfirmation } from "../shared/window-shell.js";
+import { readModelPreferenceRecord } from "../shared/model-preferences.js";
 import { PI_OWNED_CONFIG_KEYS, isPiOwnedSetting, withoutPiOwned, withoutSetting, type ConfigLayers } from "../shared/config-layers.js";
 
 export interface HostConfigPaths {
@@ -286,7 +288,8 @@ export class HostConfigManager {
     const KNOWN_KEYS = new Set<keyof TauConfig>([
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
-      "temperature", "maxTokens", "vimMode", "hostBackground", "threads", "updates",
+      "temperature", "maxTokens", "vimMode", "hostBackground", "threads", "updates", "confirm",
+      "modelPreferences",
     ]);
     const result: Partial<TauConfig> = {};
     for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
@@ -312,6 +315,11 @@ export class HostConfigManager {
         case "options":
           if (val && typeof val === "object" && !Array.isArray(val)) result.options = val as Record<string, boolean>;
           break;
+        case "modelPreferences": {
+          const preferences = readModelPreferenceRecord(val);
+          if (preferences) result.modelPreferences = preferences;
+          break;
+        }
         case "values": case "keybindings":
           if (val && typeof val === "object" && !Array.isArray(val)) result[key] = val as never;
           break;
@@ -323,6 +331,16 @@ export class HostConfigManager {
         case "updates":
           if (val && typeof val === "object" && isUpdateChannel((val as { channel?: unknown }).channel)) {
             result.updates = { channel: (val as { channel: UpdateChannel }).channel };
+          }
+          break;
+        case "confirm":
+          if (val && typeof val === "object") {
+            const { quit, quitWhileRunning } = val as { quit?: unknown; quitWhileRunning?: unknown };
+            const confirm = {
+              ...(isQuitConfirmation(quit) ? { quit } : {}),
+              ...(typeof quitWhileRunning === "boolean" ? { quitWhileRunning } : {}),
+            };
+            if (Object.keys(confirm).length > 0) result.confirm = confirm;
           }
           break;
       }
@@ -347,11 +365,17 @@ export class HostConfigManager {
     if (base.keybindings || override.keybindings) {
       result.keybindings = { ...(base.keybindings ?? {}), ...(override.keybindings ?? {}) };
     }
+    if (base.modelPreferences || override.modelPreferences) {
+      result.modelPreferences = { ...(base.modelPreferences ?? {}), ...(override.modelPreferences ?? {}) };
+    }
     if (base.threads || override.threads) {
       result.threads = { ...(base.threads ?? {}), ...(override.threads ?? {}) };
     }
     if (base.updates || override.updates) {
       result.updates = { ...(base.updates ?? {}), ...(override.updates ?? {}) };
+    }
+    if (base.confirm || override.confirm) {
+      result.confirm = { ...(base.confirm ?? {}), ...(override.confirm ?? {}) };
     }
     if (override.favouriteModels !== undefined || base.favouriteModels !== undefined) {
       result.favouriteModels = override.favouriteModels ?? base.favouriteModels;

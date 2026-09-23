@@ -1,0 +1,58 @@
+[
+ {
+  "id": 23356504,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23356504",
+  "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14486",
+  "issue_url": "",
+  "user": {
+   "id": 33716,
+   "login": "n0toose",
+   "full_name": "Panagiotis \"Ivory\" Vasilopoulos"
+  },
+  "body": "Unsure whether a test is needed for this one.",
+  "created_at": "2026-09-21T03:49:24+02:00",
+  "updated_at": "2026-09-21T03:49:24+02:00"
+ },
+ {
+  "id": 23367742,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23367742",
+  "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14486",
+  "issue_url": "",
+  "user": {
+   "id": 26734,
+   "login": "Gusted",
+   "full_name": ""
+  },
+  "body": "@n0toose wrote in https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23356504:\r\n\r\n> Unsure whether a test is needed for this one.\r\n\r\nThis seems like something where a test could be easily added, and verifying that the documentation url indeed shows up would be a good behavior to test for.",
+  "created_at": "2026-09-21T07:40:39+02:00",
+  "updated_at": "2026-09-21T07:40:39+02:00"
+ },
+ {
+  "id": 23382616,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23382616",
+  "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14486",
+  "issue_url": "",
+  "user": {
+   "id": 33716,
+   "login": "n0toose",
+   "full_name": "Panagiotis \"Ivory\" Vasilopoulos"
+  },
+  "body": "> This seems like something where a test could be easily added, and verifying that the documentation url indeed shows up would be a good behavior to test for.\r\n\r\nThanks for confirming. After a good night's sleep I managed to figure it out.",
+  "created_at": "2026-09-21T12:07:02+02:00",
+  "updated_at": "2026-09-21T12:07:02+02:00"
+ },
+ {
+  "id": 23383963,
+  "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14486#issuecomment-23383963",
+  "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14486",
+  "issue_url": "",
+  "user": {
+   "id": -2,
+   "login": "forgejo-actions",
+   "full_name": "Forgejo Actions"
+  },
+  "body": "\n<!-- create-or-update-comment -->\nPull request coverage report generated on Mon Sep 21 10:45:43 UTC 2026 for 1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a by [0.2.14](https://codeberg.org/clouds666/unkai).\n<details>\n\n<pre>\n<span>file: forgejo.org/services/lfs/server.go\n</span><span style=\"color: rgb(125",
+  "created_at": "2026-09-21T12:45:44+02:00",
+  "updated_at": "2026-09-21T12:45:44+02:00"
+ }
+]

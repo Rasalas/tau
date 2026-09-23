@@ -109,5 +109,14 @@ describe("describeAccount plans", () => {
     expect(catalog.thinkingLevels).toEqual({ default: ["default (medium)", "low", "medium", "high", "xhigh", "max"], haiku: ["default (medium)", "low"] });
     expect(probeNewThreadCatalog({ modelInfos, defaultModel: "unknown" }).model?.id).toBe("default");
   });
+
+  it("prices an alias by the id it resolves to and says how the plan is paid", () => {
+    const modelInfos = [{ value: "haiku", displayName: "Haiku", description: "", resolvedModel: "claude-haiku-4-5", supportedEffortLevels: ["low"] }] as never;
+    const plan = probeNewThreadCatalog({ modelInfos, account: { subscriptionType: "max", apiProvider: "firstParty" } });
+    expect(plan.models[0]).toMatchObject({ id: "haiku", apiModelId: "claude-haiku-4-5", billing: "subscription", reasoning: true });
+    expect(probeNewThreadCatalog({ modelInfos, account: { apiKeySource: "ANTHROPIC_API_KEY" } }).models[0]?.billing).toBe("api-key");
+    expect(probeNewThreadCatalog({ modelInfos, account: { apiProvider: "bedrock" } }).models[0]?.billing).toBe("api-key");
+    expect(probeNewThreadCatalog({ modelInfos }).models[0]?.billing).toBeUndefined();
+  });
 });
 

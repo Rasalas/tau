@@ -12,6 +12,8 @@ const MAX_TITLE_LENGTH = 120;
 const MAX_ID_LENGTH = 200;
 
 export interface CodexStoredMessage {
+  /** The id the transcript showed it under, so tool cards anchored to it find it again. */
+  id?: string;
   role: "user" | "assistant";
   text: string;
   timestamp: number;
@@ -49,6 +51,8 @@ export interface CodexStoredModel {
   efforts: string[];
   defaultEffort?: string;
   isDefault?: boolean;
+  /** It takes images; absent when `model/list` did not say. */
+  images?: boolean;
 }
 
 const USAGE_FIELDS = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "turns"] as const;
@@ -73,7 +77,8 @@ function storedMessage(value: unknown): CodexStoredMessage | undefined {
   const item = value as Record<string, unknown>;
   if ((item.role !== "user" && item.role !== "assistant") || typeof item.text !== "string" || typeof item.timestamp !== "number") return undefined;
   const clientMessageId = text(item.clientMessageId, MAX_ID_LENGTH);
-  return { role: item.role, text: item.text, timestamp: item.timestamp, ...(clientMessageId ? { clientMessageId } : {}) };
+  const id = text(item.id, MAX_ID_LENGTH);
+  return { ...(id ? { id } : {}), role: item.role, text: item.text, timestamp: item.timestamp, ...(clientMessageId ? { clientMessageId } : {}) };
 }
 
 function storedRecord(value: unknown): CodexSessionRecord | undefined {
@@ -122,7 +127,14 @@ function storedModel(value: unknown): CodexStoredModel | undefined {
   if (!id) return undefined;
   const efforts = Array.isArray(item.efforts) ? item.efforts.filter((effort): effort is string => typeof effort === "string") : [];
   const defaultEffort = text(item.defaultEffort, MAX_ID_LENGTH);
-  return { id, name: text(item.name, MAX_TITLE_LENGTH) ?? id, efforts, ...(defaultEffort ? { defaultEffort } : {}), ...(item.isDefault === true ? { isDefault: true } : {}) };
+  return {
+    id,
+    name: text(item.name, MAX_TITLE_LENGTH) ?? id,
+    efforts,
+    ...(defaultEffort ? { defaultEffort } : {}),
+    ...(item.isDefault === true ? { isDefault: true } : {}),
+    ...(typeof item.images === "boolean" ? { images: item.images } : {}),
+  };
 }
 
 function clone(record: CodexSessionRecord): CodexSessionRecord {
@@ -301,7 +313,8 @@ export class CodexSessionStore {
           if (existing && existing.text === message.text && existing.role === message.role) continue;
           if (existing) throw new Error(`The Codex transcript already holds a different message '${clientMessageId}'.`);
         }
-        record.messages.push({ role: message.role, text: message.text, timestamp: message.timestamp, ...(clientMessageId ? { clientMessageId } : {}) });
+        const id = text(message.id, MAX_ID_LENGTH);
+        record.messages.push({ ...(id ? { id } : {}), role: message.role, text: message.text, timestamp: message.timestamp, ...(clientMessageId ? { clientMessageId } : {}) });
       }
     });
   }

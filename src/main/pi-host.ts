@@ -107,7 +107,7 @@ import type { ClientMessageTracker } from "./client-message-tracker.js";
 import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
-import { buildPiHostComponents } from "./pi-host-components.js";
+import { buildPiHostComponents, type PiHostComponents } from "./pi-host-components.js";
 import { RuntimeVersions } from "./runtime-versions.js";
 import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
@@ -168,6 +168,7 @@ export class PiHost {
   private completionModels?: UiModel[];
   private completionModelsPending = false;
   private readonly runtimeVersions: RuntimeVersions;
+  private readonly catalogs: PiHostComponents["catalogs"];
   private readonly lifecycleMetrics: HostLifecycleInstrumentation;
   /** Everything host extensions contribute; only the seam writes those registries. */
   private readonly seam: HostExtensionSeam;
@@ -337,7 +338,7 @@ export class PiHost {
     this.prompts = components.prompts;
     this.turns = components.turns;
     this.turnsInFlight = components.turnsInFlight;
-    ({ queue: this.queue, limits: this.limits, settlement: this.settlement } = components);
+    ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs } = components);
     this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
@@ -783,6 +784,7 @@ export class PiHost {
           // way back to a marked thread's session file.
           await this.reconcileInterruptedTurns();
           this.prewarm.scheduleThreads();
+          this.catalogs.start();
         }).catch((error) => this.fail(error));
         const result = await this.bootstrap();
         this.lifecycleMetrics.end();
@@ -1999,6 +2001,7 @@ export class PiHost {
       this.watch?.close();
       this.threads.stopIdleRelease();
       this.prewarm.dispose();
+      this.catalogs.dispose();
       this.trash.dispose();
       const teardownErrors: unknown[] = [];
       this.attached.session.detach();
@@ -2156,12 +2159,10 @@ export class PiHost {
     return models;
   }
 
-  /** What a registered backend offers a thread that does not exist yet; Pi's catalog is the snapshot's. */
-  async runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined> {
-    const provider = this.seam.backends.get(kind);
-    const catalog = await provider?.newThreadCatalog?.();
-    return provider && catalog ? { ...catalog, kind, runtimeCapabilities: provider.adapter.capabilities } : undefined;
-  }
+  /** What a runtime offers a thread that does not exist yet, from the host's cache (`RuntimeCatalogs`). */
+  runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined> { return this.catalogs.get(kind); }
+  /** Every runtime's the client does not hold (`known`); `revalidate` asks again behind the answer those some minutes old. */
+  runtimeCatalogs(revalidate = false, known?: Record<string, number>): Promise<UiRuntimeCatalog[]> { return this.catalogs.list(revalidate, known); }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {
     return loadModelsConfig(this.agentDir);

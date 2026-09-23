@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choiceOptions, freeTextOption, splitPromptTitle } from "./extension-prompt-options.js";
+import { choiceOptions, freeTextOption, promptTakesFiles, splitPromptTitle } from "./extension-prompt-options.js";
 
 describe("extension prompt options", () => {
   const options = ["1. Red — Choose red.", "2. Blue — Choose blue.", "3. Type something."];
@@ -25,5 +25,16 @@ describe("extension prompt options", () => {
   it("hides the free-text row from the clickable choices", () => {
     expect(choiceOptions(options)).toEqual(options.slice(0, 2));
     expect(choiceOptions(["Yes", "No"])).toEqual(["Yes", "No"]);
+  });
+});
+
+describe("promptTakesFiles", () => {
+  it("lets files go with typed text, never with a pick among fixed choices", () => {
+    expect(promptTakesFiles({ kind: "input" })).toBe(true);
+    expect(promptTakesFiles({ kind: "editor" })).toBe(true);
+    expect(promptTakesFiles({ kind: "select", options: ["1. Red", "2. Type something."] })).toBe(true);
+    expect(promptTakesFiles({ kind: "select", options: ["Allow", "Deny"] })).toBe(false);
+    expect(promptTakesFiles({ kind: "confirm" })).toBe(false);
+    expect(promptTakesFiles({ kind: "input", answerElsewhere: true })).toBe(false);
   });
 });

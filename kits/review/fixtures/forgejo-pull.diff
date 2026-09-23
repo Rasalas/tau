@@ -1,0 +1,28 @@
+diff --git a/services/lfs/server.go b/services/lfs/server.go
+index 201b213758..278e86de2f 100644
+--- a/services/lfs/server.go
++++ b/services/lfs/server.go
+@@ -513,7 +513,10 @@ func writeStatusMessage(ctx *context.Context, status int, message string) {
+ 	ctx.Resp.Header().Set("Content-Type", lfs_module.MediaType)
+ 	ctx.Resp.WriteHeader(status)
+ 
+-	er := lfs_module.ErrorResponse{Message: message}
++	er := lfs_module.ErrorResponse{
++		Message:          message,
++		DocumentationURL: "https://codeberg.org/forgejo/forgejo/issues",
++	}
+ 
+ 	enc := json.NewEncoder(ctx.Resp)
+ 	if err := enc.Encode(er); err != nil {
+diff --git a/tests/integration/lfs_getobject_test.go b/tests/integration/lfs_getobject_test.go
+index 7e965b5f02..84af7b1c08 100644
+--- a/tests/integration/lfs_getobject_test.go
++++ b/tests/integration/lfs_getobject_test.go
+@@ -284,6 +284,7 @@ func TestGetLFSRange(t *testing.T) {
+ 				var er lfs.ErrorResponse
+ 				err := json.Unmarshal(resp.Body.Bytes(), &er)
+ 				require.NoError(t, err)
++				assert.Equal(t, "https://codeberg.org/forgejo/forgejo/issues", er.DocumentationURL)
+ 				assert.Equal(t, tt.out, er.Message)
+ 			}
+ 		})
