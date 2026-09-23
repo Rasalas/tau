@@ -1,4 +1,5 @@
 import {
+  DEFAULT_THREAD_MODE as DEFAULT_MODE,
   clientMessageFingerprint,
   knownSkillNames,
   prepareSkillPrompt,
@@ -23,12 +24,13 @@ import {
   type UiSkillDraft,
   type UiThreadUsage,
 } from "tau/host-extension";
-import { MISSING_THREAD, type CodexAccount, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
+import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
 import { approvalDialog, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
 import type { CodexSessionStore, CodexStoredModel } from "./session-store.js";
 import { codexToolsWrite } from "./tools.js";
+import { PLAN_MODE } from "./events.js";
 
 /** What the backend needs of a live app-server; `CodexAppServer` is the real one. */
 export interface CodexSessionLike {
@@ -40,7 +42,7 @@ export interface CodexSessionLike {
   models(): Promise<CodexModel[]>;
   startThread(params: { cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo>;
   resumeThread(params: { threadId: string; cwd: string; model?: string; policy: CodexPolicy }): Promise<CodexThreadInfo>;
-  startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; effort?: string }): Promise<string>;
+  startTurn(params: { threadId: string; input: CodexUserInput[]; policy: CodexPolicy; model?: string; effort?: string; mode?: CodexCollaborationMode }): Promise<string>;
   steerTurn(params: { threadId: string; turnId: string; input: CodexUserInput[] }): Promise<void>;
   interruptTurn(threadId: string, turnId: string): Promise<void>;
   close(): Promise<void>;
@@ -158,6 +160,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private context?: UiContextUsage;
   private chosenModel?: string;
   private chosenEffort?: string;
+  private mode = DEFAULT_MODE;
   private observedModel?: string;
   /** The effort Codex applies when Tau names none: the thread's own, or the user's config. */
   private observedEffort?: string;
@@ -174,6 +177,11 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       catalogWrite: {
         setModel: (_provider, id) => this.setModel(id),
         setThinkingLevel: (level) => this.setEffort(level),
+      },
+      mode: {
+        modes: () => [PLAN_MODE],
+        current: () => this.mode,
+        set: (mode) => this.setMode(mode),
       },
       // Codex reloads its own thread, so a continuation is an ordinary turn.
       resume: {
@@ -206,6 +214,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (record.usage) this.usage = { ...record.usage };
     this.chosenModel = record.model;
     this.chosenEffort = record.effort;
+    this.mode = record.mode ?? DEFAULT_MODE;
     this.observedModel = record.observedModel;
     this.modelList = [...await this.options.storedModels?.().catch(() => []) ?? []];
   }
@@ -359,12 +368,14 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         return {};
       }
       const level = this.permissionLevel();
+      const mode = this.collaborationMode();
       const id = await live.startTurn({
         threadId: this.codexThreadId!,
         input: turn.input,
         policy: policyForLevel(level),
         ...(this.chosenModel ? { model: this.chosenModel } : {}),
         ...(this.chosenEffort ? { effort: this.chosenEffort } : {}),
+        ...(mode ? { mode } : {}),
       });
       turn.codexTurnId ??= id;
       if (turn.aborted) await this.interrupt(turn);
@@ -398,6 +409,22 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.report({ type: "turn-settled", status });
     this.reportQueue();
     turn.finish();
+  }
+
+  /**
+   * Sent with every turn once a model is known: Codex keeps a thread's mode
+   * across turns and restarts, so leaving plan has to be said as well.
+   */
+  private collaborationMode(): CodexCollaborationMode | undefined {
+    const model = this.chosenModel ?? this.observedModel ?? this.currentModel()?.id;
+    if (!model) return undefined;
+    return { mode: this.mode === PLAN_MODE ? "plan" : "default", settings: { model, reasoning_effort: this.chosenEffort ?? null, developer_instructions: null } };
+  }
+
+  private async setMode(mode: string): Promise<void> {
+    if (mode !== PLAN_MODE && mode !== DEFAULT_MODE) throw new Error(`Codex offers no "${mode}" mode.`);
+    this.mode = mode;
+    await this.store.setSelection(this.threadId, this.cwd, { mode: mode === DEFAULT_MODE ? null : mode });
   }
 
   /** The workbench's level, or read-only for a thread left without a tool that writes. */

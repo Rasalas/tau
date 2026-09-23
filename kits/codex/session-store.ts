@@ -31,6 +31,8 @@ export interface CodexSessionRecord {
   /** What the user picked; sent with every turn. */
   model?: string;
   effort?: string;
+  /** The interaction mode, when it is not `default`; sent with every turn as Codex's collaboration mode. */
+  mode?: string;
   /** What the thread last ran on; shown before a session exists, never sent. */
   observedModel?: string;
   /** The only tools the thread keeps, as Pi names them; set when it was created. */
@@ -85,6 +87,7 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
     usage: storedUsage(item.usage),
     model: text(item.model, MAX_ID_LENGTH),
     effort: text(item.effort, MAX_ID_LENGTH),
+    mode: text(item.mode, MAX_ID_LENGTH),
     observedModel: text(item.observedModel, MAX_ID_LENGTH),
     tools: storedTools(item.tools),
   };
@@ -193,9 +196,9 @@ export class CodexSessionStore {
     return this.update(tauThreadId, cwd, (record) => { if (codexThreadId) record.codexThreadId = codexThreadId; else delete record.codexThreadId; });
   }
 
-  setSelection(tauThreadId: string, cwd: string, selection: { model?: string | null; effort?: string | null }): Promise<void> {
+  setSelection(tauThreadId: string, cwd: string, selection: { model?: string | null; effort?: string | null; mode?: string | null }): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => {
-      for (const key of ["model", "effort"] as const) {
+      for (const key of ["model", "effort", "mode"] as const) {
         const value = selection[key];
         if (value === undefined) continue;
         if (value) record[key] = value; else delete record[key];
