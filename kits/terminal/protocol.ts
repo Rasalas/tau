@@ -22,6 +22,8 @@ export interface UiTerminalSession {
   sessionId?: string;
   /** Absolute path on the host the shell started in; for the user's eyes only. */
   cwd?: string;
+  /** Where the shell last said it is (OSC 7), when it says; absolute, on the host. */
+  currentCwd?: string;
   label: string;
   /** The shell's program name (`zsh`), for an excerpt to say where it came from. */
   shell?: string;
@@ -38,8 +40,11 @@ export interface TerminalResizeInput {
 }
 
 export interface TerminalHostCommands {
-  /** Starts a shell in the workspace (the host's own when unnamed) and answers with the session. */
-  "open": { input: { workspaceId?: string; sessionId?: string; label?: string }; output: UiTerminalSession };
+  /**
+   * Starts a shell in the workspace (the host's own when unnamed) and answers with the session.
+   * `from` names a shell whose current directory the new one starts in, when it reported one.
+   */
+  "open": { input: { workspaceId?: string; sessionId?: string; label?: string; from?: string }; output: UiTerminalSession };
   /** A new shell in an ended session's place; answers with the replacement. */
   "restart": { input: { id: string }; output: UiTerminalSession };
   /** Writes what the user typed; travels as plain text over the host's own channel. */

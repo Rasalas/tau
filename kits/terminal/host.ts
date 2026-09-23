@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
+import { hostname } from "node:os";
 import { basename } from "node:path";
 import type { HostExtension, HostExtensionContext } from "tau/host-extension";
 import {
@@ -14,6 +16,7 @@ import {
 import { defaultShell, shellArgs, shellAvailable } from "./shell.js";
 import { ghosttyFontDefaults } from "./ghostty-config.js";
 import { Scrollback } from "./retention.js";
+import { CwdTracker } from "./cwd.js";
 
 /**
  * The pty the host half drives, as a shape. `node-pty` arrives through the
@@ -62,6 +65,9 @@ export interface OpenTerminalInput {
 interface Session {
   record: UiTerminalSession;
   root: string;
+  /** The label was made from the directory, so it follows the directory. */
+  derivedLabel: boolean;
+  cwd: CwdTracker;
   /** Gone once the shell exited; the record stays so the user can read the end and restart. */
   pty?: PtyProcess;
   /** Recent output, so a reloaded client can redraw where it was. */
@@ -85,6 +91,8 @@ export class TerminalSessions {
   constructor(
     private readonly spawn: PtyFactory,
     private readonly emit: (name: string, payload?: unknown) => void,
+    /** This machine's name, which a shell's directory report must carry to count. */
+    private readonly machine: string = hostname(),
   ) {}
 
   list(): UiTerminalSession[] {
@@ -111,12 +119,12 @@ export class TerminalSessions {
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       cwd: input.cwd,
-      label: input.label?.trim() || `${basename(input.cwd) || "workspace"} — shell`,
+      label: input.label?.trim() || shellLabel(input.cwd),
       shell: basename(file),
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
     };
-    const session: Session = { record, root: input.root, pty, scrollback: new Scrollback(), offset: 0 };
+    const session: Session = { record, root: input.root, derivedLabel: !input.label?.trim(), cwd: new CwdTracker(this.machine), pty, scrollback: new Scrollback(), offset: 0 };
     this.sessions.set(id, session);
     pty.onData((data) => this.recordData(id, data));
     pty.onExit((exitCode) => this.exited(id, exitCode));
@@ -136,8 +144,19 @@ export class TerminalSessions {
       ...(record.sessionId ? { sessionId: record.sessionId } : {}),
       cwd: record.cwd ?? root,
       root,
-      label: record.label,
+      ...(session.derivedLabel ? {} : { label: record.label }),
     });
+  }
+
+  /** Where a shell last said it is, if that is still a directory; a split beside it starts there. */
+  currentDirectory(id: string): string | undefined {
+    const path = this.sessions.get(id)?.record.currentCwd;
+    if (!path) return undefined;
+    try {
+      return statSync(path).isDirectory() ? path : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** What the user typed, straight into the pty. */
@@ -236,6 +255,11 @@ export class TerminalSessions {
     if (!session) return;
     session.offset += data.length;
     session.scrollback.append(data);
+    const cwd = session.cwd.feed(data);
+    if (cwd && cwd !== session.record.currentCwd) {
+      session.record = { ...session.record, currentCwd: cwd, ...(session.derivedLabel ? { label: shellLabel(cwd) } : {}) };
+      this.emitSessions();
+    }
     this.pending.set(id, (this.pending.get(id) ?? "") + data);
     if (this.flushScheduled) return;
     this.flushScheduled = true;
@@ -269,6 +293,11 @@ export class TerminalSessions {
     if (this.disposed) return;
     this.emit(TERMINAL_LIST_EVENT, this.list());
   }
+}
+
+/** A shell's name when nobody gave it one: the folder it is in. */
+function shellLabel(cwd: string): string {
+  return `${basename(cwd) || cwd || "workspace"} — shell`;
 }
 
 function clampSize(value: number, fallback: number): number {
@@ -376,10 +405,12 @@ export function createTerminalHostExtension(
         // checkout in `cwd`; that, not the project root, is where its terminal
         // belongs. A thread that is not open falls back to the workspace folder.
         const thread = sessionId ? context.services.thread(sessionId) : undefined;
+        // A split starts where the shell beside it is now, as that shell reported it.
+        const beside = typeof input.from === "string" ? sessions.currentDirectory(input.from) : undefined;
         const session = sessions.open({
           ...(workspaceId ? { workspaceId } : {}),
           ...(sessionId ? { sessionId } : {}),
-          cwd: thread?.cwd ?? start,
+          cwd: beside ?? thread?.cwd ?? start,
           root,
           ...(typeof input.label === "string" ? { label: input.label } : {}),
         });
