@@ -1111,8 +1111,8 @@ provider. Since API 1.12.0 a thread also names its `turns`: one `UsageTurn` per 
 (`at`, `provider?`, `model?`, `billing?`, the token counts, the runtime's own
 `costUsd` and the `turns` it sums), so the Usage page dates every turn on its own
 and keeps a plan's turns apart from billed ones; a thread from before its kit kept
-turns has only `usage` and is dated by its last activity. Claude Code, Antigravity,
-Codex and Grok answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
+turns has only `usage` and is dated by its last activity. The Agent SDK runtime,
+Antigravity, Codex, OpenCode, Grok and Cursor answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
 in `kits/usage/protocol.ts`, and one that does not answer is listed as not available.
 
 A kit whose runtime's login reports quota windows answers `usage-limits`, granted to
@@ -1163,7 +1163,7 @@ removed, more }` — new and newer threads newest first, `limit` of them (25 by
 default), the known ids the store no longer has, and whether more are left.
 Only user and assistant text travels, the first 64,000 characters of a
 thread (`THREAD_TEXT_CHARS`). Codex, the Agent SDK runtime, Antigravity,
-OpenCode and Grok answer it; a backend that adds it adds its id to
+OpenCode, Grok and Cursor answer it; a backend that adds it adds its id to
 `THREAD_TEXT_SOURCES` in `kits/search/protocol.ts`. Search Kit asks at most
 every five seconds, four pages per backend at a time, and past four million
 characters forgets the oldest threads' text but keeps their `updatedAt`, so it
