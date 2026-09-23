@@ -13,6 +13,7 @@ import type {
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
+import { isOfferedMode, threadModeFromEntries, THREAD_MODE_ENTRY } from "../shared/thread-mode.js";
 import { prepareSkillPrompt, skillInvocationCommand } from "./skill-invocation.js";
 import { createExtensionUiContext } from "./extension-ui.js";
 import { promptImages } from "./prompt-attachments.js";
@@ -39,6 +40,8 @@ const TAU_NOTICE_ENTRY = "tau_notice";
 
 export interface PiThreadBackendOptions {
   mapMessages(messages: readonly unknown[]): UiMessage[];
+  /** The interaction modes runtime extensions give Pi threads (`RuntimeExtensionOptions.modes`). */
+  modes?(): readonly string[];
 }
 
 interface SessionTreeEntry {
@@ -144,7 +147,22 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       },
       events: { subscribe: (listener) => this.subscribe(listener) },
       systemPrompt: { inspect: () => this.inspectSystemPrompt() },
+      mode: {
+        modes: () => this.options.modes?.() ?? [],
+        current: () => this.mode ??= threadModeFromEntries(this.session.sessionManager.getBranch()),
+        set: (mode) => this.setMode(mode),
+      },
     };
+  }
+
+  /** Read from the journal once; the branch only moves through `navigateTree`, which drops it. */
+  private mode: string | undefined;
+
+  private async setMode(mode: string): Promise<void> {
+    if (!isOfferedMode(mode, this.options.modes?.())) throw new Error(`This thread offers no "${mode}" mode.`);
+    if (this.capabilities.mode!.current() === mode) return;
+    this.session.sessionManager.appendCustomEntry(THREAD_MODE_ENTRY, { mode });
+    this.mode = mode;
   }
 
   /** The SDK session is deliberately private to this backend implementation. */
@@ -412,6 +430,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async navigateTree(entryId: string, options: { summarize?: boolean }): Promise<{ cancelled: boolean; draftText?: string }> {
     const result = await this.session.navigateTree(entryId, { summarize: options.summarize ?? false });
+    this.mode = undefined;
     return { cancelled: result.cancelled, ...(result.editorText ? { draftText: result.editorText } : {}) };
   }
 

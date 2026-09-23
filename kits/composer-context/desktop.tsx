@@ -9,7 +9,7 @@ import type {
   HostExtensionClient,
   UiPromptFileAttachment,
 } from "tau";
-import { ChipStore, formatBytes, selectFiles, serializeChips, shouldFoldPaste, type ChipEntry } from "./chips.js";
+import { ChipStore, formatBytes, isVideo, selectFiles, serializeChips, shouldFoldPaste, type ChipEntry } from "./chips.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   COMPOSER_CONTEXT_ID,
@@ -63,6 +63,28 @@ export async function storeInChunks(
   let stored = await chunk(0);
   for (let start = UPLOAD_CHUNK_BYTES; start < target.size; start += UPLOAD_CHUNK_BYTES) stored = await chunk(start, stored.path);
   return stored;
+}
+
+/** A request the transport lost rather than one the host refused. */
+const TRANSIENT_UPLOAD_ERROR = /connection dropped|connection was closed|timed out|not available/iu;
+const UPLOAD_RETRY_DELAYS_MS = [1_000, 3_000, 8_000];
+
+/** Uploads again, from the start, when the connection to the host dropped on the way: after a reconnect it goes through. */
+export async function storeWithRetry(
+  host: HostApi,
+  target: { scope: string; name: string; mimeType: string; size: number },
+  read: (start: number, end: number) => Promise<Uint8Array>,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<{ path: string; size: number }> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await storeInChunks(host, target, read);
+    } catch (error) {
+      const delay = UPLOAD_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !TRANSIENT_UPLOAD_ERROR.test(error instanceof Error ? error.message : String(error))) throw error;
+      await wait(delay);
+    }
+  }
 }
 
 /** `src/a.ts:10-20` into a path and its lines. */
@@ -152,8 +174,9 @@ export async function prepareSend(
     attachments.forEach((chip, index) => { if (answers[index]) described.set(chip.id, answers[index]!); });
   }
   const prefix = serializeChips({ chips: current, files: fileResults, attachments: described, fileAttachments: context.fileAttachments });
+  // A video goes as a path whatever the runtime: no runtime takes video input.
   const fileParts: UiPromptFileAttachment[] = context.fileAttachments
-    ? attachments.map((chip) => ({ kind: "file", name: chip.payload.name, mimeType: chip.payload.mimeType || "application/octet-stream", path: chip.payload.path!, size: chip.payload.size }))
+    ? attachments.filter((chip) => !isVideo(chip.payload.mimeType)).map((chip) => ({ kind: "file", name: chip.payload.name, mimeType: chip.payload.mimeType || "application/octet-stream", path: chip.payload.path!, size: chip.payload.size }))
     : [];
   return { context: prefix, attachments: fileParts };
 }
@@ -174,7 +197,7 @@ const composerContext: DesktopExtension = {
 
     const upload = (scope: string, name: string, mimeType: string, size: number, read: (start: number, end: number) => Promise<Uint8Array>) => {
       const chip = store.add(scope, { kind: "attachment", payload: { name, mimeType, size } });
-      const uploading = storeInChunks(host, { scope, name, mimeType, size }, read)
+      const uploading = storeWithRetry(host, { scope, name, mimeType, size }, read)
         .then((stored) => store.update(scope, chip.id, { payload: { name, mimeType, size: stored.size, path: stored.path }, uploading: undefined }))
         .catch((error: unknown) => store.update(scope, chip.id, { error: error instanceof Error ? error.message : String(error), uploading: undefined }));
       store.update(scope, chip.id, { uploading });

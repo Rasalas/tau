@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage } from "tau/host-extension";
 
 /**
  * App-data persistence for Codex threads: the Tau thread → Codex thread
@@ -21,6 +21,8 @@ export interface CodexStoredMessage {
 export interface CodexSessionRecord {
   backendKind: "codex";
   tauThreadId: string;
+  /** The instance the thread runs on; absent for the default one. */
+  instance?: string;
   /** Codex's thread id, once one was started; a resume needs it. */
   codexThreadId?: string;
   cwd: string;
@@ -31,6 +33,8 @@ export interface CodexSessionRecord {
   /** What the user picked; sent with every turn. */
   model?: string;
   effort?: string;
+  /** The interaction mode, when it is not `default`; sent with every turn as Codex's collaboration mode. */
+  mode?: string;
   /** What the thread last ran on; shown before a session exists, never sent. */
   observedModel?: string;
   /** The only tools the thread keeps, as Pi names them; set when it was created. */
@@ -80,11 +84,13 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
   if (!tauThreadId || !cwd || typeof item.updatedAt !== "number") return undefined;
   const optional = {
     codexThreadId: text(item.codexThreadId, MAX_ID_LENGTH),
+    instance: instanceOf(item.instance),
     title: text(item.title, MAX_TITLE_LENGTH)?.trim() || undefined,
     titleSource: item.titleSource === "derived" || item.titleSource === "generated" || item.titleSource === "renamed" ? item.titleSource : undefined,
     usage: storedUsage(item.usage),
     model: text(item.model, MAX_ID_LENGTH),
     effort: text(item.effort, MAX_ID_LENGTH),
+    mode: text(item.mode, MAX_ID_LENGTH),
     observedModel: text(item.observedModel, MAX_ID_LENGTH),
     tools: storedTools(item.tools),
   };
@@ -96,6 +102,11 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
     ...Object.fromEntries(Object.entries(optional).filter(([, entry]) => entry !== undefined)),
     updatedAt: item.updatedAt,
   };
+}
+
+function instanceOf(value: unknown): string | undefined {
+  const id = text(value, 48);
+  return id && id !== DEFAULT_INSTANCE_ID ? id : undefined;
 }
 
 function storedTools(value: unknown): string[] | undefined {
@@ -123,21 +134,35 @@ function clone(record: CodexSessionRecord): CodexSessionRecord {
   };
 }
 
-interface StoredFile { sessions: CodexSessionRecord[]; models: CodexStoredModel[] }
+/** `models` is the default instance's list, as before instances; `instanceModels` the others'. */
+interface StoredFile { sessions: CodexSessionRecord[]; models: CodexStoredModel[]; instanceModels?: Record<string, CodexStoredModel[]> }
+
+function storedModels(value: unknown): CodexStoredModel[] {
+  return Array.isArray(value) ? value.flatMap((entry) => { const model = storedModel(entry); return model ? [model] : []; }) : [];
+}
 
 function decodeFile(value: unknown): StoredFile | undefined {
-  const item = value as { sessions?: unknown; models?: unknown } | undefined;
+  const item = value as { sessions?: unknown; models?: unknown; instanceModels?: unknown } | undefined;
   if (!item || !Array.isArray(item.sessions)) return undefined;
+  const instanceModels = item.instanceModels && typeof item.instanceModels === "object"
+    ? Object.fromEntries(Object.entries(item.instanceModels as Record<string, unknown>).flatMap(([id, models]) => instanceOf(id) ? [[id, storedModels(models)]] : []))
+    : {};
   return {
     sessions: item.sessions.flatMap((entry) => { const record = storedRecord(entry); return record ? [record] : []; }),
-    models: Array.isArray(item.models) ? item.models.flatMap((entry) => { const model = storedModel(entry); return model ? [model] : []; }) : [],
+    models: storedModels(item.models),
+    instanceModels,
   };
+}
+
+function sameInstance(record: CodexSessionRecord, instance: string | undefined): boolean {
+  return (record.instance ?? DEFAULT_INSTANCE_ID) === (instance ?? DEFAULT_INSTANCE_ID);
 }
 
 export class CodexSessionStore {
   private readonly now: () => number;
   private readonly records = new Map<string, CodexSessionRecord>();
-  private models: CodexStoredModel[] = [];
+  /** The account's models per instance; the default instance under its id. */
+  private models = new Map<string, CodexStoredModel[]>();
   private loading?: Promise<void>;
 
   constructor(private readonly options: { filePath: string; now?(): number; logger?: PersistedJsonLogger }) {
@@ -153,7 +178,7 @@ export class CodexSessionStore {
     this.loading ??= readPersistedJson(this.options.filePath, { expectedVersion: CURRENT_VERSION, decode: decodeFile, ...(this.options.logger ? { logger: this.options.logger } : {}) })
       .then((result) => {
         for (const record of result?.data.sessions ?? []) this.records.set(record.tauThreadId, record);
-        this.models = result?.data.models ?? [];
+        this.models = new Map([[DEFAULT_INSTANCE_ID, result?.data.models ?? []], ...Object.entries(result?.data.instanceModels ?? {})]);
       })
       .catch(() => undefined);
     return this.loading;
@@ -165,17 +190,24 @@ export class CodexSessionStore {
     return record ? clone(record) : undefined;
   }
 
-  async list(): Promise<CodexSessionRecord[]> {
+  /** Every thread, or those of one instance (`default` included). */
+  async list(instance?: string): Promise<CodexSessionRecord[]> {
     await this.load();
-    return [...this.records.values()].sort((left, right) => right.updatedAt - left.updatedAt).map(clone);
+    return [...this.records.values()]
+      .filter((record) => instance === undefined || sameInstance(record, instance))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(clone);
   }
 
-  async ensure(tauThreadId: string, cwd: string): Promise<CodexSessionRecord> {
+  /** The thread's record, created on the given instance when it has none. */
+  async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<CodexSessionRecord> {
     await this.load();
     const existing = this.records.get(tauThreadId);
     if (existing && existing.cwd !== cwd) throw new Error("This Codex thread belongs to another workspace.");
+    if (existing && instance !== undefined && !sameInstance(existing, instance)) throw new Error("This Codex thread runs on another instance.");
     if (existing) return clone(existing);
-    const record: CodexSessionRecord = { backendKind: "codex", tauThreadId, cwd, messages: [], updatedAt: this.now() };
+    const owner = instanceOf(instance);
+    const record: CodexSessionRecord = { backendKind: "codex", tauThreadId, ...(owner ? { instance: owner } : {}), cwd, messages: [], updatedAt: this.now() };
     this.records.set(tauThreadId, record);
     await this.persist();
     return clone(record);
@@ -193,9 +225,9 @@ export class CodexSessionStore {
     return this.update(tauThreadId, cwd, (record) => { if (codexThreadId) record.codexThreadId = codexThreadId; else delete record.codexThreadId; });
   }
 
-  setSelection(tauThreadId: string, cwd: string, selection: { model?: string | null; effort?: string | null }): Promise<void> {
+  setSelection(tauThreadId: string, cwd: string, selection: { model?: string | null; effort?: string | null; mode?: string | null }): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => {
-      for (const key of ["model", "effort"] as const) {
+      for (const key of ["model", "effort", "mode"] as const) {
         const value = selection[key];
         if (value === undefined) continue;
         if (value) record[key] = value; else delete record[key];
@@ -274,16 +306,16 @@ export class CodexSessionStore {
     });
   }
 
-  async listModels(): Promise<CodexStoredModel[]> {
+  async listModels(instance = DEFAULT_INSTANCE_ID): Promise<CodexStoredModel[]> {
     await this.load();
-    return this.models.map((model) => ({ ...model, efforts: [...model.efforts] }));
+    return (this.models.get(instance) ?? []).map((model) => ({ ...model, efforts: [...model.efforts] }));
   }
 
-  async setModels(models: readonly CodexStoredModel[]): Promise<void> {
+  async setModels(models: readonly CodexStoredModel[], instance = DEFAULT_INSTANCE_ID): Promise<void> {
     await this.load();
-    const next = models.flatMap((model) => { const parsed = storedModel(model); return parsed ? [parsed] : []; });
-    if (next.length === 0 || JSON.stringify(next) === JSON.stringify(this.models)) return;
-    this.models = next;
+    const next = storedModels(models);
+    if (next.length === 0 || JSON.stringify(next) === JSON.stringify(this.models.get(instance) ?? [])) return;
+    this.models.set(instance, next);
     await this.persist();
   }
 
@@ -308,6 +340,11 @@ export class CodexSessionStore {
   }
 
   private persist(): Promise<void> {
-    return writePersistedJson(this.options.filePath, CURRENT_VERSION, { sessions: [...this.records.values()], models: this.models }, this.options.logger ? { logger: this.options.logger } : {});
+    const { [DEFAULT_INSTANCE_ID]: models = [], ...instanceModels } = Object.fromEntries(this.models);
+    return writePersistedJson(this.options.filePath, CURRENT_VERSION, {
+      sessions: [...this.records.values()],
+      models,
+      ...(Object.keys(instanceModels).length ? { instanceModels } : {}),
+    }, this.options.logger ? { logger: this.options.logger } : {});
   }
 }

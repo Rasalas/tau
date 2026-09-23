@@ -35,6 +35,8 @@ export interface RuntimeCapabilities {
   interactiveApprovals?: boolean;
   /** The runtime takes `kind: "file"` prompt attachments; without it the host refuses them. */
   fileAttachments?: boolean;
+  /** Interaction modes besides `default` a thread of this runtime can run its turns in, e.g. `plan`. */
+  modes?: readonly string[];
 }
 
 /** Host-resolved metadata for a user skill invocation. */
@@ -166,6 +168,8 @@ export interface UiModel {
 export interface UiRuntimeBackend {
   kind: ThreadBackendKind;
   label: string;
+  /** Interaction modes besides `default` a new thread of this backend offers. */
+  modes?: string[];
   /** The program the backend drives, once the host asked it; see `RuntimeToolVersion`. */
   version?: RuntimeToolVersion;
 }
@@ -179,6 +183,22 @@ export interface RuntimeToolVersion {
   latest?: string;
   /** What updates it: a shell command, or where in Tau to click. */
   updateCommand?: string;
+  /** How well Tau works with `installed`, when the backend keeps a policy for it. */
+  compatibility?: RuntimeCompatibility;
+}
+
+/**
+ * Where an installed version falls in a backend's policy: `supported`, `unsafe`
+ * (it runs, with known problems) or `broken` (threads refuse to start).
+ */
+export interface RuntimeCompatibility {
+  status: "supported" | "unsafe" | "broken";
+  /** Why, in a sentence. */
+  message?: string;
+  /** The release Tau was tested against. */
+  recommendedVersion?: string;
+  /** The shell command that installs `recommendedVersion`; the user runs it, never Tau. */
+  installCommand?: string;
 }
 
 export interface UiComposerCommand {
@@ -393,6 +413,10 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   completionModels?: UiModel[];
   thinkingLevel: string;
   thinkingLevels: string[];
+  /** The interaction mode the thread's next turn runs in; absent means `default`. */
+  mode?: string;
+  /** The modes besides `default` the thread's runtime offers; absent or empty offers none. */
+  modes?: string[];
   /** Cursor for the next page when this snapshot already contains a bounded window. */
   isStreaming: boolean;
   activeTools: string[];
@@ -413,6 +437,26 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
 export interface NewThreadConfiguration {
   /** An explicit per-thread choice; omitted means use the runtime default. */
   model?: Pick<UiModel, "provider" | "id">;
+  /** The thinking level chosen with it, one the runtime's catalog offers; omitted means its default. */
+  thinkingLevel?: string;
+  /** The interaction mode the thread starts in; omitted means `default`. */
+  mode?: string;
+}
+
+/**
+ * What a runtime offers a thread that does not exist yet, so a draft bound
+ * for it chooses a model and a thinking level before its first prompt.
+ */
+export interface UiRuntimeCatalog {
+  kind: ThreadBackendKind;
+  models: UiModel[];
+  /** What a new thread runs on when nobody chooses. */
+  model?: UiModel;
+  /** The levels each model offers, by model id; the first is the runtime's own default. */
+  thinkingLevels: Record<string, string[]>;
+  runtimeCapabilities?: RuntimeCapabilities;
+  /** Why the models are known only once a thread runs, when they are. */
+  note?: string;
 }
 
 export interface PreparedThreadCapability {
@@ -462,6 +506,8 @@ export interface HostBootstrap {
     runtimeCapabilities?: RuntimeCapabilities;
     thinkingLevel: string;
     thinkingLevels: string[];
+    mode?: string;
+    modes?: string[];
     allTools: Array<{ name: string; description: string }>;
     composerCommands?: UiComposerCommand[];
     extensionCount: number;

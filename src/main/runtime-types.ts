@@ -247,6 +247,20 @@ export interface ThreadNewThreadCapability {
   create(request: RuntimeNewThreadRequest): Promise<RuntimeNewThreadOutcome>;
 }
 
+/**
+ * The interaction mode a thread's turns run in: `default`, or one the runtime
+ * adds (`plan`: explore and propose, change nothing). The mode belongs to the
+ * thread and applies from the next turn on; a runtime maps it onto its own
+ * policy the way it maps the access level.
+ */
+export interface ThreadModeCapability {
+  /** The modes besides `default` this thread offers. */
+  modes(): readonly string[];
+  current(): string;
+  /** Refuses a mode the thread does not offer. */
+  set(mode: string): Promise<void>;
+}
+
 export interface ThreadSystemPromptCapability {
   inspect(): Promise<SystemPromptInspection> | SystemPromptInspection;
 }
@@ -267,6 +281,7 @@ export interface ThreadBackendCapabilities {
   markdownExport?: ThreadMarkdownExportCapability;
   newThread?: ThreadNewThreadCapability;
   systemPrompt?: ThreadSystemPromptCapability;
+  mode?: ThreadModeCapability;
 }
 
 export type ThreadCapabilityName = keyof ThreadBackendCapabilities;
@@ -299,6 +314,7 @@ const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
   markdownExport: "Markdown export",
   newThread: "Runtime-owned new threads",
   systemPrompt: "System prompt inspection",
+  mode: "Interaction modes",
 };
 
 /**

@@ -232,6 +232,10 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeString("set-model", "id", params[1]),
     ),
     "set-thinking": async (params) => (await host()).setThinkingLevel(decodeString("set-thinking", "level", params[0])),
+    "set-mode": async (params) => (await host()).setMode(
+      decodeString("set-mode", "mode", params[0]),
+      decodeOptionalString("set-mode", "expectedSessionId", params[1]),
+    ),
     "compact-context": async () => (await host()).compactContext(),
     "reload-runtime": async () => (await host()).reloadRuntime(),
     "reload-extensions": async () => (await host()).reloadExtensions(),
@@ -306,6 +310,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       return defaultHostConfigManager.clear(keys, scope, await optionalWorkspace("clear-config", "workspace", params[2]));
     },
     "get-models-config": async () => (await host()).modelsConfig(),
+    "runtime-catalog": async (params) => (await host()).runtimeCatalog(decodeString("runtime-catalog", "kind", params[0])),
     "add-model-provider": async (params) => (await host()).addModelProvider(decodeCustomProviderInput("add-model-provider", "input", params[0])),
     "inspect-system-prompt": async (params) => (await host()).inspectSystemPrompt(
       decodeOptionalString("inspect-system-prompt", "threadId", params[0]),

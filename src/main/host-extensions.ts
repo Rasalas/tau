@@ -7,6 +7,7 @@ import type {
   GlobalHostEvent,
   HostExtensionSummary,
   RuntimeToolVersion,
+  UiRuntimeCatalog,
   ThreadBackendKind,
   UiComposerCommand,
   UiMessage,
@@ -111,7 +112,16 @@ export interface HostRuntimeBackendProvider {
    * `runtimeBackends`; clients show a hint when `installed` is older.
    */
   version?(): Promise<RuntimeToolVersion | undefined>;
+  /**
+   * The models and thinking levels a new thread may start with, without
+   * opening one; asked when a draft is bound for this backend. The chosen
+   * pair reaches the thread through `catalogWrite` right after `open`.
+   */
+  newThreadCatalog?(): Promise<HostRuntimeNewThreadCatalog | undefined>;
 }
+
+/** A backend's answer to `newThreadCatalog`; the host adds the kind and the adapter's capabilities. */
+export type HostRuntimeNewThreadCatalog = Omit<UiRuntimeCatalog, "kind" | "runtimeCapabilities">;
 
 /**
  * Facts an extension knows about a project folder. Core caches them, refreshes
@@ -369,11 +379,22 @@ export interface RuntimeSettingsView {
 export interface RuntimeExtensionOptions {
   /** Decides per runtime, from Pi's settings, whether the extension loads at all. */
   enabledFor?: (settings: RuntimeSettingsView) => boolean;
+  /**
+   * Interaction modes this extension gives Pi threads, e.g. `plan`. A Pi thread
+   * offers every mode an extension declares; the extension reads the thread's
+   * mode from its session (`threadModeFromEntries`) and does what it means.
+   */
+  modes?: readonly string[];
 }
 
 export interface RuntimeExtensionContribution extends RuntimeExtensionOptions {
   name: string;
   factory: RuntimeExtensionFactory;
+}
+
+/** Every mode the registered runtime extensions give Pi threads, once each. */
+export function runtimeExtensionModes(contributions: readonly RuntimeExtensionContribution[]): string[] {
+  return [...new Set(contributions.flatMap((contribution) => contribution.modes ?? []))].filter((mode) => mode !== "default");
 }
 
 /**

@@ -26,6 +26,7 @@ import type {
   CustomProviderConfig,
   CustomProviderInput,
   UiModel,
+  UiRuntimeCatalog,
   SystemPromptInspection,
   UserTheme,
   ExternalEditorResult,
@@ -81,6 +82,8 @@ export interface HostClient {
   // Model, thinking level, and context for the active thread.
   setModel(provider: string, id: string): Promise<HostActionResult>;
   setThinkingLevel(level: string): Promise<HostActionResult>;
+  /** The interaction mode the thread's next turns run in; the active thread without `expectedSessionId`. */
+  setMode(mode: string, expectedSessionId?: string): Promise<HostActionResult>;
   compactContext(): Promise<HostActionResult>;
 
   // Desktop/host extension lifecycle and the generic host-extension channel.
@@ -114,6 +117,8 @@ export interface HostClient {
   /** Removes setting keys from one level, so the level below shows through. */
   clearConfig(keys: readonly string[], scope?: "global" | "project", workspaceId?: string): Promise<ConfigLayers>;
   getModelsConfig(): Promise<CustomProviderConfig[]>;
+  /** What a runtime offers a thread that does not exist yet; undefined when it cannot say. */
+  runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined>;
   addModelProvider(input: CustomProviderInput): Promise<UiModel[]>;
   inspectSystemPrompt(threadId?: string, workspaceId?: string): Promise<SystemPromptInspection>;
   listUserThemes(workspaceId?: string): Promise<UserTheme[]>;
@@ -204,6 +209,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
 
     setModel: (provider, id) => call<HostActionResult>("set-model", [provider, id]),
     setThinkingLevel: (level) => call<HostActionResult>("set-thinking", [level]),
+    setMode: (mode, expectedSessionId) => call<HostActionResult>("set-mode", [mode, expectedSessionId]),
     compactContext: () => call<HostActionResult>("compact-context"),
 
     reloadRuntime: () => call<void>("reload-runtime"),
@@ -239,6 +245,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getConfigLayers: (workspaceId) => call<ConfigLayers>("get-config-layers", [workspaceId]),
     clearConfig: (keys, scope, workspaceId) => call<ConfigLayers>("clear-config", [keys, scope, workspaceId]),
     getModelsConfig: () => call<CustomProviderConfig[]>("get-models-config"),
+    runtimeCatalog: (kind) => call<UiRuntimeCatalog | undefined>("runtime-catalog", [kind]),
     addModelProvider: (input) => call<UiModel[]>("add-model-provider", [input]),
     inspectSystemPrompt: (threadId, workspaceId) => call<SystemPromptInspection>("inspect-system-prompt", [threadId, workspaceId]),
     listUserThemes: (workspaceId) => call<UserTheme[]>("list-user-themes", [workspaceId]),

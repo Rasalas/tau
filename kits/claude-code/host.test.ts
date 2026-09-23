@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtension, HostRuntimeBackendProvider, RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createClaudeCodeHostExtension from "./host.js";
-import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput } from "./runtime-adapter.js";
+import { createClaudeCodeRuntimeAdapter, type ClaudeCodeRuntimeOptions, type ClaudeSessionInput } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 const directories: string[] = [];
@@ -158,5 +158,58 @@ describe("Claude Code host half", () => {
       await expect(registry.invoke("tau.claude-code", "probe")).rejects.toThrow("exited with code 1");
     }
     await expect(registry.invoke("tau.claude-code", "status")).resolves.toMatchObject({ kind: "claude-code" });
+  });
+
+  it("registers a backend per instance with its own home, variables and launch options", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-claude-instances-"));
+    directories.push(root);
+    const built: ClaudeCodeRuntimeOptions[] = [];
+    const backends: HostRuntimeBackendProvider[] = [];
+    const registry = await activateHostKit(createClaudeCodeHostExtension({
+      fetch: offline,
+      env: { PATH: "/bin" },
+      readVersion: async () => "2.1.280",
+      createAdapter: (options) => { built.push(options); return createClaudeCodeRuntimeAdapter(options); },
+    }), {
+      stateDir: join(root, "state"),
+      sessionsDir: join(root, "sessions"),
+      findCommand: () => "/usr/local/bin/claude",
+      skills: () => [],
+      registerRuntimeBackend: (provider) => { backends.push(provider); return () => { backends.splice(backends.indexOf(provider), 1); }; },
+    });
+    await expect(registry.invoke("tau.claude-code", "save-instance", { instance: { id: "second", args: "-p" } })).rejects.toThrow("not a long option");
+    await registry.invoke("tau.claude-code", "save-instance", { instance: { id: "second", name: "Second", home: join(root, "claude-second"), env: { ANTHROPIC_LOG: "debug" }, args: "--chrome --settings /tmp/s.json" } });
+    const second = backends.find((provider) => provider.kind === "claude-code@second")!;
+    expect(second).toMatchObject({ label: "Claude Code · Second" });
+    expect(second.adapter.id).toBe("claude-code@second");
+    const options = built.at(-1)!;
+    expect(options.env).toEqual({ PATH: "/bin", ANTHROPIC_LOG: "debug", CLAUDE_CONFIG_DIR: join(root, "claude-second") });
+    expect(options.extraArgs).toEqual({ chrome: null, settings: "/tmp/s.json" });
+    expect(typeof options.command === "function" ? options.command() : options.command).toBe("claude");
+
+    const thread = await second.open("second-thread", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full" } as never);
+    expect(thread.kind).toBe("claude-code@second");
+    await thread.dispose();
+    await expect(second.listThreads()).resolves.toEqual([expect.objectContaining({ threadId: "second-thread" })]);
+    await expect(backends.find((provider) => provider.kind === "claude-code")!.listThreads()).resolves.toEqual([]);
+    await expect(registry.invoke("tau.claude-code", "status", { instance: "second" })).resolves.toMatchObject({ kind: "claude-code@second", instance: "second", command: "claude" });
+    await registry.invoke("tau.claude-code", "remove-instance", { instance: "second" });
+    expect(backends.map((provider) => provider.kind)).toEqual(["claude-code"]);
+  });
+
+  it("carries a version policy's verdict and refuses a broken release", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-claude-policy-"));
+    directories.push(root);
+    const backends: HostRuntimeBackendProvider[] = [];
+    const policy = { "claude-code": { ranges: [{ range: "<2.2.0", status: "broken", message: "It drops tool results." }], recommendedVersion: "2.2.1" } };
+    await activateHostKit(createClaudeCodeHostExtension({ fetch: offline, env: { TAU_VERSION_POLICY: JSON.stringify(policy) }, readVersion: async () => "2.1.280" }), {
+      stateDir: join(root, "state"),
+      sessionsDir: join(root, "sessions"),
+      findCommand: () => "/usr/local/bin/claude",
+      skills: () => [],
+      registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
+    });
+    await expect(backends[0]!.version!()).resolves.toMatchObject({ installed: "2.1.280", compatibility: { status: "broken", message: "It drops tool results.", recommendedVersion: "2.2.1" } });
+    await expect(backends[0]!.open("t", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full" } as never)).rejects.toThrow("It drops tool results. Install 2.2.1.");
   });
 });

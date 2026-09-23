@@ -3,21 +3,21 @@
 // with `screencapture -l` of the app's own menu window and follows the OS
 // appearance, not the emulated scheme. The app is stopped to close it.
 import { CHROME, probes } from "./probes.mjs";
-import { openThread, railState, t3OpenSnooze, tauPaletteRun } from "./steps.mjs";
+import { railState, t3OpenSnooze, tauOpenSnooze } from "./steps.mjs";
 
 const PROBES = probes(CHROME, {
-  tau: { dialog: "section.thread-rail-snooze", dialogTitle: "section.thread-rail-snooze h2, section.thread-rail-snooze strong", primary: "section.thread-rail-snooze button@^Snooze$", field: "section.thread-rail-snooze input" },
+  tau: { popover: ".rail-row-popover", popoverItem: ".rail-row-popover button", dialog: "section.thread-rail-snooze", dialogTitle: "section.thread-rail-snooze h2, section.thread-rail-snooze strong", primary: "section.thread-rail-snooze button@^Snooze$", field: "section.thread-rail-snooze input" },
   t3: { dialog: "[data-slot=dialog-popup]", dialogTitle: "[data-slot=dialog-popup] h2", primary: "[data-slot=dialog-popup] button@^Snooze$", field: "[data-slot=dialog-popup] input", popover: "[data-slot=popover-popup]", popoverItem: "[data-slot=popover-popup] button" },
 });
 
 export default {
   id: "03-row-menu",
   title: "Row menu, snooze choices, custom snooze",
-  async tau(ctx, { shot, nativeShot, note }) {
+  async tau(ctx, { shot, nativeShot }) {
     await railState.tau(ctx);
-    note("snooze", "Tau offers its snooze presets only inside the native row menu's submenu, which CDP cannot open; the row's hover has Settle only.");
-    await openThread(ctx, "Small thread 4");
-    await tauPaletteRun(ctx, "Snooze thread");
+    await tauOpenSnooze(ctx, "Small thread 4");
+    await shot("snooze", { probes: PROBES });
+    await ctx.click(".rail-row-popover button", /^Custom/u);
     await ctx.waitFor(`!!document.querySelector("section.thread-rail-snooze")`);
     await shot("snooze-dialog", { probes: PROBES, tabs: 5 });
     await ctx.press("Escape");

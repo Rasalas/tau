@@ -214,6 +214,15 @@ export const workspaceExtension: DesktopExtension = {
       if (!branch) { app.notify("Branch is unavailable."); return; }
       try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error)); }
     } });
+    // T3 Code's composer chords: each opens the composer control that carries its id.
+    for (const [id, label, keys] of [["composer.workspace", "Choose where the thread runs", "mod+shift+x"], ["composer.branch", "Choose the branch", "mod+shift+g"]] as const) {
+      context.registerCommand({ id, label, group: "Composer", run: (app) => {
+        const control = document.querySelector<HTMLElement>(`[data-composer-shortcut="${id}"]`);
+        if (control) control.click();
+        else app.notify("The composer shows no such control here.");
+      } });
+      context.registerKeybinding({ keys, commandId: id, when: "!terminalFocus" });
+    }
     context.registerKeybinding({ keys: "mod+alt+p", commandId: "workspace.open-project" });
     context.registerKeybinding({ keys: "mod+o", commandId: "workspace.open-in-editor" });
     context.registerKeybinding({ keys: "mod+alt+j", commandId: "workspace.open-terminal" });

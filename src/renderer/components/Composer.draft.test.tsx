@@ -44,7 +44,6 @@ function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: Clie
           onAbort={() => {}}
           onCancelQueued={() => {}}
           onSteerQueued={() => {}}
-          onReorderQueue={() => {}}
           onSetModel={() => {}}
           onSetThinking={() => {}}
           onCompactContext={() => {}}

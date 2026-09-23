@@ -37,7 +37,6 @@ function renderComposer(options: { streaming?: boolean; extend?: (context: Deskt
           onAbort={() => {}}
           onCancelQueued={() => {}}
           onSteerQueued={() => {}}
-          onReorderQueue={() => {}}
           onSetModel={() => {}}
           onSetThinking={() => {}}
           onCompactContext={() => {}}

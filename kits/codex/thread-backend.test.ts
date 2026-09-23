@@ -64,6 +64,41 @@ async function sent(space: Scratch): Promise<Array<{ method?: string; params?: R
   return (await readFile(space.log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
 }
 
+describe("CodexThreadRuntimeBackend before its first turn", () => {
+  const unopened = async (configured?: { model?: string; effort?: string }) => {
+    const space = await scratch();
+    const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
+      adapter: createCodexRuntimeAdapter("codex@work"),
+      store: space.store,
+      instance: "work",
+      openSession: async () => { throw new Error("no session before the first turn"); },
+      storedModels: async () => frames.models.map(storedModel),
+      ...(configured ? { configuredModel: async () => configured } : {}),
+    });
+    backends.push(backend);
+    await backend.start("create");
+    return { backend, space };
+  };
+
+  it("shows the model and effort the home's config.toml sets, not the account's default", async () => {
+    const { backend } = await unopened({ model: "gpt-5.6-luna", effort: "low" });
+    expect(backend.catalogView()).toMatchObject({ model: { provider: "openai", id: "gpt-5.6-luna" }, thinkingLevel: "default (low)" });
+    expect(backend.catalogView().thinkingLevels).toEqual(["default (low)", "low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("falls back to the account's default model without a config.toml", async () => {
+    const { backend } = await unopened();
+    expect(backend.catalogView()).toMatchObject({ model: { id: "gpt-6-astra" }, thinkingLevel: "default (medium)" });
+  });
+
+  it("carries its instance's kind and keeps its record on that instance", async () => {
+    const { backend, space } = await unopened();
+    expect(backend.kind).toBe("codex@work");
+    await expect(space.store.get("tau-1")).resolves.toMatchObject({ instance: "work" });
+    await expect(space.store.list("default")).resolves.toEqual([]);
+  });
+});
+
 describe("CodexThreadRuntimeBackend against the app-server stub", () => {
   it("starts a Codex thread, streams the answer and keeps both messages and the usage", async () => {
     const space = await scratch();
@@ -184,6 +219,28 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     const turn = (await sent(space)).find((message) => message.method === "turn/start");
     expect(turn?.params).toMatchObject({ model: "gpt-5.5", effort: "low", approvalPolicy: "never", sandboxPolicy: { type: "readOnly" } });
     expect(await space.store.get("tau-1")).toMatchObject({ model: "gpt-5.5", effort: "low" });
+  });
+});
+
+describe("plan mode", () => {
+  it("runs a turn in Codex's plan collaboration mode, keeps the mode, and leaves it explicitly", async () => {
+    const space = await scratch();
+    const { backend } = await open(space);
+    const mode = backend.capabilities.mode!;
+    expect(mode.modes()).toEqual(["plan"]);
+    expect(mode.current()).toBe("default");
+    await backend.models();
+    await backend.capabilities.catalogWrite!.setModel("openai", "gpt-5.5");
+    await mode.set("plan");
+    await expect(mode.set("review")).rejects.toThrow('no "review" mode');
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    const starts = async () => (await sent(space)).filter((message) => message.method === "turn/start");
+    expect((await starts())[0]?.params?.collaborationMode).toEqual({ mode: "plan", settings: { model: "gpt-5.5", reasoning_effort: null, developer_instructions: null } });
+    expect(await space.store.get("tau-1")).toMatchObject({ mode: "plan" });
+    await mode.set("default");
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    expect((await starts())[1]?.params?.collaborationMode).toMatchObject({ mode: "default" });
+    expect((await space.store.get("tau-1"))?.mode).toBeUndefined();
   });
 });
 

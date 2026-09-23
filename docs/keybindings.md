@@ -45,6 +45,11 @@ Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 | `mod+,` | | `runtime.settings` | Settings | core | same |
 | `mod+i` | | `runtime.instructions` | System prompt and instructions | core | – |
 | `escape` | | `runtime.abort` | Stop the run | core | – |
+| `mod+shift+enter` | `!terminalFocus` | `thread.steerQueuedMessage` | Send the oldest queued message now | core | same |
+| `mod+shift+e` | `!terminalFocus` | `composer.effort` | Reasoning menu | core | same |
+| `mod+shift+a` | `!terminalFocus` | `composer.mode` | Access menu | Access | same |
+| `mod+shift+x` | `!terminalFocus` | `composer.workspace` | Where the thread runs | Workspace | same |
+| `mod+shift+g` | `!terminalFocus` | `composer.branch` | Branch picker | Workspace | same |
 | `mod+shift+t` | | `runtime.transcript-detail` | Cycle transcript detail | core | – |
 | `mod+shift+r` | | `runtime.rename-thread` | Rename thread | core | – |
 | `ctrl+p` | `composerFocus` | `runtime.cycle-model` | Next model (Pi's chord) | core | – |
@@ -112,10 +117,16 @@ reach the workbench as usual.
   to `mod+alt+1`–`mod+alt+3`.
 - `mod+r` and the zoom chords under `previewFocus` are not bound: Electron's
   View menu owns ⌘R, ⌘0, ⌘+ and ⌘− for the window.
-- No Tau command yet for `chat.newLocal`, `composer.host`, `composer.effort`,
-  `composer.mode`, `composer.workspace`, `composer.branch`,
+- No Tau command yet for `chat.newLocal`, `composer.host`,
   `composer.previousWorktree`, `pullRequest.copyNumber`,
-  `thread.copyReference`, `thread.steerQueuedMessage` (the composer's own
-  alternate send chord steers) and `rightPanel.toggleMaximized`. "Switch
+  `thread.copyReference` and `rightPanel.toggleMaximized`.
+- T3 Code's `composer.mode` opens its runtime-mode menu, which is Tau's
+  access level, so it opens Access Kit's menu. Plan mode is Plan Kit's
+  `plan.toggle`, without a chord: T3 Code toggles it with ⇧Tab in the
+  composer, which Tau keeps for Pi's thinking-level cycle.
+- `composer.*` commands click the composer control that carries their id in
+  `data-composer-shortcut`; a control another kit draws can answer the same way.
+- Inside the composer ⌘⇧↵ sends the oldest queued message whatever the send
+  setting, and leaves the draft where it is. "Switch
   project…" has no chord: T3 Code has no counterpart, and the palette finds
   projects.

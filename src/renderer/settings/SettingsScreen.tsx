@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, ChevronDown, Command, Cpu, Folder, Monitor, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Command, Cpu, Folder, Monitor, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
 import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
@@ -226,6 +226,19 @@ export function SettingsScreen({
     };
   }, [onClose]);
 
+  // The extension lists fold away (28 entries on a stock install); the one holding the open page, or one awaiting approval, starts open.
+  const [groupsOpen, setGroupsOpen] = useState<Readonly<Record<string, boolean>>>({});
+  const navGroup = (id: string, label: string, entries: typeof summaries, render: (summary: (typeof summaries)[number]) => React.ReactNode) => {
+    if (entries.length === 0) return null;
+    const open = groupsOpen[id] ?? entries.some((summary) => summary.id === page || awaiting.includes(summary));
+    return <>
+      <button type="button" className="settings-nav-heading" aria-expanded={open} onClick={() => setGroupsOpen((current) => ({ ...current, [id]: !open }))}>
+        <span>{label} · {entries.length}</span>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+      </button>
+      {open ? entries.map(render) : null}
+    </>;
+  };
+
   const navButton = (id: string, label: string, icon: React.ReactNode, onClick = () => onSetPage(id), activeWhen = page === id) => (
     <button key={id} className={activeWhen ? "active" : ""} aria-current={activeWhen ? "page" : undefined} onClick={onClick}>
       {icon}<span>{label}</span>
@@ -286,8 +299,7 @@ export function SettingsScreen({
               {navButton("keybindings", "Keybindings", <Command size={15} />, () => { setKeybindingFilter((current) => ({ filter: "", seq: current.seq + 1 })); onSetPage("keybindings"); })}
               {pages.map((entry) => navButton(entry.id, entry.label, <PanelIcon Icon={entry.Icon} size={15} />))}
               {navButton("inspector", "Inspector", <Puzzle size={15} />)}
-              <div className="settings-nav-heading">Extensions</div>
-              {summaries.filter((summary) => !summary.core).map((summary) => (
+              {navGroup("extensions", "Extensions", summaries.filter((summary) => !summary.core), (summary) => (
                 <button
                   key={summary.id}
                   className={`${page === summary.id ? "active" : ""} ${summary.active ? "" : "off"}`}
@@ -299,8 +311,7 @@ export function SettingsScreen({
                   {summary.active ? null : <small>off</small>}
                 </button>
               ))}
-              <div className="settings-nav-heading">Core</div>
-              {summaries.filter((summary) => summary.core).map((summary) => (
+              {navGroup("core", "Core", summaries.filter((summary) => summary.core), (summary) => (
                 <button key={summary.id} className={page === summary.id ? "active" : ""} aria-current={page === summary.id ? "page" : undefined} onClick={() => onSetPage(summary.id)}>
                   <span className="extension-dot" />
                   <span>{summary.name}</span>

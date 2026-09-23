@@ -116,11 +116,13 @@ export class NewThreadController {
     return scope;
   };
 
+  /** A draft keeps the model for the thread it becomes; `runtime` is the one it was chosen from. */
   setModel = async (
     provider: string,
     id: string,
     fallbackSetModel?: (p: string, id: string) => Promise<unknown>,
     resolveName?: (p: string, id: string) => string | undefined,
+    runtime?: string,
   ): Promise<void> => {
     const pending = this.pending;
     if (!pending || pending.sessionId) {
@@ -128,8 +130,42 @@ export class NewThreadController {
       return;
     }
     const name = resolveName?.(provider, id) ?? id;
-    const next = { ...pending, model: { provider, id, name } };
+    // A level chosen for another model or runtime may not exist for this one.
+    this.store({ ...withoutSelection(pending), model: { provider, id, name }, ...selectionRuntime(runtime) });
+  };
+
+  /** A draft keeps the thinking level for the thread it becomes. */
+  setThinking = async (level: string, fallbackSetThinking?: (level: string) => Promise<unknown>, runtime?: string): Promise<void> => {
+    const pending = this.pending;
+    if (!pending || pending.sessionId) {
+      if (fallbackSetThinking) await fallbackSetThinking(level);
+      return;
+    }
+    const model = (pending.selectionRuntime ?? "pi") === (runtime ?? "pi") ? pending.model : undefined;
+    this.store({ ...withoutSelection(pending), ...(model ? { model } : {}), thinkingLevel: level, ...selectionRuntime(runtime) });
+  };
+
+  /** A draft keeps the mode its thread starts in; a thread that exists is told at once. */
+  setMode = async (mode: string, setThreadMode: (mode: string) => Promise<unknown>): Promise<void> => {
+    const pending = this.pending;
+    if (!pending || pending.sessionId) {
+      await setThreadMode(mode);
+      return;
+    }
+    this.store({ ...pending, mode });
+  };
+
+  private store(next: NewThreadDraft): void {
     writeNewThreadDraft(this.storage, next);
     this.set(next);
-  };
+  }
+}
+
+function selectionRuntime(runtime: string | undefined): { selectionRuntime?: string } {
+  return runtime && runtime !== "pi" ? { selectionRuntime: runtime } : {};
+}
+
+function withoutSelection(pending: NewThreadDraft): NewThreadDraft {
+  const { model: _model, thinkingLevel: _level, selectionRuntime: _runtime, ...rest } = pending;
+  return rest;
 }

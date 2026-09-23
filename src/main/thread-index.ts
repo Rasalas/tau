@@ -80,6 +80,7 @@ export class ThreadIndex {
   /** Why a thread's runtime could not start, until it does. */
   private readonly runtimeErrors = new Map<string, string>();
   private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
+  private scannedOnce = false;
   private recoveryTimer?: ReturnType<typeof setInterval>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
   /** Publications coalesced into the next tick, keyed by what they carry. */
@@ -99,6 +100,11 @@ export class ThreadIndex {
 
   list(): readonly UiSession[] {
     return this.sessions;
+  }
+
+  /** Whether the first scan has finished, so a later change is news to a client. */
+  get scanned(): boolean {
+    return this.scannedOnce;
   }
 
   byId(sessionId: string): UiSession | undefined {
@@ -187,6 +193,7 @@ export class ThreadIndex {
     const next = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveThreadIds())
       .filter((session) => !trashed(session.id));
     this.sessions = next;
+    this.scannedOnce = true;
     await this.sweep(sessionInfos, previous, next);
     return { previous, next };
   }

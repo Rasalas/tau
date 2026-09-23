@@ -1,8 +1,41 @@
+import type { RuntimeCompatibility, RuntimeInstanceConfig } from "tau";
+
 /** Claude Code's contract between its host half and its desktop half. */
 export const CLAUDE_CODE_HOST_EXTENSION_ID = "tau.claude-code";
-/** The backend kind the host entry registers; threads of this kind carry it as `backendKind`. */
+/** The backend kind the default instance registers; threads carry it (or `claude-code@<instance>`) as `backendKind`. */
 export const CLAUDE_CODE_BACKEND_KIND = "claude-code";
 /** Usage Kit may read each thread's running total through the `usage` command. */
 export const USAGE_KIT_ID = "tau.usage";
 /** Onboarding may list and import the sessions the CLI ran outside Tau. */
 export const ONBOARDING_KIT_ID = "tau.onboarding";
+/** The variable an instance's home becomes. */
+export const CLAUDE_HOME_VARIABLE = "CLAUDE_CONFIG_DIR";
+/** Pushed with a `ClaudeInstancesReport` whenever an instance is added, changed or removed. */
+export const INSTANCES_EVENT = "instances";
+
+/** One instance as the Providers page shows it. */
+export interface ClaudeInstanceView extends RuntimeInstanceConfig {
+  kind: string;
+  label: string;
+  /** Threads Tau keeps for it. */
+  threads: number;
+}
+
+export interface ClaudeInstancesReport {
+  instances: ClaudeInstanceView[];
+}
+
+/** What `status` reports for one instance. */
+export interface ClaudeStatusReport {
+  kind: string;
+  instance?: string;
+  command: string;
+  path?: string;
+  /** Who chose `command`: the environment variable or the card; absent for the PATH lookup. */
+  commandSource?: "env" | "setting";
+  update?: { installed: string; latest: string; command?: string };
+  /** The version policy's verdict on the installed CLI. */
+  compatibility?: RuntimeCompatibility;
+  installed?: string;
+  updateCommand?: string;
+}

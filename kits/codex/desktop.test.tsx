@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "tau";
+import type { HostSnapshot, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { CodexProviderCard, codexExtension } from "./desktop.js";
+import { CodexInstances, CodexProviderCard, codexExtension, createVersionBanner } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -67,5 +67,82 @@ describe("Codex desktop extension", () => {
     render(<CodexProviderCard onNotify={vi.fn()} host={host(async () => ({ command: "codex", path: "/usr/local/bin/codex", version: "0.155.1", signedIn: false }))} />);
     await waitFor(() => expect(screen.getByText("Not signed in")).toBeTruthy());
     expect(screen.getByText("codex login")).toBeTruthy();
+  });
+
+  it("draws a card per instance, after the default one, as the host pushes them", async () => {
+    const invoke = vi.fn(async (_extension: string, command: string) => command === "instances"
+      ? { instances: [{ id: "default", kind: "codex", label: "Codex", threads: 2 }, { id: "work", kind: "codex@work", label: "Codex · Work", threads: 0 }] }
+      : undefined);
+    const { registry } = createKitHarness(invoke);
+    registry.activate(codexExtension);
+    await waitFor(() => expect(registry.getSettingsPages().map((page) => [page.id, page.runtime, page.label])).toEqual([
+      ["codex.settings", "codex", "Codex"],
+      ["codex.settings.work", "codex@work", "Codex · Work"],
+    ]));
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: "tau.codex", name: "instances", payload: { instances: [{ id: "default", kind: "codex", label: "Codex", threads: 2 }] } });
+    expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["codex.settings"]);
+    registry.deactivate("tau.codex");
+    expect(registry.getSettingsPages()).toEqual([]);
+  });
+
+  it("asks for the instance it is about, and removes it after asking in place", async () => {
+    const instances = new CodexInstances();
+    instances.set({ instances: [{ id: "default", kind: "codex", label: "Codex", threads: 0 }, { id: "work", kind: "codex@work", label: "Codex · Work", home: "~/.codex-work", threads: 3 }] });
+    const invoke = vi.fn(async (command: string) => command === "status"
+      ? { instance: "work", command: "codex", path: "/opt/homebrew/bin/codex", version: "0.155.1", signedIn: false }
+      : { instances: [{ id: "default", kind: "codex", label: "Codex", threads: 0 }] });
+    const onNotify = vi.fn();
+    render(<CodexProviderCard onNotify={onNotify} host={host(invoke)} instance="work" instances={instances} />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { fresh: false, instance: "work" }));
+    expect(await screen.findByText("home ~/.codex-work")).toBeTruthy();
+    expect(screen.getByText("CODEX_HOME=~/.codex-work codex login")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(screen.getByText(/Its 3 threads leave the thread list/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove instance" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("remove-instance", { instance: "work" }));
+    await waitFor(() => expect(instances.snapshot.instances).toHaveLength(1));
+    expect(onNotify).toHaveBeenCalledWith("Removed the Codex instance “Codex · Work”.");
+  });
+
+  it("adds an instance through the dialog, its id taken from the name", async () => {
+    const instances = new CodexInstances();
+    instances.set({ instances: [{ id: "default", kind: "codex", label: "Codex", threads: 0 }] });
+    const invoke = vi.fn(async (command: string) => command === "status"
+      ? { command: "codex", path: "/opt/homebrew/bin/codex", version: "0.155.1" }
+      : { instances: [{ id: "default", kind: "codex", label: "Codex", threads: 0 }, { id: "work-account", kind: "codex@work-account", label: "Codex · Work account", threads: 0 }] });
+    render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} instances={instances} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Add instance/u }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a Codex instance" });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Work account" } });
+    expect((screen.getByLabelText("Instance id") as HTMLInputElement).value).toBe("work-account");
+    fireEvent.change(screen.getByLabelText("Home folder"), { target: { value: "~/.codex-work" } });
+    fireEvent.change(screen.getByLabelText("Environment"), { target: { value: "not a variable" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add instance" }));
+    expect(await screen.findByText("Line 1 is not NAME=value.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Environment"), { target: { value: "OPENAI_BASE_URL=http://localhost:1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add instance" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save-instance", { instance: { id: "work-account", name: "Work account", home: "~/.codex-work", env: { OPENAI_BASE_URL: "http://localhost:1" } } }));
+    await waitFor(() => expect(dialog.isConnected).toBe(false));
+    expect(instances.snapshot.instances.map((entry) => entry.id)).toEqual(["default", "work-account"]);
+  });
+
+  it("warns above the composer of a thread on an unsafe CLI and types the install command into a terminal without running it", async () => {
+    const terminal = { invoke: vi.fn(async (command: string) => command === "open" ? { id: "term-1" } : undefined), onEvent: () => () => undefined };
+    const Banner = createVersionBanner(() => terminal);
+    const actions = { activeThread: () => ({ workspaceId: "ws-1", draftPending: false }), openPanel: vi.fn(), notify: vi.fn(), copyText: vi.fn(async () => undefined) } as unknown as WorkbenchActions;
+    const snapshot = {
+      backendKind: "codex@work",
+      runtimeBackends: [{ kind: "codex@work", label: "Codex · Work", version: { tool: "codex", installed: "0.155.0", compatibility: { status: "unsafe", recommendedVersion: "0.160.0", installCommand: "npm install -g @openai/codex@0.160.0" } } }],
+    } as unknown as HostSnapshot;
+    const { rerender } = render(<Banner snapshot={snapshot} actions={actions} />);
+    expect(await screen.findByText("Codex · Work 0.155.0 has known problems with Tau")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Install 0\.160\.0 in a terminal/u }));
+    await waitFor(() => expect(terminal.invoke).toHaveBeenCalledWith("input", { id: "term-1", data: "npm install -g @openai/codex@0.160.0" }));
+    expect(terminal.invoke).toHaveBeenCalledWith("open", { workspaceId: "ws-1", label: "Codex" });
+    expect(actions.openPanel).toHaveBeenCalledWith("terminal");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss the Codex · Work version warning" }));
+    expect(screen.queryByText(/has known problems/u)).toBeNull();
+    rerender(<Banner snapshot={{ ...snapshot, backendKind: "pi" } as HostSnapshot} actions={actions} />);
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

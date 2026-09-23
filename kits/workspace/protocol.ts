@@ -25,7 +25,7 @@ import type {
   WorkspaceInfo,
   WorkspaceRef,
 } from "tau";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
@@ -375,6 +375,16 @@ export interface ThreadRailDrop {
   beforeThreadId?: string;
 }
 
+/** A button a row shows on hover that drops a short list; picking an item goes to `runMenu`. */
+export interface ThreadRailRowAction {
+  id: string;
+  /** Tooltip and accessible name. */
+  label: string;
+  icon: ReactNode;
+  /** Read when the list opens, so times in it are relative to that moment. */
+  menu(): MenuSection[];
+}
+
 /**
  * Another kit's say over the rail: which section a thread is in and in what
  * order, what a row's menu offers and what a drop means. The rail keeps the
@@ -391,6 +401,8 @@ export interface ThreadRailOrganizer {
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
   /** The row's own settle button. */
   toggleSettled(session: UiSession): void;
+  /** Buttons beside Settle while the row is hovered, e.g. T3 Code's snooze clock. */
+  rowActions?(session: UiSession): ThreadRailRowAction[];
   /** What dropping the thread there does, in a word; undefined when it may not land there. */
   dropLabel(threadId: string, drop: ThreadRailDrop): string | undefined;
   drop(threadId: string, drop: ThreadRailDrop): void;

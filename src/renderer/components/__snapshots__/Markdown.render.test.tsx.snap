@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`finished Markdown > renders backtick fence with blank lines unchanged 1`] = `
-"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>typescript</span><button class="idle">copy</button></div><pre><code><span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;
+"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>typescript</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code><span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;
 
 <span class="hljs-keyword">const</span> b = <span class="hljs-number">2</span>;
 
@@ -11,7 +11,7 @@ exports[`finished Markdown > renders backtick fence with blank lines unchanged 1
 
 exports[`finished Markdown > renders fence right after a paragraph unchanged 1`] = `
 "<div class="markdown"><p>Look:</p>
-<div class="md-code"><div class="md-code-head"><span>sh</span><button class="idle">copy</button></div><pre><code>echo one
+<div class="md-code"><div class="md-code-head"><span>sh</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code>echo one
 
 echo two</code></pre></div>
 <p>Then text.</p></div>"
@@ -21,19 +21,19 @@ exports[`finished Markdown > renders fences inside lists unchanged 1`] = `
 "<div class="markdown"><ul>
 <li>
 <p>step one</p>
-<div class="md-code"><div class="md-code-head"><span>bash</span><button class="idle">copy</button></div><pre><code>npm <span class="hljs-built_in">test</span>
+<div class="md-code"><div class="md-code-head"><span>bash</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code>npm <span class="hljs-built_in">test</span>
 
 npm run build</code></pre></div>
 </li>
 <li>
 <p>step two</p>
-<div class="md-code"><div class="md-code-head"><span>text</span><button class="idle">copy</button></div><pre><code>plain</code></pre></div>
+<div class="md-code"><div class="md-code-head"><span>text</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code>plain</code></pre></div>
 </li>
 </ul>
 <ol>
 <li>
 <p>ordered</p>
-<div class="md-code"><div class="md-code-head"><span>json</span><button class="idle">copy</button></div><pre><code><span class="hljs-punctuation">{</span> <span class="hljs-attr">"a"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span> <span class="hljs-punctuation">}</span></code></pre></div>
+<div class="md-code"><div class="md-code-head"><span>json</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code><span class="hljs-punctuation">{</span> <span class="hljs-attr">"a"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span> <span class="hljs-punctuation">}</span></code></pre></div>
 </li>
 </ol></div>"
 `;
@@ -57,7 +57,7 @@ exports[`finished Markdown > renders headings and quotes unchanged 1`] = `
 <h1>Setext</h1>
 <blockquote>
 <p>quote with a fence:</p>
-<div class="md-code"><div class="md-code-head"><span>js</span><button class="idle">copy</button></div><pre><code><span class="hljs-title function_">quoted</span>();</code></pre></div>
+<div class="md-code"><div class="md-code-head"><span>js</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code><span class="hljs-title function_">quoted</span>();</code></pre></div>
 </blockquote>
 <hr>
 <ul class="contains-task-list">
@@ -78,15 +78,15 @@ exports[`finished Markdown > renders html-ish text unchanged 1`] = `
 
 exports[`finished Markdown > renders indented code unchanged 1`] = `
 "<div class="markdown"><p>Paragraph.</p>
-<div class="md-code"><div class="md-code-head"><span>text</span><button class="idle">copy</button></div><pre><code>indented code
+<div class="md-code"><div class="md-code-head"><span>text</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code>indented code
 more code</code></pre></div>
 <p>After.</p></div>"
 `;
 
 exports[`finished Markdown > renders language aliases unchanged 1`] = `
-"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>tsx</span><button class="idle">copy</button></div><pre><code><span class="hljs-keyword">const</span> <span class="hljs-title function_">View</span> = (<span class="hljs-params"></span>) =&gt; &lt;div /&gt;;</code></pre></div>
-<div class="md-code"><div class="md-code-head"><span>c</span><button class="idle">copy</button></div><pre><code>int x = 0;</code></pre></div>
-<div class="md-code"><div class="md-code-head"><span>text</span><button class="idle">copy</button></div><pre><code>no language</code></pre></div></div>"
+"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>tsx</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code><span class="hljs-keyword">const</span> <span class="hljs-title function_">View</span> = (<span class="hljs-params"></span>) =&gt; &lt;div /&gt;;</code></pre></div>
+<div class="md-code"><div class="md-code-head"><span>c</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code>int x = 0;</code></pre></div>
+<div class="md-code"><div class="md-code-head"><span>text</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code>no language</code></pre></div></div>"
 `;
 
 exports[`finished Markdown > renders loose ordered list unchanged 1`] = `
@@ -106,7 +106,7 @@ exports[`finished Markdown > renders loose ordered list unchanged 1`] = `
 
 exports[`finished Markdown > renders nested fences unchanged 1`] = `
 "<div class="markdown"><p>Outer:</p>
-<div class="md-code"><div class="md-code-head"><span>markdown</span><button class="idle">copy</button></div><pre><code><span class="hljs-code">\`\`\`ts
+<div class="md-code"><div class="md-code-head"><span>markdown</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code><span class="hljs-code">\`\`\`ts
 const inner = 1;
 \`\`\`</span></code></pre></div>
 <p>After.</p></div>"
@@ -120,7 +120,7 @@ exports[`finished Markdown > renders table unchanged 1`] = `
 `;
 
 exports[`finished Markdown > renders tilde fence with blank lines unchanged 1`] = `
-"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>python</span><button class="idle">copy</button></div><pre><code><span class="hljs-built_in">print</span>(<span class="hljs-string">'x'</span>)
+"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>python</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code><span class="hljs-built_in">print</span>(<span class="hljs-string">'x'</span>)
 
 
 <span class="hljs-comment"># still code</span></code></pre></div>
@@ -129,7 +129,7 @@ exports[`finished Markdown > renders tilde fence with blank lines unchanged 1`] 
 
 exports[`finished Markdown > renders unterminated fence unchanged 1`] = `
 "<div class="markdown"><p>Intro paragraph.</p>
-<div class="md-code"><div class="md-code-head"><span>ts</span><button class="idle">copy</button></div><pre><code><span class="hljs-keyword">const</span> x = <span class="hljs-number">1</span>;
+<div class="md-code"><div class="md-code-head"><span>ts</span><button type="button" aria-pressed="false" aria-label="Wrap lines" data-tooltip="Wrap lines"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button type="button" class="idle" aria-label="Copy code" data-tooltip="Copy code"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div><pre><code><span class="hljs-keyword">const</span> x = <span class="hljs-number">1</span>;
 
 <span class="hljs-keyword">const</span> y = <span class="hljs-number">2</span>;</code></pre></div></div>"
 `;

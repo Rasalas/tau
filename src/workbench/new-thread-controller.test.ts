@@ -118,6 +118,29 @@ describe("NewThreadController", () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 
+  it("keeps a draft's model and level with the runtime they were chosen from", async () => {
+    const storage = createMemoryStorage();
+    const controller = new NewThreadController(storage);
+    controller.begin(createNewThreadDraft(project()));
+    await controller.setModel("openai", "gpt-5.6-luna", undefined, undefined, "codex");
+    await controller.setThinking("low", undefined, "codex");
+    expect(controller.current()).toMatchObject({ model: { id: "gpt-5.6-luna" }, thinkingLevel: "low", selectionRuntime: "codex" });
+    // Another model drops a level it may not have; the reload keeps the rest.
+    await controller.setModel("openai", "gpt-5.6-sol", undefined, undefined, "codex");
+    expect(controller.current()?.thinkingLevel).toBeUndefined();
+    expect(new NewThreadController(storage).current()).toMatchObject({ model: { id: "gpt-5.6-sol" }, selectionRuntime: "codex" });
+    // A level for Pi does not keep a Codex model, and Pi is the absent runtime.
+    await controller.setThinking("high", undefined, "pi");
+    expect(controller.current()).toMatchObject({ thinkingLevel: "high" });
+    expect(controller.current()?.model).toBeUndefined();
+    expect(controller.current()?.selectionRuntime).toBeUndefined();
+
+    const fallback = vi.fn().mockResolvedValue(undefined);
+    controller.set({ ...createNewThreadDraft(project()), sessionId: "s1" });
+    await controller.setThinking("medium", fallback, "pi");
+    expect(fallback).toHaveBeenCalledWith("medium");
+  });
+
   it("setModel falls back once the draft carries a session id", async () => {
     const storage = createMemoryStorage();
     const controller = new NewThreadController(storage);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "tau";
-import { defaultRailSections, findProjectForSession, navigationRowKey, visibleThreads } from "./navigation.js";
+import { defaultRailSections, findProjectForSession, isDefaultBranch, navigationRowKey, visibleThreads } from "./navigation.js";
 import { railDropAt } from "./rail-drag.js";
 
 function session(id: string): UiSession {
@@ -43,6 +43,23 @@ describe("threads an agent spawned", () => {
   it("hides a spawned thread the index named even when no extension published lineage", () => {
     const threads = [spawned("parent"), spawned("alpha", "parent"), spawned("beta", "parent")];
     expect(visibleThreads(threads, {}).map((entry) => entry.id)).toEqual(["parent"]);
+  });
+});
+
+describe("empty drafts", () => {
+  it("keeps a thread nobody wrote to out of the rail until it runs", () => {
+    const threads = [session("sent"), { ...session("draft"), messageCount: 0 }];
+    expect(visibleThreads(threads, {}).map((entry) => entry.id)).toEqual(["sent"]);
+    expect(visibleThreads(threads, {}, (id) => id === "draft").map((entry) => entry.id)).toEqual(["sent", "draft"]);
+  });
+});
+
+describe("branch on a row", () => {
+  it("leaves out the default branch and shows any other", () => {
+    expect(isDefaultBranch("main")).toBe(true);
+    expect(isDefaultBranch("master")).toBe(true);
+    expect(isDefaultBranch("tau/rail-density")).toBe(false);
+    expect(isDefaultBranch(undefined)).toBe(false);
   });
 });
 

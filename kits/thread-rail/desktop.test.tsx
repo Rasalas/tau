@@ -101,10 +101,28 @@ describe("Thread Rail on the desktop", () => {
     organizer().sections([thread("a")]);
     const items = organizer().menu(thread("a")).flatMap((section) => section.items);
     expect(items.map((item) => item.id)).toEqual(["pin", "snooze", "settle", "move-up", "move-down", "archive", "delete"]);
-    expect(items[1]!.submenu!.flatMap((section) => section.items.map((item) => item.id))).toEqual(["snooze:1h", "snooze:tomorrow", "snooze:next-week", "snooze:custom"]);
+    const presets = items[1]!.submenu!.flatMap((section) => section.items.map((item) => item.id));
+    expect(presets.slice(0, 2)).toEqual(["snooze:1h", "snooze:3h"]);
+    expect(presets).toContain("snooze:tomorrow");
+    expect(presets.at(-1)).toBe("snooze:custom");
     organizer().runMenu(thread("a"), "pin", actions);
     expect(organizer().sections([thread("a")])[0]?.threads.map((entry) => entry.id)).toEqual(["a"]);
     expect(calls("patch")).toEqual([{ patches: { a: { pinned: true, pinOrder: 0 } } }]);
+  });
+
+  it("offers the snooze clock on rows still in the rail, and runs its choice like the menu's", async () => {
+    const { organizer, calls, actions, push } = setup();
+    await flush();
+    push({ threads: { d: { settledAt: 1, settledBy: "user" }, z: { snoozedUntil: Date.now() + 60_000 } }, settings: { onMerged: true, onClosed: false } });
+    expect(organizer().rowActions!(thread("d"))).toEqual([]);
+    expect(organizer().rowActions!(thread("z"))).toEqual([]);
+    const [clock] = organizer().rowActions!(thread("a"));
+    expect(clock?.label).toBe("Snooze thread");
+    const sections = clock!.menu();
+    expect(sections[0]!.items[0]).toMatchObject({ id: "snooze:1h", label: "In 1 hour", hint: expect.any(String) });
+    expect(sections[1]!.items).toEqual([{ id: "snooze:custom", label: "Custom…" }]);
+    organizer().runMenu(thread("a"), "snooze:1h", actions);
+    expect(calls("patch").at(-1)).toMatchObject({ patches: { a: { snoozedUntil: expect.any(Number) } } });
   });
 
   it("hands core's old pins and settled threads to the host once, then mirrors the host into the preferences", async () => {

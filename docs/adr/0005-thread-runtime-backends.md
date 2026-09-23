@@ -189,3 +189,49 @@ logins live in `~/.pi/agent` and Tau has no page for them, and Settings → Pi
 is Pi's runtime configuration, not a provider's.
 
 Still open: the kit's status page.
+
+## Amendment, 2026-09-23: instances of a program, and a version policy
+
+A user may run one program in several setups — two Codex accounts, each in
+its own `CODEX_HOME`. Each setup is an instance and a backend of its own: the
+default instance keeps the program's kind, so every thread from before stays
+routable, and another one is `<kind>@<id>`. Because the thread index, the
+virtual paths and the prepared prompts already key on the kind, a thread
+keeps its instance without a new field in core; the kit's own store names
+the instance too, which is what `listThreads` filters on. We considered one
+backend per program with an instance id on each thread (T3 Code's
+`providerInstances` route by instance id and keep the driver apart), and
+chose the kind because core then needs no new routing at all: a registration
+after start republishes the catalog and the index, and that is the whole
+change to the host. The settings live with the kit
+(`RuntimeInstanceSettings`, the default instance where the path override
+was), the card, the dialog and the banner are one lazily loaded chunk on
+`tau`.
+
+`RuntimeToolVersion` gained `compatibility`: a kit's policy maps version
+ranges to `supported`, `unsafe` or `broken`, with the release it was tested
+with and the command that installs it. `broken` refuses a thread, `unsafe`
+warns above the composer and on the card, and neither ever installs
+anything: the command goes into a Terminal Kit shell, not run. Codex's
+minimum release became the first such range. Antigravity keeps one instance:
+Tau installs and pins its server, its versions are release tags no range
+matches, and a second Google login would need a second profile and sign-in
+flow of its own.
+
+## Amendment, 2026-09-23: interaction modes
+
+A thread's turns run in an interaction mode: `default`, or one its runtime
+adds. The first is `plan`: explore, ask, and propose a plan without changing
+anything. Like the access level, the mode reaches a backend in Tau's
+vocabulary and the backend maps it onto its own policy: the capability group
+`mode` (`modes`, `current`, `set`) on the backend, `modes` on the adapter's
+capabilities for a thread that does not exist yet. Unlike the access level it
+belongs to the thread, not the workbench, and the backend keeps it: Codex in
+its record and as the collaboration mode of every turn (which needs the app
+server's experimental API), the Agent SDK runtime in its record and as the
+`plan` permission mode, Pi as a `tau.mode` entry in the session file that a
+runtime extension reads. Pi has no plan mode of its own, so the modes a Pi
+thread offers are the ones runtime extensions declare; Plan Kit declares
+`plan`. However a runtime plans, the plan reaches the transcript as a reply
+holding a `proposed_plan` block, which is text every backend already keeps.
+Antigravity offers no mode yet.

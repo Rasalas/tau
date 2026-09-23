@@ -20,6 +20,7 @@ import {
   HostExtensionRegistry,
   HostThreadLifecycleSet,
   HostTurnObserverSet,
+  runtimeExtensionModes,
   type HostExtension,
   type HostPreparedThread,
   type HostRuntimeBackendProvider,
@@ -303,6 +304,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     metrics: lifecycleMetrics,
     emitUpdate: (update) => deps.emitUpdate(update),
   });
+  let backendsChangePending = false;
   /** The one place the components hand their collaborators what they may ask of the host. */
   const port: AttachedSessionPort & ExtensionServicesPort = {
     safeMode,
@@ -352,6 +354,16 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     clients,
     exclusive: (work) => lifecycle.run("extension.exclusive", work),
     refreshThreadIndex: () => index.refresh("none").catch(() => index.snapshot()),
+    // Before the first scan the start publishes both anyway.
+    runtimeBackendsChanged: () => {
+      if (!index.scanned || backendsChangePending) return;
+      backendsChangePending = true;
+      queueMicrotask(() => {
+        backendsChangePending = false;
+        void deps.publishActiveCatalog().catch((error: unknown) => deps.log("runtime-backends.publish-failed", deps.errorMessage(error)));
+        void index.refresh("changes").catch((error: unknown) => deps.log("runtime-backends.index-failed", deps.errorMessage(error)));
+      });
+    },
     registerThreadLifecycle: (hook) => threadLifecycle.add(hook),
     registerTurnObserver: (observer) => turnObservers.add(observer),
     pinTranscriptEntries: () => { throw new Error("The extension seam owns transcript pins."); },
@@ -435,6 +447,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     sessionFile: (manager) => seam.sessionFile(manager),
     runtimeExtensions: (settingsManager, session) => deps.runtimeExtensionsFor(settingsManager, session),
     runtimeExtensionNames: () => seam.runtimeExtensions.map((entry) => entry.name),
+    runtimeModes: () => runtimeExtensionModes(seam.runtimeExtensions),
     threadLifecycle,
     turnObservers,
     clientTurns,

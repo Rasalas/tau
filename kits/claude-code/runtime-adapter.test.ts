@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { CLIENT_APP, claudeQueryOptions, collectTurnText, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, type ClaudeQuery } from "./runtime-adapter.js";
+import { CLIENT_APP, claudeQueryOptions, collectTurnText, createClaudeCodeRuntimeAdapter, runtimePermissionPolicy, sdkExtraArgs, type ClaudeQuery } from "./runtime-adapter.js";
 
 interface Call { prompt: string; options: Options }
 type Script = (call: Call) => SDKMessage[] | Promise<SDKMessage[]>;
@@ -46,7 +46,7 @@ describe("Claude Code runtime adapter", () => {
   it("declares its kind, its capabilities and a transport core will accept", () => {
     const adapter = createClaudeCodeRuntimeAdapter({ command: "claude-test", storePath: store("selection") });
     expect(adapter.id).toBe("claude-code");
-    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true });
+    expect(adapter.capabilities).toEqual({ skillInvocationDialect: "claude-code", ownsModelSelection: false, interactiveApprovals: true, modes: ["plan"] });
     expect(adapter.transport.sendPrompt).toBeTypeOf("function");
   });
 
@@ -72,6 +72,8 @@ describe("Claude Code runtime adapter", () => {
     });
     expect(created).not.toHaveProperty("resume");
     expect(created).not.toHaveProperty("allowDangerouslySkipPermissions");
+    expect(created).not.toHaveProperty("extraArgs");
+    expect(claudeQueryOptions({ ...plan, extraArgs: { chrome: null } })).toMatchObject({ extraArgs: { chrome: null } });
     expect(CLIENT_APP).toMatch(/^tau\.claude-code\/\d+\.\d+\.\d+$/u);
     const resumed = claudeQueryOptions({ ...plan, started: true, policy: runtimePermissionPolicy("read-only") });
     expect(resumed).toMatchObject({ resume: SESSION, permissionMode: "plan" });
@@ -250,5 +252,12 @@ describe("Claude Code runtime adapter", () => {
     expect(calls).toHaveLength(0);
     await expect(adapter.stream(input("manual-session", "ask away", { permissionLevel: "ask" }), () => undefined, { canUseTool: vi.fn() })).resolves.toEqual({ assistantText: "must not run" });
     expect(calls[0]?.options).toMatchObject({ permissionMode: "default" });
+  });
+
+  it("turns an instance's launch arguments into the SDK's long options, and names what it cannot pass", () => {
+    expect(sdkExtraArgs(["--chrome", "--settings", "/tmp/s.json", "--model=haiku", "--verbose"])).toEqual({ extraArgs: { chrome: null, settings: "/tmp/s.json", model: "haiku", verbose: null } });
+    expect(sdkExtraArgs([])).toEqual({ extraArgs: {} });
+    expect(sdkExtraArgs(["-p"]).problem).toContain("not a long option");
+    expect(sdkExtraArgs(["value"]).problem).toContain("not a long option");
   });
 });

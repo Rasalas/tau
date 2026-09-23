@@ -30,8 +30,10 @@ import {
   askUserQuestionPrompts,
   permissionPrompt,
   permissionResultFor,
+  PLAN_CAPTURED,
   PLAN_DECLINED,
   planPrompt,
+  proposedPlanText,
   resumeDialogPrompt,
   resumeDialogResult,
 } from "./approvals.js";
@@ -68,6 +70,8 @@ export function promptContent(text: string, attachments: readonly UiPromptAttach
 const MISSING_SESSION = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid)|(?:no|cannot|could not)\s+(?:find\s+)?(?:the\s+)?(?:session|conversation)/iu;
 /** The thinking picker's first entry: the CLI's own effort. */
 const DEFAULT_EFFORT = "default";
+const PLAN_MODE = "plan";
+const DEFAULT_MODE = "default";
 
 function effortLevel(value: string | undefined): EffortLevel | undefined {
   return (EFFORT_LEVELS as readonly string[]).includes(value ?? "") ? value as EffortLevel : undefined;
@@ -78,6 +82,8 @@ const STDERR_TAIL_BYTES = 8 * 1024;
 export interface ClaudeThreadBackendOptions {
   adapter: ClaudeCodeAgentRuntimeAdapter;
   store: ClaudeRuntimeSessionStore;
+  /** The instance the thread runs on; the default one when absent. */
+  instance?: string;
   commands?: readonly UiComposerCommand[] | (() => readonly UiComposerCommand[] | Promise<readonly UiComposerCommand[]>);
   /** Whole messages, for a host that offers no event route. */
   onMessage?(message: UiMessage): void;
@@ -122,7 +128,7 @@ interface Turn {
  * turn; a follow-up waits behind it.
  */
 export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
-  readonly kind = "claude-code" as const;
+  readonly kind: string;
   readonly runtimeAdapter: ClaudeCodeAgentRuntimeAdapter;
   readonly turnReporting = "streamed" as const;
   readonly capabilities: ThreadBackendCapabilities;
@@ -141,6 +147,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** What the user chose for this thread; the CLI's defaults otherwise. */
   private chosenModel?: string;
   private chosenEffort?: EffortLevel;
+  private mode = DEFAULT_MODE;
   private observedEffort?: string;
   private modelInfos?: ModelInfo[];
   /** The only tools this thread keeps, from its record. */
@@ -153,6 +160,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     options: ClaudeThreadBackendOptions,
   ) {
     this.runtimeAdapter = options.adapter;
+    this.kind = options.adapter.id;
     this.store = options.store;
     this.options = options;
     this.now = options.now ?? Date.now;
@@ -160,6 +168,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       catalogWrite: {
         setModel: (_provider, id) => this.setModel(id),
         setThinkingLevel: (level) => this.setEffort(level),
+      },
+      // Tau's plan is Claude's plan permission mode, whatever the access level.
+      mode: {
+        modes: () => [PLAN_MODE],
+        current: () => this.mode,
+        set: (mode) => this.setMode(mode),
       },
       // The SDK resumes the stored session itself, so a continuation is an
       // ordinary turn; there is no message kind the transcript hides.
@@ -181,13 +195,13 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   async start(mode: "create" | "resume"): Promise<void> {
     if (mode === "create") {
-      this.record = await this.store.ensure(this.threadId, this.cwd);
+      this.record = await this.store.ensure(this.threadId, this.cwd, this.options.instance);
       if (this.options.tools) {
         await this.store.setTools(this.threadId, this.cwd, this.options.tools);
         this.record = await this.store.get(this.threadId) ?? this.record;
       }
     } else {
-      this.record = await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
+      this.record = await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd, this.options.instance);
       if (this.record.cwd !== this.cwd) throw new Error("Claude session belongs to another workspace.");
     }
     this.restoreRecord(this.record);
@@ -207,6 +221,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (record.usage) this.usage = { ...record.usage };
     this.chosenModel = record.model;
     this.chosenEffort = effortLevel(record.effort);
+    this.mode = record.mode ?? DEFAULT_MODE;
     this.model = this.chosenModel ?? record.observedModel;
     this.tools = record.tools;
   }
@@ -285,6 +300,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (live) await live.setEffort(effort ?? null);
   }
 
+  private async setMode(mode: string): Promise<void> {
+    if (mode !== PLAN_MODE && mode !== DEFAULT_MODE) throw new Error(`Claude Code offers no "${mode}" mode.`);
+    this.mode = mode;
+    await this.store.setSelection(this.threadId, this.cwd, { mode: mode === DEFAULT_MODE ? undefined : mode });
+  }
+
   async preparePrompt(text: string, skill?: UiSkillDraft): Promise<PreparedPrompt> {
     assertClaudePermissionPolicySupported(runtimePermissionPolicy(this.options.permissionLevel?.() ?? "full"), { canAsk: this.options.ask !== undefined });
     const commands = await this.skills();
@@ -314,7 +335,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   async prompt(input: ThreadBackendPromptInput): Promise<ThreadBackendPromptResult> {
     if (input.delivery !== "prompt" && input.delivery !== "steer" && input.delivery !== "followUp") throw new Error("Unsupported Claude delivery.");
     const permissionLevel = this.options.permissionLevel?.() ?? "full";
-    const mode = runtimePermissionPolicy(permissionLevel).permissionMode;
+    const mode = this.mode === PLAN_MODE ? "plan" : runtimePermissionPolicy(permissionLevel).permissionMode;
     assertClaudePermissionPolicySupported({ permissionMode: mode }, { canAsk: this.options.ask !== undefined });
     const prepared = input.prepared ?? await this.preparePrompt(input.text);
     this.assertPreparedPrompt(input.text, prepared, await this.skills());
@@ -541,6 +562,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       }
       // The CLI reads answers by the full question text.
       return { behavior: "allow", updatedInput: { ...input, answers }, decisionClassification: "user_temporary" };
+    }
+    if (toolName === "ExitPlanMode" && this.mode === PLAN_MODE) {
+      // Plan mode shows the plan as a card and leaves the next step to the user.
+      const plan = typeof input.plan === "string" ? input.plan.trim() : "";
+      if (plan) this.handleEvent({ type: "assistant-end", message: { id: `claude-plan-${this.now()}`, role: "assistant", text: proposedPlanText(plan), timestamp: this.now() } });
+      return { behavior: "deny", message: PLAN_CAPTURED, decisionClassification: "user_reject" };
     }
     if (toolName === "ExitPlanMode") {
       const answer = await ask(planPrompt());

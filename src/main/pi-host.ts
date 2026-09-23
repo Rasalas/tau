@@ -14,6 +14,7 @@ import type {
   ShellActionResult,
   UiComposerCommand,
   UiModel,
+  UiRuntimeCatalog,
   UiPromptAttachment,
   UiRuntimeBackend,
   SubmissionResult,
@@ -75,6 +76,7 @@ import type {
   HostWorkspaceCloseReason,
   RuntimeSessionInfo,
 } from "./host-extensions.js";
+import { runtimeExtensionModes } from "./host-extensions.js";
 import { ProjectHistory } from "./project-history.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ThreadIndex } from "./thread-index.js";
@@ -1290,6 +1292,8 @@ export class PiHost {
             configuration.model.id,
           );
         }
+        if (configuration?.thinkingLevel) await requireCapability(thread.backend, "catalogWrite").setThinkingLevel(configuration.thinkingLevel);
+        if (configuration?.mode) await requireCapability(thread.backend, "mode").set(configuration.mode);
         // Decode and validate attachment data before promoting a prepared
         // runtime, so malformed input cannot leave an adopted blank thread.
         this.prompts.assertAttachmentInput(thread, attachments);
@@ -1321,7 +1325,7 @@ export class PiHost {
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
         if (lifecycle === "prepared") {
-          if (isLocalPiRuntime(thread) && !configuration?.model) this.prewarm.retainSpare(thread);
+          if (isLocalPiRuntime(thread) && !configuration?.model && !configuration?.thinkingLevel && !configuration?.mode) this.prewarm.retainSpare(thread);
           else {
             await this.runtimes.dispose(thread);
             if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd, true);
@@ -1512,11 +1516,12 @@ export class PiHost {
 
   /** The backends a new thread can run on: Pi, then what host extensions registered. */
   private runtimeBackends(): UiRuntimeBackend[] {
+    const withModes = (modes: readonly string[] | undefined) => modes?.length ? { modes: [...modes] } : {};
     const registered = [...this.seam.backends.values()].map((provider) => {
       const version = this.runtimeVersions.get(provider.kind);
-      return { kind: provider.kind, label: provider.label ?? provider.kind, ...(version ? { version } : {}) };
+      return { kind: provider.kind, label: provider.label ?? provider.kind, ...(version ? { version } : {}), ...withModes(provider.adapter.capabilities.modes) };
     });
-    return [{ kind: "pi", label: "Pi" }, ...registered];
+    return [{ kind: "pi", label: "Pi", ...withModes(runtimeExtensionModes(this.seam.runtimeExtensions)) }, ...registered];
   }
 
   /** The commands a backend's composer offers, before any thread of it exists. */
@@ -1825,6 +1830,13 @@ export class PiHost {
     return this.catalogResult();
   }
 
+  async setMode(mode: string, expectedSessionId?: string): Promise<HostActionResult> {
+    const thread = expectedSessionId ? await this.awaitThread(expectedSessionId) : this.requireActive();
+    await requireCapability(thread.backend, "mode").set(mode);
+    this.log("mode.changed", mode);
+    return thread === this.active ? this.catalogResult() : this.actionResult([]);
+  }
+
   private async catalogResult(): Promise<HostActionResult> {
     const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: await this.activeCatalog() };
     this.emitUpdate(catalog);
@@ -2102,6 +2114,13 @@ export class PiHost {
     const models = await active.backend.models();
     this.modelCatalogCache.set(key, models);
     return models;
+  }
+
+  /** What a registered backend offers a thread that does not exist yet; Pi's catalog is the snapshot's. */
+  async runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined> {
+    const provider = this.seam.backends.get(kind);
+    const catalog = await provider?.newThreadCatalog?.();
+    return provider && catalog ? { ...catalog, kind, runtimeCapabilities: provider.adapter.capabilities } : undefined;
   }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {

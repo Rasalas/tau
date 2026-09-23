@@ -1,7 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation, type UiThreadUsage } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation, type UiThreadUsage } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -28,6 +28,8 @@ export interface ClaudeRuntimeSessionRecord {
   backendKind: "claude-code";
   /** Stable Tau thread key; never use the provider's session id here. */
   tauThreadId: string;
+  /** The instance the thread runs on; absent for the default one. */
+  instance?: string;
   claudeSessionId: string;
   cwd: string;
   started: boolean;
@@ -46,6 +48,8 @@ export interface ClaudeRuntimeSessionRecord {
   /** The model and effort the user chose for this thread; the CLI's defaults otherwise. */
   model?: string;
   effort?: string;
+  /** The interaction mode, when it is not `default`. */
+  mode?: string;
   /** What the thread last actually ran on; shown before a session exists, never applied. */
   observedModel?: string;
   /** The only tools the thread keeps, as Pi names them; set when it was created. */
@@ -241,9 +245,11 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
   const titleSource = item.titleSource === "derived" || item.titleSource === "generated" || item.titleSource === "renamed"
     ? item.titleSource
     : undefined;
+  const instance = instanceOf(item.instance);
   return {
     backendKind: "claude-code",
     tauThreadId,
+    ...(instance ? { instance } : {}),
     claudeSessionId,
     cwd,
     started: item.started === true,
@@ -262,6 +268,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(storedUsage(item.usage) ? { usage: storedUsage(item.usage) } : {}),
     ...(boundedString(item.model, MAX_ID_LENGTH) ? { model: boundedString(item.model, MAX_ID_LENGTH) } : {}),
     ...(boundedString(item.effort, 16) ? { effort: boundedString(item.effort, 16) } : {}),
+    ...(boundedString(item.mode, 16) ? { mode: boundedString(item.mode, 16) } : {}),
     ...(boundedString(item.observedModel, MAX_ID_LENGTH) ? { observedModel: boundedString(item.observedModel, MAX_ID_LENGTH) } : {}),
     ...(storedTools(item.tools) ? { tools: storedTools(item.tools) } : {}),
     updatedAt,
@@ -282,6 +289,17 @@ function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRe
     ...(record.usage ? { usage: { ...record.usage } } : {}),
     ...(record.tools ? { tools: [...record.tools] } : {}),
   };
+}
+
+const INSTANCE_ID = /^[a-z][a-z0-9_-]{0,47}$/u;
+
+/** A named instance, or undefined for the default one. */
+function instanceOf(value: unknown): string | undefined {
+  return typeof value === "string" && value !== DEFAULT_INSTANCE_ID && INSTANCE_ID.test(value) ? value : undefined;
+}
+
+function sameInstance(record: ClaudeRuntimeSessionRecord, instance: string | undefined): boolean {
+  return (record.instance ?? DEFAULT_INSTANCE_ID) === (instance ?? DEFAULT_INSTANCE_ID);
 }
 
 function storedTools(value: unknown): string[] | undefined {
@@ -373,23 +391,27 @@ export class ClaudeRuntimeSessionStore {
     return record ? cloneRecord(record) : undefined;
   }
 
-  /** Returns the durable adapter sessions for startup/index recovery. */
-  async list(cwd?: string): Promise<ClaudeRuntimeSessionRecord[]> {
+  /** Returns the durable adapter sessions for startup/index recovery, of one instance when named (`default` included). */
+  async list(cwd?: string, instance?: string): Promise<ClaudeRuntimeSessionRecord[]> {
     await this.load();
     return [...this.records.values()]
-      .filter((record) => cwd === undefined || record.cwd === cwd)
+      .filter((record) => (cwd === undefined || record.cwd === cwd) && (instance === undefined || sameInstance(record, instance)))
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .map(cloneRecord);
   }
 
-  async ensure(tauThreadId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
+  /** The thread's record, created on the given instance when it has none. */
+  async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<ClaudeRuntimeSessionRecord> {
     await this.load();
     const existing = this.records.get(tauThreadId);
-    if (existing && existing.cwd === cwd) return cloneRecord(existing);
-    if (existing) throw new Error("Claude runtime session belongs to another workspace.");
+    if (existing && existing.cwd !== cwd) throw new Error("Claude runtime session belongs to another workspace.");
+    if (existing && instance !== undefined && !sameInstance(existing, instance)) throw new Error("This thread runs on another instance.");
+    if (existing) return cloneRecord(existing);
+    const owner = instanceOf(instance);
     const record: ClaudeRuntimeSessionRecord = {
       backendKind: "claude-code",
       tauThreadId,
+      ...(owner ? { instance: owner } : {}),
       claudeSessionId: randomUUID(),
       cwd,
       started: false,
@@ -444,7 +466,7 @@ export class ClaudeRuntimeSessionStore {
   }
 
   /** The user's model and effort for the thread; `undefined` returns a field to the CLI's default. */
-  async setSelection(tauThreadId: string, cwd: string, selection: { model?: string | undefined; effort?: string | undefined }): Promise<void> {
+  async setSelection(tauThreadId: string, cwd: string, selection: { model?: string | undefined; effort?: string | undefined; mode?: string | undefined }): Promise<void> {
     await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
@@ -455,6 +477,10 @@ export class ClaudeRuntimeSessionStore {
     if ("effort" in selection) {
       if (selection.effort) record.effort = selection.effort;
       else delete record.effort;
+    }
+    if ("mode" in selection) {
+      if (selection.mode) record.mode = selection.mode;
+      else delete record.mode;
     }
     record.updatedAt = this.now();
     await this.persist();

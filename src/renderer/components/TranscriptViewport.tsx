@@ -146,6 +146,7 @@ export interface TranscriptViewportProps {
   liveStatus?: ReactNode;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
+  onEditMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
   onReachStart?: () => void;
 }
@@ -165,6 +166,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   liveStatus,
   onCopyMessage,
   onForkMessage,
+  onEditMessage,
   onFocusComposer,
   onReachStart,
 }: TranscriptViewportProps) {
@@ -420,6 +422,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
           activeTurnStartId={currentTurnAnchor.sessionId === sessionId ? currentTurnAnchor.id : undefined}
           onCopyMessage={onCopyMessage}
           onForkMessage={onForkMessage}
+          onEditMessage={onEditMessage}
           onFocusComposer={onFocusComposer}
         />
         {liveStatus}

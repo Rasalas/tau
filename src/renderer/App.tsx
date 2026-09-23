@@ -28,13 +28,16 @@ import { useClientEnvironment } from "./client-environment";
 import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
+import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { useRuntimeCatalog } from "./use-runtime-catalog";
+import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { followTurnActivity } from "../workbench/turn-activity";
-import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
+import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
 import { useWorkbenchReload } from "./use-workbench-reload";
@@ -256,7 +259,7 @@ export default function App() {
   );
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
   // Follow-ups typed during a run wait in the workbench, not in the runtime.
-  const { queue, cancelQueued, steerQueued, reorderQueue } = useFollowUpQueue({
+  const { queue, cancelQueued, steerQueued, reorderQueue, takeQueued } = useFollowUpQueue({
     client,
     store: followUpQueue,
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
@@ -265,6 +268,14 @@ export default function App() {
     submit: submitPrompt,
     setNotice,
   });
+  const returnQueued = useCallback((id?: string) => returnToComposer(actionsRef.current, takeQueued(id)), [takeQueued]);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const steerQueuedMessage = useCallback(() => {
+    const head = queueRef.current[0];
+    if (head) void steerQueued(head.id);
+    return Boolean(head);
+  }, [steerQueued]);
   useEffect(() => {
     const reconciled = reconcileOptimisticMessages(optimisticMessages, viewStore.getTranscript().messages);
     if (reconciled.length === optimisticMessages.length) return;
@@ -288,7 +299,9 @@ export default function App() {
     preferences,
     applyActionResult,
   }));
-  const { abort: abortThread, duplicateThread, requireHost, settleActiveThread } = threadCommands;
+  const { abort: abortRun, duplicateThread, requireHost, settleActiveThread } = threadCommands;
+  // Stop returns every queued message to the composer instead of sending it after the stop.
+  const abortThread = useCallback((sessionId?: string) => { returnQueued(); abortRun(sessionId); }, [abortRun, returnQueued]);
   const {
     activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
     applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread,
@@ -308,12 +321,14 @@ export default function App() {
     composerRef,
     closeNewThreadPicker,
   });
-  const { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree } = useThreadTree({
+  const { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree, editFromMessage } = useThreadTree({
     ...(client ? { client } : {}),
     sessionId: currentSessionId,
     requireHost,
     applyActionResult,
-    seedComposer: setComposerSeed,
+    seedComposer: (text) => { if (actionsRef.current?.setComposerDraft) actionsRef.current.setComposerDraft(text); else setComposerSeed(text); },
+    composerDraft: () => actionsRef.current?.composerDraft() ?? "",
+    notify: (message) => setNotice(message),
     composerRef,
   });
 
@@ -422,13 +437,26 @@ export default function App() {
 
   const { reloadWorkbench, reloadUi } = useWorkbenchReload({ client, requireHost, addEvent, setNotice });
 
+  // A draft keeps its choice for the runtime it will run on, whatever thread is on screen.
+  const draftRuntime = useCallback(() => effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, viewStore.getSnapshot()), [preferences, viewStore]);
   const setComposerModel = useCallback(
     (provider: string, id: string) => newThreadController.setModel(
       provider, id, threadCommands.setModel,
       (p, mid) => viewStore.getSnapshot()?.models.find((m) => m.provider === p && m.id === mid)?.name,
+      draftRuntime(),
     ),
-    [newThreadController, threadCommands, viewStore],
+    [draftRuntime, newThreadController, threadCommands, viewStore],
   );
+  const setComposerThinking = useCallback(
+    (level: string) => newThreadController.setThinking(level, threadCommands.setThinking, draftRuntime()),
+    [draftRuntime, newThreadController, threadCommands],
+  );
+  const setComposerMode = useCallback(async (mode: string) => {
+    let accepted = true;
+    await newThreadController.setMode(mode, async (next) => { accepted = await threadCommands.setMode(next); });
+    return accepted;
+  }, [newThreadController, threadCommands]);
+  const submitText = useCallback((text: string) => submitPrompt(text), [submitPrompt]);
   const actions = useWorkbenchActions({
     client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
@@ -436,7 +464,8 @@ export default function App() {
     switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
-    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, preferences,
+    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
+    steerQueuedMessage, beforeAbort: returnQueued,
     openModelPicker, openInstructions, focusStage, toggleSidebar,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
@@ -485,15 +514,26 @@ export default function App() {
     viewStore.subscribeToConversation,
     () => viewStore.selectConversation(activeDraftKey, Boolean(pendingNewThread)),
   );
-  const conversationSnapshot = useMemo(() => pendingNewThread && snapshot ? {
-    ...snapshot,
+  // A draft bound for another runtime than the one on screen chooses from that runtime's own catalog.
+  const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(settings.newThreadRuntime, snapshot) : undefined;
+  const otherDraftRuntime = boundRuntime && boundRuntime !== (snapshot?.backendKind ?? "pi") ? boundRuntime : undefined;
+  const draftCatalog = useRuntimeCatalog(otherDraftRuntime);
+  const draftSnapshot = useMemo(() => pendingNewThread && snapshot && otherDraftRuntime
+    ? draftRuntimeSnapshot(snapshot, pendingNewThread, otherDraftRuntime, draftCatalog)
+    : snapshot, [draftCatalog, otherDraftRuntime, pendingNewThread, snapshot]);
+  const conversationSnapshot = useMemo(() => pendingNewThread && snapshot && draftSnapshot ? {
+    ...draftSnapshot,
     cwd: pendingNewThread.projectPath,
     // A draft is a semantic scope, not a Pi session. The session ID remains
     // the last real runtime while the draft ID travels in TranscriptTurnStart.
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
-    ...(pendingNewThread.model ? { model: pendingNewThread.model } : {}),
+    // The draft's choice shows on the catalog of the runtime it was made for; another runtime's overlay applied it already.
+    ...(draftSnapshot === snapshot && pendingNewThread.model && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi") ? { model: pendingNewThread.model } : {}),
+    ...(draftSnapshot === snapshot && pendingNewThread.thinkingLevel && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi") ? { thinkingLevel: pendingNewThread.thinkingLevel } : {}),
+    mode: pendingNewThread.mode,
+    modes: snapshot.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(settings.newThreadRuntime, snapshot))?.modes,
     supportsImageInput: pendingNewThread.sessionId
       ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true
       : preparedThreadCapability?.cwd === pendingNewThread.projectPath
@@ -502,7 +542,7 @@ export default function App() {
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot,
-  [pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability]);
+  [draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
     void composerAttachmentRef.current?.addFiles(files);
   }, []);
@@ -551,12 +591,12 @@ export default function App() {
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
     transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, lastMessageId: conversation.lastMessageId,
     recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, loadToolOutput: threadCommands.loadToolOutput,
-    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage, editMessage: editFromMessage,
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
     activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
-    threadCommands, copyMessage, duplicateThread, forkFromTree, liveSnapshot, navigateThreadTree,
+    threadCommands, copyMessage, duplicateThread, editFromMessage, forkFromTree, liveSnapshot, navigateThreadTree,
     openThreadTree, pendingNewThread, runStartedAt, settleActiveThread, showStartScreen, startProjectName,
     startProjectPath, threadDropController, threadTreeModal, titleCommands,
     transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart, visibleTranscriptTurnStart,
@@ -566,12 +606,12 @@ export default function App() {
     controlRef: composerControlRef,
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
-    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue,
-    setModel: setComposerModel, setThinking: threadCommands.setThinking,
+    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue, returnQueued,
+    setModel: setComposerModel, setThinking: setComposerThinking,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
-    conversationPrompts, queue, reorderQueue, setComposerModel, steerQueued, submitPrompt,
+    conversationPrompts, queue, reorderQueue, returnQueued, setComposerModel, setComposerThinking, steerQueued, submitPrompt,
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({

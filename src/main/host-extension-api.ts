@@ -26,6 +26,7 @@ export {
   type WritePersistedJsonOptions,
 } from "./persisted-json.js";
 export { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
+export { DEFAULT_THREAD_MODE, THREAD_MODE_ENTRY, threadModeFromEntries } from "../shared/thread-mode.js";
 export { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 export { validatePreparedPrompt } from "../shared/prepared-prompt.js";
 export { knownSkillNames, parseSkillEnvelope, type ParsedSkillEnvelope } from "../shared/skill-envelope.js";
@@ -51,5 +52,21 @@ export { commandInvocation, killProcessTree, type CommandInvocation, type Comman
 export { assertAllowedCloneSource } from "./clone-source.js";
 
 /** For a backend that drives a CLI: the newest npm release, the package manager's update command, version order. */
-export { npmLatestVersion, packageUpdateCommand, type NpmLatestVersionOptions } from "./cli-versions.js";
+export { npmLatestVersion, packageInstallCommand, packageUpdateCommand, type NpmLatestVersionOptions } from "./cli-versions.js";
 export { compareVersions, updateAvailable } from "../shared/runtime-version.js";
+// Several setups of one program, and the versions of it a backend works with (API 1.11.0).
+export { RuntimeInstanceSettings, expandHome, runtimeVersionPolicy, type RuntimeInstanceSettingsOptions } from "./runtime-instance-settings.js";
+export {
+  DEFAULT_INSTANCE_ID,
+  formatEnvironment,
+  instanceIdFromName,
+  instanceIdProblem,
+  isRuntimeInstanceOf,
+  parseEnvironment,
+  runtimeDriver,
+  runtimeInstanceId,
+  runtimeInstanceKind,
+  splitArguments,
+  type RuntimeInstanceConfig,
+} from "../shared/runtime-instances.js";
+export { parseVersionPolicy, satisfiesVersionRange, versionCompatibility, type VersionPolicy } from "../shared/version-policy.js";

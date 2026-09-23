@@ -195,3 +195,31 @@ describe("ThreadRow accessory", () => {
     }
   });
 });
+
+describe("ThreadRow hover actions and label", () => {
+  it("puts a caller's actions before Settle, and none on a settled row", () => {
+    const { container, unmount } = render(<ThreadRow
+      activity="idle" active={false} age="now" session={session}
+      actions={<button type="button" aria-label="Snooze thread" />}
+      onSelect={() => {}} onToggleSettled={() => {}}
+    />);
+    const buttons = [...container.querySelectorAll(".thread-row-actions > button")].map((button) => button.getAttribute("aria-label"));
+    expect(buttons).toEqual(["Snooze thread", "Settle Use project icon"]);
+    unmount();
+
+    const settled = render(<ThreadRow
+      activity="settled" active={false} age="now" session={session}
+      actions={<button type="button" aria-label="Snooze thread" />}
+      onSelect={() => {}} onToggleSettled={() => {}}
+    />);
+    expect(settled.container.querySelector("[aria-label='Snooze thread']")).toBeNull();
+  });
+
+  it("leaves the label line out when the caller says it tells nothing", () => {
+    const shown = render(<ThreadRow activity="idle" active={false} age="now" session={{ ...session, projectLabel: "feature/x" }} onSelect={() => {}} onToggleSettled={() => {}} />);
+    expect(shown.container.querySelector(".thread-branch")?.textContent).toBe("feature/x");
+    shown.unmount();
+    const hidden = render(<ThreadRow activity="idle" active={false} age="now" showLabel={false} session={{ ...session, projectLabel: "main" }} onSelect={() => {}} onToggleSettled={() => {}} />);
+    expect(hidden.container.querySelector(".thread-branch")).toBeNull();
+  });
+});

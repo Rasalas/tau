@@ -52,6 +52,7 @@ function defaults(): HostClient {
 
     setModel: async () => ({ version: 1, updates: [] }),
     setThinkingLevel: async () => ({ version: 1, updates: [] }),
+    setMode: async () => ({ version: 1, updates: [] }),
     compactContext: async () => ({ version: 1, updates: [] }),
 
     reloadRuntime: async () => undefined,
@@ -77,6 +78,7 @@ function defaults(): HostClient {
     getConfigLayers: async () => ({ host: {} }),
     clearConfig: async () => ({ host: {} }),
     getModelsConfig: async () => [],
+    runtimeCatalog: async () => undefined,
     addModelProvider: async () => [],
     inspectSystemPrompt: async () => ({ effectivePrompt: "", appends: [], contextFiles: [] }),
     listUserThemes: async () => [],

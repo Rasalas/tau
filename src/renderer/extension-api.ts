@@ -65,6 +65,18 @@ export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
 export { Markdown, canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./components/Markdown";
 /** The full-window review surface, as its own chunk: `lazy(() => loadReviewMode().then((ReviewMode) => ({ default: ReviewMode })))`. */
 export const loadReviewMode = () => import("./components/ReviewMode").then((module) => module.ReviewMode);
+// Runtime instances and version policy (API 1.11.0): the vocabulary, and the
+// dialog and banner a backend kit draws, as one chunk loaded on first use.
+export {
+  DEFAULT_INSTANCE_ID,
+  isRuntimeInstanceOf,
+  runtimeDriver,
+  runtimeInstanceId,
+  runtimeInstanceKind,
+  type RuntimeInstanceConfig,
+} from "../shared/runtime-instances";
+export const loadRuntimeInstanceUi = () => import("./components/RuntimeInstanceUi");
+export type { RuntimeInstanceDialogProps, RuntimeInstanceSetupProps, RuntimeInstanceView, RuntimeVersionBannerProps } from "./components/RuntimeInstanceUi";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -119,6 +131,8 @@ export type {
   NewThreadPromptGate,
   PromptHookContribution,
   MessageActionContribution,
+  MessageBlockContribution,
+  MessageBlockProps,
   PromptRendererContribution,
   PromptRendererProps,
   PromptSubmittedEvent,

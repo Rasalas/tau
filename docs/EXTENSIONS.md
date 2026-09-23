@@ -440,6 +440,45 @@ message when the button was pressed, if any; core keeps the selection alive
 through the click — and the workbench's actions. A throw is shown as a notice.
 Prompt Tools' "Cite" is the shipped caller.
 
+#### Blocks in a reply (new in API 1.11.0)
+
+`registerMessageBlock({ id, tag, Component, profiles })` draws a
+`<tag>` … `</tag>` block of an assistant reply itself; the rest of the reply
+stays Markdown. The tags count only on lines of their own and outside code
+fences. `Component` gets `body` (what stands between the tags), `complete`
+(false while the closing tag is still streaming in), the `message` and
+`streaming`; `useWorkbenchShell()` has the actions. The text itself is not
+changed, so the block survives a restart wherever the runtime keeps text.
+Plan Kit draws `proposed_plan` as a plan card this way.
+
+#### The thread's interaction mode (new in API 1.11.0)
+
+A thread's turns run in a mode: `default`, or one its runtime adds — `plan`
+explores and proposes a plan without changing anything. The mode belongs to
+the thread like its thinking level and applies from the next turn on.
+`snapshot.mode` is the thread's (absent means `default`) and `snapshot.modes`
+the modes besides `default` it offers; for a draft both describe the thread it
+will become. `actions.setMode(mode)` sets it for the thread on screen or the
+draft's thread, and resolves false when the host refused; `actions.activeThread()`
+carries `mode` and `modes` too. `actions.submitPrompt(text)` sends text as the
+user's next message through the composer's own path (queued while a turn runs)
+and leaves the draft alone; `actions.steerQueuedMessage()` sends the oldest
+queued message now.
+
+On the host, a backend offers modes through the capability group `mode`
+(`modes()`, `current()`, `set(mode)`, refusing a mode it does not offer) and
+declares them statically as `adapter.capabilities.modes`, which is what a
+draft's picker reads from `runtimeBackends`. A Pi thread offers the modes its
+runtime extensions declare with `registerRuntimeExtension(name, factory, {
+modes: ["plan"] })`; it records the mode as a `tau.mode` custom entry in its
+session (`THREAD_MODE_ENTRY`), and the extension reads it on every turn with
+`threadModeFromEntries(ctx.sessionManager.getBranch())` from
+`tau/host-extension`. What a mode means is the runtime's: Plan Kit adds plan
+instructions to Pi's system prompt and refuses `edit` and `write`, Codex runs
+the turn in its own `plan` collaboration mode, the Agent SDK runtime in its
+`plan` permission mode. Each of them delivers the finished plan as a reply
+holding a `proposed_plan` block.
+
 #### Policy around the model: gates, badges, the thread title
 
 Three seams let a package hold an opinion about models without core having
@@ -589,7 +628,8 @@ receiving `SettingsPageProps`: `cwd` and `onNotify`). A page that also names a
 `runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
 card on its Providers page, under the runtime's mark and `label`, in `order`,
 and opens Providers for its `id`. The backend kits Tau ships put the CLI, its
-version and update, the login and a path override there. `inspectPackages(cwd)`
+version and update, the login and a path override there, one card per
+instance (below). `inspectPackages(cwd)`
 answers core's own scan of the package folders and the shipped kits
 (`ExtensionInspection`) without loading any code — including `distribution`,
 the name and version of the set the `bundled` entries came in, absent in safe
@@ -698,7 +738,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `useContextMenu()` | `(event, sections) => Promise<string \| undefined>` for an `onContextMenu` handler: the OS draws the menu where the client's platform offers one (Electron's `Menu.popup`, through the client-side `context-menu` method), the page draws a `Menu` at the pointer everywhere else — the browser client, a test — and when the OS refuses. It answers the chosen item's id, or `undefined`. Headings become macOS menu headers, `selected` a check mark, a `badge` part of the label; icons, descriptions and hints stay in the page's version. Opened from the keyboard (Shift-F10, the menu key) it opens under the element instead of at 0,0. Workspace Kit's rail rows are the shipped caller. |
 | `tooltipProps(text, options?)`, `Tooltip` | A tooltip on any element: spread `tooltipProps("Settle thread", { shortcut: "⌘S", side: "bottom" })` on it, or wrap it in `<Tooltip content="…">`. Both only set `data-tooltip` (and `data-tooltip-side`, `-shortcut`, `-when`, `-variant`), which core's one `TooltipLayer` reads from the document, so a list of a thousand rows costs attributes, not components. It opens after the pointer rests for 600 ms, at once while another tooltip was open in the last 400 ms, at once on keyboard focus, and closes on Escape, a press, a scroll that moves its element or leaving. `when: "truncated"` shows it only while the element's own text is cut off (a thread title); `variant: "code"` sets it in the monospace face (a path). A trigger whose `aria-label` differs from the text gets `aria-describedby` while it shows. Use it instead of `title=`, whose OS tooltip waits a second and cannot show a shortcut. |
 | `actions.toast(options)` | A toast on the window's stack, top right, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`; the icon, and an `error` is an ARIA alert), `title`, `description`, `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message)` is still the one-line way: every notice is a toast. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
-| `Dialog` | A modal over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. |
+| `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
@@ -800,7 +840,7 @@ It also exports the renderer's shared state and presentation:
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `usePagedWorkspaceFiles` | presentation core owns; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row), and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, as T3 Code's card shows no default branch. |
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
 
@@ -856,7 +896,12 @@ into sections `{ id, label?, threads, shelf?, collapsed?, settled? }` in draw
 order, where the one section without a label is the main, paged list and a
 `shelf` folds away under its label with compact rows; `menu(session)` and
 `runMenu(session, itemId, actions)` are a row's right-click menu;
-`toggleSettled(session)` answers the row's own settle button; and
+`toggleSettled(session)` answers the row's own settle button; the optional
+`rowActions(session)` (new in API 1.11.0) lists buttons `{ id, label, icon,
+menu() }` the row shows beside Settle on hover and keyboard focus, each dropping
+the list `menu()` answers at that moment in a `Popover` — arrows, Home and End
+walk it, Escape closes it — and a pick goes to `runMenu` (Thread Rail's snooze
+clock with its presets and "Custom…"); and
 `dropLabel(threadId, { sectionId, beforeThreadId? })` / `drop(…)` say what a
 pointer drag of a row onto a section or between two rows does — the rail draws
 the gesture, the word ("Pin", "Settle") beside the pointer and the insertion
@@ -1081,6 +1126,85 @@ packageName)` names the Homebrew, npm, pnpm or bun command that owns an
 executable's resolved path, or `undefined` for the program's own updater. The
 registry request needs the `network` permission. Claude Code and Codex use
 both; Antigravity reports the release it pins.
+
+#### A new thread's model before it exists (new in API 1.11.0)
+
+`newThreadCatalog()` on the provider answers what a thread that does not
+exist yet may start on: `models`, the `model` it would run on unasked, and
+`thinkingLevels` by model id with the runtime's own default first
+(`HostRuntimeNewThreadCatalog`). The host adds the kind and the adapter's
+capabilities and serves it as the `runtime-catalog` method
+(`UiRuntimeCatalog`), which a client asks while a draft is bound for that
+backend; a `note` without models says the runtime names them only in a
+session. The draft's choice arrives as `NewThreadConfiguration` —
+`model` and `thinkingLevel` — and the host applies both through the new
+thread's `catalogWrite` right after `open`, before the first prompt. Codex
+answers from `model/list` (cached per instance) and the instance home's
+`config.toml`, the Agent SDK runtime from its cached probe, Antigravity from
+the models its last session named.
+
+#### Versions a backend works with (new in API 1.11.0)
+
+`RuntimeToolVersion.compatibility` is a backend's verdict on the installed
+version: `{ status: "supported" | "unsafe" | "broken", message?,
+recommendedVersion?, installCommand? }`. The backend keeps a `VersionPolicy` —
+ranges with a status, the first one the version satisfies decides, and the
+release it was tested with — and `versionCompatibility(policy, installed)` on
+`tau/host-extension` applies it. A range is comparators joined by spaces
+(`>=0.150.0 <0.154.0`), groups joined by `||`, with `^`, `~`, `=`, `<`, `<=`,
+`>` and `>=`; a prerelease or a release tag matches no range, so it goes
+unjudged. `runtimeVersionPolicy(kind, bundled)` returns the policy
+`TAU_VERSION_POLICY` names for that kind (JSON keyed by backend kind; a test
+instance's way to fake a range, or a fix that cannot wait for a release) and
+the bundled one otherwise. `packageInstallCommand(realPath, packageName,
+version)` names the npm, pnpm or bun command that installs exactly that
+release; Homebrew cannot pin one, so it answers `undefined` and the update
+command stands. The picker's runtime tab and Settings → Defaults put an unsafe
+or broken version before an available update. Tau never runs either command:
+the shipped kits draw `RuntimeVersionBanner` above the composer of the thread
+and on the card, and its button types the command into a new Terminal Kit
+shell without pressing Enter (without Terminal Kit it is copied). A backend
+should refuse to open a thread on a `broken` version; Codex's policy calls
+every release older than its protocol broken.
+
+#### Instances of one program (new in API 1.11.0)
+
+A backend kit may offer several setups of the program it drives — a second
+Codex with its own `CODEX_HOME` and login, say. Each is a backend of its own:
+the default instance keeps the plain kind (`codex`), so threads from before
+instances stay where they were, and every other one registers
+`<kind>@<id>` (`codex@work`), a kind the seam accepts alongside the plain
+names. Threads carry the kind, so a thread keeps its instance, the picker
+shows one tab per instance and the marks draw an instance as its program
+(`runtimeDriver`, `isRuntimeInstanceOf`, `runtimeInstanceKind` on both
+`tau` and `tau/host-extension`). A backend registered or dropped after the
+host started republishes `runtimeBackends` and the thread index, and a kind
+registered anew is asked for its version again — so a kit re-registers an
+instance's provider when the user edits it.
+
+`RuntimeInstanceSettings` on `tau/host-extension` keeps a kit's instances in a
+file of its own (`<stateDir>/settings.json`): the default instance at the top
+level, where the path override always lived, the others under `instances`.
+Each has an `id`, a `name`, a `command` (the executable; the kit's variable,
+such as `TAU_CODEX_COMMAND`, still wins for the default instance), a `home`
+(`~` expanded; it becomes the kit's `homeVariable`), `env` and `args` (one
+string, split as a shell would with `splitArguments`, nothing expanded).
+`environment(id, base)`, `command(id)`, `args(id)`, `kind(id)` and `label(id)`
+("Codex · Work") answer what a launch needs; `save` and `remove` refuse a
+taken or malformed id and a relative home. A kit keeps a thread's instance in
+its own store, so removing an instance only takes its threads out of the list
+until an instance with that id comes back.
+
+On the desktop side `loadRuntimeInstanceUi()` on `tau` loads one chunk (with
+its stylesheet) that holds `RuntimeInstanceSetup` — the SETUP rows of a card:
+how the instance is set up, Edit, Remove with a confirmation in place, and on
+the default instance's card "Add instance…" — the dialog behind it
+(`RuntimeInstanceDialog`: name, id taken from the name, executable, home,
+environment as `NAME=value` lines, launch arguments) and
+`RuntimeVersionBanner`. Codex and the Agent SDK runtime use all three: the
+default card keeps its page id, each other instance gets a page naming its
+kind, and an `instances` event from the host half keeps every client's cards
+in step.
 
 `services.sessions.start(options)` (`sessions`) creates a thread off screen:
 `cwd`, the first `prompt`, and optionally `title`, `model`, `parent` and

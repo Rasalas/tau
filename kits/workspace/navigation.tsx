@@ -1,7 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
+  Popover,
   ThreadRow,
   tooltipProps,
   useContextMenu,
@@ -15,13 +16,13 @@ import {
   type UiProject,
   type UiSession,
 } from "tau";
-import { WORKSPACE_HOST_EXTENSION_ID, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
+import { WORKSPACE_HOST_EXTENSION_ID, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
 import { useWorkspaceStore } from "./store-context.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 
-const ROW_STRIDE = 94;
+const ROW_STRIDE = 78;
 const THREAD_PAGE_SIZE = 25;
 
 type NavigationRow =
@@ -38,7 +39,8 @@ function ShowMoreThreadRow({ remaining, onClick }: { remaining: number; onClick(
 }
 
 /**
- * Threads an agent spawned are never in the rail — not in the settled shelf,
+ * A thread nobody has written to yet is a draft, not a row (as in T3 Code),
+ * unless it is already at work. Threads an agent spawned are never in the rail — not in the settled shelf,
  * not in a search, not even while one is the thread on screen after a take-over
  * (the header above the transcript names it). Fifty of them would bury the
  * threads the user started; the Agents panel and the stage tabs it opens are
@@ -51,8 +53,15 @@ function ShowMoreThreadRow({ remaining, onClick }: { remaining: number; onClick(
 export function visibleThreads(
   sessions: readonly UiSession[],
   parents: Readonly<Record<string, string>>,
+  live: (id: string) => boolean = () => false,
 ): UiSession[] {
-  return sessions.filter((session) => !(parents[session.id] ?? session.parentThreadId));
+  return sessions.filter((session) =>
+    !(parents[session.id] ?? session.parentThreadId) && (session.messageCount > 0 || live(session.id)));
+}
+
+/** The branch every checkout starts on says nothing on a row; T3 Code's card leaves it out too. */
+export function isDefaultBranch(label: string | undefined): boolean {
+  return label === "main" || label === "master";
 }
 
 export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {
@@ -362,6 +371,8 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   workingChildren,
   modelProvider,
   startedAt,
+  rowActions,
+  onRowAction,
   onSelect,
   onToggleSettled,
 }: {
@@ -374,6 +385,8 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   workingChildren: number;
   modelProvider?: string;
   startedAt?: number;
+  rowActions?: (session: UiSession) => ThreadRailRowAction[];
+  onRowAction(session: UiSession, itemId: string): void;
   onSelect(path: string): Promise<boolean>;
   onToggleSettled(session: UiSession): void;
 }) {
@@ -388,9 +401,14 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   const workspace = useWorkspaceStore();
   const accessories = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowAccessories);
   if (!session) return null;
+  const offered = activity === "settled" ? [] : rowActions?.(session) ?? [];
   return (
     <ThreadRow
       session={session}
+      showLabel={!isDefaultBranch(session.projectLabel)}
+      actions={offered.length > 0
+        ? offered.map((action) => <RailRowAction key={action.id} action={action} onPick={(itemId) => onRowAction(session, itemId)} />)
+        : undefined}
       accessory={accessories.length > 0 ? accessories.map((Accessory, index) => <Accessory key={index} session={session} />) : undefined}
       showCost={showCosts}
       projectIcon={findProjectForSession(projects, session)?.icon}
@@ -408,6 +426,75 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
     />
   );
 });
+
+/**
+ * A row's hover button and the list it drops (T3 Code's snooze clock). The
+ * keyboard walks the list like a menu; Escape and a press outside close it and
+ * give focus back to the button.
+ */
+export function RailRowAction({ action, onPick }: { action: ThreadRailRowAction; onPick(itemId: string): void }) {
+  const [open, setOpen] = useState<"keyboard" | "pointer">();
+  const button = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const items = () => [...(list.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+  useLayoutEffect(() => {
+    // Opened by a click the list takes focus, so no row looks chosen before the pointer is on one.
+    if (open) (open === "keyboard" ? items()[0] : list.current)?.focus({ preventScroll: true });
+  }, [open]);
+  const onKeyDown = (event: ReactKeyboardEvent) => {
+    // The rail's own arrow keys would take these otherwise.
+    event.stopPropagation();
+    if (event.key === "Tab") { setOpen(undefined); return; }
+    const all = items();
+    const at = all.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === "ArrowDown" ? at + 1 : event.key === "ArrowUp" ? (at < 0 ? all.length : at) - 1
+      : event.key === "Home" ? 0 : event.key === "End" ? all.length - 1 : undefined;
+    if (next === undefined || all.length === 0) return;
+    event.preventDefault();
+    all[(next + all.length) % all.length]?.focus({ preventScroll: true });
+  };
+  const pick = (itemId: string) => { setOpen(undefined); onPick(itemId); };
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        aria-label={action.label}
+        aria-haspopup="menu"
+        aria-expanded={Boolean(open)}
+        {...tooltipProps(open ? undefined : action.label)}
+        onClick={(event) => setOpen((current) => current ? undefined : event.detail === 0 ? "keyboard" : "pointer")}
+      >
+        {action.icon}
+      </button>
+      {open ? (
+        <Popover anchor={button} side="bottom" align="start" label={action.label} className="menu rail-row-popover" onClose={() => setOpen(undefined)}>
+          <div ref={list} role="menu" aria-label={action.label} tabIndex={-1} onKeyDown={onKeyDown}>
+            {action.menu().map((section, index) => (
+              <Fragment key={index}>
+                {index > 0 ? <hr /> : null}
+                {section.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    disabled={item.disabled}
+                    onPointerEnter={(event) => event.currentTarget.focus({ preventScroll: true })}
+                    onClick={() => pick(item.id)}
+                  >
+                    <span>{item.label}</span>
+                    {item.hint ? <small className="menu-hint">{item.hint}</small> : null}
+                  </button>
+                ))}
+              </Fragment>
+            ))}
+          </div>
+        </Popover>
+      ) : null}
+    </>
+  );
+}
 
 /** The rail's own split when no organizer says otherwise: pins first, settled threads on their shelf. */
 export function defaultRailSections(
@@ -474,7 +561,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   }, []);
 
   const needle = threadQuery.trim().toLocaleLowerCase();
-  const matching = visibleThreads(threads, lineage.parents)
+  const live = (id: string) => activityState.runningThreadIds.includes(id) || activityState.waitingThreadIds.includes(id);
+  const matching = visibleThreads(threads, lineage.parents, live)
     .filter(
       (session) =>
         !needle ||
@@ -537,6 +625,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     else preferences.toggleSettled(session.id);
   }, [organizer, preferences]);
 
+  const rowActions = useMemo(() => organizer?.rowActions ? (session: UiSession) => organizer.rowActions!(session) : undefined, [organizer]);
+  const runRowAction = useCallback((session: UiSession, itemId: string) => organizer?.runMenu(session, itemId, actions), [actions, organizer]);
+
   const renderRow = (session: UiSession, activity: ThreadActivity, label?: string, hint?: string, compact = false) => (
     <ConnectedThreadRow
       key={session.id}
@@ -549,6 +640,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
+      rowActions={rowActions}
+      onRowAction={runRowAction}
       onSelect={actions.switchSession}
       onToggleSettled={toggleSettled}
     />
@@ -655,6 +748,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           void openContextMenu(event, organizer.menu(session)).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
         }}
         onKeyDown={(event) => {
+          // A row's own buttons and their popovers keep their keys.
+          const target = event.target as Element;
+          if (!event.currentTarget.contains(target) || target.closest(".thread-row-actions")) return;
           const choices = [
             ...sections.slice(0, mainIndex).flatMap(shelfRows),
             ...navigationRows.flatMap((row) => row.kind === "thread" ? [row.session] : []),
