@@ -75,7 +75,7 @@ function send(text = "hello") {
 async function pick(name: string) {
   // The chip toggles the picker; a picker already open is used as it is.
   if (!screen.queryByRole("dialog", { name: "Select model" })) fireEvent.click(screen.getByLabelText(/^Select model:/u));
-  const input = await screen.findByRole("textbox", { name: "Search models" });
+  const input = await screen.findByRole("combobox", { name: "Search models" });
   fireEvent.change(input, { target: { value: name } });
   fireEvent.keyDown(input, { key: "Enter" });
 }
@@ -151,12 +151,12 @@ describe("composer gates", () => {
     renderComposer(plain, [asksFor("acme")], [], undefined, modelSet);
     fireEvent.click(screen.getByLabelText(/^Select model:/u));
     fireEvent.click(await screen.findByRole("button", { name: /^acme/u }));
-    const row = screen.getByText("Acme Big").closest("button")!;
+    const row = screen.getByText("Acme Big").closest("[role=option]")!;
     fireEvent.click(row, { shiftKey: true });
     expect(keys).toEqual([]);
     fireEvent.click(screen.getByText("Yes"));
     expect(keys).toEqual(["acme/big"]);
-    fireEvent.click(screen.getByText("Acme Big").closest("button")!, { shiftKey: true });
+    fireEvent.click(screen.getByText("Acme Big").closest("[role=option]")!, { shiftKey: true });
     expect(keys).toEqual([]);
     expect(screen.queryByRole("dialog", { name: "Ask model" })).toBeNull();
   });

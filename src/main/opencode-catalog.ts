@@ -83,3 +83,28 @@ export function openCodeCatalogSubset(catalog: unknown, providerIds: readonly st
   if (!all) return catalog;
   return Object.fromEntries(providerIds.flatMap((id) => (id in all ? [[id, all[id]]] : [])));
 }
+
+const RELEASE_DATE = /^\d{4}-\d{2}(?:-\d{2})?$/u;
+
+/** The id a release date is filed under: no provider prefix, no bracketed variant, no date suffix. */
+export function releaseDateKey(id: string): string {
+  return id.slice(id.lastIndexOf("/") + 1).replace(/\[[^\]]*\]$/u, "").replace(/-\d{8}$/u, "").toLowerCase();
+}
+
+/**
+ * When each model of models.dev's catalog came out, by `releaseDateKey`, the
+ * earliest date any provider gives. Only these strings outlive the parse.
+ */
+export function releaseDates(catalog: unknown): Map<string, string> {
+  const dates = new Map<string, string>();
+  for (const provider of Object.values(record(catalog) ?? {})) {
+    for (const [id, raw] of Object.entries(record(record(provider)?.models) ?? {})) {
+      const date = record(raw)?.release_date;
+      if (typeof date !== "string" || !RELEASE_DATE.test(date)) continue;
+      const key = releaseDateKey(id);
+      const held = dates.get(key);
+      if (held === undefined || date < held) dates.set(key, date);
+    }
+  }
+  return dates;
+}
