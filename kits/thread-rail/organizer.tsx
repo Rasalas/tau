@@ -3,7 +3,6 @@ import { errorMessage, useThreadStore, useWorkbenchShell, type MenuSection, type
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
-  archivePatch,
   dropLabel,
   dropPatches,
   fallbackThread,
