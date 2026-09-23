@@ -12,6 +12,13 @@ export interface WorkspaceStoreView {
   subscribe(listener: () => void): () => void;
 }
 
+/**
+ * The runtime kits whose threads have no session file: each answers
+ * `thread-texts` from its own store, granted to this kit, so the palette finds
+ * their threads by what was said in them while nobody has them open.
+ */
+export const THREAD_TEXT_SOURCES = ["tau.codex", "tau.claude-code", "tau.antigravity", "tau.opencode"] as const;
+
 /** Matches one content search returns at most, and per file. */
 export const CONTENT_LIMIT = 500;
 export const CONTENT_PER_FILE = 100;

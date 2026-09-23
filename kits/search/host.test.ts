@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HostExtension, HostExtensionServices } from "tau/host-extension";
+import { threadTextsDelta, THREAD_TEXTS_COMMAND, type HostExtension, type HostExtensionServices } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createSearchHostExtension from "./host.js";
 import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadMatch } from "./protocol.js";
@@ -137,5 +137,37 @@ describe("Search host: threads", () => {
     expect(await invoke<ThreadMatch[]>("threads", { query: "hidden" })).toEqual([]);
     expect((await invoke<ThreadMatch[]>("threads", { query: "luna", activeSessionId: "claude-1" }))[0]).toMatchObject({ sessionId: "claude-1", path: "" });
     expect(await invoke<ThreadMatch[]>("threads", { query: "  " })).toEqual([]);
+  });
+
+  it("finds a closed thread of another runtime through its kit's store, merged with Pi's by recency", async () => {
+    const root = await folder({ "sessions/pi.jsonl": message("user", "a luna question on Pi") });
+    const piPath = join(root, "sessions", "pi.jsonl");
+    const { utimes } = await import("node:fs/promises");
+    await utimes(piPath, 2, 2);
+    const stored = [
+      { tauThreadId: "codex-new", updatedAt: 3_000, messages: [{ role: "user", text: "plan the luna launch" }, { role: "assistant", text: "Luna first." }] },
+      { tauThreadId: "codex-old", updatedAt: 1_000, messages: [{ role: "assistant", text: "luna again, older" }] },
+    ];
+    const asked: unknown[] = [];
+    const codex: HostExtension = {
+      id: "tau.codex",
+      name: "Codex",
+      activate(context) {
+        context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => { asked.push(input); return threadTextsDelta(stored, input); }, { callers: [SEARCH_KIT_ID] });
+      },
+    };
+    const registry = await activateHostKit(createSearchHostExtension() as unknown as HostExtension, {
+      cwd: () => root,
+      findCommand: () => undefined,
+      sessions: { list: async () => [{ sessionId: "pi", cwd: root, path: piPath }] } as never,
+    } as Partial<HostExtensionServices>);
+    await registry.activate(codex);
+    const found = await registry.invoke(SEARCH_KIT_ID, "threads", { query: "luna" }) as ThreadMatch[];
+    expect(found.map((match) => [match.sessionId, match.path])).toEqual([["codex-new", ""], ["pi", piPath], ["codex-old", ""]]);
+    expect(found[0]).toMatchObject({ role: "user", snippet: "plan the luna launch" });
+    expect(asked).toEqual([{ known: {}, limit: 25 }]);
+    // The next keystrokes search the index as it is; the kit is asked again only after a few seconds.
+    expect((await registry.invoke(SEARCH_KIT_ID, "threads", { query: "older" }) as ThreadMatch[]).map((match) => match.sessionId)).toEqual(["codex-old"]);
+    expect(asked).toHaveLength(1);
   });
 });
