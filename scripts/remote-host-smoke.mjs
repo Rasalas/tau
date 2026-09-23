@@ -1,6 +1,6 @@
-// Drives a headless Tau host over the socket transport: hello, bootstrap, a
-// prompt, a disconnect, and a reconnect that replays the pushes missed in
-// between — once in plaintext, once over TLS with a pinned certificate.
+// Drives a headless Tau host over the socket transport: hello, compression,
+// bootstrap, a prompt, a disconnect, and a reconnect that replays the pushes
+// missed in between — once in plaintext, once over TLS with a pinned certificate.
 // Node 22 has WebSocket globally; the TLS run pins with `ws` and the host's
 // own pinning code, because a global WebSocket cannot pin a certificate.
 import { execFileSync, spawn } from "node:child_process";
@@ -72,6 +72,7 @@ function createClient(url, token, fingerprint) {
   return {
     pushes,
     opened,
+    extensions: () => socket.extensions,
     hello: (lastSeq) => {
       const id = `h${++counter}`;
       return send({ type: "hello", id, hello: { protocol: PROTOCOL, token, ...(lastSeq === undefined ? {} : { lastSeq }) } }, id);
@@ -161,6 +162,8 @@ async function exercise(url, token, fingerprint, label) {
   const hello = await client.hello();
   if (hello.protocol !== PROTOCOL) fail(`unexpected protocol ${hello.protocol}`);
   step(`${label}: hello`, `protocol ${hello.protocol}, capabilities ${hello.capabilities.join(", ")}`);
+  if (!client.extensions().includes("permessage-deflate")) fail(`the host did not negotiate compression (extensions: "${client.extensions()}")`);
+  step(`${label}: frames are compressed`, client.extensions());
 
   const bootstrap = await client.request("bootstrap");
   if (!bootstrap?.project?.cwd) fail("bootstrap carried no project");

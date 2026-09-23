@@ -46,6 +46,12 @@ export interface SocketHostTransportOptions {
   logger?: HostLogger;
 }
 
+/**
+ * Compression for every frame. With context takeover (the `ws` default) the
+ * window spans frames, so the small ones compress too and no threshold applies.
+ */
+export const SOCKET_PER_MESSAGE_DEFLATE = true;
+
 export interface SocketHostTransport {
   readonly port: number;
   /** `wss:` or `ws:`, whichever this listener speaks. */
@@ -72,9 +78,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   }
   const { host, port } = bind;
   const http = options.attachTo ?? (options.tls ? createTlsUpgradeServer(options.tls) : undefined);
+  const settings = { maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES, perMessageDeflate: SOCKET_PER_MESSAGE_DEFLATE };
   const server = http
-    ? new WebSocketServer({ server: http, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES })
-    : new WebSocketServer({ host, port, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES });
+    ? new WebSocketServer({ server: http, ...settings })
+    : new WebSocketServer({ host, port, ...settings });
   const authenticated = new Set<WebSocket>();
   /** The id the client registry knows a socket by, while it is authenticated. */
   const clientIds = new Map<WebSocket, string>();
@@ -158,7 +165,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     scheme,
     ...(warning ? { warning } : {}),
     deliver: (push) => {
-      for (const socket of authenticated) send(socket, { type: "push", push });
+      if (authenticated.size === 0) return;
+      const frame = JSON.stringify({ type: "push", push } satisfies HostServerFrame);
+      for (const socket of authenticated) if (socket.readyState === socket.OPEN) socket.send(frame);
     },
     close: async () => {
       for (const socket of [...authenticated]) { forget(socket); socket.close(); }
