@@ -219,6 +219,31 @@ describe("Composer command menu", () => {
     expect(textarea.value).toBe("/review ");
   });
 
+  it("walks the compact slash menu with the arrows and the pointer, and takes the row with Enter", () => {
+    renderComposer();
+    const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "/re", selectionStart: 3 } });
+    const selected = () => screen.getAllByRole("option").findIndex((option) => option.getAttribute("aria-selected") === "true");
+    const options = screen.getAllByRole("option");
+    expect(options.map((option) => option.querySelector("strong")?.textContent)).toEqual(["/review[scope]", "/reload", "/tdd"]);
+    // Name, description and source share one row; the source is a quiet note, not a pill.
+    expect(options[0]!.querySelector("small")?.textContent).toBe("Review staged changes");
+    expect(options[0]!.querySelector(".composer-command-source")?.textContent).toBe("prompt");
+    expect(selected()).toBe(0);
+    fireEvent.keyDown(textarea, { key: "ArrowUp" });
+    expect(selected()).toBe(2);
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    expect(selected()).toBe(0);
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    expect(selected()).toBe(1);
+    fireEvent.mouseMove(screen.getAllByRole("option")[0]!);
+    expect(selected()).toBe(0);
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("/reload ");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+  });
+
   it("passes indented command-looking Markdown to the host unchanged", () => {
     const onSubmit = renderComposer();
     const textarea = screen.getByPlaceholderText(/\/ commands/u) as HTMLTextAreaElement;

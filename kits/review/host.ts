@@ -1,7 +1,10 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 import { registerPullRequestCommands } from "./pull-request-host.js";
+import { createHosting } from "./pull-request-hosting.js";
+import { registerPullRequestListCommands } from "./pull-request-list-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
+import { registerThreadLinks } from "./thread-links-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
   conventional: "Write one excellent Conventional Commit message for the supplied Git diff. Use an accurate type and an optional short scope. The imperative subject must explain the intent, not list files. Keep the subject under 72 characters. Add a short body only when it explains important behavior or migration details. Return only the commit message, without quotes or Markdown fences.",
@@ -32,14 +35,15 @@ export function buildCommitPrompt(input: {
 
 /**
  * Review Kit's host entry: a commit message from a diff with the model the
- * desktop side chose, the pull or merge request lifecycle after it, and the
- * reads and writes of the pull-request view.
+ * desktop side chose, the pull or merge request lifecycle after it, the
+ * reads and writes of the pull-request view and the Pull Requests page, and
+ * the requests each thread links, with the agent's tools for them.
  */
 export function createReviewHostExtension(options: RequestCommandOptions = {}): HostExtension {
   return {
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
-    permissions: ["sessions", "process"],
+    permissions: ["sessions", "process", "runtime:extend"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       // Review's desktop half reaches the Workspace read API through this
@@ -47,8 +51,16 @@ export function createReviewHostExtension(options: RequestCommandOptions = {}): 
       // tau.review, so this proxy cannot be widened by renderer input.
       context.registerCommand("changes", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "changes", input));
       context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input));
-      registerRequestCommands(context, options);
-      registerPullRequestCommands(context, options);
+      const hosting = createHosting(context, options);
+      const workspace = (command: string, input?: unknown) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input);
+      const reads = registerPullRequestCommands(context, hosting, options);
+      registerPullRequestListCommands(context, hosting, workspace);
+      const links = registerThreadLinks(context, reads, workspace);
+      registerRequestCommands(context, {
+        ...options,
+        // A request opened from the Changes panel belongs to the thread on screen.
+        created: (url) => { const thread = services.thread(); if (thread) void links.link(thread.sessionId, url, "created"); },
+      });
       context.registerCommand("suggest-commit-message", async (input) => {
         const fields = record(input);
         const provider = text(fields.provider);
@@ -82,6 +94,7 @@ export function createReviewHostExtension(options: RequestCommandOptions = {}): 
         services.log("commit-message.suggested", message.split(/\r?\n/u)[0]);
         return { message };
       });
+      return () => links.dispose();
     },
   };
 }

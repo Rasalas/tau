@@ -1,6 +1,9 @@
 import { FileText, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { UiMessage } from "../../shared/contracts";
+import { WorkbenchShellContext } from "../workbench-context";
+import { LazyFeatureBoundary } from "./LazyFeature";
+import { drawsBlocksFor, splitMessageBlocks } from "./message-blocks";
 import { Markdown } from "./Markdown";
 import { MessageActions } from "./MessageActions";
 import { MessageImages, PersistedMessageImages } from "./MessageImages";
@@ -31,6 +34,38 @@ function SkillChip({ name }: { name: string }) {
   </span>;
 }
 
+const idle = () => () => undefined;
+const unversioned = () => 0;
+
+/**
+ * The block contributions for a role, following the registry: a transcript
+ * drawn before a kit activated redraws its blocks once the kit is there.
+ */
+export function useMessageBlocks(role: "user" | "assistant", active: boolean) {
+  const registry = useContext(WorkbenchShellContext)?.registry;
+  useSyncExternalStore(active && registry ? registry.subscribe : idle, active && registry ? registry.getVersion : unversioned);
+  return { registry, blocks: active && registry ? registry.getMessageBlocks().filter((block) => drawsBlocksFor(block, role)) : [] };
+}
+
+/** Tagged blocks an extension draws for user messages, split from the text the bubble shows. */
+function useUserBlocks(message: UiMessage): { text: string; blocks: ReactNode[] } {
+  const { registry, blocks: contributions } = useMessageBlocks("user", message.text.includes("<"));
+  if (!registry) return { text: message.text, blocks: [] };
+  if (contributions.length === 0) return { text: message.text, blocks: [] };
+  const parts = splitMessageBlocks(message.text, contributions.map((block) => block.tag));
+  if (parts.every((part) => part.kind === "text")) return { text: message.text, blocks: [] };
+  return {
+    text: parts.flatMap((part) => part.kind === "text" ? [part.text] : []).join("\n\n"),
+    blocks: parts.flatMap((part, index) => {
+      if (part.kind === "text") return [];
+      const block = contributions.find((entry) => entry.tag === part.tag)!;
+      return [<LazyFeatureBoundary key={index} label={block.id} extensionId={block.extensionId} extensionName={block.extensionName} registry={registry}>
+        <block.Component body={part.body} complete={part.complete} message={message} streaming={false} />
+      </LazyFeatureBoundary>];
+    }),
+  };
+}
+
 export function UserMessage({
   message,
   onCopy,
@@ -39,8 +74,9 @@ export function UserMessage({
   onToggleExpanded,
   expanded: controlledExpanded,
 }: UserMessageProps) {
-  const visibleText = visibleUserMessageText(message.text);
-  const attachedFiles = embeddedFileContexts(message.text);
+  const { text, blocks } = useUserBlocks(message);
+  const visibleText = visibleUserMessageText(text);
+  const attachedFiles = embeddedFileContexts(text);
   const hasLocalImages = localImagePaths(message.text).length > 0;
   const persistedImages = message.images ?? [];
   const hasMessageContent = Boolean(visibleText || message.skill || attachedFiles.length > 0);
@@ -57,6 +93,7 @@ export function UserMessage({
 
   return (
     <div className="message-shell user">
+      {blocks.length > 0 ? <div className="message-user-blocks">{blocks}</div> : null}
       <PersistedMessageImages images={persistedImages} />
       {hasLocalImages ? <MessageImages text={message.text} /> : null}
       <article className="message user">

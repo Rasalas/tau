@@ -3,10 +3,12 @@ import type { HostExtensionContext, HostThread } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { buildCommitPrompt, cleanCommitMessage, createReviewHostExtension } from "./host.js";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
+import { LINK_SEAMS } from "./test-seams.js";
 
 describe("Review Kit host extension", () => {
   const thread = (backendKind = "pi") => ({ backendKind }) as unknown as HostThread;
   const registryWith = (active: HostThread, complete = vi.fn(async () => "")) => activateHostKit(createReviewHostExtension(), {
+    ...LINK_SEAMS,
     runtimeOwner: () => "tau",
     thread: () => active,
     complete,
@@ -53,7 +55,7 @@ describe("Review Kit host extension", () => {
         context.registerCommand("file-diff", (input) => ({ path: (input as { relPath: string }).relPath }), { callers: [REVIEW_HOST_EXTENSION_ID] });
       },
     };
-    const registry = await activateHostKit(workspace);
+    const registry = await activateHostKit(workspace, LINK_SEAMS);
     await expect(registry.activate(createReviewHostExtension())).resolves.toBe(true);
 
     await expect(registry.invoke(REVIEW_HOST_EXTENSION_ID, "changes")).resolves.toEqual({ files: ["README.md"] });

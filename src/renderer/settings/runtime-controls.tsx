@@ -95,7 +95,7 @@ export const runtimeControls: DesktopExtension = {
     });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: (app) => app.abort() });
     plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", run: (app) => {
-      const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut="composer.effort"]');
+      const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut~="composer.effort"]');
       if (control && !control.disabled) control.click();
       else app.notify("This thread's runtime sets its reasoning itself.");
     } });
@@ -111,6 +111,8 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", run: (app) => app.focusStage() });
     plugin.registerCommand({ id: "workbench.toggle-sidebar", label: "Toggle sidebar", group: "Workbench", run: (app) => app.toggleSidebar?.() });
     plugin.registerCommand({ id: "workbench.toggle-dock", label: "Toggle dock", group: "Workbench", run: (app) => app.toggleDock() });
+    // T3 Code's command id, so a keybindings.json written for it works here too.
+    plugin.registerCommand({ id: "rightPanel.toggleMaximized", label: "Maximize or restore panel", group: "Workbench", run: (app) => app.togglePanelMaximized?.() });
     plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", run: (app) => app.closeActiveStageTab?.() });
     plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", run: (app) => app.cycleStageTab?.(1) });
     plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", run: (app) => app.cycleStageTab?.(-1) });
@@ -374,6 +376,8 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+alt+3", commandId: "workbench.focus-stage" });
     plugin.registerKeybinding({ keys: "mod+b", commandId: "workbench.toggle-sidebar" });
     plugin.registerKeybinding({ keys: "mod+alt+b", commandId: "workbench.toggle-dock" });
+    // T3 Code ships no default chord for it; this is the dock's chord with Shift.
+    plugin.registerKeybinding({ keys: "mod+alt+shift+b", commandId: "rightPanel.toggleMaximized" });
     plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab" });

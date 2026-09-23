@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen, X } from "lucide-react";
 import { DiffView, errorMessage, getClientStorage, type DiffLineSlot, type UiDiffLine, type WorkbenchActions } from "tau";
-import type { PullRequestDetail, PullRequestFile, PullRequestFiles, PullRequestThread, ReviewCommentChip } from "./protocol.js";
+import type { PendingReviewComment, PullRequestComment, PullRequestDetail, PullRequestFile, PullRequestFiles, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import type { PullRequestCommentInput } from "./pull-request-client.js";
-import { anchorThreads, lineKeys, orderFiles, shortNoun, threadChip } from "./pull-request-logic.js";
+import { hideWhitespace } from "./pull-request-diff.js";
+import { anchorThreads, lineKeys, orderFiles, shortNoun, threadChip, threadKey } from "./pull-request-logic.js";
 import { ReplyBox, ThreadCard } from "./pull-request-parts.js";
 
 const TREE_KEY = "tau.review.pr-file-tree-open";
@@ -41,7 +42,7 @@ function draftChip(detail: PullRequestDetail, draft: Draft, body: string): Revie
  * threads under their lines, a new comment from a line's gutter button, and
  * a viewed mark per file that moves on to the next file still to read.
  */
-export function PullRequestCode({ detail, files, filesError, threads, focusPath, actions, load, onViewed, onComment, onSend }: {
+export function PullRequestCode({ detail, files, filesError, threads, focusPath, actions, load, onViewed, onComment, onSend, ignoreWhitespace, onIgnoreWhitespace, reviewComments, onPend, onRemovePending, onResolve, canEdit, onEdit }: {
   detail: PullRequestDetail;
   files?: PullRequestFiles;
   filesError?: string;
@@ -52,6 +53,16 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
   onViewed(path: string, viewed: boolean): Promise<void>;
   onComment(input: PullRequestCommentInput): Promise<void>;
   onSend(chip: ReviewCommentChip): void;
+  /** The Review Kit's "Hide whitespace changes" option, the same one the local review reads. */
+  ignoreWhitespace: boolean;
+  onIgnoreWhitespace(ignore: boolean): void;
+  /** Line comments held for the review. */
+  reviewComments: readonly PendingReviewComment[];
+  onPend(comment: Omit<PendingReviewComment, "id">): void;
+  onRemovePending(id: string): void;
+  onResolve(thread: PullRequestThread, resolved: boolean): Promise<void>;
+  canEdit(comment: PullRequestComment): boolean;
+  onEdit(comment: PullRequestComment, body: string): Promise<void>;
 }) {
   const [selected, setSelected] = useState<string>();
   const [layout, setLayout] = useState<"unified" | "split">("unified");
@@ -66,8 +77,17 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
   const ordered = useMemo(() => orderFiles(files?.files ?? []), [files]);
   const isViewed = (file: PullRequestFile) => pending.get(file.path) ?? file.viewed === "viewed";
   const current = ordered.find((file) => file.path === selected) ?? ordered.find((file) => !isViewed(file)) ?? ordered[0];
-  const diff = useMemo(() => files?.diffs.find((entry) => entry.path === current?.path), [current?.path, files]);
-  const { anchored, loose } = useMemo(() => anchorThreads(threads, files?.diffs ?? []), [files, threads]);
+  const diffs = useMemo(() => ignoreWhitespace ? (files?.diffs ?? []).map(hideWhitespace) : files?.diffs ?? [], [files, ignoreWhitespace]);
+  const diff = useMemo(() => diffs.find((entry) => entry.path === current?.path), [current?.path, diffs]);
+  const { anchored, loose } = useMemo(() => anchorThreads(threads, diffs), [diffs, threads]);
+  const held = useMemo(() => {
+    const map = new Map<string, PendingReviewComment[]>();
+    for (const comment of reviewComments) {
+      const key = threadKey(comment.path, comment.side, comment.line);
+      map.set(key, [...map.get(key) ?? [], comment]);
+    }
+    return map;
+  }, [reviewComments]);
   const threadCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const thread of threads) counts.set(thread.path, (counts.get(thread.path) ?? 0) + 1);
@@ -80,6 +100,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
   const lines = useMemo<DiffLineSlot | undefined>(() => {
     if (!current) return undefined;
     const at = (line: UiDiffLine) => lineKeys(current.path, line).flatMap((key) => anchored.get(key) ?? []);
+    const heldAt = (line: UiDiffLine) => lineKeys(current.path, line).flatMap((key) => held.get(key) ?? []);
     const drafting = (line: UiDiffLine) => draft?.path === current.path && (draft.side === "new" ? line.newLine : line.kind === "removed" ? line.oldLine : undefined) === draft.line;
     return {
       onAction: ({ path, line }) => {
@@ -88,15 +109,23 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
         if (number !== undefined) setDraft({ path, line: number, side, code: mark(line) });
       },
       actionLabel: ({ line }) => line.newLine !== undefined ? `Comment on line ${line.newLine}` : `Comment on removed line ${line.oldLine}`,
-      count: ({ line }) => at(line).length,
+      count: ({ line }) => at(line).length + heldAt(line).length,
       selected: ({ line }) => drafting(line),
       render: ({ line }) => {
         const here = at(line);
+        const mine = heldAt(line);
         const editing = drafting(line) ? draft : undefined;
-        if (here.length === 0 && !editing) return null;
+        if (here.length === 0 && mine.length === 0 && !editing) return null;
         return (
           <div className="pr-line-slot">
-            {here.map((thread) => <ThreadCard key={thread.id} thread={thread} onReply={reply(thread)} onSend={() => onSend(threadChip(detail, thread))} />)}
+            {here.map((thread) => <ThreadCard key={thread.id} thread={thread} onReply={reply(thread)} onSend={() => onSend(threadChip(detail, thread))} onResolve={(resolved) => onResolve(thread, resolved)} canEdit={canEdit} onEdit={onEdit} />)}
+            {mine.map((comment) => (
+              <div key={comment.id} className="pr-pending-note" aria-label={`Pending comment on line ${comment.line}`}>
+                <span className="pr-tag">Pending</span>
+                <p>{comment.body}</p>
+                <button className="icon-button compact" aria-label="Remove from the review" title="Remove from the review" onClick={() => onRemovePending(comment.id)}><X size={11} /></button>
+              </div>
+            ))}
             {editing ? (
               <ReplyBox
                 label={`Comment on line ${editing.line}`}
@@ -105,9 +134,14 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
                 onSubmit={async (text) => { await onComment({ path: editing.path, line: editing.line, side: editing.side, body: text }); setDraft(undefined); }}
                 onCancel={() => setDraft(undefined)}
                 extra={(text) => (
-                  <button className="text-button" disabled={!text.trim()} title="Hand the comment to the agent instead of posting it" onClick={() => { onSend(draftChip(detail, editing, text.trim())); setDraft(undefined); }}>
-                    Send to agent
-                  </button>
+                  <>
+                    <button className="text-button" disabled={!text.trim()} title="Hand the comment to the agent instead of posting it" onClick={() => { onSend(draftChip(detail, editing, text.trim())); setDraft(undefined); }}>
+                      Send to agent
+                    </button>
+                    <button className="text-button" disabled={!text.trim()} title="Hold the comment for your review; it posts when you submit the review" onClick={() => { onPend({ path: editing.path, line: editing.line, side: editing.side, body: text.trim() }); setDraft(undefined); }}>
+                      Add to review
+                    </button>
+                  </>
                 )}
               />
             ) : null}
@@ -115,8 +149,8 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
         );
       },
     };
-    // `reply` and `onSend` close over stable props; the slot follows what it draws.
-  }, [anchored, current, detail, draft]);
+    // `reply`, `onSend` and the review callbacks close over stable props; the slot follows what it draws.
+  }, [anchored, current, detail, draft, held]);
 
   const toggleViewed = async (file: PullRequestFile) => {
     const next = !isViewed(file);
@@ -163,6 +197,9 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
           {viewedCount} / {ordered.length} viewed{files.viewedOn === "local" ? <> in Tau <Info size={11} aria-hidden="true" /></> : null}
         </span>
         <span className="spacer" />
+        <label className="pr-whitespace" title="Show lines that changed only in whitespace as unchanged">
+          <input type="checkbox" checked={ignoreWhitespace} onChange={(event) => onIgnoreWhitespace(event.target.checked)} /> Hide whitespace
+        </label>
         <div className="toggle-group" aria-label="Diff layout">
           <button className={layout === "unified" ? "active" : ""} onClick={() => setLayout("unified")}>Unified</button>
           <button className={layout === "split" ? "active" : ""} onClick={() => setLayout("split")}>Split</button>
@@ -181,7 +218,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
               {looseOpen ? loose.map((thread) => (
                 <div key={thread.id} className="pr-loose-thread">
                   <small>{thread.path}{thread.line !== undefined ? ` · Line ${thread.line}` : ""}</small>
-                  <ThreadCard thread={thread} onReply={reply(thread)} onSend={() => onSend(threadChip(detail, thread))} />
+                  <ThreadCard thread={thread} onReply={reply(thread)} onSend={() => onSend(threadChip(detail, thread))} onResolve={(resolved) => onResolve(thread, resolved)} canEdit={canEdit} onEdit={onEdit} />
                 </div>
               )) : null}
             </section>

@@ -137,6 +137,12 @@ export function StageTabs({
         openMenu: (event, label) => setMenu({ id: tab.id, label, preview: tab.preview, x: event.clientX, y: event.clientY }),
       };
       if (tab.kind === "thread") return <ThreadStageTab key={tab.id} sessionId={tab.sessionId} chrome={chrome} />;
+      if (tab.kind === "panel") {
+        const panel = registry?.getPanels().find((entry) => entry.id === tab.panelId);
+        const Icon = panel?.Icon ?? SquareDashed;
+        const label = panel?.label ?? tab.panelId;
+        return <StageTabButton key={tab.id} chrome={chrome} title={`${label} · closing puts it back`} label={label} icon={<Icon size={13} />} />;
+      }
       if (tab.kind === "extension") {
         const Icon = registry?.getStageTabKind(tab.tabKind)?.Icon ?? SquareDashed;
         return <StageTabButton

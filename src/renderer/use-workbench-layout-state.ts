@@ -27,7 +27,7 @@ export interface WorkbenchLayoutStateOptions {
   workspacePath: string | undefined;
   /** Threads the index knows; empty while it has not arrived. */
   knownThreadIds: readonly string[];
-  /** Panel ids the registry offers now; kits add theirs one by one at startup. */
+  /** Dock panel ids the registry offers now; kits add theirs one by one at startup. */
   panelIds: readonly string[];
 }
 
@@ -81,6 +81,11 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
       : [...current.openedPanels, activePanel];
     return { ...current, activePanel, openedPanels };
   }), []);
+  const setDrawer = useCallback((drawer: string | undefined) => setDock((current) => {
+    if (current.drawer === drawer) return current;
+    const { drawer: _closed, ...rest } = current;
+    return drawer ? { ...rest, drawer } : rest;
+  }), []);
   const setDockWidth = useCallback((width: number) => setDock((current) => current.width === width ? current : { ...current, width }), []);
   // The stored panel stays the choice while its kit has not activated; the
   // stand-in shown meanwhile is never written back.
@@ -96,6 +101,7 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
     activePanel, setActivePanel,
     openedPanels,
     dockWidth: dock.width, setDockWidth,
+    drawer: dock.drawer, setDrawer,
     /**
      * A project switch starts the stage over; the next restore fills it.
      * Forgetting what was restored is what keeps the empty stage from being

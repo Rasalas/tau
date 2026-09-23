@@ -1,0 +1,53 @@
+/* Handoff Kit: the lineage before the thread title, the draft's handoff chip and the context cards. */
+
+.handoff-lineage { flex: none; display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.handoff-lineage > .menu-anchor { display: inline-flex; }
+.handoff-parent, .handoff-forks, .handoff-icon {
+  height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px;
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--muted); font: 12px var(--sans); cursor: pointer;
+}
+.handoff-parent { min-width: 0; max-width: 240px; }
+.handoff-parent > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.handoff-parent > svg, .handoff-forks > svg { flex: none; color: var(--faint); }
+.handoff-icon { width: 26px; padding: 0; justify-content: center; }
+.handoff-parent:hover:not(:disabled), .handoff-forks:hover, .handoff-forks[aria-expanded="true"], .handoff-icon:hover {
+  background: var(--raised); color: var(--ink);
+}
+.handoff-parent:disabled { cursor: default; opacity: .7; }
+
+.handoff-chip {
+  display: flex; align-items: center; gap: 6px; min-width: 0; margin: 8px 10px 0; height: 26px;
+  padding: 0 4px 0 8px; border: 1px solid var(--line-control); border-radius: var(--radius-sm);
+  background: var(--chip); color: var(--ink-2); font: 12px/1 var(--sans);
+}
+.handoff-chip > svg { flex: none; color: var(--muted); }
+.handoff-chip-label { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.handoff-chip-label > strong { font-weight: 600; color: var(--ink); }
+.handoff-chip-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-2); }
+.handoff-chip.failed { border-color: var(--danger-line); }
+.handoff-chip.failed .handoff-chip-status { color: var(--danger); }
+.handoff-chip > button {
+  flex: none; width: 18px; height: 18px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.handoff-chip > button:hover:not(:disabled) { background: var(--chip-hover); color: var(--ink); }
+.handoff-chip > button:disabled { opacity: .5; cursor: default; }
+
+.handoff-card { width: 100%; box-sizing: border-box; }
+.handoff-card-head {
+  width: 100%; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 4px 6px;
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--muted); font: 12px var(--sans); text-align: left; cursor: pointer;
+}
+.handoff-card-head:hover { background: var(--raised); }
+.handoff-card-head > svg { flex: none; color: var(--faint); }
+.handoff-card-head > strong { flex: none; font-weight: 600; color: var(--ink-2); }
+.handoff-card-from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.handoff-card-chevron { transition: transform var(--motion-fast) var(--ease); }
+.handoff-card-head[aria-expanded="true"] .handoff-card-chevron { transform: rotate(90deg); }
+.handoff-card-body {
+  margin: 4px 0 2px 26px; padding: 10px 14px;
+  border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--stage);
+  font-size: 13px;
+}

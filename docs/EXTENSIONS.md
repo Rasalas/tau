@@ -233,6 +233,35 @@ the workbench itself uses, and core no longer keeps a table of names it would
 have to know a kit by. A panel without one gets core's fallback glyph.
 `registerSettingsPage` takes the same `Icon`.
 
+#### Where a panel shows: dock, drawer, stage (new in API 1.11.0)
+
+A panel shows in the dock on the right unless it asks for `placement:
+"drawer"`: then it draws below the conversation and the stage, full width,
+and the title bar gets a toggle for it instead of a rail button. One drawer
+panel shows at a time. The drawer starts at 280 px, is dragged or moved with
+the arrow keys from its top edge, and its height (180 px up to three quarters
+of the window) is kept per client. Terminal Kit's "Show the terminal in"
+setting registers its panel again with the other placement.
+
+`maximizable: true` lets the user move the panel into a stage tab beside the
+chat: the button over the end of the panel's header, or
+`rightPanel.toggleMaximized` (`mod+alt+shift+b`), which acts on the panel tab
+in front, else the panel the keyboard is in, else the dock's, else the
+drawer's. Core moves the *mounted* panel — its DOM host goes from dock to
+stage and back — so React state, scroll and a terminal's buffer go with it,
+and the panel is never drawn twice: the dock shows a stand-in with "Show tab"
+and "Move back here" while it is away. Closing the tab, or the same command
+again, puts it back where it was placed. The tab is a core kind
+(`StagePanelTab`, `kind: "panel"`, `panelId`) and is restored with the stage.
+
+`PanelProps.placement` says where the panel is drawn now (`dock`, `drawer` or
+`stage`); a panel that positions something outside the page, as Preview Kit's
+native view does, reports its bounds again when it changes. `active` is false
+while the panel's tab is behind another. `actions.openPanel(id)` shows a panel
+wherever it is, bringing its tab forward when it is maximized;
+`actions.closePanel(id)` hides it (the dock or drawer closes, or the tab);
+`actions.togglePanelMaximized()` is the command's action.
+
 #### Tool rows and tool cards
 
 `registerToolRenderer(id, match, render)` says how one tool call reads: its
@@ -450,6 +479,12 @@ fences. `Component` gets `body` (what stands between the tags), `complete`
 `streaming`; `useWorkbenchShell()` has the actions. The text itself is not
 changed, so the block survives a restart wherever the runtime keeps text.
 Plan Kit draws `proposed_plan` as a plan card this way.
+
+`roles` says whose messages the block is drawn in: assistant replies when it
+is absent, `["user"]` for context a prompt carries. A user message draws its
+blocks above the bubble and keeps them out of the text the bubble shows, so a
+long piece of handed-over context reads as one folded card instead of a wall
+of text. Handoff Kit draws `handoff_context` and `merge_back_context` this way.
 
 #### The thread's interaction mode (new in API 1.11.0)
 
@@ -1109,9 +1144,14 @@ model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
 
 A registered backend's `label` is what the workbench calls it where a new
 thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
-it defaults to the kind. The host publishes every installed backend, Pi first,
-as `runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
-naming the one a client gets when it names none.
+it defaults to the kind. The host publishes every installed backend as
+`runtimeBackends` on the snapshot and the catalog, with `defaultBackendKind`
+naming the one a client gets when it names none. The list is in the one order
+every runtime list uses — the model picker's rail, the composer's runtime
+menu, Settings → Defaults and Providers, onboarding: Pi, then backends by the
+provider's `order` (new in API 1.11.0; lower first, unset last, ties in
+registration order). The bundled kits take 10 (the Agent SDK runtime), 20
+(Codex) and 30 (Antigravity); every instance of a program shares its order.
 
 A backend that drives a program the user installed may say which version that
 is: `version()` on the provider answers `{ tool, installed?, latest?,
@@ -1350,7 +1390,7 @@ of them hears of a thread nobody is looking at. That kit is the shipped caller.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.10.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.11.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only

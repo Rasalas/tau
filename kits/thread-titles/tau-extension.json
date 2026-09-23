@@ -3,7 +3,7 @@
   "name": "Thread Title Generator",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.5.0"
+    "api": "^1.11.0"
   },
   "permissions": [
     "sessions"

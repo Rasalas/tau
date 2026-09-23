@@ -13,6 +13,8 @@ const PROBES = probes(CHROME, {
     imageThumb: ".composer-surface img",
     modelChip: ".composer-surface button@GPT",
     queued: "[class*=queue]",
+    footerRow: ".composer-chips",
+    overflow: "[aria-label='More composer controls']",
   },
   t3: {
     slashMenu: "[data-slot=composer-shell] ~ *, [role=listbox]",
@@ -44,6 +46,10 @@ async function run(ctx, { shot }) {
   await ctx.click(input);
   await ctx.moveMouse(1300, 120);
   await shot("empty", { probes: PROBES, tabs: 8 });
+  // A narrow window: the footer controls drop their labels, then fold into an overflow menu.
+  await ctx.viewport(820);
+  await shot("narrow", { probes: PROBES });
+  await ctx.viewport();
   await ctx.click(input);
   await ctx.type("First line of a longer prompt\nsecond line\nthird line\nfourth line");
   await shot("multiline", { probes: PROBES });

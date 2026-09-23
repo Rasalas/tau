@@ -527,7 +527,7 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { storage, extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: "What do you want to build?" });
     expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy();
-    expect(document.querySelector(".title-identity strong")?.textContent).toBe("other");
+    expect(document.querySelector(".title-project")?.textContent).toBe("other");
     await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalledWith("/other"));
     expect(screen.getByRole("button", { name: "main" })).toBeTruthy();
   });

@@ -297,8 +297,8 @@ function openWindow(): BrowserWindow {
     minWidth: 1080,
     minHeight: 680,
     titleBarStyle: "hiddenInset",
-    // Centres the native traffic lights (14pt since the macOS 26 SDK) in Tau's 46px title bar.
-    trafficLightPosition: { x: 19, y: 16 },
+    // Centres the native traffic lights (14pt since the macOS 26 SDK) in Tau's 52px title bar.
+    trafficLightPosition: { x: 19, y: 19 },
     backgroundColor: "#11110f",
     ...(appIconPath ? { icon: appIconPath } : {}),
     webPreferences: {

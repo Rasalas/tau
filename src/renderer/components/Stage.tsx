@@ -1,4 +1,4 @@
-import { useMemo, type KeyboardEvent, type RefObject } from "react";
+import { useMemo, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../../shared/workspace-kit-types";
 import { activeTab, type StageExtensionTab, type StageState, type StageView } from "../../workbench/stage";
@@ -7,6 +7,7 @@ import type { StageTabController } from "../stage-tab-controller";
 import { FileViewer } from "./FileViewer";
 import { StageTabs, type ChatTab } from "./StageTabs";
 import { ThreadDocument } from "./ThreadDocument";
+import "./stage-panels.css";
 
 function relativeTo(cwd: string | undefined, path: string): string {
   return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
@@ -41,7 +42,7 @@ function ExtensionPane({ tab, registry, stageTabs, actions }: {
 export function Stage({
   stage, cwd, changes, editor, chatTab, focusRef, registry, stageTabs, actions,
   loadFile, loadDiff, loadThread,
-  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread,
+  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel,
 }: {
   stage: StageState;
   focusRef?: RefObject<HTMLElement | null>;
@@ -69,6 +70,8 @@ export function Stage({
   onOpenInEditor(path: string): void;
   /** Makes a thread tab the thread the composer talks to. */
   onTakeOverThread(sessionId: string): void;
+  /** Where a maximized panel draws; the workbench keeps the panel itself. */
+  renderPanel?(panelId: string): ReactNode;
 }) {
   const current = activeTab(stage);
   const changedRelative = useMemo(() => new Set(changes.files.map((file) => file.path)), [changes.files]);
@@ -100,7 +103,11 @@ export function Stage({
       onCloseOthers={onCloseOthers}
       onCloseToRight={onCloseToRight}
     />
-    {!current || chatTab?.active ? null : current.kind === "extension" ? (
+    {!current || chatTab?.active ? null : current.kind === "panel" ? (
+      <section key={current.id} className="stage-pane panel-pane" aria-label={registry?.getPanels().find((panel) => panel.id === current.panelId)?.label ?? current.panelId}>
+        {renderPanel?.(current.panelId) ?? <div className="stage-empty" role="status">The extension that draws this panel is not active.</div>}
+      </section>
+    ) : current.kind === "extension" ? (
       <ExtensionPane
         key={current.id}
         tab={current}

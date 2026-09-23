@@ -346,6 +346,22 @@ describe("terminal commands", () => {
     }
   });
 
+  it("hides the terminal wherever it is, dock or drawer, through closePanel when core has it", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    const closePanel = vi.fn();
+    const actions = workbenchActions({ closePanel });
+    try {
+      terminalStore.setPanelVisible(true);
+      await toggleTerminal(actions);
+      expect(closePanel).toHaveBeenCalledWith(TERMINAL_PANEL);
+      expect(actions.toggleDock).not.toHaveBeenCalled();
+    } finally {
+      terminalStore.setPanelVisible(false);
+      disconnect();
+    }
+  });
+
   it("brings a staged shell's tab forward instead of opening the panel", async () => {
     const fake = fakeHost();
     const disconnect = connectTerminalHost(fake.host);

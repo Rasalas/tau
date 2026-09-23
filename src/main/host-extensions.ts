@@ -76,10 +76,24 @@ export type BackendPrompt = Omit<ExtensionUiPrompt, "id" | "sessionId">;
  * Core creates, resumes, lists and prompts such threads through it and never
  * learns which program answers.
  */
+/** Registered backends by `order`, unset last; equal orders keep registration order. */
+export function sortByRuntimeOrder<T extends { readonly order?: number }>(providers: readonly T[]): T[] {
+  const rank = (provider: T) => provider.order ?? Number.POSITIVE_INFINITY;
+  return providers.map((provider, index) => ({ provider, index }))
+    .sort((a, b) => rank(a.provider) - rank(b.provider) || a.index - b.index)
+    .map(({ provider }) => provider);
+}
+
 export interface HostRuntimeBackendProvider {
   readonly kind: ThreadBackendKind;
   /** What the workbench calls this backend where a new thread's runtime is chosen; defaults to the kind. */
   readonly label?: string;
+  /**
+   * Where the backend sits in every runtime list (pickers, Providers,
+   * onboarding), after Pi; lower first, unset last. The bundled kits use
+   * 10, 20 and 30 (API 1.11.0).
+   */
+  readonly order?: number;
   readonly adapter: AgentRuntimeAdapter;
   /** Provider identity used for the thread index when the backend has no selectable model. */
   readonly modelProvider?: string;

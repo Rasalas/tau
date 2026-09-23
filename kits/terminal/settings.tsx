@@ -1,8 +1,13 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type { PreferencesStore, SettingsPageProps } from "tau";
 import { FONT_FAMILY_SETTING, FONT_SIZE_SETTING, type TerminalFontSource } from "./font.js";
 import { refreshGhosttyFont, useTerminalFont } from "./store.js";
-import { TERMINAL_HOST_EXTENSION_ID } from "./protocol.js";
+import { TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING, terminalPlacement, type TerminalPlacement } from "./protocol.js";
+
+const PLACEMENTS: ReadonlyArray<{ value: TerminalPlacement; label: string }> = [
+  { value: "dock", label: "Dock" },
+  { value: "drawer", label: "Drawer" },
+];
 
 const SOURCE_LABEL: Record<TerminalFontSource, string> = {
   settings: "set here",
@@ -21,9 +26,17 @@ export function TerminalSettingsPage({ preferences }: SettingsPageProps & { pref
   useEffect(() => { void refreshGhosttyFont().catch(() => undefined); }, []);
   const set = (key: string, value: string) => preferences.setValue(TERMINAL_HOST_EXTENSION_ID, key, value);
   const ghosttyFace = ghostty?.families[0];
+  useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const placement = terminalPlacement(preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));
 
   return <div className="settings-page terminal-settings">
     <h3>Terminal</h3>
+    <div className="settings-label">Show the terminal in</div>
+    <div className="segmented" role="group" aria-label="Show the terminal in">
+      {PLACEMENTS.map((entry) => <button key={entry.value} type="button" className={entry.value === placement ? "active" : ""} aria-pressed={entry.value === placement} onClick={() => set(TERMINAL_PLACEMENT_SETTING, entry.value)}>{entry.label}</button>)}
+    </div>
+    <p className="settings-note">The dock is the panel on the right. The drawer sits below the conversation, full width, and keeps its height.</p>
+
     <p className="lede">The font the Terminal panel and terminal tabs draw with. Leave a field empty to follow your Ghostty config.</p>
 
     <div className="settings-label">Font family</div>

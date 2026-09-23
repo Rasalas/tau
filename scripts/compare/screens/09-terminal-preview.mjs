@@ -37,6 +37,15 @@ async function run(ctx, { shot, note }) {
   note("terminals", await ctx.eval(`document.querySelectorAll(${JSON.stringify(terminal)}).length`));
   await ctx.moveMouse(700, 300);
   await shot("terminal-split", { probes: PROBES });
+  // Tau opens a maximized panel as a stage tab; T3 widens its right panel, which the terminal drawer is not.
+  if (ctx.id === "tau" && await ctx.eval(`!!document.querySelector("[aria-label='Open Terminal as a tab']")`)) {
+    await ctx.press("mod+alt+shift+b");
+    await ctx.wait(1_500);
+    note("maximizedTerminals", await ctx.eval(`document.querySelectorAll(".panel-pane .xterm").length`));
+    await shot("terminal-maximized", { probes: PROBES });
+    await ctx.press("mod+alt+shift+b");
+    await ctx.wait(800);
+  }
   await ctx.press("mod+j");
   await ctx.wait(600);
   await withServer(async (url) => {

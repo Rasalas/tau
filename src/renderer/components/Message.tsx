@@ -1,12 +1,11 @@
-import { Bot, ChevronRight, EyeOff } from "lucide-react";
-import { memo, useContext, useState } from "react";
-import { WorkbenchShellContext } from "../workbench-context";
+import { Bot, Brain, ChevronRight, EyeOff } from "lucide-react";
+import { memo, useState } from "react";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { splitMessageBlocks } from "./message-blocks";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { MessageActions } from "./MessageActions";
-import { UserMessage } from "./UserMessage";
+import { UserMessage, useMessageBlocks } from "./UserMessage";
 import { Markdown } from "./Markdown";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
@@ -29,13 +28,15 @@ export function parseAsyncActivity(text: string): AsyncActivity | undefined {
   return { label, detail: text };
 }
 
-/** Pi shows thinking as a collapsible block; the transcript detail level is the switch here. */
-function ThinkingDisclosure({ thinking, streaming }: { thinking: string; streaming?: boolean }) {
-  const [toggled, setToggled] = useState<boolean>();
-  const open = toggled ?? true;
+/**
+ * Thinking as one row before the answer, as T3 Code draws it: folded in a
+ * focused transcript, open from detailed on. `onToggle` lets the transcript
+ * keep the reader's choice when the row is recycled.
+ */
+function ThinkingDisclosure({ thinking, streaming, open, onToggle }: { thinking: string; streaming?: boolean; open: boolean; onToggle(open: boolean): void }) {
   return (
-    <details className="message-thinking" open={open} onToggle={(event) => setToggled((event.target as HTMLDetailsElement).open)}>
-      <summary><ChevronRight size={12} className="chev" /> Thinking{streaming && !thinking.trim() ? "…" : ""}</summary>
+    <details className="message-thinking" open={open} onToggle={(event) => { const next = (event.target as HTMLDetailsElement).open; if (next !== open) onToggle(next); }}>
+      <summary><Brain size={14} strokeWidth={1.8} /><span>{streaming ? "Thinking…" : "Thought"}</span><ChevronRight size={12} className="chev" /></summary>
       {open ? <div className="message-thinking-body"><Markdown streaming={streaming}>{thinking}</Markdown></div> : null}
     </details>
   );
@@ -57,8 +58,7 @@ function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
 
 /** A reply whose tagged blocks an extension draws itself; the rest stays Markdown. */
 function AssistantText({ message, streaming }: { message: UiMessage; streaming: boolean }) {
-  const registry = useContext(WorkbenchShellContext)?.registry;
-  const blocks = registry?.getMessageBlocks() ?? [];
+  const { registry, blocks } = useMessageBlocks("assistant", true);
   const parts = splitMessageBlocks(message.text, blocks.map((block) => block.tag));
   if (parts.length === 1 && parts[0]!.kind === "text") return <Markdown streaming={streaming}>{message.text}</Markdown>;
   return <>{parts.map((part, index) => {
@@ -82,7 +82,7 @@ export const Message = memo(function Message({
 }: {
   message: UiMessage;
   streaming?: boolean;
-  /** How much of the turn this transcript shows; `focused` leaves thinking out. */
+  /** How much of the turn this transcript shows; `focused` folds thinking into one row. */
   detail?: TranscriptDetail;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
@@ -94,6 +94,7 @@ export const Message = memo(function Message({
   // Host-resolved skill metadata is authoritative; do not let the generic
   // activity heuristic replace a typed skill message.
   const activity = message.skill ? undefined : parseAsyncActivity(message.text);
+  const [thinkingToggled, setThinkingToggled] = useState(false);
 
   if (activity) return <ActivityDisclosure activity={activity} />;
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
@@ -102,8 +103,17 @@ export const Message = memo(function Message({
     return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onEdit={onEdit} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
   }
 
-  const thinking = detail !== "focused" && message.thinking?.trim() ? message.thinking : undefined;
+  const thinking = message.thinking?.trim() ? message.thinking : undefined;
   if (!message.text && !thinking) return null;
+  const thinkingOpenByDefault = detail !== "focused";
+  // For assistant rows `expanded` means the reader flipped the thinking row away from its default.
+  const flipped = onToggleExpanded ? Boolean(expanded) : thinkingToggled;
+  const thinkingOpen = flipped ? !thinkingOpenByDefault : thinkingOpenByDefault;
+  const toggleThinking = (open: boolean) => {
+    const next = open !== thinkingOpenByDefault;
+    if (onToggleExpanded) onToggleExpanded(message.id, next);
+    else setThinkingToggled(next);
+  };
 
   return (
     <div className={`message-shell assistant${message.excludedFromContext ? " excluded-from-context" : ""}`}>
@@ -114,7 +124,7 @@ export const Message = memo(function Message({
             <span>Not in model context</span>
           </div>
         ) : null}
-        {thinking ? <ThinkingDisclosure thinking={thinking} streaming={streaming && !message.text} /> : null}
+        {thinking ? <ThinkingDisclosure thinking={thinking} streaming={streaming && !message.text} open={thinkingOpen} onToggle={toggleThinking} /> : null}
         {message.text ? (
           <div className="message-text">
             {message.text.includes("<") ? <AssistantText message={message} streaming={streaming} /> : <Markdown streaming={streaming}>{message.text}</Markdown>}

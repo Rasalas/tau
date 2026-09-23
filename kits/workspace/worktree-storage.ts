@@ -65,6 +65,8 @@ export interface WorktreeStorageOptions {
   measure?: (path: string) => Promise<number | undefined>;
   /** Timestamps of files, for the inactivity clock. */
   modifiedAt?: (path: string) => Promise<number | undefined>;
+  /** The state of a checkout's pull or merge request on the host, for the "merged" rule; undefined without one. */
+  requestState?: (path: string) => Promise<"open" | "closed" | "merged" | undefined>;
 }
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -319,6 +321,9 @@ export class WorktreeStorage {
       const commitsBeyondBase = await count([`${baseRef}..HEAD`]);
       const unpushedCommits = await count(["HEAD", "--not", ...(branch ? [`--exclude=${branch}`] : []), "--branches", "--remotes"]);
       const integrated = await git(entry.path, ["merge-base", "--is-ancestor", "HEAD", defaultRef]).then(() => true, () => false);
+      // Only asked when the rule could act on it: the host CLI is slower than Git.
+      const askHost = !integrated && branch !== undefined && this.options.requestState !== undefined && rulesFor(this.policy, entry.repository).onMerge;
+      const requestMerged = askHost ? await this.options.requestState!(entry.path).then((state) => state === "merged", () => false) : false;
       const headAt = Number((await git(entry.path, ["log", "-1", "--format=%ct"]).catch(() => "")).trim()) * 1000;
       const sessionTimes = await Promise.all(inside.map((thread) => modifiedAt(thread.path)));
       const lastActivityAt = Math.max(entry.createdAt, Number.isFinite(headAt) ? headAt : 0, ...sessionTimes.map((time) => time ?? 0));
@@ -333,6 +338,7 @@ export class WorktreeStorage {
         unpushedCommits,
         commitsBeyondBase,
         integrated,
+        ...(requestMerged ? { requestMerged } : {}),
         lastActivityAt,
         ...(branch ? { branch } : {}),
       };

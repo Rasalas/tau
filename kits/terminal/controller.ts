@@ -123,14 +123,15 @@ export function syncStageTabs(actions: WorkbenchActions): void {
 }
 
 /**
- * `mod+j`: shows or hides the panel. Showing it puts the keyboard in the
+ * `mod+j`: shows or hides the panel, in the dock or the drawer. Showing it puts the keyboard in the
  * last shell, starting one when there is none; a shell that is on the stage
  * brings its tab forward instead.
  */
 export async function toggleTerminal(actions: WorkbenchActions): Promise<void> {
   const state = terminalStore.getSnapshot();
   if (state.panelVisible) {
-    actions.toggleDock();
+    if (actions.closePanel) actions.closePanel(TERMINAL_PANEL);
+    else actions.toggleDock();
     return;
   }
   const staged = state.layout.onStage.at(-1);

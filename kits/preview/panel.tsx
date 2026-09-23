@@ -11,7 +11,7 @@ import { PreviewTools } from "./tools.js";
  * `WebContentsView` the host draws over that rectangle, so the panel's work is
  * to say where the rectangle is and when it is gone.
  */
-export function PreviewPanel({ active, extensionName, actions }: PanelProps) {
+export function PreviewPanel({ active, placement, extensionName, actions }: PanelProps) {
   const surface = useRef<HTMLDivElement>(null);
   const state = usePreviewState();
   const [draft, setDraft] = useState("");
@@ -49,6 +49,7 @@ export function PreviewPanel({ active, extensionName, actions }: PanelProps) {
     return () => notePanelShown(false);
   }, [active]);
 
+  // A move between dock and stage keeps the panel mounted, so `placement` re-reports the bounds.
   useEffect(() => {
     if (!surface.current || !active) {
       report(false);
@@ -76,7 +77,7 @@ export function PreviewPanel({ active, extensionName, actions }: PanelProps) {
       stopWatching();
       report(false);
     };
-  }, [active, report]);
+  }, [active, placement, report]);
 
   const guard = (work: Promise<unknown>) => {
     void work.then(() => setError("")).catch((problem: unknown) => setError(errorMessage(problem)));

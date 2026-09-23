@@ -9,12 +9,11 @@
 body[data-profile="compact"] .app-shell {
   --sidebar-width: 0px;
   --dock-width: 0px;
-  grid-template: 46px minmax(0, 1fr) / 0 minmax(0, 1fr) 0;
+  grid-template: 52px minmax(0, 1fr) / 0 minmax(0, 1fr) 0;
 }
 
 body[data-profile="compact"] .title-bar { gap: 8px; padding: 0 8px; }
 body[data-profile="compact"] .window-controls-inset { display: none; }
-body[data-profile="compact"] .title-identity > span { display: none; }
 
 /* The chat is the whole centre: no stage column, no split. */
 body[data-profile="compact"] .workbench-center,

@@ -27,7 +27,7 @@ const commands = Array.from({ length: 10_000 }, (_, index) => ({
 describe("large picker catalogs", () => {
   it("keeps model search and keyboard selection bounded", () => {
     const onSelect = vi.fn();
-    render(<TestProviders><ModelPicker models={models} onSelect={onSelect} onClose={() => {}} /></TestProviders>);
+    render(<TestProviders><ModelPicker models={models} onSelect={onSelect} onClose={() => {}} anchor={{ current: null }} /></TestProviders>);
     expect(document.querySelectorAll(".model-row").length).toBeLessThan(50);
     const input = screen.getByRole("textbox", { name: "Search models" });
     fireEvent.change(input, { target: { value: "Model 9999" } });

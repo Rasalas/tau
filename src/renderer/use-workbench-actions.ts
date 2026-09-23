@@ -35,6 +35,8 @@ export interface UseWorkbenchActionsOptions {
   focusStage: () => void;
   toggleSidebar?: () => void;
   openPanel: (id: string) => void;
+  closePanel?: (id: string) => void;
+  togglePanelMaximized?: () => void;
   openPalette: () => void;
   setSettingsPage: (page?: string) => void;
   openNewThreadPicker: () => void;
@@ -89,6 +91,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
 
   return useMemo<WorkbenchActions>(() => ({
     openPanel,
+    ...(options.closePanel ? { closePanel: options.closePanel } : {}),
+    ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
     openCommandPalette: options.openPalette,
     openSettings: (page) => options.setSettingsPage(page ?? "defaults"),
     newSession: (request?: { workspace?: string }) => {

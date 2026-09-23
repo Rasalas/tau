@@ -17,6 +17,7 @@ import { ExtensionPage, useAwaitingApproval } from "./ExtensionPage";
 import { InspectorPage } from "./InspectorPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { ProvidersPage } from "./ProvidersPage";
+import { inRuntimeOrder } from "../runtime-order";
 
 function projectName(path?: string): string {
   return path?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "project";
@@ -141,7 +142,7 @@ export function SettingsScreen({
   // so safe mode still has a model picker and a way to see what is loaded.
   const contributions = registry.getSettingsPages();
   // A page about a runtime is a card on Providers, not a page of its own.
-  const providers = contributions.filter((entry) => entry.runtime);
+  const providers = inRuntimeOrder(contributions.filter((entry) => entry.runtime), (entry) => entry.runtime, snapshot?.runtimeBackends);
   const pages = contributions.filter((entry) => !entry.runtime);
   const contributed = pages.find((entry) => entry.id === page);
   const installer = pages.find((entry) => entry.id === "packages");

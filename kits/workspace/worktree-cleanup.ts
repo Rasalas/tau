@@ -119,6 +119,8 @@ export interface WorktreeFacts {
   commitsBeyondBase: number;
   /** HEAD is already part of the repository's default branch. */
   integrated: boolean;
+  /** The branch's pull or merge request was merged on the host; a squash or rebase merge leaves `integrated` false. */
+  requestMerged?: boolean;
   lastActivityAt: number;
   inspectionError?: string;
 }
@@ -132,7 +134,7 @@ export function evaluateWorktree(facts: WorktreeFacts, rules: WorktreeCleanupRul
   const reasons: CleanupReason[] = [];
   if (rules.onThreadDelete && facts.threadDeleted && facts.threads === 0) reasons.push("thread-deleted");
   if (rules.afterDays !== null && now - facts.lastActivityAt >= rules.afterDays * DAY_MS) reasons.push("inactive");
-  if (rules.onMerge && facts.commitsBeyondBase > 0 && facts.integrated) reasons.push("merged");
+  if (rules.onMerge && ((facts.commitsBeyondBase > 0 && facts.integrated) || facts.requestMerged)) reasons.push("merged");
   if (rules.unchanged && facts.commitsBeyondBase === 0) reasons.push("unchanged");
 
   const blockers: CleanupBlocker[] = [];

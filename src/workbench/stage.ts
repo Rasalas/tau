@@ -1,7 +1,8 @@
 /**
  * The stage is the document area beside the conversation. A tab is a file,
  * shown as source or as its working-tree diff, another thread's transcript,
- * or a surface a desktop extension registered a kind for.
+ * a surface a desktop extension registered a kind for, or a dock panel moved
+ * here by maximizing it.
  * Pure so the preview/pin rules can be tested without React.
  */
 export type StageView = "source" | "diff";
@@ -43,7 +44,13 @@ export interface StageExtensionTab extends StageTabBase {
   dirty?: boolean;
 }
 
-export type StageTab = StageFileTab | StageThreadTab | StageExtensionTab;
+/** A dock or drawer panel shown on the stage instead; closing the tab puts it back. */
+export interface StagePanelTab extends StageTabBase {
+  kind: "panel";
+  panelId: string;
+}
+
+export type StageTab = StageFileTab | StageThreadTab | StageExtensionTab | StagePanelTab;
 
 export interface StageState {
   tabs: StageTab[];
@@ -58,6 +65,10 @@ export function fileTabId(path: string): string {
 
 export function threadTabId(sessionId: string): string {
   return `thread:${sessionId}`;
+}
+
+export function panelTabId(panelId: string): string {
+  return `panel:${panelId}`;
 }
 
 export function extensionTabId(tabKind: string, key: string): string {
@@ -147,6 +158,19 @@ export function openExtensionTab(
     return reopen(state, existing, { ...existing, params: tab.params, title: tab.title, preview: existing.preview && preview });
   }
   return openTab(state, { id, kind: "extension", tabKind: tab.tabKind, params: tab.params, title: tab.title, preview });
+}
+
+/** A maximized panel is a deliberate move, so its tab is always pinned. */
+export function openPanelTab(state: StageState, panelId: string): StageState {
+  const id = panelTabId(panelId);
+  const existing = state.tabs.find((tab) => tab.id === id);
+  if (existing) return activateTab(state, id);
+  return openTab(state, { id, kind: "panel", panelId, preview: false });
+}
+
+/** Panel ids that sit on the stage now. */
+export function stagedPanelIds(state: StageState): string[] {
+  return state.tabs.flatMap((tab) => tab.kind === "panel" ? [tab.panelId] : []);
 }
 
 function mapExtensionTab(state: StageState, id: string, change: (tab: StageExtensionTab) => StageExtensionTab): StageState {

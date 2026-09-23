@@ -75,10 +75,10 @@ export const workspaceExtension: DesktopExtension = {
       order: 20,
       Component: bind(CloneProjectSource),
     });
-    context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, profiles: ["desktop"], Component: bind(FilesPanel) });
+    context.registerPanel({ id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Files, order: 10, maximizable: true, profiles: ["desktop"], Component: bind(FilesPanel) });
     // The Changes panel reads the same Git state as the rest of the kit, so it
     // travels with it; Review Kit still opens it by id from its own command.
-    context.registerPanel({ id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, profiles: ["desktop"], Component: bind(ChangesPanel) });
+    context.registerPanel({ id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, maximizable: true, profiles: ["desktop"], Component: bind(ChangesPanel) });
     // The kit owns its workspace state; these keep it following the workbench
     // and place its controls where core lends room.
     context.registerRegion({ id: "workspace.follower", placement: "composer-above", order: 0, profiles: ["desktop"], Component: bind(WorkspaceFollower) });
@@ -217,7 +217,7 @@ export const workspaceExtension: DesktopExtension = {
     // T3 Code's composer chords: each opens the composer control that carries its id.
     for (const [id, label, keys] of [["composer.workspace", "Choose where the thread runs", "mod+shift+x"], ["composer.branch", "Choose the branch", "mod+shift+g"]] as const) {
       context.registerCommand({ id, label, group: "Composer", run: (app) => {
-        const control = document.querySelector<HTMLElement>(`[data-composer-shortcut="${id}"]`);
+        const control = document.querySelector<HTMLElement>(`[data-composer-shortcut~="${id}"]`);
         if (control) control.click();
         else app.notify("The composer shows no such control here.");
       } });

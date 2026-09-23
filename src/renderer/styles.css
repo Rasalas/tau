@@ -49,18 +49,19 @@ button > svg { pointer-events: none; }
 /* ---------------------------------------------------------------- shell */
 
 .app-shell {
-  --sidebar-width: 282px;
+  --sidebar-width: 256px;
   --dock-width: 320px;
   width: 100vw; height: 100vh;
   display: grid;
-  grid-template: 46px minmax(0, 1fr) / var(--sidebar-width) minmax(480px, 1fr) calc(var(--dock-width) + 46px);
+  grid-template: 52px minmax(0, 1fr) / var(--sidebar-width) minmax(480px, 1fr) calc(var(--dock-width) + 46px);
   background: var(--shell);
   color: var(--ink);
 }
-/* Conversation and stage share the centre cell; the split mirrors CENTER_SPLIT_MIN_WIDTH in App.tsx. */
+/* The centre cell: conversation and stage, and a drawer panel below both. */
+.workbench-main { grid-area: 2 / 2 / 3 / 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* The split mirrors CENTER_SPLIT_MIN_WIDTH in Workbench.tsx. */
 .workbench-center {
-  grid-area: 2 / 2 / 3 / 3;
-  display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0;
+  flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0;
 }
 .workbench-center.stage-open { grid-template-columns: minmax(480px, 1fr) minmax(360px, 1.25fr); }
 /* Too narrow for both: the chat becomes the first tab of the stage. */
@@ -70,7 +71,6 @@ button > svg { pointer-events: none; }
 .workbench-center.stage-open.compact.chat-focused .stage { flex: none; }
 .workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { display: none; }
 .app-shell.dock-closed { --dock-width: 0px; }
-.app-shell.no-sidebar, .app-shell.sidebar-closed { --sidebar-width: 0px; }
 /* The sidebar stays mounted while hidden, so its scroll and folds survive a toggle. */
 .sidebar-slot { display: contents; }
 .app-shell.sidebar-closed .sidebar-slot { display: none; }
@@ -97,20 +97,24 @@ button > svg { pointer-events: none; }
   grid-area: 1 / 1 / 2 / 4;
   -webkit-app-region: drag;
   display: flex; align-items: center; gap: 12px;
-  height: 46px; padding: 0 14px;
+  height: 52px; padding: 0 14px;
   border-bottom: 1px solid var(--line);
   background: var(--chrome);
   z-index: 20;
 }
-.title-bar button, .title-bar .menu-anchor { -webkit-app-region: no-drag; }
+.title-bar button, .title-bar .menu-anchor, .title-bar form { -webkit-app-region: no-drag; }
+/* Over the sidebar, so the breadcrumb starts where the conversation does. */
+.title-lead { flex: none; display: flex; align-items: center; width: calc(var(--sidebar-width) - 2px); min-width: min-content; }
+.title-breadcrumb { display: flex; align-items: center; gap: 10px; min-width: 0; font: 500 14px var(--sans); }
+.title-bar .title-project { flex: 0 1 auto; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: inherit; }
+.title-separator { color: var(--faint); }
+.title-draft { color: var(--ink); white-space: nowrap; }
 /* Room for the native macOS traffic lights, which are painted over this bar and
    ignore page zoom: the preload sets --page-zoom so the room stays in screen points. */
 .window-controls-inset { width: calc(76px / var(--page-zoom, 1)); flex: none; }
 .title-identity { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .title-identity > strong { font-weight: 700; font-size: 13px; }
 .title-identity > span { font: 11px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.title-identity > i { font: 10px var(--mono); color: var(--fainter); font-style: normal; }
-.title-identity > em { font: 11px var(--mono); color: var(--muted); font-style: normal; }
 .title-spacer { flex: 1; }
 
 .chrome-button {
@@ -394,8 +398,8 @@ button > svg { pointer-events: none; }
   animation: start-screen-enter 220ms ease-out backwards;
 }
 .conversation-start-content > h1 {
-  margin: 0; color: var(--ink); font-size: clamp(25px, 3vw, 34px);
-  font-weight: 650; line-height: 1.15; letter-spacing: -.035em;
+  margin: 0; color: var(--ink); font-size: clamp(24px, 2.6vw, 30px);
+  font-weight: 500; line-height: 1.2; letter-spacing: -.02em;
 }
 .conversation-start-project {
   width: 100%; min-width: 0; margin: 22px 0 0; padding: 11px 13px;
@@ -448,10 +452,6 @@ button > svg { pointer-events: none; }
 @media (max-height: 620px) {
   .conversation-start-screen { align-items: flex-start; padding-top: 54px; }
 }
-.conversation-header {
-  flex: none; display: flex; align-items: center; gap: 12px;
-  height: 52px; padding: 0 var(--space-7); border-bottom: 1px solid var(--line);
-}
 .thread-runtime-banner {
   flex: none; display: flex; align-items: flex-start; gap: 10px; margin: 12px var(--space-7) 0; padding: 10px 12px;
   border: 1px solid var(--danger-line); border-radius: 10px; background: var(--danger-bg); color: var(--fail-ink);
@@ -465,7 +465,7 @@ button > svg { pointer-events: none; }
   min-width: 0; max-width: min(560px, 48vw); display: flex; align-items: center; gap: 6px;
   padding: 5px 7px; margin-left: -7px; border: 0; border-radius: 7px;
   background: transparent; color: var(--ink); cursor: pointer;
-  font: 700 15px var(--sans); letter-spacing: -.01em; text-align: left;
+  font: 600 14px var(--sans); text-align: left;
 }
 .thread-title-trigger:hover, .thread-title-trigger[aria-expanded="true"] { background: var(--raised); }
 .thread-title-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -643,6 +643,7 @@ button > svg { pointer-events: none; }
 
 .message-shell { position: relative; width: 100%; display: flex; flex-direction: column; align-items: flex-start; }
 .message-shell.user { align-items: flex-end; }
+.message-user-blocks { align-self: stretch; display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
 .message-shell.assistant::after {
   content: ""; position: absolute; z-index: 1; top: 100%; left: 0; right: 0; height: 18px;
 }
@@ -802,6 +803,8 @@ button > svg { pointer-events: none; }
   border: 1px solid var(--line-control); border-radius: 5px;
   padding: 1px 6px; color: var(--ink-2); word-break: break-word;
 }
+.markdown code.md-file-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: -1px; font: 500 12px var(--sans); word-break: normal; white-space: nowrap; }
+.md-file-chip > svg { color: var(--muted); }
 .message.user .markdown :not(pre) > code {
   background: var(--line-control); border-color: transparent; color: var(--ink-2);
 }
@@ -1122,33 +1125,30 @@ button > svg { pointer-events: none; }
 .attachment-remove:hover { background: var(--raised-hover); color: var(--ink); }
 .composer-attachment-error { padding: 7px 16px 0; color: var(--danger); font: 11px/1.4 var(--sans); }
 .composer-command-menu {
-  position: absolute; z-index: 30; left: 0; right: 0; bottom: calc(100% + 9px);
-  overflow: hidden; border: 1px solid var(--line-float); border-radius: 12px;
-  background: var(--overlay); box-shadow: 0 18px 52px var(--shadow), 0 1px 0 var(--edge-highlight) inset;
+  position: absolute; z-index: 30; left: 0; right: 0; bottom: calc(100% + 9px); max-height: 288px; overflow: auto;
+  padding: 4px; border: 1px solid var(--line-float); border-radius: 12px; background: var(--overlay); box-shadow: var(--elevation-2);
 }
 .composer-command-menu > button {
-  width: 100%; min-height: 49px; padding: 7px 10px; display: flex; align-items: center; gap: 10px;
-  border: 0; border-bottom: 1px solid var(--edge-highlight); background: transparent; color: var(--ink-2);
-  text-align: left; cursor: pointer;
+  width: 100%; height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 8px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); text-align: left; cursor: pointer; font: 12px var(--sans);
 }
-.composer-command-menu > button:last-of-type { border-bottom: 0; }
-.composer-command-menu > button.selected { background: linear-gradient(90deg, color-mix(in srgb, var(--acid) 19%, transparent), color-mix(in srgb, var(--acid) 3%, transparent) 72%); }
-.composer-command-mark {
-  width: 27px; height: 27px; flex: none; display: grid; place-items: center;
-  border: 1px solid var(--line-hover); border-radius: 7px; background: var(--chip);
-  color: var(--acid-text); font: 600 14px var(--mono);
+.composer-command-menu > button.selected { background: var(--raised); color: var(--ink); }
+.composer-command-menu > button > svg { flex: none; color: var(--muted); }
+.composer-command-menu strong { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink); }
+.composer-command-menu strong > i { margin-left: 6px; color: var(--faint); font: 400 11px var(--mono); font-style: normal; }
+.composer-command-menu small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.composer-command-source { flex: none; margin-left: auto; color: var(--faint); font: 11px var(--sans); font-style: normal; }
+.composer-command-empty { padding: 12px 10px; color: var(--faint); font: 12px var(--sans); }
+.composer-history-search {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 4px 8px; border-bottom: 1px solid var(--line-inset);
+  border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); font: 12px var(--mono);
 }
-.composer-command-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
-.composer-command-copy strong { overflow: hidden; color: var(--ink); font: 550 12px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-.composer-command-copy strong i { margin-left: 8px; color: var(--faint); font: 400 10px var(--mono); font-style: normal; }
-.composer-command-copy > small { overflow: hidden; color: var(--muted); font: 11px var(--sans); text-overflow: ellipsis; white-space: nowrap; }
-.composer-command-source {
-  flex: none; border: 1px solid var(--line-control); border-radius: 999px; padding: 2px 7px;
-  color: var(--faint); font: 500 10px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
-}
-.composer-command-source.skill { border-color: color-mix(in srgb, var(--acid-text) 24%, transparent); color: var(--acid-text); background: color-mix(in srgb, var(--acid) 5%, transparent); }
-.composer-command-source.prompt { border-color: color-mix(in srgb, var(--info-ink) 21%, transparent); color: var(--info-ink); background: color-mix(in srgb, var(--info) 4%, transparent); }
-.composer-command-empty { padding: 18px 14px; color: var(--faint); font: 11px var(--sans); text-align: center; }
+.composer-history-search > span { color: var(--muted); }
+.composer-history-search > b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.composer-history-search i, .composer-history-search > small { color: var(--faint); font-style: normal; }
+.composer-history-search > small { font-size: 10px; }
+.vim-badge { padding: 2px 6px; border-radius: var(--radius-xs); background: var(--raised); color: var(--ink); font: 600 10px var(--mono); letter-spacing: .5px; }
+.vim-badge.normal { background: var(--acid); color: var(--acid-ink); }
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
   color: var(--ink); padding: calc(13px * var(--density)) var(--space-6) var(--space-3); line-height: 1.55;
@@ -1157,8 +1157,17 @@ button > svg { pointer-events: none; }
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
 .composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) calc(10px * var(--density)) calc(10px * var(--density)) var(--space-5); }
-/* Chips wrap among themselves; attach and send keep their place on the right. */
-.composer-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+/* One row: blocks after the model drop their labels, then move into the overflow menu (ComposerFooterControls). */
+.composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.composer-block { flex: none; display: flex; align-items: center; }
+.composer-block:empty { display: none; }
+.composer-block[data-icon-only] .runtime-chip { gap: 0; font-size: 0; }
+.composer-block[data-icon-only] .runtime-chip .chev { display: none; }
+.composer-model-chip { flex: 0 1 auto; min-width: 64px; }
+.runtime-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.popover.composer-overflow { padding: 4px; }
+.composer-overflow-list { display: flex; flex-direction: column; gap: 2px; }
+.composer-overflow-list .runtime-chip { width: 100%; }
 .runtime-chip {
   display: flex; align-items: center; gap: 6px; border: 0; border-radius: 7px; white-space: nowrap;
   background: transparent; color: var(--ink-3);
@@ -1166,7 +1175,6 @@ button > svg { pointer-events: none; }
 }
 .runtime-chip:hover { background: var(--raised); color: var(--ink); }
 .runtime-chip { font-family: var(--sans); font-size: 12.5px; }
-.composer-toolbar .spacer { flex: 1; }
 .attach-button {
   width: 32px; height: 32px; flex: none; display: grid; place-items: center;
   border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer;
@@ -1267,21 +1275,26 @@ button > svg { pointer-events: none; }
   display: flex; min-height: 0;
   border-left: 1px solid var(--line); background: var(--rail);
 }
-.dock-resizer {
-  position: absolute; z-index: 20; inset: 0 auto 0 -4px; width: 8px;
-  cursor: col-resize; outline: none;
-}
-.dock-resizer::after {
-  content: ""; position: absolute; inset: 0 auto 0 3px; width: 1px;
-  background: transparent; transition: background .12s ease;
-}
-.dock-resizer:hover::after,
-.dock-resizer:focus-visible::after,
-body.dock-resizing .dock-resizer::after { background: var(--line-float); }
-body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-select: none !important; }
-.panel-stage { width: var(--dock-width); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.resize-handle { position: absolute; z-index: 20; outline: none; }
+.resize-handle[aria-orientation="vertical"] { top: 0; bottom: 0; width: 8px; cursor: col-resize; }
+.resize-handle[aria-orientation="horizontal"] { left: 0; right: 0; height: 8px; cursor: row-resize; }
+.resize-handle::after { content: ""; position: absolute; inset: 0 auto 0 3px; width: 1px; background: transparent; transition: background .12s ease; }
+.resize-handle[aria-orientation="horizontal"]::after { inset: 3px 0 auto; width: auto; height: 1px; }
+.resize-handle:hover::after, .resize-handle:focus-visible::after { background: var(--line-float); }
+body.resizing-col, body.resizing-col * { cursor: col-resize !important; user-select: none !important; }
+body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-select: none !important; }
+.dock-resizer { left: -4px; }
+.sidebar-resizer { position: relative; grid-area: 2 / 1 / 3 / 2; justify-self: end; margin-right: -4px; }
+.drawer-resizer { top: -4px; }
+.panel-stage { position: relative; width: var(--dock-width); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+/* A panel's host moves between dock, drawer and stage; neither it nor its slot takes a box. */
+.panel-host, .panel-slot { display: contents; }
+.workbench-drawer { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); background: var(--rail); }
+.panel-maximize { position: absolute; z-index: 5; top: 12px; right: 12px; }
+.panel-stage .panel-header, .workbench-drawer .panel-header { padding-right: 48px; }
+
 .app-shell.dock-closed .panel-stage { display: none; }
-.panel { display: none; flex: 1; min-height: 0; }
+.panel { display: none; flex: 1; min-width: 0; min-height: 0; }
 .panel.active { display: flex; }
 .panel-rail {
   width: 46px; flex: none; display: flex; flex-direction: column; align-items: center;
@@ -1559,42 +1572,42 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 
 /* ---------------------------------------------------------- model picker */
 
-.model-picker {
-  width: 640px; max-width: calc(100vw - 48px); height: 500px; max-height: calc(100vh - 128px);
-  display: flex; flex-direction: column;
-  border: 1px solid var(--line-float); border-radius: 12px;
-  background: var(--overlay); box-shadow: var(--elevation-3);
-  overflow: hidden; color: var(--ink); animation: fade-up .14s ease;
+/* A popover at its chip, as in T3 Code: no scrim. */
+.model-picker.popover {
+  width: 420px; max-width: calc(100vw - 16px); height: 380px; max-height: calc(100vh - 16px);
+  display: flex; flex-direction: column; padding: 0; overflow: hidden;
+  border-radius: 12px; background: var(--overlay); color: var(--ink);
 }
-.model-picker > footer {
-  flex: none; display: flex; align-items: center; gap: 14px; height: 36px;
+.model-picker-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.model-picker-content > footer {
+  flex: none; display: flex; align-items: center; gap: 14px; height: 30px;
   border-top: 1px solid var(--line); padding: 0 14px;
   font: 10px var(--mono); color: var(--faint);
 }
-.model-picker > footer .spacer { flex: 1; }
+.model-picker-content > footer .spacer { flex: 1; }
 .model-picker-body { flex: 1; min-height: 0; display: flex; }
 .model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 /* The rail: Pi's model providers, then every other runtime as one tab. */
 .model-rail {
-  width: 64px; flex: none; overflow: auto;
-  border-right: 1px solid var(--line); padding: 10px 0;
+  width: 52px; flex: none; overflow: auto;
+  border-right: 1px solid var(--line); padding: 8px 0;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
 .model-rail > button {
-  position: relative; width: 48px; height: 40px; display: grid; place-items: center;
+  position: relative; width: 40px; height: 36px; display: grid; place-items: center;
   border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .model-rail > button:hover { background: var(--hover-strong); color: var(--ink-2); }
 .model-rail > button.active { background: var(--raised); color: var(--acid-text); }
 .model-rail > button.elsewhere:not(.active) { opacity: .55; }
 .model-rail > button.active::before {
-  content: ""; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px;
+  content: ""; position: absolute; left: -6px; top: 9px; bottom: 9px; width: 3px;
   border-radius: 0 2px 2px 0; background: var(--acid);
 }
 .model-rail .rail-icon { margin-left: 0; }
 
-.model-search { height: 50px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
+.model-search { height: 44px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
 .model-search:focus-within { border-bottom-color: var(--acid); }
 .model-search > svg { color: var(--faint); flex: none; }
 .model-search > .model-provider-add {
@@ -2161,12 +2174,12 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-stage > header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); font-weight: 400; }
 .review-stage > header .text-button { display: inline-flex; align-items: center; gap: 4px; }
 .review-toolbar > .text-button { white-space: nowrap; }
-.review-shell .icon-button, .instrument-dock .icon-button {
+.review-shell .icon-button, .panel-host .icon-button, .panel-maximize {
   width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0;
   border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;
 }
-.review-shell .icon-button:hover:not(:disabled), .instrument-dock .icon-button:hover:not(:disabled) { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
-.review-shell .icon-button.compact, .instrument-dock .icon-button.compact { width: 24px; height: 24px; }
+.review-shell .icon-button:hover:not(:disabled), .panel-host .icon-button:hover:not(:disabled), .panel-maximize:hover { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.review-shell .icon-button.compact, .panel-host .icon-button.compact { width: 24px; height: 24px; }
 .review-toolbar { padding: 0 8px !important; gap: 6px !important; }
 .review-sidebar-toggle { width: 30px; height: 28px; flex: none; }
 .review-sidebar-toggle.active { background: var(--raised); color: var(--ink); }
@@ -2599,7 +2612,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 }
 
 @media (max-width: 1240px) {
-  .app-shell { --sidebar-width: 240px; --dock-width: 260px; }
+  .app-shell { --dock-width: 260px; }
 }
 @media (max-width: 1040px) {
   .app-shell { grid-template-columns: var(--sidebar-width) minmax(320px, 1fr) 46px; --dock-width: 0px; }
@@ -2610,14 +2623,6 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   .composer-zone { padding-inline: 12px; }
   .conversation-column.conversation-start .conversation-start-content > .conversation-composer-host > .composer-zone { padding-inline: 0; }
   .composer-toolbar { gap: 4px; padding-inline: 8px; }
-  .composer-toolbar > .spacer { display: none; }
-  .composer-toolbar > .runtime-chip,
-  .composer-toolbar > .composer-runtime-menu-anchor { flex: 1 1 0; min-width: 0; }
-  .composer-toolbar > .runtime-chip,
-  .composer-toolbar > .composer-runtime-menu-anchor > .runtime-chip {
-    width: 100%; min-width: 0; overflow: hidden; padding-inline: 4px;
-    gap: 4px; text-overflow: ellipsis; white-space: nowrap;
-  }
 }
 
 @media (max-width: 560px), (pointer: coarse) {
@@ -2632,16 +2637,18 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   .transcript-turn-navigation-preview { animation: none; }
 }
 
-/* Thinking blocks: collapsed by default, like Pi's terminal with Ctrl+T. */
-.message-thinking { margin: 2px 0 8px; }
+/* Thinking: one "Thought" row before the answer, folded in a focused transcript. */
+.message-thinking { margin: 0 0 8px; }
 .message-thinking > summary {
-  display: inline-flex; align-items: center; gap: 4px; cursor: pointer; list-style: none;
-  font-size: 12px; letter-spacing: 0.02em; color: var(--ink); opacity: 0.6; user-select: none;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 4px 0 2px; border-radius: 6px;
+  cursor: pointer; list-style: none; user-select: none; color: var(--muted); font: 13px var(--sans);
 }
+.message-thinking > summary:hover { background: var(--hover); color: var(--ink-2); }
 .message-thinking > summary::-webkit-details-marker { display: none; }
+.message-thinking > summary > svg { flex: none; opacity: .75; }
 .message-thinking > summary .chev { transition: transform 120ms ease; }
 .message-thinking[open] > summary .chev { transform: rotate(90deg); }
-.message-thinking-body { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-card); opacity: 0.85; font-size: 13px; }
+.message-thinking-body { margin: 4px 0 0 22px; max-height: 384px; overflow: auto; color: var(--ink-2); font-size: 13px; }
 .message-stamp { display: block; margin-top: 6px; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 /* Regions and status line: placement is core, content belongs to extensions. */
