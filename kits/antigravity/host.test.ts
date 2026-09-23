@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostExtension, HostRuntimeBackendProvider } from "tau/host-extension";
+import type { HostExtension, HostMcpConnection, HostRuntimeBackendProvider, RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createAntigravityHostExtension from "./host.js";
 import { AntigravitySessionStore } from "./session-store.js";
@@ -11,6 +11,8 @@ import type { AntigravitySessionLike } from "./thread-backend.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+
+const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 
 async function harness(installed: boolean) {
   const directory = await mkdtemp(join(tmpdir(), "tau-agy-host-"));
@@ -29,6 +31,7 @@ async function harness(installed: boolean) {
   const backends: HostRuntimeBackendProvider[] = [];
   const published: Array<{ name: string; payload: unknown }> = [];
   const loggedOut: string[] = [];
+  const connected: RuntimeSessionInfo[] = [];
   const openSession = vi.fn(async (): Promise<AntigravitySessionLike> => ({
     closed: false, sessionId: undefined, modeId: "default", stderr: "",
     logout: async () => { loggedOut.push("out"); },
@@ -45,8 +48,9 @@ async function harness(installed: boolean) {
     stateDir: join(directory, "state"),
     findCommand: () => undefined,
     registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
+    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async (thread) => { connected.push(thread); return TAU_SERVER; } },
   }, (event) => { if (event.type === "extension-event") published.push({ name: event.name, payload: event.payload }); });
-  return { registry, backends, openSession, published, directory, geminiDir, loggedOut };
+  return { registry, backends, openSession, published, directory, geminiDir, loggedOut, connected };
 }
 
 describe("Antigravity host half", () => {
@@ -85,6 +89,20 @@ describe("Antigravity host half", () => {
     expect((openSession.mock.calls as unknown as Array<[unknown]>)[0]![0]).toMatchObject({ threadId: "thread-1", cwd: "/repo", executable: { source: "override" } });
     expect((await provider!.listThreads()).map((thread) => thread.threadId)).toEqual(["thread-1"]);
     expect(await registry.invoke("tau.antigravity", "status")).toMatchObject({ installed: true, source: "override", signedIn: false });
+  });
+
+  it("starts a thread's session with the user's MCP servers and Tau's, and a sign-out with none of Tau's", async () => {
+    const { backends, openSession, connected, registry } = await harness(true);
+    const backend = await backends[0]!.open("thread-1", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) });
+    await backend.prompt({ text: "hi", delivery: "prompt" });
+    expect(connected).toEqual([{ sessionId: "thread-1", cwd: "/repo" }]);
+    expect((openSession.mock.calls as unknown as Array<[{ mcpServers: unknown }]>)[0]![0].mcpServers).toEqual([
+      { name: "pencil", command: "/opt/pencil", args: [], env: [] },
+      { type: "http", name: "tau", url: "http://127.0.0.1:4100/mcp", headers: [{ name: "Authorization", value: "Bearer secret" }] },
+    ]);
+    await registry.invoke("tau.antigravity", "logout");
+    expect(connected).toHaveLength(1);
+    expect((openSession.mock.calls as unknown as Array<[{ mcpServers: unknown }]>)[1]![0].mcpServers).toEqual([{ name: "pencil", command: "/opt/pencil", args: [], env: [] }]);
   });
 
   it("keeps the account's models for the next start, and reports the user's MCP servers and the release it can install", async () => {

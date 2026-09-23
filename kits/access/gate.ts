@@ -1,8 +1,11 @@
 import type { ExtensionFactory, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import type { AccessLevel } from "./protocol.js";
 
-/** Tools that can change the workspace or run arbitrary commands. */
-const MUTATING_TOOLS = new Set(["edit", "write", "bash", "powershell"]);
+/**
+ * Tools that can change the workspace or run arbitrary commands. Agents Kit's
+ * apply writes a sub-agent's work into this checkout, so it asks like an edit.
+ */
+const MUTATING_TOOLS = new Set(["edit", "write", "bash", "powershell", "tau_apply_thread_changes"]);
 
 const READ_ONLY_COMPUTER_USE_TOOLS = new Set([
   "list_apps",
@@ -43,6 +46,7 @@ export function isMutatingToolCall(
 /** Short human-readable description of what a tool is about to do. */
 export function approvalSummary(toolName: string, input: Record<string, unknown>): string {
   if (toolName === "bash" || toolName === "powershell") return String(input.command ?? "shell command");
+  if (toolName === "tau_apply_thread_changes") return `${input.discard === true ? "Discard" : "Apply"} the changes of thread ${String(input.threadId ?? "?")}`;
   const path = input.path;
   if (typeof path === "string") return path;
   return Object.keys(input).join(" · ") || toolName;
@@ -55,6 +59,29 @@ export interface AccessControl {
 }
 
 /**
+ * The one decision behind both doors — Pi's `tool_call` hook and the host's
+ * MCP gate — so a tool is gated the same whichever runtime calls it.
+ */
+export async function gateToolCall(
+  level: AccessLevel,
+  toolName: string,
+  input: Record<string, unknown>,
+  confirm: (title: string, message: string) => Promise<boolean>,
+  onBlocked: AccessControl["onBlocked"],
+): Promise<{ block: true; reason: string } | undefined> {
+  if (level === "full" || !isMutatingToolCall(toolName, input)) return undefined;
+  if (level === "read-only") {
+    const reason = `Blocked by Tau: this thread is read-only, so ${toolName} cannot run.`;
+    onBlocked(toolName, reason);
+    return { block: true, reason };
+  }
+  if (await confirm(`Approve ${toolName}?`, approvalSummary(toolName, input))) return undefined;
+  const reason = `Blocked by Tau: ${toolName} was not approved.`;
+  onBlocked(toolName, reason);
+  return { block: true, reason };
+}
+
+/**
  * Pi has no permission model of its own; every tool it is asked to run, runs.
  * This extension turns the access level into a gate on the `tool_call` hook, the
  * one hook allowed to block. Approvals are ordinary `ctx.ui.confirm` questions,
@@ -62,28 +89,12 @@ export interface AccessControl {
  */
 export function createAccessExtension(control: AccessControl): (pi: Parameters<ExtensionFactory>[0], session?: { sessionId: string }) => void {
   return (pi, session) => {
-    pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | undefined> => {
-      const level = control.level(session?.sessionId);
-      if (level === "full") return undefined;
-      const input = event.input as Record<string, unknown>;
-      if (!isMutatingToolCall(event.toolName, input)) return undefined;
-
-      if (level === "read-only") {
-        const reason = `Blocked by Tau: this thread is read-only, so ${event.toolName} cannot run.`;
-        control.onBlocked(event.toolName, reason);
-        return { block: true, reason };
-      }
-
-      const allowed = await ctx.ui.confirm(
-        `Approve ${event.toolName}?`,
-        approvalSummary(event.toolName, input),
-        { signal: ctx.signal },
-      );
-      if (allowed) return undefined;
-
-      const reason = `Blocked by Tau: ${event.toolName} was not approved.`;
-      control.onBlocked(event.toolName, reason);
-      return { block: true, reason };
-    });
+    pi.on("tool_call", (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | undefined> => gateToolCall(
+      control.level(session?.sessionId),
+      event.toolName,
+      event.input as Record<string, unknown>,
+      (title, message) => ctx.ui.confirm(title, message, { signal: ctx.signal }),
+      control.onBlocked,
+    ));
   };
 }

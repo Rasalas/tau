@@ -2,10 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HostExtension, HostRuntimeBackendProvider } from "tau/host-extension";
+import type { HostExtension, HostRuntimeBackendProvider, RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createClaudeCodeHostExtension from "./host.js";
-import { createClaudeCodeRuntimeAdapter } from "./runtime-adapter.js";
+import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 const directories: string[] = [];
@@ -32,6 +32,38 @@ async function harness(findCommand: (name: string) => string | undefined, fetch:
 }
 
 describe("Claude Code host half", () => {
+  it("opens a thread's session with Tau's MCP server for that thread", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "tau-claude-host-"));
+    directories.push(agentDir);
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: join(agentDir, "store.json") });
+    let opened!: (input: ClaudeSessionInput) => void;
+    const openedInput = new Promise<ClaudeSessionInput>((resolve) => { opened = resolve; });
+    adapter.openSession = (input) => {
+      opened(input);
+      // A session that never answers; the test only reads what it was opened with.
+      return { closed: false, busy: false, send: () => new Promise(() => undefined), close: async () => undefined, interrupt: async () => undefined, setPermissionMode: async () => undefined } as never;
+    };
+    const connected: RuntimeSessionInfo[] = [];
+    const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
+    const backends: HostRuntimeBackendProvider[] = [];
+    await activateHostKit(createClaudeCodeHostExtension({ fetch: offline, env: {}, adapter }), {
+      stateDir: join(agentDir, "state"),
+      findCommand: () => "/usr/local/bin/claude",
+      agentDir,
+      sessionsDir: join(agentDir, "sessions"),
+      skills: () => [],
+      registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
+      mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async (thread) => { connected.push(thread); return mcpServer; } },
+    });
+    const backend = await backends[0]!.open("tau-thread", "/repo", { resume: false }, {
+      projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }),
+    });
+    void backend.prompt({ text: "hi", delivery: "prompt" }).catch(() => undefined);
+    expect((await openedInput).mcpServer).toEqual(mcpServer);
+    expect(connected).toEqual([{ sessionId: "tau-thread", cwd: "/repo" }]);
+    await backend.dispose();
+  });
+
   it("registers its backend through the seam and publishes the skills as Claude commands", async () => {
     const { backends } = await harness(() => "/usr/local/bin/claude");
     const [provider] = backends;

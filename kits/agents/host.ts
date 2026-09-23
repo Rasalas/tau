@@ -12,6 +12,7 @@ import {
   writePersistedJson,
   type HostExtension,
   type HostExtensionContext,
+  type HostMcpTool,
   type RuntimeSessionInfo,
 } from "tau/host-extension";
 import {
@@ -343,7 +344,12 @@ export function createAgentsHostExtension(options: {
         // The child's half is written by `sessions.start` before its first
         // prompt, so the thread index finds it without opening the thread; the
         // parent's half is appended here, and `beforeOpen` reads either back.
-        services.thread(link.parentThreadId)?.appendEntry(AGENT_CHILD_ENTRY, { ...linkData(link), threadId: link.threadId });
+        try {
+          services.thread(link.parentThreadId)?.appendEntry(AGENT_CHILD_ENTRY, { ...linkData(link), threadId: link.threadId });
+        } catch (error) {
+          // A parent on another runtime keeps no journal; the links file is its record.
+          services.log("agents.parent-entry-skipped", error instanceof Error ? error.message : String(error));
+        }
         save();
       };
 
@@ -577,6 +583,109 @@ export function createAgentsHostExtension(options: {
         });
       };
 
+      /**
+       * The tools of one thread: Pi registers them in its runtime, and every
+       * other runtime reaches the same ones over the host's MCP endpoint.
+       */
+      const agentTools = (session: RuntimeSessionInfo): HostMcpTool[] => {
+        const threadId = session.sessionId;
+        return [
+          {
+            name: "tau_spawn_thread",
+            label: "Spawn thread",
+            description: [
+              "Start a new Tau thread in this project that works on a task on its own.",
+              "It appears in the Agents panel beside this conversation, has its own agent and its own transcript, and runs in the background.",
+              "By default it gets its own Git worktree, branched from this thread's current state, so it can write without colliding with this checkout; take its work back with tau_apply_thread_changes.",
+              `Returns immediately. Spawns beyond the running budget are queued with status "pending" and start as slots free; sub-agents may nest ${MAX_AGENT_DEPTH} levels deep.`,
+              "Read an answer with tau_wait_for_thread or tau_get_thread_status.",
+              "Pass agent to start it from one of the project's agent definitions in .tau/agents/: its instructions, model, runtime, tools and workspace apply.",
+            ].join(" "),
+            promptSnippet: "tau_spawn_thread: delegate a task to a new background thread in this project",
+            parameters: Type.Object({
+              prompt: Type.String({ description: "The first message for the new thread. Say what it should do and what to report back." }),
+              title: Type.Optional(Type.String({ description: "Title for the Agents panel; derived from the prompt when left out." })),
+              model: Type.Optional(Type.String({ description: "Model as provider/model-id; this thread's model when left out." })),
+              projectPath: Type.Optional(Type.String({ description: "A project this host already has open; this thread's project when left out." })),
+              workspace: Type.Optional(Type.String({
+                description: 'Where it works: "worktree" for its own checkout branched from this thread\'s state (the default in a Git repository), or "shared" to write in this very checkout — only safe for a thread that reads.',
+              })),
+              agent: Type.Optional(Type.String({ description: "Name of an agent definition in this project's .tau/agents/; a plain thread when left out." })),
+            }),
+            // Over MCP there is no Pi context, and a model of another runtime is not one to inherit.
+            execute: async (_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext | undefined) => {
+              const inherited = ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+              return toolResult(await spawn(session, params, inherited));
+            },
+          },
+          {
+            name: "tau_get_thread_status",
+            label: "Thread status",
+            description: "Report what a thread spawned from here is doing right now, and its latest answer.",
+            parameters: Type.Object({
+              threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
+            }),
+            execute: async (_toolCallId, params) => {
+              const handle = decodeThreadId(params);
+              return toolResult(await statusOf(requireChild(threadId, handle).id));
+            },
+          },
+          {
+            name: "tau_wait_for_thread",
+            label: "Wait for thread",
+            description: [
+              "Wait until a thread spawned from here finishes its current turn, then report its status and final answer.",
+              "A queued thread is waited for as well: the wait covers the time it spends pending.",
+              "It also returns early when that thread asks the user a question, which only the user can answer in that thread.",
+              "For a thread with its own worktree the answer also carries its branch and what it changed there.",
+            ].join(" "),
+            parameters: Type.Object({
+              threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
+              timeoutMs: Type.Optional(Type.Number({ description: "How long to wait; 10 minutes by default, 30 minutes at most." })),
+            }),
+            execute: async (_toolCallId, params, signal) => {
+              const handle = decodeThreadId(params);
+              const link = requireChild(threadId, handle);
+              const timeoutMs = decodeTimeout(params);
+              const outcome = await waitFor(link.id, timeoutMs, signal);
+              return toolResult({ ...await statusOf(link.id), ...(outcome === "timeout" ? { timedOut: true } : {}) });
+            },
+          },
+          {
+            name: "tau_apply_thread_changes",
+            label: "Apply thread changes",
+            description: [
+              "Take the work of a thread spawned from here into this checkout, and remove its worktree.",
+              "A thread that committed everything is merged; anything else is applied as one patch of its whole working copy.",
+              "Nothing is applied when it would collide: the error names the branch, which stays for you to merge by hand.",
+            ].join(" "),
+            parameters: Type.Object({
+              threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
+              discard: Type.Optional(Type.Boolean({ description: "Throw the work away instead of applying it; the worktree and its branch go too." })),
+            }),
+            execute: async (_toolCallId, params) => {
+              const link = requireChild(threadId, decodeThreadId(params));
+              const discard = (params as { discard?: unknown }).discard === true;
+              return toolResult(await settleWorkspace(link.id, discard ? "discarded" : "applied"));
+            },
+          },
+          {
+            name: "tau_list_threads",
+            label: "List spawned threads",
+            description: "List the threads spawned from this one, with what each is doing.",
+            parameters: Type.Object({}),
+            execute: async () => toolResult({
+              threads: book.childrenOf(threadId).map((link) => ({
+                threadId: link.threadId ?? link.id,
+                title: link.title,
+                status: link.status,
+                spawnedAt: link.spawnedAt,
+              })),
+            }),
+          },
+        ];
+      };
+
       const runtimeExtension = (pi: ExtensionAPI, session: RuntimeSessionInfo) => {
         const threadId = session.sessionId;
         // A dialog a spawned thread opens is answered by the user in that
@@ -626,106 +735,12 @@ export function createAgentsHostExtension(options: {
           return sections.length > 0 ? { systemPrompt: [event.systemPrompt, ...sections].join("\n\n") } : undefined;
         });
 
-        pi.registerTool({
-          name: "tau_spawn_thread",
-          label: "Spawn thread",
-          description: [
-            "Start a new Tau thread in this project that works on a task on its own.",
-            "It appears in the Agents panel beside this conversation, has its own agent and its own transcript, and runs in the background.",
-            "By default it gets its own Git worktree, branched from this thread's current state, so it can write without colliding with this checkout; take its work back with tau_apply_thread_changes.",
-            `Returns immediately. Spawns beyond the running budget are queued with status "pending" and start as slots free; sub-agents may nest ${MAX_AGENT_DEPTH} levels deep.`,
-            "Read an answer with tau_wait_for_thread or tau_get_thread_status.",
-            "Pass agent to start it from one of the project's agent definitions in .tau/agents/: its instructions, model, runtime, tools and workspace apply.",
-          ].join(" "),
-          promptSnippet: "tau_spawn_thread: delegate a task to a new background thread in this project",
-          parameters: Type.Object({
-            prompt: Type.String({ description: "The first message for the new thread. Say what it should do and what to report back." }),
-            title: Type.Optional(Type.String({ description: "Title for the Agents panel; derived from the prompt when left out." })),
-            model: Type.Optional(Type.String({ description: "Model as provider/model-id; this thread's model when left out." })),
-            projectPath: Type.Optional(Type.String({ description: "A project this host already has open; this thread's project when left out." })),
-            workspace: Type.Optional(Type.String({
-              description: 'Where it works: "worktree" for its own checkout branched from this thread\'s state (the default in a Git repository), or "shared" to write in this very checkout — only safe for a thread that reads.',
-            })),
-            agent: Type.Optional(Type.String({ description: "Name of an agent definition in this project's .tau/agents/; a plain thread when left out." })),
-          }),
-          execute: async (_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) => {
-            const inherited = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-            return toolResult(await spawn(session, params, inherited));
-          },
-        });
-
-        pi.registerTool({
-          name: "tau_get_thread_status",
-          label: "Thread status",
-          description: "Report what a thread spawned from here is doing right now, and its latest answer.",
-          parameters: Type.Object({
-            threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
-          }),
-          execute: async (_toolCallId, params) => {
-            const handle = decodeThreadId(params);
-            return toolResult(await statusOf(requireChild(threadId, handle).id));
-          },
-        });
-
-        pi.registerTool({
-          name: "tau_wait_for_thread",
-          label: "Wait for thread",
-          description: [
-            "Wait until a thread spawned from here finishes its current turn, then report its status and final answer.",
-            "A queued thread is waited for as well: the wait covers the time it spends pending.",
-            "It also returns early when that thread asks the user a question, which only the user can answer in that thread.",
-            "For a thread with its own worktree the answer also carries its branch and what it changed there.",
-          ].join(" "),
-          parameters: Type.Object({
-            threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
-            timeoutMs: Type.Optional(Type.Number({ description: "How long to wait; 10 minutes by default, 30 minutes at most." })),
-          }),
-          execute: async (_toolCallId, params, signal) => {
-            const handle = decodeThreadId(params);
-            const link = requireChild(threadId, handle);
-            const timeoutMs = decodeTimeout(params);
-            const outcome = await waitFor(link.id, timeoutMs, signal);
-            return toolResult({ ...await statusOf(link.id), ...(outcome === "timeout" ? { timedOut: true } : {}) });
-          },
-        });
-
-        pi.registerTool({
-          name: "tau_apply_thread_changes",
-          label: "Apply thread changes",
-          description: [
-            "Take the work of a thread spawned from here into this checkout, and remove its worktree.",
-            "A thread that committed everything is merged; anything else is applied as one patch of its whole working copy.",
-            "Nothing is applied when it would collide: the error names the branch, which stays for you to merge by hand.",
-          ].join(" "),
-          parameters: Type.Object({
-            threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
-            discard: Type.Optional(Type.Boolean({ description: "Throw the work away instead of applying it; the worktree and its branch go too." })),
-          }),
-          execute: async (_toolCallId, params) => {
-            const link = requireChild(threadId, decodeThreadId(params));
-            const discard = (params as { discard?: unknown }).discard === true;
-            return toolResult(await settleWorkspace(link.id, discard ? "discarded" : "applied"));
-          },
-        });
-
-        pi.registerTool({
-          name: "tau_list_threads",
-          label: "List spawned threads",
-          description: "List the threads spawned from this one, with what each is doing.",
-          parameters: Type.Object({}),
-          execute: async () => toolResult({
-            threads: book.childrenOf(threadId).map((link) => ({
-              threadId: link.threadId ?? link.id,
-              title: link.title,
-              status: link.status,
-              spawnedAt: link.spawnedAt,
-            })),
-          }),
-        });
+        for (const tool of agentTools(session)) pi.registerTool(tool);
       };
 
       const disposers = [
         services.registerRuntimeExtension("tau-agents", runtimeExtension),
+        services.mcp.registerTools(agentTools),
         services.registerTurnObserver({
           accepted: (sessionId) => { changed(sessionId, book.noteAccepted(sessionId)); },
           toolEnded: (sessionId, tool) => { changed(sessionId, book.noteTool(sessionId, tool.name)); },

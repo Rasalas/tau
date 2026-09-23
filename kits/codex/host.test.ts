@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { findExecutable, type HostExtension, type HostRuntimeBackendProvider } from "tau/host-extension";
+import { findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
-import { CodexAppServer } from "./app-server.js";
+import { CodexAppServer, spawnInput } from "./app-server.js";
 import createCodexHostExtension from "./host.js";
+import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { CodexSessionStore } from "./session-store.js";
 
@@ -24,17 +25,21 @@ async function caskInstall(root: string): Promise<string> {
   return join(root, "bin", "codex");
 }
 
+const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
+
 async function harness(options: { installed?: string | undefined; found?: boolean; env?: NodeJS.ProcessEnv } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-codex-host-"));
   directories.push(root);
   const path = await caskInstall(root);
   const backends: HostRuntimeBackendProvider[] = [];
   const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
+  const launches: Array<{ threadId?: string; args: readonly string[]; env: NodeJS.ProcessEnv }> = [];
+  const connected: RuntimeSessionInfo[] = [];
   const extension = createCodexHostExtension({
     env: options.env ?? {},
     fetch,
     readVersion: async () => "installed" in options ? options.installed : "0.154.0",
-    openSession: (input) => CodexAppServer.open({
+    openSession: (input) => (launches.push({ ...(input.threadId ? { threadId: input.threadId } : {}), args: input.args, env: input.env }), CodexAppServer.open({
       command: process.execPath,
       cwd: input.cwd,
       env: { ...process.env, CODEX_HOME: join(root, "home") },
@@ -43,16 +48,17 @@ async function harness(options: { installed?: string | undefined; found?: boolea
       onNotification: input.onNotification,
       onRequest: input.onRequest,
       onExit: input.onExit,
-    }),
+    })),
   });
   const registry = await activateHostKit(extension, {
+    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async (thread) => { connected.push(thread); return TAU_SERVER; } },
     findCommand: (name) => name === "codex" ? (options.found !== false ? path : undefined) : findExecutable(name),
     sessionsDir: join(root, "agent", "sessions"),
     stateDir: join(root, "state"),
     noteSubprocess: () => undefined,
     registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
   });
-  return { registry, provider: backends[0]!, root, fetch };
+  return { registry, provider: backends[0]!, root, fetch, launches, connected };
 }
 
 const context = { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) } as never;
@@ -63,6 +69,34 @@ describe("Codex host half", () => {
     expect(provider).toMatchObject({ kind: "codex", label: "Codex", modelProvider: "openai" });
     expect(provider.adapter.capabilities).toMatchObject({ skillInvocationDialect: "codex", interactiveApprovals: true, fileAttachments: true });
     expect(provider.composerCommands("/repo")).toEqual([]);
+  });
+
+  it("starts a thread's app-server with Tau's MCP server and its credential, and a probe without", async () => {
+    const { provider, registry, launches, connected, root } = await harness();
+    await registry.invoke("tau.codex", "status");
+    expect(launches).toEqual([expect.objectContaining({ args: [] })]);
+    expect(launches[0]!.env[TAU_MCP_TOKEN_VARIABLE]).toBeUndefined();
+
+    const backend = await provider.open("tau-thread", root, { resume: false }, context);
+    try {
+      await backend.prompt({ text: "Reply with one word.", delivery: "prompt", identity: { clientMessageId: "m1", clientTurnId: "t1" } });
+    } finally {
+      await backend.dispose();
+    }
+    expect(connected).toEqual([{ sessionId: "tau-thread", cwd: root }]);
+    const thread = launches[1]!;
+    expect(thread.threadId).toBe("tau-thread");
+    expect(thread.args).toEqual(codexMcpLaunch(TAU_SERVER).args);
+    expect(thread.args).toContain('mcp_servers.tau.url="http://127.0.0.1:4100/mcp"');
+    // The token travels in the environment, never on the command line.
+    expect(thread.args.join(" ")).not.toContain("secret");
+    expect(thread.env[TAU_MCP_TOKEN_VARIABLE]).toBe("secret");
+  });
+
+  it("puts the overrides after app-server, where the CLI reads them", () => {
+    const { args } = codexMcpLaunch(TAU_SERVER);
+    expect(spawnInput("codex", "/repo", {}, args).args).toEqual(["app-server", ...args]);
+    expect(spawnInput("codex", "/repo", {}).args).toEqual(["app-server"]);
   });
 
   it("reports the installed and newest version and the command of the package manager that owns the CLI", async () => {

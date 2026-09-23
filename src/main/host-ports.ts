@@ -23,6 +23,7 @@ import {
   updateExtensionSources,
   type InstallerOptions,
 } from "./extension-installer.js";
+import { McpEndpoint } from "./mcp-endpoint.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import { defaultGlobalThemesDir } from "./user-themes.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
@@ -30,6 +31,8 @@ import type {
   HostAttachedRuntime,
   HostClientServices,
   HostExtensionServices,
+  HostMcpToolGate,
+  HostMcpToolProvider,
   HostPlatform,
   HostPreparedThread,
   HostProjectFacts,
@@ -145,6 +148,8 @@ export interface ExtensionServicesPort {
   registerTurnObserver(observer: HostTurnObserver): () => void;
   pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void): () => void;
+  /** A yes/no question on one thread's dialog surface; aborting `signal` cancels it as `false`. */
+  confirmInThread(threadId: string, title: string, message: string, signal: AbortSignal): Promise<boolean>;
 }
 
 export function createAttachedSessionHost(port: AttachedSessionPort): AttachedSessionHost {
@@ -199,6 +204,8 @@ export interface HostExtensionSeam {
   permissionLevel(): RuntimePermissionLevel;
   /** Wraps a session manager for extensions; a runtime prepared for the file shares the manager. */
   sessionFile(manager: SessionManager): HostSessionFile;
+  /** The local MCP endpoint the `mcp` services front; the host closes it when it stops. */
+  readonly mcp: McpEndpoint;
 }
 
 export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtensionSeam {
@@ -209,6 +216,16 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   const configObservers = new Set<(change: HostConfigChange) => void>();
   const sessionFileManagers = new WeakMap<HostSessionFile, SessionManager>();
   let permissionLevelProvider: (() => RuntimePermissionLevel) | undefined;
+  const mcpProviders = new Set<HostMcpToolProvider>();
+  const mcpGates: HostMcpToolGate[] = [];
+  const mcp = new McpEndpoint({
+    providers: () => mcpProviders,
+    gates: () => mcpGates,
+    confirm: (threadId, title, message, signal) => port.confirmInThread(threadId, title, message, signal),
+    log: (label, detail) => port.log(label, detail),
+  });
+  // A closed runtime's process is gone; its credential goes with it.
+  port.registerTurnObserver({ closed: async (threadId) => { mcp.revoke(threadId); } });
 
   const sessionFile = (manager: SessionManager): HostSessionFile => {
     const path = manager.getSessionFile();
@@ -318,6 +335,20 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     },
     loadRuntimeExtension: (packageName) => loadRuntimeExtensionPackage(packageName),
     loadDependency: (packageName) => loadDependencyModule(packageName),
+    mcp: {
+      registerTools: (provider) => {
+        mcpProviders.add(provider);
+        return () => { mcpProviders.delete(provider); };
+      },
+      gate: (gate) => {
+        mcpGates.push(gate);
+        return () => {
+          const index = mcpGates.indexOf(gate);
+          if (index >= 0) mcpGates.splice(index, 1);
+        };
+      },
+      connect: (thread) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread),
+    },
     // `extensionServices` binds the extension id in front of these two.
     callClient: ((extensionId: string, command: string, input?: unknown) => port.platform.callClient
       ? port.platform.callClient(extensionId, command, input)
@@ -351,5 +382,6 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     // Without an access extension everything is allowed.
     permissionLevel: () => permissionLevelProvider?.() ?? "full",
     sessionFile,
+    mcp,
   };
 }

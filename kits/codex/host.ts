@@ -17,6 +17,7 @@ import {
 } from "tau/host-extension";
 import { CodexAppServer, type CodexAccount, type CodexModel } from "./app-server.js";
 import { codexSessionDirs, importCodexSessions, scanCodexSessions } from "./history-import.js";
+import { codexMcpLaunch } from "./mcp.js";
 import { CODEX_BACKEND_KIND, CODEX_HOST_EXTENSION_ID, CODEX_NPM_PACKAGE, MIN_CODEX_VERSION, ONBOARDING_KIT_ID, USAGE_KIT_ID, type CodexStatusReport } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CommandOverride } from "./command-override.js";
@@ -27,7 +28,7 @@ export { CODEX_BACKEND_KIND, CODEX_HOST_EXTENSION_ID };
 
 export interface CodexHostExtensionOptions {
   /** Opens a session (tests script one); the real one spawns `codex app-server`. */
-  openSession?(input: CodexSessionInput & { command: string; env: NodeJS.ProcessEnv }): Promise<CodexSessionLike>;
+  openSession?(input: CodexSessionInput & { command: string; args: readonly string[]; env: NodeJS.ProcessEnv }): Promise<CodexSessionLike>;
   sessionsDir?: string;
   env?: NodeJS.ProcessEnv;
   clientVersion?: string;
@@ -105,11 +106,15 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
 
       const spawnSession = async (input: CodexSessionInput): Promise<CodexSessionLike> => {
         const command = await assertSupported();
-        const sessionEnv = { ...env };
-        if (options.openSession) return options.openSession({ ...input, command, env: sessionEnv });
+        // A thread's session reaches Tau's tools; without the endpoint it still runs, only without them.
+        const mcp = input.threadId ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }).catch(() => undefined) : undefined;
+        const launch = mcp ? codexMcpLaunch(mcp) : { args: [], env: {} };
+        const sessionEnv = { ...env, ...launch.env };
+        if (options.openSession) return options.openSession({ ...input, command, args: launch.args, env: sessionEnv });
         services.noteSubprocess();
         const server = await CodexAppServer.open({
           command,
+          args: launch.args,
           cwd: input.cwd,
           env: sessionEnv,
           clientVersion: options.clientVersion ?? "0.0.0",

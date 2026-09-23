@@ -50,6 +50,8 @@ export interface CodexInitializeResult {
 
 export interface CodexSessionOptions {
   command: string;
+  /** `app-server` options before any subcommand, e.g. `-c` overrides. */
+  args?: readonly string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
   clientVersion: string;
@@ -66,8 +68,8 @@ const DEFAULT_TIMEOUTS = { handshakeMs: 60_000, requestMs: 60_000 };
 /** The CLI answers a resume of a thread it has no rollout for with this. */
 export const MISSING_THREAD = /no rollout found|thread[^\n]*(?:not found|does not exist|unknown)/iu;
 
-export function spawnInput(command: string, cwd: string, env: NodeJS.ProcessEnv): RpcSpawnInput {
-  return { command, args: ["app-server"], cwd, env };
+export function spawnInput(command: string, cwd: string, env: NodeJS.ProcessEnv, args: readonly string[] = []): RpcSpawnInput {
+  return { command, args: ["app-server", ...args], cwd, env };
 }
 
 export class CodexAppServer {
@@ -77,7 +79,7 @@ export class CodexAppServer {
 
   private constructor(private readonly options: CodexSessionOptions) {
     this.timeouts = { ...DEFAULT_TIMEOUTS, ...options.timeouts };
-    const process = (options.spawn ?? spawnRpcProcess)(spawnInput(options.command, options.cwd, options.env));
+    const process = (options.spawn ?? spawnRpcProcess)(spawnInput(options.command, options.cwd, options.env, options.args));
     this.connection = new RpcConnection({
       process,
       onNotification: options.onNotification,

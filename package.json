@@ -66,6 +66,7 @@
     "@earendil-works/pi-ai": "0.85.1",
     "@earendil-works/pi-coding-agent": "0.85.1",
     "@lobehub/icons-static-svg": "^1.94.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@tanstack/react-virtual": "^3.13.12",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

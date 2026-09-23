@@ -4,7 +4,7 @@ import { HostCommandError, type HostBackendThreadRecord, type HostExtension, typ
 import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
 import { CommandOverride } from "./command-override.js";
 import { installAntigravity, resolveAntigravity, type AntigravityExecutable } from "./install.js";
-import { geminiConfigDirectory, readMcpServers } from "./mcp.js";
+import { geminiConfigDirectory, readMcpServers, withTauServer, type AcpMcpServer } from "./mcp.js";
 import { browserCommand, linkUserSkills, prepareProfile, type AntigravityProfile } from "./profile.js";
 import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, USAGE_KIT_ID, type AntigravitySignInEvent } from "./protocol.js";
 import { ANTIGRAVITY_RELEASE_VERSION, releaseAssetFor } from "./release.js";
@@ -16,7 +16,7 @@ export { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID };
 
 export interface AntigravityHostExtensionOptions {
   /** Opens a session (tests script one); the real one spawns Google's ACP server. */
-  openSession?(input: AntigravitySessionInput & { executable: AntigravityExecutable; profile: AntigravityProfile }): Promise<AntigravitySessionLike>;
+  openSession?(input: AntigravitySessionInput & { executable: AntigravityExecutable; profile: AntigravityProfile; mcpServers: readonly AcpMcpServer[] }): Promise<AntigravitySessionLike>;
   sessionsDir?: string;
   clientVersion?: string;
   platform?: string;
@@ -61,8 +61,10 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const openSession = async (input: AntigravitySessionInput): Promise<AntigravitySessionLike> => {
         const executable = await resolveExecutable();
         const profile = await prepare();
-        if (options.openSession) return options.openSession({ ...input, executable, profile });
-        const mcpServers = await readMcpServers(geminiDir);
+        // A sign-out starts no session, so it has no thread to reach Tau's tools for.
+        const tau = input.authenticate === false ? undefined : await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }).catch(() => undefined);
+        const mcpServers = withTauServer(await readMcpServers(geminiDir), tau);
+        if (options.openSession) return options.openSession({ ...input, executable, profile, mcpServers });
         if (mcpServers.length > 0) services.log("antigravity.mcp", mcpServers.map((server) => server.name).join(", "));
         services.noteSubprocess();
         return AntigravitySession.open({

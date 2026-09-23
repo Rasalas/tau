@@ -125,6 +125,8 @@ const UNAVAILABLE = new Set([
   "registerRuntimeExtension",
   "loadRuntimeExtension",
   "loadDependency",
+  // Tools hand the host live `execute` functions, and a credential is a thread's key.
+  "mcp",
   // A window half belongs to an in-process kit: an isolated one has no id the
   // window registry would trust and no way to hold the view it creates.
   "callClient",
@@ -237,7 +239,12 @@ const context: WorkerHostExtensionContext = {
   invocationContextId: boot.invocationContextId,
   services: new Proxy(services, {
     get(target, prop, receiver) {
-      if (typeof prop === "string" && UNAVAILABLE.has(prop)) return () => unavailable(`services.${prop}`);
+      if (typeof prop === "string" && UNAVAILABLE.has(prop)) {
+        // A group such as `mcp` refuses through any of its members too.
+        return new Proxy(() => unavailable(`services.${prop}`), {
+          get: (_target, member) => typeof member === "string" ? () => unavailable(`services.${prop}.${member}`) : undefined,
+        });
+      }
       return Reflect.get(target, prop, receiver) as unknown;
     },
   }),

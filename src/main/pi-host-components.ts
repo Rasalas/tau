@@ -336,6 +336,18 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     registerTurnObserver: (observer) => turnObservers.add(observer),
     pinTranscriptEntries: () => { throw new Error("The extension seam owns transcript pins."); },
     decorateUiPrompt: (decorator) => extensionUi.addDecorator(decorator),
+    confirmInThread: async (threadId, title, message, signal) => {
+      if (signal.aborted) return false;
+      const id = `mcp-${randomBytes(6).toString("hex")}`;
+      const cancel = () => extensionUi.answer(id, { cancelled: true });
+      signal.addEventListener("abort", cancel, { once: true });
+      try {
+        const answer = await extensionUi.ask({ id, sessionId: threadId, kind: "confirm", title, message }, threads.get(threadId)?.runtime);
+        return "confirmed" in answer && answer.confirmed;
+      } finally {
+        signal.removeEventListener("abort", cancel);
+      }
+    },
   };
   const seam = createHostExtensionSeam(port);
   const hostExtensions = new HostExtensionRegistry(seam.services, (event) => emit(event));

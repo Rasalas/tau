@@ -8,6 +8,7 @@ import {
   parentLinkEntry,
   type GlobalHostEvent,
   type HostExtensionServices,
+  type HostMcpToolProvider,
   type HostThread,
   type HostThreadLifecycle,
   type HostThreadStartOptions,
@@ -55,6 +56,9 @@ function harness() {
   const observers: HostTurnObserver[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
+  const mcpProviders: HostMcpToolProvider[] = [];
+  /** Threads of a runtime without a journal, as a Codex parent is. */
+  const noJournal = new Set<string>();
   let nextThread = 0;
   let projectCwd = "/project";
 
@@ -76,7 +80,10 @@ function harness() {
       isIdle: () => found.idle,
       transcript: async () => found.messages,
       entries: () => found.entries,
-      appendEntry: (customType: string, data: unknown) => { found.entries.push({ type: "custom", customType, data }); },
+      appendEntry: (customType: string, data: unknown) => {
+        if (noJournal.has(threadId)) throw new Error("This runtime keeps no journal.");
+        found.entries.push({ type: "custom", customType, data });
+      },
     } as unknown as HostThread;
   };
 
@@ -147,6 +154,11 @@ function harness() {
     registerRuntimeExtension: (name, factory, extensionOptions) => { runtimeExtensions.push({ name, factory, ...extensionOptions }); return () => undefined; },
     loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     loadDependency: async () => { throw new Error("no dependencies in this test"); },
+    mcp: {
+      registerTools: (provider) => { mcpProviders.push(provider); return () => { mcpProviders.splice(mcpProviders.indexOf(provider), 1); }; },
+      gate: () => () => undefined,
+      connect: async () => undefined,
+    },
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
     observeConfigChanges: () => () => undefined,
@@ -200,9 +212,19 @@ function harness() {
 
   const state = async (): Promise<AgentsState> => await invoke("state") as AgentsState;
 
+  /** The same tools as a runtime that is not Pi reaches them over MCP: no Pi context at all. */
+  const mcpThread = (sessionId: string, cwd = "/project") => {
+    const tools = mcpProviders.flatMap((provider) => provider({ sessionId, cwd }));
+    return {
+      names: () => tools.map((tool) => tool.name),
+      call: async (name: string, params: unknown = {}) =>
+        (await tools.find((tool) => tool.name === name)!.execute("call-1", params as never, undefined, undefined, undefined as never)).details,
+    };
+  };
+
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { activate, services, threads, started, events, observers, lifecycles, runtime, open, notify, state, holdStarts, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  return { activate, services, threads, started, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -308,6 +330,29 @@ describe("Agents Kit", () => {
       "tau_apply_thread_changes",
       "tau_list_threads",
     ]);
+  });
+
+  it("offers the same tools over MCP, bound to the thread the credential names", async () => {
+    const bench = await activated();
+    bench.open("codex-parent");
+    bench.noJournal.add("codex-parent");
+    const parent = bench.mcpThread("codex-parent");
+    expect(parent.names()).toEqual(bench.runtime("parent").names());
+
+    // No Pi context: nothing to inherit a model from, and no journal to write the child's link into.
+    const spawned = await parent.call("tau_spawn_thread", { prompt: "Reply with BETA" }) as { threadId: string };
+    expect(spawned.threadId).toBe("child-1");
+    expect(bench.started).toEqual([expect.not.objectContaining({ model: expect.anything() })]);
+    expect(bench.started[0]!.parent?.threadId).toBe("codex-parent");
+    expect(await parent.call("tau_list_threads")).toEqual({ threads: [expect.objectContaining({ threadId: "child-1" })] });
+
+    // Another thread sees none of it and may not touch it.
+    const stranger = bench.mcpThread("parent");
+    expect(await stranger.call("tau_list_threads")).toEqual({ threads: [] });
+    await expect(stranger.call("tau_get_thread_status", { threadId: "child-1" })).rejects.toThrow("is not a thread this one spawned");
+
+    await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID);
+    expect(bench.mcpProviders).toEqual([]);
   });
 
   it("spawns a thread in the caller's project and records the link on both sessions", async () => {

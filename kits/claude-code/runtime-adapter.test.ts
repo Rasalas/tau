@@ -90,6 +90,18 @@ describe("Claude Code runtime adapter", () => {
     expect(claudeQueryOptions({ ...plan, hooks: { canUseTool } })).not.toHaveProperty("onUserDialog");
   });
 
+  it("adds Tau's MCP server beside the user's own and leaves its approvals to Tau's gate", () => {
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/claude", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    expect(claudeQueryOptions(plan)).not.toHaveProperty("mcpServers");
+    const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
+    expect(claudeQueryOptions({ ...plan, mcpServer })).toMatchObject({
+      mcpServers: { tau: { type: "http", url: "http://127.0.0.1:4100/mcp", headers: { Authorization: "Bearer secret" } } },
+      allowedTools: ["mcp__tau"],
+      // The user's own servers still come from their settings.
+      settingSources: ["user", "project", "local"],
+    });
+  });
+
   it("collects the main loop's text, skips sub-agent frames and the resume handshake", async () => {
     async function* frames(): AsyncGenerator<SDKMessage> {
       yield init();
