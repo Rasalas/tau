@@ -184,8 +184,11 @@ come from the page when the key goes down. Mark an element
 `<name>Focus` holds while the keyboard is inside it, `<name>Open` while one is
 drawn (`src/renderer/keybinding-context.ts`). Core marks `composer`, `stage`
 and `modelPicker`; Terminal Kit marks `terminal`, Files Kit's editor `editor`
-and Preview Kit's panel `preview`. A clause Tau cannot read throws at
-registration.
+and Preview Kit's panel `preview`. `editableFocus` (new in API 1.11.0) is the
+one context nothing marks: it holds while a text field, a select or anything
+`contenteditable` has the keyboard, so a chord native editing shares yields to
+it — Thread Rail's `mod+z` is `"!terminalFocus && !editableFocus"`, as in T3
+Code. A clause Tau cannot read throws at registration.
 
 A clause that needs a context — false when nothing is focused or open, like
 `terminalFocus` but unlike `!terminalFocus` — makes the binding *specific*. On
@@ -219,7 +222,10 @@ palette: `thread-title` puts it in the thread title's menu, and `file-tab`
 (new in API 1.10.0) draws it as a button in the header of a file tab on the
 stage. A `file-tab` command reads the file from `actions.activeStageTab()` —
 the tab the stage shows, of any kind — so the same command also works from
-the palette. Files Kit's "Edit file" is the shipped caller.
+the palette. Files Kit's "Edit file" is the shipped caller. A command marked
+`destructive` (new in API 1.11.0) is drawn in the danger colour and, in the
+title menu, in a section of its own at the end — Thread Rail's "Delete
+thread"; a `MenuItem` takes the same `destructive` flag.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -988,6 +994,14 @@ surface (the one Pi's extension dialogs use); aborting the thread answers it as
 cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005);
 `kits/codex/` shows the same seam over a CLI's own JSON-RPC server.
 
+A backend whose threads can be deleted answers two more members of its
+provider (new in API 1.11.0): `removeThread(threadId)` takes the thread's shell
+record out of the backend's own store and answers it as plain JSON, which the
+host keeps in its trash, and `restoreThread(threadId, record)` puts that record
+back. Only the shell goes — the program's own history (a CLI's session files)
+is never touched. A backend without the pair refuses deletion. Codex, the
+Agent SDK runtime and Antigravity have it.
+
 `complete(request, model?)` asks a model for one short answer — a thread
 title, a branch name, a commit message. It runs on the user's own model
 configuration in `~/.pi/agent` and takes the model the extension names, or
@@ -1047,13 +1061,29 @@ optional; the host awaits them in registration order.
 | `beforeOpen(session)` | before a runtime is built for a session file. |
 | `afterFork(source, target)` | after a fork wrote its session file, before that file's runtime opens. |
 | `beforeActivate(thread)` | before a thread goes on screen; may answer with a `{ commit, rollback }` transaction (in-process only). |
-| `threadDeleted(sessionId, cwd)` | the thread is gone for good: its session file was removed, or is about to be. Runtime eviction is **not** this — that is `HostTurnObserver.closed`. |
+| `threadDeleted(sessionId, cwd)` | the thread is gone for good: the host's trash purged it, or its session file disappeared. A thread in the trash is not gone yet. Runtime eviction is **not** this — that is `HostTurnObserver.closed`. |
 | `sweep(sweep)` | a periodic pass over every persisted session the host indexes. |
 
-`threadDeleted` runs once per deletion, whether the host deleted the thread
-itself (`services.sessions.remove(sessionId)`, the verb behind a rail's
-"delete thread") or a sweep found the file gone. A throwing hook is reported
-and the others still run: the thread is gone either way.
+`threadDeleted` runs once per deletion, whether the host purged the thread
+from its trash or a sweep found the file gone. A throwing hook is reported and
+the others still run: the thread is gone either way.
+
+Deleting is two steps (new in API 1.11.0). `services.sessions.remove(sessionId)`
+(`sessions`), the verb behind a rail's "delete thread", moves the thread into
+the host's trash under `<userData>/thread-trash/`: its runtime is released, a
+Pi session file moves there, a thread of another backend hands over its shell
+record (`removeThread` on its provider), and the index is republished without
+it. The thread on screen, a running one and one Pi's terminal holds are
+refused. `sessions.restore(sessionId)` puts it back where it was — refused if
+another file took its place — and `sessions.trash()` lists what can still be
+restored (`HostTrashedThread`: id, project, title, backend, `deletedAt`,
+`purgeAt`). The host purges an entry 30 days after the deletion
+(`TAU_THREAD_TRASH_RETENTION_MS` shortens that for a test instance) or when
+`sessions.purge(sessionId)` asks, removes only what is inside the trash, and
+only then runs `threadDeleted`. Keep what belongs to a thread until that hook:
+Thread Rail keeps its meta, so a restored thread comes back where it was;
+Composer Context drops the thread's attachments; Workspace Kit's
+"last thread deleted" rule counts a thread in the trash as still there.
 
 `HostTurnObserver` brackets the turns of every thread the host drives:
 `accepted`, `prepare`, `cancelled`, `ended`, `pending`, `reset`, `closed` and
@@ -1453,7 +1483,7 @@ the port — nothing that hands out a live object. From
 | `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback) |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
-| `sessions.remove` | |
+| `sessions.remove`, `sessions.restore`, `sessions.trash`, `sessions.purge` | |
 | `observeConfigChanges` (one change per call, plain data) | |
 
 Everything on the left is asynchronous, even members that are synchronous

@@ -29,6 +29,8 @@ function usageOrUndefined(usage: UiThreadUsage | undefined): UiThreadUsage | und
 }
 
 export interface ThreadIndexPort {
+  /** A thread in the trash is neither listed nor announced as deleted until it is purged. */
+  inTrash?(sessionId: string): boolean;
   cwd(): string;
   safeMode: boolean;
   /** PI_CODING_AGENT_SESSION_DIR, or undefined for Pi's own sessions layout. */
@@ -177,7 +179,9 @@ export class ThreadIndex {
     const external = await this.externalShells();
     const byId = new Map(scanned.map((session) => [session.id, session] as const));
     for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
-    const next = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveThreadIds());
+    const trashed = (id: string) => this.port.inTrash?.(id) === true;
+    const next = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveThreadIds())
+      .filter((session) => !trashed(session.id));
     this.sessions = next;
     await this.sweep(sessionInfos, previous, next);
     return { previous, next };
@@ -208,7 +212,7 @@ export class ThreadIndex {
     const nextIds = new Set(next.map((session) => session.id));
     const liveIds = this.liveThreadIds();
     const deleted = previous
-      .filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path))
+      .filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path) && !this.port.inTrash?.(session.id))
       .map((session) => ({ sessionId: session.id, cwd: session.projectPath }));
     for (const threadId of [...this.parents.keys()]) {
       if (!nextIds.has(threadId) && !liveIds.has(threadId)) this.parents.delete(threadId);

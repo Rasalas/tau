@@ -1,7 +1,7 @@
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
-import type { DirectoryPickerOptions, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions } from "./host-extensions.js";
+import type { DirectoryPickerOptions, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
 
 /**
  * The wire between the main process and an isolated host extension. Only plain
@@ -144,8 +144,11 @@ export interface WorkerHostServices {
     read(path: string): Promise<WorkerSessionSnapshot>;
     /** Starts a thread for a project and delivers its first prompt, off screen. */
     start(options: HostThreadStartOptions): Promise<HostStartedThread>;
-    /** Deletes a persisted thread; the host runs every `threadDeleted` hook for it. */
+    /** Moves a thread to the trash; `threadDeleted` runs when it is purged. */
     remove(sessionId: string): Promise<void>;
+    restore(sessionId: string): Promise<void>;
+    trash(): Promise<HostTrashedThread[]>;
+    purge(sessionId: string): Promise<void>;
     /** Runs `work` inside the host's thread lifecycle lock, one round trip wide. */
     exclusive<T>(work: () => Promise<T> | T): Promise<T>;
   };

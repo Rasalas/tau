@@ -38,6 +38,7 @@ import type {
   HostStartedThread,
   HostThread,
   HostThreadStartOptions,
+  HostTrashedThread,
   HostConfigChange,
   HostThreadLifecycle,
   HostTurnObserver,
@@ -133,8 +134,11 @@ export interface ExtensionServicesPort {
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   refreshThreadIndex(): Promise<ThreadIndexSnapshot>;
-  /** Deletes a persisted thread and runs the `threadDeleted` hooks for it. */
+  /** Moves a persisted thread to the trash; the `threadDeleted` hooks run when it is purged. */
   removeThread(sessionId: string): Promise<void>;
+  restoreThread(sessionId: string): Promise<void>;
+  purgeThread(sessionId: string): Promise<void>;
+  trashedThreads(): Promise<HostTrashedThread[]>;
   /** The clients attached to this host, for the seam's ungated `clients` member. */
   readonly clients: HostClientServices;
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
@@ -282,6 +286,9 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       ),
       start: (options) => port.startThread(options),
       remove: (sessionId) => port.removeThread(sessionId),
+      restore: (sessionId) => port.restoreThread(sessionId),
+      trash: () => port.trashedThreads(),
+      purge: (sessionId) => port.purgeThread(sessionId),
       exclusive: (work) => port.exclusive(work),
       refreshIndex: async () => ({
         version: HOST_PROTOCOL_VERSION,

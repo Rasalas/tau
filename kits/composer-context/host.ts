@@ -123,6 +123,14 @@ export function createComposerContextHostExtension(): HostExtension {
     activate(context: HostExtensionContext) {
       const { services } = context;
       const attachmentsRoot = join(services.stateDir, "attachments");
+      // A thread purged from the host's trash takes its attachments with it; one in the trash keeps them.
+      const stopLifecycle = services.registerThreadLifecycle({
+        threadDeleted: async (sessionId) => {
+          const folder = attachmentFolder(`session:${sessionId}`);
+          if (folder === "draft") return;
+          await rm(join(attachmentsRoot, folder), { recursive: true, force: true });
+        },
+      });
       const fileLists = new Map<string, { at: number; files: Promise<string[]> }>();
       const pullRequests = new Map<string, { at: number; list: Promise<PullRequestSummary[]> }>();
 
@@ -235,6 +243,7 @@ export function createComposerContextHostExtension(): HostExtension {
         list.catch(() => pullRequests.delete(cwd));
         return list;
       });
+      return () => { stopLifecycle(); };
     },
   };
 }

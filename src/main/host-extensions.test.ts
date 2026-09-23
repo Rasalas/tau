@@ -42,7 +42,7 @@ function services(): HostExtensionServices & { logs: string[] } {
       open: () => { throw new Error("no sessions in this test"); },
       prepare: async () => { throw new Error("no sessions in this test"); },
       start: async () => { throw new Error("no threads in this test"); },
-      remove: async () => undefined,
+      remove: async () => undefined, restore: async () => undefined, trash: async () => [], purge: async () => undefined,
       exclusive: (work) => work(),
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },

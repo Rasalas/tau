@@ -83,6 +83,14 @@ export interface HostRuntimeBackendProvider {
   readonly modelProvider?: string;
   /** Every thread the backend persisted, for the index. */
   listThreads(): Promise<HostBackendThreadRecord[]>;
+  /**
+   * Takes a thread's shell out of the backend's own store and answers it as
+   * plain JSON for the host's trash; the program's own history stays. Without
+   * this pair the backend's threads cannot be deleted.
+   */
+  removeThread?(threadId: string): Promise<unknown>;
+  /** Puts back what `removeThread` answered. */
+  restoreThread?(threadId: string, record: unknown): Promise<void>;
   lookup(threadId: string): Promise<HostBackendThreadRecord | undefined>;
   /** Opens a thread's backend; `resume` false creates it. */
   open(threadId: string, cwd: string, options: { resume: boolean }, context: HostBackendOpenContext): Promise<ThreadRuntimeBackend>;
@@ -176,6 +184,17 @@ export interface HostStartedThread {
   title?: string;
 }
 
+/** A deleted thread waiting in the trash. */
+export interface HostTrashedThread {
+  sessionId: string;
+  cwd: string;
+  title: string;
+  backendKind: ThreadBackendKind;
+  deletedAt: number;
+  /** When the host removes it for good. */
+  purgeAt: number;
+}
+
 /** Session files the host can reach for an extension that keeps state beside them. */
 export interface HostSessionServices {
   /** Every persisted session the host knows, across projects. */
@@ -190,12 +209,22 @@ export interface HostSessionServices {
    */
   start(options: HostThreadStartOptions): Promise<HostStartedThread>;
   /**
-   * Removes a persisted thread: its runtime is released, its session file is
-   * deleted and `threadDeleted` runs for every hook before the index is
-   * republished. This is the verb behind a rail's "delete thread"; a thread
-   * the host is still running one is refused.
+   * Deletes a persisted thread into the trash, the verb behind a rail's
+   * "delete thread": its runtime is released, a Pi session file moves to
+   * `<userData>/thread-trash/`, a thread of another backend hands its shell
+   * record over (`removeThread` on its provider), and the index is
+   * republished without it. Nothing is gone yet: `restore` puts it back, and
+   * only the purge after the retention period (30 days;
+   * `TAU_THREAD_TRASH_RETENTION_MS` for a test) or `purge` removes it and runs
+   * `threadDeleted`. The thread on screen and a running one are refused.
    */
   remove(sessionId: string): Promise<void>;
+  /** Puts a deleted thread back where it was and republishes the index. */
+  restore(sessionId: string): Promise<void>;
+  /** The deleted threads that can still be restored, newest first. */
+  trash(): Promise<HostTrashedThread[]>;
+  /** Removes a deleted thread for good now and runs `threadDeleted`. */
+  purge(sessionId: string): Promise<void>;
   /** Serializes with the host's own thread lifecycle work (open, switch, fork). */
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   /** Rescans persisted sessions and returns the index update. The sweep runs inside, so release any lease first. */
@@ -237,8 +266,9 @@ export interface HostThreadLifecycle {
    */
   afterWorkspaceClose?(cwd: string, reason: HostWorkspaceCloseReason): Promise<void>;
   /**
-   * A thread is gone for good: its session file was removed, or is about to
-   * be. Runtime eviction is not deletion — `HostTurnObserver.closed` is that.
+   * A thread is gone for good: purged from the trash, or its session file
+   * disappeared. A thread in the trash is not gone yet. Runtime eviction is
+   * not deletion — `HostTurnObserver.closed` is that.
    */
   threadDeleted?(sessionId: string, cwd: string): Promise<void>;
   /** Before a runtime is built for a session file. */

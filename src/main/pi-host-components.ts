@@ -57,6 +57,7 @@ import { RuntimePrewarm } from "./runtime-prewarm.js";
 import { PromptPreparation } from "./prompt-preparation.js";
 import { TurnDelivery } from "./turn-delivery.js";
 import { TurnsInFlight } from "./turns-in-flight.js";
+import { ThreadTrash } from "./thread-trash.js";
 import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
 import { ProjectHistory } from "./project-history.js";
@@ -126,6 +127,8 @@ export interface PiHostDeps {
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
   removeThread(sessionId: string): Promise<void>;
+  restoreThread(sessionId: string): Promise<void>;
+  purgeThread(sessionId: string): Promise<void>;
   pendingHostExtensions(): readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
 }
 
@@ -152,6 +155,8 @@ export interface PiHostComponents {
   readonly clients: HostClientRegistry;
   readonly toolOwners: Map<string, string>;
   readonly index: ThreadIndex;
+  /** Deleted threads until their retention runs out. */
+  readonly trash: ThreadTrash;
   readonly publication: HostPublication;
   readonly seam: HostExtensionSeam;
   readonly hostExtensions: HostExtensionRegistry;
@@ -243,7 +248,17 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     requireBackend: (kind) => deps.requireBackend(kind),
     permissionLevel: () => seam.permissionLevel(),
   });
+  const trash = new ThreadTrash({
+    backend: (kind) => seam.backends.get(kind),
+    threadDeleted: (sessionId, cwd) => lifecycle.run("purge-thread", () => threadLifecycle.threadDeleted(sessionId, cwd)),
+    log: (label, detail) => deps.log(label, detail),
+  }, {
+    // Without a userData folder (tests), a trash of this run only.
+    dir: options.threadTrashDir ?? join(tmpdir(), `tau-thread-trash-${randomBytes(6).toString("hex")}`),
+    ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),
+  });
   const index = new ThreadIndex({
+    inTrash: (sessionId) => trash.has(sessionId),
     cwd: () => deps.getCwd(),
     safeMode,
     sessionsDir: sessionsDirOverride,
@@ -311,6 +326,9 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     prepareThread: (session, manager, prepareOptions) => deps.prepareThread(session, manager, prepareOptions),
     startThread: (startOptions) => deps.startThread(startOptions),
     removeThread: (sessionId) => deps.removeThread(sessionId),
+    restoreThread: (sessionId) => deps.restoreThread(sessionId),
+    purgeThread: (sessionId) => deps.purgeThread(sessionId),
+    trashedThreads: async () => { await trash.load(); return trash.list(); },
     clients,
     exclusive: (work) => lifecycle.run("extension.exclusive", work),
     refreshThreadIndex: () => index.refresh("none").catch(() => index.snapshot()),
@@ -485,6 +503,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     clients,
     toolOwners,
     index,
+    trash,
     publication,
     seam,
     hostExtensions,

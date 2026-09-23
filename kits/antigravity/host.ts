@@ -97,6 +97,8 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         adapter,
         modelProvider: "google",
         listThreads: async () => (await store.list()).map(record),
+        removeThread: (threadId) => store.take(threadId),
+        restoreThread: (threadId, value) => store.put(threadId, value),
         lookup: async (threadId) => {
           const entry = await store.get(threadId);
           return entry ? record(entry) : undefined;

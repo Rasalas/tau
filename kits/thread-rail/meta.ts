@@ -33,6 +33,7 @@ export function decodeMeta(value: unknown): ThreadMeta | undefined {
     ...(text(raw.siblingGroupId) ? { siblingGroupId: text(raw.siblingGroupId) } : {}),
     ...(text(raw.model) ? { model: text(raw.model) } : {}),
     ...(number(raw.activityAt) !== undefined ? { activityAt: number(raw.activityAt) } : {}),
+    ...(number(raw.archivedAt) !== undefined ? { archivedAt: number(raw.archivedAt) } : {}),
   };
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
@@ -89,8 +90,9 @@ export function isSnoozed(meta: ThreadMeta | undefined, now: number): boolean {
   return meta?.snoozedUntil !== undefined && meta.snoozedUntil > now;
 }
 
-/** The section a thread is drawn in: settled beats snoozed, snoozed beats pinned. */
+/** The section a thread is drawn in: archived beats settled, settled beats snoozed, snoozed beats pinned. */
 export function sectionOf(meta: ThreadMeta | undefined, now: number): RailSectionId {
+  if (meta?.archivedAt !== undefined) return "archived";
   if (meta?.settledAt !== undefined) return "settled";
   if (isSnoozed(meta, now)) return "snoozed";
   return meta?.pinned ? "pinned" : "active";
@@ -123,7 +125,7 @@ function withSiblingsTogether(threads: UiSession[], state: RailState): UiSession
  * snoozed threads by when they wake; settled threads latest first.
  */
 export function railSections(threads: readonly UiSession[], state: RailState, now: number): RailSections {
-  const sections: RailSections = { pinned: [], active: [], snoozed: [], settled: [] };
+  const sections: RailSections = { pinned: [], active: [], snoozed: [], settled: [], archived: [] };
   for (const thread of threads) sections[sectionOf(state.threads[thread.id], now)].push(thread);
   const meta = (thread: UiSession): ThreadMeta => state.threads[thread.id] ?? {};
   const rank = (value: number | undefined) => value ?? Number.NEGATIVE_INFINITY;
@@ -133,6 +135,7 @@ export function railSections(threads: readonly UiSession[], state: RailState, no
   sections.active = withSiblingsTogether(sections.active, state);
   sections.snoozed.sort((left, right) => (meta(left).snoozedUntil ?? 0) - (meta(right).snoozedUntil ?? 0));
   sections.settled.sort((left, right) => (meta(right).settledAt ?? 0) - (meta(left).settledAt ?? 0) || byRecency(left, right));
+  sections.archived.sort((left, right) => (meta(right).archivedAt ?? 0) - (meta(left).archivedAt ?? 0) || byRecency(left, right));
   return sections;
 }
 
@@ -158,6 +161,31 @@ export function snoozePatch(until: number): ThreadMetaPatch {
 }
 
 export const WAKE_PATCH: ThreadMetaPatch = { snoozedUntil: null };
+
+/** Archiving keeps pin, snooze and shelf as they were, so unarchiving brings the thread back to its place. */
+export function archivePatch(now: number): ThreadMetaPatch {
+  return { archivedAt: now };
+}
+
+export const UNARCHIVE_PATCH: ThreadMetaPatch = { archivedAt: null };
+
+/** The patch that takes `patch` back: every field it touched, as it was before. */
+export function inversePatch(before: ThreadMeta | undefined, patch: ThreadMetaPatch): ThreadMetaPatch {
+  const inverse: Record<string, unknown> = {};
+  for (const key of Object.keys(patch) as Array<keyof ThreadMeta>) inverse[key] = before?.[key] ?? null;
+  return inverse as ThreadMetaPatch;
+}
+
+/**
+ * Where the reader goes when the thread on screen is deleted: the newest other
+ * thread of its project, else the first other one the rail shows (T3 Code
+ * opens the newest thread of the project).
+ */
+export function fallbackThread(displayed: readonly UiSession[], leaving: UiSession): UiSession | undefined {
+  const others = displayed.filter((thread) => thread.id !== leaving.id);
+  const sameProject = others.filter((thread) => thread.projectPath === leaving.projectPath).sort((left, right) => right.modifiedAt - left.modifiedAt);
+  return sameProject[0] ?? others[0];
+}
 
 export interface RailDrop {
   sectionId: string;
@@ -239,7 +267,7 @@ function lastActivity(thread: SweepThread, meta: ThreadMeta | undefined): number
 
 function eligible(thread: SweepThread, state: RailState, running: ReadonlySet<string>, now: number): boolean {
   const meta = state.threads[thread.id];
-  if (meta?.settledAt !== undefined || running.has(thread.id) || isSnoozed(meta, now)) return false;
+  if (meta?.settledAt !== undefined || meta?.archivedAt !== undefined || running.has(thread.id) || isSnoozed(meta, now)) return false;
   const activity = lastActivity(thread, meta);
   // A thread the user took off the shelf waits for new work before any rule applies again.
   return !(meta?.keptAt !== undefined && (activity === undefined || activity <= meta.keptAt));

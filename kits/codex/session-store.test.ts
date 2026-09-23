@@ -41,4 +41,17 @@ describe("CodexSessionStore", () => {
     await expect(second.appendMessages("tau-1", "/repo", [{ id: "x", role: "user", text: "Different", timestamp: 3, clientMessageId: "m1" }])).rejects.toThrow("different message");
     expect(JSON.parse(await readFile(filePath, "utf8")).version).toBe(1);
   });
+
+  it("hands a thread's record to the trash and takes the same record back", async () => {
+    const { make } = await store();
+    const first = make();
+    await first.ensure("tau-1", "/repo");
+    await first.setCodexThread("tau-1", "/repo", "codex-1");
+    const taken = await first.take("tau-1");
+    expect(await make().get("tau-1")).toBeUndefined();
+    await expect(first.put("tau-2", taken)).rejects.toThrow(/not the Codex thread/u);
+    await first.put("tau-1", JSON.parse(JSON.stringify(taken)));
+    expect(await make().get("tau-1")).toMatchObject({ codexThreadId: "codex-1", cwd: "/repo" });
+    await expect(first.put("tau-1", taken)).rejects.toThrow(/exists again/u);
+  });
 });

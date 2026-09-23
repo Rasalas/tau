@@ -13,7 +13,7 @@ import type {
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { DAY_MS } from "./meta.js";
 import { createThreadRailHostExtension } from "./host.js";
-import { META_EVENT, REVIEW_EXTENSION_ID, THREAD_RAIL_EXTENSION_ID, type RailState } from "./protocol.js";
+import { META_EVENT, REVIEW_EXTENSION_ID, THREAD_RAIL_EXTENSION_ID, TRASH_EVENT, type RailState } from "./protocol.js";
 
 const NOW = 1_000_000_000_000;
 const made: string[] = [];
@@ -43,9 +43,19 @@ async function harness(setup: Setup = {}) {
   const observers: HostTurnObserver[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
   const start = vi.fn(async (options: { cwd: string }) => ({ sessionId: `started-${start.mock.calls.length}`, cwd: options.cwd }));
+  const trash: Array<{ sessionId: string }> = [];
+  const removed = vi.fn(async (sessionId: string) => { trash.push({ sessionId }); });
+  const restored = vi.fn(async (sessionId: string) => { trash.splice(trash.findIndex((entry) => entry.sessionId === sessionId), 1); });
   const services: Partial<HostExtensionServices> = {
     stateDir,
-    sessions: { list: async () => setup.sessions ?? [], start } as unknown as HostExtensionServices["sessions"],
+    sessions: {
+      list: async () => setup.sessions ?? [],
+      start,
+      remove: removed,
+      restore: restored,
+      purge: restored,
+      trash: async () => [...trash],
+    } as unknown as HostExtensionServices["sessions"],
     registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
     registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
   };
@@ -70,7 +80,7 @@ async function harness(setup: Setup = {}) {
     await registry.activate(review);
   }
   const invoke = (command: string, input?: unknown) => registry.invoke(THREAD_RAIL_EXTENSION_ID, command, input) as Promise<RailState>;
-  return { invoke, events, observers, lifecycles, start, stateDir };
+  return { invoke, events, observers, lifecycles, start, stateDir, removed, restored };
 }
 
 const session = (id: string, cwd: string): HostSessionSummary => ({ sessionId: id, path: `/sessions/${id}.jsonl`, cwd });
@@ -150,6 +160,32 @@ describe("Thread Rail host", () => {
   it("forgets a deleted thread", async () => {
     const { invoke, lifecycles } = await harness();
     await invoke("patch", { patches: { gone: { pinned: true } } });
+    await lifecycles[0]!.threadDeleted?.("gone", "/project");
+    expect((await invoke("state")).threads).toEqual({});
+  });
+
+  it("archives an idle thread, refuses a running one, and new work brings an archived thread back", async () => {
+    const { invoke, observers } = await harness();
+    observers[0]!.accepted?.("busy", "turn", { deferBefore: false });
+    await expect(invoke("archive", { threadId: "busy" })).rejects.toThrow(/running thread/u);
+    const state = await invoke("archive", { threadId: "idle" });
+    expect(state.threads.idle).toEqual({ archivedAt: NOW });
+    observers[0]!.accepted?.("idle", "turn-2", { deferBefore: false });
+    expect((await invoke("state")).threads.idle).toEqual({ activityAt: NOW });
+  });
+
+  it("deletes into the host's trash, keeps the meta until the purge and tells every client", async () => {
+    const { invoke, events, lifecycles, removed, restored } = await harness();
+    await invoke("patch", { patches: { gone: { pinned: true, pinOrder: 0 } } });
+    await invoke("remove", { threadId: "gone" });
+    expect(removed).toHaveBeenCalledWith("gone");
+    expect(events.filter((event) => event.name === TRASH_EVENT).at(-1)?.payload).toEqual([{ sessionId: "gone" }]);
+    expect((await invoke("state")).threads.gone).toEqual({ pinned: true, pinOrder: 0 });
+
+    await invoke("restore", { threadId: "gone" });
+    expect(restored).toHaveBeenCalledWith("gone");
+    expect(events.filter((event) => event.name === TRASH_EVENT).at(-1)?.payload).toEqual([]);
+    await expect(invoke("remove", {})).rejects.toThrow(/threadId/u);
     await lifecycles[0]!.threadDeleted?.("gone", "/project");
     expect((await invoke("state")).threads).toEqual({});
   });

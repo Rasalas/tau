@@ -10,6 +10,7 @@
   },
   "scenarios": [
     { "id": "markdown-code-stream-150kb", "kind": "markdown", "bytes": 153600, "language": "typescript", "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "markdown-fenced-stream-150kb", "kind": "markdown", "bytes": 153600, "streamEnd": true, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
     { "id": "markdown-plain-stream-150kb", "kind": "markdown", "bytes": 153600, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
     { "id": "tool-output-1mb", "kind": "tool", "bytes": 1048576, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
     { "id": "transcript-1000-turns", "kind": "transcript", "turns": 1000, "sanity": { "minDomNodes": 50, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },

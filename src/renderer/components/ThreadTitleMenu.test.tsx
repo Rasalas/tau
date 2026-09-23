@@ -41,6 +41,20 @@ describe("ThreadTitleMenu", () => {
     expect(screen.getByText("Copy path")).toBeTruthy();
   });
 
+  it("puts a destructive command last, in the danger colour", () => {
+    const handlers = { ...props(), commands: [{ id: "thread.delete", label: "Delete", destructive: true }, { id: "thread.archive", label: "Archive thread" }] };
+    render(<ThreadTitleMenu {...handlers} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Improve title menu" }));
+    const items = screen.getAllByRole("menuitem");
+    const last = items.at(-1)!;
+    expect(last.textContent).toBe("Delete");
+    expect(last.className).toContain("destructive");
+    expect(items.findIndex((item) => item.textContent === "Archive thread")).toBeLessThan(items.findIndex((item) => item.textContent === "Mark unread"));
+    fireEvent.click(last);
+    expect(handlers.onCommand).toHaveBeenCalledWith("thread.delete");
+  });
+
   it("renames inline without invoking title regeneration", async () => {
     const handlers = props();
     render(<ThreadTitleMenu {...handlers} />);

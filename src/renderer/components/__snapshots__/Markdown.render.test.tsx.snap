@@ -1,0 +1,135 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`finished Markdown > renders backtick fence with blank lines unchanged 1`] = `
+"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>typescript</span><button class="idle">copy</button></div><pre><code><span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;
+
+<span class="hljs-keyword">const</span> b = <span class="hljs-number">2</span>;
+
+
+<span class="hljs-keyword">export</span> { a, b };</code></pre></div></div>"
+`;
+
+exports[`finished Markdown > renders fence right after a paragraph unchanged 1`] = `
+"<div class="markdown"><p>Look:</p>
+<div class="md-code"><div class="md-code-head"><span>sh</span><button class="idle">copy</button></div><pre><code>echo one
+
+echo two</code></pre></div>
+<p>Then text.</p></div>"
+`;
+
+exports[`finished Markdown > renders fences inside lists unchanged 1`] = `
+"<div class="markdown"><ul>
+<li>
+<p>step one</p>
+<div class="md-code"><div class="md-code-head"><span>bash</span><button class="idle">copy</button></div><pre><code>npm <span class="hljs-built_in">test</span>
+
+npm run build</code></pre></div>
+</li>
+<li>
+<p>step two</p>
+<div class="md-code"><div class="md-code-head"><span>text</span><button class="idle">copy</button></div><pre><code>plain</code></pre></div>
+</li>
+</ul>
+<ol>
+<li>
+<p>ordered</p>
+<div class="md-code"><div class="md-code-head"><span>json</span><button class="idle">copy</button></div><pre><code><span class="hljs-punctuation">{</span> <span class="hljs-attr">"a"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span> <span class="hljs-punctuation">}</span></code></pre></div>
+</li>
+</ol></div>"
+`;
+
+exports[`finished Markdown > renders footnotes unchanged 1`] = `
+"<div class="markdown"><p>Text with a note<sup><a href="#user-content-fn-1" target="_blank" rel="noreferrer noopener">1</a></sup> and another<sup><a href="#user-content-fn-named" target="_blank" rel="noreferrer noopener">2</a></sup>.</p>
+<section data-footnotes="true" class="footnotes"><h2 class="sr-only" id="footnote-label">Footnotes</h2>
+<ol>
+<li id="user-content-fn-1">
+<p>First note. <a href="#user-content-fnref-1" target="_blank" rel="noreferrer noopener">↩</a></p>
+</li>
+<li id="user-content-fn-named">
+<p>Second note with <code>code</code>. <a href="#user-content-fnref-named" target="_blank" rel="noreferrer noopener">↩</a></p>
+</li>
+</ol>
+</section></div>"
+`;
+
+exports[`finished Markdown > renders headings and quotes unchanged 1`] = `
+"<div class="markdown"><h1>Title</h1>
+<h1>Setext</h1>
+<blockquote>
+<p>quote with a fence:</p>
+<div class="md-code"><div class="md-code-head"><span>js</span><button class="idle">copy</button></div><pre><code><span class="hljs-title function_">quoted</span>();</code></pre></div>
+</blockquote>
+<hr>
+<ul class="contains-task-list">
+<li class="task-list-item"><span class="checkbox md-check on" aria-hidden="true">✓</span> done</li>
+<li class="task-list-item"><span class="checkbox md-check " aria-hidden="true">✓</span> open</li>
+</ul>
+<p>line one<br>
+line two<br>
+line three <del>gone</del> <a href="https://example.com/auto" target="_blank" rel="noreferrer noopener">https://example.com/auto</a></p></div>"
+`;
+
+exports[`finished Markdown > renders html-ish text unchanged 1`] = `
+"<div class="markdown">&lt;div class="x"&gt;hi&lt;/div&gt;
+<p>text &lt;b&gt;bold&lt;/b&gt; &amp; &lt;script&gt;alert(1)&lt;/script&gt;</p>
+&lt;!-- comment --&gt;
+<p>a &lt; b &gt; c</p></div>"
+`;
+
+exports[`finished Markdown > renders indented code unchanged 1`] = `
+"<div class="markdown"><p>Paragraph.</p>
+<div class="md-code"><div class="md-code-head"><span>text</span><button class="idle">copy</button></div><pre><code>indented code
+more code</code></pre></div>
+<p>After.</p></div>"
+`;
+
+exports[`finished Markdown > renders language aliases unchanged 1`] = `
+"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>tsx</span><button class="idle">copy</button></div><pre><code><span class="hljs-keyword">const</span> <span class="hljs-title function_">View</span> = (<span class="hljs-params"></span>) =&gt; &lt;div /&gt;;</code></pre></div>
+<div class="md-code"><div class="md-code-head"><span>c</span><button class="idle">copy</button></div><pre><code>int x = 0;</code></pre></div>
+<div class="md-code"><div class="md-code-head"><span>text</span><button class="idle">copy</button></div><pre><code>no language</code></pre></div></div>"
+`;
+
+exports[`finished Markdown > renders loose ordered list unchanged 1`] = `
+"<div class="markdown"><ol>
+<li>
+<p>first</p>
+</li>
+<li>
+<p>second</p>
+<p>continued</p>
+</li>
+<li>
+<p>third</p>
+</li>
+</ol></div>"
+`;
+
+exports[`finished Markdown > renders nested fences unchanged 1`] = `
+"<div class="markdown"><p>Outer:</p>
+<div class="md-code"><div class="md-code-head"><span>markdown</span><button class="idle">copy</button></div><pre><code><span class="hljs-code">\`\`\`ts
+const inner = 1;
+\`\`\`</span></code></pre></div>
+<p>After.</p></div>"
+`;
+
+exports[`finished Markdown > renders reference links unchanged 1`] = `"<div class="markdown"><p>See <a href="https://example.com/docs" target="_blank" rel="noreferrer noopener">the docs</a> and <a href="https://example.com/docs" target="_blank" rel="noreferrer noopener">docs</a>.</p></div>"`;
+
+exports[`finished Markdown > renders table unchanged 1`] = `
+"<div class="markdown"><div class="md-table-scroll"><table><thead><tr><th>name</th><th style="text-align: center;">value</th></tr></thead><tbody><tr><td><code>code</code></td><td style="text-align: center;"><strong>bold</strong></td></tr><tr><td>a | b</td><td style="text-align: center;"><a href="https://example.com" target="_blank" rel="noreferrer noopener">link</a></td></tr></tbody></table></div>
+<p>After the table.</p></div>"
+`;
+
+exports[`finished Markdown > renders tilde fence with blank lines unchanged 1`] = `
+"<div class="markdown"><div class="md-code"><div class="md-code-head"><span>python</span><button class="idle">copy</button></div><pre><code><span class="hljs-built_in">print</span>(<span class="hljs-string">'x'</span>)
+
+
+<span class="hljs-comment"># still code</span></code></pre></div>
+<p>Done.</p></div>"
+`;
+
+exports[`finished Markdown > renders unterminated fence unchanged 1`] = `
+"<div class="markdown"><p>Intro paragraph.</p>
+<div class="md-code"><div class="md-code-head"><span>ts</span><button class="idle">copy</button></div><pre><code><span class="hljs-keyword">const</span> x = <span class="hljs-number">1</span>;
+
+<span class="hljs-keyword">const</span> y = <span class="hljs-number">2</span>;</code></pre></div></div>"
+`;

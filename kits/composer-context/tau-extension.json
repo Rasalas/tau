@@ -7,7 +7,8 @@
   },
   "permissions": [
     "workspace:read",
-    "process"
+    "process",
+    "sessions"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

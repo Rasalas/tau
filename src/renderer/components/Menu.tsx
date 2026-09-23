@@ -12,6 +12,8 @@ export interface MenuItem {
   description?: string;
   selected?: boolean;
   disabled?: boolean;
+  /** Deletes or discards something; drawn in the danger colour. */
+  destructive?: boolean;
 }
 
 export interface MenuSection {
@@ -74,7 +76,7 @@ export function Menu({
               <button
                 key={item.id}
                 role="menuitem"
-                className={item.selected ? "selected" : ""}
+                className={[item.selected ? "selected" : "", item.destructive ? "destructive" : ""].filter(Boolean).join(" ")}
                 disabled={item.disabled}
                 title={item.disabled ? item.description : undefined}
                 onClick={() => { onSelect(item.id); onClose(); }}

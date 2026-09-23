@@ -102,6 +102,7 @@ async function main(): Promise<void> {
           appPath: appRoot,
           kitStateDir: join(userData, "kit-state"),
           turnsInFlightPath: join(userData, "turns-in-flight.json"),
+          threadTrashDir: join(userData, "thread-trash"),
           // A window half of a kit lives in the client's process; this is the
           // only way a host without a window of its own reaches one. The folder
           // picker is the window's own, asked for the same way.

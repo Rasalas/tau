@@ -21,6 +21,10 @@ export function evaluateRendererBudgets(report, budgets) {
       ["commit p95", scenario.updateDurationsMs?.p95 ?? scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.updateDurationsMs ?? scenario.commitDurationsMs],
       ["DOM nodes", scenario.domNodes, budgets.rendererDomNodes, "", undefined],
     ];
+    // A scenario that ends its stream reports the end commit: the whole reparse used to land there.
+    if (scenario.fixture?.streamEnd || scenario.streamEndCommitMs) {
+      measurements.push(["stream end commit p95", scenario.streamEndCommitMs?.p95, budgets.rendererStreamEndCommitMs, "ms", scenario.streamEndCommitMs]);
+    }
     for (const [label, actual, budget, unit, distribution] of measurements) {
       if (!Number.isFinite(actual)) {
         failures.push(`${scenario.id} ${label} was not reported by the renderer fixture`);
