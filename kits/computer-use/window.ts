@@ -2,7 +2,7 @@ import { app, shell, systemPreferences } from "electron";
 import { execFile } from "node:child_process";
 import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
 import { WindowCapture, windowSourceId, type WindowCaptureOptions } from "../_window-capture/capture.js";
-import type { ScreenAccess, ScreenLiveFrame } from "./protocol.js";
+import type { ScreenAccess } from "./protocol.js";
 
 const SCREEN_RECORDING_SETTINGS = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 /** In memory only: the capture page keeps nothing. */
