@@ -1081,6 +1081,22 @@ executable's resolved path, or `undefined` for the program's own updater. The
 registry request needs the `network` permission. Claude Code and Codex use
 both; Antigravity reports the release it pins.
 
+#### A new thread's model before it exists (new in API 1.11.0)
+
+`newThreadCatalog()` on the provider answers what a thread that does not
+exist yet may start on: `models`, the `model` it would run on unasked, and
+`thinkingLevels` by model id with the runtime's own default first
+(`HostRuntimeNewThreadCatalog`). The host adds the kind and the adapter's
+capabilities and serves it as the `runtime-catalog` method
+(`UiRuntimeCatalog`), which a client asks while a draft is bound for that
+backend; a `note` without models says the runtime names them only in a
+session. The draft's choice arrives as `NewThreadConfiguration` —
+`model` and `thinkingLevel` — and the host applies both through the new
+thread's `catalogWrite` right after `open`, before the first prompt. Codex
+answers from `model/list` (cached per instance) and the instance home's
+`config.toml`, the Agent SDK runtime from its cached probe, Antigravity from
+the models its last session named.
+
 #### Versions a backend works with (new in API 1.11.0)
 
 `RuntimeToolVersion.compatibility` is a backend's verdict on the installed

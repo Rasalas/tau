@@ -148,10 +148,18 @@ The model picker (`src/renderer/components/ModelPicker.tsx`) keys everything on
 what the catalog says: a rail with Pi's catalog split by model provider and
 every other runtime the host offers — each instance of one included — as one
 tab of its own (`model-picker-rail.ts`), a search across the catalog on hand, favourites
-reachable with ⌘1–9, and per tab one fold for legacy generations. A runtime's
-models are known once a thread of it runs, so another runtime's tab says what
-choosing it means instead: a new thread's draft switches to it, and a thread
-that exists offers a new thread on it, because a thread keeps its runtime. Pi
+reachable with ⌘1–9, and per tab one fold for legacy generations. Another
+runtime's tab says what choosing it means: a new thread's draft switches to
+it, and a thread that exists offers a new thread on it, because a thread keeps
+its runtime. A draft bound for a runtime other than the thread on screen
+chooses from that runtime's own catalog (`runtime-catalog`, which a backend
+answers through `newThreadCatalog` without opening a thread): the composer's
+model and thinking pickers work as they do for Pi, the draft keeps the choice
+with the runtime it was made for (`src/workbench/runtime-catalog-store.ts`),
+and `newSession` hands model and level to the new thread through
+`catalogWrite` before its first prompt. A runtime that can only name its
+models inside a session (Antigravity before its first one) says so, and the
+thread starts on its default. Pi
 is the default and wears no mark: the rail, the rows, the composer chip and the
 thread rows draw a runtime's logo beside the model provider's only when the
 runtime is not Pi (`providerMarks` in `src/renderer/runtime-marks.ts`). What the
