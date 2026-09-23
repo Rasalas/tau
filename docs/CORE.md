@@ -12,6 +12,7 @@ Transcript
 - tool calls with live output, elapsed time and stop; presentation of a tool is an extension concern, its existence is not, and so is which rows fold: a failure never folds, and a batch a tool card claims (`registerToolCard`) is never folded, grouped or hidden
 - Pi extension dialogs: select, confirm, input, editor; notifications
 - bounded history paging
+- **a failed turn says so where it happened**: the host keeps why a thread's last turn failed (`turnError` on its index entry, from Pi's error stop or a backend's `turn-settled` error) until the next prompt; the transcript ends with that error line and the rail row reads "Failed", beside the toast
 
 What a turn's rows are is derived, not decided in a component:
 `src/workbench/transcript-folding.ts` turns one turn's tool records into fold,

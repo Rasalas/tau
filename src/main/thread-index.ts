@@ -75,6 +75,8 @@ export class ThreadIndex {
   private readonly announcedDeletions = new Set<string>();
   /** Threads a restart cut a turn short in; survives a rescan, which reads files only. */
   private readonly interrupted = new Set<string>();
+  /** Why a thread's last turn failed, until its next prompt. */
+  private readonly turnErrors = new Map<string, string>();
   private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
   private recoveryTimer?: ReturnType<typeof setInterval>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
@@ -361,6 +363,14 @@ export class ThreadIndex {
     if (shell) this.publishShellSoon(shell);
   }
 
+  /** The last turn of a thread failed (a message) or a new one began (undefined). */
+  setTurnError(sessionId: string, message: string | undefined): void {
+    if (message === this.turnErrors.get(sessionId)) return;
+    if (message === undefined) this.turnErrors.delete(sessionId); else this.turnErrors.set(sessionId, message);
+    const shell = this.byId(sessionId);
+    if (shell) this.publishShellSoon(shell);
+  }
+
   /** A thread shell names its project the way every other published shape does. */
   private withIdentity(session: UiSession): UiSession {
     const { workspaceId, displayPath } = this.port.workspaces.ref(session.projectPath);
@@ -369,6 +379,7 @@ export class ThreadIndex {
       workspaceId,
       projectDisplayPath: displayPath,
       ...(this.interrupted.has(session.id) ? { interrupted: true } : {}),
+      ...(this.turnErrors.has(session.id) ? { turnError: this.turnErrors.get(session.id) } : {}),
     };
   }
 

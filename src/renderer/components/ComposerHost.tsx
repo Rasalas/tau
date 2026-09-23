@@ -1,4 +1,5 @@
 import { Component, createRef, useEffect, useState, type ReactNode } from "react";
+import { CircleAlert } from "lucide-react";
 
 function elapsedLabel(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -16,6 +17,11 @@ export function LiveStatus({ startedAt, label }: { startedAt?: number; label?: s
   }, [startedAt]);
   const text = label ?? (startedAt ? `Working for ${elapsedLabel(Math.max(0, now - startedAt))}` : "Working…");
   return <div className="live-status"><span className="spinner" /><span>{text}</span></div>;
+}
+
+/** Why the thread's last turn failed, at the end of that turn, until the next prompt. */
+export function TurnErrorLine({ message }: { message: string }) {
+  return <div className="turn-error-line" role="status"><CircleAlert size={14} aria-hidden="true" /><span>{message}</span></div>;
 }
 
 export function measureComposerGeometry(host: HTMLElement): DOMRect {

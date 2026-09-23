@@ -39,6 +39,7 @@ function makeServices() {
     pushToolOutput: vi.fn(),
     toolEnded: vi.fn(),
     refreshShell: vi.fn(async () => undefined),
+    turnSettled: vi.fn(),
   };
   return { services, events, updates, logs, setStreaming: (value: boolean) => { snapshotStreaming = value; } };
 }
@@ -117,6 +118,28 @@ describe("handleBackendRuntimeEvent", () => {
     const closed = events.find((event) => event.type === "tool-end");
     expect(closed).toMatchObject({ tool: { id: "tool-1", status: "error", output: "Interrupted." } });
     expect(services.toolEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it("says why a turn failed: the backend's own reason, else the turn's first error notice", () => {
+    const thread = makeThread();
+    const { services } = makeServices();
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "error", error: "stream disconnected" }, thread, services);
+    expect(services.turnSettled).toHaveBeenLastCalledWith("thread-1", "stream disconnected");
+
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "notice", message: "quota exceeded", level: "error" }, thread, services);
+    handleBackendRuntimeEvent({ type: "notice", message: "Runtime stopped: quota exceeded", level: "error" }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "error" }, thread, services);
+    expect(services.turnSettled).toHaveBeenLastCalledWith("thread-1", "quota exceeded");
+
+    // An error notice of an earlier turn is not the reason the next one completed.
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "completed" }, thread, services);
+    expect(services.turnSettled).toHaveBeenLastCalledWith("thread-1", undefined);
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "error" }, thread, services);
+    expect(services.turnSettled).toHaveBeenLastCalledWith("thread-1", "The turn failed.");
   });
 
   it("forwards notices, queue state, and keeps the snapshot detail off a thread that streams again", async () => {

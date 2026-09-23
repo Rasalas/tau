@@ -18,6 +18,8 @@ export interface BackendEventServices {
   toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void;
   /** Republishes the thread's shell in the index: title, count, usage. */
   refreshShell(thread: ThreadRuntime, touch: boolean): Promise<void>;
+  /** How the turn ended: why it failed, or undefined. */
+  turnSettled(sessionId: string, error: string | undefined): void;
 }
 
 /**
@@ -30,6 +32,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
   const sessionId = thread.threadId;
   switch (event.type) {
     case "turn-started":
+      thread.turnError = undefined;
       thread.adapterStreaming = true;
       thread.adapterActivity.push({ id: `activity-${sessionId}-${thread.adapterActivity.length + 1}`, tools: [], status: "running" });
       services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
@@ -37,7 +40,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       services.log("agent.started", sessionId.slice(0, 8));
       break;
     case "turn-settled":
-      settleTurn(event.status, thread, services);
+      settleTurn(event.status, thread, services, event.error);
       break;
     case "assistant-start":
       thread.currentAssistantId = event.id;
@@ -88,6 +91,8 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       services.emit({ type: "queue", sessionId, steering: [...event.steering], followUp: [...event.followUp] });
       break;
     case "notice":
+      // The first error of a running turn is the likeliest cause, for a backend that names none.
+      if (event.level === "error" && thread.adapterStreaming) thread.turnError ??= event.message;
       services.emit({ type: "notice", sessionId, message: event.message, level: event.level });
       break;
     case "usage":
@@ -140,7 +145,7 @@ function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEve
   services.log("tool.ended", `${ended.name}:${ended.status}`);
 }
 
-function settleTurn(status: "completed" | "interrupted" | "error", thread: ThreadRuntime, services: BackendEventServices): void {
+function settleTurn(status: "completed" | "interrupted" | "error", thread: ThreadRuntime, services: BackendEventServices, error?: string): void {
   const sessionId = thread.threadId;
   // A tool still running when the turn ends never reports again; close its card.
   for (const tool of [...thread.tools.values()]) {
@@ -156,6 +161,8 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
     else entry.status = status;
   }
   services.clientTurns.settle(sessionId);
+  services.turnSettled(sessionId, status === "error" ? error?.trim() || thread.turnError || "The turn failed." : undefined);
+  thread.turnError = undefined;
   services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
   services.emit({ type: "agent-status", sessionId, running: false });
   void services.settledSnapshot().then((snapshot) => {

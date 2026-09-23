@@ -8,7 +8,7 @@ export interface ThreadActivitySnapshot {
   waitingThreadIds: readonly string[];
   /** Threads with a run in flight, whether or not they are the one on screen. */
   runningThreadIds: readonly string[];
-  /** Threads whose last delivery the host refused; cleared when one starts again. */
+  /** Threads whose last delivery the host refused or whose last turn failed; cleared when one starts again. */
   failedThreadIds: readonly string[];
   /** Threads a restart cut a turn short in, as the index reports them. */
   interruptedThreadIds: readonly string[];
@@ -29,7 +29,7 @@ export interface ThreadStoreSnapshot {
   waitingThreadIds: readonly string[];
   /** Threads with a run in flight, whether or not they are the one on screen. */
   runningThreadIds: readonly string[];
-  /** Threads whose last delivery the host refused; cleared when one starts again. */
+  /** Derived: refused deliveries, then the threads the index says failed their last turn. */
   failedThreadIds: readonly string[];
   /** Threads a restart cut a turn short in, as the index reports them. */
   interruptedThreadIds: readonly string[];
@@ -61,6 +61,7 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.messageCount === right.messageCount &&
     left.backendKind === right.backendKind &&
     left.interrupted === right.interrupted &&
+    left.turnError === right.turnError &&
     left.modelProvider === right.modelProvider;
 }
 
@@ -116,6 +117,8 @@ export class ThreadStore {
   };
   private shellListeners = new Map<string, Set<() => void>>();
   private runningTools = new Map<string, string>();
+  /** Deliveries the host refused, by thread; the rest of `failedThreadIds` comes from the index. */
+  private refusedThreadIds: readonly string[] = [];
 
   getSnapshot = (): ThreadStoreSnapshot => this.snapshot;
   getThreadIds = (): readonly string[] => this.threadIds;
@@ -202,11 +205,11 @@ export class ThreadStore {
     const runningStartedAt = { ...this.snapshot.runningStartedAt };
     if (running) runningStartedAt[threadId] ??= Date.now();
     else delete runningStartedAt[threadId];
+    // A thread that runs again is no longer the thread that failed.
+    if (running) this.refusedThreadIds = this.refusedThreadIds.filter((id) => id !== threadId);
     this.publish({
       ...this.snapshot,
       runningThreadIds: running ? (alreadyRunning ? current : [...current, threadId]) : current.filter((id) => id !== threadId),
-      // A thread that runs again is no longer the thread that failed.
-      failedThreadIds: running ? this.snapshot.failedThreadIds.filter((id) => id !== threadId) : this.snapshot.failedThreadIds,
       runningStartedAt,
     });
   }
@@ -229,8 +232,9 @@ export class ThreadStore {
 
   /** A delivery the host refused. The thread keeps saying so until it runs again. */
   markFailed(threadId: string): void {
-    if (!threadId || this.snapshot.failedThreadIds.includes(threadId)) return;
-    this.publish({ ...this.snapshot, failedThreadIds: [...this.snapshot.failedThreadIds, threadId] });
+    if (!threadId || this.refusedThreadIds.includes(threadId)) return;
+    this.refusedThreadIds = [...this.refusedThreadIds, threadId];
+    this.publish({ ...this.snapshot });
   }
 
   markUnread(threadId: string): void {
@@ -263,9 +267,14 @@ export class ThreadStore {
       this.snapshot.interruptedThreadIds,
       candidate.threads.flatMap((thread) => thread.interrupted ? [thread.id] : []),
     );
+    const failedThreadIds = sameIds(this.snapshot.failedThreadIds, [
+      ...this.refusedThreadIds,
+      ...candidate.threads.flatMap((thread) => thread.turnError && !this.refusedThreadIds.includes(thread.id) ? [thread.id] : []),
+    ]);
     const next = candidate.isStreaming === isStreaming && candidate.interruptedThreadIds === interruptedThreadIds
+      && candidate.failedThreadIds === failedThreadIds
       ? candidate
-      : { ...candidate, isStreaming, interruptedThreadIds };
+      : { ...candidate, isStreaming, interruptedThreadIds, failedThreadIds };
     if (
       next.projects === this.snapshot.projects &&
       next.threads === this.snapshot.threads &&

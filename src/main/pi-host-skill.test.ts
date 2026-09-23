@@ -629,4 +629,31 @@ describe("errored Pi turns", () => {
     hostInternals.handleSessionEvent({ type: "message_end", message: assistant }, fixture.thread, "session", "/repo");
     expect(fixture.emitted).toContainEqual({ type: "notice", sessionId: "session", level: "error", message: "400 You're out of extra usage." });
   });
+
+  it("marks the thread's last turn failed until an answer settles a run", async () => {
+    const fixture = localHost(PI_AGENT_RUNTIME_ADAPTER);
+    await adopt(fixture);
+    const hostInternals = fixture.host as unknown as {
+      handleSessionEvent(event: unknown, thread: unknown, sessionId: string, cwd: string): void;
+      index: { setTurnError(sessionId: string, message: string | undefined): void };
+    };
+    const setTurnError = vi.spyOn(hostInternals.index, "setTurnError");
+    const send = (event: unknown) => hostInternals.handleSessionEvent(event, fixture.thread, "session", "/repo");
+    const failed = { role: "assistant", content: [], timestamp: 9, stopReason: "error", errorMessage: "overloaded" };
+    const answered = { role: "assistant", content: [{ type: "text", text: "ok" }], timestamp: 10, stopReason: "stop" };
+
+    send({ type: "agent_start" });
+    send({ type: "message_start", message: failed });
+    send({ type: "message_end", message: failed });
+    send({ type: "agent_settled" });
+    expect(setTurnError).toHaveBeenLastCalledWith("session", "overloaded");
+
+    // A retry that answers in the same run leaves no error behind.
+    send({ type: "agent_start" });
+    send({ type: "message_end", message: failed });
+    send({ type: "message_start", message: answered });
+    send({ type: "message_end", message: answered });
+    send({ type: "agent_settled" });
+    expect(setTurnError).toHaveBeenLastCalledWith("session", undefined);
+  });
 });

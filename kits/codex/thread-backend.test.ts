@@ -129,7 +129,7 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     const space = await scratch();
     const { backend, events } = await open(space);
     await backend.prompt({ text: "Go [scenario:crash]", delivery: "prompt" });
-    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error" });
+    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error", error: "Codex exited with code 3.\nstub: gone" });
     expect(events).toContainEqual({ type: "notice", message: "Codex exited with code 3.\nstub: gone", level: "error" });
     // The next prompt spawns a new app-server and resumes the same Codex thread.
     await backend.prompt({ text: "Again.", delivery: "prompt" });
@@ -140,7 +140,7 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     const space = await scratch();
     const { backend, events } = await open(space, { script: ["-e", "process.stderr.write('stub: no login\\n'); process.exit(4)"] });
     await expect(backend.prompt({ text: "Hello.", delivery: "prompt" })).rejects.toThrow("Codex exited with code 4.\nstub: no login");
-    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error" });
+    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error", error: "Codex exited with code 4.\nstub: no login" });
     expect(events.filter((event) => event.type === "notice")).toEqual([
       { type: "notice", message: "Codex reported an error: Codex exited with code 4.\nstub: no login", level: "error" },
     ]);

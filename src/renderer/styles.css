@@ -258,6 +258,7 @@ button > svg { pointer-events: none; }
 }
 .thread-status-age.status-ready { color: var(--ready); }
 .thread-status-age.status-interrupted { color: var(--warn); }
+.thread-status-age.status-failed { color: var(--fail-ink); }
 .thread-status-age > i {
   width: 10px; height: 10px; flex: none; border: 1.5px solid var(--working);
   border-top-color: transparent; border-radius: 50%; animation: spin .9s linear infinite;
@@ -981,6 +982,9 @@ button > svg { pointer-events: none; }
 .transcript-card + .live-status, .static-activity-transcript + .live-status { margin-top: 22px; }
 .live-status { display: flex; align-items: center; gap: 10px; }
 .live-status > span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.turn-error-line { display: flex; align-items: flex-start; gap: 8px; padding: 7px 2px; color: var(--fail-ink); overflow-wrap: anywhere; }
+.turn-error-line > svg { flex: none; margin-top: 3px; color: var(--fail); }
+.turn-error-line > span { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; user-select: text; }
 
 /* --------------------------------------------------------------- tasks */
 

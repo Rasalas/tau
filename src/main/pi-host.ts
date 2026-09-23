@@ -1609,6 +1609,7 @@ export class PiHost {
     }
     // Whatever a restart left behind, this thread is moving again.
     this.index.setInterrupted(thread.threadId, false);
+    this.index.setTurnError(thread.threadId, undefined);
     if (!thread.backend.capabilities.journal) {
       // The composer waits for admission, not for the whole turn: a streamed
       // runtime reports it as soon as the message is on its way, and this call
@@ -2039,6 +2040,7 @@ export class PiHost {
       releaseTool: (id) => { this.toolOwners.delete(id); },
       pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
+      turnSettled: (owner, error) => this.index.setTurnError(owner, error),
     });
   }
 
@@ -2064,6 +2066,7 @@ export class PiHost {
       pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
       refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
+      turnSettled: (owner, error) => this.index.setTurnError(owner, error),
     });
   }
 

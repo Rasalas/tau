@@ -29,6 +29,7 @@ export class ThreadRuntime implements LiveTurnState {
   adapterQueue: Promise<void> = Promise.resolve();
   currentAssistantId?: string;
   liveAssistant?: LiveAssistant;
+  turnError?: string;
   unsubscribe?: () => void;
   private deferredRecords?: DeferredThreadRecord[];
 
@@ -59,6 +60,7 @@ export class ThreadRuntime implements LiveTurnState {
     this.adapterAbortControllers.clear();
     this.currentAssistantId = undefined;
     this.liveAssistant = undefined;
+    this.turnError = undefined;
   }
 
   beginEventBarrier(): void {

@@ -120,6 +120,23 @@ describe("ThreadRow project mark", () => {
     />);
     expect(ready.container.querySelector(".thread-status-age")?.textContent).toBe("Ready");
   });
+
+  it("says a thread failed, with the reason on the badge", () => {
+    const { container } = render(<ThreadRow
+      activity="failed"
+      activityLabel="Failed"
+      activityHint="stream disconnected"
+      active={false}
+      age="now"
+      session={session}
+      onSelect={() => {}}
+      onToggleSettled={() => {}}
+    />);
+    const badge = container.querySelector(".thread-status-age.status-failed");
+    expect(badge?.textContent).toBe("Failed");
+    expect(badge?.querySelector("svg")).toBeTruthy();
+    expect(badge?.getAttribute("data-tooltip")).toBe("stream disconnected");
+  });
 });
 
 describe("ThreadRow cost", () => {

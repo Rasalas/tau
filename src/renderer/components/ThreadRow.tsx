@@ -1,11 +1,11 @@
 import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ArchiveRestore, Check, PlugZap } from "lucide-react";
+import { ArchiveRestore, Check, CircleAlert, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { threadCostLabel, threadUsageDetail } from "../cost-format";
 import { tooltipProps } from "./ui/Tooltip";
 
-export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted";
+export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted" | "failed";
 
 interface ThreadRowProps {
   activity: ThreadActivity;
@@ -59,6 +59,7 @@ function ThreadStatus({ activity, label, hint, startedAt }: { activity: ThreadAc
     <span className={`thread-status-age status-${activity}`} {...tooltipProps(hint)}>
       {working ? <i /> : null}
       {activity === "interrupted" ? <PlugZap size={11} aria-hidden="true" /> : null}
+      {activity === "failed" ? <CircleAlert size={11} aria-hidden="true" /> : null}
       {label}
       {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
     </span>
@@ -91,7 +92,7 @@ export const ThreadRow = memo(function ThreadRow({
     settled ? "Settled" : activity === "ready" ? "Ready" : activity === "idle" ? "Idle" : "Working"
   );
   const working = activity === "working" || activity === "tool";
-  const showStatus = working || activity === "waiting" || activity === "ready" || activity === "interrupted";
+  const showStatus = working || activity === "waiting" || activity === "ready" || activity === "interrupted" || activity === "failed";
   const childCount = workingChildren > 0
     ? (
       <span className="thread-agent-count" aria-label={`${workingChildren} agent${workingChildren === 1 ? "" : "s"} running`}>

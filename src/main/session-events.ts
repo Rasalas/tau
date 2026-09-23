@@ -28,6 +28,8 @@ export interface SessionEventServices {
   releaseTool(toolCallId: string): void;
   pushToolOutput(toolCallId: string, output: string): void;
   toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void;
+  /** How the run ended: the error its last answer stopped on, or undefined. */
+  turnSettled(sessionId: string, error: string | undefined): void;
 }
 
 /** Translate runtime events into the common host event stream. */
@@ -50,6 +52,7 @@ export function handleRuntimeSessionEvent(
       });
       break;
     case "agent_start":
+      thread.turnError = undefined;
       emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
       emit({ type: "agent-status", sessionId, running: true });
       log("agent.started", sessionId.slice(0, 8));
@@ -115,6 +118,7 @@ function settleRun(thread: LiveTurnState, sessionId: string, services: SessionEv
     thread.inFlightClientMessageIds.clear();
   }
   if (!isThreadRuntime(thread) || thread.state.idle) services.clientTurns.settle(sessionId);
+  services.turnSettled(sessionId, thread.turnError);
   services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
   services.emit({ type: "agent-status", sessionId, running: false });
   if (isThreadRuntime(thread)) {
@@ -147,9 +151,12 @@ function finishMessage(event: any, thread: LiveTurnState, sessionId: string, ser
       publishAssistantAnchor(event.message, message, thread, sessionId, services);
     }
     // A provider error ends the message with no text; the transcript would show nothing.
-    if (event.message.stopReason === "error" && typeof event.message.errorMessage === "string" && event.message.errorMessage.trim()) {
-      services.emit({ type: "notice", sessionId, level: "error", message: event.message.errorMessage.trim().slice(0, 2_000) });
-    }
+    const error = event.message.stopReason === "error" && typeof event.message.errorMessage === "string"
+      ? event.message.errorMessage.trim().slice(0, 2_000)
+      : "";
+    if (error) services.emit({ type: "notice", sessionId, level: "error", message: error });
+    // A retry that answers after an error leaves the run a success.
+    thread.turnError = event.message.stopReason === "error" ? error || "The model stopped with an error." : undefined;
     thread.currentAssistantId = undefined;
     thread.liveAssistant = undefined;
     return;

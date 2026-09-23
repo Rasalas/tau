@@ -10,7 +10,8 @@ import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { QueuedFollowUp } from "../workbench/follow-up-queue";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
-import { ComposerHost, LiveStatus } from "./components/ComposerHost";
+import { ComposerHost, LiveStatus, TurnErrorLine } from "./components/ComposerHost";
+import { useThreadShell } from "./use-thread-shell";
 import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";
@@ -709,9 +710,12 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
   const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
   const showRunClock = Boolean(conversationSnapshot?.isStreaming) && conversationActivityTools.length === 0;
+  const shellTurnError = useThreadShell(conversationSnapshot?.sessionId ?? "")?.turnError;
+  const turnError = pendingNewThread || conversationSnapshot?.isStreaming ? undefined : shellTurnError;
   const liveStatus = useMemo(() => liveStatusLabel !== undefined
     ? <LiveStatus label={liveStatusLabel} />
-    : showRunClock ? <LiveStatus startedAt={runStartedAt} /> : undefined, [liveStatusLabel, runStartedAt, showRunClock]);
+    : showRunClock ? <LiveStatus startedAt={runStartedAt} />
+    : turnError ? <TurnErrorLine message={turnError} /> : undefined, [liveStatusLabel, runStartedAt, showRunClock, turnError]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     scrollRef={transcriptRef}

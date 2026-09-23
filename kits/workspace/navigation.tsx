@@ -515,6 +515,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     if (activityState.runningThreadIds.includes(sessionId)) {
       return { activity: "working", label: "Working" };
     }
+    // The last turn failed or its message was refused; the next run clears it.
+    if (activityState.failedThreadIds.includes(sessionId)) {
+      return { activity: "failed", label: "Failed", hint: threadStore.getThread(sessionId)?.turnError ?? "The last message did not reach the agent." };
+    }
     // A turn the host never finished because it restarted. The next prompt clears it.
     if (activityState.interruptedThreadIds.includes(sessionId)) {
       return { activity: "interrupted", label: "Interrupted", hint: "A restart cut this thread's turn short. Send a message to pick it back up." };
