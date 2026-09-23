@@ -12,6 +12,7 @@ describe("Plan Kit protocol", () => {
     expect(planTitle(plan)).toBe("Add a login form");
     expect(planBody(plan)).toBe("1. Form\n2. Tests");
     expect(planTitle("1. no heading")).toBeUndefined();
+    expect(planTitle("## Add `bye.txt` **now**")).toBe("Add bye.txt now");
     expect(planOf("<proposed_plan>\n# half")).toBeUndefined();
     expect(implementationPrompt(` ${plan} `)).toBe(`PLEASE IMPLEMENT THIS PLAN:\n${plan}`);
   });

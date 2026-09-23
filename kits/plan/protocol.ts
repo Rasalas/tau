@@ -20,9 +20,10 @@ export function implementationPrompt(plan: string): string {
   return `${IMPLEMENTATION_PREFIX}${plan.trim()}`;
 }
 
-/** The plan's first heading, if it has one. */
+/** The plan's first heading as plain text, if it has one. */
 export function planTitle(plan: string): string | undefined {
-  return /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/mu.exec(plan)?.[1]?.trim() || undefined;
+  const heading = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/mu.exec(plan)?.[1];
+  return heading?.replace(/[`*_]+/gu, "").trim() || undefined;
 }
 
 /** The plan without the heading its title came from. */
