@@ -583,8 +583,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   async suggestCommitMessage(changes: UiWorkspaceChanges, diffs: readonly UiFileDiff[]): Promise<string | undefined> {
     if (!this.commitMessageSuggester || !this.actions) return undefined;
-    try { return await this.commitMessageSuggester({ changes, diffs, actions: this.actions }); }
-    catch (error) { this.notify(errorMessage(error)); return undefined; }
+    // No toast: the commit box shows why, and a missing provider is not worth an interruption.
+    return this.commitMessageSuggester({ changes, diffs, actions: this.actions });
   }
 
   switchRef(ref: string): Promise<boolean> { return this.workspaceAction(() => this.host.switchRef(ref)); }

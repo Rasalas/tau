@@ -2144,7 +2144,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .commit-proposal-heading > span svg { color: var(--acid-text); }
 .commit-message-preview { width: 100%; display: block; padding: 0; border: 0; background: transparent; color: var(--ink-2); font: 11px/1.5 var(--mono); text-align: left; white-space: pre-wrap; cursor: text; }
 .commit-proposal textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--line-control); border-radius: 6px; background: var(--sunken); color: var(--ink); padding: 7px; font: 11px/1.45 var(--mono); }
-.commit-message-error { display: block; margin-top: 6px; color: var(--removed); }
+.commit-message-error { display: block; margin-top: 6px; color: var(--muted); }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .review-sidebar-resizer { position: absolute; z-index: 20; top: 0; left: -4px; bottom: 0; width: 8px; cursor: col-resize; }

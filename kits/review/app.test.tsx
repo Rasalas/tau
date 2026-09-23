@@ -132,6 +132,23 @@ describe("Review Kit in the workbench", () => {
     expect(await screen.findByRole("button", { name: "feat(review): describe the change" })).toBeTruthy();
   });
 
+  it("says in the commit box, not in a toast, why no message was written", async () => {
+    const suggest = vi.fn(async () => { throw new Error("Provider is not configured: openai"); });
+    renderApp(workbench({}, suggest), { extensions: [workspaceExtension, reviewExtension] });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open full review" }));
+
+    const hint = await waitFor(() => {
+      const found = document.querySelector(".commit-proposal .commit-message-error");
+      expect(found?.textContent).toBe("No suggestion: Provider is not configured: openai");
+      return found;
+    });
+    expect(hint).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Update a" })).toBeTruthy();
+    expect(screen.getAllByText(/Provider is not configured/u)).toHaveLength(1);
+  });
+
   it("comments on a line and hands the comment to the composer as a chip", async () => {
     renderApp(workbench(), { extensions: [workspaceExtension, reviewExtension, composerContext] });
 
