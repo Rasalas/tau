@@ -34,7 +34,7 @@ describe("CodexSessionStore", () => {
     const second = make();
     expect(await second.get("tau-1")).toEqual({
       backendKind: "codex", tauThreadId: "tau-1", codexThreadId: "codex-1", cwd: "/repo", model: "gpt-5.6-luna", updatedAt: 5,
-      messages: [{ role: "user", text: "Hi", timestamp: 1, clientMessageId: "m1" }, { role: "assistant", text: "Hello", timestamp: 2 }],
+      messages: [{ id: "u", role: "user", text: "Hi", timestamp: 1, clientMessageId: "m1" }, { id: "a", role: "assistant", text: "Hello", timestamp: 2 }],
     });
     expect(await second.listModels()).toEqual([{ id: "gpt-5.6-luna", name: "GPT-5.6-Luna", efforts: ["low"], defaultEffort: "low" }]);
     await expect(second.ensure("tau-1", "/elsewhere")).rejects.toThrow("another workspace");
