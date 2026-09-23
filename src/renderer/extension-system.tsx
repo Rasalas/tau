@@ -1,3 +1,4 @@
+import type { ToastHandle, ToastOptions } from "../workbench/toast-store";
 import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
 import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
 import { domKeybindingContext } from "./keybinding-context";
@@ -59,6 +60,12 @@ export interface WorkbenchActions {
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
   toggleSidebar?(): void;
   notify(message: string): void;
+  /**
+   * A toast on the window's stack: a type icon, a title and a line, actions,
+   * a copy button. It leaves after five seconds of being seen (`timeoutMs`,
+   * 0 for never); an `id` already shown is replaced. New in API 1.11.0.
+   */
+  toast?(options: ToastOptions): ToastHandle;
   /** Opens the list of project sources extensions registered. */
   openProjectSources(): void;
   /** Opens a project like the sidebar does, named by its workspace id; `inheritDraft` carries the unsent composer text into the thread that opens there. */

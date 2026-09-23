@@ -12,6 +12,7 @@ import {
 import { NewThreadController } from "./new-thread-controller";
 import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
+import { ToastStore } from "./toast-store";
 import { TranscriptHistoryController, type TranscriptBootstrapRequest, type TranscriptHistoryRequest, type TransitionToken } from "./transcript-history";
 import { transcriptNavigationScopeKey } from "./app-state";
 import { TurnScopeController } from "./turn-scope";
@@ -40,6 +41,8 @@ export class WorkbenchSession {
   readonly newThread: NewThreadController;
   readonly hostSession: HostSessionState;
   readonly turn: TurnScopeController;
+  /** The window's toast stack; notices become toasts in the client that draws them. */
+  readonly toasts = new ToastStore();
   private readonly workbench: WorkbenchStore;
   readonly delivery: NewThreadDeliveryPort;
 
