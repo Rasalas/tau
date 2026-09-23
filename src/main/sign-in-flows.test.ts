@@ -134,6 +134,12 @@ describe("registerSignIn", () => {
     expect(events.at(-1)!.report?.account?.signedIn).toBe(false);
   });
 
+  it("publishes a target's report when the kit says what it offers changed", async () => {
+    const { registration, events } = harness();
+    await registration.publish();
+    expect(events.at(-1)).toMatchObject({ target: "default", report: { account: { signedIn: false } } });
+  });
+
   it("keeps targets apart", async () => {
     const { call, settle } = harness();
     const one = await call("sign-in", { target: "work", method: "browser" }) as SignInFlowState;

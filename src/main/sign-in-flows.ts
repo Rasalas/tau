@@ -75,7 +75,7 @@ function message(error: unknown): string {
  * window must name, a timeout, cancel, and the prompts it waits on. The kit
  * only says what its program offers and how each method runs.
  */
-export function registerSignIn(context: RegisteringContext, options: SignInOptions): { dispose(): void } {
+export function registerSignIn(context: RegisteringContext, options: SignInOptions): { dispose(): void; publish(target?: string): Promise<void> } {
   const flows = new Map<string, Flow>();
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -196,6 +196,8 @@ export function registerSignIn(context: RegisteringContext, options: SignInOptio
   ];
 
   return {
+    // What a target offers changed outside a flow (a setting the kit keeps); every window hears it.
+    publish: async (target = options.defaultTarget ?? "default") => { emit({ target, report: await report(target) }); },
     dispose: () => {
       disposed = true;
       for (const stop of stops) stop();
