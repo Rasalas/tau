@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { HostMcpConnection } from "tau/host-extension";
+import type { AcpMcpServer } from "../_acp/mcp.js";
+
+export { withTauServer, type AcpMcpServer } from "../_acp/mcp.js";
 
 /**
  * The MCP servers the user configured for Gemini, forwarded to the agent on
@@ -9,11 +11,6 @@ import type { HostMcpConnection } from "tau/host-extension";
  * without this the user's own servers would be invisible in Tau and present
  * everywhere else. Tau reads the file and never writes it.
  */
-export type AcpMcpServer =
-  | { type: "http"; name: string; url: string; headers: Array<{ name: string; value: string }> }
-  | { type: "sse"; name: string; url: string; headers: Array<{ name: string; value: string }> }
-  | { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> };
-
 export function geminiConfigDirectory(home: string = homedir()): string {
   return join(home, ".gemini");
 }
@@ -54,14 +51,4 @@ export async function readMcpServers(geminiDir: string = geminiConfigDirectory()
   } catch {
     return [];
   }
-}
-
-/**
- * The servers a session starts with: the user's own and Tau's, which carries
- * the thread's credential. A user server of the same name gives way to Tau's.
- */
-export function withTauServer(servers: readonly AcpMcpServer[], tau: HostMcpConnection | undefined): AcpMcpServer[] {
-  if (!tau) return [...servers];
-  const headers = Object.entries(tau.headers).map(([name, value]) => ({ name, value }));
-  return [...servers.filter((server) => server.name !== tau.name), { type: "http", name: tau.name, url: tau.url, headers }];
 }

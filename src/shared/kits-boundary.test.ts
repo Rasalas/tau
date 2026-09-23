@@ -38,8 +38,8 @@ function specifiers(path: string): string[] {
 
 const isTest = (path: string) => /\.test\.[cm]?[jt]sx?$/u.test(path);
 
-/** Folder names under `kits/`; `package.json` and `README.md` are not kits. */
-const kitDirectories = () => readdirSync("kits").sort().filter((name) => statSync(join("kits", name)).isDirectory());
+/** Folder names under `kits/`; `package.json`, `README.md` and `_`-folders the kits share are not kits. */
+const kitDirectories = () => readdirSync("kits").sort().filter((name) => !name.startsWith("_") && statSync(join("kits", name)).isDirectory());
 
 describe("kits boundary", () => {
   it("a kit names no Tau module but the three API modules", () => {
@@ -72,6 +72,19 @@ describe("kits boundary", () => {
     const offenders = sourceFiles("kits/review")
       .filter((path) => !isTest(path))
       .filter((path) => specifiers(path).some((specifier) => specifier.includes("workspace/")));
+    expect(offenders).toEqual([]);
+  });
+
+  it("a folder the kits share imports no kit", () => {
+    const offenders: string[] = [];
+    for (const shared of readdirSync("kits").filter((name) => name.startsWith("_"))) {
+      const root = join("kits", shared);
+      for (const path of sourceFiles(root).filter((file) => !isTest(file))) {
+        for (const specifier of specifiers(path)) {
+          if (specifier.startsWith(".") && !join(path, "..", specifier).startsWith(`${root}/`)) offenders.push(`${path}: ${specifier}`);
+        }
+      }
+    }
     expect(offenders).toEqual([]);
   });
 

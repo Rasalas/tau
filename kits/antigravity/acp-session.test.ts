@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AntigravitySession, SIGN_IN_REQUIRED, acpSpawnInput, type AntigravitySessionOptions } from "./acp-session.js";
-import { fakeAgent, until, type FakeAgent } from "./acp-fake.js";
+import { fakeAgent, until, type FakeAgent } from "../_acp/fake.js";
 import { AUTH_URL_PREFIX } from "./profile.js";
 
 const directories: string[] = [];

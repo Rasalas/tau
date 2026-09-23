@@ -102,7 +102,7 @@ describe("createPiModelRuntime", () => {
       expect(model?.name).toBe("My Union Alpha");
       expect(runtime.getProvider("opencode-go")?.getModels().some((entry) => entry.id === "union-alpha")).toBe(true);
     } finally {
-      await rm(agentDir, { recursive: true, force: true });
+      await rm(agentDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 
