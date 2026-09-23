@@ -943,6 +943,7 @@ export function Composer({
           <span className="menu-anchor composer-runtime-menu-anchor">
             <button
               className="runtime-chip"
+              data-composer-shortcut="composer.effort"
               disabled={!thinkingSelectionAvailable}
               {...tooltipProps(thinkingSelectionAvailable
                 ? "Reasoning"

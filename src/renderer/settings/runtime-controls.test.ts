@@ -143,6 +143,7 @@ describe("runtime controls keybindings", () => {
     expect(keys).toEqual({
       "runtime.abort": ["escape"],
       "thread.steerQueuedMessage": ["mod+shift+enter"],
+      "composer.effort": ["mod+shift+e"],
       "runtime.command-palette": ["mod+k"],
       "runtime.cycle-model": ["ctrl+p"],
       "runtime.cycle-thinking": ["shift+tab"],
@@ -164,7 +165,7 @@ describe("runtime controls keybindings", () => {
       "runtime.open-prompt-editor": ["ctrl+g"],
     });
     const scoped = Object.fromEntries(registry.getKeybindings().filter((binding) => binding.when).map((binding) => [binding.keys, binding.when]));
-    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus" });
+    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus" });
   });
 });
 
