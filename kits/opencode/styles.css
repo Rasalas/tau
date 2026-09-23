@@ -1,0 +1,13 @@
+/* The controls this card adds; everything else is core's settings style. */
+.opencode-field { align-items: center; }
+.opencode-action {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line-strong); border-radius: 7px; background: transparent;
+  color: var(--ink-3); font: 500 12px var(--sans); padding: 6px 11px; cursor: pointer;
+}
+.opencode-action:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.opencode-action:disabled { color: var(--faint); cursor: default; }
+.opencode-path { max-width: 420px; width: 100%; }
+.opencode-server { display: grid; gap: 8px; max-width: 420px; }
+.opencode-server-actions { display: flex; gap: 8px; }
+.opencode-version { max-width: 460px; margin-top: 10px; }
