@@ -292,6 +292,13 @@ describe("useWorkbenchActions", () => {
     expect(onDraft.selectDraftRuntime).toHaveBeenCalledWith("codex");
     expect(controller.setModel).toHaveBeenCalledWith("openai", "gpt-5.6-luna", undefined, expect.any(Function), "codex");
     expect(onDraft.createThreadInProject).not.toHaveBeenCalled();
+
+    // A project the window does not list yet (opened, no thread) is chosen in the picker.
+    const unlisted = createMockOptions({ threadStore: { getSnapshot: () => ({}), getProjects: () => [] } as any, newThreadController: controller, createThreadInProject: vi.fn() });
+    renderHook(() => useWorkbenchActions(unlisted)).result.current.startThreadOn!("codex");
+    expect(unlisted.openNewThreadPicker).toHaveBeenCalledTimes(1);
+    renderHook(() => useWorkbenchActions(unlisted)).result.current.newSession({ workspace: "ws-1" });
+    expect(unlisted.openNewThreadPicker).toHaveBeenCalledTimes(1);
   });
 
   it("lists every runtime with the host's catalog, and the models the thread on screen offers for its own", async () => {

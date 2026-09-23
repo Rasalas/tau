@@ -97,11 +97,12 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   } = options;
 
   return useMemo<WorkbenchActions>(() => {
-    const newSession = (request?: { workspace?: string }) => {
+    // `pick`: a project the window does not list yet is chosen in the picker.
+    const newSession = (request?: { workspace?: string }, pick = false) => {
       const workspace = request?.workspace;
       const project = workspace ? options.threadStore.getProjects().find((candidate) => candidate.workspaceId === workspace || candidate.path === workspace) : undefined;
-      if (!workspace) options.openNewThreadPicker();
-      else if (project) options.createThreadInProject?.(project);
+      if (project) options.createThreadInProject?.(project);
+      else if (!workspace || pick) options.openNewThreadPicker();
     };
     return {
       openPanel,
@@ -109,7 +110,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
       openCommandPalette: options.openPalette,
       openSettings: (page) => options.setSettingsPage(page ?? "defaults"),
-      newSession,
+      newSession: (request) => newSession(request),
       switchSession,
       settleActiveThread,
       // Escape is bound to this; only a visibly running thread has anything to stop.
@@ -299,7 +300,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         options.preferences?.setNewThreadRuntime(runtime);
         // In the project on screen, as the model picker's new thread.
         const workspace = snapshot?.workspaceId ?? options.workspaceCwd;
-        newSession(workspace ? { workspace } : undefined);
+        newSession(workspace ? { workspace } : undefined, true);
       },
       cycleThinking: async () => {
         const snap = options.viewStore.getSnapshot();
