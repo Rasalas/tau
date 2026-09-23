@@ -138,6 +138,7 @@ export const BACKEND_USAGE_SOURCES: readonly BackendUsageSource[] = [
   { extensionId: "tau.claude-code", backend: "claude-code", label: "Claude Code" },
   { extensionId: "tau.antigravity", backend: "antigravity", label: "Antigravity" },
   { extensionId: "tau.codex", backend: "codex", label: "Codex" },
+  { extensionId: "tau.opencode", backend: "opencode", label: "OpenCode" },
 ];
 
 export const PI_BACKEND = "pi";
