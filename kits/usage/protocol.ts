@@ -111,6 +111,7 @@ export const LIMIT_SOURCES: readonly LimitSource[] = [
   { extensionId: "tau.pi-limits", label: "Pi" },
   { extensionId: "tau.claude-code", label: "Claude Code" },
   { extensionId: "tau.codex", label: "Codex" },
+  { extensionId: "tau.grok", label: "Grok" },
 ];
 
 export interface UsageLimitSourceReport {
@@ -139,6 +140,7 @@ export const BACKEND_USAGE_SOURCES: readonly BackendUsageSource[] = [
   { extensionId: "tau.antigravity", backend: "antigravity", label: "Antigravity" },
   { extensionId: "tau.codex", backend: "codex", label: "Codex" },
   { extensionId: "tau.opencode", backend: "opencode", label: "OpenCode" },
+  { extensionId: "tau.grok", backend: "grok", label: "Grok" },
 ];
 
 export const PI_BACKEND = "pi";
