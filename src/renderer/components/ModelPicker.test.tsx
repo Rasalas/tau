@@ -78,6 +78,7 @@ describe("ModelPicker", () => {
     ]);
     fireEvent.click(runtimeButton("Codex"));
     expect(screen.getByText("Choosing one runs this thread on Codex instead of Pi.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start this thread on Codex" })).toBeTruthy();
     // A plan shows it is included, and what the model costs over its API.
     const row = screen.getByRole("option", { name: /GPT-5.6 Luna, Codex, Plan/u });
     expect(row.textContent).toContain("incl.");

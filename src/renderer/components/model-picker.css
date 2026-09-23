@@ -224,3 +224,6 @@
 .model-hide { opacity: 0; }
 .model-row:hover .model-hide, .model-row.selected .model-hide, .model-row.hidden-model .model-hide { opacity: 1; }
 .model-star.on { color: var(--acid-text); }
+/* The name wins over its badges: a badge without room wraps onto a line nobody sees. */
+.model-line { flex-wrap: wrap; height: 18px; row-gap: 0; overflow: hidden; }
+.model-line > strong { flex: 0 1 auto; max-width: 100%; line-height: 18px; }

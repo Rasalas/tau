@@ -296,8 +296,9 @@ export function ModelPicker({
   // The cursor starts on the model in use, else on the first row; it follows every new list.
   const initialCursor = useMemo(() => {
     const active = rows.findIndex((row) => row.kind === "offering" && row.key === activeOffering);
-    return active >= 0 && !needle ? active : rows.findIndex(selectable);
-  }, [activeOffering, needle, rows]);
+    // A search, sort or filter starts at the top of what it produced.
+    return active >= 0 && !needle && sort === "relevance" && filterCount(filters) === 0 ? active : rows.findIndex(selectable);
+  }, [activeOffering, filters, needle, rows, sort]);
   useEffect(() => setCursor(undefined), [needle, view, provider, sort, filters]);
   const at = cursor !== undefined && selectable(rows[cursor]) ? cursor : initialCursor;
 
@@ -637,7 +638,7 @@ export function ModelPicker({
               renderItem={(row, index) => row.kind === "group"
                 ? <div key={row.key} className="model-group" role="presentation"><span>{row.name}</span><small>{row.count} offerings</small></div>
                 : row.kind === "legacy"
-                  ? <div key={row.key} id={`model-option-${index}`} role="option" aria-selected={index === at} aria-expanded={row.expanded} className={`model-row model-legacy ${index === at ? "selected" : ""}`} onMouseMove={() => setCursor(index)} onClick={() => toggleLegacy(row.key)}>
+                  ? <div key={row.key} id={`model-option-${index}`} role="option" aria-selected={index === at} aria-expanded={row.expanded} aria-label={`Legacy models, ${row.count}`} className={`model-row model-legacy ${index === at ? "selected" : ""}`} onMouseMove={() => setCursor(index)} onClick={() => toggleLegacy(row.key)}>
                     <div className="model-cell-main">
                       <span className="model-line"><strong>Legacy models</strong></span>
                       <small className="model-sub">{row.count} {row.count === 1 ? "model" : "models"}</small>
@@ -664,6 +665,10 @@ export function ModelPicker({
       {foreignNote ? (
         <p className="model-picker-note">
           {foreignNote}
+          {draft && foreign ? (
+            // The draft moves over with what it last chose there, or the runtime's default.
+            <button className="model-note-action" onClick={() => { onSelectRuntime?.(foreign.kind); onClose(); }}>{`Start this thread on ${foreign.label}`}</button>
+          ) : null}
           {otherRuntime ? runtimeActions.map((action) => (
             <button key={action.id} className="model-note-action" onClick={() => { action.run(otherRuntime.kind); onClose(); }}>{`${action.label} ${otherRuntime.label}`}</button>
           )) : null}
