@@ -319,12 +319,14 @@ export default function App() {
     composerRef,
     closeNewThreadPicker,
   });
-  const { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree } = useThreadTree({
+  const { threadTreeModal, closeThreadTree, openThreadTree, navigateThreadTree, forkFromTree, editFromMessage } = useThreadTree({
     ...(client ? { client } : {}),
     sessionId: currentSessionId,
     requireHost,
     applyActionResult,
-    seedComposer: setComposerSeed,
+    seedComposer: (text) => { if (actionsRef.current?.setComposerDraft) actionsRef.current.setComposerDraft(text); else setComposerSeed(text); },
+    composerDraft: () => actionsRef.current?.composerDraft() ?? "",
+    notify: (message) => setNotice(message),
     composerRef,
   });
 
@@ -571,12 +573,12 @@ export default function App() {
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
     transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, lastMessageId: conversation.lastMessageId,
     recoverThread: threadCommands.recoverThread, copyToolOutput: threadCommands.copyToolOutput, loadToolOutput: threadCommands.loadToolOutput,
-    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage: threadCommands.forkMessage, editMessage: editFromMessage,
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
     activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
-    threadCommands, copyMessage, duplicateThread, forkFromTree, liveSnapshot, navigateThreadTree,
+    threadCommands, copyMessage, duplicateThread, editFromMessage, forkFromTree, liveSnapshot, navigateThreadTree,
     openThreadTree, pendingNewThread, runStartedAt, settleActiveThread, showStartScreen, startProjectName,
     startProjectPath, threadDropController, threadTreeModal, titleCommands,
     transcriptHistory, transcriptScope, transcriptScopeKey, transcriptTurnStart, visibleTranscriptTurnStart,

@@ -76,6 +76,7 @@ export const Message = memo(function Message({
   detail = "focused",
   onCopy,
   onFork,
+  onEdit,
   onToggleExpanded,
   expanded,
 }: {
@@ -85,6 +86,8 @@ export const Message = memo(function Message({
   detail?: TranscriptDetail;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
+  /** Rewinds to before a prompt of the user's and puts it back into the composer. */
+  onEdit?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
 }) {
@@ -96,7 +99,7 @@ export const Message = memo(function Message({
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
-    return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
+    return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onEdit={onEdit} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
   }
 
   const thinking = detail !== "focused" && message.thinking?.trim() ? message.thinking : undefined;

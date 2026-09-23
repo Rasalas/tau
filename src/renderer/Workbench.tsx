@@ -212,6 +212,8 @@ export interface WorkbenchThread {
   activeDraftKey?: string;
   copyMessage(message: UiMessage): Promise<void>;
   forkMessage(message: UiMessage): Promise<void>;
+  /** Rewinds the conversation to before a prompt and puts the prompt back into the composer. */
+  editMessage(message: UiMessage): Promise<void>;
   titleCommands: ReturnType<ExtensionRegistry["getCommandsFor"]>;
   openThreadTree(mode?: ThreadTreeMode): void;
   duplicateThread(): Promise<boolean>;
@@ -696,7 +698,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     snapshot, conversationSnapshot, pendingNewThread, transcriptHistory, transcriptRef, loadTranscriptPage,
     applyTranscriptPage, transcriptScopeKey, transcriptScope, transcriptTurnStart,
     visibleTranscriptTurnStart, lastMessageId, recoverThread, copyToolOutput, loadToolOutput,
-    runStartedAt, activeDraftKey, copyMessage, forkMessage,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage, editMessage,
   } = thread;
   const detail = preferences.transcriptDetailFor(conversationSnapshot?.sessionId);
   const { conversationActivityTools, liveStatusLabel, transcriptActivities } = useConversationActivities({
@@ -712,6 +714,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   // would re-render every visible message and restart the tail follow.
   const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
   const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
+  const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const showRunClock = Boolean(conversationSnapshot?.isStreaming) && conversationActivityTools.length === 0;
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
@@ -745,6 +748,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       liveStatus={liveStatus}
       onCopyMessage={onCopyMessage}
       onForkMessage={onForkMessage}
+      onEditMessage={onEditMessage}
     />}
   </TranscriptHistoryBoundary>;
 }
