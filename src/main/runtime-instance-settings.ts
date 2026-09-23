@@ -187,7 +187,8 @@ export function runtimeVersionPolicy(driver: string, bundled: VersionPolicy | un
   const raw = env.TAU_VERSION_POLICY?.trim();
   if (!raw) return bundled;
   try {
-    const override = (JSON.parse(raw) as Record<string, unknown>)[driver];
+    const table = JSON.parse(raw) as Record<string, unknown>;
+    const override = table[driver] ?? table["*"];
     return override === undefined ? bundled : parseVersionPolicy(override) ?? bundled;
   } catch {
     return bundled;
@@ -197,13 +198,14 @@ export function runtimeVersionPolicy(driver: string, bundled: VersionPolicy | un
 /**
  * The command a kit worked out that updates its program, unless
  * `TAU_RUNTIME_UPDATE_COMMAND` names one for this program: a JSON object keyed
- * by backend kind, so a test instance can put a harmless script in its place.
+ * by backend kind (`"*"` for every kind), so a test instance can put a harmless script in its place.
  */
 export function runtimeUpdateCommand(driver: string, command: string, env: NodeJS.ProcessEnv = process.env): string {
   const raw = env.TAU_RUNTIME_UPDATE_COMMAND?.trim();
   if (!raw) return command;
   try {
-    const override = (JSON.parse(raw) as Record<string, unknown>)[driver];
+    const table = JSON.parse(raw) as Record<string, unknown>;
+    const override = table[driver] ?? table["*"];
     return typeof override === "string" && override.trim() ? override.trim() : command;
   } catch {
     return command;
