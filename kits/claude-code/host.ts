@@ -219,8 +219,10 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           },
           composerCommands: offered,
           version: () => versionOf(id),
-          // A draft on this instance chooses from its plan's models; the probe is cached a few minutes.
-          newThreadCatalog: async () => probeNewThreadCatalog(await adapter.probe()),
+          // The plan's models; the probe is cached a few minutes and the host keeps the answer.
+          newThreadCatalog: async () => services.findCommand(claudeCommand(id))
+            ? probeNewThreadCatalog(await adapter.probe())
+            : { models: [], thinkingLevels: {}, status: "not-installed", note: `The CLI "${claudeCommand(id)}" is not installed.` },
         };
       };
 

@@ -92,6 +92,8 @@ describe("Claude Code host half", () => {
       projectName: "repo",
       permissionLevel: () => "full",
     } as never)).rejects.toThrow("was not found on the PATH");
+    // A draft's picker says so instead of listing nothing.
+    await expect(missing.backends[0]!.newThreadCatalog!()).resolves.toMatchObject({ models: [], status: "not-installed" });
   });
 
   it("reports the installed CLI's version, the newest release and how the native install updates", async () => {
