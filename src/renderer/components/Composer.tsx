@@ -775,27 +775,14 @@ export function Composer({
             extensionMatches={extensionMatches}
             extensionLabel={extensionTrigger?.label}
             onSelectExtension={selectExtension}
+            onHover={setCommandCursor}
           />
         ) : null}
         {historySearch.isSearching ? (
-          <div className="composer-history-search" role="status" aria-live="polite" style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            padding: "4px 8px",
-            background: "var(--sunken)",
-            borderBottom: "1px solid var(--line-inset)",
-            fontSize: "12px",
-            fontFamily: "var(--font-mono)",
-            color: "var(--ink)",
-            borderRadius: "var(--radius-sm)",
-            margin: "0 0 4px 0",
-          }}>
-            <span style={{ color: "var(--ink-muted)" }}>(reverse-i-search)`<strong>{historySearch.searchQuery}</strong>`:</span>
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {historySearch.matchedPrompt ?? <span style={{ color: "var(--ink-subtle)" }}>failing search</span>}
-            </span>
-            <small style={{ color: "var(--ink-subtle)", fontSize: "10px" }}>↵ accept · esc cancel · ctrl+r cycle</small>
+          <div className="composer-history-search" role="status" aria-live="polite">
+            <span>(reverse-i-search)`<strong>{historySearch.searchQuery}</strong>`:</span>
+            <b>{historySearch.matchedPrompt ?? <i>failing search</i>}</b>
+            <small>↵ accept · esc cancel · ctrl+r cycle</small>
           </div>
         ) : null}
         <textarea
@@ -1005,20 +992,7 @@ export function Composer({
           <span className="spacer" />
 
           {isVimEnabled ? (
-            <span
-              className={`chip vim-badge ${vim.vimMode}`}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "10px",
-                fontWeight: 600,
-                textTransform: "uppercase",
-                padding: "2px 6px",
-                letterSpacing: "0.5px",
-                background: vim.vimMode === "normal" ? "var(--accent, #e5a93c)" : "var(--raised)",
-                color: vim.vimMode === "normal" ? "var(--accent-fg, #000)" : "var(--ink)",
-                borderRadius: "var(--radius-xs, 3px)",
-              }}
-            >
+            <span className={`vim-badge ${vim.vimMode}`}>
               {vim.vimMode === "normal" ? "NORMAL" : "INSERT"}
             </span>
           ) : null}

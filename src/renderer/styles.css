@@ -1096,33 +1096,30 @@ button > svg { pointer-events: none; }
 .attachment-remove:hover { background: var(--raised-hover); color: var(--ink); }
 .composer-attachment-error { padding: 7px 16px 0; color: var(--danger); font: 11px/1.4 var(--sans); }
 .composer-command-menu {
-  position: absolute; z-index: 30; left: 0; right: 0; bottom: calc(100% + 9px);
-  overflow: hidden; border: 1px solid var(--line-float); border-radius: 12px;
-  background: var(--overlay); box-shadow: 0 18px 52px var(--shadow), 0 1px 0 var(--edge-highlight) inset;
+  position: absolute; z-index: 30; left: 0; right: 0; bottom: calc(100% + 9px); max-height: 288px; overflow: auto;
+  padding: 4px; border: 1px solid var(--line-float); border-radius: 12px; background: var(--overlay); box-shadow: var(--elevation-2);
 }
 .composer-command-menu > button {
-  width: 100%; min-height: 49px; padding: 7px 10px; display: flex; align-items: center; gap: 10px;
-  border: 0; border-bottom: 1px solid var(--edge-highlight); background: transparent; color: var(--ink-2);
-  text-align: left; cursor: pointer;
+  width: 100%; height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 8px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); text-align: left; cursor: pointer; font: 12px var(--sans);
 }
-.composer-command-menu > button:last-of-type { border-bottom: 0; }
-.composer-command-menu > button.selected { background: linear-gradient(90deg, color-mix(in srgb, var(--acid) 19%, transparent), color-mix(in srgb, var(--acid) 3%, transparent) 72%); }
-.composer-command-mark {
-  width: 27px; height: 27px; flex: none; display: grid; place-items: center;
-  border: 1px solid var(--line-hover); border-radius: 7px; background: var(--chip);
-  color: var(--acid-text); font: 600 14px var(--mono);
+.composer-command-menu > button.selected { background: var(--raised); color: var(--ink); }
+.composer-command-menu > button > svg { flex: none; color: var(--muted); }
+.composer-command-menu strong { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink); }
+.composer-command-menu strong > i { margin-left: 6px; color: var(--faint); font: 400 11px var(--mono); font-style: normal; }
+.composer-command-menu small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.composer-command-source { flex: none; margin-left: auto; color: var(--faint); font: 11px var(--sans); font-style: normal; }
+.composer-command-empty { padding: 12px 10px; color: var(--faint); font: 12px var(--sans); }
+.composer-history-search {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 4px 8px; border-bottom: 1px solid var(--line-inset);
+  border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); font: 12px var(--mono);
 }
-.composer-command-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
-.composer-command-copy strong { overflow: hidden; color: var(--ink); font: 550 12px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-.composer-command-copy strong i { margin-left: 8px; color: var(--faint); font: 400 10px var(--mono); font-style: normal; }
-.composer-command-copy > small { overflow: hidden; color: var(--muted); font: 11px var(--sans); text-overflow: ellipsis; white-space: nowrap; }
-.composer-command-source {
-  flex: none; border: 1px solid var(--line-control); border-radius: 999px; padding: 2px 7px;
-  color: var(--faint); font: 500 10px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
-}
-.composer-command-source.skill { border-color: color-mix(in srgb, var(--acid-text) 24%, transparent); color: var(--acid-text); background: color-mix(in srgb, var(--acid) 5%, transparent); }
-.composer-command-source.prompt { border-color: color-mix(in srgb, var(--info-ink) 21%, transparent); color: var(--info-ink); background: color-mix(in srgb, var(--info) 4%, transparent); }
-.composer-command-empty { padding: 18px 14px; color: var(--faint); font: 11px var(--sans); text-align: center; }
+.composer-history-search > span { color: var(--muted); }
+.composer-history-search > b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.composer-history-search i, .composer-history-search > small { color: var(--faint); font-style: normal; }
+.composer-history-search > small { font-size: 10px; }
+.vim-badge { padding: 2px 6px; border-radius: var(--radius-xs); background: var(--raised); color: var(--ink); font: 600 10px var(--mono); letter-spacing: .5px; }
+.vim-badge.normal { background: var(--acid); color: var(--acid-ink); }
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
   color: var(--ink); padding: calc(13px * var(--density)) var(--space-6) var(--space-3); line-height: 1.55;
