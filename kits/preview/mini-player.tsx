@@ -158,6 +158,7 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
   const [hovered, setHovered] = useState(false);
   const [prefs, setPrefs] = useState<PreviewMiniPrefs>(state.mini);
   const [drag, setDrag] = useState<{ dx: number; dy: number } | undefined>();
+  const [resizing, setResizing] = useState(false);
   const [error, setError] = useState("");
   const gesture = useRef<Gesture | undefined>(undefined);
   useEffect(() => setPrefs(state.mini), [state.mini]);
@@ -192,6 +193,7 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
   const begin = (kind: Gesture["kind"]) => (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || (kind === "move" && (event.target as Element).closest("button"))) return;
     gesture.current = { kind, pointerId: event.pointerId, x: event.clientX, y: event.clientY, width: prefs.width };
+    if (kind === "resize") setResizing(true);
     event.currentTarget.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
@@ -211,6 +213,7 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
     if (!current || current.pointerId !== event.pointerId) return;
     gesture.current = undefined;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setResizing(false);
     if (current.kind === "move") {
       // Where the header is let go says the corner; a tall card's centre barely moves.
       const corner = nearestCorner({ x: event.clientX, y: event.clientY }, { ...insets, width: window.innerWidth, height: window.innerHeight });
@@ -225,13 +228,14 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
   const style: React.CSSProperties & Record<`--${string}`, string> = {
     [vertical]: `${insets[vertical]}px`,
     [horizontal]: `${insets[horizontal]}px`,
-    width: `${hovered && !drag ? large : prefs.width}px`,
+    // While the edge is dragged the pointer is over the card; it shows the width being set.
+    width: `${hovered && !drag && !resizing ? large : prefs.width}px`,
     "--mini-aspect": `${aspect}`,
     ...(drag ? { transform: `translate(${drag.dx}px, ${drag.dy}px)` } : {}),
   };
 
   return <section
-    className={`preview-mini ${prefs.corner}${drag ? " dragging" : ""}`}
+    className={`preview-mini ${prefs.corner}${drag || resizing ? " dragging" : ""}`}
     style={style}
     aria-label="Floating preview"
     data-preview-mini={driver.source}
