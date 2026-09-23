@@ -55,7 +55,8 @@ export class IdleHeapCompactor {
   private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly options: IdleHeapCompactionOptions = {}) {
-    this.quietMs = options.quietMs ?? 2_000;
+    // Short enough that a client polling every two seconds leaves gaps to use.
+    this.quietMs = options.quietMs ?? 1_000;
     this.minGrowthBytes = options.minGrowthBytes ?? 32 * 1024 * 1024;
     this.heapBytes = options.heapBytes ?? (() => getHeapStatistics().total_heap_size);
     this.collect = options.collect ?? compactHeap;
@@ -94,7 +95,7 @@ export class IdleHeapCompactor {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), this.options.checkMs ?? 1_000);
+    this.timer = setInterval(() => this.tick(), this.options.checkMs ?? 500);
     this.timer.unref?.();
   }
 
