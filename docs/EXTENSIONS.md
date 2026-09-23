@@ -1091,8 +1091,8 @@ provider. Since API 1.12.0 a thread also names its `turns`: one `UsageTurn` per 
 (`at`, `provider?`, `model?`, `billing?`, the token counts, the runtime's own
 `costUsd` and the `turns` it sums), so the Usage page dates every turn on its own
 and keeps a plan's turns apart from billed ones; a thread from before its kit kept
-turns has only `usage` and is dated by its last activity. Claude Code, Antigravity and
-Codex answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
+turns has only `usage` and is dated by its last activity. Claude Code, Antigravity,
+Codex and Grok answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
 in `kits/usage/protocol.ts`, and one that does not answer is listed as not available.
 
 A kit whose runtime's login reports quota windows answers `usage-limits`, granted to
@@ -1103,9 +1103,11 @@ A kit whose runtime's login reports quota windows answers `usage-limits`, grante
 never change it. Codex reads `account/rateLimits/read` through a short-lived
 app-server and merges `account/rateLimits/updated` from its turns; the Agent SDK
 runtime reads the SDK's usage call through its probe and merges each turn's
-`rate_limit_event`; Pi Limits (`kits/pi-limits/`) keeps what Pi's subscription
-providers send in their response headers. Both backends read at most every five
-minutes unless asked to refresh. A kit that adds limits adds its row to
+`rate_limit_event`; Grok sends its login's token from `<GROK_HOME>/auth.json` to
+xAI's billing endpoint and reads the credit window (not for an `XAI_API_KEY` or a
+login the user pointed at another issuer or endpoint); Pi Limits (`kits/pi-limits/`)
+keeps what Pi's subscription providers send in their response headers. The
+backends read at most every five minutes unless asked to refresh. A kit that adds limits adds its row to
 `LIMIT_SOURCES` in `kits/usage/protocol.ts`.
 
 Onboarding (`kits/onboarding/`) asks the backend kits the same way, for the
@@ -1140,8 +1142,8 @@ limit }`; the answer is `{ threads: [{ threadId, updatedAt, messages }],
 removed, more }` — new and newer threads newest first, `limit` of them (25 by
 default), the known ids the store no longer has, and whether more are left.
 Only user and assistant text travels, the first 64,000 characters of a
-thread (`THREAD_TEXT_CHARS`). Codex, the Agent SDK runtime, Antigravity and
-OpenCode answer it; a backend that adds it adds its id to
+thread (`THREAD_TEXT_CHARS`). Codex, the Agent SDK runtime, Antigravity,
+OpenCode and Grok answer it; a backend that adds it adds its id to
 `THREAD_TEXT_SOURCES` in `kits/search/protocol.ts`. Search Kit asks at most
 every five seconds, four pages per backend at a time, and past four million
 characters forgets the oldest threads' text but keeps their `updatedAt`, so it
@@ -1283,8 +1285,10 @@ surface (the one Pi's extension dialogs use); aborting the thread answers it as
 cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005);
 `kits/codex/` shows the same seam over a CLI's own JSON-RPC server,
 `kits/opencode/` over an HTTP server and its event stream, and
-`kits/antigravity/` and `kits/cursor/` over the Agent Client Protocol, whose
-client they share as `kits/_acp/` (a folder of shared code, not a kit).
+`kits/antigravity/`, `kits/cursor/` and `kits/grok/` over the Agent Client
+Protocol, whose client, thread backend (`AcpThreadBackend`: turn queue, steer,
+replay filtering, transcript) and session store they share as `kits/_acp/` (a
+folder of shared code, not a kit).
 
 A backend whose threads can be deleted answers two more members of its
 provider (new in API 1.11.0): `removeThread(threadId)` takes the thread's shell
@@ -1292,7 +1296,7 @@ record out of the backend's own store and answers it as plain JSON, which the
 host keeps in its trash, and `restoreThread(threadId, record)` puts that record
 back. Only the shell goes — the program's own history (a CLI's session files)
 is never touched. A backend without the pair refuses deletion. Codex, the
-Agent SDK runtime, Antigravity, OpenCode and Cursor have it.
+Agent SDK runtime, Antigravity, OpenCode, Cursor and Grok have it.
 
 A streamed backend whose tool cards should return after a restart or a reload
 offers the capability group `activityHistory` (new in API 1.12.0):
@@ -1309,8 +1313,9 @@ halves: one JSON Lines file per thread in a folder of the backend's choosing,
 outputs clipped to their last 16 KiB and long arguments shortened, turns a
 restart cut short read back as interrupted, the newest 500 turns kept, and
 `take(threadId)`/`put(threadId, value)` for `removeThread`/`restoreThread`.
-Codex, Antigravity, OpenCode and Cursor keep theirs beside their session stores
-(`codex-activity/`, `antigravity-activity/`, `opencode-activity/`, `cursor-activity/`).
+Codex, Antigravity, OpenCode, Cursor and Grok keep theirs beside their session stores
+(`codex-activity/`, `antigravity-activity/`, `opencode-activity/`, `cursor-activity/`,
+`grok-activity/`).
 
 An MCP server may ask for a form (an *elicitation*: `requestedSchema` with
 text, number, integer, boolean, single- and multiple-choice fields — the same
@@ -1367,7 +1372,7 @@ every runtime list uses — the model picker's rail, the composer's runtime
 menu, Settings → Defaults and Providers, onboarding: Pi, then backends by the
 provider's `order` (new in API 1.11.0; lower first, unset last, ties in
 registration order). The bundled kits take 10 (the Agent SDK runtime), 20
-(Codex), 30 (Antigravity), 40 (OpenCode) and 50 (Cursor); every instance of a program shares its order.
+(Codex), 30 (Antigravity), 40 (OpenCode), 50 (Cursor) and 60 (Grok); every instance of a program shares its order.
 
 A backend that drives a program the user installed may say which version that
 is: `version()` on the provider answers `{ tool, installed?, latest?,
@@ -1692,7 +1697,8 @@ transport is not sent servers of it), OpenCode as a `remote` entry laid over
 the user's config through `OPENCODE_CONFIG_CONTENT` of the server Tau starts
 for the thread (a server the user runs and names by URL gets none), Cursor as
 an ACP `http` server on `session/new` and `session/load` (sent without the
-transport check, as the Cursor CLI takes it without announcing it). Each lets
+transport check, as the Cursor CLI takes it without announcing it), Grok the
+same way on `session/new` and `session/load`. Each lets
 Tau's gate ask instead of asking again itself. Preview Kit and Agents Kit offer their tools this way.
 
 A thread started with `tools` keeps them on every runtime that can: Codex
@@ -1702,7 +1708,7 @@ without `bash`, `edit` or `write`; the Agent SDK runtime gets Claude's own tools
 names (`read` → `Read`, `find` → `Glob`, …) and no MCP server but Tau's;
 OpenCode switches its own tools off in every prompt's `tools`
 (`kits/opencode/tools.ts`) and runs read-only without `bash`, `edit` or `write`.
-Antigravity and Cursor cannot restrict their tools and refuse such a thread.
+Antigravity, Cursor and Grok cannot restrict their tools and refuse such a thread.
 
 ### Lifecycle hooks a host half may step into
 

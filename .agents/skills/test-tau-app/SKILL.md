@@ -52,6 +52,10 @@ Symlink whatever the test needs from the real dir (auth, settings, the `npm` ext
 
 `dev-instance` sets `TAU_CURSOR_HOME=.tau-dev/cursor-home`, which the Cursor kit turns into the CLI's config and data folder with a file login; nothing comes from `~/.cursor`. Real-app checks set `TAU_CURSOR_COMMAND` to `kits/cursor/fixtures/fake-cursor-agent.mjs` (it speaks ACP, no account); `docs/agents/testing-the-app.md` has the recipe. Never sign in to Cursor or start `cursor-agent` against the real `~/.cursor`.
 
+### Grok runs in a shadow home, against the fake CLI
+
+`dev-instance` sets `TAU_GROK_HOME=.tau-dev/grok-home`, which the Grok kit hands the CLI as `GROK_HOME`; nothing comes from `~/.grok`. Real-app checks set `TAU_GROK_COMMAND` to `kits/grok/fixtures/fake-grok.mjs` (it speaks ACP, no account); `docs/agents/testing-the-app.md` has the recipe. Never sign in to Grok, set `XAI_API_KEY`, or start `grok` against the real `~/.grok`.
+
 ### Session imports read fixtures only
 
 `dev-instance` also sets `TAU_IMPORT_ROOTS=.tau-dev/import-roots` (a caller's own value is kept): Onboarding's import then reads `<root>/<backend kind>/…` and never the user's own CLI homes. Write small synthetic sessions there to test it.
