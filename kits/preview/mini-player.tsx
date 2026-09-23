@@ -14,6 +14,7 @@ const FRAME_MS_LARGE = 500;
 const HOVER_SCALE = 2.5;
 const EDGE = 12;
 const HEADER = 26;
+const TALLEST = 3 / 4;
 export const MINI_WIDTH = { min: 160, max: 560 } as const;
 
 export interface MiniInsets {
@@ -38,7 +39,7 @@ export function miniPlayerShown(state: PreviewState, options: { enabled: boolean
   return driver;
 }
 
-/** The corner nearest to where a dragged player was let go. */
+/** The corner nearest to the point where a dragged player was let go. */
 export function nearestCorner(center: { x: number; y: number }, area: MiniInsets & { width: number; height: number }): PreviewMiniCorner {
   const middleX = area.left + (area.width - area.left - area.right) / 2;
   const middleY = area.top + (area.height - area.top - area.bottom) / 2;
@@ -53,9 +54,8 @@ export function enlargedWidth(width: number, aspect: number, insets: MiniInsets,
 }
 
 /**
- * Where the player may go: the chat column, above the composer. The region
- * sits right above the composer, so its container's bottom is the composer's
- * top.
+ * Where the player may go: the chat column, above the composer. The region's
+ * next sibling is the composer, which grows while a turn runs.
  */
 function useInsets(anchor: React.RefObject<HTMLElement | null>): MiniInsets | undefined {
   const [insets, setInsets] = useState<MiniInsets | undefined>();
@@ -66,7 +66,7 @@ function useInsets(anchor: React.RefObject<HTMLElement | null>): MiniInsets | un
     if (!element || !slot) return undefined;
     const measure = () => {
       const area = column.getBoundingClientRect();
-      const composerTop = slot.getBoundingClientRect().bottom;
+      const composerTop = (slot.nextElementSibling ?? slot).getBoundingClientRect().top;
       const next = {
         top: Math.round(area.top + EDGE),
         left: Math.round(area.left + EDGE),
@@ -79,6 +79,7 @@ function useInsets(anchor: React.RefObject<HTMLElement | null>): MiniInsets | un
     const observer = new ResizeObserver(measure);
     observer.observe(column);
     observer.observe(slot);
+    if (slot.nextElementSibling) observer.observe(slot.nextElementSibling);
     if (slot.parentElement) observer.observe(slot.parentElement);
     window.addEventListener("resize", measure);
     return () => {
@@ -142,13 +143,13 @@ function useScreenFrame(service: ComputerUseScreenService | undefined, threadId:
   return { ...(state ? { state } : {}), ...(picture ? { picture } : {}) };
 }
 
-type Gesture = { kind: "move" | "resize"; pointerId: number; x: number; y: number; width: number; rect: DOMRect };
+type Gesture = { kind: "move" | "resize"; pointerId: number; x: number; y: number; width: number };
 
 /**
  * The floating preview: a picture of the page or window an agent drives
  * while the Preview panel is out of sight. It only shows: a click on the
  * picture opens the Preview, never the page under it. Hover enlarges it;
- * dragging the header moves it to another corner, the inner corner resizes
+ * dragging the header moves it to another corner, its inner edge resizes
  * it, and the host remembers both for every client.
  */
 function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver; state: PreviewState; insets: MiniInsets; actions: WorkbenchActions }) {
@@ -181,15 +182,16 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
     actions.openPanel(PREVIEW_PANEL);
   };
 
-  const aspect = picture ? picture.width / Math.max(1, picture.height) : 16 / 10;
+  // A page in a tall dock would make a sliver; the player shows its top at 3:4 at most.
+  const natural = picture ? picture.width / Math.max(1, picture.height) : 16 / 10;
+  const cropped = !screen && natural < TALLEST;
+  const aspect = cropped ? TALLEST : natural;
   const large = enlargedWidth(prefs.width, aspect, insets, { width: window.innerWidth, height: window.innerHeight });
   const [vertical, horizontal] = prefs.corner.split("-") as ["top" | "bottom", "left" | "right"];
 
   const begin = (kind: Gesture["kind"]) => (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || (kind === "move" && (event.target as Element).closest("button"))) return;
-    const card = event.currentTarget.closest<HTMLElement>(".preview-mini");
-    if (!card) return;
-    gesture.current = { kind, pointerId: event.pointerId, x: event.clientX, y: event.clientY, width: prefs.width, rect: card.getBoundingClientRect() };
+    gesture.current = { kind, pointerId: event.pointerId, x: event.clientX, y: event.clientY, width: prefs.width };
     event.currentTarget.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
@@ -210,8 +212,8 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
     gesture.current = undefined;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (current.kind === "move") {
-      const center = { x: current.rect.left + current.rect.width / 2 + (event.clientX - current.x), y: current.rect.top + current.rect.height / 2 + (event.clientY - current.y) };
-      const corner = nearestCorner(center, { ...insets, width: window.innerWidth, height: window.innerHeight });
+      // Where the header is let go says the corner; a tall card's centre barely moves.
+      const corner = nearestCorner({ x: event.clientX, y: event.clientY }, { ...insets, width: window.innerWidth, height: window.innerHeight });
       setDrag(undefined);
       setPrefs((value) => ({ ...value, corner }));
       run(() => previewKit["mini-prefs"]({ corner }));
@@ -262,13 +264,13 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
       <button type="button" className="icon-button compact" aria-label="Open in Preview" {...tooltipProps("Open in Preview", { side: "bottom" })} onClick={openInPreview}><PanelRight size={12} /></button>
       <button type="button" className="icon-button compact" aria-label="Hide the floating preview" {...tooltipProps("Hide until an agent drives again", { side: "bottom" })} onClick={() => run(() => previewKit["mini-dismiss"]())}><X size={12} /></button>
     </header>
-    <button type="button" className="preview-mini-body" aria-label={`Open in Preview: ${sourceTitle}`} onClick={openInPreview}>
+    <button type="button" className={cropped ? "preview-mini-body cropped" : "preview-mini-body"} aria-label={`Open in Preview: ${sourceTitle}`} onClick={openInPreview}>
       {picture ? <img src={picture.url} alt="" draggable={false} /> : <span className="preview-mini-waiting">Waiting for a picture…</span>}
       {screen && screenState ? <AgentCursorLayer actions={screenState.actions} {...(screenState.frame ? { space: { width: screenState.frame.width, height: screenState.frame.height } } : {})} /> : null}
     </button>
     {error ? <div className="preview-mini-error" role="status">{error}</div> : null}
     <span
-      className={`preview-mini-resize ${vertical === "top" ? "bottom" : "top"}-${horizontal === "left" ? "right" : "left"}`}
+      className={`preview-mini-resize ${horizontal === "left" ? "right" : "left"}`}
       role="presentation"
       onPointerDown={begin("resize")}
       onPointerMove={move}

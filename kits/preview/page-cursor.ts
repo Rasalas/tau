@@ -228,7 +228,7 @@ export function previewInputOverlay(options: PageInputOptions, pointerPath: stri
     if (!text) return;
     const now = Date.now();
     // Plain letters typed in a row read as a word; anything with a modifier stands alone.
-    const plain = text.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+    const plain = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
     shown = plain && now - lastKeyAt < 900 && shown.length < 24 && !/[⌃⌥⌘]|Ctrl|Alt|Win/u.test(shown) ? shown + text : text;
     lastKeyAt = now;
     keys.textContent = shown;

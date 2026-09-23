@@ -47,7 +47,7 @@ export const previewExtension: DesktopExtension = {
       order: 40,
       keywords: ["browser", "viewport", "zoom", "appearance", "dark mode", "links", "recording", "floating", "picture in picture"],
       profiles: ["desktop"],
-      Component: (props) => <PreviewSettingsPage {...props} preferences={plugin.preferences} />,
+      Component: PreviewSettingsPage,
     });
     plugin.host.onEvent(PREVIEW_STATE_EVENT, (payload) => { if (isPreviewState(payload)) previewStore.set(readPreviewState(payload)); });
     const stopDefaults = syncDefaults(plugin.preferences, (defaults) => previewKit.defaults(defaults));
