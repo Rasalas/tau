@@ -19,6 +19,7 @@ import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
+import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
@@ -638,6 +639,13 @@ export interface HostExtensionServices {
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   /** The models `complete` can be asked for: the user's Pi catalog, those with a key or a login. Absent before API 1.11.0. */
   completionModels?(): Promise<UiModel[]>;
+  /**
+   * Pi's model providers and their sign-in: which are set up, a login or a
+   * key handed straight to Pi, a sign-out (`runtime:extend`). Pi keeps the
+   * credential in its own `auth.json`; nothing reads one back. Absent before
+   * API 1.12.0 and in a worker.
+   */
+  readonly modelAuth?: HostModelAuthServices;
   /** Renames a thread the way the title menu does, and publishes the change. */
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** The Pi terminal owning a thread while Tau is attached; `undefined` when Tau runs it. */

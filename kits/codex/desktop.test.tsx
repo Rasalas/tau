@@ -26,15 +26,20 @@ describe("Codex desktop extension", () => {
   });
 
   it("reports the CLI, the update that is out and the ChatGPT plan, and asks again on demand", async () => {
-    const invoke = vi.fn(async () => ({
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state" ? {
+      methods: [{ id: "chatgpt", label: "Sign in with ChatGPT", kind: "browser" }],
+      account: { signedIn: true, label: "me@example.com", detail: "ChatGPT Pro", canSignOut: true },
+    } : {
       command: "codex", path: "/opt/homebrew/bin/codex", version: "0.154.0", latest: "0.155.1", updateCommand: "brew upgrade --cask codex", updateAvailable: true,
       account: { kind: "chatgpt", plan: "pro" }, signedIn: true, models: 5, codexHome: "/Users/me/.codex",
-    }));
+    });
     render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
     await waitFor(() => expect(screen.getByText("Found · 0.154.0")).toBeTruthy());
     expect(screen.getByText("brew upgrade --cask codex")).toBeTruthy();
     expect(screen.getByText(/Codex 0\.155\.1 is out/u)).toBeTruthy();
-    expect(screen.getByText("ChatGPT Pro")).toBeTruthy();
+    expect(await screen.findByText("ChatGPT Pro")).toBeTruthy();
+    expect(screen.getByText("me@example.com")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.getByText("/Users/me/.codex")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Check again/u }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { fresh: true }));
@@ -63,10 +68,16 @@ describe("Codex desktop extension", () => {
     expect(screen.getByText("TAU_CODEX_COMMAND")).toBeTruthy();
   });
 
-  it("tells the user to sign in with the CLI when no account is there", async () => {
-    render(<CodexProviderCard onNotify={vi.fn()} host={host(async () => ({ command: "codex", path: "/usr/local/bin/codex", version: "0.155.1", signedIn: false }))} />);
+  it("offers Codex's ways to sign in when no account is there, and starts the one chosen", async () => {
+    const invoke = vi.fn(async (command: string) => command === "sign-in-state"
+      ? { methods: [{ id: "chatgpt", label: "Sign in with ChatGPT", kind: "browser" }, { id: "terminal", label: "Sign in in a terminal", kind: "terminal" }], account: { signedIn: false } }
+      : command === "sign-in" ? { flowId: "f1", method: "chatgpt", phase: "starting" }
+      : { command: "codex", path: "/usr/local/bin/codex", version: "0.155.1", signedIn: false });
+    render(<CodexProviderCard onNotify={vi.fn()} host={host(invoke)} />);
     await waitFor(() => expect(screen.getByText("Not signed in")).toBeTruthy());
-    expect(screen.getByText("codex login")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in with ChatGPT" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("sign-in", { target: "default", method: "chatgpt" }));
+    expect(await screen.findByText("Starting the Codex sign-in…")).toBeTruthy();
   });
 
   it("draws a card per instance, after the default one, as the host pushes them", async () => {
@@ -90,12 +101,13 @@ describe("Codex desktop extension", () => {
     instances.set({ instances: [{ id: "default", kind: "codex", label: "Codex", threads: 0 }, { id: "work", kind: "codex@work", label: "Codex · Work", home: "~/.codex-work", threads: 3 }] });
     const invoke = vi.fn(async (command: string) => command === "status"
       ? { instance: "work", command: "codex", path: "/opt/homebrew/bin/codex", version: "0.155.1", signedIn: false }
+      : command === "sign-in-state" ? { methods: [], account: { signedIn: false } }
       : { instances: [{ id: "default", kind: "codex", label: "Codex", threads: 0 }] });
     const onNotify = vi.fn();
     render(<CodexProviderCard onNotify={onNotify} host={host(invoke)} instance="work" instances={instances} />);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { fresh: false, instance: "work" }));
     expect(await screen.findByText("home ~/.codex-work")).toBeTruthy();
-    expect(screen.getByText("CODEX_HOME=~/.codex-work codex login")).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith("sign-in-state", { target: "work" });
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.getByText(/Its 3 threads leave the thread list/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove instance" }));

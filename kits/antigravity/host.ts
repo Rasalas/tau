@@ -1,15 +1,16 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { HostCommandError, TurnActivityStore, type HostBackendThreadRecord, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
+import { HostCommandError, TurnActivityStore, registerSignIn, type HostBackendThreadRecord, type SignInFlowContext, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
 import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
 import { CommandOverride } from "./command-override.js";
 import { installAntigravity, resolveAntigravity, type AntigravityExecutable } from "./install.js";
 import { geminiConfigDirectory, readMcpServers, withTauServer, type AcpMcpServer } from "./mcp.js";
-import { browserCommand, linkUserSkills, prepareProfile, type AntigravityProfile } from "./profile.js";
+import { browserCommand, linkUserSkills, prepareProfile, profileTokenPath, type AntigravityAuthMethod, type AntigravityProfile, type AuthorizationLink } from "./profile.js";
 import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, USAGE_KIT_ID, type AntigravitySignInEvent } from "./protocol.js";
 import { ANTIGRAVITY_RELEASE_VERSION, releaseAssetFor } from "./release.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
+import { AntigravitySignInSettings, METHOD_LABELS, antigravityAccount, antigravitySignInMethods, callbackAddress, credentialEnvironment, methodProblem, usesBrowser } from "./sign-in.js";
 import { AntigravityThreadRuntimeBackend, MODEL_PROVIDER, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
 
 export { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID };
@@ -24,6 +25,8 @@ export interface AntigravityHostExtensionOptions {
   env?: NodeJS.ProcessEnv;
   /** The user's own Gemini configuration, read for MCP servers and skills; `~/.gemini` otherwise. */
   geminiDir?: string;
+  /** Reaches the agent's loopback listener with an address the user pasted; tests answer it. */
+  fetch?: typeof globalThis.fetch;
 }
 
 export const ANTIGRAVITY_COMMAND_VARIABLE = "TAU_ANTIGRAVITY_ACP_COMMAND";
@@ -51,10 +54,12 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const activity = new TurnActivityStore({ directory: join(dirname(storePath), "antigravity-activity") });
       const override = new CommandOverride(join(services.stateDir, "settings.json"), ANTIGRAVITY_COMMAND_VARIABLE, env);
       const resolveExecutable = (command = override.current()?.command) => resolveAntigravity({ override: command, stateDir: services.stateDir, platform, arch, findCommand: services.findCommand });
+      const signInSettings = new AntigravitySignInSettings(join(services.stateDir, "sign-in.json"));
 
       /** The private home the agent runs in, with the user's own skills linked into it. */
       const prepare = async (): Promise<AntigravityProfile> => {
-        const profile = await prepareProfile(services.stateDir);
+        const choice = signInSettings.current;
+        const profile = await prepareProfile(services.stateDir, choice.method, { ...(choice.gcpProject ? { project: choice.gcpProject } : {}), ...(choice.gcpLocation ? { location: choice.gcpLocation } : {}) });
         const linked = await linkUserSkills(profile, geminiDir);
         if (linked.length > 0) services.log("antigravity.skills", linked.join(", "));
         return profile;
@@ -67,6 +72,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         const tau = input.authenticate === false ? undefined : await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }).catch(() => undefined);
         const mcpServers = withTauServer(await readMcpServers(geminiDir), tau);
         if (options.openSession) return options.openSession({ ...input, executable, profile, mcpServers });
+        const choice = signInSettings.current;
         if (mcpServers.length > 0) services.log("antigravity.mcp", mcpServers.map((server) => server.name).join(", "));
         services.noteSubprocess();
         return AntigravitySession.open({
@@ -78,6 +84,9 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           browser: browserCommand(),
           clientVersion: options.clientVersion ?? "0.0.0",
           mcpServers,
+          authMethod: choice.method,
+          credentials: credentialEnvironment(env, choice),
+          ...(input.signal ? { signal: input.signal } : {}),
           ...(input.authenticate === false ? { authenticate: false } : {}),
           onUpdate: input.onUpdate,
           onPermission: input.onPermission,
@@ -164,7 +173,8 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         const command = chosen ? { command: chosen.command, commandSource: chosen.source } : {};
         try {
           const executable = await resolveExecutable();
-          const profile = await prepareProfile(services.stateDir);
+          const choice = signInSettings.current;
+          const account = antigravityAccount(choice, existsSync(profileTokenPath(services.stateDir)), env);
           return {
             kind: ANTIGRAVITY_BACKEND_KIND,
             ...command,
@@ -172,7 +182,11 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             source: executable.source,
             version: executable.version,
             path: executable.executablePath,
-            signedIn: existsSync(profile.tokenPath),
+            signedIn: account.signedIn,
+            authMethod: choice.method,
+            ...(choice.gcpProject ? { gcpProject: choice.gcpProject } : {}),
+            ...(choice.gcpLocation ? { gcpLocation: choice.gcpLocation } : {}),
+            ...(account.signedIn && account.label ? { account: account.label } : {}),
             available,
             mcpServers: (await readMcpServers(geminiDir)).map((server) => server.name),
             models: (await store.listModels()).length,
@@ -197,7 +211,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         return { version: installed.version, path: installed.executablePath };
       }, { long: true });
       // Sign-out is the agent's own: it clears the credentials it stored in Tau's profile.
-      context.registerCommand("logout", async () => {
+      const logout = async () => {
         const session = await openSession({
           threadId: "sign-out",
           // No session is created, so the agent needs a directory to run in, not the workspace.
@@ -214,8 +228,8 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         } finally {
           await session.close().catch(() => undefined);
         }
-        return { signedOut: true };
-      }, { long: true });
+      };
+      context.registerCommand("logout", async () => { await logout(); return { signedOut: true }; }, { long: true });
       // Each thread's running total, for the Usage kit; read from the store, never from Google.
       context.registerCommand("usage", async () => ({
         threads: (await store.list()).map((entry) => {
@@ -229,7 +243,87 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           };
         }),
       }), { callers: [USAGE_KIT_ID] });
-      return services.registerRuntimeBackend(provider);
+
+      // Signing in from the window: the agent's own `authenticate` for the chosen method, its link shown to open.
+      const fetchUrl = options.fetch ?? globalThis.fetch;
+      const reachLoopback = (link: AuthorizationLink, flow: SignInFlowContext) => {
+        let question = "If the page after Google's does not load (a browser on another computer), paste its address here.";
+        const listen = async (): Promise<void> => {
+          for (;;) {
+            const pasted = await flow.ask({ kind: "code", message: question, placeholder: link.redirectUri });
+            try {
+              await fetchUrl(callbackAddress(pasted, link), { redirect: "manual", signal: flow.signal });
+              return;
+            } catch (error) {
+              question = `${error instanceof Error ? error.message : String(error)} Paste the address again.`;
+            }
+          }
+        };
+        void listen().catch(() => undefined);
+      };
+      let unregister = services.registerRuntimeBackend(provider);
+      const signIn = registerSignIn(context, {
+        report: async () => {
+          const choice = signInSettings.current;
+          const missing = await resolveExecutable().then(() => undefined, () => "Install Antigravity first.");
+          return {
+            methods: antigravitySignInMethods(choice, env, missing),
+            account: antigravityAccount(choice, existsSync(profileTokenPath(services.stateDir)), env),
+            note: "The agent keeps its Google sign-in in Tau's Antigravity profile, and a key stays in your shell's environment; Tau stores none.",
+          };
+        },
+        signIn: async (_target, method, flow) => {
+          const chosen = method as AntigravityAuthMethod;
+          const problem = methodProblem(chosen, signInSettings.current, env);
+          if (problem) throw new Error(problem);
+          await signInSettings.save({ method: chosen });
+          if (!usesBrowser(chosen)) flow.verifying(`Connecting with the ${METHOD_LABELS[chosen]}…`);
+          const session = await openSession({
+            threadId: "sign-in",
+            // No session is created, so the agent needs a directory to run in, not the workspace.
+            cwd: services.stateDir,
+            signal: flow.signal,
+            onUpdate: () => undefined,
+            onPermission: async () => ({ outcome: { outcome: "cancelled" } }),
+            onSignIn: (link) => {
+              flow.show({ browser: { url: link.authorizationUrl, instructions: "Sign in with Google in the browser; the agent finishes the sign-in by itself on this computer." } });
+              reachLoopback(link, flow);
+            },
+            onExit: () => undefined,
+          });
+          await session.close().catch(() => undefined);
+          return `Signed in with the ${METHOD_LABELS[chosen]}.`;
+        },
+        signOut: async () => {
+          const choice = signInSettings.current;
+          if (!usesBrowser(choice.method)) {
+            await signInSettings.save({ method: "oauth-personal" });
+            return `Antigravity no longer uses the ${METHOD_LABELS[choice.method]}; it signs in with a Google account again.`;
+          }
+          await logout();
+          return "Signed out of Antigravity.";
+        },
+        // The account decides what a session may do: the backend is registered anew and its catalog asked again.
+        changed: () => {
+          unregister();
+          unregister = services.registerRuntimeBackend(provider);
+        },
+      });
+      // The Google Cloud project Enterprise and Agent Platform run in; not a credential.
+      context.registerCommand("set-sign-in", async (input) => {
+        const { gcpProject, gcpLocation } = (input ?? {}) as { gcpProject?: unknown; gcpLocation?: unknown };
+        try {
+          await signInSettings.save({ gcpProject: typeof gcpProject === "string" ? gcpProject : "", gcpLocation: typeof gcpLocation === "string" ? gcpLocation : "" });
+        } catch (error) {
+          throw new HostCommandError(error instanceof Error ? error.message : String(error));
+        }
+        await signIn.publish();
+        return signInSettings.current;
+      });
+      return () => {
+        signIn.dispose();
+        unregister();
+      };
     },
   };
 }

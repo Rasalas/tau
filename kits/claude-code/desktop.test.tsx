@@ -31,11 +31,13 @@ describe("Claude Code desktop extension", () => {
   it("reports the CLI and the account it is signed in as, and asks the CLI again on demand", async () => {
     const invoke = vi.fn(async (command: string, input?: unknown) => command === "status"
       ? { kind: "claude-code", command: "claude", path: "/usr/local/bin/claude" }
+      : command === "sign-in-state" ? { methods: [], account: { signedIn: true, label: "me@example.com", detail: "Claude Max", canSignOut: true } }
       : { version: "2.1.4", account: "Claude Max", defaultModel: "sonnet", effort: "medium", models: [{ id: "sonnet", name: "Sonnet 5" }, { id: "haiku", name: "Haiku 4.5" }], fresh: (input as { fresh?: boolean } | undefined)?.fresh });
     render(<ClaudeCodeProviderCard onNotify={vi.fn()} host={host(invoke)} />);
     await waitFor(() => expect(screen.getByText("Found · 2.1.4")).toBeTruthy());
     expect(screen.getByText("/usr/local/bin/claude")).toBeTruthy();
-    expect(screen.getByText("Claude Max")).toBeTruthy();
+    expect(await screen.findByText("Claude Max")).toBeTruthy();
+    expect(screen.getByText("me@example.com")).toBeTruthy();
     expect(screen.getByText(/2 models available, sonnet by default, effort medium/u)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Check again/u }));
@@ -61,12 +63,14 @@ describe("Claude Code desktop extension", () => {
   it("explains a CLI it cannot find instead of showing an empty page", async () => {
     const invoke = vi.fn(async (command: string) => command === "status"
       ? { kind: "claude-code", command: "claude", path: undefined }
+      : command === "sign-in-state" ? { methods: [{ id: "plan", label: "Sign in with a Claude plan", kind: "terminal", unavailable: "Install the CLI first; \"claude\" was not found." }], account: { signedIn: false } }
       : Promise.reject(new Error("The Claude Code CLI \"claude\" was not found on the PATH of your login shell.")));
     render(<ClaudeCodeProviderCard onNotify={vi.fn()} host={host(invoke)} />);
     await waitFor(() => expect(screen.getByText("claude was not found")).toBeTruthy());
     expect(screen.getByText(/claude.ai\/code, or set its path below/u)).toBeTruthy();
     // The probe's rejection lands one turn after the status; wait for it rather than assume it.
     expect(await screen.findByText(/was not found on the PATH/u)).toBeTruthy();
+    expect(await screen.findByText(/Install the CLI first/u)).toBeTruthy();
   });
 
   it("draws a card per instance and asks each for its own status", async () => {
@@ -84,7 +88,7 @@ describe("Claude Code desktop extension", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { instance: "second" }));
     expect(invoke).toHaveBeenCalledWith("probe", { fresh: false, instance: "second" });
     expect(await screen.findByText("home ~/.claude-second")).toBeTruthy();
-    expect(screen.getByText("CLAUDE_CONFIG_DIR=~/.claude-second claude")).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith("sign-in-state", { target: "second" });
     expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
   });
 

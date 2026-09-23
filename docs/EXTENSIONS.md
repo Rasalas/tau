@@ -1302,8 +1302,10 @@ runtime that cannot run answers `status: "not-installed"` or
 one whose answer throws or times out keeps the models it named last with
 `status: "unavailable"` and the error as `note`. Codex answers `billing` from
 its account (a ChatGPT login is the subscription), the Agent SDK runtime from
-its login; both answer `not-installed` without their CLI, and Codex
-`sign-in-required` without an account.
+its login; both answer `not-installed` without their CLI, and
+`sign-in-required` without an account: Codex from `account/read`, the Agent
+SDK runtime from its CLI's `auth status --json` (the probe lists models even
+signed out, so it is not asked then).
 
 #### Versions a backend works with (new in API 1.11.0)
 
@@ -1423,6 +1425,90 @@ thread's running turn, as the stop button does; what the thread had queued
 then waits for the user. Agents Kit's `tau_send_to_thread` and
 `tau_cancel_thread` are built on these two, and so is the message that wakes a
 parent when a child it was not waiting for finished.
+
+#### Signing in from the window (new in API 1.12.0)
+
+A runtime's login, or a Pi provider's, starts on its Providers card (and in
+Onboarding) instead of in a terminal the user has to find. The flow is the
+program's own; Tau shows where it stands and answers what it asks, and never
+keeps a credential: Codex keeps its login in its home, the Agent SDK
+runtime's CLI in its configuration, Antigravity's agent its Google token in
+Tau's profile folder for it, Pi in its `auth.json`, and a key that only lives
+in the user's environment stays there.
+
+The vocabulary is `src/shared/sign-in.ts`, on `tau` and `tau/host-extension`
+alike. A **method** (`SignInMethod`) says how a sign-in runs — `browser`,
+`device-code`, `api-key`, `terminal` or `credentials` — and why it cannot
+start yet (`unavailable`: "Set GEMINI_API_KEY first"). An **account**
+(`SignInAccount`) says whether the program is signed in, as whom and through
+what, and whether a sign-out has anything to remove (a key from the
+environment does not). A **flow** (`SignInFlowState`) has an id and a phase
+(`starting`, `waiting`, `verifying`, `succeeded`, `failed`, `cancelled`) and,
+while it waits, what the user acts on: a consent page to open (`browser`), a
+code to enter on a page (`deviceCode`), a command to run in a terminal the
+user sees (`terminal`), a question (`prompt`: `text`, `secret`, `select` or
+`code`, the last one for a code or an address pasted back), a line and links.
+
+A kit's host half registers the flows with `registerSignIn(context, {
+report, signIn, signOut, changed })` from `tau/host-extension`. It registers
+five commands and one event, the same for every kit, so the window can drive
+any of them: `sign-in-state` (the methods, the account and the last flow),
+`sign-in` (`{ target, method }`, answers the new flow at once), `sign-in-respond`
+(`{ target, flowId, value }`), `sign-in-cancel` and `sign-out`, each with a
+`target` naming an instance or a provider; the `sign-in` event carries a
+moved flow, or the whole report once a flow ended or a sign-out ran. The helper
+keeps one flow per target, refuses an answer to a flow that ended, aborts
+the kit's signal on cancel, on a new flow for the same target and after ten
+minutes, and asks `changed(target)` after a sign-in or sign-out — the
+runtime kits register their backend anew there, so the host asks the
+catalog and the version again. `signIn(target, method, flow)` runs the
+program's login: `flow.show(…)` puts up a page, a code or a command,
+`flow.ask(prompt, { signal })` waits for the user (and withdraws the
+question when the program no longer needs it), `flow.verifying()` says the
+program is being asked whether it worked, and the resolved value is the line
+to show. `publish(target)` sends a fresh report after a setting the kit keeps
+changed what a method needs. `commandLine(executable, args, env, platform)`
+builds the line a terminal runs, with the instance's home set for it.
+
+On the desktop side `loadSignInUi()` on `tau` loads `SignInSetup` (a chunk
+with its stylesheet): the account row with sign-out (confirmed in place),
+the methods while signed out, and the flow drawn after T3 Code's provider
+setup — Open sign-in page and Copy link, the device code with Copy and the
+page's host, the question's field (a password field for a secret) or its
+choices, Cancel sign-in and the time the flow gives up. A `terminal` step of
+a flow this window started runs once through `runInTerminal` — the shipped
+kits pass Terminal Kit's `tau.terminal/run`, so the login runs where the user
+sees it — and its exit status answers the flow; without a terminal the
+command is shown to copy with "I have signed in". `showAccount: false` leaves
+the account row to a caller that draws its own.
+
+The shipped kits: Codex signs in over its app server (`account/login/start`:
+ChatGPT through the page its own login server serves, a device code, an API
+key handed to the CLI) or with `codex login` in a terminal, and signs out
+with `account/logout`; the Agent SDK runtime runs its CLI's `auth login`
+(for a plan or a Console account) for the instance's home in a terminal, reads
+the result with `auth status --json` and signs out with `auth logout`;
+Antigravity offers its agent's four methods (a Google account or Gemini
+Enterprise in the browser, a Gemini API key, Agent Platform) through ACP's
+`authenticate`, keeps the choice and the Google Cloud project in its state
+folder, passes the chosen method's variable from the user's environment to
+the agent and nothing else, and takes the address of the page Google sent
+the browser back to when that page could not load — it must name the
+agent's own loopback listener and the sign-in's state, and the host hands it
+on. Pi Providers (`kits/pi-providers/`) is Pi's card: every provider Pi
+knows, what reaches it now, and Pi's own login per provider.
+
+`services.modelAuth` (`runtime:extend`, in-process only; absent on an older
+host) is the seam behind that card: `providers()` lists Pi's model providers
+with the sign-in each offers (`oauth` with its label and whether it spends a
+subscription, `apiKey` and whether a key can be typed), whether it is set up
+and from where (`source`, `label`), and what Pi's file holds for it
+(`stored`); `login(providerId, "oauth" | "api_key", interaction)` runs Pi's
+own login with the same `prompt` and `notify` callbacks Pi's `/login` uses,
+and `logout(providerId)` removes what Pi stored. Core runs both on the
+model runtime its small jobs complete on, whose credential store is Pi's
+`auth.json`, and afterwards asks Pi's catalog again and drops the model lists
+it holds, so the picker and a new thread see the change.
 
 ### Tau's tools for every runtime: `services.mcp`
 
@@ -1570,7 +1656,7 @@ A package's `permissions` array draws from a fixed list
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
 | `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
-| `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — and read a workspace's skill catalog (`skills`). |
+| `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
 | `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
