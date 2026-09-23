@@ -16,8 +16,8 @@ import { writeCodexSessions, sessionPlan } from "./sessions-fixture.mjs";
 import { aggregateRuns, frameStats, longTaskStats, round } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
 import {
-  LARGE_THREAD_ROOT, LARGE_THREAD_TITLE, LARGE_THREAD_TURNS, OLDER_PAGE_DRIFT, OLDER_PAGES_AT_TOP, TWO_PAGE_THREAD_TITLE, TWO_PAGE_THREAD_TURNS,
-  largeThreadRows, newestTurnVisible, writePiThread,
+  LARGE_THREAD_ROOT, LARGE_THREAD_TITLE, LARGE_THREAD_TURNS, LEAD_ROW, OLDER_PAGES_AT_TOP, SCROLL_UP_NOTCH_PX, SCROLL_UP_NOTCHES,
+  TWO_PAGE_THREAD_TITLE, TWO_PAGE_THREAD_TURNS, largeThreadRows, newestTurnVisible, notchSettled, olderPageDrift, writePiThread,
 } from "./large-thread.mjs";
 import { clickWhenReady, locate } from "./ui.mjs";
 import { machineClass } from "../machine-class.mjs";
@@ -263,27 +263,55 @@ const LOAD_ONE_OLDER_PAGE = `new Promise((resolvePromise, rejectPromise) => {
   setTimeout(() => { observer.disconnect(); rejectPromise(new Error("older page did not load within 30 s")); }, 30_000);
 })`;
 
-/** Wheels the transcript up like a reader would until it rests at its first pixel. */
-async function wheelToTop(session) {
-  const state = `(() => { const s = document.getElementById("thread-transcript"); const r = s.getBoundingClientRect(); return { top: s.scrollTop, x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`;
-  for (let attempt = 0; attempt < 400; attempt += 1) {
-    const { top, x, y } = await evaluate(session, state);
-    if (top <= 0) {
-      // Rows measured on the way up may still move the top; it has to stay at 0.
-      await wait(500);
-      if ((await evaluate(session, state)).top <= 0) return;
-      continue;
-    }
-    await session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY: -Math.min(2_400, top + 240) });
-    await wait(32);
-  }
-  throw new Error("the transcript did not reach its top");
+/** One wheel notch up over the transcript: the reader's own input, so the tail stops following. */
+async function wheelUp(session, deltaY) {
+  const { x, y } = await evaluate(session, LEAD_ROW);
+  await session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY: -deltaY });
 }
 
-/** Loads one older page with the reader at the top and reports how far the leading row moved. */
+/** Jumps to the top of the loaded rows, which loads an older page, and reports how far the leading row moved. */
 async function olderPageAtTop(session) {
-  await wheelToTop(session);
-  return evaluate(session, OLDER_PAGE_DRIFT);
+  return evaluate(session, olderPageDrift({ jump: true }));
+}
+
+/** One notch up in a thread whose older page is within reach, and how far the leading row moved when it landed. */
+async function olderPageOnTheWay(session) {
+  const probe = evaluate(session, olderPageDrift({ jump: false }));
+  await wait(50);
+  await wheelUp(session, SCROLL_UP_NOTCH_PX);
+  return probe;
+}
+
+/**
+ * Wheels up notch by notch from wherever the reader is. Each notch has to move
+ * the row that led the viewport by exactly the notch (less where the rows run
+ * out), in every frame until the transcript rests, older page or not. Rows
+ * the virtualizer measures on the way and pages that land in between must not
+ * show. Stops at the thread's first row.
+ */
+async function scrollUpDrift(session, notches) {
+  const result = { driftPx: 0, lostNotches: 0, topHits: 0, pages: 0, notches: 0 };
+  for (let notch = 0; notch < notches; notch += 1) {
+    const before = await evaluate(session, LEAD_ROW);
+    if (before.scrollTop <= 0) {
+      if (!before.hasOlder) break;
+      // Older turns are left, but nothing loaded them before the reader got here.
+      result.topHits += 1;
+      if (result.topHits >= 3) break;
+    }
+    const expected = Math.min(SCROLL_UP_NOTCH_PX, before.scrollTop);
+    await session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: before.x, y: before.y, deltaX: 0, deltaY: -SCROLL_UP_NOTCH_PX });
+    const after = await evaluate(session, notchSettled(before.id, before.top, expected));
+    result.notches += 1;
+    if (after.loadingSeen) result.pages += 1;
+    if (after.top === undefined) {
+      result.lostNotches += 1;
+      result.driftPx = Math.max(result.driftPx, before.height);
+      continue;
+    }
+    result.driftPx = Math.max(result.driftPx, Math.abs(after.top - before.top - expected), after.outsidePx);
+  }
+  return result;
 }
 
 /**
@@ -315,12 +343,14 @@ async function measureLargeThreadRun(app, root, options) {
     const openWire = wire.snapshot();
     await wait(1_000);
     const olderPageMs = await evaluate(session, LOAD_ONE_OLDER_PAGE);
+    await wait(500);
+    const scrollUp = await scrollUpDrift(session, SCROLL_UP_NOTCHES);
     const atTop = [];
     for (let page = 0; page < OLDER_PAGES_AT_TOP; page += 1) atTop.push(await olderPageAtTop(session));
     await clickWhenReady(session, app.selectors.threadRowClick, new RegExp(TWO_PAGE_THREAD_TITLE, "u"));
     await waitFor(session, newestTurnVisible(app.selectors.messageRow, TWO_PAGE_THREAD_TURNS, openTag), { timeoutMs: 30_000, pollMs: 10 });
     await wait(1_000);
-    const twoPage = await olderPageAtTop(session);
+    const twoPage = await olderPageOnTheWay(session);
     return {
       newestTurnMs: shown.at - startedAt,
       olderPageMs: round(olderPageMs),
@@ -329,6 +359,10 @@ async function measureLargeThreadRun(app, root, options) {
       olderPageDriftPx: round(Math.max(...atTop.map((load) => load.driftPx))),
       olderPageLostFrames: Math.max(...atTop.map((load) => load.lostFrames)),
       twoPageDriftPx: round(twoPage.driftPx),
+      scrollUpDriftPx: round(scrollUp.driftPx),
+      scrollUpTopHits: scrollUp.topHits,
+      scrollUpPages: scrollUp.pages,
+      scrollUpNotches: scrollUp.notches,
       wire: openWire,
     };
   });
