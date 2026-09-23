@@ -72,6 +72,8 @@ export interface AcpAgentSessionOptions {
   onElicitation?(request: AcpElicitationRequest): Promise<AcpElicitationAnswer>;
   onExit?(error: AcpExitedError | undefined): void;
   onStderrLine?(line: string): void;
+  /** A notification other than `session/update`: an extension method of the agent's own. */
+  onNotification?(method: string, params: unknown): void;
   /** Roots the agent may read and write through Tau; the workspace itself is always one. */
   fileRoots?: readonly string[];
   /** MCP servers forwarded when a session is created, resumed or loaded. */
@@ -247,10 +249,22 @@ export class AcpAgentSession {
     if (configId === "mode" && typeof value === "string") this.modeId = value;
   }
 
-  setModel(modelId: string): Promise<void> { return this.setConfigOption("model", modelId); }
-  setMode(modeId: string): Promise<void> {
-    if (this.modeId === modeId) return Promise.resolve();
-    return this.setConfigOption("mode", modeId);
+  /** Through the model config option; an agent that has only the model state takes `session/set_model`. */
+  async setModel(modelId: string): Promise<void> {
+    if (findConfigOption(this.configOptions, "model") || !this.setup?.models) return this.setConfigOption("model", modelId);
+    if (this.setup.models.currentModelId === modelId) return;
+    if (!this.setup.models.availableModels.some((model) => model.modelId === modelId)) throw new AcpRequestError("session/set_model", ACP_INVALID_PARAMS, `${this.base.agentName} does not offer "${modelId}" for model.`);
+    await this.client.request("session/set_model", { sessionId: this.setup.sessionId, modelId }, { timeoutMs: this.timeouts.sessionMs });
+    this.setup = { ...this.setup, models: { ...this.setup.models, currentModelId: modelId } };
+  }
+
+  /** Through the mode config option; an agent that has only the mode state takes `session/set_mode`. */
+  async setMode(modeId: string): Promise<void> {
+    if (this.modeId === modeId) return;
+    if (findConfigOption(this.configOptions, "mode") || !this.setup?.modes) return this.setConfigOption("mode", modeId);
+    if (!this.setup.modes.availableModes.some((mode) => mode.id === modeId)) throw new AcpRequestError("session/set_mode", ACP_INVALID_PARAMS, `${this.base.agentName} does not offer "${modeId}" for mode.`);
+    await this.client.request("session/set_mode", { sessionId: this.setup.sessionId, modeId }, { timeoutMs: this.timeouts.sessionMs });
+    this.modeId = modeId;
   }
 
   /** One turn; the answer is the agent's stop reason and usage. A second prompt waits for the first. */
@@ -299,7 +313,8 @@ export class AcpAgentSession {
   }
 
   private onNotification(method: string, params: unknown): void {
-    if (method !== "session/update" || !params || typeof params !== "object") return;
+    if (method !== "session/update") { this.base.onNotification?.(method, params); return; }
+    if (!params || typeof params !== "object") return;
     const notification = params as { sessionId?: string; update?: AcpSessionUpdate };
     if (!notification.update || (this.setup && notification.sessionId !== this.setup.sessionId)) return;
     if (notification.update.sessionUpdate === "config_option_update" && Array.isArray(notification.update.configOptions)) this.configOptions = notification.update.configOptions as AcpConfigOption[];

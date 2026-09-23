@@ -178,6 +178,26 @@ export class AcpTurnTranslator {
     return events;
   }
 
+  /** A reply the agent sent outside the stream (a plan, say): it closes the open text and stands as a message of its own. */
+  reply(text: string): ThreadRuntimeEvent[] {
+    if (!text.trim()) return [];
+    const events = this.closeSegment();
+    events.push(...this.chunk({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }, "text"));
+    events.push(...this.closeSegment());
+    return events;
+  }
+
+  /** A tool the agent reported through a method of its own: a card that starts and ends at once. */
+  finishedTool(tool: { id: string; name: string; args?: Record<string, unknown>; output?: string; failed?: boolean }): ThreadRuntimeEvent[] {
+    const started: UiToolRun = { id: tool.id, name: tool.name, args: tool.args ?? {}, status: "running", startedAt: this.now() };
+    const output = tool.output ? boundedToolOutput(tool.output) : undefined;
+    return [
+      ...this.closeSegment(),
+      { type: "tool-start", tool: started },
+      { type: "tool-end", tool: { ...started, status: tool.failed ? "error" : "done", ...(output ? { output } : {}), endedAt: this.now() } },
+    ];
+  }
+
   /** The process died mid-turn. */
   abandon(): ThreadRuntimeEvent[] {
     return this.finish({ stopReason: "cancelled" });

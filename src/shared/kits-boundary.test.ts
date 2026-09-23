@@ -75,6 +75,19 @@ describe("kits boundary", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("a folder the kits share imports no kit", () => {
+    const offenders: string[] = [];
+    for (const shared of readdirSync("kits").filter((name) => name.startsWith("_"))) {
+      const root = join("kits", shared);
+      for (const path of sourceFiles(root).filter((file) => !isTest(file))) {
+        for (const specifier of specifiers(path)) {
+          if (specifier.startsWith(".") && !join(path, "..", specifier).startsWith(`${root}/`)) offenders.push(`${path}: ${specifier}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it("a kit ships no test harness in the code it loads", () => {
     const offenders = sourceFiles("kits")
       .filter((path) => !isTest(path))
