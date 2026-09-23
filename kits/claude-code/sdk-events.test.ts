@@ -118,6 +118,20 @@ describe("SdkTurnTranslator", () => {
     ]);
   });
 
+  it("names the limit a rejected usage window stopped the turn with", () => {
+    const now = 1_000_000_000_000;
+    const translator = new SdkTurnTranslator(() => now);
+    run([
+      frame({ type: "rate_limit_event", rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt: now / 1000 + 3600 } }),
+      frame({ type: "result", subtype: "success", is_error: true, num_turns: 1, result: "You've hit your limit", total_cost_usd: 0, usage: {} }),
+    ], translator);
+    expect(translator.outcome).toMatchObject({ error: "You've hit your limit", limit: { resetsAt: now + 3_600_000 } });
+
+    const blocked = new SdkTurnTranslator(() => now);
+    run([frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["blocked"], terminal_reason: "blocking_limit", total_cost_usd: 0, usage: {} })], blocked);
+    expect(blocked.outcome).toMatchObject({ error: "blocked", limit: {} });
+  });
+
   it("bounds tool output to the host's limit and sums usage", () => {
     const long = "x".repeat(MAX_TOOL_OUTPUT_BYTES + 10);
     const bounded = boundedToolOutput(long);

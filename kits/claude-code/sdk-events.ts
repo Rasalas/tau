@@ -20,6 +20,8 @@ export interface TurnOutcome {
   error?: string;
   /** The turn was stopped, by the user or by the host; nothing went wrong. */
   interrupted?: boolean;
+  /** A usage limit stopped the turn; the reset in epoch ms when the CLI named one. */
+  limit?: { resetsAt?: number };
 }
 
 /** The CLI reports a stopped turn as an error result; its diagnostics are not for the user. */
@@ -133,6 +135,8 @@ export class SdkTurnTranslator {
   private texts: string[] = [];
   private sawAssistant = false;
   private readonly noticed = new Set<string>();
+  /** A limit the CLI rejected this turn with; the error result that follows is that limit. */
+  private rejected?: { resetsAt?: number };
 
   constructor(private readonly now: () => number = Date.now, private readonly nextId: () => string = () => `claude-assistant-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`) {}
 
@@ -226,9 +230,11 @@ export class SdkTurnTranslator {
 
   private result(message: ResultMessage): ThreadRuntimeEvent[] {
     if (message.subtype !== "success" || message.is_error) {
+      const blocked = (message as { terminal_reason?: string }).terminal_reason === "blocking_limit" ? {} : undefined;
+      const limit = this.rejected ?? blocked;
       this.outcome = interruptedResult(message)
         ? { texts: this.texts, usage: resultUsage(message), interrupted: true }
-        : { texts: this.texts, usage: resultUsage(message), error: resultErrorText(message) };
+        : { texts: this.texts, usage: resultUsage(message), error: resultErrorText(message), ...(limit ? { limit } : {}) };
       return [];
     }
     // A resumed session answers with an empty result before the turn.
@@ -264,6 +270,7 @@ export class SdkTurnTranslator {
   private rateLimit(message: SDKMessage & { type: "rate_limit_event" }): ThreadRuntimeEvent[] {
     const info = message.rate_limit_info;
     if (info.status !== "rejected" || info.isUsingOverage) return [];
+    this.rejected = info.resetsAt ? { resetsAt: info.resetsAt * 1000 } : {};
     const key = `${info.rateLimitType ?? "limit"}:${info.resetsAt ?? 0}`;
     if (this.noticed.has(key)) return [];
     this.noticed.add(key);
