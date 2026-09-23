@@ -29,7 +29,7 @@ export {
 } from "../shared/extension-prompt-options";
 export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
 export { DiffView, ReviewMode } from "./extension-components";
-export { ChangesTree } from "./components/ChangesTree";
+export { ChangesTree } from "./deferred-surfaces";
 export { usePreferences } from "./renderer-services-context";
 // The rows a Settings page is built from, and one config key read across the levels.
 export { SettingRow, SettingsSection } from "./deferred-surfaces";
@@ -58,8 +58,7 @@ export { Tooltip, tooltipProps, type TooltipOptions } from "./components/ui/Tool
 // Paths and branches cut in the middle, not at the end (API 1.11.0).
 export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
 export { useContextMenu } from "./components/ui/ContextMenu";
-export { Dialog, Popover } from "./components/ui/Dialog";
-export { ConfirmDialog } from "./components/ui/ConfirmDialog";
+export { ConfirmDialog, Dialog, Popover } from "./deferred-surfaces";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
 export { useFocusReturn, useFocusTrap } from "./components/ui/focus";
 export type { FloatingAlign, FloatingSide } from "./components/ui/floating";

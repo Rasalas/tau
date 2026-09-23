@@ -5,8 +5,7 @@ import type { ThreadStore } from "../workbench/thread-store";
 import type { ToastStore } from "../workbench/toast-store";
 import type { QuitShortcutMode, ReleaseNotes, WindowAction, WindowShellEvent, WindowShellStatus } from "../shared/window-shell";
 import type { PreferencesStore } from "./preferences";
-import { Dialog } from "./components/ui/Dialog";
-import { ConfirmDialog } from "./components/ui/ConfirmDialog";
+import { ConfirmDialog, Dialog } from "./deferred-surfaces";
 import { isMacPlatform } from "./keybindings";
 import { armPasteAsText, disarmPasteAsText, isPasteAsTextChord } from "./paste-as-text";
 
