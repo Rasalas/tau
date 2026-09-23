@@ -130,6 +130,7 @@ const hostOptions = {
   threadLimitsPath: join(app.getPath("userData"), "thread-limits.json"),
   threadTrashDir: join(app.getPath("userData"), "thread-trash"),
   sessionLineageCachePath: join(app.getPath("userData"), "session-lineage.json"),
+  runtimeCatalogsPath: join(app.getPath("userData"), "runtime-catalogs.json"),
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {

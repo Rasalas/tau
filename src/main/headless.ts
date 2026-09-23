@@ -117,6 +117,7 @@ async function main(): Promise<void> {
       },
       sessionUsageCachePath: join(userData, "session-usage.json"),
       sessionLineageCachePath: join(userData, "session-lineage.json"),
+      runtimeCatalogsPath: join(userData, "runtime-catalogs.json"),
     });
   });
   const methods = createHostMethods({

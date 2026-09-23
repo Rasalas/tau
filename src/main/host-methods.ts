@@ -345,6 +345,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     },
     "get-models-config": async () => (await host()).modelsConfig(),
     "runtime-catalog": async (params) => (await host()).runtimeCatalog(decodeString("runtime-catalog", "kind", params[0])),
+    "runtime-catalogs": async (params) => (await host()).runtimeCatalogs(params[0] === true),
     "add-model-provider": async (params) => (await host()).addModelProvider(decodeCustomProviderInput("add-model-provider", "input", params[0])),
     "inspect-system-prompt": async (params) => (await host()).inspectSystemPrompt(
       decodeOptionalString("inspect-system-prompt", "threadId", params[0]),

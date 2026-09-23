@@ -83,6 +83,7 @@ function defaults(): HostClient {
     clearConfig: async () => ({ host: {} }),
     getModelsConfig: async () => [],
     runtimeCatalog: async () => undefined,
+    runtimeCatalogs: async () => [],
     addModelProvider: async () => [],
     inspectSystemPrompt: async () => ({ effectivePrompt: "", appends: [], contextFiles: [] }),
     listUserThemes: async () => [],
