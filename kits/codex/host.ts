@@ -18,6 +18,7 @@ import {
   type HostExtension,
   type HostExtensionServices,
   type HostRuntimeBackendProvider,
+  type HostRuntimeNewThreadCatalog,
   type RuntimeCompatibility,
   type RuntimeInstanceConfig,
   type RuntimeToolVersion,
@@ -42,7 +43,7 @@ import {
 } from "./protocol.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore, type CodexStoredModel } from "./session-store.js";
-import { CodexThreadRuntimeBackend, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
+import { CodexThreadRuntimeBackend, MODEL_PROVIDER, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
 
 export { CODEX_BACKEND_KIND, CODEX_HOST_EXTENSION_ID };
 
@@ -72,6 +73,19 @@ export const CODEX_VERSION_POLICY: VersionPolicy = {
   ranges: [{ range: `<${MIN_CODEX_VERSION}`, status: "broken", message: `Tau speaks the app-server protocol of Codex ${MIN_CODEX_VERSION} and newer; threads do not start on an older one.` }],
   recommendedVersion: MIN_CODEX_VERSION,
 };
+
+/** The models a new thread may start on, with the effort each offers; the first entry is Codex's own default. */
+export function codexNewThreadCatalog(models: readonly CodexStoredModel[], configured: { model?: string; effort?: string }): HostRuntimeNewThreadCatalog {
+  const start = (configured.model ? models.find((model) => model.id === configured.model) : undefined) ?? models.find((model) => model.isDefault) ?? models[0];
+  return {
+    models: models.map((model) => ({ provider: MODEL_PROVIDER, id: model.id, name: model.name })),
+    ...(start ? { model: { provider: MODEL_PROVIDER, id: start.id, name: start.name } } : {}),
+    thinkingLevels: Object.fromEntries(models.map((model) => {
+      const applied = configured.effort ?? model.defaultEffort;
+      return [model.id, [applied ? `default (${applied})` : "default", ...model.efforts]];
+    })),
+  };
+}
 
 export async function readCodexVersion(path: string): Promise<string | undefined> {
   try {
@@ -293,6 +307,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           },
           composerCommands: () => [],
           version: () => versionOf(id),
+          // A draft on this instance chooses from the account's models, starting where config.toml points.
+          newThreadCatalog: async () => codexNewThreadCatalog(await cachedModels(id), await readCodexConfiguredModel(home())),
         };
       };
 

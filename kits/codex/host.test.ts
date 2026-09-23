@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { CodexAppServer, spawnInput } from "./app-server.js";
-import createCodexHostExtension from "./host.js";
+import createCodexHostExtension, { codexNewThreadCatalog } from "./host.js";
 import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
 import { codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
@@ -42,8 +42,9 @@ async function harness(options: { installed?: string | undefined; found?: boolea
   const launches: Array<{ threadId?: string; args: readonly string[]; env: NodeJS.ProcessEnv; instance: string }> = [];
   const connected: RuntimeSessionInfo[] = [];
   const connectOptions: unknown[] = [];
+  // Never the user's own ~/.codex: the default instance's home is the scratch folder's.
   const extension = createCodexHostExtension({
-    env: options.env ?? {},
+    env: options.env ?? { CODEX_HOME: join(root, "home") },
     fetch,
     readVersion: async () => "installed" in options ? options.installed : "0.154.0",
     openSession: (input) => (launches.push({ ...(input.threadId ? { threadId: input.threadId } : {}), args: input.args, env: input.env, instance: input.instance }), CodexAppServer.open({
@@ -280,4 +281,39 @@ describe("Codex host half", () => {
     const old = await harness({ installed: "0.150.0" });
     await expect(old.provider.version!()).resolves.toMatchObject({ compatibility: { status: "broken", recommendedVersion: "0.154.0" } });
   });
+
+  it("offers a draft the account's models, starting on the home's config.toml model and effort", async () => {
+    const { provider, root } = await harness();
+    await mkdir(join(root, "home"), { recursive: true });
+    await writeFile(join(root, "home", "config.toml"), 'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"\n');
+    const catalog = await provider.newThreadCatalog!();
+    expect(catalog?.model).toEqual({ provider: "openai", id: "gpt-5.6-luna", name: expect.any(String) });
+    expect(catalog?.models.map((model) => model.id)).toContain("gpt-6-astra");
+    expect(catalog?.thinkingLevels["gpt-5.6-luna"]?.[0]).toBe("default (low)");
+    expect(catalog?.thinkingLevels["gpt-6-astra"]).toEqual(["default (low)", "low", "medium", "high", "xhigh", "max", "ultra"]);
+  });
+
+  it("starts a draft's thread on the model and effort it chose", async () => {
+    const { provider, root } = await harness();
+    const backend = await provider.open("draft-thread", root, { resume: false }, context);
+    try {
+      await backend.capabilities.catalogWrite!.setModel("openai", "gpt-5.6-luna");
+      await backend.capabilities.catalogWrite!.setThinkingLevel("low");
+      expect(backend.catalogView()).toMatchObject({ model: { id: "gpt-5.6-luna" }, thinkingLevel: "low" });
+    } finally {
+      await backend.dispose();
+    }
+  });
+
+  it("names the account's default model when config.toml names none or one the account lacks", () => {
+    const models = [{ id: "a", name: "A", efforts: ["low"], defaultEffort: "low" }, { id: "b", name: "B", efforts: ["high"], isDefault: true }];
+    expect(codexNewThreadCatalog(models, {})).toEqual({
+      models: [{ provider: "openai", id: "a", name: "A" }, { provider: "openai", id: "b", name: "B" }],
+      model: { provider: "openai", id: "b", name: "B" },
+      thinkingLevels: { a: ["default (low)", "low"], b: ["default", "high"] },
+    });
+    expect(codexNewThreadCatalog(models, { model: "gone" }).model?.id).toBe("b");
+    expect(codexNewThreadCatalog([], {})).toEqual({ models: [], thinkingLevels: {} });
+  });
 });
+
