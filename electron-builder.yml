@@ -34,6 +34,8 @@ files:
   # Kit sources; the app loads `dist-kits/`, which the default `**/*` picks up
   # (a positive pattern here would replace that default, not add to it).
   - "!kits"
+  # Homebrew, winget and AUR files; they point at the release, not into it.
+  - "!packaging"
   - "!reports"
   - "!release"
   - "!scripts"
@@ -138,6 +140,9 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # No spaces: GitHub renames "Tau Setup 1.2.3.exe" to "Tau.Setup.1.2.3.exe" on
+  # upload, while latest.yml names it "Tau-Setup-1.2.3.exe", so Windows found no update.
+  artifactName: ${productName}-Setup-${version}.${ext}
 
 publish:
   provider: github
