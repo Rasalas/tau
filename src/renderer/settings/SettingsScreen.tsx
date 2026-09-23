@@ -152,7 +152,8 @@ export function SettingsScreen({
   const installer = pages.find((entry) => entry.id === "packages");
   const onProviders = providers.length > 0 && (page === "providers" || providers.some((card) => card.id === page));
   const pageLabel = onProviders ? "Providers" : CORE_PAGE_LABELS[page] ?? contributed?.label ?? active?.name ?? "Settings";
-  const pageScope = page === "defaults" ? "both" : contributed?.scope ?? "host";
+  // Providers lists each runtime's models, which a project may arrange its own way.
+  const pageScope = page === "defaults" || onProviders ? "both" : contributed?.scope ?? "host";
   const showScope = pageScope !== "host";
   // A page without project rows edits this machine; leaving one puts the scope back.
   useEffect(() => { if (!showScope) levels.edit("host"); }, [levels, showScope]);
@@ -366,7 +367,7 @@ export function SettingsScreen({
               ) : page === "pi" ? (
                 <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
               ) : onProviders ? (
-                <ProvidersPage cards={providers} cwd={snapshot?.cwd} onNotify={onNotify} />
+                <ProvidersPage cards={providers} backends={snapshot?.runtimeBackends} cwd={snapshot?.cwd} onNotify={onNotify} />
               ) : contributed ? (
                 <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
               ) : page === "inspector" ? (

@@ -175,6 +175,24 @@ describe("host configuration sync", () => {
     expect(sent).toEqual([{ values: { "acme.second": "2" } }, { options: { "acme.flag": true } }]);
   });
 
+  it("sends one runtime's model preferences, keeps recent models to itself, and follows the host", () => {
+    const sent: unknown[] = [];
+    const fakeClient = {
+      getConfig: async () => ({}),
+      updateConfig: async (patch: unknown) => { sent.push(patch); return {}; },
+    } as unknown as import("../workbench/host-client").HostClient;
+    preferences.bindHost(fakeClient);
+    sent.length = 0;
+    preferences.toggleHiddenModel("codex", "openai/o4-mini");
+    preferences.noteModelUsed("codex:openai/gpt-5.6-luna");
+    preferences.noteModelUsed("openai/gpt-5.6-sol");
+    preferences.noteModelUsed("codex:openai/gpt-5.6-luna");
+    expect(sent).toEqual([{ modelPreferences: { codex: { hidden: ["openai/o4-mini"] } } }]);
+    expect(preferences.getSnapshot().recentModels).toEqual(["codex:openai/gpt-5.6-luna", "openai/gpt-5.6-sol"]);
+    preferences.applyConfig({ modelPreferences: { pi: { order: ["openai/gpt-5.6-luna"] } } });
+    expect(preferences.getSnapshot().modelPreferences).toEqual({ codex: { hidden: ["openai/o4-mini"] }, pi: { order: ["openai/gpt-5.6-luna"] } });
+  });
+
   it("keeps the workspace it was told about when the host is bound without one", async () => {
     const asked: Array<string | undefined> = [];
     const fakeClient = { getConfig: async (workspaceId?: string) => { asked.push(workspaceId); return {}; }, updateConfig: async () => ({}) } as unknown as import("../workbench/host-client").HostClient;

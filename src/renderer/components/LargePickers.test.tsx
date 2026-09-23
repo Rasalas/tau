@@ -29,7 +29,7 @@ describe("large picker catalogs", () => {
     const onSelect = vi.fn();
     render(<TestProviders><ModelPicker models={models} onSelect={onSelect} onClose={() => {}} anchor={{ current: null }} /></TestProviders>);
     expect(document.querySelectorAll(".model-row").length).toBeLessThan(50);
-    const input = screen.getByRole("textbox", { name: "Search models" });
+    const input = screen.getByRole("combobox", { name: "Search models" });
     fireEvent.change(input, { target: { value: "Model 9999" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSelect).toHaveBeenCalledWith(models[9999]);

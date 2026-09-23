@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { opencodeProvider } from "@earendil-works/pi-ai/providers/opencode";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-import { openCodeCatalogSubset, withOpenCodeCatalog } from "./opencode-catalog.js";
+import { openCodeCatalogSubset, releaseDateKey, releaseDates, withOpenCodeCatalog } from "./opencode-catalog.js";
 
 const MODEL_REFRESH_TIMEOUT_MS = 5_000;
 /** models.dev's catalog is a few megabytes; one process fetches and parses it once an hour, not once per thread. */
@@ -16,10 +16,18 @@ export interface PiModelRuntimeOptions {
 }
 
 let catalogCache: { fetchedAt: number; catalog: Promise<unknown> } | undefined;
+/** Release dates from the last catalog fetched, kept past the catalog's own subset. */
+let knownReleaseDates: ReadonlyMap<string, string> = new Map();
+
+/** When a model came out, where models.dev said so in the last catalog this process fetched. */
+export function modelReleaseDate(id: string): string | undefined {
+  return knownReleaseDates.get(releaseDateKey(id));
+}
 
 /** Forgets the fetched catalog; a test that serves another one calls this first. */
 export function resetOpenCodeCatalogCache(): void {
   catalogCache = undefined;
+  knownReleaseDates = new Map();
 }
 
 /**
@@ -46,7 +54,9 @@ function openCodeCatalog(): Promise<unknown> {
     try {
       const response = await fetch(CATALOG_URL, { signal: controller.signal });
       if (!response.ok) throw new Error(`OpenCode catalog request failed: ${response.status}`);
-      return openCodeCatalogSubset(await response.json() as unknown, CATALOG_PROVIDERS);
+      const all = await response.json() as unknown;
+      knownReleaseDates = releaseDates(all);
+      return openCodeCatalogSubset(all, CATALOG_PROVIDERS);
     } finally {
       clearTimeout(timeout);
     }

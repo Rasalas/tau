@@ -177,6 +177,8 @@ export interface UiModel {
   images?: boolean;
   /** It reasons before answering; its levels are the catalog's `thinkingLevels`. */
   reasoning?: boolean;
+  /** When the model came out, `YYYY-MM-DD` (or `YYYY-MM`), where models.dev knows it. */
+  releasedAt?: string;
 }
 
 /** A subscription login, an API key, a free offering, or a model on the user's own machine. */
@@ -878,6 +880,8 @@ export interface TauConfig {
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];
+  /** What the model picker hides and in which order it lists models, by runtime backend kind. */
+  modelPreferences?: Record<string, TauModelPreferences>;
   disabledExtensions?: string[];
   prewarm?: boolean;
   /** Leave the host process running after the app quits, so its threads keep going. */
@@ -901,6 +905,13 @@ export interface TauConfig {
   quietStartup?: boolean;
   defaultProjectTrust?: "ask" | "always" | "never";
   vimMode?: boolean;
+}
+
+/** One runtime's model list as the user arranged it; models are keyed `provider/id`. */
+export interface TauModelPreferences {
+  hidden?: string[];
+  /** Listed first, in this order; the rest follow in the runtime's own order. */
+  order?: string[];
 }
 
 export interface CustomModelDefinition {

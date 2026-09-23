@@ -580,8 +580,17 @@ export interface PaletteSourceContribution {
   search(query: string, context: PaletteSearchContext): readonly PaletteItem[] | Promise<readonly PaletteItem[]>;
 }
 
-/** `thread-title` is the thread title's menu; `file-tab` a button in a file tab's header, which reads the tab from `actions.activeStageTab()`. */
-export type CommandSurface = "thread-title" | "file-tab";
+/**
+ * `thread-title` is the thread title's menu; `file-tab` a button in a file tab's header, which reads the tab from `actions.activeStageTab()`;
+ * `runtime-switch` an action the model picker offers with another runtime than the thread's, run with `{ runtime }`.
+ */
+export type CommandSurface = "thread-title" | "file-tab" | "runtime-switch";
+
+/** What a surface hands the command it runs; the palette hands nothing. */
+export interface CommandContext {
+  /** On `runtime-switch`: the runtime backend kind the user pointed at. */
+  runtime?: string;
+}
 
 export interface CommandContribution {
   id: string;
@@ -590,7 +599,7 @@ export interface CommandContribution {
   surfaces?: readonly CommandSurface[];
   /** Deletes or discards something: a surface menu draws it last, in the danger colour. */
   destructive?: boolean;
-  run(actions: WorkbenchActions): void | Promise<void>;
+  run(actions: WorkbenchActions, context?: CommandContext): void | Promise<void>;
 }
 
 /**

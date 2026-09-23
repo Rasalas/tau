@@ -15,6 +15,7 @@ import { errorMessage } from "../workbench/error-message";
 import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { offeringKey } from "./components/model-offerings";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -259,17 +260,11 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       const allModels = snap?.models ?? [];
       if (allModels.length === 0) return false;
 
+      // Favourites of this thread's runtime, in the order they were starred.
       const favKeys = options.preferences?.getSnapshot().favouriteModels ?? [];
+      const byKey = new Map(allModels.map((model) => [offeringKey(snap?.backendKind, model), model] as const));
       const scopedModels = favKeys.length > 0
-        ? favKeys
-            .map((key) => {
-              const slash = key.indexOf("/");
-              if (slash === -1) return undefined;
-              const provider = key.slice(0, slash);
-              const id = key.slice(slash + 1);
-              return allModels.find((m) => m.provider === provider && m.id === id);
-            })
-            .filter((m): m is NonNullable<typeof m> => Boolean(m))
+        ? favKeys.flatMap((key) => { const model = byKey.get(key); return model ? [model] : []; })
         : allModels;
 
       const models = scopedModels.length > 0 ? scopedModels : allModels;
