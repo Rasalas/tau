@@ -1,0 +1,189 @@
+[
+ {
+  "repository": {
+   "id": "cc34ec63-a94e-408c-b535-28738497e59b",
+   "name": "PowerShell",
+   "project": {
+    "id": "2972bb5c-f20c-4a60-8bd9-00ffe9987edc",
+    "name": "PowerShell"
+   }
+  },
+  "pullRequestId": 54,
+  "codeReviewId": 54,
+  "status": "completed",
+  "createdBy": {
+   "displayName": "GitOps (Git LowPriv)",
+   "id": "32bd326c-ebfd-4280-b9a7-1887c225717d",
+   "uniqueName": null
+  },
+  "creationDate": "2026-07-30T17:10:32.5304278Z",
+  "closedDate": "2026-07-30T17:10:35.4643215Z",
+  "title": "Enable SecurityAudit attribute for ASP.NET Core API Endpoints",
+  "description": "\ud83d\ude80 Enable Security Audit Telemetry for Your APIs\n\nThis automated pull request, created by the Azure Security Monitoring team, is part of the Security Audit onboarding initiative aimed at standardizing and strengthening audit logging across services. It will help with the action \"OTel Audit ASP.NET Co",
+  "sourceRefName": "refs/heads/user/gardener/AsmAuditAutoCollection-1.8-470d3fa4-2e90-4a01-96df-f903d95b3b07",
+  "targetRefName": "refs/heads/master",
+  "mergeStatus": "succeeded",
+  "isDraft": false,
+  "mergeId": "fb2be485-073e-418c-807e-3b1c8844f1f7",
+  "lastMergeSourceCommit": {
+   "commitId": "4683e7562c7b807034f45b46297b9299b730bb20"
+  },
+  "lastMergeTargetCommit": {
+   "commitId": "ceca1d5daee69814188812b18bac1ae7e3218920"
+  },
+  "lastMergeCommit": {
+   "commitId": "2f027ba4356e363f65e2cc71c7bd49c5d1556b32"
+  },
+  "reviewers": [],
+  "url": "https://dev.azure.com/powershell/2972bb5c-f20c-4a60-8bd9-00ffe9987edc/_apis/git/repositories/cc34ec63-a94e-408c-b535-28738497e59b/pullRequests/54",
+  "supportsIterations": true,
+  "completionOptions": {
+   "mergeCommitMessage": "Enable SecurityAudit attribute for ASP.NET Core API Endpoints",
+   "deleteSourceBranch": true,
+   "squashMerge": true,
+   "mergeStrategy": "squash",
+   "triggeredByAutoComplete": true
+  },
+  "closedBy": null
+ },
+ {
+  "repository": {
+   "id": "cc34ec63-a94e-408c-b535-28738497e59b",
+   "name": "PowerShell",
+   "project": {
+    "id": "2972bb5c-f20c-4a60-8bd9-00ffe9987edc",
+    "name": "PowerShell"
+   }
+  },
+  "pullRequestId": 52,
+  "codeReviewId": 52,
+  "status": "completed",
+  "createdBy": {
+   "displayName": "GitOps (Git LowPriv)",
+   "id": "32bd326c-ebfd-4280-b9a7-1887c225717d",
+   "uniqueName": null
+  },
+  "creationDate": "2025-10-24T06:06:21.1182656Z",
+  "closedDate": "2025-10-24T06:06:26.1339288Z",
+  "title": "Enable NuGet Transitive Pinning (\ud83d\udd12 deterministic deps, \ud83d\udee1\ufe0f faster CG fixes)",
+  "description": "Enable NuGet Transitive Pinning (\ud83d\udd12 deterministic deps, \ud83d\udee1\ufe0f faster CG fixes)\n\n## What & Why\nEnable NuGet\u2019s **Transitive Pinning** to effectively promote a transitive dependency to a top-level dependency implicitly on your behalf when necessary.\nResult: Ensures central management of transitive dependen",
+  "sourceRefName": "refs/heads/user/gardener/EnableTransitivePinning-1.0-209317a7-5d65-4ee7-b15e-4b4406f7f2d3",
+  "targetRefName": "refs/heads/master",
+  "mergeStatus": "succeeded",
+  "isDraft": false,
+  "mergeId": "3737778f-bddc-4af2-bbce-ec3d13d0be1f",
+  "lastMergeSourceCommit": {
+   "commitId": "54d05af55aed2c18632b4debc2298aebc9698900"
+  },
+  "lastMergeTargetCommit": {
+   "commitId": "b4962055198cd7ca27ce16e226b28485072ada80"
+  },
+  "lastMergeCommit": {
+   "commitId": "ceca1d5daee69814188812b18bac1ae7e3218920"
+  },
+  "reviewers": [],
+  "url": "https://dev.azure.com/powershell/2972bb5c-f20c-4a60-8bd9-00ffe9987edc/_apis/git/repositories/cc34ec63-a94e-408c-b535-28738497e59b/pullRequests/52",
+  "supportsIterations": true,
+  "completionOptions": {
+   "mergeCommitMessage": "Enable NuGet Transitive Pinning (\ud83d\udd12 deterministic deps, \ud83d\udee1\ufe0f faster CG fixes)",
+   "deleteSourceBranch": true,
+   "squashMerge": true,
+   "mergeStrategy": "squash",
+   "triggeredByAutoComplete": true
+  },
+  "closedBy": null
+ },
+ {
+  "repository": {
+   "id": "cc34ec63-a94e-408c-b535-28738497e59b",
+   "name": "PowerShell",
+   "project": {
+    "id": "2972bb5c-f20c-4a60-8bd9-00ffe9987edc",
+    "name": "PowerShell"
+   }
+  },
+  "pullRequestId": 50,
+  "codeReviewId": 50,
+  "status": "completed",
+  "createdBy": {
+   "displayName": "GitOps (Git LowPriv)",
+   "id": "32bd326c-ebfd-4280-b9a7-1887c225717d",
+   "uniqueName": null
+  },
+  "creationDate": "2025-10-15T02:40:48.2380513Z",
+  "closedDate": "2025-10-15T02:40:50.7693209Z",
+  "title": "[Security] Update .NET SDK to latest patch version (9.0.111)",
+  "description": "[Security] Update .NET SDK to latest patch version (9.0.111)\n\nThis change updates to the latest patch version for the .NET SDK which contains the latest security fixes.\n\nRelease notes:\n* [9.0.10](https://github.com/dotnet/core/blob/main/release-notes/9.0/9.0.10/9.0.10.md)\n\nThe following CVEs will be",
+  "sourceRefName": "refs/heads/user/gardener/DotnetSdkPatchUpgrade-1.0-138afab7-7799-4915-b1c2-d48e64002a82",
+  "targetRefName": "refs/heads/master",
+  "mergeStatus": "succeeded",
+  "isDraft": false,
+  "mergeId": "f6b14db0-555f-42b5-82fd-5a73f7d78d81",
+  "lastMergeSourceCommit": {
+   "commitId": "3fb7b14caa5dfcd8a01505a4d128533ad7fe8c3f"
+  },
+  "lastMergeTargetCommit": {
+   "commitId": "cf1b58dae74184aec9bdc0fde5a4b297bbfd14e8"
+  },
+  "lastMergeCommit": {
+   "commitId": "b4962055198cd7ca27ce16e226b28485072ada80"
+  },
+  "reviewers": [],
+  "url": "https://dev.azure.com/powershell/2972bb5c-f20c-4a60-8bd9-00ffe9987edc/_apis/git/repositories/cc34ec63-a94e-408c-b535-28738497e59b/pullRequests/50",
+  "supportsIterations": true,
+  "completionOptions": {
+   "mergeCommitMessage": "[Security] Update .NET SDK to latest patch version (9.0.111)",
+   "deleteSourceBranch": true,
+   "squashMerge": true,
+   "mergeStrategy": "squash",
+   "triggeredByAutoComplete": true
+  },
+  "closedBy": null
+ },
+ {
+  "repository": {
+   "id": "cc34ec63-a94e-408c-b535-28738497e59b",
+   "name": "PowerShell",
+   "project": {
+    "id": "2972bb5c-f20c-4a60-8bd9-00ffe9987edc",
+    "name": "PowerShell"
+   }
+  },
+  "pullRequestId": 46,
+  "codeReviewId": 46,
+  "status": "completed",
+  "createdBy": {
+   "displayName": "MerlinBot",
+   "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+   "uniqueName": null
+  },
+  "creationDate": "2025-10-08T13:04:09.3138765Z",
+  "closedDate": "2025-10-08T13:04:12.2206314Z",
+  "title": "Inventory bootstrapping",
+  "description": "This **automated pull request**, created by **1ES**, is part of the **[Inventory-As-Code](https://aka.ms/inventory-as-code)** onboarding to improve **bug-routing** and **incident response**.\n \n#\ud83d\ude80 What\u2019s Changing?\n\n- This PR adds inventory metadata to your repository sourced from Product Catalog.\n- O",
+  "sourceRefName": "refs/heads/invBootstrap",
+  "targetRefName": "refs/heads/master",
+  "mergeStatus": "succeeded",
+  "isDraft": false,
+  "mergeId": "392ca035-7f0c-4ee2-96e4-aedc5d4ade87",
+  "lastMergeSourceCommit": {
+   "commitId": "c6269c2837279c5d33654905e51969011e18e0a0"
+  },
+  "lastMergeTargetCommit": {
+   "commitId": "31015a23728793afbf1ef9789019ff64defa7cc2"
+  },
+  "lastMergeCommit": {
+   "commitId": "cf1b58dae74184aec9bdc0fde5a4b297bbfd14e8"
+  },
+  "reviewers": [],
+  "url": "https://dev.azure.com/powershell/2972bb5c-f20c-4a60-8bd9-00ffe9987edc/_apis/git/repositories/cc34ec63-a94e-408c-b535-28738497e59b/pullRequests/46",
+  "supportsIterations": true,
+  "completionOptions": {
+   "deleteSourceBranch": true,
+   "squashMerge": true,
+   "mergeStrategy": "squash",
+   "triggeredByAutoComplete": true
+  },
+  "closedBy": null
+ }
+]

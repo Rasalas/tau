@@ -88,12 +88,13 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
 
   const workspace = async <T>(command: string, input?: unknown): Promise<T> => await sources.tools.workspace(command, input) as T;
 
-  const authenticated = async (provider: SourceControlProvider, target: RepositoryTarget & { cwd: string }): Promise<boolean> => {
+  /** True when signed in; a provider may answer with a sentence of its own for what is missing instead. */
+  const authenticated = async (provider: SourceControlProvider, target: RepositoryTarget & { cwd: string }): Promise<boolean | string> => {
     const key = `${provider.kind}\0${target.host}`;
     const at = signedIn.get(key);
     if (at !== undefined && now() - at < AUTH_CACHE_MS) return true;
-    const ok = await provider.signedIn(target).catch(() => false);
-    if (ok) signedIn.set(key, now());
+    const ok = await provider.signedIn(target).catch((error: unknown) => error instanceof HostCommandError ? error.message : false);
+    if (ok === true) signedIn.set(key, now());
     return ok;
   };
 
@@ -112,7 +113,9 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const missing = provider.missing();
     if (missing) return missing;
     if (!target) return `${git.remote.name} (${git.remote.url}) names no ${info.name} repository Tau can read.`;
-    if (!await authenticated(provider, target)) {
+    const signed = await authenticated(provider, target);
+    if (typeof signed === "string") return signed;
+    if (!signed) {
       const facts = SERVICES[provider.kind];
       return `${facts.label} is not signed in. Run \`${facts.login}\` in a terminal, then try again.`;
     }

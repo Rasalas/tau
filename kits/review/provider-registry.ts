@@ -5,6 +5,7 @@ import { HostCommandError, type HostExtensionContext } from "tau/host-extension"
 import { providerInfo, REQUEST_SERVICES, WORKSPACE_HOST_EXTENSION_ID, type PullRequestRef, type RequestService } from "./protocol.js";
 import type { GitCredential, HttpAnswer, HttpFetch, ProviderTools, SourceControlProvider } from "./provider.js";
 import { createGitHubProvider } from "./provider-github.js";
+import { createAzureProvider } from "./provider-azure.js";
 import { createBitbucketProvider } from "./provider-bitbucket.js";
 import { createForgejoProvider } from "./provider-forgejo.js";
 import { createGitLabProvider } from "./provider-gitlab.js";
@@ -53,17 +54,8 @@ const FACTORIES: Record<RequestService, ProviderFactory> = {
   gitlab: (tools) => createGitLabProvider(tools),
   forgejo: (tools) => createForgejoProvider(tools),
   bitbucket: (tools, env) => createBitbucketProvider(tools, env),
-  "azure-devops": () => unavailable("azure-devops"),
+  "azure-devops": (tools) => createAzureProvider(tools),
 };
-
-function unavailable(kind: RequestService): SourceControlProvider {
-  const refuse = async (): Promise<never> => { throw new HostCommandError(`Tau does not reach ${providerInfo(kind).name} yet.`); };
-  return {
-    kind, info: providerInfo(kind), missing: () => `Tau does not reach ${providerInfo(kind).name} yet.`, repository: () => undefined, requestUrl: () => "",
-    signedIn: async () => false, viewer: async () => undefined, current: async () => undefined, create: refuse, merge: refuse, edit: refuse, setDraft: refuse,
-    list: refuse, detail: refuse, checks: refuse, threads: refuse, comment: refuse, update: refuse, review: refuse,
-  };
-}
 
 /** `host` or `host:port`, lower-cased; what the setting is keyed by. */
 export function normalizeHost(value: string): string | undefined {
