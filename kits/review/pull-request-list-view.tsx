@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   ArrowDownUp,
+  Layers,
   CircleCheck,
   CircleDashed,
   CircleX,
@@ -13,8 +14,8 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
-import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, type MenuSection, type StageTabHandle, type WorkbenchActions } from "tau";
-import { providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState } from "./protocol.js";
+import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type WorkbenchActions } from "tau";
+import { providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import {
   arrangeList,
@@ -37,7 +38,60 @@ const SEARCH_DELAY_MS = 350;
 export interface PullRequestsTabParams extends Record<string, unknown> {
   /** The project whose repository the page lists; the active thread's when absent. */
   workspace?: string;
+  /** `"all"` lists every project's repository, across hosts. */
+  scope?: "all";
 }
+
+/** What the page shows: one project's repository, or every project's. */
+type Scope = { kind: "project"; workspace?: string } | { kind: "all" };
+
+/** The page's rows from one repository or many, each row with its host's viewer. */
+interface Listing {
+  service: PullRequestList["service"];
+  /** Every repository listed, `host/repo`. */
+  repositories: string[];
+  host: string;
+  repo: string;
+  viewer?: string;
+  entries: PullRequestListEntry[];
+  truncated: boolean;
+  /** Projects whose repository could not be read, by name. */
+  failures: Array<{ workspace: string; message: string }>;
+  /** The project to open a row's request in, by `host/repo`. */
+  workspaces: Map<string, string>;
+}
+
+export function singleListing(list: PullRequestList, workspace?: string): Listing {
+  const key = `${list.host}/${list.repo}`;
+  return { service: list.service, repositories: [key], host: list.host, repo: list.repo, ...(list.viewer ? { viewer: list.viewer } : {}), entries: list.entries, truncated: list.truncated, failures: [], workspaces: new Map(workspace ? [[key, workspace]] : []) };
+}
+
+/** Many repositories' lists as one: every row keeps the login of its own host for "Authored". */
+export function mergedListing(answer: PullRequestLists): Listing | undefined {
+  const [first] = answer.lists;
+  if (!first) return undefined;
+  return {
+    service: first.service,
+    repositories: answer.lists.map((list) => `${list.host}/${list.repo}`),
+    host: first.host,
+    repo: first.repo,
+    entries: answer.lists.flatMap((list) => list.entries.map((entry) => list.viewer ? { ...entry, viewer: list.viewer } : entry)),
+    truncated: answer.lists.some((list) => list.truncated),
+    failures: answer.failures,
+    workspaces: new Map(answer.lists.flatMap((list) => list.workspaces[0] ? [[`${list.host}/${list.repo}`, list.workspaces[0]] as const] : [])),
+  };
+}
+
+/** The projects the window knows, once per workspace; outside a workbench there are none. */
+function useProjects(): readonly UiProject[] {
+  let store: ThreadStore | undefined;
+  try { store = useThreadStore(); } catch { store = undefined; }
+  const [projects, setProjects] = useState<readonly UiProject[]>(() => store?.getProjects() ?? []);
+  useEffect(() => store?.subscribeToProjects(() => setProjects(store!.getProjects())), [store]);
+  return projects;
+}
+
+const projectId = (project: UiProject) => project.workspaceId ?? project.path;
 
 const STATES: Array<{ value: PullRequestListState; label: string }> = [
   { value: "open", label: "Open" },
@@ -87,7 +141,7 @@ function ReviewGlyph({ decision }: { decision: PullRequestListEntry["reviewDecis
 }
 
 /** One request: the state and checks glyphs, then number, title and counts over author, labels and time. */
-const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, onOpen }: { entry: PullRequestListEntry; matchedElsewhere: boolean; onOpen(entry: PullRequestListEntry): void }) {
+const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, showRepository, onOpen }: { entry: PullRequestListEntry; matchedElsewhere: boolean; showRepository: boolean; onOpen(entry: PullRequestListEntry): void }) {
   const shown = entry.labels.slice(0, 3);
   return (
     <button className="pr-row" data-pr-row="" aria-label={`#${entry.ref.number} ${entry.title}`} onClick={() => onOpen(entry)}>
@@ -100,11 +154,17 @@ const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, o
         <span className="pr-row-line">
           <span className="pr-row-number">#{entry.ref.number}</span>
           <span className="pr-row-title">{entry.title}</span>
+          {entry.stack ? (
+            <span className="pr-row-stack" title={`Layer ${entry.stack.position} of ${entry.stack.size} in stack #${entry.stack.number}`} aria-label={`Stack layer ${entry.stack.position} of ${entry.stack.size}`}>
+              <Layers size={9} aria-hidden="true" />{entry.stack.position}/{entry.stack.size}
+            </span>
+          ) : null}
           <ReviewGlyph decision={entry.reviewDecision} />
           <span className="spacer" />
           {entry.additions || entry.deletions ? <span className="pr-row-stat"><span className="stat-add">+{entry.additions}</span> <span className="stat-del">−{entry.deletions}</span></span> : null}
         </span>
         <span className="pr-row-line meta">
+          {showRepository ? <span className="pr-row-repo" title={`${entry.ref.host}/${entry.ref.repo}`}>{entry.ref.repo}</span> : null}
           {matchedElsewhere ? <span className="pr-row-elsewhere" title="Matched in the description"><Search size={9} aria-hidden="true" /> matched in the description</span> : null}
           <span className="pr-row-author" title={entry.author?.name ? `${entry.author.name} (@${entry.author.login})` : entry.author?.login}>{entry.author?.login ?? "ghost"}</span>
           <span className="pr-row-branch" title={`${entry.headRef} → ${entry.baseRef}`}>{entry.headRef}</span>
@@ -154,14 +214,18 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
   client: PullRequestClient;
   open(entry: PullRequestListEntry, workspace?: string): void;
 }) {
-  const workspace = params.workspace;
+  const [scope, setScope] = useState<Scope>(() => params.scope === "all" ? { kind: "all" } : { kind: "project", ...(params.workspace ? { workspace: params.workspace } : {}) });
+  const [host, setHost] = useState<string>();
+  const projects = useProjects();
+  const workspace = scope.kind === "project" ? scope.workspace : undefined;
+  const everyProject = useMemo(() => projects.map(projectId), [projects]);
   const [preferences, setPreferences] = useState<PullRequestListPreferences>(() => decodeListPreferences(getClientStorage()?.get(PREFERENCES_KEY) ?? undefined));
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [labels, setLabels] = useState<string[]>([]);
   const [author, setAuthor] = useState<string>();
   const [more, setMore] = useState<{ question: string; limit: number }>({ question: "", limit: PAGE });
-  const [list, setList] = useState<PullRequestList>();
+  const [list, setList] = useState<Listing>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [menu, setMenu] = useState<"sort" | "filters">();
@@ -182,7 +246,7 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
   }, [typedText]);
 
   // "Load more" belongs to one question; a new state or search starts from the first page.
-  const question = `${workspace ?? ""}\0${preferences.state}\0${search}`;
+  const question = `${scope.kind === "all" ? "\u0001all" : workspace ?? ""}\0${preferences.state}\0${search}`;
   const limit = more.question === question ? more.limit : PAGE;
   const setLimit = (next: number) => setMore({ question, limit: next });
 
@@ -190,8 +254,12 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
     const request = ++asked.current;
     setLoading(true);
     try {
-      const next = await client.list({ ...(workspace ? { workspace } : {}), state: preferences.state, limit, ...(search ? { search } : {}) });
+      const asking = { state: preferences.state, limit, ...(search ? { search } : {}) };
+      const next = scope.kind === "all"
+        ? mergedListing(await client.listMany({ ...asking, workspaces: everyProject }))
+        : singleListing(await client.list({ ...(workspace ? { workspace } : {}), ...asking }), workspace);
       if (request !== asked.current) return;
+      if (!next) throw new Error("None of your projects has a repository with requests Tau can list.");
       setList(next);
       setError(undefined);
     } catch (reason) {
@@ -199,12 +267,13 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
     } finally {
       if (request === asked.current) setLoading(false);
     }
-  }, [client, limit, preferences.state, search, workspace]);
+  }, [client, everyProject, limit, preferences.state, scope.kind, search, workspace]);
 
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    if (list) handle.setTitle(`${shortNoun(list.service)}s · ${list.repo.split("/").at(-1)}`);
+    if (!list) return;
+    handle.setTitle(list.repositories.length > 1 ? "Pull requests · all projects" : `${shortNoun(list.service)}s · ${list.repo.split("/").at(-1)}`);
   }, [handle, list]);
 
   const menuFilters: PullRequestListFilters = {
@@ -214,16 +283,19 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
     ...(labels.length > 0 ? { labels: labels.map((label) => [label]) } : {}),
     ...(author ? { author } : {}),
   };
-  const entries = list?.entries ?? [];
+  const hosts = useMemo(() => [...new Set((list?.entries ?? []).map((entry) => entry.ref.host))].sort(), [list]);
+  const entries = useMemo(() => host ? (list?.entries ?? []).filter((entry) => entry.ref.host === host) : list?.entries ?? [], [host, list]);
+  const manyRepositories = (list?.repositories.length ?? 0) > 1;
   const arranged = useMemo(
     () => arrangeList(entries, { ...(list?.viewer ? { viewer: list.viewer } : {}), involvement: preferences.involvement, sort: preferences.sort, query, menu: menuFilters }),
     // `menuFilters` is rebuilt every render from the values listed here.
     [entries, list?.viewer, preferences.involvement, preferences.sort, preferences.draft, preferences.review, preferences.checks, labels, author, query],
   );
   const facets = useMemo(() => listFacets(entries), [entries]);
-  const filterCount = [preferences.draft, preferences.review, preferences.checks, author].filter(Boolean).length + labels.length;
-  const noun = list ? providerInfo(list.service).noun : "pull request";
-  const openRow = useCallback((entry: PullRequestListEntry) => open(entry, workspace), [open, workspace]);
+  const filterCount = [preferences.draft, preferences.review, preferences.checks, author, host].filter(Boolean).length + labels.length;
+  const noun = list && !manyRepositories ? providerInfo(list.service).noun : "pull request";
+  const openRow = useCallback((entry: PullRequestListEntry) => open(entry, list?.workspaces.get(`${entry.ref.host}/${entry.ref.repo}`) ?? workspace), [list, open, workspace]);
+  const projectName = (id: string | undefined) => projects.find((project) => projectId(project) === id)?.name;
 
   const filterSections: MenuSection[] = [
     { heading: "Drafts", items: [
@@ -245,6 +317,21 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
       { id: "authors", label: author ? `Author: ${author}` : "Author", disabled: facets.authors.length === 0, submenu: [{ items: [{ id: "author:", label: "Anyone", selected: !author }, ...facets.authors.map((person) => ({ id: `author:${person.login}`, label: person.login, hint: String(person.count), selected: author === person.login }))] }] },
       ...(filterCount > 0 ? [{ id: "clear", label: "Clear filters" }] : []),
     ] },
+    { items: [
+      {
+        id: "projects",
+        label: scope.kind === "all" ? "Project: all" : `Project: ${projectName(workspace) ?? "this one"}`,
+        submenu: [{ items: [
+          { id: "project:\u0001all", label: "All projects", selected: scope.kind === "all" },
+          ...projects.map((project) => ({ id: `project:${projectId(project)}`, label: project.name, hint: project.displayPath ?? project.path, selected: scope.kind === "project" && workspace === projectId(project) })),
+        ] }],
+      },
+      ...(hosts.length > 1 || host ? [{
+        id: "hosts",
+        label: host ? `Host: ${host}` : "Host",
+        submenu: [{ items: [{ id: "host:", label: "All hosts", selected: !host }, ...hosts.map((name) => ({ id: `host:${name}`, label: name, selected: host === name }))] }],
+      }] : []),
+    ] },
   ];
 
   const pickFilter = (id: string) => {
@@ -255,7 +342,9 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
     else if (key === "checks") update({ checks: (value || undefined) as PullRequestListPreferences["checks"] });
     else if (key === "label") setLabels((current) => current.includes(value) ? current.filter((label) => label !== value) : [...current, value]);
     else if (key === "author") setAuthor(value || undefined);
-    else if (key === "clear") { update({ draft: undefined, review: undefined, checks: undefined }); setLabels([]); setAuthor(undefined); }
+    else if (key === "project") { setScope(value === "\u0001all" ? { kind: "all" } : { kind: "project", workspace: value }); setHost(undefined); }
+    else if (key === "host") setHost(value || undefined);
+    else if (key === "clear") { update({ draft: undefined, review: undefined, checks: undefined }); setLabels([]); setAuthor(undefined); setHost(undefined); }
   };
 
   const firstLoad = loading && !list && !error;
@@ -266,7 +355,9 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
       <header className="pr-list-head">
         <div className="pr-list-title">
           <h1>{list ? `${noun[0]!.toUpperCase()}${noun.slice(1)}s` : "Pull requests"}</h1>
-          {list ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(`https://${list.host}/${list.repo}`)}>{list.host}/{list.repo}</button> : null}
+          {list && manyRepositories ? (
+            <span className="pr-list-repo static" title={list.repositories.join("\n")}>All projects · {list.repositories.length} repositories</span>
+          ) : list ? <button className="pr-list-repo" title={`Open ${list.repo} on ${hostName(list.service)}`} onClick={() => actions.openExternal(providerInfo(list.service).repositoryUrl(list.host, list.repo))}>{list.host}/{list.repo}</button> : null}
           <span className="spacer" />
           {loading && list ? <Spinner size="xs" label="Refreshing" /> : null}
           <button className="icon-button compact" aria-label="Refresh pull requests" title="Refresh" disabled={loading} onClick={() => void load()}><RefreshCw size={13} /></button>
@@ -320,7 +411,7 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
               <button className="mini-button" onClick={() => setQuery("")}>Clear search</button>
             </Empty>
           ) : (
-            <Empty icon={<GitPullRequest size={18} />} title={narrowed ? `No ${noun}s match these filters` : `No open ${noun}s`} description={narrowed ? "Change the state or the filters to see more." : `${list?.repo ?? "This repository"} has nothing waiting.`}>
+            <Empty icon={<GitPullRequest size={18} />} title={narrowed ? `No ${noun}s match these filters` : `No open ${noun}s`} description={narrowed ? "Change the state or the filters to see more." : manyRepositories ? "None of your projects has anything waiting." : `${list?.repo ?? "This repository"} has nothing waiting.`}>
               {list?.truncated ? <button className="mini-button" onClick={() => setLimit(Math.min(MAX_LIMIT, limit + PAGE))}>Load more {noun}s</button> : null}
             </Empty>
           )
@@ -330,7 +421,7 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
               <section key={group.key} className="pr-list-group" aria-label={group.label || `${noun}s`}>
                 {group.label ? <h2>{group.label} <small>{group.entries.length}</small></h2> : null}
                 {group.entries.map((entry) => (
-                  <PullRequestRow key={entry.ref.url} entry={entry} matchedElsewhere={Boolean(arranged.search) && scoreMatch(entry, arranged.search) <= 10} onOpen={openRow} />
+                  <PullRequestRow key={entry.ref.url} entry={entry} matchedElsewhere={Boolean(arranged.search) && scoreMatch(entry, arranged.search) <= 10} showRepository={manyRepositories} onOpen={openRow} />
                 ))}
               </section>
             ))}
@@ -338,6 +429,11 @@ export function PullRequestListView({ params, handle, actions, client, open }: {
               <div className="pr-list-stale" role="alert">
                 <span>{error} Showing the last {noun}s loaded.</span>
                 <button className="mini-button" onClick={() => void load()}>Retry</button>
+              </div>
+            ) : null}
+            {list && list.failures.length > 0 ? (
+              <div className="pr-list-stale quiet" role="note" title={list.failures.map((failure) => `${projectName(failure.workspace) ?? failure.workspace}: ${failure.message}`).join("\n")}>
+                <span>Not listed: {list.failures.map((failure) => projectName(failure.workspace) ?? failure.workspace).join(", ")}.</span>
               </div>
             ) : null}
             {list?.truncated ? (

@@ -377,8 +377,9 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
       })));
       return text(created.html_url);
     },
-    merge: async ({ host, repo }, request, method) => {
-      await api(host, `${repoPath(repo)}/pulls/${request.number}/merge`, `Merging PR #${request.number}`, { method: "POST", body: { Do: method } });
+    merge: async ({ host, repo }, request, method, options = {}) => {
+      await api(host, `${repoPath(repo)}/pulls/${request.number}/merge`, `Merging PR #${request.number}`, { method: "POST", body: { Do: method, ...(options.deleteBranch ? { delete_branch_after_merge: true } : {}) } });
+      return options.deleteBranch && request.headRef ? { branchDeleted: request.headRef } : undefined;
     },
     edit: async ({ host, repo }, request, input) => {
       await api(host, `${repoPath(repo)}/pulls/${request.number}`, `Editing PR #${request.number}`, { method: "PATCH", body: input });

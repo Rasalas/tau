@@ -132,7 +132,7 @@ fieldset:disabled .onboarding-row { cursor: default; opacity: .7; }
 .onboarding-meta {
   display: grid;
   flex: none;
-  grid-template-columns: 16px 16px 16px 40px 36px;
+  grid-template-columns: 16px 16px 16px 16px 40px 36px;
   align-items: center;
   gap: 4px;
   margin-left: auto;
@@ -177,3 +177,8 @@ fieldset:disabled .onboarding-row { cursor: default; opacity: .7; }
 .onboarding-button.small { height: 26px; padding: 0 8px; font-size: 12px; }
 .onboarding-icon-button { display: grid; flex: none; width: 24px; height: 24px; place-items: center; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .onboarding-icon-button:hover { background: var(--hover-strong); color: var(--ink); }
+
+/* A runtime's own sign-in, opened under its row (the rows core lends with `loadSignInUi`). */
+.onboarding-sign-in { padding: 2px 12px 12px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--stage); }
+.onboarding-sign-in .sign-in { max-width: none; }
+.onboarding-sign-in .settings-note { margin-top: 10px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; line-height: 1.5; }

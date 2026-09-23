@@ -83,7 +83,7 @@ describe("Onboarding host half", () => {
     expect(discovery.sessions.map((session) => `${session.source}:${session.sessionId}`)).toEqual(["claude-code:g", "claude-code:a"]);
     expect(discovery.projects).toEqual([{ path: alpha, name: "alpha", sources: ["claude-code"], threadCount: 1, lastActiveAt: 200, git: true }]);
     // A backend that did not grant the command is named, not fatal.
-    expect(discovery.unavailable.map((entry) => entry.source)).toEqual(["codex"]);
+    expect(discovery.unavailable.map((entry) => entry.source)).toEqual(["codex", "opencode"]);
   });
 
   it("hands the import to the backend in batches and reports progress as it goes", async () => {

@@ -13,7 +13,7 @@ export function providerCardId(pageId: string): string {
 export function ProvidersPage({ cards, backends = [], cwd, onNotify }: { cards: readonly SettingsPageContribution[]; backends?: readonly UiRuntimeBackend[]; cwd?: string; onNotify(message: string): void }) {
   return (
     <div className="settings-page">
-      <p className="lede">The programs that run threads besides Pi: whether each is installed and current, who it is signed in as, and where Tau finds it.</p>
+      <p className="lede">The programs that run threads and the providers Pi reaches: whether each is installed and current, who it is signed in as, and signing in or out.</p>
       {cards.map((card) => (
         <section key={card.id} id={providerCardId(card.id)} className="provider-card" aria-label={card.label}>
           <header>

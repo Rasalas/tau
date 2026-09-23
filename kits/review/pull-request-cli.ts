@@ -9,7 +9,7 @@ export interface CliCall {
 export const GITHUB_VIEW_FIELDS = [
   "id", "number", "title", "body", "url", "state", "isDraft", "author", "createdAt", "updatedAt", "mergedAt", "closedAt",
   "baseRefName", "headRefName", "headRefOid", "additions", "deletions", "changedFiles", "labels", "reviewRequests",
-  "latestReviews", "reviews", "comments", "commits", "statusCheckRollup",
+  "latestReviews", "reviews", "comments", "commits", "statusCheckRollup", "autoMergeRequest",
 ].join(",");
 
 /**

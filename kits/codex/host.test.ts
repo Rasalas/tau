@@ -189,7 +189,7 @@ describe("Codex host half", () => {
       latest: "0.155.1",
       updateCommand: "brew upgrade --cask codex",
       updateAvailable: true,
-      account: { kind: "chatgpt", plan: "pro" },
+      account: { kind: "chatgpt", plan: "pro", email: "stub@example.com" },
       signedIn: true,
       models: 5,
       codexHome: join(root, "home"),
@@ -356,5 +356,110 @@ describe("Codex host half", () => {
     expect(codexNewThreadCatalog([], {})).toEqual({ models: [], thinkingLevels: {} });
     expect(codexNewThreadCatalog(models, {}, "api-key").models[0]).toMatchObject({ billing: "api-key" });
   });
-});
 
+  describe("signing in from the window", () => {
+    type Flow = { flowId: string; phase: string; browser?: { url: string }; deviceCode?: { url: string; code: string }; terminal?: { command: string }; prompt?: { id: string; kind: string }; message?: string };
+    type Report = { methods: Array<{ id: string; unavailable?: string }>; account?: { signedIn: boolean; label?: string; detail?: string }; flow?: Flow };
+    const signInEvents = (events: PublishedKitEvent[]) => events.filter((event) => event.name === "sign-in").map((event) => event.payload as { target: string; flow?: Flow; report?: Report });
+    const flowEvent = async (events: PublishedKitEvent[], test: (flow: Flow) => boolean) => {
+      let found: Flow | undefined;
+      await vi.waitFor(() => {
+        found = signInEvents(events).map((event) => event.flow ?? event.report?.flow).find((flow) => flow !== undefined && test(flow));
+        expect(found).toBeDefined();
+      });
+      return found!;
+    };
+    const finalReport = async (events: PublishedKitEvent[], flowId: string) => {
+      let found: Report | undefined;
+      await vi.waitFor(() => {
+        found = signInEvents(events).map((event) => event.report).find((report) => report?.flow?.flowId === flowId);
+        expect(found).toBeDefined();
+      }, { timeout: 10_000 });
+      return found!;
+    };
+
+    it("reports the account and the four ways to sign in, and signs out through the CLI", async () => {
+      const { registry, provider, root, events } = await harness();
+      const report = await registry.invoke("tau.codex", "sign-in-state") as Report;
+      expect(report.methods.map((method) => method.id)).toEqual(["chatgpt", "device", "api-key", "terminal"]);
+      expect(report.account).toMatchObject({ signedIn: true, label: "stub@example.com", detail: "ChatGPT Pro" });
+
+      const after = await registry.invoke("tau.codex", "sign-out") as Report & { note?: string };
+      expect(after).toMatchObject({ account: { signedIn: false }, note: "Signed out of Codex." });
+      await expect(readFile(join(root, "home", "signed-out"), "utf8")).resolves.toBe("");
+      expect(signInEvents(events).at(-1)?.report?.account?.signedIn).toBe(false);
+      // The backend was registered anew, so the catalog asks the signed-out CLI.
+      await expect(provider.newThreadCatalog!()).resolves.toMatchObject({ status: "sign-in-required" });
+    });
+
+    it("signs in with ChatGPT through the page Codex serves and finishes when the browser comes back", async () => {
+      const { registry, root, events } = await harness();
+      await mkdir(join(root, "home"), { recursive: true });
+      await writeFile(join(root, "home", "signed-out"), "");
+      const started = await registry.invoke("tau.codex", "sign-in", { method: "chatgpt" }) as Flow;
+      const waiting = await flowEvent(events, (flow) => flow.flowId === started.flowId && flow.browser !== undefined);
+      expect(waiting.browser!.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/oauth\/authorize/u);
+      await fetch(waiting.browser!.url).then((response) => response.text());
+      const report = await finalReport(events, started.flowId);
+      expect(report.flow).toMatchObject({ phase: "succeeded", message: "Signed in as stub@example.com." });
+      expect(report.account).toMatchObject({ signedIn: true });
+    });
+
+    it("shows a device code, and cancels a login the user abandons", async () => {
+      const { registry, root, events } = await harness();
+      await mkdir(join(root, "home"), { recursive: true });
+      await writeFile(join(root, "home", "signed-out"), "");
+      const started = await registry.invoke("tau.codex", "sign-in", { method: "device" }) as Flow;
+      const waiting = await flowEvent(events, (flow) => flow.flowId === started.flowId && flow.deviceCode !== undefined);
+      expect(waiting.deviceCode).toMatchObject({ code: "STUB-CODE", url: expect.stringMatching(/\/device$/u) });
+      const cancelled = await registry.invoke("tau.codex", "sign-in-cancel", { flowId: started.flowId }) as Flow;
+      expect(cancelled.phase).toBe("cancelled");
+      await expect(readFile(join(root, "home", "signed-out"), "utf8")).resolves.toBe("");
+
+      const again = await registry.invoke("tau.codex", "sign-in", { method: "device" }) as Flow;
+      const code = await flowEvent(events, (flow) => flow.flowId === again.flowId && flow.deviceCode !== undefined);
+      await fetch(code.deviceCode!.url).then((response) => response.text());
+      expect((await finalReport(events, again.flowId)).account).toMatchObject({ signedIn: true });
+    });
+
+    it("hands a typed key to Codex and says when Codex refuses it", async () => {
+      const { registry, root, events } = await harness();
+      await mkdir(join(root, "home"), { recursive: true });
+      await writeFile(join(root, "home", "signed-out"), "");
+      const refused = await registry.invoke("tau.codex", "sign-in", { method: "api-key" }) as Flow;
+      const asked = await flowEvent(events, (flow) => flow.flowId === refused.flowId && flow.prompt !== undefined);
+      expect(asked.prompt).toMatchObject({ kind: "secret" });
+      await registry.invoke("tau.codex", "sign-in-respond", { flowId: refused.flowId, value: "sk-wrong" });
+      expect((await finalReport(events, refused.flowId)).flow).toMatchObject({ phase: "failed", message: expect.stringContaining("The API key was refused.") });
+
+      const taken = await registry.invoke("tau.codex", "sign-in", { method: "api-key" }) as Flow;
+      await flowEvent(events, (flow) => flow.flowId === taken.flowId && flow.prompt !== undefined);
+      await registry.invoke("tau.codex", "sign-in-respond", { flowId: taken.flowId, value: "sk-stub-good" });
+      expect((await finalReport(events, taken.flowId)).account).toMatchObject({ signedIn: true, label: "API key" });
+    });
+
+    it("gives the terminal codex login for the instance's home and checks the account when it ends", async () => {
+      const { registry, root, events } = await harness();
+      await mkdir(join(root, "home"), { recursive: true });
+      await writeFile(join(root, "home", "signed-out"), "");
+      const started = await registry.invoke("tau.codex", "sign-in", { method: "terminal" }) as Flow;
+      const waiting = await flowEvent(events, (flow) => flow.flowId === started.flowId && flow.prompt !== undefined);
+      expect(waiting.terminal?.command).toMatch(new RegExp(`^CODEX_HOME=${join(root, "home").replace(/[.*+?^${}()|[\]\\/]/gu, "\\$&")} \\S+/bin/codex login$`, "u"));
+      await registry.invoke("tau.codex", "sign-in-respond", { flowId: started.flowId, value: "0" });
+      expect((await finalReport(events, started.flowId)).flow).toMatchObject({ phase: "failed", message: "Codex still reports no account." });
+
+      const again = await registry.invoke("tau.codex", "sign-in", { method: "terminal" }) as Flow;
+      await flowEvent(events, (flow) => flow.flowId === again.flowId && flow.prompt !== undefined);
+      await rm(join(root, "home", "signed-out"));
+      await registry.invoke("tau.codex", "sign-in-respond", { flowId: again.flowId, value: "0" });
+      expect((await finalReport(events, again.flowId)).flow).toMatchObject({ phase: "succeeded" });
+    });
+
+    it("offers nothing to start while the CLI is missing", async () => {
+      const { registry } = await harness({ found: false });
+      const report = await registry.invoke("tau.codex", "sign-in-state") as Report;
+      expect(report.methods.every((method) => method.unavailable?.startsWith("Install Codex first"))).toBe(true);
+      await expect(registry.invoke("tau.codex", "sign-in", { method: "chatgpt" })).rejects.toThrow(/Install Codex first/u);
+    });
+  });
+});

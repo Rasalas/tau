@@ -58,6 +58,8 @@ export interface AntigravitySessionInput {
   cwd: string;
   /** False shakes hands without signing in, for a sign-out. */
   authenticate?: boolean;
+  /** Ends a session that is still signing in. */
+  signal?: AbortSignal;
   onUpdate(update: AcpSessionUpdate): void;
   onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse>;
   onElicitation?(request: AcpElicitationRequest): Promise<AcpElicitationAnswer>;

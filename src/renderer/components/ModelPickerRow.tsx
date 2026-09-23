@@ -36,13 +36,29 @@ function PriceCell({ model }: { model: UiModel }) {
   return <span className="model-price muted">—</span>;
 }
 
+const HINT = { side: "top" } as const;
+
+/** The runtime's mark, then the model provider's where the runtime has several; each named in its tooltip. */
+function OfferingMarks({ offering, provider }: { offering: Offering; provider: boolean }) {
+  const { runtime, runtimeLabel, model } = offering;
+  const pi = runtime === DEFAULT_RUNTIME;
+  return (
+    <span className="model-marks">
+      <ProviderIconStack runtimeProvider={pi ? "pi" : runtime} name={runtimeLabel} className="sub-icon" hint={HINT} />
+      {provider && (pi || providerLabel(model.provider) !== providerLabel(runtime))
+        ? <ProviderIconStack modelProvider={model.provider} className="sub-icon" hint={HINT} />
+        : null}
+    </span>
+  );
+}
+
 /** One offering: a model as one runtime reaches it. */
 export function OfferingRow({ id, offering, grouped, cross, selected, narrow, cells, onPoint, onChoose }: {
   id: string;
   offering: Offering;
-  /** Under its model's heading in search: the runtime leads, the name is the heading's. */
+  /** Under its model's heading in search: the marks stand in for the name, which is the heading's. */
   grouped: boolean;
-  /** From a list across runtimes: the runtime is named. */
+  /** From a list across runtimes: the runtime's mark leads. */
   cross: boolean;
   selected: boolean;
   narrow: boolean;
@@ -56,7 +72,6 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
   const chosen = cells.chosen(offering.key);
   const jump = cells.jump(offering.key);
   const piRuntime = runtime === DEFAULT_RUNTIME;
-  const title = grouped ? `${offering.runtimeLabel}${piRuntime ? ` · ${providerLabel(model.provider)}` : ""}` : model.name;
   const levels = offering.levels.length > 1 ? offering.levels : [];
   return (
     <div
@@ -71,8 +86,7 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
     >
       <div className="model-cell-main">
         <span className="model-line">
-          {grouped ? <ProviderIconStack runtimeProvider={piRuntime ? "pi" : runtime} className="sub-icon" /> : null}
-          <strong>{title}</strong>
+          {grouped ? <OfferingMarks offering={offering} provider={piRuntime} /> : <strong>{model.name}</strong>}
           {offering.isNew ? <span className="model-badge model-badge-new">NEW</span> : null}
           {cells.showLegacy && offering.legacy ? <span className="model-badge">legacy</span> : null}
           {access ? <span className={`model-badge model-access model-access-${access.label.toLowerCase()}`} title={access.title}>{access.label}</span> : null}
@@ -86,10 +100,9 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
         </span>
         {grouped ? null : (
           <small className="model-sub">
-            <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} className="sub-icon" />
-            {providerLabel(model.provider)}
-            {cross && !piRuntime ? <span className="model-runtime">· {offering.runtimeLabel}</span> : null}
-            {cross && piRuntime ? <span className="model-runtime">· Pi</span> : null}
+            {cross
+              ? <OfferingMarks offering={offering} provider />
+              : <ProviderIconStack modelProvider={model.provider} runtimeProvider={runtime} className="sub-icon" hint={HINT} />}
             <span className="model-id">{model.id}</span>
             {levels.length ? <span className="model-levels" title={`Reasoning: ${levels.join(", ")}`}><Brain size={10} />{levels.length}</span> : null}
           </small>

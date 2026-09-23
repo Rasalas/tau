@@ -26,6 +26,15 @@ interface Fixture {
   complete?(): Promise<string>;
 }
 
+/** The branch's request as `gh pr view` or `glab mr view` print it; none makes the CLI fail as it does. */
+function branchView(request: UiReviewRequest | undefined, args: string[]): string {
+  if (!request) throw new Error("no pull requests found for branch \"feature/pr\"");
+  if (args[0] === "pr") {
+    return JSON.stringify({ number: request.number, title: request.title, url: request.url, baseRefName: request.baseRef, state: request.state?.toUpperCase(), isDraft: request.draft });
+  }
+  return JSON.stringify({ iid: request.number, title: request.title, web_url: request.url, target_branch: request.baseRef, state: request.state === "open" ? "opened" : request.state, draft: request.draft });
+}
+
 /** Workspace Kit's commands as Review reaches them, and `gh` as a function of its arguments. */
 async function harness(fixture: Fixture = {}) {
   let request = fixture.request;
@@ -42,13 +51,13 @@ async function harness(fixture: Fixture = {}) {
         ...fixture.context,
         ...((input as { detail?: boolean } | undefined)?.detail ? { commits: [{ subject: "feat: add it", body: "" }], diffStat: " a.ts | 2 +-" } : {}),
       }), callers);
-      context.registerCommand("review-request", () => request, callers);
       context.registerCommand("push", () => { pushes(); return { detail: "Pushed" }; }, callers);
     },
   };
   const tools = fixture.tools ?? { gh: "/bin/gh", git: "/usr/bin/git" };
   const run = vi.fn(async (_command: string, args: string[]) => {
     calls.push(args);
+    if ((args[0] === "pr" || args[0] === "mr") && args[1] === "view" && (args[2] === "--json" || args[2] === "-F")) return branchView(request, args);
     const answer = await (fixture.cli?.(args) ?? "");
     if (args[0] === "pr" && args[1] === "create") request = { ...OPEN, draft: args.includes("--draft") };
     if (args[0] === "pr" && args[1] === "merge" && request) request = { ...request, state: "merged" };

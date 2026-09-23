@@ -106,7 +106,8 @@ export function matchesListFilters(entry: PullRequestListEntry, filters: PullReq
   const held = new Set(entry.labels.map((label) => label.name.trim().toLowerCase()));
   const holds = (name: string) => held.has(name.trim().toLowerCase());
   // Without a signed-in login, "me" stays the literal name.
-  const author = filters.author?.toLowerCase() === "me" && viewer ? viewer : filters.author;
+  const me = entry.viewer ?? viewer;
+  const author = filters.author?.toLowerCase() === "me" && me ? me : filters.author;
   return (filters.draft === undefined || entry.draft === (filters.draft === "only"))
     && (filters.review === undefined || (filters.review === "none" ? entry.reviewDecision === undefined : entry.reviewDecision === filters.review))
     && (filters.checks === undefined || entry.checks === filters.checks)
@@ -115,7 +116,11 @@ export function matchesListFilters(entry: PullRequestListEntry, filters: PullReq
     && (author === undefined || entry.author?.login.toLowerCase() === author.toLowerCase());
 }
 
-const authoredBy = (entry: PullRequestListEntry, viewer: string | undefined) => Boolean(viewer) && entry.author?.login.toLowerCase() === viewer!.toLowerCase();
+/** A row from a page that mixes hosts carries the login of its own host. */
+const authoredBy = (entry: PullRequestListEntry, fallback: string | undefined) => {
+  const viewer = entry.viewer ?? fallback;
+  return Boolean(viewer) && entry.author?.login.toLowerCase() === viewer!.toLowerCase();
+};
 
 export function filterByInvolvement(entries: readonly PullRequestListEntry[], involvement: PullRequestInvolvement, viewer: string | undefined): PullRequestListEntry[] {
   if (involvement === "reviewing") return entries.filter((entry) => entry.reviewRequested);

@@ -59,7 +59,12 @@ export async function linkUserSkills(profile: AntigravityProfile, geminiDir: str
   return linked;
 }
 
-export async function prepareProfile(stateDir: string, authMethod: AntigravityAuthMethod = "oauth-personal"): Promise<AntigravityProfile> {
+/** Where the agent keeps its Google token in Tau's profile; Tau only checks that it exists. */
+export function profileTokenPath(stateDir: string): string {
+  return join(stateDir, "profile", "antigravity-acp", "acp_token.json");
+}
+
+export async function prepareProfile(stateDir: string, authMethod: AntigravityAuthMethod = "oauth-personal", gcp: { project?: string; location?: string } = {}): Promise<AntigravityProfile> {
   const geminiHome = join(stateDir, "profile");
   const acpDirectory = join(geminiHome, "antigravity-acp");
   await mkdir(acpDirectory, { recursive: true, mode: 0o700 });
@@ -68,8 +73,10 @@ export async function prepareProfile(stateDir: string, authMethod: AntigravityAu
     await chmod(acpDirectory, 0o700).catch(() => undefined);
   }
   const settingsPath = join(acpDirectory, "settings.json");
-  // Names the method so a native logout clears only that method's credentials. Never holds a credential.
-  await writeFile(settingsPath, `${JSON.stringify({ auth: { type: authMethod } })}\n`, { mode: 0o600 });
+  // Names the method so a native logout clears only that method's credentials, and the project Enterprise and
+  // Agent Platform run in. Never holds a credential.
+  const project = { ...(gcp.project ? { project: gcp.project } : {}), ...(gcp.location ? { location: gcp.location } : {}) };
+  await writeFile(settingsPath, `${JSON.stringify({ auth: { type: authMethod }, ...(Object.keys(project).length ? { gcp: project } : {}) })}\n`, { mode: 0o600 });
   return { geminiHome, acpDirectory, tokenPath: join(acpDirectory, "acp_token.json"), settingsPath };
 }
 
@@ -100,8 +107,11 @@ const REMOVED_KEYS = new Set([
   "AGY_ACP_FORCE_FILE_STORAGE", "ANTIGRAVITY_HARNESS_PATH", "BROWSER", "PYTHONUNBUFFERED", "ELECTRON_RUN_AS_NODE",
 ]);
 
-/** The complete environment of the server process: the login shell's, minus every Google credential and knob, plus Tau's. */
-export function agentEnvironment(base: NodeJS.ProcessEnv, profile: AntigravityProfile, harnessPath: string, browser: string): Record<string, string> {
+/**
+ * The complete environment of the server process: the login shell's, minus every Google credential and knob,
+ * plus Tau's, plus the one credential the chosen method reads (`credentials`, from the user's own environment).
+ */
+export function agentEnvironment(base: NodeJS.ProcessEnv, profile: AntigravityProfile, harnessPath: string, browser: string, credentials: Readonly<Record<string, string>> = {}): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(base)) {
     if (value === undefined || REMOVED_KEYS.has(key.toUpperCase())) continue;
@@ -109,6 +119,7 @@ export function agentEnvironment(base: NodeJS.ProcessEnv, profile: AntigravityPr
   }
   return {
     ...env,
+    ...credentials,
     GEMINI_HOME: profile.geminiHome,
     AGY_ACP_FORCE_FILE_STORAGE: "1",
     BROWSER: browser,

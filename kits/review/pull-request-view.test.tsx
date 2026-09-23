@@ -5,12 +5,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, PreferencesStore, StageTabHandle, UiReviewRequest, WorkbenchActions } from "tau";
 import { PendingReviewStore } from "./pending-review.js";
-import type { ComposerContextChips, PullRequestDetail, PullRequestFiles } from "./protocol.js";
+import type { ComposerContextChips, PullRequestDetail, PullRequestFiles, PullRequestStack } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubDetail, parseGitHubThreads, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 import { PullRequestView } from "./pull-request-view.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
+import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 
 afterEach(cleanup);
 
@@ -46,6 +47,11 @@ function fakeClient(overrides: Partial<PullRequestClient> = {}): PullRequestClie
     links: vi.fn(async () => []),
     link: vi.fn(async (_thread: string, url: string) => ({ link: { url, service: "github" as const, host: "github.com", repo: "acme/tau", number: 7, source: "user" as const, linkedAt: 1 }, alreadyLinked: false })),
     unlink: vi.fn(async () => true),
+    listMany: vi.fn(async () => ({ lists: [], failures: [] })),
+    action: vi.fn(async () => { throw new Error("not in this test"); }),
+    stack: vi.fn(async () => null),
+    stackAction: vi.fn(async () => { throw new Error("not in this test"); }),
+    linkedThreads: vi.fn(async () => []),
     onLinksChanged: () => () => undefined,
     ...overrides,
   };
@@ -73,6 +79,8 @@ function preferences(): PreferencesStore {
 function actions(): WorkbenchActions {
   return {
     activeThread: () => ({ sessionId: "thread-1", cwd: "/project", draftPending: false }),
+    openStageTab: vi.fn(() => "tab"),
+    switchSession: vi.fn(async () => true),
     openExternal: vi.fn(),
     notify: vi.fn(),
     focusComposer: vi.fn(),
@@ -85,13 +93,18 @@ function handle(): StageTabHandle {
   return { id: "ext:review.pull-request:7", setTitle: vi.fn(), setDirty: vi.fn(), onClose: () => () => undefined };
 }
 
+const THREADS = [
+  { id: "thread-1", path: "/sessions/one.jsonl", title: "Ship the output helper", modifiedAt: 3, projectPath: "/project", projectName: "tau", messageCount: 4 },
+  { id: "thread-2", path: "/sessions/two.jsonl", title: "Review the terminal", modifiedAt: 2, projectPath: "/other", projectName: "docs", messageCount: 2 },
+];
+
 function renderView(client = fakeClient(), chips?: ComposerContextChips) {
   const rows = new RowRequests(async () => undefined);
   const workbench = actions();
   const tab = handle();
   const storage = memoryStorage();
   const shared = { links: new ThreadLinkRows(client), pending: new PendingReviewStore(() => storage, () => `held-${storage.keys().length}-${Math.random()}`), preferences: preferences() };
-  render(<PullRequestView params={PARAMS} handle={tab} actions={workbench} client={client} chips={() => chips} rows={rows} shared={shared} />);
+  render(<TestThreadStore threads={THREADS}><PullRequestView params={PARAMS} handle={tab} actions={workbench} client={client} chips={() => chips} rows={rows} shared={shared} /></TestThreadStore>);
   return { client, rows, workbench, tab, shared };
 }
 
@@ -251,5 +264,86 @@ describe("the pull-request view", () => {
     fireEvent.click(screen.getByRole("button", { name: "Request a review" }));
     fireEvent.click(await screen.findByRole("option", { name: "lisa" }));
     await waitFor(() => expect(client.reviewers).toHaveBeenCalledWith(REF.url, { add: ["lisa"] }));
+  });
+});
+
+describe("merging, auto-merge, revert and stacks from the view", () => {
+  const detail = () => parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"));
+  const passing = (): PullRequestDetail => ({ ...detail(), checks: detail().checks.map((check) => ({ ...check, status: "passed" as const })) });
+
+  it("offers auto-merge while a check fails, and shows the armed merge afterwards", async () => {
+    const armed = { ...detail(), autoMerge: { method: "squash" as const } };
+    const client = fakeClient({ action: vi.fn(async () => ({ detail: armed })) });
+    const { workbench } = renderView(client);
+    fireEvent.click(await screen.findByRole("button", { name: /Auto-merge \(squash and merge\)/u }));
+    expect(screen.getByRole("heading", { name: "Enable auto-merge?" })).toBeTruthy();
+    // GitHub deletes the branch of an automatic merge by the repository's own setting.
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Enable auto-merge" }));
+    await waitFor(() => expect(client.action).toHaveBeenCalledWith(REF.url, { action: "auto-merge", method: "squash", threadId: "thread-1" }));
+    expect(await screen.findByRole("img", { name: "Auto-merge (squash and merge)" })).toBeTruthy();
+    expect(workbench.notify).toHaveBeenCalledWith(expect.stringContaining("Auto-merge turned on for PR #7"));
+  });
+
+  it("merges with the chosen method and deletes the branch when ticked", async () => {
+    const merged: PullRequestDetail = { ...passing(), state: "merged" };
+    const client = fakeClient({ view: vi.fn(async () => passing()), checks: vi.fn(async () => passing().checks), action: vi.fn(async () => ({ detail: merged, merge: { branchDeleted: "feat/output" } })) });
+    const { workbench } = renderView(client);
+    fireEvent.click(await screen.findByRole("button", { name: /^Squash and merge$/u }));
+    expect(screen.getByRole("heading", { name: "Merge PR #7?" })).toBeTruthy();
+    expect(client.action).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("radio", { name: "Rebase and merge" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Delete feat\/output after merging/u }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Merge PR #7?" })).getByRole("button", { name: "Rebase and merge" }));
+    await waitFor(() => expect(client.action).toHaveBeenCalledWith(REF.url, { action: "merge", method: "rebase", deleteBranch: true, threadId: "thread-1" }));
+    await waitFor(() => expect(workbench.notify).toHaveBeenCalledWith("PR #7 merged. Deleted feat/output."));
+  });
+
+  it("reverts a merged request and opens the revert as its own tab", async () => {
+    const merged: PullRequestDetail = { ...passing(), state: "merged" };
+    const client = fakeClient({ view: vi.fn(async () => merged), action: vi.fn(async () => ({ detail: merged, created: "https://github.com/acme/tau/pull/8" })) });
+    const { workbench } = renderView(client);
+    fireEvent.click(await screen.findByRole("button", { name: "More pull request actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Revert changes/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Create revert PR" }));
+    await waitFor(() => expect(client.action).toHaveBeenCalledWith(REF.url, { action: "revert", threadId: "thread-1" }));
+    await waitFor(() => expect(workbench.openStageTab).toHaveBeenCalledWith("review.pull-request", expect.objectContaining({ url: "https://github.com/acme/tau/pull/8", number: 8 }), { key: "https://github.com/acme/tau/pull/8" }));
+  });
+
+  it("links the request to a thread picked by search, and lists the threads that link it", async () => {
+    const client = fakeClient({ linkedThreads: vi.fn(async () => ["thread-2"]) });
+    const { workbench } = renderView(client);
+    fireEvent.click(await screen.findByRole("button", { name: "Linked from 1 thread" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Review the terminal/u }));
+    expect(workbench.switchSession).toHaveBeenCalledWith("/sessions/two.jsonl");
+
+    fireEvent.click(screen.getByRole("button", { name: "More pull request actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Link to thread/u }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search threads or projects" }), { target: { value: "ship" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("option", { name: /Ship the output helper/u }));
+    await waitFor(() => expect(client.link).toHaveBeenCalledWith("thread-1", REF.url, "/project"));
+  });
+
+  it("shows the request's layer of its stack and merges the layers below it after asking", async () => {
+    const stack: PullRequestStack = {
+      number: 9, base: "main",
+      layers: [
+        { number: 6, url: "https://github.com/acme/tau/pull/6", headRef: "feat/base", headSha: "a", state: "open", title: "Base" },
+        { number: 7, url: REF.url, headRef: "feat/output", headSha: "b", state: "open", title: "Add the output helper" },
+        { number: 8, url: "https://github.com/acme/tau/pull/8", headRef: "feat/top", headSha: "c", state: "open", draft: true },
+      ],
+    };
+    const client = fakeClient({ stack: vi.fn(async () => stack), stackAction: vi.fn(async () => detail()) });
+    const { workbench } = renderView(client);
+    fireEvent.click(await screen.findByRole("button", { name: "Stack #9, layer 2 of 3" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Base/u }));
+    expect(workbench.openStageTab).toHaveBeenCalledWith("review.pull-request", expect.objectContaining({ number: 6 }), { key: "https://github.com/acme/tau/pull/6" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stack #9, layer 2 of 3" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Merge stack \(2\)/u }));
+    expect(screen.getByRole("heading", { name: "Merge 2 pull requests?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Merge stack" }));
+    await waitFor(() => expect(client.stackAction).toHaveBeenCalledWith(REF.url, { action: "merge", seen: stack, method: "squash" }));
   });
 });

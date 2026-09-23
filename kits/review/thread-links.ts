@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PullRequestRef, ThreadPullRequestLink } from "./protocol.js";
+import { REQUEST_SERVICES, type PullRequestRef, type RequestService, type ThreadPullRequestLink } from "./protocol.js";
 
 const FILE = "thread-pull-requests.json";
 /** A thread holds this many links at most; the oldest go first. */
@@ -15,7 +15,7 @@ function decodeLink(value: unknown): ThreadPullRequestLink | undefined {
   const url = text(raw.url);
   const host = text(raw.host);
   const repo = text(raw.repo);
-  const service = raw.service === "gitlab" ? "gitlab" : raw.service === "github" ? "github" : undefined;
+  const service = REQUEST_SERVICES.find((candidate): candidate is RequestService => candidate === raw.service);
   const number = typeof raw.number === "number" && Number.isInteger(raw.number) && raw.number > 0 ? raw.number : undefined;
   if (!url || !host || !repo || !service || number === undefined) return undefined;
   const state = raw.state === "open" || raw.state === "closed" || raw.state === "merged" ? raw.state : undefined;
@@ -113,6 +113,12 @@ export class ThreadLinkStore {
     links[index] = next;
     await this.save();
     return changed;
+  }
+
+  /** Every thread that links a request, whichever spelling it was linked by. */
+  async threadsLinking(ref: Pick<PullRequestRef, "host" | "repo" | "number">): Promise<string[]> {
+    const key = linkKey(ref);
+    return [...(await this.load())].flatMap(([threadId, links]) => links.some((link) => linkKey(link) === key) ? [threadId] : []);
   }
 
   async forget(threadId: string): Promise<boolean> {

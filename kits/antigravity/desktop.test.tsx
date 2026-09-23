@@ -9,10 +9,10 @@ import { ANTIGRAVITY_INSTALL_EVENT, type AntigravityInstallEvent } from "./proto
 afterEach(() => { cleanup(); signInLinks.clear(); });
 
 /** A host stub whose install events the test fires by hand. */
-function hostStub(invoke: (command: string) => Promise<unknown>) {
+function hostStub(invoke: (command: string, input?: unknown) => Promise<unknown>) {
   const listeners = new Map<string, (payload: unknown) => void>();
   return {
-    host: { invoke: (command: string) => invoke(command), onEvent: (name: string, listener: (payload: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } },
+    host: { invoke: (command: string, input?: unknown) => input === undefined ? invoke(command) : invoke(command, input), onEvent: (name: string, listener: (payload: unknown) => void) => { listeners.set(name, listener); return () => listeners.delete(name); } },
     emit: (name: string, payload: unknown) => act(() => listeners.get(name)?.(payload)),
   };
 }
@@ -47,6 +47,7 @@ describe("Antigravity desktop extension", () => {
     const install = new Promise<void>((resolve) => { finish = resolve; });
     const invoke = vi.fn(async (command: string) => {
       if (command === "status") return status;
+      if (command === "sign-in-state") return { methods: [], account: { signedIn: false } };
       await install;
       status = installed;
       return { version: "agy_acp_server_1.1.1" };
@@ -55,7 +56,7 @@ describe("Antigravity desktop extension", () => {
     const onNotify = vi.fn();
     render(<AntigravityProviderCard onNotify={onNotify} host={host} />);
     // The page says "Checking…" until the host answers, so this waits for a real state.
-    expect(screen.getAllByText("Checking…")).toHaveLength(2);
+    expect(screen.getAllByText("Checking…").length).toBeGreaterThan(0);
     fireEvent.click(await screen.findByRole("button", { name: /Install agy_acp_server_1\.1\.1/u }));
     expect(screen.getByText("Not installed")).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Installing…")).toBeTruthy());
@@ -70,24 +71,35 @@ describe("Antigravity desktop extension", () => {
     expect(screen.queryByRole("button", { name: /Install/u })).toBeNull();
   });
 
-  it("signs out through the host command and reports what of the user's configuration reaches the agent", async () => {
-    let status: unknown = { installed: true, source: "managed", version: "1.1.1", path: "/p", signedIn: true, available: "1.1.1", mcpServers: ["pencil"], models: 11 };
+  it("signs out through the sign-in commands, keeps the Google Cloud project and reports what reaches the agent", async () => {
+    const status = { installed: true, source: "managed", version: "1.1.1", path: "/p", signedIn: true, available: "1.1.1", mcpServers: ["pencil"], models: 11, gcpProject: "acme-dev", gcpLocation: "us-central1" };
+    let signedIn = true;
     const invoke = vi.fn(async (command: string) => {
-      if (command === "logout") { status = { ...(status as object), signedIn: false }; return { signedOut: true }; }
-      return status;
+      if (command === "sign-out") { signedIn = false; return { methods: [{ id: "oauth-personal", label: "Sign in with Google", kind: "browser" }], account: { signedIn: false }, note: "Signed out of Antigravity." }; }
+      if (command === "sign-in-state") return { methods: [{ id: "oauth-personal", label: "Sign in with Google", kind: "browser" }], account: signedIn ? { signedIn: true, label: "Google account", canSignOut: true } : { signedIn: false } };
+      return command === "status" ? status : undefined;
     });
     const { host } = hostStub(invoke);
-    render(<AntigravityProviderCard onNotify={vi.fn()} host={host} />);
-    await waitFor(() => expect(screen.getByText("Signed in")).toBeTruthy());
+    const onNotify = vi.fn();
+    render(<AntigravityProviderCard onNotify={onNotify} host={host} />);
+    expect(await screen.findByText("Google account")).toBeTruthy();
     expect(screen.getByText(/pencil/u)).toBeTruthy();
+    await waitFor(() => expect((screen.getByLabelText("Google Cloud project") as HTMLInputElement).value).toBe("acme-dev"));
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Sign out" }).at(-1)!);
     await waitFor(() => expect(screen.getByText("Not signed in")).toBeTruthy());
-    expect(invoke).toHaveBeenCalledWith("logout");
+    expect(onNotify).toHaveBeenCalledWith("Signed out of Antigravity.");
+    expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeTruthy();
+
+    const field = screen.getByLabelText("Google Cloud location");
+    fireEvent.change(field, { target: { value: "europe-west4" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("set-sign-in", { gcpProject: "acme-dev", gcpLocation: "europe-west4" }));
   });
 
   it("says so when the page cannot reach its host half", async () => {
     const { host } = hostStub(async () => { throw new Error("host is gone"); });
     render(<AntigravityProviderCard onNotify={vi.fn()} host={host} />);
-    await waitFor(() => expect(screen.getByText("host is gone")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("host is gone").length).toBeGreaterThan(0));
   });
 });

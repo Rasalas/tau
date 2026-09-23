@@ -75,6 +75,7 @@ import { QueuedMessages, type QueuedMessage } from "./queued-messages.js";
 import { LIMIT_CONTINUATION_PROMPT, ThreadLimits } from "./thread-limits.js";
 import { TurnSettlement } from "./turn-settlement.js";
 import { ModelPriceBook, piNewThreadCatalog } from "./model-price-book.js";
+import { createModelAuth } from "./model-auth.js";
 import { modelReleaseDate } from "./pi-model-runtime.js";
 import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
 
@@ -149,6 +150,8 @@ export interface PiHostDeps {
   sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string): Promise<void>;
   /** Continues a thread with a prompt the host writes, hidden where its runtime allows. */
   continueThread(sessionId: string, text: string): Promise<void>;
+  /** A Pi provider was signed in or out: the model lists the host holds are stale. */
+  modelCredentialsChanged(): void;
 }
 
 /** What PiHost currently assigns in its constructor, as one construction pass. */
@@ -365,6 +368,13 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     thread: (sessionId) => deps.hostThread(sessionId),
     complete: (request, model) => completions.complete(request, model),
     completionModels: () => completions.models(),
+    modelAuth: createModelAuth({
+      runtime: () => completions.modelRuntime(),
+      changed: () => {
+        catalogs.recheck("pi");
+        deps.modelCredentialsChanged();
+      },
+    }),
     setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(deps.requireThread(sessionId), title, source); },
     attachedRuntime: (sessionId) => deps.ownedByPi(deps.threadFor(sessionId)) ? attached.hostRuntime : undefined,
     describeProjects: (facts) => projects.add(facts),

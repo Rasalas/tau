@@ -1,0 +1,46 @@
+/*
+ * The account rows a Providers card draws with `loadSignInUi`: the account,
+ * the ways to sign in, and the flow while it runs. Loaded with that chunk.
+ */
+.sign-in { max-width: 460px; }
+.sign-in-field { cursor: default; }
+.sign-in-button {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: transparent;
+  color: var(--ink-3); font: 500 12px var(--sans); padding: 6px 11px; cursor: pointer;
+}
+.sign-in-button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.sign-in-button:disabled { color: var(--faint); cursor: default; }
+.sign-in-button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.sign-in-button.primary:hover:not(:disabled) { background: var(--acid); color: var(--acid-ink); filter: brightness(1.06); }
+.sign-in-button.primary:disabled { opacity: .45; }
+.sign-in-button.danger { color: var(--danger); border-color: var(--danger-line); }
+.sign-in-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.sign-in-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sign-in-row > code, .sign-in-terminal code {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 4px 7px; border-radius: var(--radius-xs); background: var(--inset); font: 11px var(--mono); color: var(--ink-2);
+}
+.sign-in-flow { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line-control); border-radius: 9px; background: var(--sunken); }
+.sign-in-status { margin: 0; font: 12px/1.5 var(--sans); color: var(--ink-2); overflow-wrap: anywhere; }
+.sign-in > .sign-in-status { margin-top: 8px; color: var(--muted); }
+.sign-in-status[data-level="error"] { color: var(--danger); }
+.sign-in-device { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.sign-in-device > code {
+  padding: 5px 10px; border-radius: var(--radius-sm); background: var(--inset);
+  font: 600 15px var(--mono); letter-spacing: .08em; color: var(--ink); user-select: all;
+}
+.sign-in-prompt { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.sign-in-prompt > label { font: 12px/1.45 var(--sans); color: var(--ink-2); }
+.sign-in-prompt-row { display: flex; gap: 8px; }
+.sign-in-prompt-row > input {
+  flex: 1; min-width: 0; padding: 6px 9px; border: 1px solid var(--line-field); border-radius: var(--radius-sm);
+  background: var(--field); color: var(--ink); font: 12.5px var(--mono); outline: none;
+}
+.sign-in-prompt-row > input:focus { border-color: var(--line-focus); }
+.sign-in-choices { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 10px; font-size: 12px; color: var(--ink-2); }
+.sign-in-choices > .sign-in-button { flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.sign-in-choices small, .sign-in-method small { font: 11px/1.4 var(--sans); color: var(--faint); }
+.sign-in-methods { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.sign-in-method { display: flex; align-items: center; gap: 10px; }
+.sign-in-link { border: 0; background: none; padding: 0; color: var(--acid-text); font: 12px var(--sans); cursor: pointer; text-decoration: underline; }

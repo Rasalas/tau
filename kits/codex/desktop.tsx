@@ -5,6 +5,7 @@ import {
   isRuntimeInstanceOf,
   loadRuntimeInstanceUi,
   loadRuntimeUpdateToasts,
+  loadSignInUi,
   runtimeInstanceId,
   updateAvailable,
   useWorkbenchShell,
@@ -38,6 +39,7 @@ const TERMINAL_PANEL = "terminal";
 
 const InstanceSetup = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeInstanceSetup })));
 const VersionBanner = lazy(() => loadRuntimeInstanceUi().then((module) => ({ default: module.RuntimeVersionBanner })));
+const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
 
 /** Names the runtime behind a Codex thread, on any instance; other threads show nothing. */
 export function CodexStatus({ snapshot }: RegionProps) {
@@ -49,14 +51,6 @@ export function CodexStatus({ snapshot }: RegionProps) {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-const PLAN_NAMES: Record<string, string> = { free: "Free", go: "Go", plus: "Plus", pro: "Pro", team: "Team", business: "Business", enterprise: "Enterprise", edu: "Edu" };
-
-function accountLabel(account: CodexStatusReport["account"]): string | undefined {
-  if (!account) return undefined;
-  if (account.kind === "chatgpt") return `ChatGPT${account.plan ? ` ${PLAN_NAMES[account.plan] ?? account.plan}` : ""}${account.email ? ` · ${account.email}` : ""}`;
-  return account.kind === "apiKey" ? "API key" : "signed in";
 }
 
 /** The workbench's actions where a Settings card is drawn inside it; a test renders none. */
@@ -139,6 +133,8 @@ export interface CodexProviderCardProps extends SettingsPageProps {
   instances?: CodexInstances;
   /** Terminal Kit's host half, for the command that installs a release. */
   terminal?: HostExtensionClient;
+  /** Terminal Kit's run service, for `codex login` in a shell the user sees. */
+  runner?: () => TerminalRunService | undefined;
 }
 
 /**
@@ -147,7 +143,7 @@ export interface CodexProviderCardProps extends SettingsPageProps {
  * Tau finds it and how the instance is set up. The default instance's card
  * adds another instance; the binary and the login stay the user's.
  */
-export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_ID, instances, terminal }: CodexProviderCardProps) {
+export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_ID, instances, terminal, runner }: CodexProviderCardProps) {
   const [status, setStatus] = useState<CodexStatusReport>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -208,7 +204,7 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
 
   const known = status !== undefined;
   const found = Boolean(status?.path);
-  const account = accountLabel(status?.account);
+  const run = runner?.();
   const compatibility = status?.compatibility && status.compatibility.status !== "supported" ? status.compatibility : undefined;
   return (
     <>
@@ -243,14 +239,18 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
       {!compatibility && status?.unsupported ? <p className="settings-note" data-level="error">Tau speaks to Codex {MIN_CODEX_VERSION} and newer. Update it with <code>{status.updateCommand}</code>.</p> : null}
       {!compatibility && !status?.unsupported && status?.updateAvailable ? <p className="settings-note">Codex {status.latest} is out. Update with <code>{status.updateCommand}</code>.</p> : null}
 
-      <div className="settings-label">Account</div>
-      <div className="settings-field codex-field">
-        {account ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
-        <span>
-          <strong>{!known || (found && busy && !status?.signedIn) ? "Checking…" : account ?? "Not signed in"}</strong>
-          <small>{account ? "Sign in and out with the CLI itself; Tau uses whatever it is signed in as." : <>Run <code>{view?.home ? `CODEX_HOME=${view.home} codex login` : "codex login"}</code> in a terminal to sign in with your ChatGPT plan.</>}</small>
-        </span>
-      </div>
+      <Suspense fallback={null}>
+        <SignIn
+          host={host}
+          target={instance}
+          program={view?.label ?? "Codex"}
+          {...(run ? { runInTerminal: (command: string) => run.run({ command, label: `Sign in to ${view?.label ?? "Codex"}` }, actions) } : {})}
+          openExternal={(url) => actions ? actions.openExternal(url) : void window.open(url, "_blank", "noopener")}
+          copyText={(text) => actions?.copyText(text) ?? navigator.clipboard.writeText(text)}
+          onNotify={onNotify}
+          onReport={(next) => { if (next.flow?.phase === "succeeded") void read(false); }}
+        />
+      </Suspense>
       {status?.codexHome ? <p className="settings-note">Home: <code>{status.codexHome}</code>{status.models ? ` · ${status.models} models; pick one and its reasoning effort per thread in the composer.` : ""}</p> : null}
 
       <div className="settings-label">Path</div>
@@ -353,7 +353,8 @@ export const codexExtension: DesktopExtension = {
     const instances = new CodexInstances();
     const terminal = () => plugin.hostExtension(TERMINAL_HOST_EXTENSION_ID);
     const cards = new Map<string, { label: string; dispose: () => void }>();
-    const card = (instance: string) => (props: SettingsPageProps) => <CodexProviderCard {...props} host={plugin.host} instance={instance} instances={instances} terminal={terminal()} />;
+    let runner: TerminalRunService | undefined;
+    const card = (instance: string) => (props: SettingsPageProps) => <CodexProviderCard {...props} host={plugin.host} instance={instance} instances={instances} terminal={terminal()} runner={() => runner} />;
     const sync = (report: CodexInstancesReport) => {
       instances.set(report);
       const wanted = new Map(report.instances.map((entry, index) => [entry.id, { entry, index }] as const));
@@ -382,7 +383,6 @@ export const codexExtension: DesktopExtension = {
       label: "Codex",
       dispose: registerCard({ id: DEFAULT_INSTANCE_ID, kind: CODEX_BACKEND_KIND, label: "Codex", threads: 0 }, DEFAULT_ORDER),
     });
-    let runner: TerminalRunService | undefined;
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
       plugin.registerStatusItem({ id: "codex.runtime", align: "left", order: 42, profiles: ["desktop", "web", "compact"], Component: CodexStatus }),

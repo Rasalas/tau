@@ -67,6 +67,10 @@ export interface AntigravitySessionOptions {
   browser: string;
   clientVersion: string;
   authMethod?: AntigravityAuthMethod;
+  /** The chosen method's credential from the user's environment; everything else Google-related is stripped. */
+  credentials?: Readonly<Record<string, string>>;
+  /** Ends the process, and with it a sign-in that is still waiting for the browser. */
+  signal?: AbortSignal;
   spawn?(input: AcpSpawnInput): AcpProcess;
   onUpdate(update: AcpSessionUpdate): void;
   onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse>;
@@ -106,12 +110,12 @@ export const SIGN_IN_REQUIRED = "Sign in to Antigravity with your Google account
 const CLIENT_FILE_MAX_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUTS = { handshakeMs: 90_000, sessionMs: 90_000, cancelMs: 15_000, signInMs: 300_000 };
 
-export function acpSpawnInput(options: Pick<AntigravitySessionOptions, "executable" | "profile" | "cwd" | "platform" | "baseEnv" | "browser">): AcpSpawnInput {
+export function acpSpawnInput(options: Pick<AntigravitySessionOptions, "executable" | "profile" | "cwd" | "platform" | "baseEnv" | "browser" | "credentials">): AcpSpawnInput {
   return {
     command: options.executable.executablePath,
     args: options.platform === "linux" ? ["--uid="] : [],
     cwd: options.cwd,
-    env: agentEnvironment(options.baseEnv, options.profile, options.executable.harnessPath, options.browser),
+    env: agentEnvironment(options.baseEnv, options.profile, options.executable.harnessPath, options.browser, options.credentials),
   };
 }
 
@@ -161,6 +165,7 @@ export class AntigravitySession {
   /** Spawns the server and runs `initialize` and `authenticate`; a sign-in the agent needs is reported through `onSignIn`. */
   static async open(options: AntigravitySessionOptions): Promise<AntigravitySession> {
     const session = new AntigravitySession(options);
+    options.signal?.addEventListener("abort", () => void session.close(), { once: true });
     try {
       session.initialized = await session.guarded(session.client.request<AcpInitializeResult>("initialize", {
         protocolVersion: 1,

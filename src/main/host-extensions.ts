@@ -19,6 +19,7 @@ import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
+import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
@@ -450,6 +451,9 @@ export type HostMcpTool = ToolDefinition<any, any, any>;
 /** The tools a thread's runtime is offered; asked on every list and call, with the thread the credential names. */
 export type HostMcpToolProvider = (thread: RuntimeSessionInfo) => readonly HostMcpTool[];
 
+/** A section of what the endpoint tells a thread's runtime when it connects; `undefined` adds nothing. */
+export type HostMcpInstructionsProvider = (thread: RuntimeSessionInfo) => string | undefined;
+
 /** One tool call over MCP, as a gate sees it before the tool runs. */
 export interface HostMcpToolCall {
   readonly threadId: string;
@@ -486,6 +490,12 @@ export interface HostMcpServices {
   registerTools(provider: HostMcpToolProvider): () => void;
   /** Runs before each call, in registration order; the first block wins. Access Kit's gate is one. */
   gate(gate: HostMcpToolGate): () => void;
+  /**
+   * Adds a section to MCP's `instructions`, which a runtime that honours them
+   * puts into the model's system prompt; sections join in registration order.
+   * New in API 1.12.0, so absent on an older host.
+   */
+  registerInstructions?(provider: HostMcpInstructionsProvider): () => void;
   /**
    * The endpoint and a credential for one thread, for a runtime backend to put
    * in its session's MCP configuration. The credential is revoked when the
@@ -638,6 +648,13 @@ export interface HostExtensionServices {
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   /** The models `complete` can be asked for: the user's Pi catalog, those with a key or a login. Absent before API 1.11.0. */
   completionModels?(): Promise<UiModel[]>;
+  /**
+   * Pi's model providers and their sign-in: which are set up, a login or a
+   * key handed straight to Pi, a sign-out (`runtime:extend`). Pi keeps the
+   * credential in its own `auth.json`; nothing reads one back. Absent before
+   * API 1.12.0 and in a worker.
+   */
+  readonly modelAuth?: HostModelAuthServices;
   /** Renames a thread the way the title menu does, and publishes the change. */
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** The Pi terminal owning a thread while Tau is attached; `undefined` when Tau runs it. */

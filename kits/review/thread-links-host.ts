@@ -1,19 +1,28 @@
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
-import { THREAD_LINKS_EVENT, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
+import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
 import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestReads } from "./pull-request-host.js";
 import { projectRepository } from "./pull-request-list-host.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { linkKey, ThreadLinkStore } from "./thread-links.js";
 
-/** A linked request's state is asked again at most this often; a merged one only on request. */
+/** An open linked request's state is asked again at most this often; a merged one only on request. */
 const REFRESH_MS = 5 * 60_000;
+/** A closed one is asked about now and then, so reopening it on the host is noticed. */
+const CLOSED_REFRESH_MS = 30 * 60_000;
+/** Linked requests read at once when Thread Rail asks about many threads. */
+const SETTLE_READS = 4;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
 
 const REGISTER_EVERY_PR = "Register every pull or merge request you open or work on for this thread, each layer of a stack included, right after creating it.";
+
+/** The section every runtime's system prompt gets, so linking does not hang on the model reading a tool description. */
+export const LINKING_INSTRUCTIONS = `<pull_request_linking>
+Tau keeps the pull and merge requests each thread works on. Whenever you open a pull or merge request, or start working on an existing one, call the link_pull_request tool with its full URL right away; for a stack, call it for every layer. Opening or updating a request through gh, glab, another CLI or the host's API does not register it with this thread. Linking one that is already linked is harmless. Before you finish work on requests, call list_thread_pull_requests and link any of yours that is missing. Do not link requests you only mention as background. If linking fails, say so instead of claiming the request is linked.
+</pull_request_linking>`;
 
 export interface ThreadLinks {
   /** Links a request to a thread; the Changes panel calls this after creating one. */
@@ -85,9 +94,14 @@ export function registerThreadLinks(
     return result;
   };
 
+  const stale = (entry: ThreadPullRequestLink) => {
+    if (entry.state === "merged") return false;
+    return Date.now() - (entry.refreshedAt ?? 0) > (entry.state === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
+  };
+
   const refresh = async (threadId: string, force: boolean) => {
     const links = await store.list(threadId);
-    const due = links.filter((entry) => force || ((entry.state !== "merged" && entry.state !== "closed") && Date.now() - (entry.refreshedAt ?? 0) > REFRESH_MS));
+    const due = links.filter((entry) => force || stale(entry));
     const results = await Promise.all(due.map(async (entry) => {
       const ref = parseRequestUrl(entry.url);
       const snapshot = ref ? await snapshotOf(ref, force) : undefined;
@@ -108,6 +122,35 @@ export function registerThreadLinks(
     if (mode === true || mode === "force") await refresh(threadId, mode === "force");
     return store.list(threadId);
   }, { long: true });
+
+  // The threads that link a request, for "linked from" in its view.
+  context.registerCommand("pr-linked-threads", async (input) => {
+    const ref = parseRequestUrl(text(record(input).url) ?? "");
+    if (!ref) throw new HostCommandError("Name the request by its URL.");
+    return store.threadsLinking(ref);
+  });
+
+  /**
+   * Thread Rail's question before it settles threads: each named thread's
+   * linked requests with their state, refreshed where stale. A link whose
+   * state is unknown stays unknown, which keeps its thread active.
+   */
+  context.registerCommand("thread-requests", async (input) => {
+    const ids = Array.isArray(record(input).threadIds) ? (record(input).threadIds as unknown[]).filter((id): id is string => typeof id === "string" && id.length > 0) : [];
+    const queue = [...new Set(ids)];
+    const answer: Record<string, Array<{ url: string; state?: ThreadPullRequestLink["state"] }>> = {};
+    const worker = async () => {
+      for (let threadId = queue.shift(); threadId !== undefined; threadId = queue.shift()) {
+        // oxlint-disable-next-line no-await-in-loop -- a few at a time: each may ask a host
+        await refresh(threadId, false).catch(() => undefined);
+        // oxlint-disable-next-line no-await-in-loop
+        const links = await store.list(threadId);
+        if (links.length > 0) answer[threadId] = links.map((entry) => ({ url: entry.url, ...(entry.state ? { state: entry.state } : {}) }));
+      }
+    };
+    await Promise.all(Array.from({ length: SETTLE_READS }, worker));
+    return answer;
+  }, { long: true, callers: [THREAD_RAIL_EXTENSION_ID] });
 
   context.registerCommand("link-pr", async (input) => {
     const threadId = threadOf(input);
@@ -191,8 +234,11 @@ export function registerThreadLinks(
   const disposers = [
     services.registerRuntimeExtension("tau-pull-requests", (pi, session) => {
       for (const tool of tools(session)) pi.registerTool(tool);
+      pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${LINKING_INSTRUCTIONS}` }));
     }),
     services.mcp.registerTools(tools),
+    // Runtimes other than Pi read it from the MCP endpoint's instructions.
+    services.mcp.registerInstructions?.(() => LINKING_INSTRUCTIONS) ?? (() => undefined),
     services.registerThreadLifecycle({
       threadDeleted: async (sessionId) => { await store.forget(sessionId); },
     }),

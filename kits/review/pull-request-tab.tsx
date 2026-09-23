@@ -1,8 +1,9 @@
 import { lazy, Suspense } from "react";
 import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
-import { Spinner, type DesktopExtensionContext, type WorkbenchActions } from "tau";
+import { Spinner, type DesktopExtensionContext } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
-import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips, type ReviewRequest } from "./protocol.js";
+import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, type ComposerContextChips } from "./protocol.js";
+import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
 import { pullRequestTabParams, shortNoun, type PullRequestTabParams } from "./pull-request-logic.js";
@@ -12,16 +13,7 @@ import type { RequestClient, RowRequests } from "./requests.js";
 // The page is opened on demand; its code stays out of the kit's first evaluation.
 const PullRequestListView = lazy(() => import("./pull-request-list-view.js"));
 
-/** Opens a request's view on the stage; the same request is always the same tab. */
-export function openPullRequest(actions: Pick<WorkbenchActions, "openStageTab">, request: Pick<ReviewRequest, "url" | "number" | "provider">, workspace?: string): string {
-  const params: PullRequestTabParams = { url: request.url, number: request.number, service: request.provider, ...(workspace ? { workspace } : {}) };
-  return actions.openStageTab(PULL_REQUEST_TAB, params, { key: request.url });
-}
-
-/** Opens the Pull Requests page of a project; one tab per project. */
-export function openPullRequests(actions: Pick<WorkbenchActions, "openStageTab">, workspace?: string): string {
-  return actions.openStageTab(PULL_REQUESTS_TAB, workspace ? { workspace } : {}, { key: `pull-requests:${workspace ?? ""}` });
-}
+export { openPullRequest, openPullRequests } from "./pull-request-open.js";
 
 /**
  * The pull-request view and the Pull Requests page as stage-tab kinds, the
@@ -57,7 +49,7 @@ export function registerPullRequestTab(
       render: (params, handle, actions) => (
         <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
           <PullRequestListView
-            params={typeof params.workspace === "string" ? { workspace: params.workspace } : {}}
+            params={params.scope === "all" ? { scope: "all" } : typeof params.workspace === "string" ? { workspace: params.workspace } : {}}
             handle={handle}
             actions={actions}
             client={client}
@@ -88,6 +80,12 @@ export function registerPullRequestTab(
         const thread = actions.activeThread();
         openPullRequests(actions, thread?.workspaceId ?? thread?.cwd);
       },
+    }),
+    plugin.registerCommand({
+      id: "review.pull-requests.all",
+      label: "Pull requests in all projects",
+      group: "Project",
+      run: (actions) => { openPullRequests(actions, "all"); },
     }),
     plugin.registerCommand({
       id: "review.pull-request.link",

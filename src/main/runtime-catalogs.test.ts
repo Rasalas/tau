@@ -58,6 +58,19 @@ describe("RuntimeCatalogs", () => {
     await expect(cache.get("gone")).resolves.toBeUndefined();
   });
 
+  it("asks one runtime again at once when its sign-in changed, however fresh its answer", async () => {
+    let answer: HostRuntimeNewThreadCatalog = { models: [], thinkingLevels: {}, status: "sign-in-required", note: "Sign in first." };
+    const load = vi.fn(async () => answer);
+    const { cache, published } = catalogs(() => [source(load)]);
+    await cache.get("codex");
+    answer = ANSWER;
+    cache.recheck("codex");
+    cache.recheck("nobody");
+    await vi.waitFor(() => expect(published.at(-1)).toMatchObject({ kind: "codex", models: [{ id: "gpt-5.6-luna" }] }));
+    expect(published.at(-1)?.status).toBeUndefined();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("serves what it holds at once and asks again behind it once the answer is old, publishing only a change", async () => {
     let answer = ANSWER;
     const load = vi.fn(async () => answer);

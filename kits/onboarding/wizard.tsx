@@ -1,10 +1,18 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
-import { ArrowRight, Bot, Check, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
-import { useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
+import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
+import { ArrowRight, Bot, Braces, Check, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
+import { loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
 import { backendKit, defaultProjects, defaultSessions, type AgentStatus, type FlowState, type WelcomeFlow } from "./flow.js";
 import type { ImportableSession, ProjectCandidate, ToolReport } from "./protocol.js";
 
 const STEPS = ["Agents", "Projects", "Conversations"] as const;
+const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
+/** Pi Providers' card (`kits/pi-providers/protocol.ts`), named here: a kit never imports another. */
+const PI_PROVIDERS_PAGE = "pi-providers.settings";
+
+/** Terminal Kit's run service (`kits/terminal/protocol.ts`), for a login that runs in a terminal. */
+export interface TerminalRunner {
+  run(request: { command: string; label?: string }, actions?: WorkbenchActions): Promise<{ id: string; exitCode?: number }>;
+}
 const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some projects or conversations may be missing.";
 
 type RowState = "checking" | "ready" | "signIn" | "install" | "update" | "settings";
@@ -19,6 +27,8 @@ export interface AgentRow {
   /** Shown to copy; without one the action opens `settings`. */
   command?: string;
   settings?: string;
+  /** The backend kit whose sign-in opens in place, and the instance it is for. */
+  signIn?: { extensionId: string; target: string };
 }
 
 /** A runtime backend as the snapshot lists it. */
@@ -28,9 +38,9 @@ export interface BackendEntry {
   version?: { installed?: string };
 }
 
-const ICONS: Record<string, Icon> = { pi: Sparkles, "claude-code": Bot, codex: SquareTerminal, antigravity: Orbit, gh: GitPullRequest, glab: GitMerge };
+const ICONS: Record<string, Icon> = { pi: Sparkles, "claude-code": Bot, codex: SquareTerminal, opencode: Braces, antigravity: Orbit, gh: GitPullRequest, glab: GitMerge };
 const iconOf = (id: string): Icon => ICONS[id] ?? ICONS[id.split("@")[0]!] ?? Bot;
-const SOURCE_LABEL = { "claude-code": "Claude Code", codex: "Codex", pi: "Pi" } as const;
+const SOURCE_LABEL = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", pi: "Pi" } as const;
 
 function plural(count: number, one: string): string {
   return `${count} ${count === 1 ? one : `${one}s`}`;
@@ -50,8 +60,9 @@ export function age(at: number, now: number): string {
   return months < 12 ? `${months}mo` : `${Math.round(months / 12)}y`;
 }
 
-function backendRow(backend: BackendEntry, status: AgentStatus | undefined, commands: { install?: string; login?: string }): AgentRow {
+function backendRow(backend: BackendEntry, status: AgentStatus | undefined, commands: { install?: string }): AgentRow {
   const { kind: id, label } = backend;
+  const kit = backendKit(id);
   // Without a command of its own, a runtime is set up on its Providers card.
   const next = (state: RowState, summary: string, command?: string): AgentRow => ({ id, label, state, summary, ...(command ? { command } : { settings: "providers" }) });
   if (!status) return { id, label, state: "checking", summary: "Checking…" };
@@ -61,7 +72,8 @@ function backendRow(backend: BackendEntry, status: AgentStatus | undefined, comm
   const shown = version ?? "Installed";
   if (status.update) return next("update", `${shown} is older than Tau speaks to`, status.update.command);
   if (status.signedIn) return { id, label, state: "ready", summary: `${shown} · ${status.account ?? "signed in"}` };
-  if (status.signedIn === false) return next("signIn", `${shown} · Not signed in`, commands.login);
+  // The kit's own sign-in (`sign-in-state` and the rest), opened in place under the row.
+  if (status.signedIn === false) return { id, label, state: "signIn", summary: `${shown} · Not signed in`, signIn: { extensionId: kit.extensionId, target: kit.instance ?? "default" } };
   return next("settings", shown);
 }
 
@@ -74,7 +86,7 @@ export function agentRows(state: FlowState, piModels: number | undefined, backen
     ? { id: "pi", label: "Pi", state: "checking", summary: "Checking…" }
     : piModels > 0
       ? { id: "pi", label: "Pi", state: "ready", summary: `Tau's own runtime · ${plural(piModels, "model")} from your Pi configuration` }
-      : { id: "pi", label: "Pi", state: "signIn", summary: "Tau's own runtime · No provider signed in", settings: "pi" };
+      : { id: "pi", label: "Pi", state: "signIn", summary: "Tau's own runtime · No provider signed in", settings: PI_PROVIDERS_PAGE };
   return [
     pi,
     ...backends.filter((backend) => backend.kind !== "pi").map((backend) => {
@@ -139,11 +151,16 @@ function CommandBlock({ command, actions }: { command: string; actions: Workbenc
   );
 }
 
-function AgentCard({ row, actions }: { row: AgentRow; actions: WorkbenchActions }) {
+function AgentCard({ row, actions, flow, runner }: { row: AgentRow; actions: WorkbenchActions; flow?: WelcomeFlow; runner?: () => TerminalRunner | undefined }) {
   const [open, setOpen] = useState(false);
   const Glyph = iconOf(row.id);
-  const label = !row.command ? "Open Settings" : row.state === "install" ? "Install" : row.state === "update" ? "Update" : "Sign in";
-  const act = () => row.command ? setOpen(!open) : actions.openSettings(row.settings);
+  const inPlace = Boolean(row.signIn && flow);
+  const label = inPlace || (row.command && row.state === "signIn") ? "Sign in" : !row.command ? "Open Settings" : row.state === "install" ? "Install" : row.state === "update" ? "Update" : "Sign in";
+  const act = () => row.command || inPlace ? setOpen(!open) : actions.openSettings(row.settings);
+  const run = runner?.();
+  const place = useRef<HTMLDivElement>(null);
+  // The list scrolls; a row near its end would open its sign-in below the fold.
+  useEffect(() => { if (open) place.current?.scrollIntoView?.({ block: "nearest" }); }, [open]);
   return (
     <div className="onboarding-card-wrap">
       <div className="onboarding-card" data-state={row.state}>
@@ -153,16 +170,33 @@ function AgentCard({ row, actions }: { row: AgentRow; actions: WorkbenchActions 
           ? <span className="onboarding-ready"><Check size={13} /> Ready</span>
           : row.state === "checking"
             ? null
-            : <button type="button" className="onboarding-button ghost small" aria-expanded={row.command ? open : undefined} onClick={act}>{label}</button>}
+            : <button type="button" className="onboarding-button ghost small" aria-expanded={row.command || inPlace ? open : undefined} onClick={act}>{label}</button>}
       </div>
       {open && row.command ? <CommandBlock command={row.command} actions={actions} /> : null}
+      {open && row.signIn && flow ? (
+        <div className="onboarding-sign-in" ref={place}>
+          <Suspense fallback={null}>
+            <SignIn
+              host={flow.kitHost(row.signIn.extensionId)}
+              target={row.signIn.target}
+              program={row.label}
+              showAccount={false}
+              {...(run ? { runInTerminal: (command: string) => run.run({ command, label: `Sign in to ${row.label}` }, actions) } : {})}
+              openExternal={(url) => actions.openExternal(url)}
+              copyText={(text) => actions.copyText(text)}
+              onNotify={(message) => actions.notify(message)}
+              onReport={(report) => { if (report.account?.signedIn) flow.recheckAgent(row.id); }}
+            />
+          </Suspense>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function SourceMarks({ sources }: { sources: ReadonlyArray<keyof typeof SOURCE_LABEL> }) {
   return <>
-    {(["claude-code", "codex", "pi"] as const).map((source) => {
+    {(["claude-code", "codex", "opencode", "pi"] as const).map((source) => {
       const Glyph = iconOf(source);
       return <span key={source} className="onboarding-source">{sources.includes(source) ? <Glyph size={12} aria-label={SOURCE_LABEL[source]} /> : null}</span>;
     })}
@@ -197,7 +231,7 @@ function Looking({ onSkip, what }: { onSkip(): void; what: string }) {
   </>;
 }
 
-function AgentsStep({ state, flow, actions }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions }) {
+function AgentsStep({ state, flow, actions, runner }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions; runner?: () => TerminalRunner | undefined }) {
   const snapshot = useWorkbenchShell().snapshot;
   const backends = (snapshot?.runtimeBackends ?? []).filter((backend) => backend.kind !== "pi");
   const kinds = backends.map((backend) => backend.kind);
@@ -205,7 +239,7 @@ function AgentsStep({ state, flow, actions }: { state: FlowState; flow: WelcomeF
   const rows = agentRows(state, snapshot ? (snapshot.completionModels ?? snapshot.models).length : undefined, backends);
   return (
     <StepShell title="Your agents" description="Agents available on this computer. Install or sign in to the ones you want to use; Settings → Providers has them later too.">
-      <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} />)}</div>
+      <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(runner ? { runner } : {})} />)}</div>
       <section className="onboarding-optional" aria-labelledby="onboarding-pr-tools">
         <h3 id="onboarding-pr-tools" className="onboarding-subtitle">Tools for pull requests <span className="onboarding-badge">Optional</span></h3>
         <p className="onboarding-note">Tau uses them to open pull and merge requests and show their checks. Your agents work without them.</p>
@@ -229,7 +263,7 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
   const busy = state.busy === "projects";
   const toggle = (project: ProjectCandidate, on: boolean) => flow.select("projects", on ? [...selected, project.path] : [...selected].filter((path) => path !== project.path));
   return (
-    <StepShell title="Choose your projects" description="Folders Claude Code, Codex and Pi have worked in. The ones you choose are added to Tau.">
+    <StepShell title="Choose your projects" description="Folders Claude Code, Codex, OpenCode and Pi have worked in. The ones you choose are added to Tau.">
       {state.discoverError ? <p className="onboarding-error" role="alert">Could not check projects. {state.discoverError} <button type="button" className="onboarding-button ghost small" onClick={() => flow.discover()}>Retry</button></p> : null}
       {candidates.length > 0 ? <Selection count={chosen.length} total={candidates.length} busy={busy} onAll={() => flow.select("projects", candidates.map((project) => project.path))} onNone={() => flow.select("projects", [])} /> : null}
       <fieldset className="onboarding-list rows" disabled={busy}>
@@ -275,7 +309,7 @@ function ConversationsStep({ state, flow, actions, known, finish }: { state: Flo
     if (result.failed === 0) finish();
   };
   return (
-    <StepShell title="Import conversations" description="Earlier Claude Code and Codex conversations become threads you can read and continue in Tau. Their text comes along; tool activity and attachments do not.">
+    <StepShell title="Import conversations" description="Earlier Claude Code, Codex and OpenCode conversations become threads you can read and continue in Tau. Their text comes along; tool activity and attachments do not.">
       {pending.length > 0 ? <Selection count={chosen.length} total={pending.length} busy={importing} onAll={() => flow.select("sessions", pending.map((session) => session.path))} onNone={() => flow.select("sessions", [])} /> : null}
       <fieldset className="onboarding-list rows" disabled={importing}>
         <legend className="onboarding-sr">Conversations to import</legend>
@@ -315,7 +349,7 @@ function ConversationsStep({ state, flow, actions, known, finish }: { state: Flo
 }
 
 /** The welcome wizard, drawn over the workbench as T3 Code draws its own over the workspace. */
-export function createWelcomeWizard(flow: WelcomeFlow) {
+export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRunner | undefined) {
   return function WelcomeWizard({ actions, onClose }: OverlayProps) {
     const state = useSyncExternalStore(flow.subscribe, flow.get);
     const threads = useThreadStore();
@@ -345,7 +379,7 @@ export function createWelcomeWizard(flow: WelcomeFlow) {
             <Steps current={state.step} disabled={Boolean(state.busy)} onStep={(step) => flow.goTo(step)} />
           </header>
           <div className="onboarding-panel">
-            {state.step === 0 ? <AgentsStep state={state} flow={flow} actions={actions} />
+            {state.step === 0 ? <AgentsStep state={state} flow={flow} actions={actions} {...(runner ? { runner } : {})} />
               : state.step === 1 ? <ProjectsStep state={state} flow={flow} actions={actions} known={known} />
                 : <ConversationsStep state={state} flow={flow} actions={actions} known={known} finish={finish} />}
           </div>

@@ -14,6 +14,7 @@ import type {
   PullRequestVerdict,
   PullRequestViewedState,
 } from "./protocol.js";
+import { githubAutoMerge, gitlabAutoMerge } from "./branch-request-json.js";
 
 /*
  * What `gh` and `glab` answer, turned into the view's own shapes. Every field
@@ -212,9 +213,11 @@ export function parseGitHubDetail(ref: PullRequestRef, output: string): PullRequ
     ...(text(raw.headRefName) ? { headRef: text(raw.headRefName) } : {}),
     ...(text(raw.headRefOid) ? { headSha: text(raw.headRefOid) } : {}),
   };
+  const autoMerge = githubAutoMerge(raw.autoMergeRequest);
   return {
     ref,
     ...optional,
+    ...(autoMerge ? { autoMerge } : {}),
     title: text(raw.title) ?? `#${ref.number}`,
     body: typeof raw.body === "string" ? raw.body : "",
     state: githubState(raw),
@@ -355,8 +358,10 @@ export function parseGitLabDetail(ref: PullRequestRef, output: string, discussio
     return name ? [{ name, ...(color && /^[0-9a-f]{6}$/iu.test(color) ? { color: color.toLowerCase() } : {}) }] : [];
   });
   const changes = Number.parseInt(String(raw.changes_count ?? ""), 10);
+  const autoMerge = gitlabAutoMerge(raw);
   return {
     ref,
+    ...(autoMerge ? { autoMerge } : {}),
     ...(raw.id !== undefined ? { nodeId: String(raw.id) } : {}),
     ...(author ? { author } : {}),
     ...(text(raw.created_at) ? { createdAt: text(raw.created_at) } : {}),

@@ -81,6 +81,11 @@ export {
 export const loadRuntimeInstanceUi = () => import("./components/RuntimeInstanceUi");
 export type { RuntimeInstanceDialogProps, RuntimeInstanceSetupProps, RuntimeInstanceView, RuntimeVersionBannerProps } from "./components/RuntimeInstanceUi";
 export { compareVersions, updateAvailable } from "../shared/runtime-version";
+// Signing in from a Providers card (API 1.12.0): the vocabulary, and the account rows as one chunk loaded on first use.
+export { SIGN_IN_COMMANDS, SIGN_IN_EVENT, signInActive } from "../shared/sign-in";
+export type * from "../shared/sign-in";
+export const loadSignInUi = () => import("./components/SignInUi");
+export type { SignInSetupProps } from "./components/SignInUi";
 /** The update toasts a backend kit offers for its program, as their own chunk (API 1.11.0). */
 export const loadRuntimeUpdateToasts = () => import("./runtime-update-toasts");
 export type { RuntimeUpdateRun, RuntimeUpdateToasts, RuntimeUpdateToastsOptions } from "./runtime-update-toasts";

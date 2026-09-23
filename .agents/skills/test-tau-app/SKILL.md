@@ -44,6 +44,10 @@ Symlink whatever the test needs from the real dir (auth, settings, the `npm` ext
 
 `dev-instance` sets `CODEX_HOME=.tau-dev/codex-home`, which links only `auth.json` from `~/.codex`; every session and config file Codex writes stays there. Never start Codex against the real `~/.codex`. Pin the cheapest model in that shadow's own `config.toml` (`model = "gpt-5.6-luna"`, `model_reasoning_effort = "low"`) before a Codex thread's first prompt; `docs/agents/testing-the-app.md` has the recipe.
 
+### OpenCode runs in a shadow home
+
+`dev-instance` sets `TAU_OPENCODE_HOME=.tau-dev/opencode-home`, which the OpenCode kit turns into OpenCode's four XDG folders; nothing is linked from the real ones. Test prompts use a free OpenCode Zen model (no login needed) and ask for one word. Never start `opencode` against the user's own `~/.config/opencode` or `~/.local/share/opencode`.
+
 ### Session imports read fixtures only
 
 `dev-instance` also sets `TAU_IMPORT_ROOTS=.tau-dev/import-roots` (a caller's own value is kept): Onboarding's import then reads `<root>/<backend kind>/…` and never the user's own CLI homes. Write small synthetic sessions there to test it.

@@ -53,6 +53,11 @@ export class HostCompletions {
     };
   }
 
+  /** The runtime every small job completes on; its credential store is Pi's own file. */
+  modelRuntime(): Promise<ModelRuntime> {
+    return this.runtime();
+  }
+
   private runtime(): Promise<ModelRuntime> {
     return (this.cached ??= (this.options.createRuntime ?? createPiModelRuntime)(this.options.agentDir));
   }

@@ -29,6 +29,11 @@ export class ThreadLinkRows {
     return threadId ? this.entries.get(threadId)?.links ?? EMPTY : EMPTY;
   }
 
+  /** Whether the thread's links were read at least once. */
+  has(threadId: string): boolean {
+    return this.entries.has(threadId);
+  }
+
   ensure(threadId: string): void {
     const entry = this.entries.get(threadId);
     if (entry && this.now() - entry.at < ROW_TTL_MS) return;

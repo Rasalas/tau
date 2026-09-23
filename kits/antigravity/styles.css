@@ -15,3 +15,5 @@
 }
 .antigravity-sign-in:hover { background: var(--acid-chip); }
 .antigravity-path { max-width: 420px; width: 100%; }
+.antigravity-project { display: flex; gap: 8px; max-width: 460px; margin-top: 8px; }
+.antigravity-project > input { flex: 1; min-width: 0; }

@@ -215,6 +215,17 @@ export class WelcomeFlow {
     );
   }
 
+  /** A backend kit's host half, for the sign-in rows the agents step opens in place. */
+  kitHost(extensionId: string): HostExtensionClient {
+    return this.hostExtension(extensionId);
+  }
+
+  /** Asks one backend again, after a sign-in on its row. */
+  recheckAgent(kind: string): void {
+    this.asked.delete(kind);
+    this.askAgents(this.kinds);
+  }
+
   /** Asks the backends not asked yet; runtimes that register later join the list. */
   askAgents(kinds: readonly string[]): void {
     this.kinds = kinds;

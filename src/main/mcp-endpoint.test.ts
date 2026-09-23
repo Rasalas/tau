@@ -3,7 +3,7 @@ import { request } from "node:http";
 import { Type } from "typebox";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { HostMcpConnection, HostMcpTool, HostMcpToolGate, HostMcpToolProvider, RuntimeSessionInfo } from "./host-extensions.js";
+import type { HostMcpConnection, HostMcpInstructionsProvider, HostMcpTool, HostMcpToolGate, HostMcpToolProvider, RuntimeSessionInfo } from "./host-extensions.js";
 import { McpEndpoint } from "./mcp-endpoint.js";
 
 const echo = (name: string, onRun: (thread: string, input: unknown) => void = () => undefined, thread = ""): HostMcpTool => ({
@@ -17,13 +17,15 @@ const echo = (name: string, onRun: (thread: string, input: unknown) => void = ()
   },
 });
 
-function endpoint(options: { providers?: HostMcpToolProvider[]; gates?: HostMcpToolGate[]; confirm?: (threadId: string, title: string) => boolean } = {}) {
+function endpoint(options: { providers?: HostMcpToolProvider[]; gates?: HostMcpToolGate[]; instructions?: HostMcpInstructionsProvider[]; confirm?: (threadId: string, title: string) => boolean } = {}) {
   const providers = new Set(options.providers ?? []);
+  const instructions = [...(options.instructions ?? [])];
   const gates = [...(options.gates ?? [])];
   const logs: string[] = [];
   const questions: Array<{ threadId: string; title: string; message: string }> = [];
   const mcp = new McpEndpoint({
     providers: () => providers,
+    instructions: () => instructions,
     gates: () => gates,
     confirm: async (threadId, title, message) => {
       questions.push({ threadId, title, message });
@@ -65,6 +67,25 @@ const text = (result: unknown): string =>
   ((result as { content: Array<{ type: string; text?: string }> }).content).map((part) => part.text ?? `[${part.type}]`).join("\n");
 
 describe("the host's MCP endpoint", () => {
+  it("tells each thread's runtime the instructions kits registered for it, and none when there are none", async () => {
+    const { mcp, logs } = endpoint({
+      instructions: [
+        (thread) => `<links>Link every request of ${thread.sessionId}.</links>`,
+        () => undefined,
+        () => { throw new Error("broken"); },
+        (thread) => thread.sessionId === "thread-a" ? "  <more>Only for a.</more>  " : undefined,
+      ],
+    });
+    const a = await connectClient((await mcp.connect({ sessionId: "thread-a", cwd: "/project" }))!);
+    expect(a.getInstructions()).toBe("<links>Link every request of thread-a.</links>\n\n<more>Only for a.</more>");
+    const b = await connectClient((await mcp.connect({ sessionId: "thread-b", cwd: "/project" }))!);
+    expect(b.getInstructions()).toBe("<links>Link every request of thread-b.</links>");
+    expect(logs.some((line) => line.startsWith("mcp.instructions-failed broken"))).toBe(true);
+    const none = endpoint();
+    const plain = await connectClient((await none.mcp.connect({ sessionId: "thread-c", cwd: "/project" }))!);
+    expect(plain.getInstructions()).toBeUndefined();
+  });
+
   it("binds to loopback and lists and calls the tools registered for the credential's thread", async () => {
     const runs: Array<{ thread: string; input: unknown }> = [];
     const { mcp } = endpoint({ providers: [(thread: RuntimeSessionInfo) => [echo("tau_echo", (id, input) => runs.push({ thread: id, input }), thread.sessionId)]] });
