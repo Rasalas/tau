@@ -171,6 +171,8 @@ describe("OpenCodeThreadRuntimeBackend against a fake OpenCode server", () => {
     space.fake.sessions.clear();
     const lost = await open(space, { resume: true });
     await lost.backend.prompt({ text: "Three", delivery: "prompt" });
+    // A new session keeps the model the thread showed, not OpenCode's default.
+    expect(prompts(space.fake).at(-1)!.body).toMatchObject({ model: { providerID: "opencode", modelID: "mimo-v2.6-flash-free" } });
     expect(lost.events).toContainEqual({ type: "notice", message: "OpenCode no longer has this conversation; a new one starts here.", level: "warning" });
     expect((await space.store.get("tau-1"))!.sessionId).not.toBe(sessionId);
   });

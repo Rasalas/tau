@@ -367,7 +367,8 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private promptBody(parts: OpenCodeInputPart[]): OpenCodePromptBody {
-    const model = this.chosenModel;
+    // The model the picker shows is the one that runs, also for a session OpenCode started anew.
+    const model = this.currentModelRef();
     const plan = this.mode === PLAN_MODE;
     return {
       parts,
