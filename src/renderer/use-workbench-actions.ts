@@ -16,6 +16,9 @@ import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { offeringKey } from "./components/model-offerings";
+import { runtimeCatalogStore } from "./use-runtime-catalog";
+import { DEFAULT_RUNTIME } from "./runtime-marks";
+import type { NewThreadController } from "../workbench/new-thread-controller";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -76,6 +79,10 @@ export interface UseWorkbenchActionsOptions {
   openInstructions: () => void;
   executeCommand?: (id: string) => Promise<void> | void;
   attachFiles?: WorkbenchActions["attachFiles"];
+  /** Binds the draft on screen to another runtime; it keeps what it chose for each. */
+  selectDraftRuntime?: (kind: string) => void;
+  /** The draft's model for `runtime`, and the model the next draft starts on. */
+  newThreadController?: Pick<NewThreadController, "carryToNextDraft" | "setModel">;
 }
 
 export function useWorkbenchActions(options: UseWorkbenchActionsOptions): WorkbenchActions {
@@ -277,6 +284,34 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         return true;
       }
       return false;
+    },
+    runtimeModels: async () => {
+      const store = runtimeCatalogStore(client);
+      await store?.refresh();
+      const backends = snapshot?.runtimeBackends?.length ? snapshot.runtimeBackends : [{ kind: DEFAULT_RUNTIME, label: "Pi" }];
+      // A thread on screen offers what its runtime told it, which may be more than a new thread's list.
+      const live = pendingNewThreadRef.current ? undefined : options.viewStore.getSnapshot();
+      return backends.map((backend) => {
+        const entry = store?.get(backend.kind);
+        const held = entry && entry.status !== "loading" ? entry.catalog : undefined;
+        const onScreen = live?.models.length && (live.backendKind ?? DEFAULT_RUNTIME) === backend.kind ? live : undefined;
+        const catalog = onScreen ? { kind: backend.kind, thinkingLevels: {}, ...held, models: [...onScreen.models] } : held;
+        return { backend, ...(catalog ? { catalog } : {}) };
+      });
+    },
+    startThreadOn: (runtime, model) => {
+      if (pendingNewThreadRef.current) {
+        options.selectDraftRuntime?.(runtime);
+        if (model) void options.newThreadController?.setModel(model.provider, model.id, undefined, () => model.name, runtime);
+        return;
+      }
+      if (model) options.newThreadController?.carryToNextDraft(runtime, model);
+      options.preferences?.setNewThreadRuntime(runtime);
+      // The new thread stays in the project on screen, as the model picker's does.
+      const workspace = snapshot?.workspaceId ?? options.workspaceCwd;
+      const project = workspace ? options.threadStore.getProjects().find((candidate) => candidate.workspaceId === workspace || candidate.path === workspace) : undefined;
+      if (project) options.createThreadInProject?.(project);
+      else options.openNewThreadPicker();
     },
     cycleThinking: async () => {
       const snap = options.viewStore.getSnapshot();

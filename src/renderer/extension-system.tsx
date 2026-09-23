@@ -180,7 +180,8 @@ export interface WorkbenchActions {
   cycleModel?(direction?: 1 | -1): Promise<boolean>;
   /**
    * Every runtime the host offers and the models a new thread of it can take,
-   * as the host holds them; the answer comes from the host's cache (API 1.12.0).
+   * from the host's cache; for the runtime of the thread on screen, the models
+   * that thread offers (API 1.12.0).
    */
   runtimeModels?(): Promise<readonly RuntimeModels[]>;
   /**

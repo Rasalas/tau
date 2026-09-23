@@ -27,6 +27,7 @@ describe("runtime controls theme commands", () => {
       "runtime.theme-system": "Theme: follow the system",
       "runtime.theme-dark": "Theme: dark",
       "runtime.theme-light": "Theme: light",
+      "runtime.theme-menu": "Change theme…",
       "runtime.theme": "Cycle the theme",
     });
   });

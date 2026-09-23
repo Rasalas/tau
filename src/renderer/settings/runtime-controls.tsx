@@ -2,6 +2,7 @@ import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail }
 import type { DesktopExtension, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
 import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from "../theme";
+import { modelMenu, newThreadRuntimeMenu, themeMenu } from "./palette-menus";
 
 const DETAIL_LABELS: Record<TranscriptDetail, string> = {
   focused: "focused",
@@ -47,7 +48,8 @@ export const runtimeControls: DesktopExtension = {
   name: "Runtime Controls",
   activate(plugin) {
     plugin.registerCommand({ id: "runtime.settings", label: "Open Settings", group: "Runtime", run: (app) => app.openSettings() });
-    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
+    // In the palette it lists the models; from a chord it opens the picker.
+    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", submenu: modelMenu(plugin.preferences), run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({
       id: "runtime.compact",
@@ -61,6 +63,7 @@ export const runtimeControls: DesktopExtension = {
       },
     });
     plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", run: (app) => app.newSession() });
+    plugin.registerCommand({ id: "runtime.new-thread-on", label: "New thread on…", group: "Thread", submenu: newThreadRuntimeMenu(), run: (app) => app.openCommandPalette({ menu: "runtime.new-thread-on" }) });
     for (const level of TRANSCRIPT_DETAIL_LEVELS) {
       plugin.registerCommand({
         id: `runtime.transcript-${level}`,
@@ -87,6 +90,13 @@ export const runtimeControls: DesktopExtension = {
         run: (app) => applyTheme(plugin.preferences, app, theme),
       });
     }
+    plugin.registerCommand({
+      id: "runtime.theme-menu",
+      label: "Change theme…",
+      group: "Runtime",
+      submenu: themeMenu(plugin.preferences, (app, theme) => applyTheme(plugin.preferences, app, theme)),
+      run: (app) => app.openCommandPalette({ menu: "runtime.theme-menu" }),
+    });
     plugin.registerCommand({
       id: "runtime.theme",
       label: "Cycle the theme",

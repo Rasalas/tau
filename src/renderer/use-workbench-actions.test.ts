@@ -268,4 +268,47 @@ describe("useWorkbenchActions", () => {
     result.current.newSession();
     expect(options.openNewThreadPicker).toHaveBeenCalledTimes(1);
   });
+
+  it("starts a thread on another runtime: the draft moves, a thread opens a draft in its project", () => {
+    const project = { path: "/path/to/project", workspaceId: "ws-1", name: "project" };
+    const controller = { carryToNextDraft: vi.fn(), setModel: vi.fn(async () => undefined) };
+    const luna = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" };
+    const onThread = createMockOptions({
+      threadStore: { getSnapshot: () => ({ activeThreadId: "thread-1" }), getProjects: () => [project] } as any,
+      createThreadInProject: vi.fn(),
+      preferences: { setNewThreadRuntime: vi.fn(), getSnapshot: () => ({}) } as any,
+      newThreadController: controller,
+      selectDraftRuntime: vi.fn(),
+    });
+    renderHook(() => useWorkbenchActions(onThread)).result.current.startThreadOn!("codex", luna);
+    expect(controller.carryToNextDraft).toHaveBeenCalledWith("codex", luna);
+    expect(onThread.preferences!.setNewThreadRuntime).toHaveBeenCalledWith("codex");
+    expect(onThread.createThreadInProject).toHaveBeenCalledWith(project);
+    expect(onThread.selectDraftRuntime).not.toHaveBeenCalled();
+
+    const draft = { kind: "draft" as const, draftId: "d1", projectPath: "/p", workspaceId: "ws-2", projectName: "p" };
+    const onDraft = createMockOptions({ pendingNewThread: draft, newThreadController: controller, selectDraftRuntime: vi.fn(), createThreadInProject: vi.fn() });
+    renderHook(() => useWorkbenchActions(onDraft)).result.current.startThreadOn!("codex", luna);
+    expect(onDraft.selectDraftRuntime).toHaveBeenCalledWith("codex");
+    expect(controller.setModel).toHaveBeenCalledWith("openai", "gpt-5.6-luna", undefined, expect.any(Function), "codex");
+    expect(onDraft.createThreadInProject).not.toHaveBeenCalled();
+  });
+
+  it("lists every runtime with the host's catalog, and the models the thread on screen offers for its own", async () => {
+    const catalogs = [
+      { kind: "pi", models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }], thinkingLevels: {}, checkedAt: 1 },
+      { kind: "codex", models: [], thinkingLevels: {}, status: "not-installed", checkedAt: 1 },
+    ];
+    const client = { abort: vi.fn(), onHostEvent: vi.fn(), runtimeCatalogs: vi.fn(async () => catalogs), runtimeCatalog: vi.fn() };
+    const options = createMockOptions({
+      client: client as any,
+      snapshot: { sessionId: "sess-1", runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "codex", label: "Codex" }] } as HostSnapshot,
+    });
+    const listed = await renderHook(() => useWorkbenchActions(options)).result.current.runtimeModels!();
+    expect(client.runtimeCatalogs).toHaveBeenCalledWith(true, {});
+    expect(listed.map((entry) => [entry.backend.kind, entry.catalog?.models.map((model) => model.id), entry.catalog?.status])).toEqual([
+      ["pi", ["claude-3-7-sonnet", "gemini-2.5-flash"], undefined],
+      ["codex", [], "not-installed"],
+    ]);
+  });
 });

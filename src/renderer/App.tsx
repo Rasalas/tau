@@ -487,7 +487,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles,
+    openModelPicker, openInstructions, focusStage, toggleSidebar, attachFiles, selectDraftRuntime, newThreadController,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
