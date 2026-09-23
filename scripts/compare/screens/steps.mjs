@@ -81,6 +81,15 @@ export async function tauPaletteRun(ctx, label) {
   await ctx.wait(500);
 }
 
+/** Hovers the row and clicks its snooze clock with the pointer, as a user would. */
+export async function tauOpenSnooze(ctx, title) {
+  await ctx.hover("article.thread-row", titled(title));
+  await ctx.wait(300);
+  await ctx.eval(`[...document.querySelectorAll("article.thread-row")].find((row) => /${title}:/u.test(row.textContent)).querySelector("button[aria-label='Snooze thread']").setAttribute("data-compare-target", "")`);
+  await ctx.click("[data-compare-target]");
+  await ctx.waitFor(`!!document.querySelector(".rail-row-popover")`);
+}
+
 export async function t3OpenSnooze(ctx, title) {
   await ctx.hover("[data-testid=sidebar-row-card]", titled(title));
   await ctx.wait(300);
