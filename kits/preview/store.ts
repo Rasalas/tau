@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { HostUnavailableError, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
 import { EMPTY_PREVIEW_STATE, createPreviewHostClient, type PreviewState } from "./protocol.js";
+import { previewView, useScreenFollower } from "./screen-store.js";
 
 /**
  * The kit's own host entry, handed over by `activate`. The panel is a React
@@ -63,13 +64,15 @@ export function usePreviewState(store: PreviewStore = previewStore): PreviewStat
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
-/** Brings the panel forward when the agent points the preview at a new page. */
+/** Brings the panel forward when the agent points the preview at a new page or drives a new window. */
 export function PreviewFollower({ actions }: RegionProps): null {
   const state = usePreviewState();
+  useScreenFollower(actions, PREVIEW_PANEL);
   const shown = useRef("");
   useEffect(() => {
     if (!state.url || state.url === shown.current) return;
     shown.current = state.url;
+    previewView.set("browser");
     actions.openPanel(PREVIEW_PANEL);
   }, [actions, state.url]);
   return null;

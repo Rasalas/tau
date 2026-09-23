@@ -10,6 +10,8 @@ import {
   type PreviewBrowserService,
 } from "./protocol.js";
 import { PreviewPanel } from "./panel.js";
+import { COMPUTER_USE_SCREEN_SERVICE, type ComputerUseScreenService } from "./screen-protocol.js";
+import { activeThread, holdScreenService } from "./screen-store.js";
 import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore, togglePreviewPanel } from "./store.js";
 
 /** T3 Code's `preview.focusUrl`: the panel's address field, its text selected. */
@@ -52,6 +54,9 @@ export const previewExtension: DesktopExtension = {
     });
     // Picks, annotations and recordings go to the composer as Composer Context's chips.
     plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, holdChipService);
+    // The Screen view draws the window Computer Use's agent drives, while that kit is on.
+    plugin.useService<ComputerUseScreenService>(COMPUTER_USE_SCREEN_SERVICE, holdScreenService);
+    const stopFollowing = plugin.events.on("active-thread-changed", (event) => activeThread.set(event.sessionId));
     plugin.registerCommand({ id: "preview.open", label: "Open preview panel", group: "Extensions", run: (app) => { void open("", app); } });
     plugin.registerCommand({ id: "preview.toggle", label: "Toggle preview panel", group: "Extensions", run: (app) => togglePreviewPanel(app) });
     plugin.registerSlashCommand({
@@ -65,7 +70,10 @@ export const previewExtension: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+shift+j", commandId: "preview.toggle" });
     plugin.registerCommand({ id: "preview.focus-url", label: "Focus the preview address", group: "Extensions", run: (app) => focusAddress(app) });
     plugin.registerKeybinding({ keys: "mod+l", commandId: "preview.focus-url", when: "previewFocus" });
-    return disconnect;
+    return () => {
+      stopFollowing();
+      disconnect();
+    };
   },
 };
 

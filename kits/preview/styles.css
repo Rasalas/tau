@@ -48,3 +48,56 @@
   border: 1px solid var(--line-control); border-radius: 6px;
   background: var(--sunken); color: var(--ink-2); font: 11px var(--mono);
 }
+
+/* Browser | Screen in the header, while Computer Use is on. */
+.preview-views { display: inline-flex; gap: 2px; padding: 2px; margin-left: 6px; border-radius: var(--radius-sm); background: var(--wash-2); }
+.preview-view {
+  height: 20px; padding: 0 8px; border: 0; border-radius: var(--radius-xs);
+  background: transparent; color: var(--muted); font: 11px var(--sans); cursor: pointer;
+}
+.preview-view:hover { color: var(--ink-2); }
+.preview-view.active { background: var(--float); color: var(--ink); box-shadow: 0 0 0 1px var(--line-control); }
+
+/* The window the agent drives: a header, the picture, the last input. */
+.screen-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.screen-view > .empty-state { margin: auto; }
+.screen-header { flex: none; display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 3px 8px; border-bottom: 1px solid var(--line); }
+.screen-app { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: var(--muted); }
+.screen-app img { width: 16px; height: 16px; }
+.screen-title { flex: 1; min-width: 0; color: var(--ink-2); font: 11px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.screen-mode { flex: none; color: var(--faint); font: 10px var(--mono); }
+.screen-mode.live { color: var(--acid-text); }
+.screen-mode.live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--acid); vertical-align: 1px; }
+.screen-stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px; background: var(--sunken); container-type: size; }
+.screen-frame { position: relative; max-width: 100%; max-height: 100%; box-shadow: var(--elevation-1); }
+.screen-frame img { display: block; width: 100%; height: 100%; user-select: none; }
+.screen-waiting { color: var(--faint); font: 11px var(--sans); }
+.screen-access { flex: none; display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-top: 1px solid var(--line); color: var(--muted); font: 11px var(--sans); }
+.screen-access span { flex: 1; min-width: 0; }
+.screen-access .text-button { flex: none; color: var(--acid-text); }
+
+/* The agent's pointer over a picture; T3 Code's agent cursor, in Tau's tokens. */
+.agent-cursor-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.agent-cursor {
+  position: absolute; width: 0; height: 0; color: var(--acid-text);
+  transition: left 150ms ease-out, top 150ms ease-out, opacity 150ms ease-out;
+}
+.agent-cursor svg { position: absolute; left: -2px; top: -2px; fill: var(--float); filter: drop-shadow(0 1px 1px var(--shadow)); }
+.agent-cursor-layer.failed .agent-cursor { color: var(--stop); }
+.agent-cursor-ping {
+  position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--acid-glow); animation: agent-cursor-ping 700ms ease-out forwards;
+}
+@keyframes agent-cursor-ping { from { transform: scale(0.4); opacity: 0.9; } to { transform: scale(1.8); opacity: 0; } }
+.agent-cursor-label {
+  position: absolute; left: 16px; top: 16px; max-width: 220px; padding: 2px 6px; border-radius: var(--radius-xs);
+  background: var(--float); box-shadow: var(--elevation-1); color: var(--ink); font: 11px var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.agent-cursor-label.corner { left: 8px; top: auto; bottom: 8px; }
+.agent-cursor-drag { position: absolute; inset: 0; width: 100%; height: 100%; }
+.agent-cursor-drag line { stroke: var(--acid-text); stroke-width: 2; stroke-dasharray: 4 3; }
+@media (prefers-reduced-motion: reduce) {
+  .agent-cursor { transition: none; }
+  .agent-cursor-ping { animation: none; opacity: 0.5; }
+}
