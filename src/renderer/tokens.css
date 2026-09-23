@@ -120,6 +120,8 @@
   --diff-del-mark: light-dark(#f2b4a7, #8b433b);     /* the changed run inside a removed line */
   --diff-del-mark-ink: light-dark(#66200f, #ffd1c8); /* the run's text */
   --diff-del-mark-line: light-dark(#c8695c, #b95b50); /* the run's edge */
+  --diff-add-edge: light-dark(#1c7440, #7ade9f);     /* an addition as a bar, a sign or a count */
+  --diff-del-edge: light-dark(#b03a28, #f07a6a);     /* a removal as a bar, a sign or a count */
   --syntax-fn: light-dark(#5c6b13, #d9e88f);         /* highlight.js function and class names */
 
   /* ------------------------------------------------------------- project */

@@ -86,6 +86,25 @@ export interface ReviewRequestDraft {
 
 export type CommitMessageStyle = "conventional" | "gitmoji" | "plain";
 
+/** Which hosting CLIs could publish this checkout, and as whom. */
+export interface PublishInfo {
+  branch?: string;
+  /** Set when the checkout already has a remote; there is nothing to publish then. */
+  remote?: string;
+  /** The checkout's folder name, the repository name a form suggests. */
+  folder: string;
+  services: Array<{ service: RequestService; ready: boolean; problem?: string; account?: string; protocol?: "https" | "ssh" }>;
+}
+
+export interface PublishResult {
+  repository: string;
+  url: string;
+  remote: string;
+  /** False for a repository without commits: the remote is set, nothing was pushed. */
+  pushed: boolean;
+  branch: string;
+}
+
 /**
  * Composer Context's chip service, copied from `kits/composer-context/protocol.ts`
  * (a kit never imports another): the slice Review uses to hand comments over.

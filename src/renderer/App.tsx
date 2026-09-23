@@ -351,6 +351,8 @@ export default function App() {
     transcriptTurnStart: turnScope.current,
     setTranscriptTurnStart: turnScope.set, applyHostUpdate, applyThreadIndex,
     syncDesktopExtensions, setUpdateReady, setNotice,
+    // Electron titles the window after the page; a browser tab shows it too.
+    setWindowTitle: (title) => { document.title = title; },
   }), [
     client, currentDraftKey, preferences, registry, setNotice,
     newThreadDelivery, syncDesktopExtensions, threadStore, turnScope, viewStore,

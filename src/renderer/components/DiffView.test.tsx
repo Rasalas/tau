@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiFileDiff } from "../../shared/workspace-kit-types";
-import { DiffView, diffLanguage, intralineParts } from "./DiffView";
+import { DiffView, diffLanguage, fileDiffRows, intralineParts, unwrappedWidth } from "./DiffView";
 
 const contextDiff: UiFileDiff = {
   path: "src/example.ts",
@@ -80,6 +80,21 @@ describe("DiffView", () => {
     expect(container.querySelectorAll(".diff-row.selected")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Comment on line 12" }));
     expect(onAction).toHaveBeenCalledWith({ path: "src/example.ts", line: contextDiff.hunks[1]!.lines[0] }, { shiftKey: false });
+  });
+
+  it("wraps long lines by default and otherwise widens the whole stream to the longest line", () => {
+    const { container, rerender } = render(<DiffView diff={contextDiff} mode="unified" />);
+    const stream = () => container.querySelector<HTMLElement>(".diff-stream")!;
+    expect(stream().classList.contains("nowrap")).toBe(false);
+    expect(stream().style.minWidth).toBe("");
+    rerender(<DiffView diff={contextDiff} mode="unified" wrap={false} />);
+    expect(stream().classList.contains("nowrap")).toBe(true);
+    expect(stream().style.minWidth).toBe("calc(22ch + 80px)");
+
+    const tabbed: UiFileDiff = { ...contextDiff, hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "added", newLine: 1, text: "\tx" }] }] };
+    const rows = fileDiffRows(tabbed.path, tabbed);
+    expect(unwrappedWidth(rows, false)).toBe("calc(11ch + 80px)");
+    expect(unwrappedWidth(rows, true)).toBe("calc(18ch + 160px)");
   });
 
   it("draws no gutter action without a line slot", () => {

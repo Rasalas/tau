@@ -97,6 +97,7 @@ describe("ReviewMode", () => {
     const onAction = vi.fn();
     const onLayoutChange = vi.fn();
     const onIgnoreWhitespaceChange = vi.fn();
+    const onWordWrapChange = vi.fn();
     const loadDiff = vi.fn(async (path: string) => ({ path, added: 1, removed: 1, hunks: [{ header: "@@ -1 +1 @@", lines: [
       { kind: "removed" as const, oldLine: 1, text: "const old = 1;" },
       { kind: "added" as const, newLine: 1, text: "const next = 2;" },
@@ -114,6 +115,7 @@ describe("ReviewMode", () => {
       layout: "split" as const,
       onLayoutChange,
       onIgnoreWhitespaceChange,
+      onWordWrapChange,
       toolbar: <button>Kit tool</button>,
       aside: <aside>Kit aside</aside>,
       lines: {
@@ -140,6 +142,12 @@ describe("ReviewMode", () => {
     expect(onIgnoreWhitespaceChange).toHaveBeenCalledWith(true);
     view.rerender(withStorage(<ReviewMode {...props} ignoreWhitespace />));
     await waitFor(() => expect(loadDiff).toHaveBeenLastCalledWith("src/a.ts", expect.objectContaining({ ignoreWhitespace: true })));
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable line wrapping" }));
+    expect(onWordWrapChange).toHaveBeenCalledWith(false);
+    view.rerender(withStorage(<ReviewMode {...props} ignoreWhitespace wordWrap={false} />));
+    expect(view.container.querySelector(".diff-stream.nowrap")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Enable line wrapping" }).getAttribute("aria-pressed")).toBe("false");
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse src/a.ts" }));
     expect(screen.queryByText("Under the new line")).toBeNull();

@@ -78,6 +78,16 @@ describe("applyHostEvent", () => {
     expect(view.getState().events).toEqual([]);
   });
 
+  it("hands a window title to the client, which titles its own window", () => {
+    const { targets, view } = fixture();
+    const setWindowTitle = vi.fn();
+    applyHostEvent({ type: "window-title", title: "π - project" }, { ...targets, setWindowTitle });
+    expect(setWindowTitle).toHaveBeenCalledWith("π - project");
+    expect(view.getState().events).toEqual([]);
+    // A client that cannot title anything ignores it.
+    expect(() => applyHostEvent({ type: "window-title", title: "x" }, targets)).not.toThrow();
+  });
+
   it("makes the per-thread run state the only writer of streaming", () => {
     const { targets, threadStore } = fixture();
 

@@ -17,6 +17,11 @@
       "minLength": 1,
       "description": "Where worktrees go: a directory path such as \"~/.tau/worktrees\"; beside the repository when absent. Read by Workspace Kit."
     },
+    "worktreeSubmodules": {
+      "enum": ["recursive", "top-level", "none"],
+      "default": "recursive",
+      "description": "How a new worktree initializes git submodules: all of them, only the ones this repository declares, or none (leave them to a setup script). The Source control setting wins when it names a value. Read by Workspace Kit from the branch being checked out."
+    },
     "runOnWorktreeCreate": {
       "type": "string",
       "minLength": 1,

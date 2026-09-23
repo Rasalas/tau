@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Files, GitCompare, HardDrive } from "lucide-react";
+import { Files, GitBranch, GitCompare, HardDrive } from "lucide-react";
 import {
   errorMessage,
   type DesktopExtension,
@@ -8,6 +8,7 @@ import {
   type UiWorkspaceChanges,
 } from "tau";
 import {
+  CLONE_PROGRESS_EVENT,
   createWorkspaceHostClient,
   WORKSPACE_CHANGES_PANEL,
   WORKSPACE_FILES_PANEL,
@@ -24,6 +25,10 @@ import { WorkspaceTitleActions } from "./title.js";
 import { createStoragePage } from "./storage-page.js";
 import { OPEN_REQUEST_EVENT, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
+import { SourceControlPage } from "./source-control-page.js";
+
+/** T3 Code asks every 30 s while it fetches anyway; a tick, a focus and a project switch are enough here. */
+const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
 
 /** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
 function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChanges; editor?: UiEditor } {
@@ -143,6 +148,22 @@ export const workspaceExtension: DesktopExtension = {
         onChanged: (listener) => context.host.onEvent(STORAGE_CHANGED_EVENT, listener),
       }),
     });
+    context.registerSettingsPage({
+      id: "workspace.source-control",
+      label: "Source control",
+      Icon: GitBranch,
+      order: 35,
+      scope: "both",
+      keywords: ["git", "worktree", "submodules", "pull", "fast-forward", "default branch", "clone", "base folder", "origin"],
+      profiles: ["desktop", "web"],
+      Component: SourceControlPage,
+    });
+    // Clones run on the host; their toasts follow its pushes, also for one started before a reload.
+    context.host.onEvent(CLONE_PROGRESS_EVENT, (payload) => store.clones.receive(payload));
+    host.listClones().then((clones) => { if (Array.isArray(clones)) for (const clone of clones) store.clones.receive(clone); }, () => undefined);
+    const autoPull = () => void store.autoPullDefaultBranch();
+    const autoPullTimer = window.setInterval(autoPull, AUTO_PULL_INTERVAL_MS);
+    window.addEventListener("focus", autoPull);
     // `tau app <path>`: a request pushed now, or one that waited for this window.
     const openRequests = new OpenRequests();
     context.host.onEvent(OPEN_REQUEST_EVENT, (payload) => openRequests.receive(payload));
@@ -338,6 +359,10 @@ export const workspaceExtension: DesktopExtension = {
       },
     });
     context.registerKeybinding({ keys: "mod+e", commandId: "workspace.open-prompt-editor" });
+    return () => {
+      window.clearInterval(autoPullTimer);
+      window.removeEventListener("focus", autoPull);
+    };
   },
 };
 

@@ -28,6 +28,20 @@ describe("Review Kit host extension", () => {
     expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai", id: "gpt-luna" });
   });
 
+  it("adds the user's own instructions after the format's", async () => {
+    const complete = vi.fn(async () => "fix: it");
+    const registry = await registryWith(thread(), complete);
+    await registry.invoke(REVIEW_HOST_EXTENSION_ID, "suggest-commit-message", {
+      style: "plain",
+      instructions: "  Mention the ticket number.  ",
+      files: [{ path: "a.ts", added: 1, removed: 0 }],
+      diffs: [],
+    });
+    const system = (complete.mock.calls as unknown as Array<[{ system: string }]>)[0]![0].system;
+    expect(system.startsWith("Write one concise Git commit message")).toBe(true);
+    expect(system.endsWith("they win:\nMention the ticket number.")).toBe(true);
+  });
+
   it("stays active when commit-message generation repeatedly fails", async () => {
     const complete = vi.fn(async () => { throw new Error("Model credentials are unavailable."); });
     const registry = await registryWith(thread(), complete);

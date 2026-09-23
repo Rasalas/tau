@@ -4,12 +4,13 @@ import { errorMessage, type DesktopExtensionContext, type UiReviewRequest, type 
 import type { LinkDialogs } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
-import { commitMessageModel } from "./commit-messages.js";
+import { commitMessageModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import type { ChangesSectionProps, MergeMethod, ReviewRequestStatus, WorkspaceStoreApi } from "./protocol.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
+import { PublishForm } from "./publish-form.js";
 
-type Mode = "idle" | "create" | "merge" | "edit";
+type Mode = "idle" | "create" | "merge" | "edit" | "publish";
 
 interface Form {
   title: string;
@@ -86,7 +87,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
 
     const generate = async () => {
       const model = commitMessageModel(actions.activeThread()?.model, plugin.preferences);
-      const draft = await client.draft(model, form.base || status?.base);
+      const draft = await client.draft(model, form.base || status?.base, { instructions: writingInstructions(plugin.preferences), template: followRequestTemplate(plugin.preferences) });
       setForm((current) => ({ ...current, title: draft.title, body: draft.body, base: current.base || draft.base }));
     };
 
@@ -150,6 +151,24 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
               </>
             )}
           </div>
+        ) : null}
+
+        {mode === "idle" && status && !status.remote && status.branch && !busy ? (
+          <div className="commit-actions request-actions">
+            <button className="primary" onClick={() => setMode("publish")}>Publish repository…</button>
+          </div>
+        ) : null}
+        {mode === "publish" ? (
+          <PublishForm
+            host={plugin.host}
+            onCancel={() => setMode("idle")}
+            onPublished={(result) => {
+              setMode("idle");
+              actions.notify(result.pushed ? `Published ${result.repository} and pushed ${result.branch}.` : `Created ${result.repository} and added it as origin.`);
+              void store.refresh();
+              void refresh(true);
+            }}
+          />
         ) : null}
 
         {mode === "create" || mode === "edit" ? (

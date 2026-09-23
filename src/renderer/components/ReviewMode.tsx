@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  WrapText,
   X,
 } from "lucide-react";
 import type {
@@ -108,6 +109,8 @@ export function ReviewMode({
   ignoreWhitespace = false,
   onIgnoreWhitespaceChange,
   filesStartCollapsed = false,
+  wordWrap = true,
+  onWordWrapChange,
   lines,
   toolbar,
   aside,
@@ -137,6 +140,9 @@ export function ReviewMode({
   onIgnoreWhitespaceChange?(ignore: boolean): void;
   /** Every file starts folded to its header. */
   filesStartCollapsed?: boolean;
+  /** Long lines wrap; the toolbar offers the switch only with `onWordWrapChange`. */
+  wordWrap?: boolean;
+  onWordWrapChange?(wrap: boolean): void;
   /** The line seam: a gutter action and what is drawn under a line. */
   lines?: DiffLineSlot;
   /** Controls a caller adds to the toolbar. */
@@ -480,6 +486,14 @@ export function ReviewMode({
             disabled={paged.files.length === 0}
             onClick={() => setAllCollapsed(!allCollapsed)}
           >{allCollapsed ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}</button>
+          {onWordWrapChange ? <button
+            className={`icon-button review-wrap-action ${wordWrap ? "active" : ""}`}
+            aria-pressed={wordWrap}
+            aria-label={wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
+            title={wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
+            disabled={paged.files.length === 0}
+            onClick={() => onWordWrapChange(!wordWrap)}
+          ><WrapText size={14} /></button> : null}
           {onIgnoreWhitespaceChange ? <button
             className={`text-button review-whitespace-action ${ignoreWhitespace ? "active" : ""}`}
             aria-pressed={ignoreWhitespace}
@@ -521,6 +535,7 @@ export function ReviewMode({
               onLoadMore={loadMore}
               renderFileHeader={renderFileHeader}
               onVisiblePathChange={onVisiblePathChange}
+              wrap={wordWrap}
             />}
           </div>
           {aside}

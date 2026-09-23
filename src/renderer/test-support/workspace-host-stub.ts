@@ -8,7 +8,10 @@ const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 interface WorkspaceHostClient {
   listDirectories(path?: string): Promise<unknown>;
   pickFolder(): Promise<unknown>;
-  clone(repositoryUrl: string, parentPath?: string): Promise<unknown>;
+  startClone(repositoryUrl: string, parentPath?: string): Promise<unknown>;
+  cancelClone(id: string): Promise<unknown>;
+  listClones(): Promise<unknown>;
+  forgetClone(id: string): Promise<unknown>;
   getFileTree(relPath?: string): Promise<unknown>;
   getChanges(query?: unknown): Promise<unknown>;
   getFileDiff(relPath: string, options?: unknown): Promise<unknown>;
@@ -29,6 +32,7 @@ interface WorkspaceHostClient {
   ensureWorktree(path: string, branch?: string, workspace?: string): Promise<unknown>;
   getProjectDefaults(workspace?: string): Promise<unknown>;
   getDefaultBranch(workspace?: string): Promise<unknown>;
+  autoPull(workspace?: string): Promise<unknown>;
   switchRef(ref: string): Promise<unknown>;
   listEditors(): Promise<unknown>;
   openInEditor(editorId: string, relPath?: string, workspace?: string): Promise<unknown>;
@@ -61,7 +65,10 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
   const client: WorkspaceHostStubOverrides & Required<WorkspaceHostStubOverrides> = {
     listDirectories: unsupported("listDirectories"),
     pickFolder: unsupported("pickFolder"),
-    clone: unsupported("clone"),
+    startClone: unsupported("startClone"),
+    cancelClone: async () => false,
+    listClones: async () => [],
+    forgetClone: async () => undefined,
     getFileTree: async () => [],
     getChanges: async () => NO_CHANGES,
     getWorkspaceInfo: async () => NO_REPO,
@@ -83,6 +90,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     ensureWorktree: async () => false,
     getProjectDefaults: async () => ({}),
     getDefaultBranch: async () => "main",
+    autoPull: async () => [],
     switchRef: unsupported("switchRef"),
     openInEditor: unsupported("openInEditor"),
     checkpoints: async () => ({ checkpoints: [], restoreSupported: false }),
@@ -97,10 +105,11 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
   const field = <T,>(input: unknown, key: string): T | undefined =>
     input && typeof input === "object" ? (input as Record<string, T>)[key] : undefined;
   const optional = <T,>(value: T | undefined): [] | [T] => value === undefined ? [] : [value];
-  /** The two worktree options travel beside the command's own fields. */
+  /** The worktree options travel beside the command's own fields. */
   const worktreeOptions = (input: unknown) => ({
     ...(field<string>(input, "baseRef") === undefined ? {} : { baseRef: field<string>(input, "baseRef") }),
     ...(field<boolean>(input, "startFromOrigin") === undefined ? {} : { startFromOrigin: field<boolean>(input, "startFromOrigin") }),
+    ...(field<string>(input, "submodules") === undefined ? {} : { submodules: field<string>(input, "submodules") }),
   });
   return async (extensionId: string, command: string, input?: unknown): Promise<unknown> => {
     // Access Kit pushes its level on activation; tests that render App do not care.
@@ -113,7 +122,10 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     switch (command) {
       case "list-directories": return client.listDirectories(...optional(field<string>(input, "path")));
       case "pick-folder": return client.pickFolder();
-      case "clone": return client.clone(field(input, "repositoryUrl")!);
+      case "clone-start": return client.startClone(field(input, "repositoryUrl")!, ...optional(field<string>(input, "parentPath")));
+      case "clone-cancel": return client.cancelClone(field(input, "id")!);
+      case "clone-jobs": return client.listClones();
+      case "clone-forget": return client.forgetClone(field(input, "id")!);
       case "file-tree": return client.getFileTree(...optional(field<string>(input, "relPath")));
       case "changes": return client.getChanges(...optional(field(input, "query")));
       case "file-diff": return client.getFileDiff(field(input, "relPath")!, field(input, "options"));
@@ -134,6 +146,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "ensure-worktree": return client.ensureWorktree(field(input, "path")!, field(input, "branch"), field(input, "workspace"));
       case "project-defaults": return client.getProjectDefaults(field(input, "workspace"));
       case "default-branch": return client.getDefaultBranch(...optional(field<string>(input, "workspace")));
+      case "auto-pull": return client.autoPull(...optional(field<string>(input, "workspace")));
       case "switch-ref": return client.switchRef(field(input, "ref")!);
       case "list-editors": return client.listEditors();
       case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "relPath"), field(input, "workspace"));

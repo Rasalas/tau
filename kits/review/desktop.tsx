@@ -1,7 +1,10 @@
+import { GitCompare } from "lucide-react";
 import { getClientStorage, type DesktopExtension } from "tau";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
 import { ReviewCommentStore } from "./comments.js";
-import { COLLAPSED_OPTION, createReviewOverlay, SPLIT_OPTION, WHITESPACE_OPTION } from "./overlay.js";
+import { createReviewOverlay } from "./overlay.js";
+import { trackDiffSettings } from "./diff-settings.js";
+import { ReviewSettingsPage } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   REVIEW_HOST_EXTENSION_ID,
@@ -43,12 +46,19 @@ export const reviewExtension: DesktopExtension = {
     const links = new ThreadLinkRows(client);
     const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs() };
     let chips: ComposerContextChips | undefined;
-    plugin.registerOptions([
-      { id: SPLIT_OPTION, kind: "toggle", label: "Open diffs in split view", defaultValue: false },
-      { id: WHITESPACE_OPTION, kind: "toggle", label: "Hide whitespace changes in diffs", defaultValue: false },
-      { id: COLLAPSED_OPTION, kind: "toggle", label: "Diff files start collapsed", defaultValue: false },
-      ...COMMIT_MESSAGE_OPTIONS,
-    ]);
+    // The rest of the kit's settings are its Review page; the model picker stays here.
+    plugin.registerOptions(COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"));
+    plugin.registerSettingsPage({
+      id: "review.settings",
+      label: "Review",
+      Icon: GitCompare,
+      order: 36,
+      scope: "both",
+      keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace"],
+      profiles: ["desktop", "web"],
+      Component: ReviewSettingsPage,
+    });
+    const untrackDiffSettings = trackDiffSettings(plugin.preferences);
     plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, (service) => {
       chips = service;
       return () => { if (chips === service) chips = undefined; };
@@ -71,7 +81,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseStore(); releaseTabs(); links.dispose(); shared.dialogs.close(); };
+    return () => { releaseStore(); releaseTabs(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 

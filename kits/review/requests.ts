@@ -5,7 +5,7 @@ import type { MergeMethod, ReviewRequestDraft, ReviewRequestStatus } from "./pro
 export interface RequestClient {
   status(fresh?: boolean): Promise<ReviewRequestStatus>;
   request(workspace: string): Promise<UiReviewRequest | undefined>;
-  draft(model?: { provider: string; id: string }, base?: string): Promise<ReviewRequestDraft>;
+  draft(model?: { provider: string; id: string }, base?: string, writing?: { instructions?: string; template?: boolean }): Promise<ReviewRequestDraft>;
   create(input: { title: string; body: string; base: string; draft: boolean }): Promise<{ status: ReviewRequestStatus; url?: string }>;
   merge(method: MergeMethod): Promise<ReviewRequestStatus>;
   edit(input: { title?: string; body?: string; draft?: boolean }): Promise<ReviewRequestStatus>;
@@ -15,7 +15,12 @@ export function requestClient(host: HostExtensionClient): RequestClient {
   return {
     status: (fresh) => host.invoke("pr-status", fresh ? { fresh } : undefined) as Promise<ReviewRequestStatus>,
     request: async (workspace) => ((await host.invoke("pr-status", { workspace })) as { request?: UiReviewRequest }).request,
-    draft: (model, base) => host.invoke("pr-draft", { ...(model ? { provider: model.provider, modelId: model.id } : {}), ...(base ? { base } : {}) }) as Promise<ReviewRequestDraft>,
+    draft: (model, base, writing) => host.invoke("pr-draft", {
+      ...(model ? { provider: model.provider, modelId: model.id } : {}),
+      ...(base ? { base } : {}),
+      ...(writing?.instructions ? { instructions: writing.instructions } : {}),
+      ...(writing?.template === false ? { template: false } : {}),
+    }) as Promise<ReviewRequestDraft>,
     create: (input) => host.invoke("pr-create", input) as Promise<{ status: ReviewRequestStatus; url?: string }>,
     merge: (method) => host.invoke("pr-merge", { method }) as Promise<ReviewRequestStatus>,
     edit: (input) => host.invoke("pr-edit", input) as Promise<ReviewRequestStatus>,

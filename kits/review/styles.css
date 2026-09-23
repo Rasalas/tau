@@ -362,3 +362,32 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-picker li button:hover, .pr-picker li button:focus-visible { background: var(--hover); color: var(--ink); outline: none; }
 .pr-picker .pr-empty { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
 .pr-whitespace { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font: 11px var(--sans); cursor: pointer; white-space: nowrap; }
+.publish-form input[aria-label="Repository"] { font-family: var(--mono); }
+.publish-options { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/*
+ * Blue and orange instead of green and red: the kit's diff colours put the
+ * attribute on <html>. Mixed from the theme's own info and working tokens, so
+ * a theme's blue and orange carry over.
+ */
+:root[data-diff-colors="blue-orange"] {
+  --diff-add-bg: color-mix(in srgb, var(--info) 13%, var(--stage));
+  --diff-add-ink: var(--info-ink);
+  --diff-add-mark: color-mix(in srgb, var(--info) 34%, var(--stage));
+  --diff-add-mark-ink: var(--ink);
+  --diff-add-mark-line: var(--info);
+  --diff-add-edge: var(--info-ink);
+  --diff-del-bg: color-mix(in srgb, var(--working) 13%, var(--stage));
+  --diff-del-ink: var(--working);
+  --diff-del-mark: color-mix(in srgb, var(--working) 34%, var(--stage));
+  --diff-del-mark-ink: var(--ink);
+  --diff-del-mark-line: var(--working);
+  --diff-del-edge: var(--working);
+}
+.review-color-swatch { display: inline-flex; gap: 3px; margin-right: 6px; vertical-align: 1px; }
+.review-color-swatch > i { width: 7px; height: 7px; border-radius: 50%; }
+.review-color-swatch.red-green > i:first-child { background: var(--removed); }
+.review-color-swatch.red-green > i:last-child { background: var(--ready); }
+.review-color-swatch.blue-orange > i:first-child { background: var(--working); }
+.review-color-swatch.blue-orange > i:last-child { background: var(--info-ink); }
+.review-instructions { width: min(420px, 100%); min-height: 84px; resize: vertical; font: inherit; line-height: 1.45; }

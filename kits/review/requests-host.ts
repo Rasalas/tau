@@ -8,6 +8,7 @@ import {
   type ReviewRequestDraft,
   type ReviewRequestStatus,
 } from "./protocol.js";
+import { withInstructions } from "./writing.js";
 import {
   authArgs,
   createArgs,
@@ -117,7 +118,7 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
   const problem = async (git: ReviewRequestContext, service: RequestService): Promise<string | undefined> => {
     const facts = SERVICES[service];
     if (!git.branch) return `Check out a branch to open a ${facts.noun}; HEAD is detached.`;
-    if (!git.remote) return `This repository has no remote. Add one with \`git remote add origin <url>\` to open a ${facts.noun}.`;
+    if (!git.remote) return `This repository has no remote. Publish it, or add one with \`git remote add origin <url>\`, to open a ${facts.noun}.`;
     if (!services.findCommand(facts.tool)) return missingTool(service);
     if (!await authenticated(service, git.root)) return `${facts.label} is not signed in. Run \`${facts.login}\` in a terminal, then try again.`;
     return undefined;
@@ -167,7 +168,9 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
 
   context.registerCommand("pr-draft", async (input): Promise<ReviewRequestDraft> => {
     const fields = record(input);
-    const git = await workspace<ReviewRequestContext>("review-request-context", { detail: true, ...(text(fields.base) ? { base: text(fields.base) } : {}) });
+    const read = await workspace<ReviewRequestContext>("review-request-context", { detail: true, ...(text(fields.base) ? { base: text(fields.base) } : {}) });
+    // The repository's template shapes the description unless the user turned that off.
+    const git = fields.template === false ? { ...read, template: undefined } : read;
     const service = serviceFor(git.remote?.url, (name) => services.findCommand(name));
     const provider = text(fields.provider);
     const modelId = text(fields.modelId);
@@ -176,7 +179,7 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
     services.log("request-draft.started", provider && modelId ? `${provider}/${modelId}` : "default model");
     let answer: string;
     try {
-      answer = await services.complete({ system: draftSystemPrompt(SERVICES[service].noun), prompt: buildDraftPrompt(git), maxTokens: 900 }, provider && modelId ? { provider, id: modelId } : undefined);
+      answer = await services.complete({ system: withInstructions(draftSystemPrompt(SERVICES[service].noun), fields.instructions), prompt: buildDraftPrompt(git), maxTokens: 900 }, provider && modelId ? { provider, id: modelId } : undefined);
     } catch (error) {
       services.log("request-draft.failed", message(error));
       return { ...fallbackDraft(git), base: git.base, generated: false };

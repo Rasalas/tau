@@ -13,6 +13,7 @@ const LAZY_STYLES = [
   "./components/command-palette.css",
   "./components/reload-conflict.css",
   "./renderer-benchmark.css",
+  "./components/diff-view.css",
 ].map((path) => new URL(path, import.meta.url));
 const KITS = fileURLToPath(new URL("../../kits", import.meta.url));
 
@@ -44,7 +45,7 @@ const AA_TEXT = ["ink", "ink-prose", "ink-2", "ink-3", "ink-code", "muted"];
 /** Accent and status tokens used as text or as an icon beside it. */
 const AA_ACCENT = [
   "acid-text", "working", "ready", "removed", "cyan", "info-ink", "danger", "warn", "fail-ink",
-  "syntax-fn", "diff-add-ink", "diff-del-ink",
+  "syntax-fn", "diff-add-ink", "diff-del-ink", "diff-add-edge", "diff-del-edge",
 ];
 /** Marks, fills and small print: AA for large text and non-text contrast, 3:1. */
 const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "stale", "folder"];

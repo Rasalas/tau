@@ -54,6 +54,20 @@ describe("worktree setup steps", () => {
     expect(statuses()).toEqual(["fetch:skipped", "checkout:done"]);
   });
 
+  it("shows the submodule step only for a checkout that has submodules, and a failure there does not fail the setup", () => {
+    const { setups, pushed, statuses } = tracker();
+    const { id } = setups.begin({ project: "/repo", scripts: [script("install", false)] });
+    setups.step(id, "fetch");
+    setups.step(id, "checkout");
+    setups.step(id, "submodules");
+    expect(statuses()).toEqual(["fetch:done", "checkout:done", "submodules:running", "script:install:pending"]);
+    setups.step(id, "submodules", "fatal: repository not found", true);
+    setups.created(id, "/wt");
+    expect(statuses()).toEqual(["fetch:done", "checkout:done", "submodules:failed", "script:install:pending"]);
+    expect(pushed.at(-1)?.stages[2]?.detail).toBe("fatal: repository not found");
+    expect(pushed.at(-1)?.phase).toBe("running");
+  });
+
   it("cancels: running scripts are named for stopping, the rest never start, and the wait ends", async () => {
     const { setups, pushed } = tracker();
     const { id } = setups.begin({ project: "/repo", scripts: [script("install", false), script("build", false)] });

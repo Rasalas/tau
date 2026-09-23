@@ -3,6 +3,8 @@ import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessa
 import { registerPullRequestCommands } from "./pull-request-host.js";
 import { createHosting } from "./pull-request-hosting.js";
 import { registerPullRequestListCommands } from "./pull-request-list-host.js";
+import { withInstructions } from "./writing.js";
+import { registerPublishCommands } from "./publish-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
 import { registerThreadLinks } from "./thread-links-host.js";
 
@@ -61,6 +63,7 @@ export function createReviewHostExtension(options: RequestCommandOptions = {}): 
         // A request opened from the Changes panel belongs to the thread on screen.
         created: (url) => { const thread = services.thread(); if (thread) void links.link(thread.sessionId, url, "created"); },
       });
+      registerPublishCommands(context, options);
       context.registerCommand("suggest-commit-message", async (input) => {
         const fields = record(input);
         const provider = text(fields.provider);
@@ -82,7 +85,7 @@ export function createReviewHostExtension(options: RequestCommandOptions = {}): 
         let answer: string;
         try {
           answer = await services.complete({
-            system: SYSTEM_PROMPTS[style],
+            system: withInstructions(SYSTEM_PROMPTS[style], fields.instructions),
             prompt: buildCommitPrompt({ branch: text(fields.branch), files, diffs }),
             maxTokens: 220,
           }, provider && modelId ? { provider, id: modelId } : undefined);

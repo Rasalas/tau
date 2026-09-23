@@ -497,7 +497,6 @@ function createLocalHostMethods(): HostMethodTable {
     bootstrap: async () => {
       if (!host) {
         startLocalHost();
-        host!.onWindowTitle = (title) => { if (!mainWindow?.isDestroyed()) mainWindow?.setTitle(title); };
         return hostReady as Promise<HostBootstrap>;
       }
       await hostReady;

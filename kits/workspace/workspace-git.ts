@@ -833,11 +833,12 @@ export async function runGitCommand(
   maxBuffer = 4 * 1024 * 1024,
   signal?: AbortSignal,
   env?: NodeJS.ProcessEnv,
+  timeout = 10_000,
 ): Promise<string> {
   const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
     cwd,
     maxBuffer,
-    timeout: 10_000,
+    timeout,
     signal,
     env,
     windowsHide: true,
@@ -2440,6 +2441,21 @@ export async function pushCurrentBranch(cwd: string, runGit: GitRunner = git): P
 export async function primaryRemote(cwd: string, runGit: GitRunner = git): Promise<string | undefined> {
   const remotes = (await runGit(cwd, ["remote"]).catch(() => "")).split(/\r?\n/u).map((name) => name.trim()).filter(Boolean);
   return remotes.includes("origin") ? "origin" : remotes[0];
+}
+
+/**
+ * The first remote of a repository that has none, for a repository just
+ * published. It never replaces or adds beside an existing remote; whether
+ * there is a commit to push afterwards is the answer.
+ */
+export async function addFirstRemote(cwd: string, name: string, url: string, runGit: GitRunner = git): Promise<{ hasCommits: boolean }> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(name)) throw new Error(`"${name}" is not a remote name.`);
+  if (!url || url.startsWith("-") || /[\s\0]/u.test(url)) throw new Error("That is not a remote URL.");
+  const remotes = (await runGit(cwd, ["remote"])).split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean);
+  if (remotes.length > 0) throw new Error(`This repository already has a remote (${remotes.join(", ")}).`);
+  await runGit(cwd, ["remote", "add", name, url]);
+  const head = await runGit(cwd, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).catch(() => "");
+  return { hasCommits: head.trim().length > 0 };
 }
 
 export async function push(cwd: string, runGit: GitRunner = git): Promise<PushResult> {
