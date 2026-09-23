@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import type { HostExtensionServices, HostThreadLifecycle } from "tau/host-extension";
@@ -163,6 +166,47 @@ describe("terminal host commands", () => {
       expect(closed.cwd).toBe("/project");
     } finally {
       await registry.dispose();
+    }
+  });
+
+  it("follows the directory a shell reports, names it by it, and starts a split there", async () => {
+    const { spawn, processes } = fakePtys();
+    const events: PublishedKitEvent[] = [];
+    const registry = await activateHostKit(createTerminalHostExtension(spawn), services(), (event) => events.push(event));
+    const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+    const here = mkdtempSync(join(tmpdir(), "tau-terminal-cwd-"));
+    try {
+      const shell = await client.open({ workspaceId: "workspace-one" });
+      await client.open({ workspaceId: "workspace-one", label: "dev server" });
+      expect(shell.label).toBe("project — shell");
+      events.length = 0;
+
+      processes[0].output(`\u001b]7;file://${encodeURI(here)}\u0007$ `);
+      processes[1].output(`\u001b]7;file://${encodeURI(here)}\u0007$ `);
+      const [followed, kept] = await client.list();
+      expect(followed).toMatchObject({ cwd: "/project", currentCwd: here, label: `${basename(here)} — shell` });
+      // A name the caller gave stays.
+      expect(kept).toMatchObject({ currentCwd: here, label: "dev server" });
+      expect(events.filter((event) => event.name === TERMINAL_LIST_EVENT)).toHaveLength(2);
+      // The same report again is no news.
+      processes[0].output(`\u001b]7;file://${encodeURI(here)}\u0007`);
+      expect(events.filter((event) => event.name === TERMINAL_LIST_EVENT)).toHaveLength(2);
+
+      await client.open({ workspaceId: "workspace-one", from: shell.id });
+      expect(processes[2].options.cwd).toBe(here);
+      // A directory that is gone, or a shell that never reported one, starts where it would have.
+      processes[0].output(`\u001b]7;file://${encodeURI(join(here, "gone"))}\u0007`);
+      await client.open({ workspaceId: "workspace-one", from: shell.id });
+      expect(processes[3].options.cwd).toBe("/project");
+
+      // A restart starts where the shell first did, under the name that place gives it.
+      processes[0].exit(0);
+      const restarted = await client.restart({ id: shell.id });
+      expect(restarted).toMatchObject({ cwd: "/project", label: "project — shell" });
+      expect(restarted.currentCwd).toBeUndefined();
+    } finally {
+      await registry.dispose();
+      rmSync(here, { recursive: true, force: true });
     }
   });
 

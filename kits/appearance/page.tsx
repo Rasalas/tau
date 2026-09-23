@@ -5,6 +5,7 @@ import { DENSITIES, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_
 import { currentToken, draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./editor.js";
 import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance } from "./protocol.js";
 import { parseThemeCss } from "./theme-css.js";
+import { TerminalFontRow, type TerminalFontLink } from "./terminal-font.js";
 import { importVsCodeTheme } from "./vscode-import.js";
 
 const DENSITY_LABELS: Record<Density, string> = { compact: "Compact", normal: "Normal", comfortable: "Comfortable" };
@@ -102,7 +103,7 @@ function ThemeHalfRow({ scheme, themes, onEdit }: { scheme: Appearance; themes: 
 }
 
 /** Settings → Appearance: themes per scheme, the editor and the importer, contrast, density and type. */
-export function AppearancePage({ onNotify, preferences, editor }: SettingsPageProps & { preferences: PreferencesStore; editor: ThemeEditorStore }) {
+export function AppearancePage({ onNotify, preferences, editor, terminalFont }: SettingsPageProps & { preferences: PreferencesStore; editor: ThemeEditorStore; terminalFont?: TerminalFontLink }) {
   // A sync registers the user's themes and emits, so this page follows new ones.
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const themes = userThemes();
@@ -224,10 +225,11 @@ export function AppearancePage({ onNotify, preferences, editor }: SettingsPagePr
         <SettingRow
           id="setting-appearance-code-font"
           title="Code font"
-          description="Code blocks, tool output, diffs and file previews. The terminal keeps the font on its own page."
+          description="Code blocks, tool output, diffs and file previews. The terminal has its own row."
           setting={codeFamily}
           control={<><TextSetting label="Code font family" placeholder="System monospace" setting={codeFamily} /><SizeSetting label="Code font size" setting={codeSize} fallback={DEFAULT_CODE_FONT_SIZE} /></>}
         />
+        {terminalFont ? <TerminalFontRow link={terminalFont} /> : null}
       </SettingsSection>
     </div>
   );
