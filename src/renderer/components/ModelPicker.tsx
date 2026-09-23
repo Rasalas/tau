@@ -692,7 +692,7 @@ export function ModelPicker({
             <Eye size={11} /> {showHidden ? `Hide ${hiddenCount} hidden` : `${hiddenCount} hidden · show`}
           </button>
         ) : null}
-        <span>{offerings.length} models · {labels.size} {labels.size === 1 ? "runtime" : "runtimes"}</span>
+        <span>{offerings.length} {offerings.length === 1 ? "model" : "models"} · {labels.size} {labels.size === 1 ? "runtime" : "runtimes"}</span>
       </footer>
     </div>
   );
