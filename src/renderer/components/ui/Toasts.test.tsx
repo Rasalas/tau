@@ -55,9 +55,9 @@ describe("ToastViewport", () => {
     expect(stack.dataset.expanded).toBeDefined();
     fireEvent.pointerLeave(stack);
     expect(store.isHeld()).toBe(false);
-    fireEvent.focus(screen.getByRole("button", { name: "Dismiss notification" }));
+    act(() => { screen.getByRole("button", { name: "Dismiss notification" }).focus(); });
     expect(store.isHeld()).toBe(true);
-    fireEvent.blur(screen.getByRole("button", { name: "Dismiss notification" }));
+    act(() => { screen.getByRole("button", { name: "Dismiss notification" }).blur(); });
     expect(store.isHeld()).toBe(false);
   });
 
@@ -84,5 +84,23 @@ describe("notices as toasts", () => {
     view.setNotice("Saved.", "info");
     expect(toasts.getToasts()).toHaveLength(2);
     stop();
+  });
+});
+
+describe("ToastViewport holds", () => {
+  it("lets go when the toast under the pointer or with focus is taken away", () => {
+    const { store } = setup();
+    act(() => { store.show({ id: "a", description: "First" }); store.show({ id: "b", description: "Second" }); });
+    const stack = screen.getByRole("region", { name: "Notifications" });
+    fireEvent.pointerEnter(stack);
+    const dismiss = screen.getAllByRole("button", { name: "Dismiss notification" })[0]!;
+    act(() => { dismiss.focus(); });
+    expect(store.isHeld()).toBe(true);
+    // The click removes the focused toast: no blur, no pointerleave follows.
+    fireEvent.click(dismiss);
+    expect(store.isHeld()).toBe(true);
+    fireEvent.pointerMove(document.body);
+    expect(store.isHeld()).toBe(false);
+    expect(stack.dataset.expanded).toBeUndefined();
   });
 });

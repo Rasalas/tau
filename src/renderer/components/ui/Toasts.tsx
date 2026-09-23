@@ -78,7 +78,9 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
 export function ToastViewport({ store }: { store: ToastStore }) {
   const toasts = useSyncExternalStore(store.subscribe, store.getToasts);
   const visible = toasts.slice(0, store.maxVisible);
-  const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const expanded = hovered || focused;
   const stack = useRef<HTMLElement>(null);
   const heights = useRef(new Map<string, number>());
   const [, remeasured] = useReducer((count: number) => count + 1, 0);
@@ -112,13 +114,31 @@ export function ToastViewport({ store }: { store: ToastStore }) {
     };
   }, [store]);
 
-  // With the last toast gone nothing is under the pointer or holds focus any more.
+  // A toast taken away from under the pointer or from focus sends neither
+  // pointerleave nor blur, so both are checked rather than waited for.
+  useEffect(() => {
+    if (!hovered) return undefined;
+    const onMove = (event: PointerEvent) => {
+      if (stack.current?.contains(event.target as Node)) return;
+      setHovered(false);
+    };
+    document.addEventListener("pointermove", onMove, true);
+    return () => document.removeEventListener("pointermove", onMove, true);
+  }, [hovered]);
+  useEffect(() => {
+    if (focused && !stack.current?.contains(document.activeElement)) setFocused(false);
+  }, [focused, toasts]);
+  useEffect(() => {
+    if (hovered) store.hold("hover"); else store.release("hover");
+  }, [hovered, store]);
+  useEffect(() => {
+    if (focused) store.hold("focus"); else store.release("focus");
+  }, [focused, store]);
   useEffect(() => {
     if (visible.length > 0) return;
-    setExpanded(false);
-    store.release("hover");
-    store.release("focus");
-  }, [store, visible.length]);
+    setHovered(false);
+    setFocused(false);
+  }, [visible.length]);
 
   const front = heights.current.get(visible[0]?.id ?? "") ?? 0;
   let offset = 0;
@@ -138,14 +158,10 @@ export function ToastViewport({ store }: { store: ToastStore }) {
       aria-label="Notifications"
       data-expanded={expanded || undefined}
       style={{ height: stackHeight }}
-      onPointerEnter={() => { setExpanded(true); store.hold("hover"); }}
-      onPointerLeave={() => { setExpanded(false); store.release("hover"); }}
-      onFocus={() => { setExpanded(true); store.hold("focus"); }}
-      onBlur={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-        setExpanded(false);
-        store.release("focus");
-      }}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
     >
       {layout.map(({ toast, index, style }) => (
         <div
