@@ -162,12 +162,12 @@ describe("Onboarding in the workbench", () => {
     const group = screen.getByRole("checkbox", { name: "Add every folder of acme/app" }) as HTMLInputElement;
     // T3 Code's default takes only the clone with three conversations.
     expect(group.indeterminate).toBe(true);
-    expect((screen.getByRole("checkbox", { name: /\/work\/app-2/ }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole("checkbox", { name: /app-2/ }) as HTMLInputElement).checked).toBe(false);
     fireEvent.click(group);
     expect(screen.getByRole("button", { name: "Add 2 projects" })).toBeTruthy();
-    expect(screen.queryByRole("checkbox", { name: /\/work\/notes/ })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /notes/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Other folders/ }));
-    expect(screen.getByRole("checkbox", { name: /\/work\/notes/ })).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: /notes/ })).toBeTruthy();
   });
 
   it("stays closed once setup ran, and /welcome brings it back", async () => {

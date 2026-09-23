@@ -146,7 +146,8 @@ fieldset:disabled .onboarding-row { cursor: default; opacity: .7; }
 .onboarding-count { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .onboarding-group { display: grid; gap: 1px; }
 .onboarding-group + .onboarding-group { margin-top: 6px; }
-.onboarding-row-text code { font: 11.5px var(--mono); color: var(--ink-2); }
+.onboarding-row-text .onboarding-path { font: 11.5px var(--mono); color: var(--ink-2); }
+.onboarding-row-text .onboarding-path.detail { font-size: 11px; color: var(--muted); }
 /* A group's row: the checkbox, then a fold button that takes the rest of the row. */
 .onboarding-group-row { cursor: default; }
 .onboarding-fold {

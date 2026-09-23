@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
 import { ArrowRight, Bot, Braces, Check, ChevronRight, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
-import { loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
+import { MiddleTruncate, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
 import { backendKit, defaultProjects, defaultSessions, groupProjects, type AgentStatus, type FlowState, type ProjectGroup, type WelcomeFlow } from "./flow.js";
 import { WELCOME_OVERLAY, type ImportableSession, type ProjectCandidate, type ToolReport } from "./protocol.js";
 
@@ -319,7 +319,7 @@ function ProjectRow({ project, label, detail, nested, selected, now, onToggle }:
   return (
     <label className={nested ? "onboarding-row nested" : "onboarding-row"} title={project.path}>
       <input type="checkbox" checked={selected.has(project.path)} onChange={(event) => onToggle([project.path], event.target.checked)} />
-      <span className="onboarding-row-text">{nested ? <code>{label}</code> : <strong>{label}</strong>}{detail ? <small>{detail}</small> : null}</span>
+      <span className="onboarding-row-text">{nested ? <MiddleTruncate className="onboarding-path" value={label} /> : <strong>{label}</strong>}{detail ? <MiddleTruncate className="onboarding-path detail" value={detail} /> : null}</span>
       <span className="onboarding-meta"><SourceMarks sources={nested ? [] : project.sources} /><span>{project.threadCount}</span><span>{age(project.lastActiveAt, now)}</span></span>
     </label>
   );
