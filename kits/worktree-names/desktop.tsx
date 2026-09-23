@@ -11,13 +11,10 @@ export function namingModel(preferences: PreferencesStore): { provider: string; 
   return at > 0 && at < stored.length - 1 ? { provider: stored.slice(0, at), id: stored.slice(at + 1) } : undefined;
 }
 
-/**
- * The draft's model, as the host's hint for a small one of the same login. A
- * model another runtime reported is not one Pi completes on, so it is no hint.
- */
-export function draftModel(thread: { model?: { provider: string; id: string }; backendKind?: string } | undefined): { provider: string; id: string } | undefined {
+/** The draft's model, the host's hint for a small model close to it; never the model that names. */
+export function draftModel(thread: { model?: { provider: string; id: string } } | undefined): { provider: string; id: string } | undefined {
   const model = thread?.model;
-  return model && (thread?.backendKind ?? "pi") === "pi" ? { provider: model.provider, id: model.id } : undefined;
+  return model ? { provider: model.provider, id: model.id } : undefined;
 }
 
 /**

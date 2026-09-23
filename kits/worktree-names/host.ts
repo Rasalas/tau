@@ -39,18 +39,26 @@ export function isSmallModel(id: string): boolean {
 
 type ModelRef = { provider: string; id: string };
 
+function sharedPrefix(left: string, right: string): number {
+  let length = 0;
+  while (length < left.length && left[length] === right[length]) length += 1;
+  return length;
+}
+
 /**
  * The model that names a branch when the settings chose none. A branch name
- * is three words, never worth the large model a draft may run on: the draft's
- * own model only when it is small, else a small model of its provider (the
- * same login), else any small one the user can reach, else the host's default.
+ * is three words, never worth the large model a draft may run on, so only a
+ * small model of the user's catalog is taken: the one closest to the draft's
+ * model — same provider (the same login) first, then the longest shared id
+ * (`gpt-5.6-sol` → `gpt-5.6-luna`: a login may not reach an older generation).
+ * None small leaves the host's default.
  */
 export async function smallNamingModel(services: Pick<HostExtensionServices, "completionModels">, prefer: ModelRef | undefined): Promise<ModelRef | undefined> {
   const catalog = await services.completionModels?.().catch(() => []) ?? [];
-  const small = catalog.filter((model) => isSmallModel(model.id));
-  const pick = (prefer && small.find((model) => model.provider === prefer.provider && model.id === prefer.id))
-    ?? small.find((model) => model.provider === prefer?.provider)
-    ?? small[0];
+  const closeness = (model: ModelRef) => prefer ? (model.provider === prefer.provider ? 1_000 : 0) + sharedPrefix(model.id, prefer.id) : 0;
+  const pick = catalog
+    .filter((model) => isSmallModel(model.id))
+    .sort((left, right) => closeness(right) - closeness(left))[0];
   return pick ? { provider: pick.provider, id: pick.id } : undefined;
 }
 

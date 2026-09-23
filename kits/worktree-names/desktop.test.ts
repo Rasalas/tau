@@ -32,11 +32,8 @@ describe("naming model", () => {
     expect(namingModel(preferences)).toEqual({ provider: "openai", id: "gpt-5.6" });
   });
 
-  it("hints the draft's model only when Pi completes on it", () => {
+  it("passes the draft's model on as a hint only", () => {
     expect(draftModel({ model: threadModel })).toEqual(threadModel);
-    expect(draftModel({ model: threadModel, backendKind: "pi" })).toEqual(threadModel);
-    // The model a Codex thread reported is not one of Pi's.
-    expect(draftModel({ model: { provider: "openai", id: "gpt-5.6-sol" }, backendKind: "codex" })).toBeUndefined();
     expect(draftModel(undefined)).toBeUndefined();
   });
 });

@@ -28,17 +28,21 @@ describe("branch names from model answers", () => {
 describe("the model that names a branch", () => {
   const catalog = [
     { provider: "openai-codex", id: "gpt-5.6-sol", name: "Sol" },
+    // Listed first, but a ChatGPT login cannot reach it; the draft's generation wins.
+    { provider: "openai-codex", id: "gpt-5.4-mini", name: "5.4 mini" },
     { provider: "openai-codex", id: "gpt-5.6-luna", name: "Luna" },
     { provider: "anthropic", id: "claude-opus-4-1", name: "Opus" },
     { provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" },
   ];
   const services = { completionModels: async () => catalog };
 
-  it("keeps a small draft model, swaps a large one for a small one of its provider, else takes any small one", async () => {
+  it("keeps a small draft model, swaps a large one for the closest small one, else takes any small one", async () => {
     await expect(smallNamingModel(services, { provider: "anthropic", id: "claude-haiku-4-5" })).resolves.toEqual({ provider: "anthropic", id: "claude-haiku-4-5" });
     await expect(smallNamingModel(services, { provider: "openai-codex", id: "gpt-5.6-sol" })).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
-    await expect(smallNamingModel(services, { provider: "google", id: "gemini-2.5-pro" })).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
-    await expect(smallNamingModel(services, undefined)).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
+    // A Codex draft names its model under another provider; the id still finds Pi's twin.
+    await expect(smallNamingModel(services, { provider: "openai", id: "gpt-5.6-sol" })).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
+    await expect(smallNamingModel(services, { provider: "google", id: "gemini-2.5-pro" })).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.4-mini" });
+    await expect(smallNamingModel(services, undefined)).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.4-mini" });
   });
 
   it("leaves the default to the host when nothing small is reachable", async () => {
