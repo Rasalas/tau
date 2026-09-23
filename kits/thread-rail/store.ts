@@ -1,4 +1,4 @@
-import type { UiModel, UiSession } from "tau";
+import type { UiModel, UiSession, WorkbenchActions } from "tau";
 import { EMPTY_STATE, applyPatches, decodeState } from "./meta.js";
 import type { RailState, ThreadMetaPatch, ThreadSiblingsService } from "./protocol.js";
 
@@ -16,6 +16,17 @@ export class RailStore implements ThreadSiblingsService {
   /** Set once the host answered, so nothing is mirrored from an empty guess. */
   loaded = false;
   snoozeDialogFor?: UiSession;
+  /** The client's thread index, once the rail has drawn: how a command finds a thread by id. */
+  threadStore?: { getSnapshot(): { threads: readonly UiSession[] } };
+  /** The workbench's actions as the rail last saw them, for a page that has none of its own. */
+  actions?: WorkbenchActions;
+  /** Threads with a turn in flight, from the host's `agent-status` events. */
+  readonly running = new Set<string>();
+
+  session(threadId: string): UiSession | undefined {
+    return this.threadStore?.getSnapshot().threads.find((thread) => thread.id === threadId)
+      ?? this.displayed.find((thread) => thread.id === threadId);
+  }
 
   getState = (): RailState => this.state;
   getVersion = (): number => this.version;

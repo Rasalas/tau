@@ -44,6 +44,8 @@ export interface ThreadMeta {
   model?: string;
   /** The last turn the host saw start or end in this thread. */
   activityAt?: number;
+  /** Out of the rail, listed under Settings → Archived; new work brings it back. */
+  archivedAt?: number;
 }
 
 /** A field set to `null` is removed; a patch of `null` forgets the thread. */
@@ -71,13 +73,28 @@ export interface RailStartRequest {
   siblingGroupId?: string;
 }
 
-export type RailSectionId = "pinned" | "active" | "snoozed" | "settled";
+export type RailSectionId = "pinned" | "active" | "snoozed" | "settled" | "archived";
 
+/** Every section a thread can be in; the rail draws all but `archived`. */
 export interface RailSections {
   pinned: UiSession[];
   active: UiSession[];
   snoozed: UiSession[];
   settled: UiSession[];
+  archived: UiSession[];
+}
+
+/** Pushed with the trash whenever a thread goes in or comes out. */
+export const TRASH_EVENT = "trash";
+
+/** A deleted thread, as the host's trash lists it. */
+export interface TrashedThread {
+  sessionId: string;
+  cwd: string;
+  title: string;
+  backendKind: string;
+  deletedAt: number;
+  purgeAt: number;
 }
 
 /** Where a dragged thread lands, in Workspace Kit's words. */
