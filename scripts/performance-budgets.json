@@ -39,6 +39,10 @@
   "gitSlowCommandMs": 150,
   "gitManyProjectP95Ms": 500,
   "gitBytesRead": 524288,
+  "hostTransfer": {
+    "recorded-turn": { "wireBytes": 7500, "decodedBytes": 64000, "messages": 110 },
+    "heavy-turn": { "wireBytes": 540000, "decodedBytes": 2200000, "messages": 530 }
+  },
   "rendererRequiredScenarios": [
     "markdown-code-stream-150kb",
     "markdown-plain-stream-150kb",
