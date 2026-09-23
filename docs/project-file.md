@@ -22,6 +22,7 @@ with a path or URL to the file).
 |---|---|---|
 | `workspaceMode` | Workspace Kit | `"current"` or `"worktree"`: where a new thread runs by default ([ADR 0017](adr/0017-worktrees-for-threads-and-agents.md)). |
 | `worktreeDirectory` | Workspace Kit | Where worktrees go, e.g. `"~/.tau/worktrees"`; beside the repository when absent. |
+| `worktreeSubmodules` | Workspace Kit | How a new worktree fills its submodules: `"recursive"` (the default), `"top-level"` (only the ones this repository declares) or `"none"` (leave them to a setup script). Read from the branch being checked out; Settings → Source control → Submodules wins when it names a value. |
 | `scripts` | Project Scripts | Quick actions, below. |
 | `runOnWorktreeCreate` (a string) | Project Scripts, else Workspace Kit | The old spelling of a setup script. It still runs, as a blocking script with the id `setup`, and the Inspector suggests moving it into `scripts`. |
 
@@ -52,8 +53,9 @@ also types a script into a Terminal Kit shell, for one you want to talk to.
 
 When Workspace Kit creates a worktree for a new thread, the steps show as one
 card under the thread's transcript, the way T3 Code shows its setup: fetching
-the base branch, creating the worktree, then every `runOnWorktreeCreate`
-script with its elapsed time and its last four lines of output. A blocking
+the base branch, creating the worktree, filling its submodules when it has any
+(`worktreeSubmodules`; a failure there is marked and the setup goes on), then
+every `runOnWorktreeCreate` script with its elapsed time and its last four lines of output. A blocking
 script (`"async": false`) holds the first prompt; the card offers **Cancel**,
 which stops the setup's scripts and lets the thread start in the worktree
 without them, and **Start now**, which lets it start while the script runs on.

@@ -20,21 +20,31 @@ import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
-import { CHECKPOINT_EVENT, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
+import { CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createReviewRequestDetector } from "./review-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
 import { registerAppOpen } from "./app-open.js";
 import { worktreeSetupCommand } from "./agent-worktrees.js";
+import { initWorktreeSubmodules } from "./worktree-submodules.js";
+import { DefaultBranchPuller } from "./default-branch-pull.js";
+import { CloneJobs } from "./clone-jobs.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
 const REVIEW_KIT_ID = "tau.review";
 const FILES_KIT_ID = "tau.files";
 
+/** `~` and `~/…` name the host's home folder; a setting typed by hand usually starts that way. */
+export function expandHome(path: string): string {
+  const trimmed = path.trim();
+  if (trimmed === "~") return homedir();
+  return trimmed.startsWith("~/") ? join(homedir(), trimmed.slice(2)) : trimmed;
+}
+
 export async function listDirectories(requested: string | undefined, identify: (path: string) => WorkspaceRef): Promise<UiDirectoryListing> {
-  const candidate = requested?.trim() || homedir();
+  const candidate = requested?.trim() ? expandHome(requested) : homedir();
   if (!isAbsolute(candidate)) throw new Error("Choose an absolute folder path.");
   const path = await realpath(candidate);
   const entries = await readdir(path, { withFileTypes: true });
@@ -49,11 +59,7 @@ export async function listDirectories(requested: string | undefined, identify: (
   };
 }
 
-export function repositoryFolderName(repositoryUrl: string): string {
-  const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
-  const name = normalized.split(/[\\/:]/u).filter(Boolean).at(-1) ?? "repository";
-  return name.replace(/[^a-z0-9._-]+/giu, "-") || "repository";
-}
+export { repositoryFolderName } from "./clone-jobs.js";
 
 /**
  * What a repository checks in about new threads. Nothing here is required, and
@@ -69,6 +75,7 @@ export async function readProjectDefaults(project: string): Promise<ProjectDefau
       ...(mode === "current" || mode === "worktree" ? { workspaceMode: mode } : {}),
       ...(typeof setup === "string" && setup.trim() ? { runOnWorktreeCreate: setup.trim() } : {}),
       ...(typeof worktreeDirectory === "string" && worktreeDirectory.trim() ? { worktreeDirectory: worktreeDirectory.trim() } : {}),
+      ...(isWorktreeSubmodules(raw.worktreeSubmodules) ? { worktreeSubmodules: raw.worktreeSubmodules } : {}),
     };
   } catch {
     return {};
@@ -106,14 +113,6 @@ const requiredString = (input: unknown, key: string): string => {
   if (typeof value !== "string" || !value) throw new Error(`Workspace command needs "${key}".`);
   return value;
 };
-/** An absolute path to a folder that exists; anything else is refused before git runs. */
-async function existingDirectory(path: string): Promise<string> {
-  if (!isAbsolute(path)) throw new Error("Choose an existing parent folder for the clone.");
-  const info = await stat(path).catch(() => undefined);
-  if (!info?.isDirectory()) throw new Error("Choose an existing parent folder for the clone.");
-  return path;
-}
-
 const optionalString = (input: unknown, key: string): string | undefined => {
   const value = record(input)[key];
   return typeof value === "string" ? value : undefined;
@@ -235,23 +234,33 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = await services.pickDirectory();
         return path ? services.workspaceRef(path) : undefined;
       }, { long: true });
-      context.registerCommand("clone", async (input) => {
+      // A clone is a job: progress and the end arrive as pushes, and it can be cancelled.
+      const clones = new CloneJobs({
+        git: gitExecutable(),
+        identify: (path) => services.workspaceRef(path),
+        onSubprocess: () => services.noteSubprocess(),
+        emit: (snapshot) => {
+          if (snapshot.phase !== "running") services.log(`git.clone.${snapshot.phase}`, snapshot.error ?? snapshot.destination);
+          context.emit(CLONE_PROGRESS_EVENT, snapshot);
+        },
+      });
+      context.registerCommand("clone-start", async (input) => {
         const url = assertAllowedCloneSource(requiredString(input, "repositoryUrl"));
         // A client without a folder picker (headless or remote host) names the parent itself.
         const namedParent = optionalString(input, "parentPath");
-        const parent = namedParent !== undefined
-          ? await existingDirectory(namedParent)
+        const parent = namedParent?.trim()
+          ? expandHome(namedParent)
           : await services.pickDirectory({
             buttonLabel: "Clone here",
             message: "Choose the parent folder for the cloned project",
             createDirectory: true,
           });
         if (!parent) return undefined;
-        const destination = join(parent, repositoryFolderName(url));
-        await execFileAsync(gitExecutable(), ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
-        services.log("git.cloned", destination);
-        return services.workspaceRef(destination);
+        return clones.start(url, parent);
       }, { long: true });
+      context.registerCommand("clone-cancel", (input) => clones.cancel(requiredString(input, "id")));
+      context.registerCommand("clone-jobs", () => clones.list());
+      context.registerCommand("clone-forget", (input) => { clones.forget(requiredString(input, "id")); });
       context.registerCommand("file-tree", async (input) => {
         const project = cwd();
         const relative = optionalRelativePath(input);
@@ -385,17 +394,29 @@ export function createWorkspaceHostExtension(): HostExtension {
         const branch = requiredString(input, "branch");
         const baseRef = optionalString(input, "baseRef");
         const startFromOrigin = record(input).startFromOrigin;
+        const requestedSubmodules = record(input).submodules;
         const setupId = await beginSetup(project, branch);
+        const step = (stage: string, extra: Record<string, unknown> = {}) => {
+          if (setupId) void setupCall("worktree-setup-step", { setupId, stage, ...extra }).catch(() => undefined);
+        };
         try {
           const destination = await workspaceGit.createWorktree(project, branch, {
             ...(baseRef ? { baseRef } : {}),
             ...(startFromOrigin === undefined ? {} : { startFromOrigin: startFromOrigin !== false }),
-            ...(setupId ? { onStep: (stage) => void setupCall("worktree-setup-step", { setupId, stage }).catch(() => undefined) } : {}),
+            onStep: (stage) => step(stage),
           }, (path) => git.getWorkspaceInfo(path));
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
           await worktrees.storage.remember(destination, project, branch).catch(noteFailure("git.worktree.record-failed"));
+          // The setting wins; without one, the project file of the branch just checked out decides.
+          const submodules = await initWorktreeSubmodules(destination, isWorktreeSubmodules(requestedSubmodules)
+            ? requestedSubmodules
+            : (await readProjectDefaults(destination)).worktreeSubmodules, { onStart: () => step("submodules") });
+          if (submodules) {
+            services.log(submodules.ok ? "git.worktree.submodules" : "git.worktree.submodules-failed", submodules.detail ?? submodules.mode);
+            if (!submodules.ok) step("submodules", { failed: true, detail: submodules.detail ?? "git submodule update failed" });
+          }
           await runWorktreeSetup(project, destination, setupId);
           // The draft moves here before its thread exists, and asks about it at once.
           return services.admitWorkspace(destination);
@@ -449,6 +470,28 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (!branch) defaultBranches.set(project, branch = workspaceGit.readDefaultBranch(project));
         return branch;
       });
+      // Keeps the default branch current, fast-forward only; the client says when and whether.
+      const puller = new DefaultBranchPuller();
+      context.registerCommand("auto-pull", async (input) => {
+        const project = await services.knownWorkspacePath(workspaceOf(input));
+        const info = await git.getWorkspaceInfo(project);
+        if (!info.isRepo) return [];
+        // A thread in a worktree leaves the default branch in the main checkout.
+        const main = info.worktrees.find((tree) => tree.isMain)?.path;
+        const checkouts: Array<{ path: string; checkout: "workspace" | "main" }> = [{ path: project, checkout: "workspace" }];
+        if (main && resolve(main) !== resolve(project)) checkouts.push({ path: main, checkout: "main" });
+        const outcomes = [];
+        for (const { path, checkout } of checkouts) {
+          const outcome = await puller.run(path);
+          if (outcome.status === "pulled") {
+            git.invalidate(path);
+            if (checkout === "main") git.invalidate(project, ["branch", "workspace"]);
+            services.log("git.auto-pull", `${outcome.branch} → ${outcome.head.slice(0, 7)} (${outcome.commits})`);
+          }
+          outcomes.push({ checkout, ...outcome });
+        }
+        return outcomes;
+      }, { long: true });
       context.registerCommand("project-defaults", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         return readProjectDefaults(project);
@@ -565,7 +608,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           return { text: undefined };
         }
       });
-      disposers.push(() => worktrees.dispose());
+      disposers.push(() => worktrees.dispose(), () => clones.dispose());
       return () => { for (const dispose of disposers.reverse()) dispose(); };
     },
   };

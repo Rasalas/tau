@@ -41,6 +41,21 @@ describe("Workspace Kit worktree creation", () => {
     expect(workspaceStore.getSnapshot().workspaceBusy).toBe(false);
   });
 
+  it("hands the submodule setting to the host only when it names a value", async () => {
+    const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_worktree", displayPath: "/project-worktrees/x" }));
+    const preferences = new PreferencesStore();
+    const workspaceStore = storeOver({ createWorktree }, preferences);
+    workspaceStore.bind({ holdComposer: () => () => undefined, openWorkspace: async () => true, notify: vi.fn() } as unknown as WorkbenchActions);
+    workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+
+    await workspaceStore.createWorktree("x");
+    preferences.setValue("tau.workspace", "worktree-submodules", "top-level");
+    await workspaceStore.createWorktree("y");
+
+    expect(createWorktree).toHaveBeenNthCalledWith(1, "x", { startFromOrigin: true }, "ws1_project");
+    expect(createWorktree).toHaveBeenNthCalledWith(2, "y", { startFromOrigin: true, submodules: "top-level" }, "ws1_project");
+  });
+
   it("reports a failed creation and releases the composer", async () => {
     const workspaceStore = storeOver({ createWorktree: async () => { throw new Error("fix/queue is already checked out in a worktree."); } });
     const release = vi.fn();
@@ -70,6 +85,37 @@ describe("Workspace Kit publishing", () => {
     expect(pull).toHaveBeenCalledOnce();
     expect(notify).toHaveBeenCalledWith("Pulled def456");
     expect(workspaceStore.getSnapshot()).toMatchObject({ changes, workspace, committing: false });
+  });
+});
+
+describe("Workspace Kit automatic pull", () => {
+  it("asks nothing while the option is off, and refreshes after a pull once it is on", async () => {
+    const autoPull = vi.fn(async () => [{ checkout: "workspace", status: "pulled", branch: "main", upstream: "origin/main", commits: 2, head: "abc" }]);
+    const getWorkspaceInfo = vi.fn(async () => REPO);
+    const preferences = new PreferencesStore();
+    const workspaceStore = storeOver({ autoPull, getWorkspaceInfo }, preferences);
+    workspaceStore.bind({ notify: vi.fn() } as unknown as WorkbenchActions);
+    workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: false });
+
+    await workspaceStore.autoPullDefaultBranch();
+    expect(autoPull).not.toHaveBeenCalled();
+
+    preferences.setOption("tau.workspace", "auto-pull-default-branch", true);
+    await workspaceStore.autoPullDefaultBranch();
+    expect(autoPull).toHaveBeenCalledWith("ws1_project");
+    expect(getWorkspaceInfo).toHaveBeenCalled();
+  });
+
+  it("leaves the view alone when nothing was pulled", async () => {
+    const autoPull = vi.fn(async () => [{ checkout: "workspace", status: "skipped", reason: "dirty" }]);
+    const getChanges = vi.fn(async () => ({ files: [], added: 0, removed: 0 }));
+    const preferences = new PreferencesStore();
+    preferences.setOption("tau.workspace", "auto-pull-default-branch", true);
+    const workspaceStore = storeOver({ autoPull, getChanges }, preferences);
+    workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: false });
+    await workspaceStore.autoPullDefaultBranch();
+    expect(autoPull).toHaveBeenCalledOnce();
+    expect(getChanges).not.toHaveBeenCalled();
   });
 });
 

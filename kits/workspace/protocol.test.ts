@@ -51,7 +51,7 @@ describe("Workspace Kit client encoding", () => {
   it("keeps folder browsing on host paths", async () => {
     const { calls, client } = recorder();
     await client.listDirectories("/Users/me");
-    await client.clone("git@example.com:acme/app.git", "/Users/me/code");
+    await client.startClone("git@example.com:acme/app.git", "/Users/me/code");
     expect(calls[0]?.input).toEqual({ path: "/Users/me" });
     expect(calls[1]?.input).toEqual({ repositoryUrl: "git@example.com:acme/app.git", parentPath: "/Users/me/code" });
   });

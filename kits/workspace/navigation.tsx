@@ -16,7 +16,7 @@ import {
   type UiProject,
   type UiSession,
 } from "tau";
-import { WORKSPACE_HOST_EXTENSION_ID, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
+import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
 import { useWorkspaceStore } from "./store-context.js";
 
@@ -89,7 +89,8 @@ function fuzzyMatch(value: string, query: string): boolean {
 }
 
 export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProps) {
-  const host = useWorkspaceStore().host;
+  const store = useWorkspaceStore();
+  const host = store.host;
   const [listing, setListing] = useState<UiDirectoryListing>();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -97,10 +98,14 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
   const inputRef = useRef<HTMLInputElement>(null);
   const directories = useMemo(() => listing?.directories.filter((entry) => fuzzyMatch(entry.name, query.trim())) ?? [], [listing, query]);
 
-  const load = useCallback(async (path?: string) => {
+  const load = useCallback(async (path?: string, fallBack = false) => {
     try {
       setError(undefined);
-      setListing(await host.listDirectories(path));
+      setListing(await host.listDirectories(path).catch((failure: unknown) => {
+        // A base folder that is gone opens the home folder instead of an error.
+        if (fallBack) return host.listDirectories();
+        throw failure;
+      }));
       setQuery("");
       setSelected(0);
       window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -108,7 +113,10 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       setError(String(nextError));
     }
   }, [host]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const base = store.projectBaseDirectory();
+    void load(base, base !== undefined);
+  }, [load, store]);
 
   const addCurrent = async () => {
     if (!listing) return;
@@ -157,17 +165,23 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
 }
 
 export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourceProps) {
-  const host = useWorkspaceStore().host;
+  const store = useWorkspaceStore();
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [busy, setBusy] = useState(false);
-  const canSubmit = repositoryUrl.trim().length > 0 && !busy;
+  const base = store.projectBaseDirectory();
+  const url = repositoryUrl.trim();
+  const canSubmit = url.length > 0 && !busy;
 
-  const submit = async () => {
+  /** With a base folder the clone starts at once; without one, or asked to, the host's picker chooses. */
+  const submit = async (intoBase: boolean) => {
     if (!canSubmit) return;
     setBusy(true);
     try {
-      const cloned = await host.clone(repositoryUrl.trim());
-      if (cloned && await actions.openWorkspace(cloned.workspaceId)) onDone();
+      const started = await store.host.startClone(url, intoBase ? base : undefined);
+      if (!started) return;
+      store.clones.bind(actions);
+      store.clones.receive(started);
+      onDone();
     } catch (error) {
       actions.notify(error instanceof Error ? error.message : String(error));
     } finally {
@@ -176,15 +190,22 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
   };
 
   return (
-    <form className="clone-project-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <form className="clone-project-form" onSubmit={(event) => { event.preventDefault(); void submit(Boolean(base)); }}>
       <label>
         <span>Git repository URL</span>
         <input autoFocus value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} placeholder="https://github.com/acme/project.git" disabled={busy} />
-        <small>HTTPS and SSH clone URLs are accepted. Next, choose the parent folder.</small>
+        <small>HTTPS and SSH clone URLs are accepted. The clone runs in the background; a notice shows its progress and can cancel it.</small>
       </label>
+      <div className="clone-project-destination">
+        <span>Clone into</span>
+        {base
+          ? <code title={base}>{`${base.replace(/[\\/]+$/u, "")}/${url ? repositoryFolderName(url) : "…"}`}</code>
+          : <small>A folder you choose next. Settings → Source control → New projects sets a default.</small>}
+      </div>
       <div className="clone-project-actions">
         <button type="button" onClick={onBack} disabled={busy}>Back</button>
-        <button type="submit" className="primary" disabled={!canSubmit}>{busy ? "Cloning…" : "Choose destination"}</button>
+        {base ? <button type="button" disabled={!canSubmit} onClick={() => void submit(false)}>Choose another folder…</button> : null}
+        <button type="submit" className="primary" disabled={!canSubmit}>{busy ? "Starting…" : base ? "Clone" : "Choose destination"}</button>
       </div>
     </form>
   );

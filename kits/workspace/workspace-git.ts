@@ -833,11 +833,12 @@ export async function runGitCommand(
   maxBuffer = 4 * 1024 * 1024,
   signal?: AbortSignal,
   env?: NodeJS.ProcessEnv,
+  timeout = 10_000,
 ): Promise<string> {
   const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
     cwd,
     maxBuffer,
-    timeout: 10_000,
+    timeout,
     signal,
     env,
     windowsHide: true,

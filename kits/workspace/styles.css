@@ -456,6 +456,10 @@
 .clone-project-form input:focus { border-color: var(--line-field); }
 .clone-project-form input::placeholder { color: var(--faint); }
 .clone-project-form label > small { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.clone-project-destination { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.clone-project-destination > span { font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint); }
+.clone-project-destination > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font: 12px var(--mono); }
+.clone-project-destination > small { font-size: 11px; color: var(--muted); line-height: 1.5; }
 .clone-project-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .clone-project-actions button {
   border: 1px solid var(--line-control); border-radius: 8px; background: transparent;

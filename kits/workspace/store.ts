@@ -17,7 +17,9 @@ import {
   type WorkbenchActions,
 } from "tau";
 import type { ComponentType } from "react";
+import { CloneToasts } from "./clone-toasts.js";
 import {
+  isWorktreeSubmodules,
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_REVIEW_OVERLAY,
   type ChangesSectionProps,
@@ -33,6 +35,7 @@ import {
   type ThreadWorktreeRequest,
   type WorkspaceStoreApi,
   type WorktreeNamer,
+  type WorktreeSubmodules,
 } from "./protocol.js";
 
 export const WORKSPACE_KIT_ID = WORKSPACE_HOST_EXTENSION_ID;
@@ -63,6 +66,12 @@ const INITIAL: WorkspaceKitState = {
 export const NEW_THREAD_WORKSPACE_KEY = "new-thread-workspace";
 /** Whether a new worktree starts from the freshly fetched remote; on by default. */
 export const START_FROM_ORIGIN_OPTION = "start-from-origin";
+/** How a new worktree fills its submodules; unset lets the checkout's project file decide. */
+export const WORKTREE_SUBMODULES_KEY = "worktree-submodules";
+/** Where new projects start: the folder browser and the clone's destination. */
+export const PROJECT_BASE_DIRECTORY_KEY = "project-base-directory";
+/** Keep the default branch current by fast-forward; off by default, as in T3 Code. */
+export const AUTO_PULL_OPTION = "auto-pull-default-branch";
 
 /** A project's own override of the global default, kept per checkout. */
 export function projectWorkspaceModeKey(root: string): string {
@@ -111,16 +120,29 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private commitMessageSuggester?: CommitMessageSuggester;
   private fileEditor?: WorkspaceFileEditor;
 
+  /** Clones in flight and just finished, as toasts. */
+  readonly clones: CloneToasts;
+
   constructor(
     private readonly preferences: PreferencesStore,
     /** The kit's own host entry, reached through the extension channel. */
     readonly host: WorkspaceHostClient,
-  ) {}
+  ) {
+    this.clones = new CloneToasts(host);
+  }
 
   getSnapshot = (): WorkspaceKitState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
 
-  bind(actions: WorkbenchActions): void { this.actions = actions; }
+  bind(actions: WorkbenchActions): void {
+    this.actions = actions;
+    this.clones.bind(actions);
+  }
+
+  /** Where the folder browser opens and a clone lands by default; unset means the home folder and a picker. */
+  projectBaseDirectory(): string | undefined {
+    return this.preferences.value(WORKSPACE_KIT_ID, PROJECT_BASE_DIRECTORY_KEY)?.trim() || undefined;
+  }
 
   /** How the followed project is named on the host: its id, or its path for a host that gave none. */
   workspace(): string | undefined {
@@ -177,6 +199,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       void this.refreshWorkspace();
     }
     if (next.cwd && projectChanged) {
+      void this.autoPullDefaultBranch();
       this.defaults = undefined;
       this.update({ workspaceMode: this.defaultWorkspaceMode(), worktreeBase: undefined });
       void this.loadProjectDefaults();
@@ -219,6 +242,27 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   /** Whether a new worktree starts from the freshly fetched remote commit. */
   startFromOrigin(): boolean {
     return this.preferences.optionValue(WORKSPACE_KIT_ID, START_FROM_ORIGIN_OPTION, true);
+  }
+
+  /** What a new worktree is made with: where it starts and how far its submodules go. */
+  private worktreeOptions(): { startFromOrigin: boolean; submodules?: WorktreeSubmodules } {
+    const submodules = this.preferences.value(WORKSPACE_KIT_ID, WORKTREE_SUBMODULES_KEY);
+    return { startFromOrigin: this.startFromOrigin(), ...(isWorktreeSubmodules(submodules) ? { submodules } : {}) };
+  }
+
+  /**
+   * Asks the host to fast-forward the project's default branch, when the user
+   * turned that on. Quiet: a checkout that cannot be fast-forwarded is simply
+   * left alone, and the next focus or tick asks again.
+   */
+  async autoPullDefaultBranch(): Promise<void> {
+    if (!this.preferences.optionValue(WORKSPACE_KIT_ID, AUTO_PULL_OPTION, false) || !hostAvailable()) return;
+    const workspace = this.workspace();
+    if (!workspace) return;
+    try {
+      const outcomes = await this.host.autoPull(workspace);
+      if (outcomes.some((outcome) => outcome.status === "pulled") && workspace === this.workspace()) await this.refresh();
+    } catch { /* the next focus or tick tries again */ }
   }
 
   /** Where a new worktree would start; read when the picker opens, never on every render. */
@@ -465,7 +509,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const release = this.actions.holdComposer();
     this.update({ workspaceBusy: true });
     try {
-      const created = await this.host.createWorktree(branch, { ...(baseRef ? { baseRef } : {}), startFromOrigin: this.startFromOrigin() }, this.workspace());
+      const created = await this.host.createWorktree(branch, { ...(baseRef ? { baseRef } : {}), ...this.worktreeOptions() }, this.workspace());
       return await this.actions.openWorkspace(created.workspaceId, { inheritDraft: true });
     } catch (error) {
       this.notify(errorMessage(error));
@@ -488,7 +532,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       event.preparing("Setting up worktree…");
       const named = await this.threadBranchName(event.prompt);
       const branch = event.branchSuffix ? `${named}-${event.branchSuffix}` : named;
-      const created = await this.host.createWorktree(branch, { startFromOrigin: this.startFromOrigin() }, this.workspace());
+      const created = await this.host.createWorktree(branch, this.worktreeOptions(), this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath } };
     } catch (error) {
       this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);

@@ -72,6 +72,50 @@ export interface ProjectDefaults {
    * the repository) or a directory path (e.g. "~/.tau/worktrees" or an absolute path).
    */
   worktreeDirectory?: string;
+  /** How far a new worktree initializes its submodules; the setting wins when it names one. */
+  worktreeSubmodules?: WorktreeSubmodules;
+}
+
+export type CloneStage = "connecting" | "counting" | "receiving" | "resolving" | "checkout";
+
+/** A clone the host runs as a job; pushed as `clone-progress` on every change. */
+export interface CloneSnapshot {
+  id: string;
+  /** The folder name, which is what the toast calls it. */
+  name: string;
+  destination: string;
+  phase: "running" | "done" | "failed" | "cancelled";
+  stage: CloneStage;
+  percent?: number;
+  /** Transfer detail after the count, e.g. `12.30 MiB | 5.00 MiB/s`. */
+  detail?: string;
+  error?: string;
+  /** Set once it is done: the project to open. */
+  workspace?: WorkspaceRef;
+  /** A folder that could not be cleaned up after a failure or cancel, left for the user. */
+  leftover?: string;
+}
+
+export const CLONE_PROGRESS_EVENT = "clone-progress";
+
+/** The folder a clone lands in, from the last path segment of its URL. */
+export function repositoryFolderName(repositoryUrl: string): string {
+  const normalized = repositoryUrl.trim().replace(/[\\/]+$/u, "").replace(/\.git$/iu, "");
+  const name = normalized.split(/[\\/:]/u).filter(Boolean).at(-1) ?? "repository";
+  return name.replace(/[^a-z0-9._-]+/giu, "-") || "repository";
+}
+
+/** What the automatic pull did with one checkout: the project's own, or the repository's main one. */
+export type AutoPullOutcome = { checkout: "workspace" | "main" } & (
+  | { status: "pulled"; branch: string; upstream: string; commits: number; head: string }
+  | { status: "skipped"; reason: string; detail?: string }
+);
+
+/** `recursive` is `git submodule update --init --recursive`, `top-level` stops at the ones the repository declares. */
+export type WorktreeSubmodules = "recursive" | "top-level" | "none";
+
+export function isWorktreeSubmodules(value: unknown): value is WorktreeSubmodules {
+  return value === "recursive" || value === "top-level" || value === "none";
 }
 
 /** Project Scripts' host entry; it runs a new worktree's setup scripts when it is on. */
@@ -139,8 +183,17 @@ export interface WorkspaceHostCommands {
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
   /** Native folder dialog; `undefined` when cancelled. */
   "pick-folder": { input: undefined; output: WorkspaceRef | undefined };
-  /** Clones into `parentPath`, or into a folder the host's picker returns; `undefined` when that dialog was cancelled. */
-  "clone": { input: { repositoryUrl: string; parentPath?: string }; output: WorkspaceRef | undefined };
+  /**
+   * Starts cloning into `parentPath`, or into a folder the host's picker returns
+   * (`undefined` when that dialog was cancelled). Progress arrives as `clone-progress`.
+   */
+  "clone-start": { input: { repositoryUrl: string; parentPath?: string }; output: CloneSnapshot | undefined };
+  /** Stops a running clone and removes the folder it made; false when it was not running. */
+  "clone-cancel": { input: { id: string }; output: boolean };
+  /** Every clone this host knows of, for a client that attached while one ran. */
+  "clone-jobs": { input: undefined; output: CloneSnapshot[] };
+  /** Drops a settled clone from the list. */
+  "clone-forget": { input: { id: string }; output: void };
   "file-tree": { input: { relPath?: string } | undefined; output: FileNode[] };
   "changes": { input: { query?: WorkspaceChangesQuery } | undefined; output: UiWorkspaceChanges };
   "file-diff": { input: { relPath: string; options?: DiffLoadOptions }; output: UiFileDiff };
@@ -167,7 +220,7 @@ export interface WorkspaceHostCommands {
   /** Where a new worktree would start: the base ref, the commit it resolves to, and whether that came from origin. */
   "worktree-base": { input: { workspace?: string; baseRef?: string; startFromOrigin?: boolean } | undefined; output: UiWorktreeBase };
   /** Adds a worktree next to `workspace` (the host's own by default) and answers with its identity; opening it is the caller's move. */
-  "create-worktree": { input: { branch: string; baseRef?: string; startFromOrigin?: boolean; workspace?: string }; output: WorkspaceRef };
+  "create-worktree": { input: { branch: string; baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules; workspace?: string }; output: WorkspaceRef };
   /** What removing a worktree would lose: uncommitted files and commits beyond its base. */
   "worktree-removal-preview": { input: { path: string; workspace?: string }; output: UiWorktreeRemoval };
   /** Removes a linked worktree and the branch it held; the caller confirmed what the preview named. */
@@ -176,6 +229,12 @@ export interface WorkspaceHostCommands {
   "ensure-worktree": { input: { path: string; branch?: string; workspace?: string }; output: boolean };
   /** The project's main line by name (`origin/HEAD`, `init.defaultBranch`, `main`); read once per project. */
   "default-branch": { input: { workspace?: string } | undefined; output: string };
+  /**
+   * Fast-forwards the default branch in the project and its main checkout when
+   * each is clean, on that branch and only behind its upstream; the rest are
+   * named with the reason they were left alone. At most once a minute per checkout.
+   */
+  "auto-pull": { input: { workspace?: string } | undefined; output: AutoPullOutcome[] };
   /** Defaults a project checks in under `.tau/project.json`, plus this client's own. */
   "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
@@ -205,7 +264,10 @@ export type HostExtensionInvoke = (command: string, input?: unknown) => Promise<
 export interface WorkspaceHostClient {
   listDirectories(path?: string): Promise<UiDirectoryListing>;
   pickFolder(): Promise<WorkspaceRef | undefined>;
-  clone(repositoryUrl: string, parentPath?: string): Promise<WorkspaceRef | undefined>;
+  startClone(repositoryUrl: string, parentPath?: string): Promise<CloneSnapshot | undefined>;
+  cancelClone(id: string): Promise<boolean>;
+  listClones(): Promise<CloneSnapshot[]>;
+  forgetClone(id: string): Promise<void>;
   getFileTree(relPath?: string): Promise<FileNode[]>;
   getChanges(query?: WorkspaceChangesQuery): Promise<UiWorkspaceChanges>;
   getFileDiff(relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
@@ -222,12 +284,13 @@ export interface WorkspaceHostClient {
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
   getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
   getWorktreeBase(workspace?: string, options?: { baseRef?: string; startFromOrigin?: boolean }): Promise<UiWorktreeBase>;
-  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean }, workspace?: string): Promise<WorkspaceRef>;
+  createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef>;
   getWorktreeRemoval(path: string, workspace?: string): Promise<UiWorktreeRemoval>;
   removeWorktree(path: string, branch?: string, workspace?: string): Promise<void>;
   ensureWorktree(path: string, branch?: string, workspace?: string): Promise<boolean>;
   getProjectDefaults(workspace?: string): Promise<ProjectDefaults>;
   getDefaultBranch(workspace?: string): Promise<string>;
+  autoPull(workspace?: string): Promise<AutoPullOutcome[]>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
@@ -249,7 +312,10 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
   return {
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
     pickFolder: () => call("pick-folder", undefined),
-    clone: (repositoryUrl, parentPath) => call("clone", parentPath === undefined ? { repositoryUrl } : { repositoryUrl, parentPath }),
+    startClone: (repositoryUrl, parentPath) => call("clone-start", parentPath === undefined ? { repositoryUrl } : { repositoryUrl, parentPath }),
+    cancelClone: (id) => call("clone-cancel", { id }),
+    listClones: () => call("clone-jobs", undefined),
+    forgetClone: (id) => call("clone-forget", { id }),
     getFileTree: (relPath) => call("file-tree", relPath === undefined ? undefined : { relPath }),
     getChanges: (query) => call("changes", query === undefined ? undefined : { query }),
     getFileDiff: (relPath, options) => call("file-diff", { relPath, options }),
@@ -272,6 +338,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     ensureWorktree: (path, branch, workspace) => call("ensure-worktree", { path, branch, workspace }),
     getProjectDefaults: (workspace) => call("project-defaults", { workspace }),
     getDefaultBranch: (workspace) => call("default-branch", workspace === undefined ? undefined : { workspace }),
+    autoPull: (workspace) => call("auto-pull", workspace === undefined ? undefined : { workspace }),
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),
