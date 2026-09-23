@@ -2,9 +2,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
-  HIGHLIGHT_CACHE_LIMIT,
+  HIGHLIGHT_CACHE_BYTES,
   Markdown,
   clearHighlightCache,
+  highlightCacheBytes,
   highlightCacheSize,
   highlightedCode,
   isInlineMarkdown,
@@ -12,16 +13,20 @@ import {
 } from "./Markdown";
 
 describe("streaming markdown cache", () => {
-  it("reuses highlights and evicts old entries at a fixed bound", async () => {
+  it("reuses highlights and evicts the oldest entries at a byte bound", async () => {
     await loadHighlightLanguage("typescript");
     clearHighlightCache();
     const first = highlightedCode("const value = 1", "typescript");
     expect(first).toContain("hljs-keyword");
     expect(first).toBe(highlightedCode("const value = 1", "typescript"));
-    for (let index = 0; index < HIGHLIGHT_CACHE_LIMIT + 8; index += 1) {
-      highlightedCode(`const value = ${index}`, "typescript");
-    }
-    expect(highlightCacheSize()).toBe(HIGHLIGHT_CACHE_LIMIT);
+    const block = (index: number) => `const value${index} = ${index};\n`.repeat(2_000);
+    for (let index = 0; highlightCacheBytes() < HIGHLIGHT_CACHE_BYTES * 0.9; index += 1) highlightedCode(block(index), "typescript");
+    const size = highlightCacheSize();
+    for (let index = 10_000; index < 10_040; index += 1) highlightedCode(block(index), "typescript");
+    expect(highlightCacheBytes()).toBeLessThanOrEqual(HIGHLIGHT_CACHE_BYTES);
+    expect(highlightCacheSize()).toBeLessThanOrEqual(size + 1);
+    clearHighlightCache();
+    expect(highlightCacheBytes()).toBe(0);
   });
 
   it("keeps GFM tables and indented code as block Markdown beside a skill chip", () => {

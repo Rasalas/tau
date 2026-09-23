@@ -1,25 +1,8 @@
 // @vitest-environment jsdom
 import { act, render } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
-import { Markdown, loadHighlightLanguage } from "./Markdown";
-
-/** Inputs whose block structure a naive streaming split gets wrong. */
-export const TRICKY_MARKDOWN: Record<string, string> = {
-  "nested fences": "Outer:\n\n````markdown\n```ts\nconst inner = 1;\n```\n````\n\nAfter.\n",
-  "tilde fence with blank lines": "~~~python\nprint('x')\n\n\n# still code\n~~~\n\nDone.\n",
-  "backtick fence with blank lines": "```typescript\nconst a = 1;\n\nconst b = 2;\n\n\nexport { a, b };\n```\n",
-  "fences inside lists": "- step one\n\n  ```bash\n  npm test\n\n  npm run build\n  ```\n- step two\n  ~~~\n  plain\n  ~~~\n\n1. ordered\n\n   ```json\n   { \"a\": 1 }\n   ```\n",
-  "unterminated fence": "Intro paragraph.\n\n```ts\nconst x = 1;\n\nconst y = 2;",
-  "table": "| name | value |\n| --- | :-: |\n| `code` | **bold** |\n| a \\| b | [link](https://example.com) |\n\nAfter the table.\n",
-  "footnotes": "Text with a note[^1] and another[^named].\n\n[^1]: First note.\n[^named]: Second note with `code`.\n",
-  "reference links": "See [the docs][docs] and [docs].\n\n[docs]: https://example.com/docs \"Docs\"\n",
-  "html-ish text": "<div class=\"x\">hi</div>\n\ntext <b>bold</b> & <script>alert(1)</script>\n\n<!-- comment -->\n\na < b > c\n",
-  "indented code": "Paragraph.\n\n    indented code\n    more code\n\nAfter.\n",
-  "loose ordered list": "1. first\n\n2. second\n\n   continued\n\n3. third\n",
-  "headings and quotes": "# Title\n\nSetext\n======\n\n> quote with a fence:\n>\n> ```js\n> quoted();\n> ```\n\n---\n\n- [x] done\n- [ ] open\n\nline one  \nline two\nline three ~~gone~~ https://example.com/auto\n",
-  "language aliases": "```tsx\nconst View = () => <div />;\n```\n\n```c++\nint x = 0;\n```\n\n```\nno language\n```\n",
-  "fence right after a paragraph": "Look:\n```sh\necho one\n\necho two\n```\nThen text.\n",
-};
+import { Markdown, loadHighlightLanguage, pendingHighlightCount } from "./Markdown";
+import { TRICKY_MARKDOWN } from "./markdown-fixtures";
 
 beforeAll(async () => {
   await Promise.all(["typescript", "bash", "shell", "json", "python", "javascript", "markdown"].map(loadHighlightLanguage));
@@ -38,4 +21,45 @@ describe("finished Markdown", () => {
       expect(renderedHtml(text)).toMatchSnapshot();
     });
   }
+});
+
+/** Streams `text` through one Markdown instance, ends the stream, and waits for deferred highlighting. */
+async function streamedHtml(text: string, step: number, inspect?: (html: string, prefix: string) => void): Promise<string> {
+  const { container, rerender, unmount } = render(<Markdown streaming>{text.slice(0, step)}</Markdown>);
+  for (let end = step * 2; end < text.length; end += step) {
+    rerender(<Markdown streaming>{text.slice(0, end)}</Markdown>);
+    inspect?.(container.innerHTML, text.slice(0, end));
+  }
+  rerender(<Markdown streaming={false}>{text}</Markdown>);
+  do {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+  } while (pendingHighlightCount() > 0);
+  const html = container.innerHTML;
+  unmount();
+  return html;
+}
+
+describe("streamed Markdown", () => {
+  for (const [name, text] of Object.entries(TRICKY_MARKDOWN)) {
+    it(`ends identical to a finished message for ${name}`, async () => {
+      const finished = renderedHtml(text);
+      for (const step of [1, 7]) expect(await streamedHtml(text, step)).toBe(finished);
+    });
+  }
+
+  it("never shows a fence with blank lines as more than one code block", async () => {
+    const text = "Intro.\n\n```ts\nconst a = 1;\n\nconst b = 2;\n\n\nconst c = 3;\n```\n\nAfter.\n";
+    await streamedHtml(text, 1, (html, prefix) => {
+      if (prefix.includes("```ts\n")) expect(html.match(/class="md-code"/gu)).toHaveLength(1);
+      // The fence markers never leak into the rendered text.
+      expect(html).not.toContain("```");
+    });
+  });
+
+  it("highlights a growing code block while it streams", async () => {
+    const text = "```ts\nconst a = 1;\nconst b = 2;\nconst c";
+    const { container } = render(<Markdown streaming>{text}</Markdown>);
+    expect(container.querySelectorAll(".md-code .hljs-keyword")).toHaveLength(2);
+    expect(container.querySelector(".md-code code")?.textContent).toBe("const a = 1;\nconst b = 2;\nconst c");
+  });
 });
