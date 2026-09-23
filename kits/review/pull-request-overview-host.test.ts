@@ -34,6 +34,7 @@ async function harness(options: { remote?: string; remotes?: Record<string, stri
   const providers: HostMcpToolProvider[] = [];
   const runtime: RuntimeExtensionFactory[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
+  const instructions: Array<(thread: { sessionId: string; cwd: string }) => string | undefined> = [];
   const workspace = {
     id: "tau.workspace",
     name: "Workspace Kit",
@@ -61,7 +62,12 @@ async function harness(options: { remote?: string; remotes?: Record<string, stri
     thread: () => undefined,
     registerRuntimeExtension: (_name: string, factory: RuntimeExtensionFactory) => { runtime.push(factory); return () => undefined; },
     registerThreadLifecycle: (lifecycle: HostThreadLifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
-    mcp: { registerTools: (provider: HostMcpToolProvider) => { providers.push(provider); return () => undefined; }, gate: () => () => undefined, connect: async () => undefined },
+    mcp: {
+      registerTools: (provider: HostMcpToolProvider) => { providers.push(provider); return () => undefined; },
+      registerInstructions: (provider: (thread: { sessionId: string; cwd: string }) => string | undefined) => { instructions.push(provider); return () => undefined; },
+      gate: () => () => undefined,
+      connect: async () => undefined,
+    },
   }, (event) => events.push(event));
   await registry.activate(createReviewHostExtension({ run }));
   const invoke = <T = unknown>(command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input) as Promise<T>;
@@ -70,7 +76,7 @@ async function harness(options: { remote?: string; remotes?: Record<string, stri
     if (!found) throw new Error(`no tool ${name}`);
     return (params: unknown) => found.execute("call-1", params, undefined, undefined, undefined as never) as Promise<{ details: unknown }>;
   };
-  return { invoke, calls, events, providers, runtime, lifecycles, tool };
+  return { invoke, calls, events, providers, runtime, lifecycles, tool, instructions };
 }
 
 async function defaultAnswer({ args }: Call): Promise<string> {
@@ -194,6 +200,18 @@ describe("linked pull requests", () => {
     expect(Object.keys(stored.threads)).toEqual(["t1"]);
     await first.lifecycles[0]!.threadDeleted!("t1", "/project");
     expect(await first.invoke<ThreadPullRequestLink[]>("thread-links", { threadId: "t1" })).toEqual([]);
+  });
+
+  it("asks every runtime to link each request it works on, in its system prompt", async () => {
+    const { runtime, instructions } = await harness();
+    const handlers = new Map<string, (event: { systemPrompt: string }) => unknown>();
+    const pi = { registerTool: vi.fn(), on: (name: string, handler: (event: { systemPrompt: string }) => unknown) => { handlers.set(name, handler); } };
+    runtime[0]!(pi as never, { sessionId: "thread-1", cwd: "/project" } as never);
+    expect(pi.registerTool).toHaveBeenCalledTimes(3);
+    const turn = handlers.get("before_agent_start")!({ systemPrompt: "You are Pi." }) as { systemPrompt: string };
+    expect(turn.systemPrompt).toMatch(/^You are Pi\.\n\n<pull_request_linking>[\s\S]*call the link_pull_request tool with its full URL[\s\S]*<\/pull_request_linking>$/u);
+    expect(instructions).toHaveLength(1);
+    expect(instructions[0]!({ sessionId: "thread-2", cwd: "/elsewhere" })).toContain("list_thread_pull_requests");
   });
 
   it("gives every runtime the agent's link tools, bound to the calling thread", async () => {

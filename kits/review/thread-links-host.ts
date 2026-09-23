@@ -19,6 +19,11 @@ const text = (value: unknown): string | undefined => typeof value === "string" &
 
 const REGISTER_EVERY_PR = "Register every pull or merge request you open or work on for this thread, each layer of a stack included, right after creating it.";
 
+/** The section every runtime's system prompt gets, so linking does not hang on the model reading a tool description. */
+export const LINKING_INSTRUCTIONS = `<pull_request_linking>
+Tau keeps the pull and merge requests each thread works on. Whenever you open a pull or merge request, or start working on an existing one, call the link_pull_request tool with its full URL right away; for a stack, call it for every layer. Opening or updating a request through gh, glab, another CLI or the host's API does not register it with this thread. Linking one that is already linked is harmless. Before you finish work on requests, call list_thread_pull_requests and link any of yours that is missing. Do not link requests you only mention as background. If linking fails, say so instead of claiming the request is linked.
+</pull_request_linking>`;
+
 export interface ThreadLinks {
   /** Links a request to a thread; the Changes panel calls this after creating one. */
   link(threadId: string, url: string, source: ThreadPullRequestLink["source"]): Promise<void>;
@@ -229,8 +234,11 @@ export function registerThreadLinks(
   const disposers = [
     services.registerRuntimeExtension("tau-pull-requests", (pi, session) => {
       for (const tool of tools(session)) pi.registerTool(tool);
+      pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${LINKING_INSTRUCTIONS}` }));
     }),
     services.mcp.registerTools(tools),
+    // Runtimes other than Pi read it from the MCP endpoint's instructions.
+    services.mcp.registerInstructions?.(() => LINKING_INSTRUCTIONS) ?? (() => undefined),
     services.registerThreadLifecycle({
       threadDeleted: async (sessionId) => { await store.forget(sessionId); },
     }),
