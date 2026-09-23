@@ -129,7 +129,7 @@ export function ProjectActionsControl({
               setEditing(false);
             }}
           >
-            <div className="menu-heading">ADD ACTION</div>
+            <div className="menu-heading">Add action</div>
             <label><span>Name</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Test" /></label>
             <label>
               <span>Pi shell command</span>

@@ -66,7 +66,7 @@ describe("Settings → Storage", () => {
 
     const list = await screen.findByRole("list", { name: "Worktrees" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByText("WORKTREES · 10 MB")).toBeTruthy();
+    expect(screen.getByText("Worktrees · 10 MB")).toBeTruthy();
     expect(screen.getByText("Next cleanup · unchanged")).toBeTruthy();
     expect(screen.getByText("Kept · uncommitted changes")).toBeTruthy();
     expect(screen.getByText("The rules would remove 1 worktree now.")).toBeTruthy();

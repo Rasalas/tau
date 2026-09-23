@@ -67,7 +67,7 @@ function StashList({ controller, actions, project, entries, onClose }: {
     <>
       <button className="menu-scrim" aria-label="Close stashed prompts" onClick={onClose} />
       <div className="prompt-stash-list" role="dialog" aria-label="Stashed prompts">
-        <div className="menu-heading">STASHED PROMPTS</div>
+        <div className="menu-heading">Stashed prompts</div>
         <button type="button" className="prompt-stash-now" onClick={() => { onClose(); attempt(() => controller.stash(actions)); }}>
           Stash this draft
         </button>

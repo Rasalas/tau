@@ -105,7 +105,7 @@ export function CodexProviderCard({ host, onNotify }: SettingsPageProps & { host
       {status?.unsupported ? <p className="settings-note" data-level="error">Tau speaks to Codex {MIN_CODEX_VERSION} and newer. Update it with <code>{status.updateCommand}</code>.</p> : null}
       {!status?.unsupported && status?.updateAvailable ? <p className="settings-note">Codex {status.latest} is out. Update with <code>{status.updateCommand}</code>.</p> : null}
 
-      <div className="settings-label">ACCOUNT</div>
+      <div className="settings-label">Account</div>
       <div className="settings-field codex-field">
         {account ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
@@ -115,7 +115,7 @@ export function CodexProviderCard({ host, onNotify }: SettingsPageProps & { host
       </div>
       {status?.codexHome ? <p className="settings-note">Home: <code>{status.codexHome}</code>{status.models ? ` · ${status.models} models; pick one and its reasoning effort per thread in the composer.` : ""}</p> : null}
 
-      <div className="settings-label">PATH</div>
+      <div className="settings-label">Path</div>
       <CommandPathField status={status} onSave={saveCommand} />
       {error ? <p className="settings-note" data-level="error">{error}</p> : null}
     </>

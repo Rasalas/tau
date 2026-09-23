@@ -167,7 +167,7 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
         sees a token.
       </p>
 
-      <div className="settings-label">RUNTIME</div>
+      <div className="settings-label">Runtime</div>
       <div className="settings-field antigravity-field">
         {installed ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
@@ -183,7 +183,7 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
       {busy === "install" && label ? <p className="settings-note" role="status">{label}</p> : null}
       {known && status.available === undefined ? <p className="settings-note">Google publishes no Antigravity runtime for this platform.</p> : null}
 
-      <div className="settings-label">GOOGLE ACCOUNT</div>
+      <div className="settings-label">Google account</div>
       <div className="settings-field antigravity-field">
         {status?.signedIn ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
@@ -197,14 +197,14 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
         ) : null}
       </div>
 
-      <div className="settings-label">YOUR CONFIGURATION</div>
+      <div className="settings-label">Your configuration</div>
       <p className="settings-note">
         The agent runs with a Gemini home of Tau's own, so nothing it writes lands in yours. What Tau does pass through
         from <code>~/.gemini</code> is your skills, linked into that home, and your MCP servers:{" "}
         {status?.mcpServers?.length ? status.mcpServers.join(", ") : "none configured"}.
       </p>
 
-      <div className="settings-label">PATH</div>
+      <div className="settings-label">Path</div>
       <CommandPathField status={status} onSave={saveCommand} />
       {error ? <p className="settings-note" data-level="error">{error}</p> : null}
     </>

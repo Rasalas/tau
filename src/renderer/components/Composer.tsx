@@ -1033,7 +1033,7 @@ export function Composer({
                 placement="above"
                 sections={[
                   {
-                    heading: "REASONING",
+                    heading: "Reasoning",
                     items: (snapshot?.thinkingLevels ?? []).map((level) => ({
                       id: `thinking:${level}`,
                       label: THINKING_LABELS[level] ?? level,

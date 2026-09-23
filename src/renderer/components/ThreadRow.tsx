@@ -88,7 +88,7 @@ export const ThreadRow = memo(function ThreadRow({
     ? <img src={projectIcon} alt="" aria-hidden="true" />
     : projectInitial(session.projectName);
   const label = activityLabel ?? (
-    settled ? "Settled" : activity === "ready" ? "READY" : activity === "idle" ? "IDLE" : "WORKING"
+    settled ? "Settled" : activity === "ready" ? "Ready" : activity === "idle" ? "Idle" : "Working"
   );
   const working = activity === "working" || activity === "tool";
   const showStatus = working || activity === "waiting" || activity === "ready" || activity === "interrupted";
@@ -130,7 +130,7 @@ export const ThreadRow = memo(function ThreadRow({
           <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
           <strong>{session.projectName}</strong>
           {showStatus
-            ? <ThreadStatus activity={activity} label={working ? "WORKING" : label} {...(activityHint ? { hint: activityHint } : {})} startedAt={startedAt ?? session.modifiedAt} />
+            ? <ThreadStatus activity={activity} label={working ? "Working" : label} {...(activityHint ? { hint: activityHint } : {})} startedAt={startedAt ?? session.modifiedAt} />
             : <time>{age}</time>}
         </span>
         <span className="thread-title" {...tooltipProps(session.title, { when: "truncated", side: "right" })}>{session.title}</span>

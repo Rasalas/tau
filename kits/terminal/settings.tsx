@@ -26,7 +26,7 @@ export function TerminalSettingsPage({ preferences }: SettingsPageProps & { pref
     <h3>Terminal</h3>
     <p className="lede">The font the Terminal panel and terminal tabs draw with. Leave a field empty to follow your Ghostty config.</p>
 
-    <div className="settings-label">FONT FAMILY</div>
+    <div className="settings-label">Font family</div>
     <div className="terminal-settings-row">
       <input
         type="text"
@@ -39,7 +39,7 @@ export function TerminalSettingsPage({ preferences }: SettingsPageProps & { pref
       {settings.family ? <button type="button" className="text-button" onClick={() => set(FONT_FAMILY_SETTING, "")}>Reset</button> : null}
     </div>
 
-    <div className="settings-label">FONT SIZE</div>
+    <div className="settings-label">Font size</div>
     <div className="terminal-settings-row">
       <input
         type="number"
@@ -60,7 +60,7 @@ export function TerminalSettingsPage({ preferences }: SettingsPageProps & { pref
     </p>
     <div className="terminal-settings-sample" style={{ fontFamily: resolved.family, fontSize: `${resolved.size}px` }}>{SAMPLE}</div>
 
-    <div className="settings-label">GHOSTTY</div>
+    <div className="settings-label">Ghostty</div>
     <p className="settings-note">
       {ghostty === undefined
         ? "Reading the Ghostty config…"

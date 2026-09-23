@@ -113,7 +113,7 @@ export function ClaudeCodeProviderCard({ host, onNotify }: SettingsPageProps & {
       </div>
       {status?.update ? <p className="settings-note">Claude Code {status.update.latest} is out; {status.update.installed} is installed.{status.update.command ? <> Update with <code>{status.update.command}</code>.</> : null}</p> : null}
 
-      <div className="settings-label">ACCOUNT</div>
+      <div className="settings-label">Account</div>
       <div className="settings-field claude-code-field">
         {probe?.account ? <CircleCheck size={14} className="accent" /> : <TriangleAlert size={14} />}
         <span>
@@ -129,7 +129,7 @@ export function ClaudeCodeProviderCard({ host, onNotify }: SettingsPageProps & {
         </p>
       ) : null}
 
-      <div className="settings-label">PATH</div>
+      <div className="settings-label">Path</div>
       <CommandPathField status={status} onSave={saveCommand} />
       {error ? <p className="settings-note" data-level="error">{error}</p> : null}
     </>

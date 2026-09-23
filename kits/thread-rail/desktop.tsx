@@ -79,7 +79,7 @@ function createFanOutChip(selection: FanOutSelection, workspace: () => Workspace
           <Menu
             placement="above"
             sections={[
-              { heading: "ONE THREAD EACH", items: keys.map((key, index) => ({ id: `remove:${index}`, label: name(key), hint: "remove" })) },
+              { heading: "One thread each", items: keys.map((key, index) => ({ id: `remove:${index}`, label: name(key), hint: "remove" })) },
               { items: [...new Set(keys)].map((key) => ({ id: `again:${key}`, label: `Once more: ${name(key)}` })) },
               { items: [{ id: "clear", label: "Back to one model", icon: <X size={13} /> }] },
             ]}
@@ -118,7 +118,7 @@ function createSettingsPage(store: RailStore, update: (settings: Partial<Record<
           Settled threads leave the active list without being deleted. These rules settle a thread on their own, on the
           host, even while no window is open. A running thread, a snoozed one and one you just took off the shelf are left alone.
         </p>
-        <div className="settings-label">SETTLE AUTOMATICALLY</div>
+        <div className="settings-label">Settle automatically</div>
         <div className="settings-field-row">
           <span className="settings-field-label"><strong>After a quiet spell</strong><small>No turn for this long</small></span>
           <div className="segmented" role="group" aria-label="Settle after">

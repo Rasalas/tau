@@ -1841,8 +1841,12 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 
 | Token | Role | Value |
 |---|---|---|
-| `--mono` | code, labels and numbers | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` |
+| `--mono` | code and numbers | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` |
 | `--sans` | everything else | `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` |
+| `--label-font` | section, group and status labels ("Pinned · 2", "Working 0:42", a Settings heading) | `var(--sans)` |
+| `--label-case` | their `text-transform` | `none` |
+| `--label-tracking` | their `letter-spacing` | `normal` |
+| `--label-size` | their size | `11px` |
 | `--radius-xs` | a tag | `4px` |
 | `--radius-sm` | a button | `6px` |
 | `--radius-md` | a card | `9px` |

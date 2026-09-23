@@ -149,7 +149,7 @@ export function AddModelProviderModal({ onClose, onProviderAdded }: AddModelProv
 
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: "var(--faint)" }}>
-              PROVIDER NAME
+              Provider name
             </label>
             <input
               type="text"
@@ -169,7 +169,7 @@ export function AddModelProviderModal({ onClose, onProviderAdded }: AddModelProv
 
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: "var(--faint)" }}>
-              BASE URL
+              Base URL
             </label>
             <input
               type="text"
@@ -190,7 +190,7 @@ export function AddModelProviderModal({ onClose, onProviderAdded }: AddModelProv
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: "var(--faint)" }}>
-                API PROTOCOL
+                API protocol
               </label>
               <select
                 value={api}
@@ -212,7 +212,7 @@ export function AddModelProviderModal({ onClose, onProviderAdded }: AddModelProv
 
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: "var(--faint)" }}>
-                API KEY
+                API key
               </label>
               <input
                 type="password"
@@ -255,7 +255,7 @@ export function AddModelProviderModal({ onClose, onProviderAdded }: AddModelProv
 
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: "var(--faint)" }}>
-                MODEL NAME
+                Model name
               </label>
               <input
                 type="text"
@@ -275,7 +275,7 @@ export function AddModelProviderModal({ onClose, onProviderAdded }: AddModelProv
 
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: "var(--faint)" }}>
-                CONTEXT WINDOW
+                Context window
               </label>
               <input
                 type="number"

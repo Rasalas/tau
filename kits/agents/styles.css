@@ -16,7 +16,7 @@
 .agent-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px; }
 .agent-group-label {
   height: 24px; display: flex; align-items: center;
-  font: 500 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+  font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); color: var(--faint);
 }
 .agent-row {
   display: grid; width: 100%; height: 54px; align-content: center; gap: 2px;

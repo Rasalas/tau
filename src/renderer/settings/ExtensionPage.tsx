@@ -162,7 +162,7 @@ export function ExtensionPage({
 
       {summary.granted === false ? (
         <div className="extension-grant-box">
-          <div className="settings-label">APPROVAL REQUIRED</div>
+          <div className="settings-label">Approval required</div>
           <p>This package does not run until you approve what it asks for:</p>
           {summary.permissions && summary.permissions.length > 0 ? (
             <ul>{summary.permissions.map((permission) => <li key={permission}><code>{permission}</code></li>)}</ul>
