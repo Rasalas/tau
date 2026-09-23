@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
+import { TurnActivityStore, findExecutable, type HostExtension, type HostMcpConnection, type HostRuntimeBackendProvider, type RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { CodexAppServer, spawnInput } from "./app-server.js";
 import createCodexHostExtension, { codexNewThreadCatalog } from "./host.js";
@@ -81,6 +81,18 @@ describe("Codex host half", () => {
     expect(provider).toMatchObject({ kind: "codex", label: "Codex", modelProvider: "openai" });
     expect(provider.adapter.capabilities).toMatchObject({ skillInvocationDialect: "codex", interactiveApprovals: true, fileAttachments: true });
     expect(provider.composerCommands("/repo")).toEqual([]);
+  });
+
+  it("moves a thread's tool cards to the trash with its record and back", async () => {
+    const { provider, root } = await harness();
+    const dir = join(root, "agent", "tau");
+    await new CodexSessionStore({ filePath: join(dir, "codex-runtime-sessions.json") }).ensure("tau-9", "/repo");
+    await new TurnActivityStore({ directory: join(dir, "codex-activity") }).save("tau-9", { id: "activity-1", status: "completed", tools: [{ id: "a", name: "bash", args: {}, status: "done", startedAt: 1 }] });
+    const taken = await provider.removeThread!("tau-9") as { tauThreadId: string; activity?: string };
+    expect(taken).toMatchObject({ tauThreadId: "tau-9", activity: expect.stringContaining("\"a\"") });
+    expect(await new TurnActivityStore({ directory: join(dir, "codex-activity") }).load("tau-9")).toEqual([]);
+    await provider.restoreThread!("tau-9", JSON.parse(JSON.stringify(taken)));
+    expect((await new TurnActivityStore({ directory: join(dir, "codex-activity") }).load("tau-9")).map((entry) => entry.tools[0]!.id)).toEqual(["a"]);
   });
 
   it("starts a thread's app-server with Tau's MCP server and its credential, and a probe without", async () => {

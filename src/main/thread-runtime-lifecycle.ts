@@ -218,6 +218,10 @@ export class ThreadRuntimeLifecycle {
     });
     const thread = new ThreadRuntime(backend);
     thread.adapterMessages = await backend.transcript();
+    thread.adapterActivity = await backend.capabilities.activityHistory?.load().catch((error: unknown) => {
+      this.port.log("activity.load.failed", this.port.errorMessage(error));
+      return [];
+    }) ?? [];
     const state = backend.state();
     thread.adapterTitle = state.title;
     thread.adapterTitleSource = state.titleSource;

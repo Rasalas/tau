@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
 import { mkdir, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   DEFAULT_INSTANCE_ID,
   HostCommandError,
   RuntimeInstanceSettings,
+  TurnActivityStore,
   commandInvocation,
   compareVersions,
   npmLatestVersion,
@@ -135,7 +136,9 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
     activate(context) {
       const services: HostExtensionServices = context.services;
       const env = options.env ?? process.env;
-      const store = new CodexSessionStore({ filePath: CodexSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir) });
+      const storePath = CodexSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
+      const store = new CodexSessionStore({ filePath: storePath });
+      const activity = new TurnActivityStore({ directory: join(dirname(storePath), "codex-activity") });
       const readVersion = options.readVersion ?? readCodexVersion;
       const settings = new RuntimeInstanceSettings({
         file: join(services.stateDir, "settings.json"),
@@ -280,8 +283,15 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           adapter,
           modelProvider: "openai",
           listThreads: async () => (await store.list(id)).map(record),
-          removeThread: (threadId) => store.take(threadId),
-          restoreThread: (threadId, value) => store.put(threadId, value),
+          removeThread: async (threadId) => {
+            const taken = await store.take(threadId);
+            const tools = await activity.take(threadId);
+            return taken && tools ? { ...taken, activity: tools } : taken;
+          },
+          restoreThread: async (threadId, value) => {
+            await store.put(threadId, value);
+            await activity.put(threadId, (value as { activity?: unknown } | undefined)?.activity);
+          },
           lookup: async (threadId) => {
             const entry = await store.get(threadId);
             return entry && (entry.instance ?? DEFAULT_INSTANCE_ID) === id ? record(entry) : undefined;
@@ -292,6 +302,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             const backend = new CodexThreadRuntimeBackend(threadId, cwd, {
               adapter,
               store,
+              activity,
               instance: id,
               configuredModel: () => readCodexConfiguredModel(home()),
               openSession: (input) => spawnSession(id, input),

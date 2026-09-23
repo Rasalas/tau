@@ -16,6 +16,7 @@ import {
   type ThreadRuntimeBackend,
   type ThreadRuntimeEvent,
   type ThreadTitleSource,
+  type TurnActivityStore,
   type UiComposerCommand,
   type UiContextUsage,
   type UiMessage,
@@ -64,6 +65,8 @@ export interface AntigravitySessionInput {
 }
 
 export interface AntigravityThreadBackendOptions {
+  /** Where the thread's tool cards are kept across restarts. */
+  activity?: TurnActivityStore;
   adapter: AntigravityRuntimeAdapter;
   store: AntigravitySessionStore;
   /** Spawns and shakes hands with the agent; the backend creates or resumes the session itself. */
@@ -114,6 +117,11 @@ export function promptBlocks(text: string, attachments: readonly UiPromptAttachm
       : { type: "resource_link", uri: pathToFileURL(attachment.path).href, name: attachment.name, mimeType: attachment.mimeType });
   }
   return blocks;
+}
+
+/** The capability over the kit's store; the agent's own history is not read back. */
+function activityHistory(threadId: string, store: TurnActivityStore | undefined): Pick<ThreadBackendCapabilities, "activityHistory"> {
+  return store ? { activityHistory: { load: () => store.load(threadId), save: (entry) => store.save(threadId, entry) } } : {};
 }
 
 function imagesOf(attachments: readonly UiPromptAttachment[] | undefined): Array<{ mimeType: string; data: string }> {
@@ -171,6 +179,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
         hiddenPrompt: false,
         notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
       },
+      ...activityHistory(threadId, options.activity),
     };
   }
 
@@ -182,7 +191,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
       : await this.store.get(this.threadId) ?? await this.store.ensure(this.threadId, this.cwd);
     if (this.record.cwd !== this.cwd) throw new Error("Antigravity session belongs to another workspace.");
     this.messages = this.record.messages.map((message, index) => ({
-      id: `antigravity-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
+      id: message.id ?? `antigravity-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
       role: message.role,
       text: message.text,
       timestamp: message.timestamp,

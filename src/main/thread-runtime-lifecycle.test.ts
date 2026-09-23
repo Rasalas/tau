@@ -88,6 +88,19 @@ describe("ThreadRuntimeLifecycle", () => {
     expect(adopted).toEqual([thread]);
   });
 
+  it("gives an external thread the tool cards its runtime kept, and none when reading them fails", async () => {
+    const entry = { id: "k/activity-1", anchorMessageId: "m1", status: "completed" as const, tools: [{ id: "a", name: "bash", args: {}, status: "done" as const, startedAt: 1 }] };
+    const kept = { ...externalBackend("thread"), capabilities: { activityHistory: { load: async () => [entry], save: async () => undefined } } };
+    const { lifecycle } = makeLifecycle({}, { test: { open: async () => kept } });
+    expect((await lifecycle.openExternal("test", "thread", "/repo")).adapterActivity).toEqual([entry]);
+
+    const broken = { ...externalBackend("other"), capabilities: { activityHistory: { load: async () => { throw new Error("unreadable"); }, save: async () => undefined } } };
+    const logs: string[] = [];
+    const failing = makeLifecycle({ log: (label) => { logs.push(label); } }, { test: { open: async () => broken } });
+    expect((await failing.lifecycle.openExternal("test", "other", "/repo")).adapterActivity).toEqual([]);
+    expect(logs).toContain("activity.load.failed");
+  });
+
   it("leaves an unadopted external thread out of the registry", async () => {
     const provider = { open: async () => externalBackend("thread") };
     const { lifecycle, adopted } = makeLifecycle({}, { test: provider });

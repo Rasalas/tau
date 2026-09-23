@@ -70,3 +70,5 @@ export {
   type RuntimeInstanceConfig,
 } from "../shared/runtime-instances.js";
 export { parseVersionPolicy, satisfiesVersionRange, versionCompatibility, type VersionPolicy } from "../shared/version-policy.js";
+/** For a backend without a readable journal: its tool cards kept across restarts (API 1.12.0). */
+export { TurnActivityStore, type TurnActivityStoreOptions } from "./turn-activity-store.js";

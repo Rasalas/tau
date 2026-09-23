@@ -16,6 +16,7 @@ import {
   type ThreadRuntimeBackend,
   type ThreadRuntimeEvent,
   type ThreadTitleSource,
+  type TurnActivityStore,
   type UiComposerCommand,
   type UiContextUsage,
   type UiMessage,
@@ -61,6 +62,8 @@ export interface CodexSessionInput {
 }
 
 export interface CodexThreadBackendOptions {
+  /** Where the thread's tool cards are kept across restarts. */
+  activity?: TurnActivityStore;
   adapter: CodexRuntimeAdapter;
   store: CodexSessionStore;
   /** The instance the thread runs on; the default one when absent. */
@@ -135,6 +138,11 @@ function imagesOf(attachments: readonly UiPromptAttachment[] | undefined): Array
   return (attachments ?? []).flatMap((attachment) => attachment.kind === "image" ? [{ mimeType: attachment.mimeType, data: attachment.data }] : []);
 }
 
+/** The capability over the kit's store; Codex's own rollout is not read back. */
+function activityHistory(threadId: string, store: TurnActivityStore | undefined): Pick<ThreadBackendCapabilities, "activityHistory"> {
+  return store ? { activityHistory: { load: () => store.load(threadId), save: (entry) => store.save(threadId, entry) } } : {};
+}
+
 function wait(ms: number): Promise<false> {
   return new Promise((resolve) => setTimeout(() => resolve(false), ms).unref?.());
 }
@@ -198,6 +206,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         hiddenPrompt: false,
         notice: async (text) => { this.report({ type: "notice", message: text, level: "info" }); },
       },
+      ...activityHistory(threadId, options.activity),
     };
   }
 
@@ -213,7 +222,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
     this.tools = record.tools;
     this.messages = record.messages.map((message, index) => ({
-      id: `codex-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
+      id: message.id ?? `codex-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
       role: message.role,
       text: message.text,
       timestamp: message.timestamp,

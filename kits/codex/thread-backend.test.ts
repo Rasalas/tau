@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import type { BackendPrompt, ExtensionUiAnswer, RuntimePermissionLevel, ThreadRuntimeEvent } from "tau/host-extension";
+import { TurnActivityStore, type BackendPrompt, type ExtensionUiAnswer, type RuntimePermissionLevel, type ThreadRuntimeEvent, type UiMessage, type UiToolRun } from "tau/host-extension";
 import { CodexAppServer } from "./app-server.js";
 import { ALLOW, ALLOW_SESSION } from "./approvals.js";
 import { spawnRpcProcess } from "./rpc.js";
@@ -33,7 +33,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[] } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
@@ -54,6 +54,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
     ask: async (prompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true }; },
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),
+    ...(options.activity ? { activity: options.activity } : {}),
   });
   backends.push(backend);
   await backend.start(options.resume ? "resume" : "create");
@@ -196,6 +197,32 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect(resumes.map((message) => message.params?.threadId)).toEqual([codexThreadId]);
     expect(second.events.some((event) => event.type === "notice")).toBe(false);
     expect(second.backend.catalogView().usage?.turns).toBe(2);
+  });
+
+  it("keeps a turn's tool cards for the next open, anchored to a message the transcript shows again", async () => {
+    const space = await scratch();
+    const activity = new TurnActivityStore({ directory: join(space.dir, "activity") });
+    const first = await open(space, { activity });
+    const history = first.backend.capabilities.activityHistory!;
+    expect(await history.load()).toEqual([]);
+    await first.backend.prompt({ text: "Run it [scenario:command]", delivery: "prompt", identity: { clientMessageId: "c1", clientTurnId: "t1" } });
+    // What the host records: the turn's tools, after the last message shown before the first of them.
+    const shown: UiMessage[] = [];
+    let anchor: string | undefined;
+    const tools: UiToolRun[] = [];
+    for (const event of first.events) {
+      if (event.type === "user-message" || event.type === "assistant-end") shown.push(event.message);
+      if (event.type === "tool-start") anchor ??= shown.at(-1)?.id;
+      if (event.type === "tool-end") tools.push(event.tool);
+    }
+    expect(anchor).toBeDefined();
+    await history.save({ id: "activity-tau-1-1", anchorMessageId: anchor!, status: "completed", tools });
+    await first.backend.dispose();
+
+    const second = await open(space, { resume: true, activity });
+    const [entry] = await second.backend.capabilities.activityHistory!.load();
+    expect(entry).toMatchObject({ status: "completed", anchorMessageId: anchor, tools: [{ name: "bash", status: "done", output: "tau-ok\n" }] });
+    expect((await second.backend.transcript()).map((message) => message.id)).toEqual(shown.map((message) => message.id));
   });
 
   it("starts a new Codex thread when the old one is gone, and says so", async () => {
