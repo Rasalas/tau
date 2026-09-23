@@ -1,7 +1,10 @@
+import { GitCompare } from "lucide-react";
 import { getClientStorage, type DesktopExtension } from "tau";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
 import { ReviewCommentStore } from "./comments.js";
-import { COLLAPSED_OPTION, createReviewOverlay, SPLIT_OPTION, WHITESPACE_OPTION } from "./overlay.js";
+import { createReviewOverlay } from "./overlay.js";
+import { trackDiffSettings } from "./diff-settings.js";
+import { ReviewSettingsPage } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   REVIEW_HOST_EXTENSION_ID,
@@ -36,12 +39,19 @@ export const reviewExtension: DesktopExtension = {
     const rows = new RowRequests((path) => requests.request(path));
     const comments = new ReviewCommentStore(getClientStorage);
     let chips: ComposerContextChips | undefined;
-    plugin.registerOptions([
-      { id: SPLIT_OPTION, kind: "toggle", label: "Open diffs in split view", defaultValue: false },
-      { id: WHITESPACE_OPTION, kind: "toggle", label: "Hide whitespace changes in diffs", defaultValue: false },
-      { id: COLLAPSED_OPTION, kind: "toggle", label: "Diff files start collapsed", defaultValue: false },
-      ...COMMIT_MESSAGE_OPTIONS,
-    ]);
+    // The rest of the kit's settings are its Review page; the model picker stays here.
+    plugin.registerOptions(COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"));
+    plugin.registerSettingsPage({
+      id: "review.settings",
+      label: "Review",
+      Icon: GitCompare,
+      order: 36,
+      scope: "both",
+      keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace"],
+      profiles: ["desktop", "web"],
+      Component: ReviewSettingsPage,
+    });
+    const untrackDiffSettings = trackDiffSettings(plugin.preferences);
     plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, (service) => {
       chips = service;
       return () => { if (chips === service) chips = undefined; };
@@ -49,7 +59,7 @@ export const reviewExtension: DesktopExtension = {
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
     registerPullRequestTab(plugin, requests, rows, () => chips);
-    return plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
+    const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       const disposers = [
         plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store, comments, () => chips) }),
         plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => store.openReview() }),
@@ -64,6 +74,10 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { for (const dispose of disposers.reverse()) dispose(); };
     });
+    return () => {
+      releaseStore();
+      untrackDiffSettings();
+    };
   },
 };
 

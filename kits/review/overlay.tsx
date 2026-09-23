@@ -10,14 +10,13 @@ import {
   type WorkspaceChangesQuery,
 } from "tau";
 import { automaticCommitMessages } from "./commit-messages.js";
+import { COLLAPSED_OPTION, diffWordWrap, SPLIT_OPTION, WHITESPACE_OPTION, WRAP_OPTION } from "./diff-settings.js";
 import { CommentsPanel, CommentsToolbar, handOffComments, useCommentLines } from "./comment-views.js";
 import type { ReviewCommentStore } from "./comments.js";
 import { REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type WorkspaceStoreApi } from "./protocol.js";
 import type { WorkspaceChangesReader } from "./workspace.js";
 
-export const SPLIT_OPTION = "split-diff";
-export const WHITESPACE_OPTION = "diff-ignore-whitespace";
-export const COLLAPSED_OPTION = "diff-files-collapsed";
+export { COLLAPSED_OPTION, SPLIT_OPTION, WHITESPACE_OPTION } from "./diff-settings.js";
 
 /** Review Kit's full-workbench review of the live worktree, over Workspace Kit's state. */
 export function createReviewOverlay(
@@ -86,6 +85,8 @@ export function createReviewOverlay(
         ignoreWhitespace={option(WHITESPACE_OPTION)}
         onIgnoreWhitespaceChange={(ignore) => plugin.preferences.setOption(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION, ignore)}
         filesStartCollapsed={option(COLLAPSED_OPTION)}
+        wordWrap={diffWordWrap(plugin.preferences)}
+        onWordWrapChange={(wrap) => plugin.preferences.setOption(REVIEW_HOST_EXTENSION_ID, WRAP_OPTION, wrap)}
         lines={lines}
         toolbar={<CommentsToolbar store={comments} state={commentState} onSend={send} />}
         aside={<CommentsPanel store={comments} state={commentState} onSend={send} />}

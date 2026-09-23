@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen, WrapText } from "lucide-react";
 import { DiffView, errorMessage, getClientStorage, type DiffLineSlot, type UiDiffLine, type WorkbenchActions } from "tau";
+import { currentDiffWordWrap } from "./diff-settings.js";
 import type { PullRequestDetail, PullRequestFile, PullRequestFiles, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import type { PullRequestCommentInput } from "./pull-request-client.js";
 import { anchorThreads, lineKeys, orderFiles, shortNoun, threadChip } from "./pull-request-logic.js";
@@ -55,6 +56,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
 }) {
   const [selected, setSelected] = useState<string>();
   const [layout, setLayout] = useState<"unified" | "split">("unified");
+  const [wrap, setWrap] = useState(currentDiffWordWrap);
   const [treeOpen, setTreeOpen] = useState(() => getClientStorage()?.get(TREE_KEY) !== "false");
   const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const [draft, setDraft] = useState<Draft>();
@@ -163,6 +165,9 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
           {viewedCount} / {ordered.length} viewed{files.viewedOn === "local" ? <> in Tau <Info size={11} aria-hidden="true" /></> : null}
         </span>
         <span className="spacer" />
+        <button className={`icon-button compact ${wrap ? "active" : ""}`} aria-pressed={wrap} aria-label={wrap ? "Disable line wrapping" : "Enable line wrapping"} title={wrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setWrap(!wrap)}>
+          <WrapText size={14} />
+        </button>
         <div className="toggle-group" aria-label="Diff layout">
           <button className={layout === "unified" ? "active" : ""} onClick={() => setLayout("unified")}>Unified</button>
           <button className={layout === "split" ? "active" : ""} onClick={() => setLayout("split")}>Split</button>
@@ -204,7 +209,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
             </header>
           ) : null}
           <div className="pr-diff">
-            <DiffView key={current?.path} {...(diff ? { diff } : {})} mode={layout} {...(current ? { path: current.path } : {})} {...(lines ? { lines } : {})} />
+            <DiffView key={current?.path} {...(diff ? { diff } : {})} mode={layout} wrap={wrap} {...(current ? { path: current.path } : {})} {...(lines ? { lines } : {})} />
           </div>
         </main>
         {treeOpen ? (

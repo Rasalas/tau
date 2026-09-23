@@ -253,3 +253,26 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 
 .publish-form input[aria-label="Repository"] { font-family: var(--mono); }
 .publish-options { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Blue and orange instead of green and red: the kit's diff colours put the attribute on <html>. */
+:root[data-diff-colors="blue-orange"] {
+  --diff-add-bg: var(--diff-blue-bg);
+  --diff-add-ink: var(--diff-blue-ink);
+  --diff-add-mark: var(--diff-blue-mark);
+  --diff-add-mark-ink: var(--diff-blue-mark-ink);
+  --diff-add-mark-line: var(--diff-blue-mark-line);
+  --diff-add-edge: var(--diff-blue-edge);
+  --diff-del-bg: var(--diff-orange-bg);
+  --diff-del-ink: var(--diff-orange-ink);
+  --diff-del-mark: var(--diff-orange-mark);
+  --diff-del-mark-ink: var(--diff-orange-mark-ink);
+  --diff-del-mark-line: var(--diff-orange-mark-line);
+  --diff-del-edge: var(--diff-orange-edge);
+}
+.review-color-swatch { display: inline-flex; gap: 3px; margin-right: 6px; vertical-align: 1px; }
+.review-color-swatch > i { width: 7px; height: 7px; border-radius: 50%; }
+.review-color-swatch.red-green > i:first-child { background: var(--removed); }
+.review-color-swatch.red-green > i:last-child { background: var(--ready); }
+.review-color-swatch.blue-orange > i:first-child { background: var(--diff-orange-edge); }
+.review-color-swatch.blue-orange > i:last-child { background: var(--diff-blue-edge); }
+.review-instructions { width: min(420px, 100%); min-height: 84px; resize: vertical; font: inherit; line-height: 1.45; }
