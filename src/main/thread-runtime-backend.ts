@@ -173,15 +173,15 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   catalogView(): ThreadCatalogView {
-    const contextUsage = this.contextUsage();
-    const usage = this.threadUsage();
+    const backend = this;
     return {
       model: modelOf(this.session.model, this.session.modelRuntime),
       thinkingLevel: this.session.thinkingLevel,
       thinkingLevels: this.session.getAvailableThinkingLevels(),
       allTools: this.session.getAllTools().map((tool) => ({ name: tool.name, description: tool.description })),
-      ...(contextUsage ? { contextUsage } : {}),
-      ...(usage ? { usage } : {}),
+      // Both walk the whole session; a catalog that does not show them must not pay for them.
+      get contextUsage() { return backend.contextUsage(); },
+      get usage() { return backend.threadUsage(); },
     };
   }
 

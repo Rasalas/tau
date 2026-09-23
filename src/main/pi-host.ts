@@ -37,6 +37,7 @@ import {
   HOST_PROTOCOL_VERSION,
   catalogFromSnapshot,
   type HostActionResult,
+  type HostCatalog,
   type HostUpdate,
   type NewThreadResult,
   type ProjectMetadata,
@@ -1764,7 +1765,7 @@ export class PiHost {
   async setModel(provider: string, id: string): Promise<HostActionResult> {
     const thread = this.requireActive();
     await requireCapability(thread.backend, "catalogWrite").setModel(provider, id);
-    if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, false);
+    if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.publishModelProvider(thread);
     this.log("model.changed", `${provider}/${id}`);
     return this.catalogResult();
   }
@@ -1776,10 +1777,22 @@ export class PiHost {
   }
 
   private async catalogResult(): Promise<HostActionResult> {
-    const snapshot = await this.snapshot();
-    const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: catalogFromSnapshot(snapshot) };
+    const catalog = { version: HOST_PROTOCOL_VERSION, type: "catalog" as const, catalog: await this.activeCatalog() };
     this.emitUpdate(catalog);
     return this.actionResult([catalog]);
+  }
+
+  /** `catalogFromSnapshot(await this.snapshot())` without projecting the transcript. */
+  private async activeCatalog(): Promise<HostCatalog> {
+    this.ensureCompletionModels();
+    this.runtimeVersions.refresh();
+    const models = await this.ensureModels();
+    return {
+      ...this.projection.catalog(this.active, models, this.extensionCount),
+      ...(this.completionModels ? { completionModels: [...this.completionModels] } : {}),
+      runtimeBackends: this.runtimeBackends().map((backend) => ({ ...backend })),
+      ...(this.defaultBackendKind ? { defaultBackendKind: this.defaultBackendKind } : {}),
+    };
   }
 
   async renameThread(rawTitle: string, expectedSessionId?: string): Promise<HostActionResult> {
@@ -1924,8 +1937,7 @@ export class PiHost {
   }
 
   private async publishActiveCatalog(): Promise<void> {
-    const snapshot = await this.snapshot();
-    this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) });
+    this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: await this.activeCatalog() });
   }
 
   private async rememberProject(cwd: string): Promise<void> {

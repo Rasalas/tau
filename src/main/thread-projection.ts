@@ -1,5 +1,6 @@
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import type { HostSnapshot, UiComposerCommand, UiMessage, UiModel, UiTurnActivity } from "../shared/contracts.js";
+import { catalogFromSnapshot, type HostCatalog } from "../shared/host-protocol.js";
 import { branchMessagesWithClientMessageIds } from "../shared/client-message-correlation.js";
 import { resolveClientTurnIdentity } from "../shared/transcript-turn.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
@@ -156,6 +157,32 @@ export class ThreadProjection {
       catch (error) { this.reportPinFailure(error); }
     }
     return pinned;
+  }
+
+  /**
+   * The catalog half of `hostSnapshot`, without mapping a single message: a
+   * model or thinking-level change costs the same in a thread of any length.
+   * Host-wide fields (runtime backends, completion models) are the caller's.
+   */
+  catalog(thread: ThreadRuntime | undefined, models: UiModel[], extensionCount: number): HostCatalog {
+    if (this.attachedSnapshot()) return catalogFromSnapshot({ ...this.attachedHostSnapshot(), models });
+    if (!thread) throw new Error("Pi runtime is not ready");
+    const pi = isPiBackend(thread);
+    const state = thread.state;
+    const view = thread.backend.catalogView();
+    return {
+      sessionId: thread.threadId,
+      backendKind: thread.backend.kind,
+      models: [...models],
+      model: view.model,
+      runtimeCapabilities: thread.runtimeAdapter.capabilities,
+      thinkingLevel: view.thinkingLevel,
+      thinkingLevels: [...view.thinkingLevels],
+      allTools: [...view.allTools],
+      composerCommands: this.composerCommands(thread).map((command) => ({ ...command })),
+      extensionCount: pi ? extensionCount : state.extensionCount,
+      supportsImageInput: state.supportsImageInput ?? false,
+    };
   }
 
   hostSnapshot(thread: ThreadRuntime | undefined, models: UiModel[], cwd: string, extensionCount: number): HostSnapshot {

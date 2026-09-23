@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { catalogFromSnapshot } from "../shared/host-protocol.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ThreadRuntime } from "./thread-runtime.js";
@@ -58,5 +59,48 @@ describe("ThreadProjection for a backend without a journal", () => {
     // The live turn carries the latest output of a running tool; the history keeps every fold.
     expect(snapshot.turnActivity).toEqual({ anchorMessageId: "u1", tools: [{ ...running, output: "partial" }] });
     expect(snapshot.turnActivityHistory?.map((entry) => entry.id)).toEqual(["activity-thread-1-1", "activity-thread-1-2"]);
+  });
+});
+
+function piThread(entries: () => readonly unknown[]) {
+  const backend = {
+    kind: "pi",
+    runtimeAdapter: { id: "pi", capabilities: { skillInvocationDialect: "pi", ownsModelSelection: false } },
+    threadId: "pi-1",
+    providerSessionId: "pi-1",
+    cwd: "/repo",
+    turnReporting: "streamed",
+    capabilities: { journal: { entries, appendCustomEntry: () => undefined, appendMessage: () => undefined } },
+    state: () => ({ streaming: false, idle: true, hasMessages: true, activeTools: [], supportsImageInput: true, extensionCount: 7, title: undefined }),
+    catalogView: () => ({
+      model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+      thinkingLevel: "high",
+      thinkingLevels: ["low", "high"],
+      allTools: [{ name: "bash", description: "Run a command" }],
+    }),
+    composerCommands: () => [{ name: "review", description: "Review", source: "skill" }],
+  };
+  return new ThreadRuntime(backend as never);
+}
+
+describe("ThreadProjection catalog", () => {
+  const projection = () => new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => undefined);
+  const models = [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }];
+
+  it("is the catalog the full snapshot carries, for a Pi thread and a backend without a journal", () => {
+    const entries = [
+      { type: "message", id: "e1", message: { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 } },
+      { type: "message", id: "e2", message: { role: "assistant", content: [{ type: "text", text: "hello" }], timestamp: 2 } },
+    ];
+    for (const thread of [piThread(() => entries), externalThread()]) {
+      expect(projection().catalog(thread, models, 3)).toEqual(catalogFromSnapshot(projection().hostSnapshot(thread, models, "/repo", 3)));
+    }
+  });
+
+  it("does not read the thread's messages", () => {
+    const entries = vi.fn(() => { throw new Error("the catalog read the journal"); });
+    const catalog = projection().catalog(piThread(entries), models, 3);
+    expect(entries).not.toHaveBeenCalled();
+    expect(catalog).toMatchObject({ sessionId: "pi-1", thinkingLevel: "high", extensionCount: 3, supportsImageInput: true });
   });
 });

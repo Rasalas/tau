@@ -116,6 +116,25 @@ describe("ThreadIndex", () => {
     expect(index.byId("a")?.title).toBe("First");
   });
 
+  it("moves only the provider of a known shell when the model changes", async () => {
+    const { index, updates } = makeIndex();
+    seed(index, [shell({ id: "session", path: "/session.jsonl", title: "Kept", messageCount: 9_000, modelProvider: "anthropic" })]);
+    const thread = piThread("session");
+    const transcript = vi.fn(async () => { throw new Error("a model change read the transcript"); });
+    Object.assign((thread as unknown as { backend: object }).backend, {
+      transcript,
+      catalogView: () => ({ model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }, thinkingLevel: "off", thinkingLevels: [], allTools: [] }),
+    });
+    await index.publishModelProvider(thread);
+    expect(transcript).not.toHaveBeenCalled();
+    expect(index.byId("session")).toMatchObject({ title: "Kept", messageCount: 9_000, modelProvider: "openai", modifiedAt: 1 });
+    await flush();
+    expect(updates).toHaveLength(1);
+    await index.publishModelProvider(thread);
+    await flush();
+    expect(updates).toHaveLength(1);
+  });
+
   it("ignores a retitle of an unknown or unchanged shell", async () => {
     const { index, updates } = makeIndex();
     seed(index, [shell({ id: "a", path: "/a.jsonl", title: "Kept" })]);

@@ -266,6 +266,20 @@ export class ThreadIndex {
   }
 
   /**
+   * A model change moves only the shell's provider. The transcript is not read
+   * again, so the change costs the same in a thread of any length.
+   */
+  async publishModelProvider(thread: ThreadRuntime): Promise<void> {
+    const shell = this.byId(thread.threadId);
+    if (!shell) return this.refreshShell(thread, false);
+    const modelProvider = thread.backend.catalogView().model?.provider ?? this.port.backends().get(threadBackendKind(thread))?.modelProvider;
+    if (!modelProvider || modelProvider === shell.modelProvider) return;
+    const updated = { ...shell, modelProvider };
+    this.sessions = this.sessions.map((entry) => entry.id === shell.id ? updated : entry);
+    this.publishShellSoon(updated);
+  }
+
+  /**
    * A live thread's own total, straight from its runtime. It supersedes the
    * cache, and seeds it, so an open thread is never re-read from disk.
    */
