@@ -720,7 +720,7 @@ describe("App render isolation", () => {
     await waitFor(() => expect(loadTranscript).toHaveBeenCalledWith("session", asHostTranscriptCursor("opaque:2")));
 
     fireEvent.click(screen.getByRole("button", { name: /Current model/u }));
-    const modelPicker = await screen.findByRole("dialog", { name: "Select model" }); console.log("DBG", modelPicker.textContent);
+    const modelPicker = await screen.findByRole("dialog", { name: "Select model" });
     fireEvent.click(within(modelPicker).getByText("Next model").closest("[role=option]")!);
     await waitFor(() => expect(setModel).toHaveBeenCalledWith("provider", "next"));
 
