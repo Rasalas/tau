@@ -239,7 +239,12 @@ the tab the stage shows, of any kind — so the same command also works from
 the palette. Files Kit's "Edit file" is the shipped caller. A command marked
 `destructive` (new in API 1.11.0) is drawn in the danger colour and, in the
 title menu, in a section of its own at the end — Thread Rail's "Delete
-thread"; a `MenuItem` takes the same `destructive` flag.
+thread"; a `MenuItem` takes the same `destructive` flag. `runtime-switch`
+(new in API 1.12.0) offers the command in the model picker while a thread that
+exists looks at another runtime's models: the picker draws the label with the
+runtime's name in place of a trailing ellipsis ("Continue in…" → "Continue in
+Codex") and runs it with a second argument, `{ runtime }`; from the palette the
+command runs without one. Handoff Kit's "Continue in…" is the shipped caller.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -1282,7 +1287,9 @@ client as a `runtime-catalog` event only when it changed, and the
 A model in the answer (`HostCatalogModel`) may say more than its name:
 `billing` (`subscription`, `api-key`, `free`, `local`), `price` (USD per
 million tokens: `input`, `output`, `cacheRead`, `cacheWrite`),
-`contextWindow`, `maxOutput`, `images` and `reasoning`. Whatever it leaves out
+`contextWindow`, `maxOutput`, `images`, `reasoning` and `releasedAt` (new in
+API 1.12.0, `YYYY-MM-DD`; the host fills it from models.dev's release dates,
+which it keeps from the catalog it fetches for Pi). Whatever it leaves out
 the host fills from Pi's model data when Pi knows the model — the same
 provider and id first, then any provider that prices the id — so a
 subscription offering still carries the price the model has over its API.
