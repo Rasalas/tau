@@ -1,10 +1,19 @@
+import { relative } from "node:path";
 import { configure } from "@testing-library/dom";
-import { afterAll, afterEach, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, inject, vi } from "vitest";
+import { TEST_FILE_VARIABLE, TEST_RUN_VARIABLE } from "./main/test-support/test-processes.js";
 
 // A host built in a test would otherwise watch the developer's own ~/.tau and
 // ~/.pi: real files, real edits, and one more set of handles per suite. A test
 // about watching builds its watcher directly.
 process.env.TAU_NO_WATCH = "1";
+
+// Every process a test starts inherits this run's tag; the global teardown
+// (src/test-global-setup.ts) fails the run on any that outlive it.
+process.env[TEST_RUN_VARIABLE] = inject("tauTestRun");
+beforeAll((suite) => {
+  if ("filepath" in suite) process.env[TEST_FILE_VARIABLE] = encodeURIComponent(relative(process.cwd(), suite.filepath));
+});
 
 // Integration-heavy renderer tests share the machine with Git and runtime
 // subprocess fixtures. Keep DOM polling tolerant of scheduler contention while
