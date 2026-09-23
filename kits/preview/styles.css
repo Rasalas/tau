@@ -101,3 +101,42 @@
   .agent-cursor { transition: none; }
   .agent-cursor-ping { animation: none; opacity: 0.5; }
 }
+
+/* Cookie import: T3 Code's browser import dialog, with a list of sites to choose from. */
+.cookie-import-dialog {
+  width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px); display: flex; flex-direction: column; gap: 12px; padding: 18px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay); box-shadow: var(--elevation-3);
+  color: var(--ink); animation: fade-up .14s ease;
+}
+.cookie-import-dialog h2 { margin: 0; font: 600 16px var(--sans); }
+.cookie-import-dialog header p { margin: 6px 0 0; color: var(--muted); font: 12.5px/1.45 var(--sans); }
+.cookie-import-route { display: flex; align-items: flex-end; gap: 10px; color: var(--faint); }
+.cookie-import-route label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cookie-import-route label > span { color: var(--muted-2); font: 500 10.5px var(--sans); letter-spacing: .04em; text-transform: uppercase; }
+.cookie-import-route svg { flex: none; margin-bottom: 7px; }
+.cookie-import-dialog select {
+  height: 28px; min-width: 0; padding: 0 6px; border: 1px solid var(--line-field); border-radius: var(--radius-sm);
+  background: var(--field); color: var(--ink); font: 12.5px var(--sans);
+}
+.cookie-import-dialog select:focus { outline: none; border-color: var(--line-focus); }
+.cookie-import-sites { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); }
+.cookie-import-filter { flex: none; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--faint); }
+.cookie-import-filter input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 12px var(--mono); outline: none; }
+.cookie-import-filter .text-button { flex: none; font: 11px var(--sans); }
+.cookie-import-list { flex: 1; min-height: 0; max-height: 240px; margin: 0; padding: 3px 0; overflow: auto; list-style: none; }
+.cookie-import-list label { display: flex; align-items: center; gap: 8px; padding: 3px 10px; cursor: pointer; }
+.cookie-import-list label:hover { background: var(--wash); }
+.cookie-import-site { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); }
+.cookie-import-list small { flex: none; color: var(--faint); font: 11px var(--mono); font-variant-numeric: tabular-nums; }
+.cookie-import-more { padding: 4px 10px; color: var(--muted-2); font: 11px var(--sans); }
+.cookie-import-wait { display: flex; align-items: center; gap: 8px; padding: 10px; color: var(--muted); font: 12px var(--sans); }
+.cookie-import-note { margin: 0; color: var(--muted-2); font: 11.5px/1.45 var(--sans); }
+.cookie-import-sites .cookie-import-note { padding: 10px; }
+.cookie-import-note code { font: 11px var(--mono); }
+.cookie-import-problem { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 10px; color: var(--danger); font: 12px/1.45 var(--sans); }
+.cookie-import-problem span { flex: 1 1 100%; }
+.cookie-import-dialog footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.cookie-import-count { flex: 1; color: var(--muted-2); font: 11.5px var(--sans); }
+.cookie-import-dialog footer > button { padding: 7px 14px; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); font: 500 12.5px var(--sans); cursor: pointer; }
+.cookie-import-dialog footer > button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.cookie-import-dialog footer > button:disabled { opacity: .45; cursor: default; }

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Circle, Crosshair, PenLine, Send, Square, SquareDashed, StickyNote } from "lucide-react";
+import { ArrowUpRight, Circle, Cookie, Crosshair, PenLine, Send, Square, SquareDashed, StickyNote } from "lucide-react";
 import type { WorkbenchActions } from "tau";
 import { attachAnnotations, attachPickedElement, attachRecording } from "./attach.js";
 import type { PreviewAnnotationTool } from "./page-overlay.js";
 import type { PreviewProfiles, PreviewState } from "./protocol.js";
 import { previewKit } from "./store.js";
+import { cookieImportDialogs } from "./cookie-import-dialog.js";
 
 const NEW_PROFILE = "\u0000new";
 
@@ -159,6 +160,13 @@ export function PreviewTools({ state, actions, run }: {
     >{recording ? <Square size={11} /> : <Circle size={12} />}</button>
     {recording ? <RecordingClock since={state.recordingSince!} /> : null}
     <span className="spacer" />
+    <button
+      type="button"
+      className="icon-button compact"
+      aria-label="Import cookies from a browser"
+      title="Import sign-ins from another browser into a profile"
+      onClick={() => { void cookieImportDialogs.open({ profile: state.profile || "default" }); }}
+    ><Cookie size={13} /></button>
     <ProfilePicker active={state.profile || "default"} run={run} />
   </div>;
 }
