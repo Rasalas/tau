@@ -31,6 +31,8 @@ export interface RuntimeUpdateToastsOptions {
 export interface RuntimeUpdateToasts {
   /** Offers each update not offered in this window and not dismissed on this client; call on every catalog. */
   sync(backends: readonly UiRuntimeBackend[], actions: WorkbenchActions): void;
+  /** Redraws the offers still on screen once `canRun` changed, so a terminal that came late adds Update. */
+  refresh(): void;
 }
 
 /** Keys offered in this window, across every kit that uses these toasts. */
@@ -66,6 +68,9 @@ export function offerableUpdate(backend: UiRuntimeBackend): (RuntimeToolVersion 
 export function createRuntimeUpdateToasts(options: RuntimeUpdateToastsOptions): RuntimeUpdateToasts {
   const storage = () => options.storage ?? getClientStorage();
   const updating = new Set<string>();
+  /** Offers still on screen, by kind: whether they carry Update, and how to draw them again. */
+  const open = new Map<string, { runnable: boolean; redraw(): void }>();
+  const runnable = () => options.canRun?.() ?? true;
 
   const dismiss = (key: string) => {
     const store = storage();
@@ -112,10 +117,13 @@ export function createRuntimeUpdateToasts(options: RuntimeUpdateToastsOptions): 
 
   const offer = (backend: UiRuntimeBackend, version: RuntimeToolVersion & { latest: string }, key: string, actions: WorkbenchActions) => {
     const id = `runtime-update:${backend.kind}`;
-    const command = (options.canRun?.() ?? true) ? version.updateCommand : undefined;
+    const can = runnable();
+    const command = can ? version.updateCommand : undefined;
     // An action clicked closes the toast too; only the close button remembers the release.
     let acted = false;
-    const settings = { label: "Settings", run: () => { acted = true; actions.openSettings(options.settingsPage(backend)); } };
+    const settle = () => { acted = true; open.delete(backend.kind); };
+    const settings = { label: "Settings", run: () => { settle(); actions.openSettings(options.settingsPage(backend)); } };
+    open.set(backend.kind, { runnable: can, redraw: () => offer(backend, version, key, actions) });
     actions.toast?.({
       id,
       type: "warning",
@@ -123,13 +131,17 @@ export function createRuntimeUpdateToasts(options: RuntimeUpdateToastsOptions): 
       description: command ? "Install the update now or review provider settings." : `${backend.label} can be updated from provider settings.`,
       timeoutMs: 0,
       actions: command
-        ? [settings, { label: "Update", keepOpen: true, run: () => { acted = true; void update(backend, version, command, actions, id); } }]
+        ? [settings, { label: "Update", keepOpen: true, run: () => { settle(); void update(backend, version, command, actions, id); } }]
         : [settings],
-      onClose: () => { if (!acted) dismiss(key); },
+      onClose: () => { if (acted) return; open.delete(backend.kind); dismiss(key); },
     });
   };
 
   return {
+    refresh() {
+      const now = runnable();
+      for (const prompt of [...open.values()]) if (prompt.runnable !== now) prompt.redraw();
+    },
     sync(backends, actions) {
       if (!actions.toast) return;
       const dismissed = new Set(readDismissed(storage()));

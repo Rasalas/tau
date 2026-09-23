@@ -153,6 +153,18 @@ describe("runtime update toasts", () => {
     expect(shown()[0]!.actions!.map((action) => action.label)).toEqual(["Settings"]);
   });
 
+  it("adds Update to an offer on screen once a terminal arrives, and leaves a closed one closed", () => {
+    let terminal = false;
+    const { toasts, actions, shown, store } = setup({ canRun: () => terminal });
+    toasts.sync([codex(), codex({}, "codex@work")], actions);
+    store.dismiss("runtime-update:codex@work");
+    terminal = true;
+    toasts.refresh();
+    expect(shown().map((toast) => [toast.id, toast.actions!.map((action) => action.label)])).toEqual([["runtime-update:codex", ["Settings", "Update"]]]);
+    toasts.refresh();
+    expect(shown()).toHaveLength(1);
+  });
+
   it("stays quiet on a client without a toast stack", () => {
     const { toasts, run } = setup();
     expect(() => toasts.sync([codex()], { openSettings: vi.fn() } as unknown as WorkbenchActions)).not.toThrow();

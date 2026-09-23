@@ -327,14 +327,16 @@ export function createUpdateToasts(host: HostExtensionClient, terminal: () => Te
     recheck: async (backend) => await host.invoke("recheck", { instance: runtimeInstanceId(backend.kind) }) as RuntimeToolVersion | undefined,
     settingsPage: (backend) => settingsPageOf(runtimeInstanceId(backend.kind)),
   }));
-  return function ClaudeCodeUpdateToasts({ snapshot, actions }: RegionProps) {
+  function ClaudeCodeUpdateToasts({ snapshot, actions }: RegionProps) {
     const backends = snapshot?.runtimeBackends;
     useEffect(() => {
       const newer = (backends ?? []).filter((backend) => isRuntimeInstanceOf(backend.kind, CLAUDE_CODE_BACKEND_KIND) && updateAvailable(backend.version));
       if (newer.length > 0) void load().then((loaded) => loaded.sync(newer, actions), () => undefined);
     }, [backends, actions]);
     return null;
-  };
+  }
+  // Terminal Kit may activate after this one: an offer already shown gains Update then.
+  return Object.assign(ClaudeCodeUpdateToasts, { refresh: () => void toasts?.then((loaded) => loaded.refresh(), () => undefined) });
 }
 
 const DEFAULT_ORDER = 25;
@@ -375,13 +377,19 @@ export const claudeCodeExtension: DesktopExtension = {
       }
     };
     let runner: TerminalRunService | undefined;
+    const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
       plugin.registerStatusItem({ id: "claude-code.runtime", align: "left", order: 40, profiles: ["desktop", "web", "compact"], Component: ClaudeCodeStatus }),
       plugin.registerRegion({ id: "claude-code.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
-      plugin.registerRegion({ id: "claude-code.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: createUpdateToasts(plugin.host, () => runner) }),
+      plugin.registerRegion({ id: "claude-code.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
       plugin.useService<TerminalRunService>(TERMINAL_RUN_SERVICE, (service) => {
         runner = service;
-        return () => { if (runner === service) runner = undefined; };
+        updateToasts.refresh();
+        return () => {
+          if (runner !== service) return;
+          runner = undefined;
+          updateToasts.refresh();
+        };
       }),
       plugin.host.onEvent(INSTANCES_EVENT, (payload) => { if (isReport(payload)) sync(payload); }),
     ];
