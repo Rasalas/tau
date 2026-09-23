@@ -1123,8 +1123,8 @@ describe("Agents Kit orchestration", () => {
       ["steer", "also this"], ["queue", "after that"], ["steer", "now"], ["prompt", "start over"], ["prompt", "next task"],
     ]);
     expect(toChild.every((entry) => entry.from === "parent")).toBe(true);
-    // The turn the parent restarted ended while nobody waited, so the parent heard about it.
-    expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(1);
+    // The queued turn is still to come, so the parent has not been woken yet.
+    expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toEqual([]);
   });
 
   it("queues when a running child's runtime cannot steer", async () => {
@@ -1205,6 +1205,27 @@ describe("Agents Kit orchestration", () => {
     await finish(bench, child, "chatting with the user");
     await settle();
     expect(bench.sent).toHaveLength(1);
+  });
+
+  it("wakes the parent after the last turn it gave the child, or at once when one fails", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "One" }));
+    await parent.call("tau_send_to_thread", { threadId: child, message: "Then two", mode: "queue" });
+    await finish(bench, child, "one");
+    await settle();
+    expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toEqual([]);
+    await finish(bench, child, "two");
+    await vi.waitFor(() => expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(1));
+    expect(bench.sent.at(-1)!.text).toContain("two");
+    // The wake started a turn of the parent; it is over by the time the next child fails.
+    bench.threads.get("parent")!.streaming = false;
+
+    await parent.call("tau_send_to_thread", { threadId: child, message: "Three" });
+    await parent.call("tau_send_to_thread", { threadId: child, message: "Four", mode: "queue" });
+    bench.threads.get(child)!.streaming = false;
+    await bench.notify("ended", child, "failed");
+    await vi.waitFor(() => expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(2));
   });
 
   it("wakes nobody when the parent waited for the child, and waits for a busy parent's turn to end", async () => {

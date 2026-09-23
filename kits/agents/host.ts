@@ -257,8 +257,9 @@ export function createAgentsHostExtension(options: {
         return thread ? { streaming: thread.isStreaming(), idle: thread.isIdle() } : undefined;
       });
       const waiters = new Map<string, Set<() => void>>();
-      /** Children whose next turn end their parent hears about: a tool gave them that turn. */
-      const expecting = new Set<string>();
+      /** Turns a tool gave each child that have not ended yet; the parent hears once none are left. */
+      const expecting = new Map<string, number>();
+      const expect = (id: string) => { expecting.set(id, (expecting.get(id) ?? 0) + 1); };
       /** Children that finished while nobody waited for them, by parent, until the parent hears. */
       const unreported = new Map<string, Set<string>>();
       /** Calls made with a `clientRequestId`, by thread and tool, so a retry repeats nothing. */
@@ -546,7 +547,7 @@ export function createAgentsHostExtension(options: {
           : requested ?? "worktree";
         wanted.set(id, mode);
         // Only a tool's spawn wakes its parent; one the user started from the panel does not.
-        if (spawnedBy === "tau_spawn_thread") expecting.add(id);
+        if (spawnedBy === "tau_spawn_thread") expect(id);
         book.add({
           id,
           parentThreadId: parent.sessionId,
@@ -659,15 +660,17 @@ export function createAgentsHostExtension(options: {
         const thread = services.thread(link.threadId);
         const running = thread?.isStreaming() ?? false;
         if (request.mode === "steer" && !running) throw new Error(`${link.title} is not running; send with mode "auto" or "queue".`);
+        let delivery: "prompt" | "steer" | "queue" = request.mode === "queue" ? "queue"
+          : request.mode === "steer" || (request.mode === "auto" && running) ? "steer"
+          : "prompt";
+        // Counted before a restart stops the running turn, so that turn's end wakes nobody.
+        if (delivery !== "steer") expect(link.id);
+        else if (!expecting.has(link.id)) expecting.set(link.id, 1);
         if (request.mode === "restart" && running) {
           if (!services.sessions.abort) throw new Error("This Tau cannot stop another thread's turn; it needs extension API 1.11.0.");
           await services.sessions.abort(link.threadId);
           await services.thread(link.threadId)?.waitForIdle().catch(() => undefined);
         }
-        let delivery: "prompt" | "steer" | "queue" = request.mode === "queue" ? "queue"
-          : request.mode === "steer" || (request.mode === "auto" && running) ? "steer"
-          : "prompt";
-        expecting.add(link.id);
         changed(link.id, book.noteSent(link.id, delivery === "prompt"));
         try {
           await send(link.threadId, request.message, { delivery, from: parentThreadId });
@@ -675,6 +678,7 @@ export function createAgentsHostExtension(options: {
           // A runtime that cannot steer still takes the message after its turn.
           if (request.mode !== "auto" || delivery !== "steer") throw error;
           delivery = "queue";
+          expect(link.id);
           await send(link.threadId, request.message, { delivery, from: parentThreadId });
         }
         const delivered = request.mode === "restart" ? "restarted" : delivery === "prompt" ? "started" : delivery === "steer" ? "steered" : "queued";
@@ -941,8 +945,10 @@ export function createAgentsHostExtension(options: {
             save();
             const answer = await lastAssistantMessage(link.threadId);
             if (answer) changed(sessionId, book.noteResult(sessionId, truncate(answer, PANEL_RESULT_LIMIT)));
-            // A turn a tool gave it, and nobody waited for: its parent hears about it.
-            if (expecting.delete(link.id) && !watched) {
+            // The last turn a tool gave it, or one that failed, and nobody waited: its parent hears.
+            const left = (expecting.get(link.id) ?? 0) - 1;
+            if (left > 0 && outcome !== "failed") expecting.set(link.id, left);
+            else if (expecting.delete(link.id) && !watched) {
               const pending = unreported.get(link.parentThreadId) ?? new Set<string>();
               pending.add(link.id);
               unreported.set(link.parentThreadId, pending);
