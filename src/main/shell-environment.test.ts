@@ -2,7 +2,18 @@ import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { captureCommand, captureLoginShellEnvironment, findExecutable, gitExecutable, installShellEnvironment, mergePaths, parseCapture } from "./shell-environment.js";
+import {
+  captureCommand,
+  captureLoginShellEnvironment,
+  envValue,
+  findExecutable,
+  gitExecutable,
+  installShellEnvironment,
+  mergePaths,
+  parseCapture,
+  parseWindowsPathOutput,
+  windowsPathScript,
+} from "./shell-environment.js";
 
 const answer = (values: Record<string, string>) => Object.entries(values)
   .map(([name, value]) => `__TAU_ENV_${name}_START__\n${value}\n__TAU_ENV_${name}_END__`)
@@ -96,5 +107,74 @@ describe("gitExecutable", () => {
     expect(gitExecutable({ PATH: directory })).toBe(git);
     expect(gitExecutable({ PATH: join(directory, "missing") })).toBe("git");
     expect(gitExecutable({ PATH: `${join(directory, "missing")}:${directory}` })).toBe(git);
+  });
+});
+
+const base64 = (value: string) => Buffer.from(value, "utf8").toString("base64");
+
+describe("Windows", () => {
+  it("merges PATH with ; and compares entries case-, quote- and slash-insensitively", () => {
+    expect(mergePaths(["C:\\Git\\cmd;C:\\Windows", "c:\\git\\CMD\\;\"C:\\Windows\";D:\\tools"], "win32"))
+      .toBe("C:\\Git\\cmd;C:\\Windows;D:\\tools");
+  });
+
+  it("reads variables case-insensitively, the way Windows itself does", () => {
+    expect(envValue({ Path: "C:\\bin" }, "PATH", "win32")).toBe("C:\\bin");
+    expect(envValue({ Path: "/bin" }, "PATH", "darwin")).toBeUndefined();
+  });
+
+  it("parses the registry answer, CRLF and all, and keeps non-ASCII paths", () => {
+    const output = `noise\r\n__TAU_PATH_Machine__${base64("C:\\Windows\\system32")}\r\n__TAU_PATH_User__${base64("C:\\Users\\Jörg\\.local\\bin")}\r\n`;
+    expect(parseWindowsPathOutput(output)).toEqual({ Machine: "C:\\Windows\\system32", User: "C:\\Users\\Jörg\\.local\\bin" });
+    expect(windowsPathScript()).toContain("[Environment]::GetEnvironmentVariable('Path', $scope)");
+  });
+
+  it("keeps the inherited PATH first and adds what the registry and existing tool folders have", async () => {
+    const env: NodeJS.ProcessEnv = {
+      Path: "C:\\Windows\\system32;C:\\venv\\Scripts",
+      SystemRoot: "C:\\Windows",
+      APPDATA: "C:\\Users\\me\\AppData\\Roaming",
+      USERPROFILE: "C:\\Users\\me",
+      SHELL: "/usr/bin/bash",
+    };
+    const calls: string[][] = [];
+    const result = await installShellEnvironment({
+      env,
+      platform: "win32",
+      directoryExists: (path) => path === "C:\\Users\\me\\AppData\\Roaming\\npm",
+      run: async (command, args) => {
+        calls.push([command, ...args]);
+        return `__TAU_PATH_Machine__${base64("C:\\WINDOWS\\system32;C:\\Program Files\\Git\\cmd")}\r\n__TAU_PATH_User__${base64("C:\\Users\\me\\.local\\bin")}\r\n`;
+      },
+    });
+    // No POSIX shell, even with SHELL set by a Git Bash launch; PowerShell without a profile.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[0]).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    expect(calls[0]).toContain("-NoProfile");
+    expect(calls[0]).toContain("-EncodedCommand");
+    expect(env.Path).toBe("C:\\Windows\\system32;C:\\venv\\Scripts;C:\\Program Files\\Git\\cmd;C:\\Users\\me\\.local\\bin;C:\\Users\\me\\AppData\\Roaming\\npm");
+    expect(env.PATH).toBeUndefined();
+    expect(result).toEqual({ pathSource: "registry", installed: ["PATH"] });
+  });
+
+  it("leaves the environment alone when no PowerShell answers", async () => {
+    const env: NodeJS.ProcessEnv = { Path: "C:\\Windows" };
+    const result = await installShellEnvironment({ env, platform: "win32", directoryExists: () => false, run: async () => { throw new Error("ENOENT"); } });
+    expect(env).toEqual({ Path: "C:\\Windows" });
+    expect(result).toEqual({ pathSource: "process", installed: [] });
+  });
+
+  it("finds a command through PATHEXT the way where.exe does, and only what can run", () => {
+    const files = new Set(["C:\\Git\\cmd\\git.exe", "C:\\npm\\codex.cmd", "C:\\npm\\codex", "C:\\npm\\tool.ps1", "C:\\Program Files\\nodejs\\npm.cmd"]);
+    const options = { platform: "win32" as const, isExecutable: (path: string) => files.has(path) };
+    const env = { Path: "\"C:\\Program Files\\nodejs\";C:\\Git\\cmd;C:\\npm", PATHEXT: ".COM;.EXE;.BAT;.CMD;.VBS;.PS1" };
+    expect(findExecutable("git", env, options)).toBe("C:\\Git\\cmd\\git.exe");
+    // The extensionless sh launcher npm writes beside the shim is not runnable on Windows.
+    expect(findExecutable("codex", env, options)).toBe("C:\\npm\\codex.cmd");
+    expect(findExecutable("npm", env, options)).toBe("C:\\Program Files\\nodejs\\npm.cmd");
+    expect(findExecutable("git.exe", env, options)).toBe("C:\\Git\\cmd\\git.exe");
+    expect(findExecutable("tool", env, options)).toBeUndefined();
+    expect(findExecutable("C:\\npm\\codex", env, options)).toBe("C:\\npm\\codex.cmd");
+    expect(findExecutable("git", { Path: "C:\\Git\\cmd" }, options)).toBe("C:\\Git\\cmd\\git.exe");
   });
 });
