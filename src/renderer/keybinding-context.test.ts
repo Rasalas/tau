@@ -25,4 +25,15 @@ describe("keybinding contexts from the page", () => {
     expect(context("terminalFocus")).toBe(false);
     expect(context("stageFocus")).toBe(false);
   });
+
+  it("knows when a text field has the keyboard, without any mark", () => {
+    document.body.innerHTML = `
+      <input id="field" /><div id="rich" contenteditable="true"><span id="inside">x</span></div>
+      <button id="button">Go</button><nav id="rail" tabindex="0"></nav>`;
+    const focusedIn = (id: string) => { document.getElementById(id)!.focus(); return domKeybindingContext()("editableFocus"); };
+    expect(focusedIn("field")).toBe(true);
+    expect(focusedIn("rich")).toBe(true);
+    expect(focusedIn("button")).toBe(false);
+    expect(focusedIn("rail")).toBe(false);
+  });
 });

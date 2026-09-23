@@ -35,7 +35,7 @@ export function ThreadTitleMenu({
   onToggleSettled(): void;
   onRename(title: string): Promise<boolean>;
   /** Extension commands offered on the thread-title surface. */
-  commands?: ReadonlyArray<{ id: string; label: string }>;
+  commands?: ReadonlyArray<{ id: string; label: string; destructive?: boolean }>;
   onCommand?(id: string): void;
   onMarkUnread(): void;
   onCopy(value: "chat" | "path" | "thread-id"): void;
@@ -72,7 +72,7 @@ export function ThreadTitleMenu({
     {
       items: [
         { id: "rename", label: "Rename thread" },
-        ...commands.map((command) => ({ id: `command:${command.id}`, label: command.label })),
+        ...commands.filter((command) => !command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label })),
         { id: "unread", label: "Mark unread" },
       ],
     },
@@ -83,6 +83,9 @@ export function ThreadTitleMenu({
         { id: "copy-thread-id", label: "Copy thread ID" },
       ],
     },
+    ...(commands.some((command) => command.destructive)
+      ? [{ items: commands.filter((command) => command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label, destructive: true })) }]
+      : []),
   ];
 
   const select = (id: string) => {

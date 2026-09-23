@@ -2,9 +2,22 @@
  * The contexts a `when` clause reads, taken from the page when a key goes
  * down. An element marked `data-keybinding-context="terminal"` (several names
  * may be space-separated) makes `terminalFocus` true while the keyboard is
- * inside it and `terminalOpen` true while it is drawn at all.
+ * inside it and `terminalOpen` true while it is drawn at all. `editableFocus`
+ * is the one context no element marks: a text field, a select or anything
+ * `contenteditable` has the keyboard.
  */
 export const KEYBINDING_CONTEXT_ATTRIBUTE = "data-keybinding-context";
+
+/** What owns the keyboard for text editing, so a chord native editing shares (`mod+z`) yields to it. */
+const EDITABLE_SELECTOR = [
+  "input",
+  "textarea",
+  "select",
+  '[contenteditable=""]',
+  '[contenteditable="true"]',
+  '[contenteditable="plaintext-only"]',
+  '[role="textbox"]',
+].join(",");
 
 function marked(name: string): string {
   return `[${KEYBINDING_CONTEXT_ATTRIBUTE}~="${name.replace(/["\\]/gu, "")}"]`;
@@ -14,6 +27,10 @@ export function domKeybindingContext(root: Document | undefined = typeof documen
   const answers = new Map<string, boolean>();
   const read = (name: string): boolean => {
     if (!root) return false;
+    if (name === "editableFocus") {
+      const active = root.activeElement;
+      return Boolean(active?.isConnected && active.closest(EDITABLE_SELECTOR));
+    }
     const focus = /^(.+)Focus$/u.exec(name);
     if (focus) {
       const active = root.activeElement;

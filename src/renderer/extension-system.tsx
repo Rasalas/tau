@@ -535,6 +535,8 @@ export interface CommandContribution {
   label: string;
   group: string;
   surfaces?: readonly CommandSurface[];
+  /** Deletes or discards something: a surface menu draws it last, in the danger colour. */
+  destructive?: boolean;
   run(actions: WorkbenchActions): void | Promise<void>;
 }
 
