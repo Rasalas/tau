@@ -1904,6 +1904,7 @@ export class PiHost {
         await this.closeWorkspace(cwd, "shutdown");
       }
       try { await this.hostExtensions.dispose(); } catch (error) { teardownErrors.push(error); }
+      await this.seam.mcp.close();
       try { await this.prewarm.discardSpare(); } catch (error) { teardownErrors.push(error); }
       await this.runtimes.settleOpening();
       const results = await Promise.allSettled(this.threads.list().map((record) => this.threads.release(record.threadId)));

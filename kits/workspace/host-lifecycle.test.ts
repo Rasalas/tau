@@ -125,6 +125,7 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     registerRuntimeExtension: () => () => undefined,
     loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     loadDependency: async () => { throw new Error("no dependencies in this test"); },
+    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async () => undefined },
     decorateUiPrompt: () => () => undefined,
     setPermissionLevel: () => undefined,
     registerRuntimeBackend: () => () => undefined,
