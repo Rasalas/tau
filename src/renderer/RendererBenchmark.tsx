@@ -2,6 +2,7 @@ import { Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import type { UiMessage, UiToolRun } from "../shared/contracts";
 import type { UiFileDiff } from "../shared/workspace-kit-types";
 import { DiffView } from "./components/DiffView";
+import * as markdownModule from "./components/Markdown";
 import { Message } from "./components/Message";
 import { ToolRun } from "./components/ToolRun";
 import { TranscriptViewport } from "./components/TranscriptViewport";
@@ -57,6 +58,8 @@ interface BenchmarkResult {
   heapBytes?: number;
   payloadBytes?: number;
   longMessageInteraction?: { mode: "expand" | "prop-update"; expanded: boolean; contentBytes: number };
+  /** Streaming flips off after the last delta: commit, first painted frame, and deferred work done. */
+  streamEnd?: { commitMs: number; paintMs: number; settleMs: number; contentBytes: number };
 }
 
 declare global {
@@ -85,6 +88,62 @@ function codeChunk(index: number): string {
 
 function plainChunk(index: number): string {
   return Array.from({ length: 24 }, (_, paragraph) => `Paragraph ${index}_${paragraph} exercises a growing active Markdown response without syntax highlighting.\n\n`).join("");
+}
+
+// One section of a realistic long answer: prose, a fence with blank lines, a
+// table, and a `~~~` fence inside a list. About twenty make 150 KB and stay
+// inside the DOM budget once highlighted.
+function fencedSection(index: number): string {
+  const prose = (topic: string) => `${topic} for step ${index} walks through the change in plain words, names the files it touches, and says why the order matters. It mentions \`inline code\`, **emphasis**, and a link to https://example.com/steps/${index} so inline parsing has work to do. `.repeat(3).trim();
+  const code = Array.from({ length: 36 }, (_, line) => {
+    if (line % 9 === 8) return "";
+    if (line % 4 === 0) return `  const entry${line} = registry.get("step-${index}-${line}") ?? fallback(${line}); // keep order`;
+    return `  notes.push("step ${index}, entry ${line}: the registry is read once per call, so later entries keep their order");`;
+  }).join("\n");
+  return [
+    `## Step ${index}`,
+    "",
+    prose("The overview"),
+    "",
+    prose("The detail"),
+    "",
+    "```typescript",
+    `export function step${index}(registry: Map<string, number>, notes: string[]): number {`,
+    code,
+    `  return registry.size + ${index};`,
+    "}",
+    "```",
+    "",
+    prose("The follow-up"),
+    "",
+    "| Field | Type | Notes |",
+    "| --- | --- | --- |",
+    `| id | string | stable across step ${index} |`,
+    `| count | number | ${index * 3} entries |`,
+    "| ready | boolean | `true` once the fence closes |",
+    "",
+    "- Run the step:",
+    "",
+    "  ~~~bash",
+    `  npm run step -- --index ${index}`,
+    "  ~~~",
+    "- Check the output.",
+    "",
+    prose("The summary"),
+    "",
+    "",
+  ].join("\n");
+}
+
+function fencedDocument(targetBytes: number): string {
+  let text = "";
+  for (let index = 0; text.length < targetBytes; index += 1) text += fencedSection(index);
+  return text;
+}
+
+/** Deferred highlighting the Markdown module still owes, when it reports any. */
+function pendingMarkdownWork(): number {
+  return (markdownModule as { pendingHighlightCount?: () => number }).pendingHighlightCount?.() ?? 0;
 }
 
 function makeTranscript(turns: number): UiMessage[] {
@@ -178,9 +237,14 @@ function makeLongUserMessage(bytes: number, revision: number): UiMessage {
 export default function RendererBenchmark() {
   const params = new URLSearchParams(window.location.search);
   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
-  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number };
+  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number; streamEnd?: boolean };
   const targetBytes = scenarioConfig.bytes ?? 0;
+  const fenced = scenario.includes("fenced");
+  const fencedText = useMemo(() => fenced ? fencedDocument(targetBytes) : "", [fenced, targetBytes]);
   const [text, setText] = useState(() => scenario.includes("code") ? "```typescript\n" : "");
+  const [streaming, setStreaming] = useState(true);
+  const streamEnd = useRef<BenchmarkResult["streamEnd"]>(undefined);
+  const streamEndStartedAt = useRef<number | undefined>(undefined);
   const [toolOutput, setToolOutput] = useState("");
   const [streamingTick, setStreamingTick] = useState(0);
   const [listQuery, setListQuery] = useState("");
@@ -246,6 +310,13 @@ export default function RendererBenchmark() {
     if (duration > 0) updateDurations.current.push(duration);
   }, [listQuery, streamingTick, text, toolOutput]);
 
+  useLayoutEffect(() => {
+    if (streaming || streamEndStartedAt.current === undefined) return;
+    const commitMs = performance.now() - streamEndStartedAt.current;
+    if (!profilerReportedUpdate.current) updateDurations.current.push(commitMs);
+    streamEnd.current = { commitMs, paintMs: 0, settleMs: 0, contentBytes: 0 };
+  }, [streaming]);
+
   useEffect(() => {
     // Production React may omit Profiler callbacks. Keep the same commit
     // boundary in that mode while retaining the Profiler instrumentation.
@@ -304,12 +375,49 @@ export default function RendererBenchmark() {
           heapBytes: memory.memory?.usedJSHeapSize,
           payloadBytes: payloadBytes.current || undefined,
           longMessageInteraction: longMessageInteraction.current,
+          streamEnd: streamEnd.current,
         };
       };
       requestAnimationFrame(settle);
     };
 
-    if (scenario.startsWith("markdown")) {
+    if (fenced) {
+      // Deltas of a fixed size cut fences, tables and lists at arbitrary points.
+      const deltaBytes = 2_560;
+      const endStream = () => {
+        streamEndStartedAt.current = performance.now();
+        setStreaming(false);
+        // The second frame after the commit starts once the first has painted it.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const started = streamEndStartedAt.current!;
+          const paintMs = performance.now() - started;
+          let waited = 0;
+          const settle = () => {
+            waited += 1;
+            if (pendingMarkdownWork() > 0 && waited < 240) { requestAnimationFrame(settle); return; }
+            const content = document.querySelector<HTMLElement>(".message-text");
+            streamEnd.current = {
+              commitMs: streamEnd.current?.commitMs ?? paintMs,
+              paintMs,
+              settleMs: performance.now() - started,
+              contentBytes: new TextEncoder().encode(content?.textContent ?? "").byteLength,
+            };
+            finish();
+          };
+          settle();
+        }));
+      };
+      const append = () => {
+        frame += 1;
+        updateStartedAt.current = performance.now();
+        interactionStartedAt.current ??= updateStartedAt.current;
+        setText(fencedText.slice(0, frame * deltaBytes));
+        if (frame * deltaBytes < fencedText.length) requestAnimationFrame(append);
+        else if (scenarioConfig.streamEnd) requestAnimationFrame(endStream);
+        else finish();
+      };
+      requestAnimationFrame(append);
+    } else if (scenario.startsWith("markdown")) {
       const append = () => {
         const chunk = scenario.includes("code") ? codeChunk(frame) : plainChunk(frame);
         frame += 1;
@@ -392,12 +500,12 @@ export default function RendererBenchmark() {
       });
     }
     return () => { stopped = true; longTaskCapture.observer?.disconnect(); };
-  }, [diff, scenario, targetBytes]);
+  }, [diff, fenced, fencedText, scenario, scenarioConfig.streamEnd, targetBytes]);
 
   let content;
   if (scenario.startsWith("markdown")) {
     const message: UiMessage = { id: "benchmark-message", role: "assistant", text, timestamp: 0 };
-    content = <Message message={message} streaming />;
+    content = <Message message={message} streaming={streaming} />;
   } else if (scenario === "tool-output-1mb") {
     content = <ToolRun tool={tool} registry={registry} />;
   } else if (scenario === "transcript-1000-turns") {
