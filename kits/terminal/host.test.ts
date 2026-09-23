@@ -177,7 +177,7 @@ describe("terminal host commands", () => {
     const here = mkdtempSync(join(tmpdir(), "tau-terminal-cwd-"));
     try {
       const shell = await client.open({ workspaceId: "workspace-one" });
-      const named = await client.open({ workspaceId: "workspace-one", label: "dev server" });
+      await client.open({ workspaceId: "workspace-one", label: "dev server" });
       expect(shell.label).toBe("project — shell");
       events.length = 0;
 

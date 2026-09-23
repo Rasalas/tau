@@ -8,6 +8,7 @@
 const START = "\u001b]7;";
 /** A report longer than this is no path; the tail is dropped instead of growing. */
 const MAX_REPORT = 4096;
+// oxlint-disable-next-line eslint/no-control-regex -- ESC, BEL and ST delimit the report.
 const REPORT = /\u001b\]7;([^\u0007\u001b]*)(?:\u0007|\u001b\\)/gu;
 
 /**
