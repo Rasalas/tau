@@ -13,6 +13,7 @@ import type {
   UiFileDiff,
   UiFileStat,
   UiFileWriteResult,
+  UiProject,
   UiReviewRequest,
   UiSession,
   UiWorktreeStatus,
@@ -27,6 +28,15 @@ import type {
 } from "tau";
 import type { ComponentType, ReactNode } from "react";
 import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
+
+/** The changes of a thread's last turn that changed files, as its checkpoint counted them. */
+export interface TurnStat {
+  added: number;
+  removed: number;
+  files: number;
+  /** When that turn ended. */
+  at: number;
+}
 
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 
@@ -196,6 +206,8 @@ export interface WorkspaceHostCommands {
   /** Immutable diff captured for one completed turn; never the live workspace. */
   "turn-file-diff": { input: { sessionId: string; checkpointId: string; relPath: string; options?: DiffLoadOptions }; output: UiFileDiff };
   "turn-files": { input: { sessionId: string; checkpointId: string; cursor?: string; limit?: number }; output: UiWorkspaceChangesPage };
+  /** The last file-changing turn of each thread the host saw one end in, by thread id. */
+  "turn-stats": { input: undefined; output: Record<string, TurnStat> };
 }
 
 export type WorkspaceHostCommand = keyof WorkspaceHostCommands;
@@ -240,6 +252,7 @@ export interface WorkspaceHostClient {
   rewindCheckpoint(sessionId: string, checkpointId: string): Promise<HostActionResult>;
   getTurnFileDiff(sessionId: string, checkpointId: string, relPath: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
   getTurnFiles(sessionId: string, checkpointId: string, cursor?: string, limit?: number): Promise<UiWorkspaceChangesPage>;
+  getTurnStats(): Promise<Record<string, TurnStat>>;
 }
 
 /** Typed view over the untyped invoke channel, shared by the desktop entry and by tests. */
@@ -284,6 +297,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     rewindCheckpoint: (sessionId, checkpointId) => call("rewind", { sessionId, checkpointId }),
     getTurnFileDiff: (sessionId, checkpointId, relPath, options) => call("turn-file-diff", { sessionId, checkpointId, relPath, options }),
     getTurnFiles: (sessionId, checkpointId, cursor, limit) => call("turn-files", { sessionId, checkpointId, cursor, limit }),
+    getTurnStats: () => call("turn-stats", undefined),
   };
 }
 
@@ -332,6 +346,12 @@ export interface WorkspaceKitState {
   threadRailOrganizer?: ThreadRailOrganizer;
   /** Each project's main line as the host read it, by workspace id or path. */
   defaultBranches: Readonly<Record<string, string>>;
+  /** The rail shows only this repository's threads (the row menu's "Filter by"). */
+  railProjectFilter?: string;
+  /** The project whose settings dialog is open. */
+  projectSettings?: UiProject;
+  /** Each thread's last file-changing turn, for the row's `+N −N`. */
+  turnStats: Readonly<Record<string, TurnStat>>;
 }
 
 export interface WorktreeNameRequest {
@@ -414,6 +434,9 @@ export interface ThreadRailOrganizer {
   drop(threadId: string, drop: ThreadRailDrop): void;
   /** Drawn once inside the rail, for the organizer's own dialogs. */
   Layer?: ComponentType<{ actions: WorkbenchActions }>;
+  /** The menu of several selected rows (API 1.11.0); without it a selection has no menu. */
+  bulkMenu?(sessions: readonly UiSession[]): MenuSection[];
+  runBulkMenu?(sessions: readonly UiSession[], itemId: string, actions: WorkbenchActions): void;
 }
 
 /** What a kit asks of `prepareThreadWorktree` beyond what the pending draft already says. */
@@ -471,6 +494,10 @@ export interface WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void;
   /** Sections, row menus and drops of the rail. */
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void;
+  /** Shows only the threads of one repository, by its project name; `undefined` shows all again (API 1.11.0). */
+  setRailProjectFilter(projectName: string | undefined): void;
+  /** Opens the settings of the project a thread runs in: its icon, name and path (API 1.11.0). */
+  openProjectSettings(thread: Pick<UiSession, "projectPath" | "projectName" | "workspaceId">): void;
   /**
    * The worktree a new thread of the followed project runs in, created the way
    * the new-thread gate creates one: named by the naming kit when there is one.
