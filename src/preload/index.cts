@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webFrame } from "electron";
 import type { TauDesktopApi } from "../shared/contracts.js";
 import { HOST_ERROR, decodeHostPush, decodeHostResponse, type HostResponse } from "../shared/host-transport.js";
 
@@ -30,3 +30,8 @@ const api: TauDesktopApi = {
 };
 
 contextBridge.exposeInMainWorld("tau", api);
+
+// Zooming fires `resize`; the title bar's traffic-light inset divides by this.
+const publishZoom = () => document.documentElement.style.setProperty("--page-zoom", String(webFrame.getZoomFactor()));
+window.addEventListener("DOMContentLoaded", publishZoom, { once: true });
+window.addEventListener("resize", publishZoom);

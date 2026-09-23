@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtension, HostRuntimeBackendProvider } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createClaudeCodeHostExtension from "./host.js";
+import { createClaudeCodeRuntimeAdapter } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 const directories: string[] = [];
@@ -108,5 +109,22 @@ describe("Claude Code host half", () => {
     });
     expect(answer.threads.find((thread) => thread.threadId === "thread-2")?.usage).toBeUndefined();
     await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.claude-code/usage.");
+  });
+
+  it("stays on when the CLI cannot be probed: that is a missing prerequisite, not a broken kit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-claude-probe-"));
+    directories.push(root);
+    const real = createClaudeCodeRuntimeAdapter({ storePath: join(root, "store.json"), command: "claude" });
+    const adapter = { ...real, probe: async () => { throw new Error("Claude Code process exited with code 1."); } };
+    const registry = await activateHostKit(createClaudeCodeHostExtension({ adapter, fetch: offline, env: {} }), {
+      stateDir: join(root, "state"),
+      sessionsDir: join(root, "sessions"),
+      findCommand: () => undefined,
+      registerRuntimeBackend: () => () => undefined,
+    });
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await expect(registry.invoke("tau.claude-code", "probe")).rejects.toThrow("exited with code 1");
+    }
+    await expect(registry.invoke("tau.claude-code", "status")).resolves.toMatchObject({ kind: "claude-code" });
   });
 });

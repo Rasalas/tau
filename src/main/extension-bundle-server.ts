@@ -61,6 +61,8 @@ export class DesktopBundleStore {
         "Content-Type": CONTENT_TYPES[match![3] as keyof typeof CONTENT_TYPES],
         // The hash is the identity of the bundle, so a reload never serves a stale one.
         "Cache-Control": "no-store",
+        // `import()` from the file:// page is a cross-origin module load, which Electron 44 checks.
+        "Access-Control-Allow-Origin": "*",
       },
     });
   }
@@ -72,10 +74,13 @@ function safeId(extensionId: string): string {
   return cleaned || "extension";
 }
 
-/** Must run before `app.whenReady`, like every privileged scheme; `stream` lets a video seek. */
+/**
+ * Must run before `app.whenReady`, like every privileged scheme; `stream` lets a
+ * video seek, `corsEnabled` lets the page import a bundle as a module.
+ */
 export function registerDesktopBundleScheme(): void {
   protocol.registerSchemesAsPrivileged([
-    { scheme: TAU_EXT_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+    { scheme: TAU_EXT_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
   ]);
 }
 

@@ -344,6 +344,14 @@ Unsigned builds are the default and work everywhere, with the usual first-run
 warning: on macOS the app has to be opened from the context menu once, and
 Windows SmartScreen asks for a confirmation.
 
+One thing an unsigned macOS build cannot do is show a notification. Since
+Electron 42 notifications go through Apple's `UNNotification` API, which
+refuses an ad-hoc signed app (`UNErrorDomain` error 1), so `notify` answers
+`"unavailable"` there, and so does a checkout running `node_modules/electron`.
+The badge on the icon is not affected. A local `npm run dist:mac` signs with
+whatever Apple Development identity the keychain holds, and that build shows
+notifications.
+
 electron-builder turns signing on by itself once the credentials are in the
 environment, so there is nothing to switch on in the configuration. Add the
 repository secrets and the next tag is signed:

@@ -826,6 +826,21 @@ provider. Claude Code, Antigravity and Codex answer it; a backend that adds it a
 its row to `BACKEND_USAGE_SOURCES` in `kits/usage/protocol.ts`, and one that does
 not answer is listed as not available.
 
+Onboarding (`kits/onboarding/`) asks the backend kits the same way, for the
+conversations their CLIs ran outside Tau. A backend that can import them
+registers two commands granted to `tau.onboarding`:
+
+| Command | Answers |
+|---|---|
+| `import-scan` | `{ source, sessions: [{ path, sessionId, cwd, title, updatedAt, imported }], truncated }`: the newest session files of the CLI's home, read from their heads; `imported` marks a session the backend already holds, started in Tau or imported. |
+| `import-sessions({ paths })` | `{ imported: threadIds, skipped, failed: [{ path, reason }], update? }`: each file becomes a thread of that backend, resumable by the CLI's own session id. A path outside the CLI's home is refused, a session already held is skipped, so importing twice adds nothing; `update` is `services.sessions.refreshIndex()` after an import that added something, for the client to apply. |
+
+The Agent SDK runtime and Codex answer both; a backend that adds them adds its
+row to `SESSION_SOURCES` in `kits/onboarding/protocol.ts`. Each reads its CLI's
+own home unless `TAU_IMPORT_ROOTS` names fixture homes — directories laid out
+as `<root>/<backend kind>/…`, like the CLI's own — and then reads nothing else;
+tests and dev instances use it so they never scan the user's history.
+
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a
 pending draft's first prompt is sent, while the thread still does not exist. It

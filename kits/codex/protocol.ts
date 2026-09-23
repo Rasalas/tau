@@ -3,6 +3,8 @@ export const CODEX_BACKEND_KIND = "codex" as const;
 export const CODEX_HOST_EXTENSION_ID = "tau.codex";
 /** Usage Kit may read each thread's running total through the `usage` command. */
 export const USAGE_KIT_ID = "tau.usage";
+/** Onboarding may list and import the sessions the CLI ran outside Tau. */
+export const ONBOARDING_KIT_ID = "tau.onboarding";
 export const CODEX_NPM_PACKAGE = "@openai/codex";
 /**
  * The oldest CLI whose `app-server` protocol this kit speaks. The protocol is
