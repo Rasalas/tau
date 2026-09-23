@@ -34,15 +34,8 @@ body[data-profile="compact"] .conversation-start-screen { padding: 20px 12px 24p
 body[data-profile="compact"] .conversation-start-content > h1 { font-size: 21px; }
 
 /* Tool work stays folded: a phone shows that something ran, not its output. */
-body[data-profile="compact"] .tool-output,
-body[data-profile="compact"] .work-row-output { max-height: 180px; overflow: auto; }
+body[data-profile="compact"] .tool-output { max-height: 180px; overflow: auto; }
 body[data-profile="compact"] .tool-output-pending { height: 180px; }
-
-/* No diff splits below this width; whatever draws one draws it unified. */
-body[data-profile="compact"] .diff-view.split,
-body[data-profile="compact"] .diff-pane.split { display: block; }
-body[data-profile="compact"] .diff-view.split > * + *,
-body[data-profile="compact"] .diff-pane.split > * + * { border-left: 0; }
 
 /* --------------------------------------------------- supervision + sheet */
 
@@ -91,9 +84,5 @@ body[data-profile="compact"] .diff-pane.split > * + * { border-left: 0; }
   background: var(--raised); color: var(--ink-2); font: 550 12px var(--sans); cursor: pointer;
 }
 
-/* Settings: the section column sits above the page and scrolls on its own. */
+/* Settings: the section column sits above the page (see settings/settings.css). */
 body[data-profile="compact"] .settings-screen { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-body[data-profile="compact"] .settings-nav { max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }
-body[data-profile="compact"] .settings-nav-header { display: none; }
-body[data-profile="compact"] .settings-nav-search { margin-top: 8px; }
-body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }

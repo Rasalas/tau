@@ -1,0 +1,42 @@
+/* The reload conflict dialog. Loaded with its chunk, which only a reload that
+   meets unsaved work fetches. */
+.reload-conflict-scrim { z-index: 100; }
+.reload-conflict {
+  width: 500px; max-width: calc(100vw - 48px);
+  border: 1px solid var(--line-float); border-radius: 12px;
+  background: var(--overlay); box-shadow: var(--elevation-3);
+  overflow: hidden; animation: fade-up .14s ease;
+}
+.reload-conflict > header { display: flex; align-items: center; gap: 11px; padding: 15px 16px 13px; border-bottom: 1px solid var(--line); }
+.reload-conflict > header > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.reload-conflict > header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.reload-conflict > header small { color: var(--faint); font: 10px var(--mono); }
+.reload-conflict-mark {
+  width: 27px; height: 27px; flex: none; display: grid; place-items: center;
+  border-radius: 50%; background: var(--acid-bg); color: var(--acid-text); border: 1px solid var(--acid-line);
+}
+.reload-conflict-body { display: grid; gap: 8px; padding: 14px; }
+.reload-choice {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px;
+  border: 1px solid var(--line-control); border-radius: 9px; background: var(--sunken);
+  color: var(--ink-3); text-align: left; cursor: pointer;
+}
+.reload-choice > span { display: flex; flex-direction: column; gap: 3px; }
+.reload-choice strong { color: var(--ink); font-size: 12px; }
+.reload-choice small { color: var(--muted); font: 10.5px/1.4 var(--sans); }
+.reload-choice:hover { border-color: var(--line-float); background: var(--raised); }
+.reload-choice.primary { border-color: var(--acid-line); color: var(--acid-text); }
+.reload-choice.danger { color: var(--removed); }
+.reload-choice.danger:hover { border-color: var(--danger-line); background: var(--danger-bg); }
+.reload-conflict > footer { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.reload-conflict > footer > span:first-child { color: var(--faint); font: 10px var(--mono); }
+.reload-conflict > footer .spacer { flex: 1; }
+.reload-conflict > footer button {
+  border: 1px solid var(--line-control); border-radius: 8px; background: transparent;
+  color: var(--ink-3); padding: 7px 12px; cursor: pointer;
+}
+.reload-conflict > footer button:hover { background: var(--raised); color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .reload-conflict { animation: none; }
+}

@@ -6,6 +6,7 @@ import { ThreadStoreContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
 import { VirtualList } from "./VirtualList";
 import { useFocusReturn, useFocusTrap } from "./ui/focus";
+import "./command-palette.css";
 
 /** Core's own source: the Settings pages and rows, found by the words Settings search uses. */
 const SETTINGS_SOURCE = { id: "core.settings", label: "Settings" };
