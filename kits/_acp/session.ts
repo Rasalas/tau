@@ -33,7 +33,7 @@ export interface AcpConfigOption {
 export interface AcpSessionSetup {
   sessionId: string;
   configOptions?: AcpConfigOption[] | null;
-  models?: { availableModels: Array<{ modelId: string; name: string; description?: string | null }>; currentModelId: string } | null;
+  models?: { availableModels: Array<{ modelId: string; name: string; description?: string | null; _meta?: Record<string, unknown> | null }>; currentModelId: string } | null;
   modes?: { availableModes: Array<{ id: string; name: string; description?: string | null }>; currentModeId: string } | null;
 }
 export interface AcpInitializeResult {
@@ -249,12 +249,15 @@ export class AcpAgentSession {
     if (configId === "mode" && typeof value === "string") this.modeId = value;
   }
 
-  /** Through the model config option; an agent that has only the model state takes `session/set_model`. */
-  async setModel(modelId: string): Promise<void> {
+  /**
+   * Through the model config option; an agent that has only the model state takes `session/set_model`.
+   * `meta` rides along as `_meta` (an agent's own model settings) and is sent even for the current model.
+   */
+  async setModel(modelId: string, meta?: Record<string, unknown>): Promise<void> {
     if (findConfigOption(this.configOptions, "model") || !this.setup?.models) return this.setConfigOption("model", modelId);
-    if (this.setup.models.currentModelId === modelId) return;
+    if (this.setup.models.currentModelId === modelId && !meta) return;
     if (!this.setup.models.availableModels.some((model) => model.modelId === modelId)) throw new AcpRequestError("session/set_model", ACP_INVALID_PARAMS, `${this.base.agentName} does not offer "${modelId}" for model.`);
-    await this.client.request("session/set_model", { sessionId: this.setup.sessionId, modelId }, { timeoutMs: this.timeouts.sessionMs });
+    await this.client.request("session/set_model", { sessionId: this.setup.sessionId, modelId, ...(meta ? { _meta: meta } : {}) }, { timeoutMs: this.timeouts.sessionMs });
     this.setup = { ...this.setup, models: { ...this.setup.models, currentModelId: modelId } };
   }
 
@@ -268,12 +271,12 @@ export class AcpAgentSession {
   }
 
   /** One turn; the answer is the agent's stop reason and usage. A second prompt waits for the first. */
-  async prompt(blocks: readonly AcpContentBlock[], signal?: AbortSignal): Promise<AcpPromptResponse> {
+  async prompt(blocks: readonly AcpContentBlock[], signal?: AbortSignal, meta?: Record<string, unknown>): Promise<AcpPromptResponse> {
     this.requireSession();
     while (this.activePrompt) await this.activePrompt.catch(() => undefined);
     const abort = new AbortController();
     this.promptAbort = abort;
-    const request = this.client.request<AcpPromptResponse>("session/prompt", { sessionId: this.setup!.sessionId, prompt: blocks }, { signal: abort.signal });
+    const request = this.client.request<AcpPromptResponse>("session/prompt", { sessionId: this.setup!.sessionId, prompt: blocks, ...(meta ? { _meta: meta } : {}) }, { signal: abort.signal });
     this.activePrompt = request;
     const forward = () => abort.abort();
     signal?.addEventListener("abort", forward, { once: true });
