@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtension, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { assistantLine, DAY, writeSession } from "./fixtures.js";
-import createUsageHostExtension, { readBackendAnswer, SCAN_MAX_AGE_MS } from "./host.js";
-import type { UsageSummary } from "./protocol.js";
+import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, SCAN_MAX_AGE_MS } from "./host.js";
+import type { UsageLimitsSummary, UsageSummary } from "./protocol.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -94,5 +94,56 @@ describe("Usage host half", () => {
     expect(readBackendAnswer({ threads: [{ threadId: "t", cwd: "/w", updatedAt: 1, usage: { ...usage, turns: -1 } }, { threadId: 2 }] })).toEqual({
       threads: [{ threadId: "t", cwd: "/w", updatedAt: 1 }],
     });
+  });
+
+  it("prices its rows through core, a plan's value apart from the money", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-usage-price-"));
+    directories.push(root);
+    const sessionsDir = join(root, "sessions");
+    await writeSession(sessionsDir, { id: "s1", cwd: "/work/alpha", createdAt: NOW - DAY, lines: [assistantLine({ id: "a1", at: NOW - 1_000, provider: "openai-codex", model: "gpt-5.6-luna", cost: 0 })] });
+    const asked: unknown[] = [];
+    const registry = await activateHostKit(createUsageHostExtension({ now: () => NOW, sources: [] }) as unknown as HostExtension, {
+      sessionsDir,
+      stateDir: join(root, "state"),
+      registerTurnObserver: () => () => undefined,
+      priceUsage: async (tallies: unknown[]) => { asked.push(...tallies); return tallies.map(() => ({ billing: "subscription", costUsd: 0, apiValueUsd: 0.12, source: "api" })); },
+    } as never);
+    const result = await registry.invoke("tau.usage", "summary") as UsageSummary;
+    expect(asked).toEqual([expect.objectContaining({ provider: "openai-codex", model: "gpt-5.6-luna", totalTokens: 110, turns: 1 })]);
+    expect(result.rows[0]).toMatchObject({ billing: "subscription", costUsd: 0, apiValueUsd: 0.12 });
+    expect(result.totals).toMatchObject({ costUsd: 0, subscription: { apiValueUsd: 0.12, totalTokens: 110 } });
+  });
+
+  it("asks every kit that reports limits, keeps what it answered a while, and says which could not be asked", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-usage-limits-"));
+    directories.push(root);
+    let clock = NOW;
+    const registry = await activateHostKit(createUsageHostExtension({
+      now: () => clock,
+      sources: [],
+      limitSources: [{ extensionId: "tau.codex", label: "Codex" }, { extensionId: "tau.pi-limits", label: "Pi" }],
+    }) as unknown as HostExtension, { sessionsDir: join(root, "sessions"), stateDir: join(root, "state"), registerTurnObserver: () => () => undefined } as never);
+    const calls: unknown[] = [];
+    await registry.activate({
+      id: "tau.codex",
+      name: "Codex",
+      activate(context) {
+        context.registerCommand("usage-limits", (input) => {
+          calls.push(input);
+          return { accounts: [{ id: "codex:account", runtime: "codex", label: "Codex", plan: "pro", checkedAt: NOW, windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 140, resetsAt: NOW + 1 }, { id: 2 }] }, { id: "broken" }] };
+        }, { callers: ["tau.usage"] });
+      },
+    });
+    const limits = (input?: unknown) => registry.invoke("tau.usage", "limits", input) as Promise<UsageLimitsSummary>;
+    const first = await limits();
+    expect(first.accounts).toEqual([{ id: "codex:account", runtime: "codex", label: "Codex", plan: "pro", checkedAt: NOW, windows: [{ id: "primary", kind: "session", label: "5-hour", usedPercent: 100, resetsAt: NOW + 1 }] }]);
+    expect(first.sources.map((source) => [source.label, source.status])).toEqual([["Codex", "ok"], ["Pi", "unavailable"]]);
+    await limits();
+    expect(calls).toEqual([{}]);
+    await limits({ refresh: true });
+    expect(calls).toEqual([{}, { refresh: true }]);
+    clock += LIMITS_MAX_AGE_MS + 1;
+    await limits();
+    expect(calls).toHaveLength(3);
   });
 });

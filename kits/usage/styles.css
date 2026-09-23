@@ -38,3 +38,47 @@
 }
 .usage-sources > li[data-status="ok"] .usage-status { background: var(--acid-chip); color: var(--acid-text); }
 .usage-sources > li[data-status="unavailable"] .usage-status { background: var(--warn-chip); color: var(--warn); }
+
+/* Subscription limits: one card per account, a row per window (label, bar, countdown). */
+.usage-limits { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.usage-account { padding: 10px 12px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--inset); }
+.usage-account > header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.usage-account > header > strong { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.usage-account > header > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
+.usage-plan {
+  padding: 1px 6px; border-radius: var(--radius-xs); background: var(--chip); color: var(--muted);
+  font: 600 10px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
+}
+.usage-windows { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 7rem; gap: 4px 14px; align-items: center; }
+.usage-window-label { display: flex; gap: 8px; min-width: 0; font-size: 11.5px; color: var(--muted); }
+.usage-window-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-window-label > b { margin-left: auto; flex: none; font: 500 11px var(--mono); color: var(--ink-2); }
+.usage-window-bar { position: relative; height: 18px; outline: none; cursor: default; }
+.usage-window-bar:focus-visible { box-shadow: 0 0 0 2px var(--acid-line); border-radius: var(--radius-sm); }
+.usage-window-track, .usage-window-fill { position: absolute; top: 6px; bottom: 6px; border-radius: 999px; }
+.usage-window-track { left: 0; right: 0; background: var(--chip); }
+.usage-window-fill { left: 0; background: var(--acid); }
+.usage-window-bar[data-low="true"] .usage-window-fill { background: var(--warn); }
+.usage-window-time { position: absolute; top: 2px; bottom: 2px; width: 1px; transform: translateX(-50%); background: var(--ink-3); opacity: .7; }
+.usage-window-reset { font: 10.5px var(--mono); color: var(--muted-2); text-align: right; white-space: nowrap; }
+.usage-account-value { margin: 8px 0 0; font-size: 11.5px; color: var(--muted); }
+.usage-account-value b { font: 500 11.5px var(--mono); color: var(--ink-2); }
+.usage-silent { list-style: none; margin: 0; padding: 0; font-size: 11.5px; color: var(--muted); }
+.usage-silent > li { padding: 3px 0; }
+.usage-silent > li > strong { font-weight: 500; color: var(--ink-3); }
+
+/* What a plan covered is its API value, not money spent: it reads quieter than the billed column. */
+.usage-table td.usage-plan-value { font-style: italic; color: var(--muted); }
+
+/* Model prices: a table of the user's own, and a row that adds one. */
+.usage-price-table .usage-number { width: 88px; }
+.usage-price-table th.usage-number:last-child { width: 130px; }
+.usage-rate { width: 100%; min-width: 0; font: 11.5px var(--mono); text-align: right; padding: 4px 6px; }
+.usage-price-error { color: var(--warn); }
+.usage-price-add { display: grid; grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) auto; gap: 6px; margin-top: 8px; align-items: center; }
+.usage-price-add .usage-rate { text-align: left; }
+.usage-price-model { min-width: 0; font: 11.5px var(--mono); padding: 4px 6px; }
+.usage-price-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.usage-link { border: 0; background: transparent; padding: 0; color: var(--muted); font-size: 11.5px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.usage-link:hover { color: var(--ink-2); }
+.usage-link:disabled { opacity: .5; cursor: default; }
