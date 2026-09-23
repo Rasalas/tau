@@ -197,6 +197,30 @@ describe("Claude Code host half", () => {
     expect(backends.map((provider) => provider.kind)).toEqual(["claude-code"]);
   });
 
+  it("registers its backend anew on recheck, answers the fresh version, and takes a test instance's update command", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-claude-recheck-"));
+    directories.push(root);
+    const backends: HostRuntimeBackendProvider[] = [];
+    let installed = "2.1.280";
+    const registry = await activateHostKit(createClaudeCodeHostExtension({
+      fetch: async () => ({ ok: true, json: async () => ({ version: "2.1.300" }) }) as Response,
+      env: { TAU_RUNTIME_UPDATE_COMMAND: JSON.stringify({ "claude-code": "/tmp/stub-update.sh" }) },
+      readVersion: async () => installed,
+    }), {
+      stateDir: join(root, "state"),
+      sessionsDir: join(root, "sessions"),
+      findCommand: () => "/usr/local/bin/claude",
+      skills: () => [],
+      registerRuntimeBackend: (provider) => { backends.push(provider); return () => { backends.splice(backends.indexOf(provider), 1); }; },
+    });
+    const first = backends[0]!;
+    await expect(first.version!()).resolves.toMatchObject({ installed: "2.1.280", latest: "2.1.300", updateCommand: "/tmp/stub-update.sh" });
+    installed = "2.1.300";
+    await expect(registry.invoke("tau.claude-code", "recheck")).resolves.toMatchObject({ installed: "2.1.300", latest: "2.1.300" });
+    expect(backends).toHaveLength(1);
+    expect(backends[0]).not.toBe(first);
+  });
+
   it("carries a version policy's verdict and refuses a broken release", async () => {
     const root = await mkdtemp(join(tmpdir(), "tau-claude-policy-"));
     directories.push(root);

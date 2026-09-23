@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot, WorkbenchActions } from "tau";
+import type { HostSnapshot, ToastOptions, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { ClaudeCodeProviderCard, ClaudeInstances, claudeCodeExtension, createVersionBanner } from "./desktop.js";
+import { ClaudeCodeProviderCard, ClaudeInstances, claudeCodeExtension, createUpdateToasts, createVersionBanner } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -97,5 +97,21 @@ describe("Claude Code desktop extension", () => {
     fireEvent.click(screen.getByRole("button", { name: /Update in a terminal/u }));
     await waitFor(() => expect(actions.copyText).toHaveBeenCalledWith("claude update"));
     expect(actions.notify).toHaveBeenCalledWith("No terminal is available; the command is on the clipboard.");
+  });
+
+  it("offers a new release of the default instance's CLI and opens its card from Settings", async () => {
+    const toasts = new Map<string, ToastOptions>();
+    const actions = { toast: (options: ToastOptions) => { toasts.set(options.id!, options); return { id: options.id!, update: () => undefined, dismiss: () => undefined }; }, openSettings: vi.fn() } as unknown as WorkbenchActions;
+    const invoke = vi.fn(async () => ({ tool: "claude", installed: "2.1.300", latest: "2.1.300" }));
+    const run = vi.fn(async () => ({ id: "term-1", exitCode: 0 }));
+    const Toasts = createUpdateToasts(host(invoke), () => ({ run }));
+    const snapshot = { runtimeBackends: [{ kind: "claude-code", label: "Claude Code", version: { tool: "claude", installed: "2.1.280", latest: "2.1.300", updateCommand: "claude update" } }] } as unknown as HostSnapshot;
+    render(<Toasts snapshot={snapshot} actions={actions} />);
+    await waitFor(() => expect(toasts.get("runtime-update:claude-code")?.title).toBe("Update available: Claude Code v2.1.300"));
+    toasts.get("runtime-update:claude-code")!.actions![0]!.run();
+    expect(actions.openSettings).toHaveBeenCalledWith("claude-code.settings");
+    toasts.get("runtime-update:claude-code")!.actions![1]!.run();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("recheck", { instance: "default" }));
+    expect(run).toHaveBeenCalledWith({ command: "claude update", label: "Update Claude Code" }, actions);
   });
 });

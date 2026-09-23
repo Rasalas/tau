@@ -7,6 +7,7 @@ import {
   npmLatestVersion,
   packageInstallCommand,
   packageUpdateCommand,
+  runtimeUpdateCommand,
   runtimeVersionPolicy,
   skillInvocationCommand,
   splitArguments,
@@ -172,7 +173,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           tool: "claude",
           ...(installed ? { installed } : {}),
           ...(latest ? { latest } : {}),
-          updateCommand: packageUpdateCommand(real, CLAUDE_NPM_PACKAGE) ?? "claude update",
+          updateCommand: runtimeUpdateCommand(CLAUDE_CODE_BACKEND_KIND, packageUpdateCommand(real, CLAUDE_NPM_PACKAGE) ?? "claude update", env),
           ...(verdict ? { compatibility: install ? { ...verdict, installCommand: install } : verdict } : {}),
         };
       };
@@ -307,6 +308,13 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         await settings.save({ ...rest, ...(requested ? { command: requested } : {}) });
         register(id);
         return { command: claudeCommand(id) };
+      });
+      // After the user ran the update command: core asks the version anew, and so does the caller.
+      context.registerCommand("recheck", async (input) => {
+        const id = instanceInput(input);
+        adapterOf(id);
+        register(id);
+        return versionOf(id).catch(() => undefined);
       });
       // Asks the CLI itself (version, login, models); a process is spawned, so this is on demand.
       context.registerCommand("probe", async (input) => {
