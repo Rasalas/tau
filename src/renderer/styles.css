@@ -814,12 +814,13 @@ button > svg { pointer-events: none; }
   display: flex; align-items: center; height: 30px; padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--line-inset); background: var(--chrome);
 }
-.md-code-head > span { flex: 1; font: 10px var(--mono); color: var(--faint); letter-spacing: .08em; }
+.md-code-head > span { flex: 1; font: 11px var(--mono); color: var(--faint); }
 .md-code-head > button {
-  border: 0; border-radius: 5px; background: transparent; color: var(--faint);
-  font: 10px var(--mono); padding: 3px 7px; cursor: pointer;
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;
 }
-.md-code-head > button:hover { background: var(--raised); color: var(--ink-2); }
+.md-code-head > button:hover, .md-code-head > button[aria-pressed="true"] { background: var(--raised); color: var(--ink-2); }
+.md-code[data-wrap] code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .md-code-head > button.copied { color: var(--ready); }
 .md-code-head > button.failed { color: var(--removed); }
 .md-code pre { margin: 0; padding: 11px 13px; overflow-x: auto; }
