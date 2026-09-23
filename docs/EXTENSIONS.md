@@ -1781,8 +1781,10 @@ in-process only, since a provider is a live object.
 | `read(threadId, source, id)` | One attachment's bytes, from the extension that provided it. |
 | `observe((threadId, source) => …)` | Hears every `changed`. |
 
-Evidence Kit (`kits/evidence/`) provides its turn pictures this way; a local
-pull-request view reads them to show and upload what a branch's turns did.
+Evidence Kit (`kits/evidence/`) provides its turn pictures this way; Review
+Kit's local pull request (`kits/review/local-request-host.ts`) lists them for
+the threads of a checkout, gives each turn to the commit that took in its work,
+and reads the bytes back with `read` when the user uploads them with a request.
 
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 
