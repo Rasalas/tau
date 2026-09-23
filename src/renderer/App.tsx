@@ -28,6 +28,7 @@ import { useClientEnvironment } from "./client-environment";
 import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
+import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
 import { useStageTabs } from "./stage-tab-controller";
@@ -429,6 +430,12 @@ export default function App() {
     ),
     [newThreadController, threadCommands, viewStore],
   );
+  const setComposerMode = useCallback(async (mode: string) => {
+    let accepted = true;
+    await newThreadController.setMode(mode, async (next) => { accepted = await threadCommands.setMode(next); });
+    return accepted;
+  }, [newThreadController, threadCommands]);
+  const submitText = useCallback((text: string) => submitPrompt(text), [submitPrompt]);
   const actions = useWorkbenchActions({
     client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
@@ -436,7 +443,7 @@ export default function App() {
     switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
-    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, preferences,
+    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     openModelPicker, openInstructions, focusStage, toggleSidebar,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
@@ -494,6 +501,8 @@ export default function App() {
     sessionTitle: "Untitled thread",
     isStreaming: false,
     ...(pendingNewThread.model ? { model: pendingNewThread.model } : {}),
+    mode: pendingNewThread.mode,
+    modes: snapshot.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(settings.newThreadRuntime, snapshot))?.modes,
     supportsImageInput: pendingNewThread.sessionId
       ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true
       : preparedThreadCapability?.cwd === pendingNewThread.projectPath
@@ -502,7 +511,7 @@ export default function App() {
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot,
-  [pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability]);
+  [pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
     void composerAttachmentRef.current?.addFiles(files);
   }, []);

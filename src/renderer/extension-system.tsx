@@ -137,6 +137,18 @@ export interface WorkbenchActions {
   setModel?(provider: string, id?: string): Promise<boolean> | void;
   /** Sets the thinking level for the active thread. */
   setThinkingLevel?(level: string): Promise<void>;
+  /**
+   * The interaction mode the thread on screen runs its next turns in, or the
+   * one a draft's thread starts in: `default` or one of `snapshot.modes`.
+   * Resolves false when the host refused. New in API 1.11.0.
+   */
+  setMode?(mode: string): Promise<boolean>;
+  /**
+   * Sends `text` as the user's next message in the thread on screen, the way
+   * the composer sends it (queued while a turn runs), and leaves the draft
+   * alone. Resolves false when it was not accepted. New in API 1.11.0.
+   */
+  submitPrompt?(text: string): Promise<boolean>;
   /** Opens the active instructions and system prompt modal. */
   openInstructions?(): void;
   /** Executes a command registered with `registerCommand`. */
@@ -717,6 +729,26 @@ export interface MessageActionContribution extends ProfileScoped {
   run(message: UiMessage, context: { selection?: string }, actions: WorkbenchActions): void | Promise<void>;
 }
 
+export interface MessageBlockProps {
+  /** What stands between the tags. */
+  body: string;
+  /** False while the closing tag has not arrived yet. */
+  complete: boolean;
+  message: UiMessage;
+  streaming: boolean;
+}
+
+/**
+ * Draws a `<tag>…</tag>` block of an assistant reply in place of its text,
+ * e.g. a proposed plan as a card. The tags stand on lines of their own and
+ * outside code fences; the rest of the reply stays Markdown.
+ */
+export interface MessageBlockContribution extends ProfileScoped {
+  id: string;
+  tag: string;
+  Component: ComponentType<MessageBlockProps>;
+}
+
 /**
  * A set of models a new thread's picker builds with Shift-click, kept by the
  * extension that knows what to do with more than one. Keys are `provider/id`;
@@ -886,6 +918,8 @@ export interface DesktopExtensionContext {
   /** Lets a new thread's model picker hold several models; one extension at a time, the last one wins. */
   registerModelSelection(selection: ModelSelectionContribution): () => void;
   registerMessageAction(action: MessageActionContribution): () => void;
+  /** Draws a tagged block of an assistant reply itself. New in API 1.11.0. */
+  registerMessageBlock(block: MessageBlockContribution): () => void;
   registerPromptRenderer(renderer: PromptRendererContribution): () => void;
   /** The stage shows documents; one extension says how to load them and which are changed. */
   registerDocumentSource(source: DocumentSourceContribution): () => void;
@@ -1042,6 +1076,7 @@ export class ExtensionRegistry {
   private promptHooks = new Map<string, Owned<PromptHookContribution>>();
   private modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
   private messageActions = new Map<string, Owned<MessageActionContribution>>();
+  private messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
   private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   /** Values one extension published for another; core only routes them by id. */
@@ -1351,6 +1386,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "message action", action.id, action.label, action)) return noContribution;
         note("message actions");
         return this.register(this.messageActions, action.id, { ...action, ...owner }, disposers);
+      },
+      registerMessageBlock: (block) => {
+        if (!this.scopeToProfile(owner, "message block", block.id, undefined, block)) return noContribution;
+        note("message blocks");
+        return this.register(this.messageBlocks, block.id, { ...block, ...owner }, disposers);
       },
       registerDocumentSource: (source) => {
         if (!this.scopeToProfile(owner, "document source", source.id, undefined, source)) return noContribution;
@@ -1835,6 +1875,10 @@ export class ExtensionRegistry {
 
   getMessageActions(): Array<Owned<MessageActionContribution>> {
     return this.sorted("message-actions", this.messageActions, false);
+  }
+
+  getMessageBlocks(): Array<Owned<MessageBlockContribution>> {
+    return this.sorted("message-blocks", this.messageBlocks, false);
   }
 
   async notifyPromptSubmitted(event: PromptSubmittedEvent, actions: WorkbenchActions): Promise<void> {

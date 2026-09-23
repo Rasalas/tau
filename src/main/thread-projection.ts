@@ -23,6 +23,13 @@ import type { HostThread } from "./host-extensions.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { isPiBackend, isThreadRuntime, type ThreadRuntime } from "./thread-runtime.js";
 
+/** The thread's interaction mode and the modes it offers; nothing when it offers none. */
+function threadModes(thread: ThreadRuntime): { mode?: string; modes?: string[] } {
+  const capability = thread.backend.capabilities.mode;
+  const modes = capability?.modes() ?? [];
+  return modes.length > 0 ? { mode: capability!.current(), modes: [...modes] } : {};
+}
+
 /** One message entry of a branch, in the shape the transcript maps. */
 export interface BranchRecord {
   record: Record<string, unknown>;
@@ -178,6 +185,7 @@ export class ThreadProjection {
       runtimeCapabilities: thread.runtimeAdapter.capabilities,
       thinkingLevel: view.thinkingLevel,
       thinkingLevels: [...view.thinkingLevels],
+      ...threadModes(thread),
       allTools: [...view.allTools],
       composerCommands: this.composerCommands(thread).map((command) => ({ ...command })),
       extensionCount: pi ? extensionCount : state.extensionCount,
@@ -208,6 +216,7 @@ export class ThreadProjection {
         models,
         thinkingLevel: externalView.thinkingLevel,
         thinkingLevels: [...externalView.thinkingLevels],
+        ...threadModes(thread),
         messages,
         isStreaming: thread.adapterStreaming || externalState.streaming,
         activeTools: [...externalState.activeTools],
@@ -241,6 +250,7 @@ export class ThreadProjection {
       models,
       thinkingLevel: view.thinkingLevel,
       thinkingLevels: [...view.thinkingLevels],
+      ...threadModes(thread),
       messages,
       isStreaming: state.streaming || thread.adapterStreaming,
       activeTools: [...state.activeTools],

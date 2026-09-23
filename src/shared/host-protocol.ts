@@ -74,6 +74,10 @@ export interface HostCatalog {
   runtimeCapabilities?: import("./contracts.js").RuntimeCapabilities;
   thinkingLevel: string;
   thinkingLevels: string[];
+  /** The thread's interaction mode; absent means `default`. */
+  mode?: string;
+  /** The modes besides `default` the runtime offers. */
+  modes?: string[];
   allTools: Array<{ name: string; description: string }>;
   composerCommands?: UiComposerCommand[];
   extensionCount: number;
@@ -277,13 +281,13 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
  * so every holder of a snapshot applies a catalog the same way.
  */
 export function hostSnapshotWithCatalog(snapshot: HostSnapshot, catalog: HostCatalog): HostSnapshot {
-  const { sessionId: _sessionId, supportsImageInput, ...catalogFields } = catalog;
+  const { sessionId: _sessionId, supportsImageInput, mode, modes, ...catalogFields } = catalog;
   return {
     ...snapshot,
     ...catalogFields,
     // A legacy v1 catalog carries no sessionId and no capability flag; leave
     // the snapshot's own value alone rather than reading absence as "no".
-    ...(catalog.sessionId === undefined ? {} : { supportsImageInput: supportsImageInput ?? false }),
+    ...(catalog.sessionId === undefined ? {} : { supportsImageInput: supportsImageInput ?? false, mode, modes }),
   };
 }
 
@@ -391,6 +395,8 @@ export function catalogFromSnapshot(snapshot: HostSnapshot): HostCatalog {
     runtimeCapabilities: snapshot.runtimeCapabilities,
     thinkingLevel: snapshot.thinkingLevel,
     thinkingLevels: [...snapshot.thinkingLevels],
+    ...(snapshot.mode ? { mode: snapshot.mode } : {}),
+    ...(snapshot.modes ? { modes: [...snapshot.modes] } : {}),
     allTools: [...snapshot.allTools],
     composerCommands: snapshot.composerCommands?.map((command) => ({ ...command })),
     extensionCount: snapshot.extensionCount,

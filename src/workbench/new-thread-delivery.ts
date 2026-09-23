@@ -290,6 +290,7 @@ export class NewThreadDeliveryCoordinator {
       // Without an explicit draft choice, the model and runtime on screen
       // still belong to whichever thread was open before.
       model: pending.model,
+      mode: pending.mode,
       backendKind: undefined,
       messages: [],
       isStreaming: false,
