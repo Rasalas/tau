@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
 import { ChevronDown, Folder, X } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
@@ -22,7 +22,7 @@ import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
-import type { TranscriptActivity } from "./components/transcript-activity";
+import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, PanelProps, WorkbenchActions } from "./extension-system";
 import { useClientStorage } from "./client-storage-context";
@@ -201,9 +201,10 @@ export interface WorkbenchThread {
   transcriptScope: import("../workbench/transcript-navigation").TranscriptNavigationScope;
   transcriptTurnStart?: TranscriptTurnStart;
   visibleTranscriptTurnStart?: TranscriptTurnStart;
-  transcriptActivities: readonly TranscriptActivity[];
-  liveStatusLabel?: string;
-  conversationActivityTools: readonly UiToolRun[];
+  /** The conversation's last message; live tool work anchors there. */
+  lastMessageId?: string;
+  recoverThread(): Promise<unknown>;
+  copyToolOutput(tool: UiToolRun): Promise<void>;
   runStartedAt?: number;
   activeDraftKey?: string;
   copyMessage(message: UiMessage): Promise<void>;
@@ -245,9 +246,10 @@ export interface WorkbenchModel {
   /** The one store the transcript and the context meter subscribe to themselves. */
   view: ThreadViewStore;
   actions: WorkbenchActions;
-  context: WorkbenchContextValue;
+  /** Both contexts without their tool runs, which the workbench adds from `view`. */
+  context: Omit<WorkbenchContextValue, "tools">;
   shellContext: WorkbenchShellContextValue;
-  observatoryContext: ObservatoryContextValue;
+  observatoryContext: Omit<ObservatoryContextValue, "tools">;
   layout: WorkbenchLayout;
   thread: WorkbenchThread;
   composer: WorkbenchComposer;
@@ -468,13 +470,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     : null;
 
   const activeOverlay = registry.getOverlay(activeOverlayId);
-  const providers = (content: React.ReactNode) => <ThreadStoreContext.Provider value={threadStore}>
-    <WorkbenchShellContext.Provider value={model.shellContext}>
-      <WorkbenchContext.Provider value={model.context}>
-        <ObservatoryContext.Provider value={model.observatoryContext}>{content}</ObservatoryContext.Provider>
-      </WorkbenchContext.Provider>
-    </WorkbenchShellContext.Provider>
-  </ThreadStoreContext.Provider>;
+  const providers = (content: React.ReactNode) => <WorkbenchProviders model={model} threadStore={threadStore}>{content}</WorkbenchProviders>;
   if (activeOverlay) return providers(<>
     <LazyFeatureBoundary
       label={activeOverlay.id}
@@ -572,7 +568,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 />
                 <span className="title-spacer" />
               </header>
-              <ConversationTranscript view={view} thread={thread} />
+              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} />
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
             </> : null}
           </div>
@@ -657,24 +653,62 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 });
 
 /**
- * The transcript follows the store on its own. A streamed delta re-renders
- * this subtree and leaves the rest of the workbench untouched.
+ * Tool runs join the two contexts here. A flush of tool output re-renders this
+ * and the contexts' consumers; the workbench below hands in the same children.
  */
-function ConversationTranscript({ view, thread }: { view: ThreadViewStore; thread: WorkbenchThread }) {
+function WorkbenchProviders({ model, threadStore, children }: { model: WorkbenchModel; threadStore: ThreadStore; children: React.ReactNode }) {
+  const { tools } = useSyncExternalStore(model.view.subscribeToTools, model.view.getToolView);
+  const context = useMemo(() => ({ ...model.context, tools }), [model.context, tools]);
+  const observatory = useMemo(() => ({ ...model.observatoryContext, tools }), [model.observatoryContext, tools]);
+  return <ThreadStoreContext.Provider value={threadStore}>
+    <WorkbenchShellContext.Provider value={model.shellContext}>
+      <WorkbenchContext.Provider value={context}>
+        <ObservatoryContext.Provider value={observatory}>{children}</ObservatoryContext.Provider>
+      </WorkbenchContext.Provider>
+    </WorkbenchShellContext.Provider>
+  </ThreadStoreContext.Provider>;
+}
+
+/**
+ * The transcript follows the store on its own. A streamed delta or a flush of
+ * tool output re-renders this subtree and leaves the rest of the workbench untouched.
+ */
+function ConversationTranscript({ view, thread, registry, actions, prompts, abort }: {
+  view: ThreadViewStore;
+  thread: WorkbenchThread;
+  registry: ExtensionRegistry;
+  actions: WorkbenchActions;
+  prompts: readonly ExtensionUiPrompt[];
+  abort(sessionId?: string): void;
+}) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
   const optimistic = useSyncExternalStore(view.subscribeToOptimistic, view.getOptimisticMessages);
   const preferences = usePreferences();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const {
-    conversationSnapshot, pendingNewThread, transcriptHistory, transcriptRef, loadTranscriptPage,
+    snapshot, conversationSnapshot, pendingNewThread, transcriptHistory, transcriptRef, loadTranscriptPage,
     applyTranscriptPage, transcriptScopeKey, transcriptScope, transcriptTurnStart,
-    visibleTranscriptTurnStart, transcriptActivities, liveStatusLabel, conversationActivityTools,
+    visibleTranscriptTurnStart, lastMessageId, recoverThread, copyToolOutput,
     runStartedAt, activeDraftKey, copyMessage, forkMessage,
   } = thread;
+  const detail = preferences.transcriptDetailFor(conversationSnapshot?.sessionId);
+  const { conversationActivityTools, liveStatusLabel, transcriptActivities } = useConversationActivities({
+    pendingNewThread, conversationSnapshot, running: Boolean(snapshot?.isStreaming), lastMessageId, prompts,
+    registry, viewStore: view, detail, actions, recoverThread, copyToolOutput,
+    abortSessionId: snapshot?.sessionId, abort,
+  });
   const messages = useMemo(
     () => conversationMessagesFor(transcript.messages, optimistic, activeDraftKey, pendingNewThread),
     [activeDraftKey, optimistic, pendingNewThread, transcript],
   );
+  // Stable across renders: a new callback or status element per tool flush
+  // would re-render every visible message and restart the tail follow.
+  const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
+  const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
+  const showRunClock = Boolean(conversationSnapshot?.isStreaming) && conversationActivityTools.length === 0;
+  const liveStatus = useMemo(() => liveStatusLabel !== undefined
+    ? <LiveStatus label={liveStatusLabel} />
+    : showRunClock ? <LiveStatus startedAt={runStartedAt} /> : undefined, [liveStatusLabel, runStartedAt, showRunClock]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     scrollRef={transcriptRef}
@@ -693,14 +727,10 @@ function ConversationTranscript({ view, thread }: { view: ThreadViewStore; threa
       turnStart={visibleTranscriptTurnStart}
       isStreaming={Boolean(conversationSnapshot?.isStreaming)}
       activities={transcriptActivities}
-      detail={preferences.transcriptDetailFor(conversationSnapshot?.sessionId)}
-      liveStatus={liveStatusLabel !== undefined
-        ? <LiveStatus label={liveStatusLabel} />
-        : conversationSnapshot?.isStreaming && conversationActivityTools.length === 0
-          ? <LiveStatus startedAt={runStartedAt} />
-          : undefined}
-      onCopyMessage={(message) => void copyMessage(message)}
-      onForkMessage={(message) => void forkMessage(message)}
+      detail={detail}
+      liveStatus={liveStatus}
+      onCopyMessage={onCopyMessage}
+      onForkMessage={onForkMessage}
     />}
   </TranscriptHistoryBoundary>;
 }
