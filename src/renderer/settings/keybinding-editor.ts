@@ -11,9 +11,10 @@ import { parseKeyChord, platformChordId } from "../keybindings";
 /** `custom` came from the user keymap, `config` from config.json's `keybindings`, which this page does not write. */
 export type KeybindingSource = "default" | "custom" | "config";
 
-export function keybindingSource(binding: ResolvedKeybinding): KeybindingSource {
+/** `keymapOwner` is the extension behind the user keymap; a kit's own replacing chord is still a default. */
+export function keybindingSource(binding: ResolvedKeybinding, keymapOwner?: string): KeybindingSource {
   if (binding.extensionId === USER_CONFIG_KEYBINDINGS) return "config";
-  return binding.replaces ? "custom" : "default";
+  return binding.replaces && binding.extensionId === keymapOwner ? "custom" : "default";
 }
 
 const clause = (when: string | undefined) => {

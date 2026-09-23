@@ -52,7 +52,7 @@ function ChordRecorder({ label, placeholder = "Press keys…", mac, onRecord, on
 
 interface EditorContext {
   registry: ExtensionRegistry;
-  keymap: UserKeymapContribution;
+  keymap: UserKeymapContribution & { extensionId: string };
   mac: boolean;
   onNotify(message: string): void;
 }
@@ -198,7 +198,7 @@ function KeybindingRow({ binding, commandLabel, context, siblings }: {
   /** How many live chords the command has, this one included. */
   siblings: number;
 }) {
-  const source = keybindingSource(binding);
+  const source = keybindingSource(binding, context?.keymap.extensionId);
   const label = commandLabel(binding.commandId);
   const editable = context !== undefined && source !== "config";
   const title = (
@@ -332,7 +332,8 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
   const rowKey = (b: (typeof keybindings)[number]) => `${b.keys}|${b.when ?? ""}|${b.commandId}`;
   const filteredUnimplemented = unimplemented.filter((b) => pressed(b) && matches(b.commandId, b.keys, b.extensionName));
   const filteredCommands = commands.filter((c) => (!keyFilter || keybindings.some((b) => b.commandId === c.id && pressed(b))) && matches(c.label, c.id, c.group));
-  const custom = keybindings.some((binding) => keybindingSource(binding) === "custom");
+  // Pi actions Tau has no command for stay Pi's, so they do not call for Reset all.
+  const custom = implemented.some((binding) => keybindingSource(binding, keymap?.extensionId) === "custom");
   const noMatch = keyFilter ? `No keybindings press ${chordLabel(keyFilter, mac)}.` : <>No keybindings match &ldquo;{filter}&rdquo;.</>;
 
   const resetAll = async () => {

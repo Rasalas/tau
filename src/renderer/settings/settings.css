@@ -303,6 +303,7 @@
 }
 .keybinding-recorder::placeholder { color: var(--muted-2); }
 .settings-filter > .keybinding-recorder { flex: 1; height: 24px; border: 0; padding: 0; background: transparent; }
+.keybinding-row > .keybinding-row-menu { flex: none; }
 .keybinding-row-menu > .text-button { display: grid; place-items: center; width: 24px; height: 24px; opacity: 0; }
 .keybinding-row:hover .keybinding-row-menu > .text-button, .keybinding-row-menu > .text-button:focus-visible, .keybinding-row-menu > .text-button[aria-expanded="true"] { opacity: 1; }
 .keybinding-row-group[data-editing] { background: var(--inset); }

@@ -49,7 +49,11 @@ describe("the keybinding editor's rules", () => {
     keys.activate({ id: "file", name: "File", activate(context) {
       context.registerKeybinding({ keys: "mod+t", commandId: "new-thread", replaces: "new-thread" });
     } });
-    expect(keys.getKeybindings().map((binding) => [binding.keys, keybindingSource(binding)])).toEqual([["mod+d", "default"], ["mod+t", "custom"]]);
+    // A kit's own replacing chord is one of its defaults, not the user's.
+    keys.activate({ id: "kit", name: "Kit", activate(context) {
+      context.registerKeybinding({ keys: "mod+shift+d", commandId: "split", replaces: "split" });
+    } });
+    expect(keys.getKeybindings().map((binding) => [binding.keys, keybindingSource(binding, "file")])).toEqual([["mod+t", "custom"], ["mod+shift+d", "default"]]);
   });
 
   it("checks a clause, suggests the contexts in use, and finds chords by the keys pressed", () => {
