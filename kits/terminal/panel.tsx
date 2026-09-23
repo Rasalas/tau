@@ -75,7 +75,7 @@ export function TerminalPanel({ actions, active }: PanelProps) {
       })}
     </div>
     {error && <p role="alert" className="terminal-error">{error}</p>}
-    {onStage > 0 && <p className="terminal-note">{onStage === 1 ? "One shell is open as a stage tab." : `${onStage} shells are open as stage tabs.`}</p>}
+    {onStage > 0 && <p className="terminal-note">{onStage === 1 ? "One shell is on the stage." : `${onStage} shells are on the stage.`}</p>}
     <div className="terminal-surface">
       {current
         ? <PaneTree group={current} sessions={sessions} place="panel" actions={actions} run={run} activeSessionId={activeSessionId} />
