@@ -230,7 +230,13 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     threadFor: (sessionId) => deps.threadFor(sessionId),
     ...(options.logger ? { logger: options.logger } : {}),
   }, lifecycleMetrics);
-  const completions = new HostCompletions({ agentDir: getAgentDir(), cwd: () => deps.getCwd(), ...(options.createModelRuntime ? { createRuntime: options.createModelRuntime } : {}) });
+  const completions = new HostCompletions({
+    agentDir: getAgentDir(),
+    cwd: () => deps.getCwd(),
+    ...(options.createModelRuntime ? { createRuntime: options.createModelRuntime } : {}),
+    // Asked only after start-up, once `catalogs` exists; Pi's own catalog is what gets narrowed.
+    reports: async () => (await catalogs.onHand()).filter((catalog) => catalog.kind !== "pi"),
+  });
   /**
    * What threads cost. Pi's model data loads a moment after start, off the
    * start path; totals published before that are worked out again.
