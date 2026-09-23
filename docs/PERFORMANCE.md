@@ -93,7 +93,7 @@ Scroll work should run only while the viewport is pinned to the tail. Streaming 
 
 The workbench context carries unrelated transcript, tool, event, file-tree, and Git state. Inactive panels stay mounted and receive those updates even though CSS hides them.
 
-Split state by update frequency and ownership. Composer input, elapsed labels, active message records, tool runs, panel data, and shell navigation need separate subscriptions. Hidden heavy panels should mount on demand.
+Split state by update frequency and ownership. Composer input, elapsed labels, active message records, tool runs, panel data, and shell navigation need separate subscriptions. Hidden heavy panels should mount on demand. Tool runs have their own subscription since 2026-09-23; see "Tool output without re-rendering the workbench".
 
 ### Transcript and tool state are unbounded
 
@@ -383,6 +383,21 @@ For a reproducible before/after comparison, commit `6ddb454` was detached into a
 The anchored transcript comparison is also retained in `reports/renderer-transcript-comparison-aggregate.json`. It records three complete sequential runs per side for the deterministic 1,000-turn fixture with anchor turn 8, 128 activities, and 36 streaming deltas. The report includes the baseline and current subjects, harness and build hashes, machine metadata, all raw runs, and an executable reproduction recipe that creates detached worktrees with `git -C`, applies the neutral baseline patch, and names all six raw reports. The legacy comparison reports frame `16.7 / 18.5 / 18.6` to `16.7 / 17.7 / 17.7` ms, commit `26.0 / 35.3 / 35.3` to `24.3 / 64.4 / 64.4` ms, and DOM `137` to `108`; the anchored and streaming scenarios remain separate evidence. These are local development-machine measurements, not capacity guarantees.
 
 `npm run benchmark:host:check` and `npm run benchmark:host:full:check` use the same persisted-session fixture in Safe and Full Mode. Branch resolution no longer blocks first content: against the same local fixture, Full Mode bootstrap fell from 2,350.7 ms to 1,601.7 ms, while the current Safe Mode bootstrap is 87.3 ms. CI rejects a critical-path branch phase and requires its duration to remain visible as background work. Full Mode cold switching now prepares a fresh isolated runtime before activation and defers retirement until after the focused response; the complete-run measurement fell from 2,175.8 ms to 1,630.4 ms without skipping Extension startup or shutdown hooks. The current report records Safe Mode warm-switch p95 at 85.9 ms and Full Mode warm-switch p95 at 19.7 ms. Full Mode prewarming took 430–1,173 ms and deferred extension retirement took 190–902 ms during the complete release run. Those extension-owned costs remain reported rather than being skipped or moved back into the interactive switch path. A focused `PI_TIMING=1` run attributed 1,404 ms of cold startup to configured Extension module imports and factories. A three-process Node compile-cache experiment measured resource phases of 1,494 ms, 1,530 ms, and 1,501 ms, so Tau does not enable that cache: it produced no repeatable improvement. Parallel imports were rejected because changing top-level Extension execution order would violate Extension ownership and can change behavior.
+
+### Tool output without re-rendering the workbench
+
+Until 2026-09-23 `App` subscribed to the tool view, so every tool-output flush (one per animation frame while a command prints) re-rendered `App`, built a new workbench model and re-rendered the whole workbench: title bar, rail, dock, composer and transcript. Now the transcript subscribes to the tool view itself (`useConversationActivities` in `ConversationTranscript`), the tool runs join `useWorkbench()` and `useObservatory()` in a provider inside the workbench, `App` reads only whether the turn has any work (a boolean), and the live-turn cache is written from a store subscription (`followTurnActivity`). The live task-progress element, the transcript's copy and fork callbacks and its live-status element are stable, so a flush no longer re-renders every visible message either. The composer follows the tool output estimate in thousands of tokens, the unit its context meter shows.
+
+The renderer benchmark gained `app-tool-output-stream`: the real `App` against a scripted host (40 messages, one bash call, 120 frame flushes of 16 lines each), timing the store's frame flush plus React's commit. Its mount is the whole workbench and carries its own 45 ms mount budget; frame, commit and long-task budgets are the defaults. Base (`4a7f515`) and current were built side by side with the same harness and run interleaved, 2 warm-ups and 9 samples each, on the development machine (Apple M4) under a load average of 11 to 20 from other work, so absolute values are noisy while the comparison is paired:
+
+| app-tool-output-stream | update (median / p95 / max ms) | frame (median / p95 / max ms) | long tasks |
+| --- | ---: | ---: | ---: |
+| base `4a7f515` | 1.5 / 3.9 / 5.9 | 16.7 / 18.4 / 18.7 | 0 |
+| current | 0.5 / 1.5 / 2.3 | 16.7 / 18.3 / 18.7 | 0 |
+
+In the isolated real app (all kits, GPT-5.6 Luna running `for i in $(seq 1 60); do echo …; sleep 0.1; done` in a new thread, three turns per side) a DevTools-hook counter tallied commits while the live tool row was running. Per turn, base: about 132 commits, 62 to 66 of which re-rendered the app shell, and 12,500 to 13,400 re-rendered DOM elements; renderer script time 214 to 327 ms and task time 525 to 773 ms for the whole turn. Current: 130 to 151 commits, 1 to 20 shell re-renders (other events during the run; not traced one by one), 1,000 to 5,100 re-rendered elements; script 144 to 175 ms and task 435 to 540 ms. The composer area alone had accounted for 4,650 to 4,950 of the base's re-rendered elements per turn.
+
+`App.render-count.test.tsx` is the regression guard: a tool-output flush must not render `App`, the workbench chrome or the composer, and a kit reading `useWorkbench().tools` must still see every flush. Consumers of `useWorkbench()` still re-render per flush, since `tools` is part of that public context value.
 
 ### Deferred extension binding
 
