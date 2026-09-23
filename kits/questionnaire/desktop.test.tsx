@@ -80,4 +80,20 @@ describe("Questionnaire Kit", () => {
     expect(registry.getPromptRenderer({ id: "x", sessionId: "s1", kind: "confirm", title: "Sure?" })).toBeUndefined();
     expect(registry.getPromptRenderer({ ...ask(0, "select"), answerElsewhere: true })).toBeUndefined();
   });
+
+  it("pages a runtime's form whose later field takes free text", () => {
+    const { registry } = createKitHarness();
+    registry.activate(createQuestionnaireExtension(new QuestionnaireStore()));
+    const form: UiQuestionnaireQuestion[] = [
+      { question: "Environment", header: "deploy", multiSelect: false, options: [{ label: "Staging", description: "" }] },
+      { question: "Note (optional)", header: "deploy", multiSelect: false, options: [] },
+    ];
+    const prompt: ExtensionUiPrompt = { id: "f0", sessionId: "s1", kind: "select", title: "Environment", options: ["Staging"], extras: { [QUESTIONNAIRE_EXTRA]: { index: 0, questions: form } } };
+    const renderer = registry.getPromptRenderer(prompt)!;
+    render(<renderer.Component prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    fireEvent.click(screen.getByLabelText("Next question"));
+    expect(screen.getByText("Free text")).toBeTruthy();
+    expect(screen.getByText("answered below when the extension gets here")).toBeTruthy();
+  });
 });
+
