@@ -136,7 +136,11 @@ reach the workbench as usual.
 - Stage tabs moved off `mod+shift+[`/`]` (now thread navigation, as in T3 Code)
   to `ctrl+tab`; the focus chords moved from `mod+1`–`mod+3` (now thread jumps)
   to `mod+alt+1`–`mod+alt+3`.
-- `mod+r` and the zoom chords under `previewFocus` are not bound. The app menu
+- `mod+r` and the zoom chords under `previewFocus` are not bound: while the
+  preview's page has the keyboard, Preview Kit takes ⌘R, ⇧⌘R, ⌘+ (⌘=), ⌘− and
+  ⌘0 in the page's `before-input-event` and reloads or zooms the page, not the
+  workbench (T3 Code's `preview.refresh` and zoom commands, also in the
+  palette without chords). The app menu
   (`src/main/app-menu.ts`, after T3 Code's) owns ⌘R and ⌘⇧R (reload), ⌘0, ⌘=
   (and ⌘+) and ⌘− (the workbench's own zoom, whichever view has the keyboard),
   ⇧⌘V (Paste as Text: the next paste lands as plain text, not as a folded

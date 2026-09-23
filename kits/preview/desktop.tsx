@@ -2,6 +2,10 @@ import { Globe } from "lucide-react";
 import { cookieImportDialogs, createCookieImportLayer } from "./cookie-import-dialog.js";
 import { errorMessage, type DesktopExtension, type WorkbenchActions } from "tau";
 import { holdChipService } from "./attach.js";
+import { followLinkTarget } from "./link-target.js";
+import { createMiniPlayerRegion } from "./mini-player.js";
+import { PREVIEW_SETTINGS, readLinkTarget, syncDefaults } from "./settings.js";
+import { PreviewSettingsPage } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   PREVIEW_BROWSER_SERVICE,
@@ -14,8 +18,8 @@ import {
 } from "./protocol.js";
 import { PreviewPanel } from "./panel.js";
 import { COMPUTER_USE_SCREEN_SERVICE, type ComputerUseScreenService } from "./screen-protocol.js";
-import { activeThread, holdScreenService } from "./screen-store.js";
-import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore, togglePreviewPanel } from "./store.js";
+import { activeThread, holdScreenService, previewView, screenService } from "./screen-store.js";
+import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore, readPreviewState, togglePreviewPanel, workbenchActions } from "./store.js";
 
 /** T3 Code's `preview.focusUrl`: the panel's address field, its text selected. */
 function focusAddress(app: Pick<WorkbenchActions, "openPanel">): void {
@@ -38,7 +42,18 @@ export const previewExtension: DesktopExtension = {
     const disconnect = connectPreviewHost(plugin.host);
     plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["desktop"], Component: PreviewPanel });
     plugin.registerRegion({ id: "preview.follower", placement: "composer-above", order: 60, profiles: ["desktop"], Component: PreviewFollower });
-    plugin.host.onEvent(PREVIEW_STATE_EVENT, (payload) => { if (isPreviewState(payload)) previewStore.set(payload); });
+    plugin.registerRegion({ id: "preview.mini-player", placement: "composer-above", order: 61, profiles: ["desktop"], Component: createMiniPlayerRegion(plugin.preferences) });
+    plugin.registerSettingsPage({
+      id: "preview.settings",
+      label: "Preview",
+      Icon: Globe,
+      order: 40,
+      keywords: ["browser", "viewport", "zoom", "appearance", "dark mode", "links", "recording", "floating", "picture in picture"],
+      profiles: ["desktop"],
+      Component: PreviewSettingsPage,
+    });
+    plugin.host.onEvent(PREVIEW_STATE_EVENT, (payload) => { if (isPreviewState(payload)) previewStore.set(readPreviewState(payload)); });
+    const stopDefaults = syncDefaults(plugin.preferences, (defaults) => previewKit.defaults(defaults));
     const open = async (url: string, app: Pick<WorkbenchActions, "openPanel">): Promise<string | undefined> => {
       app.openPanel(PREVIEW_PANEL);
       if (!url) return undefined;
@@ -54,7 +69,25 @@ export const previewExtension: DesktopExtension = {
         const failure = await open(url, app);
         if (failure) throw new Error(failure);
       },
+      jump: async (target, app) => {
+        if (target.kind === "browser") {
+          previewView.set("browser");
+          app.openPanel(PREVIEW_PANEL);
+          return;
+        }
+        const screen = screenService.get();
+        if (!screen) throw new Error("No agent drives an app: Computer Use is off.");
+        await screen.bringToFront(target.threadId);
+      },
     });
+    // A plain click on a link in a reply opens it here when Settings → Preview says so.
+    const stopLinks = followLinkTarget(
+      () => readLinkTarget(plugin.preferences.value(PREVIEW_HOST_EXTENSION_ID, PREVIEW_SETTINGS.linkTarget)),
+      (url) => {
+        previewView.set("browser");
+        void open(url, workbenchActions.get() ?? { openPanel: () => undefined });
+      },
+    );
     // Nothing imports cookies without the user's click on Import in this dialog.
     plugin.registerRegion({ id: "preview.cookie-import", placement: "title-bar", profiles: ["desktop"], Component: createCookieImportLayer(cookieImportDialogs, previewKit) });
     plugin.provideService<PreviewCookieImportService>(PREVIEW_COOKIE_IMPORT_SERVICE, {
@@ -79,9 +112,17 @@ export const previewExtension: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+shift+j", commandId: "preview.toggle" });
     plugin.registerCommand({ id: "preview.focus-url", label: "Focus the preview address", group: "Extensions", run: (app) => focusAddress(app) });
     plugin.registerKeybinding({ keys: "mod+l", commandId: "preview.focus-url", when: "previewFocus" });
+    // T3 Code's preview.refresh and zoom commands. Their chords are the app menu's; the page takes them while it has the keyboard.
+    const report = (app: Pick<WorkbenchActions, "notify">) => (error: unknown) => app.notify(errorMessage(error));
+    plugin.registerCommand({ id: "preview.refresh", label: "Reload the preview", group: "Extensions", run: (app) => { void previewKit.navigate({ action: "reload" }).catch(report(app)); } });
+    plugin.registerCommand({ id: "preview.zoom-in", label: "Zoom the preview in", group: "Extensions", run: (app) => { void previewKit.zoom({ step: "in" }).catch(report(app)); } });
+    plugin.registerCommand({ id: "preview.zoom-out", label: "Zoom the preview out", group: "Extensions", run: (app) => { void previewKit.zoom({ step: "out" }).catch(report(app)); } });
+    plugin.registerCommand({ id: "preview.reset-zoom", label: "Reset the preview's zoom", group: "Extensions", run: (app) => { void previewKit.zoom({ step: "reset" }).catch(report(app)); } });
     return () => {
       cookieImportDialogs.close();
       stopFollowing();
+      stopDefaults();
+      stopLinks();
       disconnect();
     };
   },

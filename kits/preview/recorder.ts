@@ -19,8 +19,9 @@ const recorderPage = (): Promise<string> => helperPage ??= (async () => {
   return file;
 })();
 
-const START = `(async () => {
-  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30, width: { max: 1920 }, height: { max: 1920 } }, audio: false });
+/** Chromium draws the OS pointer into a tab capture; the page draws its own while recording. */
+const startScript = (frameRate: number) => `(async () => {
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: ${frameRate}, cursor: "never", width: { max: 1920 }, height: { max: 1920 } }, audio: false });
   const type = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
   const recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
   const chunks = [];
@@ -55,12 +56,22 @@ const STOP = `(async () => {
  * media, the session hands it the preview's frame (tab capture), and a
  * `MediaRecorder` there cuts one-second chunks the host collects with `take`.
  */
+export interface PreviewRecorderOptions {
+  /** Frames per second the capture asks for; 30 when absent. */
+  frameRate?: number;
+}
+
 export class PreviewRecorder {
   private helper: WebContentsView | undefined;
 
   private mimeType = "video/webm";
 
-  constructor(private readonly target: WebContents) {}
+  private readonly frameRate: number;
+
+  constructor(private readonly target: WebContents, options: PreviewRecorderOptions = {}) {
+    const rate = Math.round(options.frameRate ?? 30);
+    this.frameRate = Number.isFinite(rate) ? Math.min(60, Math.max(1, rate)) : 30;
+  }
 
   async start(): Promise<PreviewRecordingChunks> {
     if (this.helper) return { chunks: [], mimeType: this.mimeType };
@@ -80,7 +91,7 @@ export class PreviewRecorder {
     this.helper = helper;
     try {
       await helper.webContents.loadFile(await recorderPage());
-      this.mimeType = String(await helper.webContents.executeJavaScript(START, true));
+      this.mimeType = String(await helper.webContents.executeJavaScript(startScript(this.frameRate), true));
     } catch (error) {
       this.dispose();
       throw error;

@@ -32,6 +32,8 @@ describe("evidence-frame", () => {
       place: () => undefined,
       load: async () => undefined,
       navigate: () => undefined,
+      setZoom: () => undefined,
+      setAppearance: async () => undefined,
       state: () => ({ ...EMPTY_PREVIEW_STATE, url, title: "Fixture" }),
       viewport: () => ({ width: 800, height: 600 }),
       evaluate: async () => secret,
@@ -40,7 +42,7 @@ describe("evidence-frame", () => {
       pressKey: () => undefined,
       destroy: () => undefined,
     };
-    const registry = await activateHostKit(createPreviewHostExtension(async () => surface), { stateDir: "/state", registerRuntimeExtension: () => () => undefined });
+    const registry = await activateHostKit(createPreviewHostExtension(async () => surface), { stateDir: "/state", registerRuntimeExtension: () => () => undefined, registerTurnObserver: () => () => undefined });
     return { registry, captures };
   }
 

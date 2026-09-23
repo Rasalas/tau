@@ -23,12 +23,26 @@ export function profilePartition(name: string): string {
   return name === DEFAULT_PREVIEW_PROFILE ? DEFAULT_PARTITION : `${DEFAULT_PARTITION}-${name}`;
 }
 
+const MAX_NAME = 40;
+
+/** A name as the user wrote it, trimmed and cut to 40 characters. */
+function displayName(input: unknown): string | undefined {
+  if (typeof input !== "string") return undefined;
+  const name = input.replace(/\s+/gu, " ").trim().slice(0, MAX_NAME);
+  return name || undefined;
+}
+
 function decode(value: unknown): PreviewProfiles | undefined {
   const fields = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const listed = Array.isArray(fields.profiles) ? fields.profiles : [];
   const profiles = [...new Set([DEFAULT_PREVIEW_PROFILE, ...listed.flatMap((name) => normalizeProfileName(name) ?? [])])].slice(0, MAX_PROFILES);
   const active = normalizeProfileName(fields.active);
-  return { profiles, active: active && profiles.includes(active) ? active : DEFAULT_PREVIEW_PROFILE };
+  const stored = fields.names && typeof fields.names === "object" ? fields.names as Record<string, unknown> : {};
+  const names = Object.fromEntries(profiles.flatMap((id) => {
+    const name = displayName(stored[id]);
+    return name && name !== id ? [[id, name]] : [];
+  }));
+  return { profiles, active: active && profiles.includes(active) ? active : DEFAULT_PREVIEW_PROFILE, ...(Object.keys(names).length > 0 ? { names } : {}) };
 }
 
 /** The profiles the user made and the one in use, in `<stateDir>/profiles.json`. */
@@ -52,18 +66,64 @@ export class PreviewProfileStore {
   }
 
   snapshot(): PreviewProfiles {
-    return { profiles: [...this.state.profiles], active: this.state.active };
+    const names = this.state.names ? { ...this.state.names } : undefined;
+    return { profiles: [...this.state.profiles], active: this.state.active, ...(names ? { names } : {}) };
   }
 
-  /** Switches to a profile, making it first if it is new. */
-  async use(input: unknown): Promise<PreviewProfiles> {
-    const name = normalizeProfileName(input);
-    if (!name) throw new Error("A profile needs a name of letters, digits or dashes.");
-    await this.read();
-    const profiles = this.state.profiles.includes(name) ? this.state.profiles : [...this.state.profiles, name];
-    if (profiles.length > MAX_PROFILES) throw new Error(`Preview keeps ${MAX_PROFILES} profiles at most.`);
-    this.state = { profiles, active: name };
-    if (this.stateDir) await writePersistedJson(this.file, VERSION, { ...this.state }).catch(() => undefined);
+  private async save(): Promise<PreviewProfiles> {
+    if (this.stateDir) await writePersistedJson(this.file, VERSION, { ...this.snapshot() }).catch(() => undefined);
     return this.snapshot();
   }
+
+  /**
+   * Switches to a profile by id or by the name the user gave it; a name that
+   * is neither makes a new profile, whose id comes from the name.
+   */
+  async use(input: unknown): Promise<PreviewProfiles> {
+    await this.read();
+    const named = displayName(input);
+    const byName = named ? Object.entries(this.state.names ?? {}).find(([, name]) => name.toLowerCase() === named.toLowerCase())?.[0] : undefined;
+    const id = byName ?? normalizeProfileName(input);
+    if (!id) throw new Error("A profile needs a name of letters, digits or dashes.");
+    const created = !this.state.profiles.includes(id);
+    const profiles = created ? [...this.state.profiles, id] : this.state.profiles;
+    if (profiles.length > MAX_PROFILES) throw new Error(`Preview keeps ${MAX_PROFILES} profiles at most.`);
+    const names = { ...this.state.names };
+    if (created && named && named !== id) names[id] = named;
+    this.state = { profiles, active: id, ...(Object.keys(names).length > 0 ? { names } : {}) };
+    return this.save();
+  }
+
+  /** Renames a profile; its id, and with it its cookies and storage, stay. */
+  async rename(idInput: unknown, nameInput: unknown): Promise<PreviewProfiles> {
+    await this.read();
+    const id = normalizeProfileName(idInput);
+    if (!id || !this.state.profiles.includes(id)) throw new Error("There is no such profile.");
+    const name = displayName(nameInput);
+    if (!name) throw new Error("A profile needs a name.");
+    const taken = this.state.profiles.some((other) => other !== id && (this.state.names?.[other] ?? other).toLowerCase() === name.toLowerCase());
+    if (taken) throw new Error(`A profile is already called “${name}”.`);
+    const names = { ...this.state.names };
+    if (name === id) delete names[id];
+    else names[id] = name;
+    this.state = { ...this.state, names };
+    return this.save();
+  }
+
+  /** Forgets a profile; the default one stays. The caller clears its partition. */
+  async remove(idInput: unknown): Promise<PreviewProfiles> {
+    await this.read();
+    const id = normalizeProfileName(idInput);
+    if (id === DEFAULT_PREVIEW_PROFILE) throw new Error("The default profile cannot be deleted.");
+    if (!id || !this.state.profiles.includes(id)) throw new Error("There is no such profile.");
+    const names = { ...this.state.names };
+    delete names[id];
+    this.state = {
+      profiles: this.state.profiles.filter((other) => other !== id),
+      active: this.state.active === id ? DEFAULT_PREVIEW_PROFILE : this.state.active,
+      ...(Object.keys(names).length > 0 ? { names } : {}),
+    };
+    return this.save();
+  }
 }
+

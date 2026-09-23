@@ -87,6 +87,7 @@ describe("Preview Kit's import commands", () => {
     registry = await activateHostKit(createPreviewHostExtension(async () => undefined, window), {
       stateDir: "",
       findCommand: () => undefined,
+      registerTurnObserver: () => () => undefined,
       registerRuntimeExtension: () => () => undefined,
     });
     await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "import-sources", undefined)).resolves.toEqual([{ id: "firefox", name: "Firefox", engine: "firefox", profiles: [] }]);
