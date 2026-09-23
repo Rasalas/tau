@@ -103,10 +103,12 @@ function Fixture({
       loadPage={loadPage}
       applyPage={applyPage}
     >
-      <VirtualTranscript messages={messages} scrollRef={scrollRef} isStreaming={false} />
+      {() => <VirtualTranscript messages={messages} scrollRef={scrollRef} isStreaming={false} />}
     </TranscriptHistoryBoundary>
   </div>;
 }
+
+const scroll: { current: HTMLDivElement | null } = { current: null };
 
 describe("TranscriptHistoryBoundary integration", () => {
   let restoreLayout: (() => void) | undefined;
@@ -232,4 +234,27 @@ describe("TranscriptHistoryBoundary integration", () => {
     fireEvent.wheel(scrollNode, { deltaY: -120 });
     expect(controller.anchorRef.current).toBeUndefined();
   });
+
+  it("loads older turns on the reader's way up, once at a time, and never retries a failed page on its own", async () => {
+    const initialMessages = [message("newer")];
+    const controller = new TranscriptHistoryController(snapshot("thread", initialMessages));
+    controller.syncSnapshot(snapshot("thread", initialMessages), detail("thread", initialMessages));
+    let rejectPage: ((error: Error) => void) | undefined;
+    const loadPage = vi.fn(() => new Promise<TranscriptPage>((_resolve, reject) => { rejectPage = reject; }));
+    let reachStart: (() => void) | undefined;
+    render(<div ref={(node) => { if (node) scroll.current = node; }}>
+      <TranscriptHistoryBoundary controller={controller} scrollRef={scroll} showControl loadPage={loadPage} applyPage={() => true}>
+        {(loadOlderOnReach) => { reachStart = loadOlderOnReach; return null; }}
+      </TranscriptHistoryBoundary>
+    </div>);
+
+    act(() => reachStart!());
+    act(() => reachStart!());
+    expect(loadPage).toHaveBeenCalledOnce();
+    await act(async () => { rejectPage!(new Error("offline")); });
+    expect(screen.getByRole("status").textContent).toContain("offline");
+    act(() => reachStart!());
+    expect(loadPage).toHaveBeenCalledOnce();
+  });
+
 });

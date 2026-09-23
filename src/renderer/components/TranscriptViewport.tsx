@@ -25,7 +25,8 @@ export { useTranscriptNavigation } from "./transcript-navigation-dom";
 
 const TRANSCRIPT_ID = "thread-transcript";
 const VISIBLE_TURN_LEAD = 96;
-const HISTORY_REACH_START_PX = 120;
+/** Older turns load while the reader is still this many viewports from the start. */
+const HISTORY_REACH_VIEWPORTS = 2;
 
 interface MutableTranscriptMessageLookup {
   byId: Map<string, UiMessage>;
@@ -147,6 +148,7 @@ export interface TranscriptViewportProps {
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
+  /** The reader scrolls toward the start and is near it; the caller loads older turns. */
   onReachStart?: () => void;
 }
 
@@ -274,10 +276,18 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   const onReachStartRef = useRef(onReachStart);
   useLayoutEffect(() => { onReachStartRef.current = onReachStart; }, [onReachStart]);
 
-  useEffect(() => navigation.subscribeScroll(() => {
-    const node = scrollRef.current;
-    if (node && node.scrollTop < HISTORY_REACH_START_PX) onReachStartRef.current?.();
-  }), [navigation.subscribeScroll, scrollRef]);
+  useEffect(() => {
+    let previous = scrollRef.current?.scrollTop;
+    return navigation.subscribeScroll(() => {
+      const node = scrollRef.current;
+      if (!node) return;
+      const top = node.scrollTop;
+      const towardStart = previous !== undefined && top < previous;
+      previous = top;
+      // Only the reader's own way up: a thread switch or the tail follow never loads a page.
+      if (towardStart && !navigation.isFollowing() && top < node.clientHeight * HISTORY_REACH_VIEWPORTS) onReachStartRef.current?.();
+    });
+  }, [navigation.isFollowing, navigation.subscribeScroll, scrollRef]);
 
   const [searchOpen, setSearchOpen] = useState(false);
 

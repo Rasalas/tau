@@ -49,6 +49,7 @@ function Fixture({
   scopeKey,
   scrollHeight = 1_000,
   clientHeight = 200,
+  onReachStart,
 }: {
   messages: UiMessage[];
   turnStart?: TranscriptTurnStart;
@@ -56,6 +57,7 @@ function Fixture({
   scopeKey?: string;
   scrollHeight?: number;
   clientHeight?: number;
+  onReachStart?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollHeightRef = useRef(scrollHeight);
@@ -83,6 +85,7 @@ function Fixture({
     scopeKey={scopeKey}
     turnStart={turnStart}
     isStreaming={false}
+    onReachStart={onReachStart}
   />;
 }
 
@@ -409,6 +412,32 @@ describe("TranscriptViewport navigation", () => {
     view.rerender(<Fixture messages={[oldMessage, originalPrompt, authoritative]} turnStart={turnStart} />);
     await waitFor(() => expect(view.getByRole("button", { name: "Jump to latest" })).toBeTruthy());
     expect(view.container.querySelector(".transcript-current-row")).toBeNull();
+  });
+
+  it("asks for older turns while the reader scrolls up within two viewports of the start", async () => {
+    const onReachStart = vi.fn();
+    const view = render(<Fixture messages={[oldMessage, originalPrompt]} onReachStart={onReachStart} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_000));
+    const scrollTo = (top: number) => act(() => {
+      transcript.scrollTop = top;
+      fireEvent.scroll(transcript);
+    });
+
+    // Still following the tail: a programmatic move is not the reader's.
+    scrollTo(300);
+    expect(onReachStart).not.toHaveBeenCalled();
+    scrollTo(1_000);
+
+    fireEvent.wheel(transcript, { deltaY: -100 });
+    scrollTo(500);
+    expect(onReachStart).not.toHaveBeenCalled();
+    scrollTo(350);
+    expect(onReachStart).toHaveBeenCalledOnce();
+    scrollTo(380);
+    expect(onReachStart).toHaveBeenCalledOnce();
+    scrollTo(0);
+    expect(onReachStart).toHaveBeenCalledTimes(2);
   });
 
   it("stops following on upward mouse-wheel navigation and keeps the action in an overlay", async () => {

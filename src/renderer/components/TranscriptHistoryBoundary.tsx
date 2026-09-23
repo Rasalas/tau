@@ -16,7 +16,8 @@ export interface TranscriptHistoryBoundaryProps {
   showControl: boolean;
   loadPage: (sessionId: string, cursor: HostTranscriptCursor) => Promise<TranscriptPage>;
   applyPage: (page: TranscriptPage, request: TranscriptHistoryRequest) => boolean;
-  children: ReactNode;
+  /** Gets the callback for the transcript's `onReachStart`: loads older turns on the reader's way up. */
+  children: (loadOlderOnReach: () => void) => ReactNode;
 }
 
 export function TranscriptHistoryBoundary({
@@ -95,13 +96,20 @@ export function TranscriptHistoryBoundary({
         controller.abortRequest(request);
         return;
       }
-      // The rows are in; the transcript holds its leading row itself (usePrependAnchor).
+      // The rows are in; the transcript holds its leading row itself (useLeadingRowAnchor).
       controller.completeSuccess(request, countUserTurns(page.messages));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       controller.completeError(request, `Could not load older turns: ${message}`);
     }
   }, [applyPage, controller, loadPage, scrollRef]);
+
+  const loadOlderOnReach = useCallback(() => {
+    const current = controller.getSnapshot();
+    // What the button offers, without retrying a failed page on every scroll.
+    if (!current.olderCursor || current.loading || current.status?.state === "error" || current.historyCompleteness === "unknown") return;
+    void loadOlder();
+  }, [controller, loadOlder]);
 
   return <>
     {showControl ? <TranscriptHistoryControl
@@ -111,6 +119,6 @@ export function TranscriptHistoryBoundary({
       status={state.status}
       onLoad={() => void loadOlder()}
     /> : null}
-    {children}
+    {children(loadOlderOnReach)}
   </>;
 }
