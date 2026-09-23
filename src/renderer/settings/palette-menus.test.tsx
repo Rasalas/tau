@@ -2,9 +2,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { UiModel } from "../../shared/contracts";
-import type { PaletteItem, PaletteSearchContext, RuntimeModels, WorkbenchActions } from "../extension-system";
+import type { PaletteItem, RuntimeModels, WorkbenchActions } from "../extension-system";
 import { PreferencesStore } from "../preferences";
-import { modelMenu, newThreadRuntimeMenu, themeMenu } from "./palette-menus";
+import { modelItems, runtimeItems, themeItems } from "./palette-menus";
 
 const luna: UiModel = { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" };
 const sol: UiModel = { provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
@@ -24,19 +24,18 @@ function context(thread: ReturnType<WorkbenchActions["activeThread"]>) {
     startThreadOn: vi.fn(),
     notify: vi.fn(),
   } as unknown as WorkbenchActions;
-  const search: PaletteSearchContext = { actions, index: { projects: [], threads: [] }, signal: new AbortController().signal };
-  return { actions, search };
+  return { actions };
 }
 
 const ids = (items: readonly PaletteItem[]) => items.map((item) => item.id);
 
-describe("the model level", () => {
+describe("the model rows", () => {
   it("lists the thread's runtime first, favourites first within a runtime, and leaves hidden models out", async () => {
     const preferences = new PreferencesStore();
     preferences.toggleFavouriteModel("codex:openai/gpt-5.6-sol");
     preferences.toggleHiddenModel("pi", "anthropic/claude-haiku-4-5");
-    const { search } = context({ sessionId: "t1", backendKind: "codex", model: { provider: "openai", id: "gpt-5.6-luna" }, draftPending: false });
-    const items = await modelMenu(preferences).items("", search);
+    const { actions } = context({ sessionId: "t1", backendKind: "codex", model: { provider: "openai", id: "gpt-5.6-luna" }, draftPending: false });
+    const items = await modelItems(preferences, actions);
     expect(ids(items)).toEqual(["codex:openai/gpt-5.6-sol", "codex:openai/gpt-5.6-luna", "openai/gpt-5.6-luna"]);
     expect(items.find((item) => item.current)?.id).toBe("codex:openai/gpt-5.6-luna");
     expect(items[1]!.detail).toBe("Plan");
@@ -47,8 +46,8 @@ describe("the model level", () => {
   });
 
   it("sets a model of the thread's runtime and starts a thread for another runtime's", async () => {
-    const { actions, search } = context({ sessionId: "t1", backendKind: "pi", draftPending: false });
-    const items = await modelMenu(new PreferencesStore()).items("", search);
+    const { actions } = context({ sessionId: "t1", backendKind: "pi", draftPending: false });
+    const items = await modelItems(new PreferencesStore(), actions);
     await items.find((item) => item.id === "openai/gpt-5.6-luna")!.run!(actions);
     expect(actions.setModel).toHaveBeenCalledWith("openai", "gpt-5.6-luna");
     await items.find((item) => item.id === "codex:openai/gpt-5.6-sol")!.run!(actions);
@@ -56,10 +55,10 @@ describe("the model level", () => {
   });
 });
 
-describe("the new-thread runtime level", () => {
+describe("the new-thread runtime rows", () => {
   it("draws each runtime as its icon, says whether a thread can start there, and marks the draft's", async () => {
-    const { actions, search } = context({ backendKind: "codex", draftPending: false });
-    const items = await newThreadRuntimeMenu().items("", search);
+    const { actions } = context({ backendKind: "codex", draftPending: false });
+    const items = await runtimeItems(actions);
     expect(items.map((item) => [item.id, item.label, item.detail ?? "", item.current])).toEqual([
       ["pi", "Ready", "2 models", false],
       ["codex", "Ready", "2 models · starts on GPT-5.6 Luna", true],
@@ -71,13 +70,13 @@ describe("the new-thread runtime level", () => {
   });
 });
 
-describe("the theme level", () => {
+describe("the theme rows", () => {
   it("marks the theme in use and applies the one chosen", async () => {
     const preferences = new PreferencesStore();
     preferences.setTheme("dark");
     const apply = vi.fn();
-    const { actions, search } = context(undefined);
-    const items = await themeMenu(preferences, apply).items("", search);
+    const { actions } = context(undefined);
+    const items = themeItems(preferences, apply);
     expect(items.map((item) => [item.label, item.current])).toEqual([["System", false], ["Dark", true], ["Light", false]]);
     await items[2]!.run!(actions);
     expect(apply).toHaveBeenCalledWith(actions, "light");

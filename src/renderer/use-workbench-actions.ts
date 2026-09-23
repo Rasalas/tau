@@ -16,8 +16,6 @@ import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 import { offeringKey } from "./components/model-offerings";
-import { runtimeCatalogStore } from "./use-runtime-catalog";
-import { DEFAULT_RUNTIME } from "./runtime-marks";
 import type { NewThreadController } from "../workbench/new-thread-controller";
 
 export interface UseWorkbenchActionsOptions {
@@ -98,233 +96,224 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar,
   } = options;
 
-  return useMemo<WorkbenchActions>(() => ({
-    openPanel,
-    ...(options.closePanel ? { closePanel: options.closePanel } : {}),
-    ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
-    openCommandPalette: options.openPalette,
-    openSettings: (page) => options.setSettingsPage(page ?? "defaults"),
-    newSession: (request?: { workspace?: string }) => {
+  return useMemo<WorkbenchActions>(() => {
+    const newSession = (request?: { workspace?: string }) => {
       const workspace = request?.workspace;
       const project = workspace ? options.threadStore.getProjects().find((candidate) => candidate.workspaceId === workspace || candidate.path === workspace) : undefined;
       if (!workspace) options.openNewThreadPicker();
       else if (project) options.createThreadInProject?.(project);
-    },
-    switchSession,
-    settleActiveThread,
-    // Escape is bound to this; only a visibly running thread has anything to stop.
-    abort: () => {
-      if (options.isVisibleThreadRunning()) {
-        options.beforeAbort?.();
-        void client?.abort(options.threadStore.getSnapshot().activeThreadId || undefined);
-      }
-    },
-    reloadWorkbench,
-    openWorkbenchSource: async () => {
-      if (!client) return false;
-      try {
-        const source = await client.workbenchSource();
-        return source.path ? openWorkspace(source.path) : false;
-      } catch (error) {
-        options.setNotice(errorMessage(error));
+    };
+    return {
+      openPanel,
+      ...(options.closePanel ? { closePanel: options.closePanel } : {}),
+      ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
+      openCommandPalette: options.openPalette,
+      openSettings: (page) => options.setSettingsPage(page ?? "defaults"),
+      newSession,
+      switchSession,
+      settleActiveThread,
+      // Escape is bound to this; only a visibly running thread has anything to stop.
+      abort: () => {
+        if (options.isVisibleThreadRunning()) {
+          options.beforeAbort?.();
+          void client?.abort(options.threadStore.getSnapshot().activeThreadId || undefined);
+        }
+      },
+      reloadWorkbench,
+      openWorkbenchSource: async () => {
+        if (!client) return false;
+        try {
+          const source = await client.workbenchSource();
+          return source.path ? openWorkspace(source.path) : false;
+        } catch (error) {
+          options.setNotice(errorMessage(error));
+          return false;
+        }
+      },
+      openThreadTree,
+      duplicateThread,
+      focusComposer: (seed) => {
+        if (seed !== undefined) options.setComposerSeed(seed);
+        options.composerRef.current?.focus();
+      },
+      // The transcript ref is attached to the active, focusable transcript.
+      // Keep this action independent of its internal CSS and virtualizer rows.
+      focusTranscript: () => { options.transcriptRef.current?.focus(); },
+      focusStage,
+      toggleDock: () => { options.setDockOpen((open) => !open); },
+      ...(toggleSidebar ? { toggleSidebar } : {}),
+      notify: options.setNotice,
+      ...(options.toasts ? { toast: options.toasts.show } : {}),
+      openProjectSources: options.openProjectSources,
+      applyHostResult,
+      closeActiveStageTab: stageTabs.closeActive,
+      cycleStageTab,
+      openStageTab: stageTabs.open,
+      closeStageTab: stageTabs.close,
+      stageTabs: stageTabs.tabs,
+      activeStageTab: stageTabs.active,
+      copyText: async (text: string) => { await options.platform.clipboard.writeText(text); },
+      openExternal: (url: string) => options.platform.openExternal(url),
+      // Read when called: whether the host's files are this machine's settles after the first render.
+      shareFile: async (path: string) => {
+        const share = options.platform.files?.shareFile;
+        return share ? share(path) : undefined;
+      },
+      openOverlay: options.openOverlay,
+      closeOverlay: options.closeOverlay,
+      compactContext: options.threadCommands.compactContext,
+      openModelPicker,
+      setModel: async (providerOrQuery: string, id?: string) => {
+        if (id) {
+          await setComposerModelRef.current(providerOrQuery, id);
+          return true;
+        }
+        const needle = providerOrQuery.toLowerCase();
+        const match = options.viewStore.getSnapshot()?.models.find((m) =>
+          `${m.provider}/${m.id}`.toLowerCase() === needle ||
+          m.id.toLowerCase() === needle ||
+          m.name.toLowerCase() === needle ||
+          `${m.provider}/${m.id}`.toLowerCase().includes(needle) ||
+          m.id.toLowerCase().includes(needle)
+        );
+        if (match) {
+          await setComposerModelRef.current(match.provider, match.id);
+          return true;
+        }
         return false;
-      }
-    },
-    openThreadTree,
-    duplicateThread,
-    focusComposer: (seed) => {
-      if (seed !== undefined) options.setComposerSeed(seed);
-      options.composerRef.current?.focus();
-    },
-    // The transcript ref is attached to the active, focusable transcript.
-    // Keep this action independent of its internal CSS and virtualizer rows.
-    focusTranscript: () => { options.transcriptRef.current?.focus(); },
-    focusStage,
-    toggleDock: () => { options.setDockOpen((open) => !open); },
-    ...(toggleSidebar ? { toggleSidebar } : {}),
-    notify: options.setNotice,
-    ...(options.toasts ? { toast: options.toasts.show } : {}),
-    openProjectSources: options.openProjectSources,
-    applyHostResult,
-    closeActiveStageTab: stageTabs.closeActive,
-    cycleStageTab,
-    openStageTab: stageTabs.open,
-    closeStageTab: stageTabs.close,
-    stageTabs: stageTabs.tabs,
-    activeStageTab: stageTabs.active,
-    copyText: async (text: string) => { await options.platform.clipboard.writeText(text); },
-    openExternal: (url: string) => options.platform.openExternal(url),
-    // Read when called: whether the host's files are this machine's settles after the first render.
-    shareFile: async (path: string) => {
-      const share = options.platform.files?.shareFile;
-      return share ? share(path) : undefined;
-    },
-    openOverlay: options.openOverlay,
-    closeOverlay: options.closeOverlay,
-    compactContext: options.threadCommands.compactContext,
-    openModelPicker,
-    setModel: async (providerOrQuery: string, id?: string) => {
-      if (id) {
-        await setComposerModelRef.current(providerOrQuery, id);
-        return true;
-      }
-      const needle = providerOrQuery.toLowerCase();
-      const match = options.viewStore.getSnapshot()?.models.find((m) =>
-        `${m.provider}/${m.id}`.toLowerCase() === needle ||
-        m.id.toLowerCase() === needle ||
-        m.name.toLowerCase() === needle ||
-        `${m.provider}/${m.id}`.toLowerCase().includes(needle) ||
-        m.id.toLowerCase().includes(needle)
-      );
-      if (match) {
-        await setComposerModelRef.current(match.provider, match.id);
-        return true;
-      }
-      return false;
-    },
-    setThinkingLevel: (level: string) => options.threadCommands.setThinking(level as any),
-    ...(options.setComposerMode ? { setMode: options.setComposerMode } : {}),
-    ...(options.steerQueuedMessage ? { steerQueuedMessage: options.steerQueuedMessage } : {}),
-    ...(options.submitPrompt ? { submitPrompt: async (text: string) => (await options.submitPrompt!(text)).accepted } : {}),
-    openWorkspace,
-    activeThread: () => {
-      const pending = pendingNewThreadRef.current;
-      if (!pending) {
+      },
+      setThinkingLevel: (level: string) => options.threadCommands.setThinking(level as any),
+      ...(options.setComposerMode ? { setMode: options.setComposerMode } : {}),
+      ...(options.steerQueuedMessage ? { steerQueuedMessage: options.steerQueuedMessage } : {}),
+      ...(options.submitPrompt ? { submitPrompt: async (text: string) => (await options.submitPrompt!(text)).accepted } : {}),
+      openWorkspace,
+      activeThread: () => {
+        const pending = pendingNewThreadRef.current;
+        if (!pending) {
+          return {
+            sessionId: snapshot?.sessionId,
+            cwd: options.workspaceCwd,
+            workspaceId: snapshot?.workspaceId,
+            model: snapshot?.model,
+            ...(snapshot?.backendKind ? { backendKind: snapshot.backendKind } : {}),
+            mode: snapshot?.mode ?? "default",
+            modes: snapshot?.modes ?? [],
+            draftPending: options.newThreadDeliveryPending,
+          };
+        }
+        // A draft starts on its own runtime and model, not on the last thread's.
+        const backendKind = effectiveNewThreadRuntime(options.preferences?.getSnapshot().newThreadRuntime, snapshot);
+        const inherited = backendKind === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
+        const model = pending.model ?? inherited;
         return {
-          sessionId: snapshot?.sessionId,
           cwd: options.workspaceCwd,
-          workspaceId: snapshot?.workspaceId,
-          model: snapshot?.model,
-          ...(snapshot?.backendKind ? { backendKind: snapshot.backendKind } : {}),
-          mode: snapshot?.mode ?? "default",
-          modes: snapshot?.modes ?? [],
+          workspaceId: pending.workspaceId ?? snapshot?.workspaceId,
+          ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+          backendKind,
+          mode: pending.mode ?? "default",
+          modes: snapshot?.runtimeBackends?.find((backend) => backend.kind === backendKind)?.modes ?? [],
           draftPending: options.newThreadDeliveryPending,
         };
-      }
-      // A draft starts on its own runtime and model, not on the last thread's.
-      const backendKind = effectiveNewThreadRuntime(options.preferences?.getSnapshot().newThreadRuntime, snapshot);
-      const inherited = backendKind === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
-      const model = pending.model ?? inherited;
-      return {
-        cwd: options.workspaceCwd,
-        workspaceId: pending.workspaceId ?? snapshot?.workspaceId,
-        ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
-        backendKind,
-        mode: pending.mode ?? "default",
-        modes: snapshot?.runtimeBackends?.find((backend) => backend.kind === backendKind)?.modes ?? [],
-        draftPending: options.newThreadDeliveryPending,
-      };
-    },
-    openFile: options.openFile,
-    openThread,
-    runShellAction: options.threadCommands.runShellAction,
-    toolOutput: options.threadCommands.loadToolOutput,
-    holdComposer: () => {
-      options.setComposerHolds((count) => count + 1);
-      return () => options.setComposerHolds((count) => Math.max(0, count - 1));
-    },
-    composerDraft: () => activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "",
-    setComposerDraft: (text: string) => {
-      if (activeDraftKey) {
-        options.composerScopeStore.setDraft(activeDraftKey, text);
-        writeComposerDraft(options.platform.storage, activeDraftKey, text);
-      }
-      options.setComposerSeed(text);
-    },
-    composerImages: () => activeDraftKey
-      ? options.composerScopeStore.getSnapshot(activeDraftKey).attachments.map(({ id: _id, previewUrl: _url, ...image }) => image)
-      : [],
-    setComposerImages: (images) => {
-      if (!activeDraftKey) return;
-      options.composerScopeStore.setAttachments(activeDraftKey, images.map((image) => ({
-        ...image, id: allocateAttachmentId(), previewUrl: `data:${image.mimeType};base64,${image.data}`,
-      })));
-    },
-    openPromptEditor: async () => {
-      if (!client) return;
-      try {
-        const current = activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "";
-        const result = await client.openExternalEditor(current);
-        if (result?.modified) {
-          if (activeDraftKey) {
-            options.composerScopeStore.setDraft(activeDraftKey, result.text);
-          }
-          options.setComposerSeed(result.text);
-          options.setNotice("Draft updated from external editor.");
+      },
+      openFile: options.openFile,
+      openThread,
+      runShellAction: options.threadCommands.runShellAction,
+      toolOutput: options.threadCommands.loadToolOutput,
+      holdComposer: () => {
+        options.setComposerHolds((count) => count + 1);
+        return () => options.setComposerHolds((count) => Math.max(0, count - 1));
+      },
+      composerDraft: () => activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "",
+      setComposerDraft: (text: string) => {
+        if (activeDraftKey) {
+          options.composerScopeStore.setDraft(activeDraftKey, text);
+          writeComposerDraft(options.platform.storage, activeDraftKey, text);
         }
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        options.setNotice(msg);
-      }
-    },
-    openInstructions,
-    executeCommand: options.executeCommand,
-    copyChat: () => options.threadCommands.copyThreadValue("chat"),
-    renameThread: options.threadCommands.renameThread,
-    ...(options.attachFiles ? { attachFiles: options.attachFiles } : {}),
-    cycleModel: async (direction: 1 | -1 = 1) => {
-      const snap = options.viewStore.getSnapshot();
-      const allModels = snap?.models ?? [];
-      if (allModels.length === 0) return false;
+        options.setComposerSeed(text);
+      },
+      composerImages: () => activeDraftKey
+        ? options.composerScopeStore.getSnapshot(activeDraftKey).attachments.map(({ id: _id, previewUrl: _url, ...image }) => image)
+        : [],
+      setComposerImages: (images) => {
+        if (!activeDraftKey) return;
+        options.composerScopeStore.setAttachments(activeDraftKey, images.map((image) => ({
+          ...image, id: allocateAttachmentId(), previewUrl: `data:${image.mimeType};base64,${image.data}`,
+        })));
+      },
+      openPromptEditor: async () => {
+        if (!client) return;
+        try {
+          const current = activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "";
+          const result = await client.openExternalEditor(current);
+          if (result?.modified) {
+            if (activeDraftKey) {
+              options.composerScopeStore.setDraft(activeDraftKey, result.text);
+            }
+            options.setComposerSeed(result.text);
+            options.setNotice("Draft updated from external editor.");
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          options.setNotice(msg);
+        }
+      },
+      openInstructions,
+      executeCommand: options.executeCommand,
+      copyChat: () => options.threadCommands.copyThreadValue("chat"),
+      renameThread: options.threadCommands.renameThread,
+      ...(options.attachFiles ? { attachFiles: options.attachFiles } : {}),
+      cycleModel: async (direction: 1 | -1 = 1) => {
+        const snap = options.viewStore.getSnapshot();
+        const allModels = snap?.models ?? [];
+        if (allModels.length === 0) return false;
 
-      // Favourites of this thread's runtime, in the order they were starred.
-      const favKeys = options.preferences?.getSnapshot().favouriteModels ?? [];
-      const byKey = new Map(allModels.map((model) => [offeringKey(snap?.backendKind, model), model] as const));
-      const scopedModels = favKeys.length > 0
-        ? favKeys.flatMap((key) => { const model = byKey.get(key); return model ? [model] : []; })
-        : allModels;
+        // Favourites of this thread's runtime, in the order they were starred.
+        const favKeys = options.preferences?.getSnapshot().favouriteModels ?? [];
+        const byKey = new Map(allModels.map((model) => [offeringKey(snap?.backendKind, model), model] as const));
+        const scopedModels = favKeys.length > 0
+          ? favKeys.flatMap((key) => { const model = byKey.get(key); return model ? [model] : []; })
+          : allModels;
 
-      const models = scopedModels.length > 0 ? scopedModels : allModels;
-      const current = snap?.model;
-      const currentIndex = current ? models.findIndex((m) => m.provider === current.provider && m.id === current.id) : -1;
-      const nextIndex = (currentIndex + direction + models.length) % models.length;
-      const next = models[nextIndex];
-      if (next) {
-        await setComposerModelRef.current(next.provider, next.id);
-        return true;
-      }
-      return false;
-    },
-    runtimeModels: async () => {
-      const store = runtimeCatalogStore(client);
-      await store?.refresh();
-      const backends = snapshot?.runtimeBackends?.length ? snapshot.runtimeBackends : [{ kind: DEFAULT_RUNTIME, label: "Pi" }];
-      // A thread on screen offers what its runtime told it, which may be more than a new thread's list.
-      const live = pendingNewThreadRef.current ? undefined : options.viewStore.getSnapshot();
-      return backends.map((backend) => {
-        const entry = store?.get(backend.kind);
-        const held = entry && entry.status !== "loading" ? entry.catalog : undefined;
-        const onScreen = live?.models.length && (live.backendKind ?? DEFAULT_RUNTIME) === backend.kind ? live : undefined;
-        const catalog = onScreen ? { kind: backend.kind, thinkingLevels: {}, ...held, models: [...onScreen.models] } : held;
-        return { backend, ...(catalog ? { catalog } : {}) };
-      });
-    },
-    startThreadOn: (runtime, model) => {
-      if (pendingNewThreadRef.current) {
-        options.selectDraftRuntime?.(runtime);
-        if (model) void options.newThreadController?.setModel(model.provider, model.id, undefined, () => model.name, runtime);
-        return;
-      }
-      if (model) options.newThreadController?.carryToNextDraft(runtime, model);
-      options.preferences?.setNewThreadRuntime(runtime);
-      // The new thread stays in the project on screen, as the model picker's does.
-      const workspace = snapshot?.workspaceId ?? options.workspaceCwd;
-      const project = workspace ? options.threadStore.getProjects().find((candidate) => candidate.workspaceId === workspace || candidate.path === workspace) : undefined;
-      if (project) options.createThreadInProject?.(project);
-      else options.openNewThreadPicker();
-    },
-    cycleThinking: async () => {
-      const snap = options.viewStore.getSnapshot();
-      const levels = snap?.thinkingLevels ?? ["off", "minimal", "low", "medium", "high", "max"];
-      const current = snap?.thinkingLevel ?? "off";
-      const currentIndex = levels.indexOf(current);
-      const nextIndex = (currentIndex + 1) % levels.length;
-      const next = levels[nextIndex];
-      if (next) {
-        await options.threadCommands.setThinking(next as any);
-      }
-    },
-  }), [
+        const models = scopedModels.length > 0 ? scopedModels : allModels;
+        const current = snap?.model;
+        const currentIndex = current ? models.findIndex((m) => m.provider === current.provider && m.id === current.id) : -1;
+        const nextIndex = (currentIndex + direction + models.length) % models.length;
+        const next = models[nextIndex];
+        if (next) {
+          await setComposerModelRef.current(next.provider, next.id);
+          return true;
+        }
+        return false;
+      },
+      runtimeModels: async () => (await import("./runtime-models")).listRuntimeModels(
+        client, snapshot?.runtimeBackends, pendingNewThreadRef.current ? undefined : options.viewStore.getSnapshot(),
+      ),
+      startThreadOn: (runtime, model) => {
+        const controller = options.newThreadController;
+        if (pendingNewThreadRef.current) {
+          options.selectDraftRuntime?.(runtime);
+          if (model) void controller?.setModel(model.provider, model.id, undefined, () => model.name, runtime);
+          return;
+        }
+        if (model) controller?.carryToNextDraft(runtime, model);
+        options.preferences?.setNewThreadRuntime(runtime);
+        // In the project on screen, as the model picker's new thread.
+        const workspace = snapshot?.workspaceId ?? options.workspaceCwd;
+        newSession(workspace ? { workspace } : undefined);
+      },
+      cycleThinking: async () => {
+        const snap = options.viewStore.getSnapshot();
+        const levels = snap?.thinkingLevels ?? ["off", "minimal", "low", "medium", "high", "max"];
+        const current = snap?.thinkingLevel ?? "off";
+        const currentIndex = levels.indexOf(current);
+        const nextIndex = (currentIndex + 1) % levels.length;
+        const next = levels[nextIndex];
+        if (next) {
+          await options.threadCommands.setThinking(next as any);
+        }
+      },
+    };
+  }, [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
     stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.attachFiles,
