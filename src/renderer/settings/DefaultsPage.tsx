@@ -13,7 +13,8 @@ import type { SendShortcut } from "../components/composer-send-keys";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { SettingRow, SettingsSection, Switch, useSetting } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
-import { UPDATE_CHANNELS, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
+import { UPDATE_CHANNELS, defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
+import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
 
 const SEND_SHORTCUT_LABELS: ReadonlyArray<readonly [SendShortcut, string]> = [
@@ -96,8 +97,10 @@ export function DefaultsPage({
   const continueAfterRestart = useSetting<boolean>("threads.continueAfterRestart", {
     defaultValue: CONFIG_DEFAULTS["threads.continueAfterRestart"] as boolean, read: readBoolean, offline: (value) => preferences.setContinueThreadsAfterRestart(value),
   });
+  // Unset, a nightly build stays on nightly: the updater reads it the same way.
+  const versions = useHostClient()?.getVersions();
   const updateChannel = useSetting<UpdateChannel>("updates.channel", {
-    defaultValue: CONFIG_DEFAULTS["updates.channel"] as UpdateChannel, read: (raw) => (isUpdateChannel(raw) ? raw : undefined), format: (value) => CHANNEL_LABELS[value],
+    defaultValue: defaultUpdateChannel(versions?.window ?? versions?.host), read: (raw) => (isUpdateChannel(raw) ? raw : undefined), format: (value) => CHANNEL_LABELS[value],
   });
   // The updater reads this machine's config; a host elsewhere would store a choice nothing here applies.
   const { localFiles: hostIsThisMachine } = useHostCapabilities();

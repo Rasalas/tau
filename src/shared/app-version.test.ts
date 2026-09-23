@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isNightlyVersion, isUpdateChannel, versionSkew } from "./app-version.js";
+import { defaultUpdateChannel, isNightlyVersion, isUpdateChannel, versionSkew } from "./app-version.js";
 
 describe("app version", () => {
   it("knows the two channels", () => {
@@ -13,6 +13,9 @@ describe("app version", () => {
     expect(isNightlyVersion("0.4.1-nightly.20260922.17")).toBe(true);
     expect(isNightlyVersion("0.4.1")).toBe(false);
     expect(isNightlyVersion("0.4.1-beta.1")).toBe(false);
+    expect(defaultUpdateChannel("0.4.1-nightly.20260922.17")).toBe("nightly");
+    expect(defaultUpdateChannel("0.4.1")).toBe("stable");
+    expect(defaultUpdateChannel(undefined)).toBe("stable");
   });
 
   it("reports a skew only when both sides are known and differ", () => {

@@ -31,7 +31,7 @@ function fakeUpdater() {
   return { updater, emit };
 }
 
-function updates(overrides: { enabled?: boolean; channel?: () => Promise<"stable" | "nightly">; currentVersion?: string; feed?: { owner: string; repo: string } | null } = {}) {
+function updates(overrides: { enabled?: boolean; channel?: () => Promise<"stable" | "nightly" | undefined>; currentVersion?: string; feed?: { owner: string; repo: string } | null } = {}) {
   const { updater, emit } = fakeUpdater();
   const told: string[] = [];
   const downloaded: string[] = [];
@@ -196,10 +196,16 @@ describe("app updates", () => {
       expect(updater.checkForUpdates).not.toHaveBeenCalled();
     });
 
-    it("falls back to stable when the config cannot be read", async () => {
-      const { subject, updater } = updates({ channel: async () => { throw new Error("EACCES"); } });
-      await subject.checkForUpdates();
-      expect(updater.allowPrerelease).toBe(false);
+    it("falls back to the running build's own channel when none is set or the config cannot be read", async () => {
+      const unreadable = updates({ channel: async () => { throw new Error("EACCES"); } });
+      await unreadable.subject.checkForUpdates();
+      expect(unreadable.updater.allowPrerelease).toBe(false);
+
+      // A nightly someone installed by hand must not fall back to stable on its first check.
+      const nightly = updates({ channel: async () => undefined, currentVersion: "0.4.1-nightly.20260922.17" });
+      await nightly.subject.checkForUpdates();
+      expect(nightly.updater.setFeedURL).toHaveBeenCalledWith(NIGHTLY_FEED);
+      expect(nightly.updater.allowDowngrade).toBe(false);
     });
   });
 

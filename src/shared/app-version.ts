@@ -16,6 +16,11 @@ export function isNightlyVersion(version: string): boolean {
   return NIGHTLY_VERSION.test(version);
 }
 
+/** The channel a build follows until the user picks one: its own. */
+export function defaultUpdateChannel(version: string | undefined): UpdateChannel {
+  return version && isNightlyVersion(version) ? "nightly" : DEFAULT_UPDATE_CHANNEL;
+}
+
 export interface VersionSkew {
   window: string;
   host: string;

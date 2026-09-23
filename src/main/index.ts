@@ -620,7 +620,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     currentVersion: app.getVersion(),
     ...(app.isPackaged ? { feed: readUpdateFeedFile() } : {}),
     // This machine's config file: the updater belongs to the machine, not to a remote host.
-    channel: async () => (await defaultHostConfigManager.read()).updates?.channel ?? "stable",
+    channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
   });
   installUpdateMenuItem(() => void updates?.checkForUpdates());
   updates.checkOnStartup();

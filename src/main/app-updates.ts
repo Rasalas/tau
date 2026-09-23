@@ -1,5 +1,5 @@
 import { Menu, MenuItem, dialog } from "electron";
-import { DEFAULT_UPDATE_CHANNEL, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
+import { DEFAULT_UPDATE_CHANNEL, defaultUpdateChannel, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
 
 /**
  * The part of electron-updater's `autoUpdater` Tau uses. Naming it here keeps
@@ -75,8 +75,8 @@ export interface AppUpdatesOptions {
   currentVersion?: string;
   /** The feed the build names; without it only the feed in `app-update.yml` is used, whatever the channel. */
   feed?: UpdateFeed;
-  /** `updates.channel` as the config holds it now; read before every check. */
-  channel?(): Promise<UpdateChannel>;
+  /** `updates.channel` as the config holds it now, read before every check; unset follows the running build. */
+  channel?(): Promise<UpdateChannel | undefined>;
 }
 
 export interface AppUpdates {
@@ -138,7 +138,8 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
 
   let applied: UpdateChannel | undefined;
   async function applyChannel(): Promise<UpdateChannel> {
-    const wanted = await (options.channel?.() ?? Promise.resolve(DEFAULT_UPDATE_CHANNEL)).catch(() => DEFAULT_UPDATE_CHANNEL);
+    const fallback = defaultUpdateChannel(options.currentVersion);
+    const wanted = (await (options.channel?.() ?? Promise.resolve(undefined)).catch(() => undefined)) ?? fallback;
     const channel = wanted === "nightly" && !options.feed ? DEFAULT_UPDATE_CHANNEL : wanted;
     if (channel === applied) return channel;
     if (wanted !== channel) log.warn("update.channel.unavailable", "No GitHub feed in this build; staying on stable.");

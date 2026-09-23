@@ -42,7 +42,6 @@ export const CONFIG_DEFAULTS: Readonly<Record<string, unknown>> = {
   vimMode: false,
   prewarm: true,
   "threads.continueAfterRestart": false,
-  "updates.channel": "stable",
   "extensions.watch": true,
 };
 
