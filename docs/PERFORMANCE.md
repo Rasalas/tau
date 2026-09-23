@@ -933,6 +933,8 @@ Merged with `t3/wave-e` (E02's picker, E07's app shell), those 11.4 KB of initia
 | initial JavaScript | 798,207 (248,250 gzip) | 798,942 (248,535 gzip) | 800,000 (275,000) |
 | total JavaScript gzip | 459,562 | 463,066 | 500,000 |
 
+`t3/wave-e` then grew to 799,498 bytes with E03, E14 and E21, and merged with it E12 stood at 800,694. Three more changes kept the initial script under budget. The layer reads the draft, its pending state, the inlines and the images itself instead of taking them as props. It asks the DOM whether anything in the composer is open when the wheel turns, instead of the composer computing that on every render. The fold option lives in client storage next to the layer instead of in the preferences. The initial script ended at 799,946 bytes (249,063 gzip): 448 bytes over `t3/wave-e` alone and 54 under the budget. Total JavaScript was 467,292 bytes of gzip; the browser client's initial script was 801,195 of its 820,000.
+
 Typing latency comes from two renderer scenarios in `benchmarks/renderer-fixtures.json`, committed before the change so both sides ran the same harness. `composer-typing` types 120 characters into an empty composer. `composer-typing-long` types them after a 20 KB draft with twelve chips; on the base side its chips sat in the old strip above the text. The time per key runs from the `input` event's dispatch through React's commit and the auto-height's layout, measured on the development machine under a load average of 13 to 28:
 
 | scenario | base median / p95 / max (ms) | E12 median / p95 / max (ms) |
