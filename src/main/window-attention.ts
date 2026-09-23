@@ -8,13 +8,15 @@ export interface NativeNotification {
 }
 
 export interface WindowAttentionPorts {
+  /** `process.platform`; Windows draws the badge as the taskbar button's overlay. */
+  platform?: string;
   isSupported(): boolean;
   create(notification: SystemNotification): NativeNotification;
   /** Brings the workbench window forward, restoring it when minimised; false when there is none. */
   reveal(): boolean;
   /** `app.setBadgeCount`: the dock on macOS, the launcher on Linux. */
   setBadgeCount(count: number): boolean;
-  /** Windows has no badge count; the window's taskbar button takes an overlay icon instead. */
+  /** Windows has no badge count; the window's taskbar button takes an overlay icon instead. Used only there. */
   setOverlayBadge?(count: number): boolean;
   /** What the OS was asked and what came of it, for the window's log. */
   log?(label: string, detail?: unknown): void;
@@ -56,7 +58,7 @@ export function createWindowAttention(ports: WindowAttentionPorts) {
       });
     },
     setBadge(count: number): void {
-      const set = ports.setBadgeCount(count) || (ports.setOverlayBadge?.(count) ?? false);
+      const set = ports.platform === "win32" && ports.setOverlayBadge ? ports.setOverlayBadge(count) : ports.setBadgeCount(count);
       ports.log?.("window-attention.badge", { count, set });
     },
   };

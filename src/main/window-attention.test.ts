@@ -74,18 +74,34 @@ describe("notifications and the badge, drawn by the window's process", () => {
 });
 
 describe("the badge on Windows", () => {
-  it("falls back to the taskbar overlay where there is no badge count", () => {
+  function badge(platform: string) {
     const setOverlayBadge = vi.fn(() => true);
+    const setBadgeCount = vi.fn(() => platform !== "win32");
     const attention = createWindowAttention({
+      platform,
       isSupported: () => true,
       create: () => new FakeNotification({ title: "" }),
       reveal: () => true,
-      setBadgeCount: () => false,
+      setBadgeCount,
       setOverlayBadge,
     });
     attention.setBadge(3);
     attention.setBadge(0);
+    return { setOverlayBadge, setBadgeCount };
+  }
+
+  it("puts the count on the taskbar button's overlay", () => {
+    const { setOverlayBadge, setBadgeCount } = badge("win32");
     expect(setOverlayBadge.mock.calls).toEqual([[3], [0]]);
+    expect(setBadgeCount).not.toHaveBeenCalled();
+  });
+
+  it("never draws the overlay elsewhere, even where the count is refused", () => {
+    for (const platform of ["darwin", "linux"]) {
+      const { setOverlayBadge, setBadgeCount } = badge(platform);
+      expect(setBadgeCount.mock.calls).toEqual([[3], [0]]);
+      expect(setOverlayBadge).not.toHaveBeenCalled();
+    }
   });
 
   it("draws an opaque dot with a transparent corner", () => {
