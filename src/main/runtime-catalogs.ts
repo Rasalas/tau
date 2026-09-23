@@ -115,6 +115,12 @@ export class RuntimeCatalogs {
     this.timer.unref?.();
   }
 
+  /** Asks one runtime again now, however fresh its answer: what it may run on changed (a sign-in). */
+  recheck(kind: ThreadBackendKind): void {
+    const source = this.options.sources().find((candidate) => candidate.kind === kind);
+    if (source && !this.disposed) this.askLater(source);
+  }
+
   /** A backend registered or went; after start-up a new one is asked at once. */
   sourcesChanged(): void {
     if (this.warmed && !this.disposed) void this.warm();
