@@ -163,7 +163,10 @@ what the catalog says, in three columns: on the left Favourites, Recent and
 every runtime the host offers — each instance of one included — with a dot for
 its state (ready, update, sign-in needed, not installed; `model-picker-rail.ts`);
 in the middle a runtime's providers, only when it has several (Pi), which a
-narrow window turns into a row of filters above the list; on the right the
+narrow window turns into a row of filters above the list. Both columns show
+marks only (`ProviderIconStack`; a provider without one gets its monogram, a
+second instance its initials) and name each entry, its state and model count in
+a tooltip; rows mark their runtime and provider the same way. On the right the
 models, each an offering of one runtime (`model-offerings.ts`) with its billing
 badge (Plan, API, Free, Local), context, price per million tokens and reasoning
 levels. A plan shows "incl." and still the price the same model has over its

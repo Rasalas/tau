@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ProviderIconStack } from "./ProviderIconStack";
+import { ProviderIconStack, monogram, providerLabel } from "./ProviderIconStack";
 
 afterEach(cleanup);
 
@@ -28,6 +28,40 @@ describe("ProviderIconStack", () => {
     expect(stack.querySelector(`.provider-family-${family} .provider-mark`)).toBeTruthy();
     expect(stack.querySelector(".provider-family-pi")).toBeNull();
     expect(stack.classList).toContain("single");
+  });
+
+  it.each([
+    ["openrouter", "OpenRouter", "openrouter"],
+    ["deepseek", "DeepSeek", "deepseek"],
+    ["xai", "xAI", "xai"],
+    ["mistral", "Mistral", "mistral"],
+    ["amazon-bedrock", "Amazon Bedrock", "bedrock"],
+    ["zai-coding-cn", "zai-coding-cn", "zai"],
+    ["google-vertex", "Vertex AI", "vertex-ai"],
+  ])("gives %s a mark of its own", (modelProvider, label, family) => {
+    const { getByLabelText } = render(<ProviderIconStack modelProvider={modelProvider} />);
+    expect(getByLabelText(label).querySelector(`.provider-family-${family} .provider-mark`)).toBeTruthy();
+  });
+
+  it("draws a provider without a mark as its monogram", () => {
+    const { getByLabelText } = render(<ProviderIconStack modelProvider="ant-ling" />);
+    expect(getByLabelText("ant-ling").querySelector(".provider-icon-fallback")?.textContent).toBe("AL");
+    expect(providerLabel("radius")).toBe("radius");
+    expect(monogram("radius")).toBe("R");
+    expect(monogram("  ")).toBe("·");
+  });
+
+  it("names itself in a native title, the tooltip layer, or not at all", () => {
+    const { getByLabelText, rerender } = render(<ProviderIconStack modelProvider="openai" />);
+    expect(getByLabelText("OpenAI").getAttribute("title")).toBe("OpenAI");
+    rerender(<ProviderIconStack modelProvider="openai" hint={{ side: "left" }} name="OpenAI (work)" />);
+    const tipped = getByLabelText("OpenAI (work)");
+    expect(tipped.getAttribute("data-tooltip")).toBe("OpenAI (work)");
+    expect(tipped.getAttribute("data-tooltip-side")).toBe("left");
+    expect(tipped.hasAttribute("title")).toBe(false);
+    rerender(<ProviderIconStack modelProvider="openai" hint={false} />);
+    const quiet = getByLabelText("OpenAI");
+    expect(quiet.hasAttribute("title") || quiet.hasAttribute("data-tooltip")).toBe(false);
   });
 
   it("draws a runtime instance with its program's mark", () => {
