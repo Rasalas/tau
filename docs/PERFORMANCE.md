@@ -278,7 +278,7 @@ Initial local targets:
 - the two viewport scenarios over a 1000-turn transcript with 128 activities (`transcript-viewport-anchored-1000-turns`, `transcript-viewport-streaming-1000-turns`) mount at about 21 ms median and 27 ms p95 on the development machine; like their `transcript-1000-turns` sibling they carry their own mount budget (30 ms) instead of the 24 ms default, since 2026-09-05
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
-- a turn's traffic on the host socket within `hostTransfer` (recorded turn: 7,500 wire bytes, 64,000 decoded bytes, 110 messages)
+- a turn's traffic on the host socket within `hostTransfer` (recorded turn: 6,500 wire bytes, 46,400 decoded bytes, 110 messages)
 - unchanged sidebar rows do not rerender when another row changes
 - sidebar search remains responsive with 10,000 thread shells
 - transcript DOM size remains bounded with 1,000 loaded turns
@@ -531,6 +531,8 @@ and WebSocket messages. Time is virtual, so the counts are the same on every
 machine; it runs in `npm test`. The same test checks that the client ends in the
 state the uncoalesced events produce, also after losing ten pushes mid-turn and
 replaying them, and that a client joining mid-tool receives the output whole.
+The expected state is the one a client should have: every tool as
+`src/main/client-tool-output.ts` shapes it (a live tail, a deferred output).
 It is Tau's counterpart of T3 Code's `TransferBudgetReport` gate.
 
 Two scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
@@ -556,7 +558,7 @@ client that lost ten pushes in the middle of the heavy turn could not replay
 them (the buffer held the last 500 pushes) and had to resync; the byte-bounded
 buffer (8 MB) now replays the whole turn.
 
-What the savings come from: tool updates carry what the tool added
+What the savings of the lean stream came from: tool updates carry what the tool added
 (`tool-update-delta`), not the whole output each time (the recorded turn's 60
 tool updates went from 196 KB to 20 KB decoded, most of it the 83-character
 tool call id every delta repeats); text deltas are joined for
@@ -565,6 +567,31 @@ remains in the decoded bytes is mostly whole outputs the protocol still
 repeats: `tool-end` carries the final output, and the settled `thread-detail`
 carries each tool of the turn twice (`turnActivity` and
 `turnActivityHistory`): 318 KB of the heavy turn's 1.8 MB.
+
+**No repeated outputs (D17).** `tool-end` now refers to the push that carried
+the output (`tool-end-delta`), a settled detail sends its `turnActivity` once
+(`thread-detail-compact`), a settled output over 16 KB travels as its size and
+loads when its row opens (`tool-output`), and a running one over 16 KB streams
+its last 4 KB ([host-protocol.md](host-protocol.md#coalescing-and-tool-output-deltas)).
+Same fixtures, before (`ae88cee`) and after:
+
+| scenario | wire bytes | decoded bytes | messages |
+| --- | ---: | ---: | ---: |
+| recorded turn, before | 6,048 | 52,814 | 98 |
+| recorded turn, after | 5,669 | 40,346 | 98 |
+| heavy turn, before | 439,330 | 1,820,646 | 475 |
+| heavy turn, after | 130,525 | 553,323 | 475 |
+
+The recorded turn's `tool-end` went from 6,476 to 434 decoded bytes and its
+detail from 16,045 to 9,619; the heavy turn's detail from 318 KB to 30 KB,
+its `tool-end`s from 157 KB to 6 KB, and its tool updates from 1.29 MB to
+0.46 MB. The 1.1 MB tool sends whole 4 KB tails there: each 100 ms chunk of
+11 KB is longer than the tail, so no delta applies. The
+`hostTransfer` budgets are the after column plus about 15 % for bytes; the
+message budgets stay where they were. In the comparison harness the replayed
+turn went from 1,870 KiB to 649 KiB (325 and 324 messages, three runs each).
+What remains there is mostly the 151 KB answer, which arrives as deltas, again
+in `assistant-end` and again in the settled detail's messages.
 
 In the real app (isolated instance, headless host process, a recording client
 on the host socket, the same prompt in the same thread) one turn measured 124
@@ -645,7 +672,7 @@ npm run benchmark:compare -- --seed             # first time: import the fixture
 npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (9,300 KiB and 1,000 messages today, a little above the first measurement below). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (745 KiB and 360 messages today, about 15 % above the measurement after D17). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
 
 ### First results (2026-09-23)
 
