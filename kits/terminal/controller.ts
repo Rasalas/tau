@@ -1,5 +1,8 @@
 import { errorMessage, type WorkbenchActions } from "tau";
-import { addGroup, detachPane, focusedPane, focusNext, moveToStage, paneIds, replacePane, returnFromStage, splitAt, type SplitDirection } from "./layout.js";
+import {
+  addGroup, detachPane, focusedPane, focusNext, groupOf, isStaged, moveToStage, paneIds, replacePane, returnFromStage, splitAt,
+  type SplitDirection, type TerminalGroup,
+} from "./layout.js";
 import { classifyTerminalLink } from "./links.js";
 import { onTerminalEvent, terminalKit, terminalServices, terminalStore } from "./store.js";
 import {
@@ -23,22 +26,35 @@ function session(id: string | undefined): UiTerminalSession | undefined {
   return id ? terminalStore.getSnapshot().sessions.find((entry) => entry.id === id) : undefined;
 }
 
-/** Where a new shell belongs: beside the one it splits, or with the thread on screen. */
-function placeFor(actions: TerminalRunActions | undefined, beside?: UiTerminalSession): { workspaceId?: string; sessionId?: string } {
-  if (beside) return { ...(beside.workspaceId ? { workspaceId: beside.workspaceId } : {}), ...(beside.sessionId ? { sessionId: beside.sessionId } : {}) };
+/** The shell whose view has the keyboard, in the panel or on the stage. */
+export function keyboardShell(): string | undefined {
+  const active = typeof document === "undefined" ? null : document.activeElement;
+  return active?.closest("[data-terminal-id]")?.getAttribute("data-terminal-id") ?? undefined;
+}
+
+/** The shell a pane command acts on: the one with the keyboard, else the panel's focused one. */
+export function targetShell(): string | undefined {
+  const typing = keyboardShell();
+  return typing && session(typing) ? typing : focusedPane(terminalStore.getSnapshot().layout);
+}
+
+/** Where a new shell belongs: beside the one it splits, in the directory that one is in now, or with the thread on screen. */
+function placeFor(actions: TerminalRunActions | undefined, beside?: UiTerminalSession): { workspaceId?: string; sessionId?: string; from?: string } {
+  if (beside) return { ...(beside.workspaceId ? { workspaceId: beside.workspaceId } : {}), ...(beside.sessionId ? { sessionId: beside.sessionId } : {}), from: beside.id };
   const thread = actions?.activeThread();
   return { ...(thread?.workspaceId ? { workspaceId: thread.workspaceId } : {}), ...(thread?.sessionId ? { sessionId: thread.sessionId } : {}) };
 }
 
 /**
- * Starts a shell and puts it in a tab of its own, or beside `target` when a
- * split asked for it; the keyboard goes to it.
+ * Starts a shell and puts it in a panel tab of its own, or beside `target`
+ * (the shell with the keyboard by default) when a split asked for it, in the
+ * panel or on the stage; the keyboard goes to it.
  */
 export async function openTerminal(
   actions: WorkbenchActions | undefined,
   options: { target?: string; direction?: SplitDirection } = {},
 ): Promise<UiTerminalSession> {
-  const beside = options.direction ? session(options.target ?? focusedPane(terminalStore.getSnapshot().layout)) : undefined;
+  const beside = options.direction ? session(options.target ?? targetShell()) : undefined;
   const release = terminalStore.hold();
   try {
     const opened = await terminalKit.open(placeFor(actions, beside));
@@ -101,19 +117,12 @@ export async function runInTerminal(actions: TerminalRunActions | undefined, req
   return exitCode === undefined ? { id: opened.id } : { id: opened.id, exitCode };
 }
 
-/** A fresh shell where an ended one was: same pane, or same stage tab. */
-export async function restartTerminal(actions: WorkbenchActions | undefined, id: string): Promise<UiTerminalSession> {
+/** A fresh shell where an ended one was: same pane, in the panel or in its stage tab. */
+export async function restartTerminal(id: string): Promise<UiTerminalSession> {
   const release = terminalStore.hold();
   try {
     const restarted = await terminalKit.restart({ id });
-    const staged = terminalStore.getSnapshot().layout.onStage.includes(id);
     terminalStore.updateLayout((layout) => replacePane(layout, id, restarted.id));
-    if (staged && actions) {
-      actions.stageTabs().filter((tab) => tab.kind === "extension" && tab.tabKind === TERMINAL_STAGE_TAB && (tab as { params: Record<string, unknown> }).params.id === id)
-        .forEach((tab) => actions.closeStageTab(tab.id));
-      terminalStore.updateLayout((layout) => layout.onStage.includes(restarted.id) ? layout : moveToStage(layout, restarted.id));
-      actions.openStageTab(TERMINAL_STAGE_TAB, { id: restarted.id, label: restarted.label });
-    }
     terminalStore.requestFocus(restarted.id);
     return restarted;
   } finally {
@@ -136,11 +145,15 @@ export async function confirmClose(ids: readonly string[], confirm: (message: st
 /** Ends shells, asking first when a program in one of them would be interrupted. */
 export async function closeTerminals(ids: readonly string[], confirm?: (message: string) => boolean): Promise<boolean> {
   if (ids.length === 0 || !(await confirmClose(ids, confirm))) return false;
+  const before = groupOf(terminalStore.getSnapshot().layout, ids[0]!);
   for (const id of ids) {
     await terminalKit.kill({ id });
     terminalStore.updateLayout((layout) => detachPane(layout, id));
   }
-  const next = focusedPane(terminalStore.getSnapshot().layout);
+  // The keyboard stays in the tab the pane left, stage or panel, while it has panes.
+  const layout = terminalStore.getSnapshot().layout;
+  const left = before ? [...layout.groups, ...layout.stage].find((group) => group.id === before.id) : undefined;
+  const next = left?.focused ?? focusedPane(layout);
   if (next) terminalStore.requestFocus(next);
   return true;
 }
@@ -151,25 +164,31 @@ export function groupPanes(groupId: string): string[] {
   return group ? paneIds(group.root) : [];
 }
 
-/** Moves the keyboard to the next pane of the tab on screen. */
-export function focusNextPane(step: 1 | -1 = 1): void {
-  terminalStore.updateLayout((layout) => focusNext(layout, step));
-  const id = focusedPane(terminalStore.getSnapshot().layout);
+/** Moves the keyboard to the next pane of the tab `from` is in, else of the panel's tab on screen. */
+export function focusNextPane(step: 1 | -1 = 1, from?: string): void {
+  terminalStore.updateLayout((layout) => focusNext(layout, step, from));
+  const layout = terminalStore.getSnapshot().layout;
+  const id = from ? groupOf(layout, from)?.focused : focusedPane(layout);
   if (id) terminalStore.requestFocus(id);
 }
 
-/** The shell leaves the panel for a stage tab; it keeps running. */
+/** A stage tab's params: its group's id, and a name for the tab before the shells are known. */
+function stageTabParams(group: TerminalGroup): { id: string; label: string } {
+  return { id: group.id, label: session(paneIds(group.root)[0])?.label ?? "Terminal" };
+}
+
+/** The shell leaves the panel for a stage tab of its own; it keeps running. */
 export function moveTerminalToStage(actions: WorkbenchActions, id: string): void {
-  const target = session(id);
-  if (!target) return;
-  actions.openStageTab(TERMINAL_STAGE_TAB, { id, label: target.label });
+  if (!session(id)) return;
   terminalStore.updateLayout((layout) => moveToStage(layout, id));
+  const group = groupOf(terminalStore.getSnapshot().layout, id);
+  if (group) actions.openStageTab(TERMINAL_STAGE_TAB, stageTabParams(group));
   terminalStore.requestFocus(id);
 }
 
-/** A terminal stage tab closed: the shell comes back to the panel. */
-export function returnTerminalToPanel(id: string): void {
-  terminalStore.updateLayout((layout) => returnFromStage(layout, id));
+/** A terminal stage tab closed: its shells come back to the panel. */
+export function returnTerminalToPanel(groupId: string): void {
+  terminalStore.updateLayout((layout) => returnFromStage(layout, groupId));
 }
 
 /** Shells the kit thinks are on the stage but no stage tab draws any more come back. */
@@ -177,7 +196,12 @@ export function syncStageTabs(actions: WorkbenchActions): void {
   const drawn = new Set(actions.stageTabs()
     .filter((tab) => tab.kind === "extension" && tab.tabKind === TERMINAL_STAGE_TAB)
     .map((tab) => String((tab as { params: Record<string, unknown> }).params.id ?? "")));
-  for (const id of terminalStore.getSnapshot().layout.onStage) if (!drawn.has(id)) returnTerminalToPanel(id);
+  for (const group of terminalStore.getSnapshot().layout.stage) if (!drawn.has(group.id)) returnTerminalToPanel(group.id);
+}
+
+/** Whether a shell is drawn in a stage tab. */
+export function onStage(id: string): boolean {
+  return isStaged(terminalStore.getSnapshot().layout, id);
 }
 
 /**
@@ -192,11 +216,11 @@ export async function toggleTerminal(actions: WorkbenchActions): Promise<void> {
     else actions.toggleDock();
     return;
   }
-  const staged = state.layout.onStage.at(-1);
+  const staged = state.layout.stage.at(-1);
   const inPanel = focusedPane(state.layout);
-  if (!inPanel && staged && session(staged)) {
-    actions.openStageTab(TERMINAL_STAGE_TAB, { id: staged, label: session(staged)!.label });
-    terminalStore.requestFocus(staged);
+  if (!inPanel && staged && session(staged.focused)) {
+    actions.openStageTab(TERMINAL_STAGE_TAB, stageTabParams(staged));
+    terminalStore.requestFocus(staged.focused);
     return;
   }
   actions.openPanel(TERMINAL_PANEL);
@@ -210,7 +234,8 @@ export function addExcerptToPrompt(target: UiTerminalSession, text: string, acti
   const excerpt = text.split("\n").map((line) => line.trimEnd()).join("\n").replace(/^\n+|\n+$/gu, "");
   if (!chips || !excerpt) return false;
   const shell = target.shell ?? "shell";
-  const where = target.cwd ? ` in ${target.cwd}` : "";
+  const directory = target.currentCwd ?? target.cwd;
+  const where = directory ? ` in ${directory}` : "";
   try {
     chips.addChip({ kind: "text-excerpt", label: `${shell} · ${excerpt.split("\n").length} lines`, payload: { source: `Terminal (${shell}${where})`, text: excerpt } });
     actions?.focusComposer();

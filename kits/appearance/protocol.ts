@@ -27,3 +27,24 @@ export interface SaveThemeInput {
 
 /** A refusal is an answer, not a failure: three failures in a row would stop the kit. */
 export type SaveThemeResult = { id: string; path: string } | { error: string };
+
+/**
+ * Terminal Kit's font service (`kits/terminal/protocol.ts`), mirrored: a kit
+ * never imports another kit, and the row is simply absent while the Terminal
+ * Kit is off.
+ */
+export const TERMINAL_FONT_SERVICE = "tau.terminal/font";
+export type TerminalFontSource = "settings" | "ghostty" | "default";
+export interface TerminalFontServiceState {
+  family: string;
+  size: string;
+  resolved: { face?: string; stack: string; size: number; familySource: TerminalFontSource; sizeSource: TerminalFontSource };
+  ghostty?: { face?: string; size?: number; files: string[]; problems: string[] };
+  sizeRange: { min: number; max: number };
+}
+export interface TerminalFontService {
+  getSnapshot(): TerminalFontServiceState;
+  subscribe(listener: () => void): () => void;
+  set(change: { family?: string; size?: string }): void;
+  refresh(): Promise<void>;
+}

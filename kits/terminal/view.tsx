@@ -6,7 +6,7 @@ import { unseenOutput } from "./output.js";
 import { terminalFontStack, type ResolvedTerminalFont } from "./font.js";
 import { classifyTerminalLink, findTerminalLinks, positionIn, wrappedLineAt } from "./links.js";
 import { terminalKeyOutcome } from "./keys.js";
-import { focusPane } from "./layout.js";
+import { focusPane, isStaged } from "./layout.js";
 import { addExcerptToPrompt, openTerminalLink } from "./controller.js";
 import { TERMINAL_DATA_EVENT, type TerminalDataEvent, type UiTerminalSession } from "./protocol.js";
 
@@ -60,7 +60,7 @@ const activatesLink = (event: MouseEvent) => MAC ? event.metaKey : event.ctrlKey
 
 export interface TerminalViewProps {
   session: UiTerminalSession;
-  /** Where the view is drawn; only a panel view moves the panel's focused pane. */
+  /** Where the view is drawn: a panel tab or a stage tab. */
   place: "panel" | "stage";
   /** Draws the focus ring; only meaningful beside other panes. */
   focused?: boolean;
@@ -180,13 +180,13 @@ export function TerminalView({ session, place, focused = false }: TerminalViewPr
       refitRef.current = refit;
       const observer = new ResizeObserver(refit);
       observer.observe(element);
-      const onFocus = () => { if (place === "panel") terminalStore.updateLayout((layout) => focusPane(layout, id)); };
+      const onFocus = () => terminalStore.updateLayout((layout) => focusPane(layout, id));
       instance.textarea?.addEventListener("focus", onFocus);
       const takeFocus = () => {
         const { focusRequest: request, layout } = terminalStore.getSnapshot();
         if (!ready || request?.id !== id) return;
         // A panel pane about to hand its shell to the stage must leave the request to the tab.
-        if ((place === "stage") !== layout.onStage.includes(id)) return;
+        if ((place === "stage") !== isStaged(layout, id)) return;
         instance.focus();
         terminalStore.focusDone(request.seq);
       };

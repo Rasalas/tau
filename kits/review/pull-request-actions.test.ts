@@ -15,7 +15,7 @@ const URL_7 = "https://github.com/acme/tau/pull/7";
 interface Call { args: string[]; input?: string }
 
 let stateRoot: string | undefined;
-afterEach(async () => { if (stateRoot) await rm(stateRoot, { recursive: true, force: true }); stateRoot = undefined; });
+afterEach(async () => { if (stateRoot) await rm(stateRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); stateRoot = undefined; });
 
 /** Review Kit over a fake `gh`, with a checkout on `feat/output` whose request is #7 in `state`. */
 async function harness(options: { remote?: string; state?: string; answer?(call: Call): string | undefined } = {}) {

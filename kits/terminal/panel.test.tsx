@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PanelProps, StageTab, StageTabHandle, WorkbenchActions } from "tau";
 import { TerminalPanel, placeOf } from "./panel.js";
 import { TerminalStageTab } from "./stage-tab.js";
 import { connectTerminalHost, terminalServices, terminalStore } from "./store.js";
-import { addExcerptToPrompt, openTerminalLink, toggleTerminal } from "./controller.js";
-import { EMPTY_LAYOUT, paneIds } from "./layout.js";
+import { addExcerptToPrompt, openTerminalLink, targetShell, toggleTerminal } from "./controller.js";
+import { EMPTY_LAYOUT, paneIds, stageGroup } from "./layout.js";
+import { pathInside } from "./panes.js";
 import { TERMINAL_LIST_EVENT, TERMINAL_PANEL, TERMINAL_STAGE_TAB, type UiTerminalSession } from "./protocol.js";
 
 // xterm draws on a canvas jsdom does not have; the panel is what is under test.
@@ -84,6 +85,12 @@ function fakeHost() {
     host,
     invoke,
     foreground,
+    /** The shell reported a new directory, as the host passes an OSC 7 report on. */
+    cd(id: string, currentCwd: string) {
+      const index = sessions.findIndex((entry) => entry.id === id);
+      sessions[index] = { ...sessions[index]!, currentCwd };
+      publish();
+    },
     exit(id: string, exitCode: number) {
       const session = sessions.find((entry) => entry.id === id);
       if (session) session.exitCode = exitCode;
@@ -146,6 +153,7 @@ afterEach(() => {
   terminalStore.updateLayout(() => EMPTY_LAYOUT);
   delete terminalServices.chips;
   delete terminalServices.preview;
+  delete terminalServices.workspace;
   delete terminalServices.actions;
 });
 
@@ -197,7 +205,8 @@ describe("TerminalPanel", () => {
       expect(screen.getAllByRole("tab")).toHaveLength(1);
       expect(layout().groups[0]!.root).toEqual({ kind: "split", direction: "down", children: [{ kind: "pane", id: "t1" }, { kind: "pane", id: "t2" }] });
       expect(layout().groups[0]!.focused).toBe("t2");
-      expect(fake.invoke).toHaveBeenLastCalledWith("open", { workspaceId: "workspace-one", sessionId: "s1" });
+      // The new shell starts where the one it splits is now.
+      expect(fake.invoke).toHaveBeenLastCalledWith("open", { workspaceId: "workspace-one", sessionId: "s1", from: "t1" });
       expect(screen.getAllByRole("region").map((pane) => pane.getAttribute("aria-label"))).toEqual(["shell 1", "shell 2"]);
     } finally {
       disconnect();
@@ -235,15 +244,157 @@ describe("TerminalPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
       await waitFor(() => expect(actions.openStageTab).toHaveBeenCalledWith(TERMINAL_STAGE_TAB, { id: "t1", label: "shell 1" }));
       await waitFor(() => expect(screen.getByText("Every shell is on the stage.")).toBeTruthy());
-      expect(layout().onStage).toEqual(["t1"]);
+      expect(layout().stage).toEqual([{ id: "t1", root: { kind: "pane", id: "t1" }, focused: "t1" }]);
 
       // The tab draws the shell; closing it gives the shell back, never kills it.
       const handle = stageTabHandle();
       render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />);
       act(() => { stageTabs = []; handle.close(); });
       await screen.findByRole("tab", { name: /shell 1/u });
-      expect(layout().onStage).toEqual([]);
+      expect(layout().stage).toEqual([]);
       expect(fake.invoke).not.toHaveBeenCalledWith("kill", { id: "t1" });
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("splits a stage tab like a panel tab, and closes the tab with its last shell", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    const actions = workbenchActions();
+    try {
+      const panel = render(<TerminalPanel {...panelProps(actions)} />);
+      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      await screen.findByRole("tab", { name: /shell 1/u });
+      fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
+      await waitFor(() => expect(layout().stage.map((group) => group.id)).toEqual(["t1"]));
+      panel.unmount();
+
+      const handle = stageTabHandle();
+      const tab = render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />);
+      const split = within(tab.container).getByRole("button", { name: "Split down" }) as HTMLButtonElement;
+      fireEvent.click(split);
+      await waitFor(() => expect(stageGroup(layout(), "t1")?.root).toEqual({ kind: "split", direction: "down", children: [{ kind: "pane", id: "t1" }, { kind: "pane", id: "t2" }] }));
+      // The new shell starts beside the old one, stays on the stage and gets the keyboard; the tab counts it.
+      expect(fake.invoke).toHaveBeenCalledWith("open", { workspaceId: "workspace-one", from: "t1" });
+      expect(layout().groups).toEqual([]);
+      expect(terminalStore.getSnapshot().focusRequest?.id).toBe("t2");
+      await waitFor(() => expect(handle.setTitle).toHaveBeenLastCalledWith("shell 1 +1"));
+      expect(within(tab.container).getAllByRole("region").map((pane) => pane.getAttribute("aria-label"))).toEqual(["shell 1", "shell 2"]);
+      // A staged pane has nowhere further to go.
+      expect(within(tab.container).queryByRole("button", { name: /as tab/u })).toBeNull();
+
+      fireEvent.click(within(tab.container).getByRole("button", { name: "Close shell 1" }));
+      await waitFor(() => expect(stageGroup(layout(), "t1")?.root).toEqual({ kind: "pane", id: "t2" }));
+      expect(actions.closeStageTab).not.toHaveBeenCalled();
+      fireEvent.click(within(tab.container).getByRole("button", { name: "Close shell 2" }));
+      await waitFor(() => expect(actions.closeStageTab).toHaveBeenCalledWith(handle.id));
+      expect(layout().stage).toEqual([]);
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("gives a split stage tab's shells back to the panel as one tab", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    const actions = workbenchActions();
+    try {
+      render(<TerminalPanel {...panelProps(actions)} />);
+      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      await screen.findByRole("tab", { name: /shell 1/u });
+      fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
+      await waitFor(() => expect(layout().stage).toHaveLength(1));
+      const handle = stageTabHandle();
+      const tab = render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />);
+      fireEvent.click(within(tab.container).getByRole("button", { name: "Split right" }));
+      await waitFor(() => expect(paneIds(stageGroup(layout(), "t1")!.root)).toEqual(["t1", "t2"]));
+
+      fireEvent.click(within(tab.container).getByRole("button", { name: "Move to panel" }));
+      act(() => handle.close());
+      expect(layout().stage).toEqual([]);
+      expect(layout().groups.map((group) => group.root)).toEqual([{ kind: "split", direction: "right", children: [{ kind: "pane", id: "t1" }, { kind: "pane", id: "t2" }] }]);
+      expect(actions.openPanel).toHaveBeenCalledWith(TERMINAL_PANEL);
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("resizes a split by dragging or with the arrow keys, and keeps the shares", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 200, width: 400, height: 200, toJSON: () => ({}) });
+    // jsdom has no PointerEvent; a mouse event with a pointer id stands in.
+    const pointerEvents = "PointerEvent" in window;
+    if (!pointerEvents) {
+      Object.defineProperty(window, "PointerEvent", {
+        configurable: true,
+        value: class extends MouseEvent {
+          readonly pointerId: number;
+          constructor(type: string, init: PointerEventInit = {}) { super(type, init); this.pointerId = init.pointerId ?? 0; }
+        },
+      });
+    }
+    try {
+      render(<TerminalPanel {...panelProps()} />);
+      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      await screen.findByRole("tab", { name: /shell 1/u });
+      const split = screen.getByRole("button", { name: "Split right" }) as HTMLButtonElement;
+      await waitFor(() => expect(split.disabled).toBe(false));
+      fireEvent.click(split);
+      const divider = await screen.findByRole("separator", { name: "Resize terminals" });
+      expect(divider.getAttribute("aria-orientation")).toBe("vertical");
+      const shares = () => { const root = layout().groups[0]!.root; return root.kind === "split" ? root.sizes?.map((share) => Math.round(share * 100)) : undefined; };
+      expect(shares()).toBeUndefined();
+
+      fireEvent.pointerDown(divider, { pointerId: 1, button: 0, clientX: 200 });
+      fireEvent.pointerMove(divider, { pointerId: 1, clientX: 300 });
+      // Drawn from a draft while dragging; stored on release.
+      expect(shares()).toBeUndefined();
+      expect(divider.getAttribute("aria-valuenow")).toBe("75");
+      fireEvent.pointerUp(divider, { pointerId: 1, clientX: 300 });
+      expect(shares()).toEqual([75, 25]);
+
+      fireEvent.keyDown(divider, { key: "ArrowLeft" });
+      expect(shares()).toEqual([70, 30]);
+      // Never under the minimum share.
+      fireEvent.pointerDown(divider, { pointerId: 2, button: 0, clientX: 280 });
+      fireEvent.pointerUp(divider, { pointerId: 2, clientX: 400 });
+      expect(shares()).toEqual([90, 10]);
+      fireEvent.doubleClick(divider);
+      expect(shares()).toEqual([50, 50]);
+    } finally {
+      if (!pointerEvents) Reflect.deleteProperty(window, "PointerEvent");
+      disconnect();
+    }
+  });
+
+  it("names a shell's pane by the directory it reported, and opens that directory from the project's Open in", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    const openInEditor = vi.fn(async () => undefined);
+    const followed = { cwd: "/project" };
+    terminalServices.workspace = {
+      registerThreadRowAccessory: () => () => undefined,
+      getSnapshot: () => followed,
+      subscribe: () => () => undefined,
+      activeEditor: () => ({ id: "zed", name: "Zed" }),
+      openInEditor,
+    };
+    try {
+      render(<TerminalPanel {...panelProps()} />);
+      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      await screen.findByRole("tab", { name: /shell 1/u });
+      expect(screen.getByRole("button", { name: "Open the project in Zed" })).toBeTruthy();
+
+      act(() => fake.cd("t1", "/project/src/app"));
+      expect(screen.getByText("/project/src/app")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Open app in Zed" }));
+      expect(openInEditor).toHaveBeenCalledWith("src/app");
+
+      // Outside the project the store follows there is nothing to open.
+      act(() => fake.cd("t1", "/tmp"));
+      expect(screen.queryByRole("button", { name: /in Zed/u })).toBeNull();
     } finally {
       disconnect();
     }
@@ -258,7 +409,7 @@ describe("TerminalPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       fireEvent.click(screen.getByRole("button", { name: "Open shell 1 as tab" }));
-      await waitFor(() => expect(layout().onStage).toEqual(["t1"]));
+      await waitFor(() => expect(layout().stage.map((group) => group.id)).toEqual(["t1"]));
       stageTabs = [];
       view.rerender(<TerminalPanel {...panelProps(actions)} />);
       await screen.findByRole("tab", { name: /shell 1/u });
@@ -368,12 +519,33 @@ describe("terminal commands", () => {
     const actions = workbenchActions();
     try {
       await toggleTerminal(actions);
-      terminalStore.updateLayout((current) => ({ ...current, groups: [], onStage: ["t1"] }));
+      terminalStore.updateLayout((current) => ({ ...current, groups: [], stage: [{ id: "t1", root: { kind: "pane", id: "t1" }, focused: "t1" }] }));
       vi.mocked(actions.openPanel).mockClear();
       await toggleTerminal(actions);
       expect(actions.openStageTab).toHaveBeenCalledWith(TERMINAL_STAGE_TAB, { id: "t1", label: "shell 1" });
       expect(actions.openPanel).not.toHaveBeenCalled();
     } finally {
+      disconnect();
+    }
+  });
+
+  it("acts on the shell that has the keyboard, else on the panel's focused one", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    const actions = workbenchActions();
+    const view = document.createElement("div");
+    try {
+      await toggleTerminal(actions);
+      await act(async () => { await fake.host.invoke("open", {}); });
+      expect(targetShell()).toBe("t2");
+      view.dataset.terminalId = "t1";
+      const input = document.createElement("textarea");
+      view.append(input);
+      document.body.append(view);
+      input.focus();
+      expect(targetShell()).toBe("t1");
+    } finally {
+      view.remove();
       disconnect();
     }
   });
@@ -388,6 +560,17 @@ describe("terminal commands", () => {
     expect(addChip).toHaveBeenCalledWith({ kind: "text-excerpt", label: "zsh · 2 lines", payload: { source: "Terminal (zsh in /project)", text: "$ ls\nREADME.md" } });
     expect(actions.focusComposer).toHaveBeenCalled();
     expect(addExcerptToPrompt(session, "   \n ", actions)).toBe(false);
+    // Where the shell is now, when it said so.
+    addExcerptToPrompt({ ...session, currentCwd: "/project/src" }, "ls", actions);
+    expect(addChip).toHaveBeenLastCalledWith(expect.objectContaining({ payload: { source: "Terminal (zsh in /project/src)", text: "ls" } }));
+  });
+
+  it("tells a path inside the project from one outside it", () => {
+    expect(pathInside("/project", "/project")).toBe("");
+    expect(pathInside("/project/", "/project/src/")).toBe("src");
+    expect(pathInside("/project", "/project-two/src")).toBeUndefined();
+    expect(pathInside("C:\\work", "C:\\work\\src\\app")).toBe("src/app");
+    expect(pathInside("/", "/usr/bin")).toBe("usr/bin");
   });
 
   it("opens a local server in the Preview and every other link in the browser", async () => {

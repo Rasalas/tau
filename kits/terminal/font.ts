@@ -1,4 +1,6 @@
-import type { TerminalFontDefaults } from "./protocol.js";
+import type { TerminalFontDefaults, TerminalFontSource } from "./protocol.js";
+
+export type { TerminalFontSource };
 
 /**
  * Which font a terminal draws with. xterm measures its cell on a canvas,
@@ -73,8 +75,6 @@ export function terminalFontSize(size: number | undefined): number {
   if (size === undefined || !Number.isFinite(size) || size <= 0) return DEFAULT_TERMINAL_FONT_SIZE;
   return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(size * 2) / 2));
 }
-
-export type TerminalFontSource = "settings" | "ghostty" | "default";
 
 export interface ResolvedTerminalFont {
   /** The whole stack, ready for xterm's `fontFamily`. */

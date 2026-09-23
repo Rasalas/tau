@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { Menu, type MenuSection } from "./Menu";
+import type { MenuSection } from "./Menu";
+import { Menu } from "../deferred-surfaces";
 
 export function ThreadTitleMenu({
   title,

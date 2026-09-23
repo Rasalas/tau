@@ -22,6 +22,8 @@ export interface UiTerminalSession {
   sessionId?: string;
   /** Absolute path on the host the shell started in; for the user's eyes only. */
   cwd?: string;
+  /** Where the shell last said it is (OSC 7), when it says; absolute, on the host. */
+  currentCwd?: string;
   label: string;
   /** The shell's program name (`zsh`), for an excerpt to say where it came from. */
   shell?: string;
@@ -38,8 +40,11 @@ export interface TerminalResizeInput {
 }
 
 export interface TerminalHostCommands {
-  /** Starts a shell in the workspace (the host's own when unnamed) and answers with the session. */
-  "open": { input: { workspaceId?: string; sessionId?: string; label?: string }; output: UiTerminalSession };
+  /**
+   * Starts a shell in the workspace (the host's own when unnamed) and answers with the session.
+   * `from` names a shell whose current directory the new one starts in, when it reported one.
+   */
+  "open": { input: { workspaceId?: string; sessionId?: string; label?: string; from?: string }; output: UiTerminalSession };
   /** A new shell in an ended session's place; answers with the replacement. */
   "restart": { input: { id: string }; output: UiTerminalSession };
   /** Writes what the user typed; travels as plain text over the host's own channel. */
@@ -156,6 +161,33 @@ export interface TerminalRunService {
   run(request: TerminalRunRequest, actions?: TerminalRunActions): Promise<TerminalRunResult>;
 }
 
+/**
+ * The desktop service that shows and sets the terminal's font, for Settings →
+ * Appearance to draw (`useService`). Empty fields follow the user's Ghostty
+ * config, then the platform's monospace faces.
+ */
+export const TERMINAL_FONT_SERVICE = "tau.terminal/font";
+export type TerminalFontSource = "settings" | "ghostty" | "default";
+export interface TerminalFontServiceState {
+  /** What the user set; empty when the field follows Ghostty or the platform. */
+  family: string;
+  size: string;
+  /** What the terminal draws with now: the first face asked for, the whole CSS stack, the size in px. */
+  resolved: { face?: string; stack: string; size: number; familySource: TerminalFontSource; sizeSource: TerminalFontSource };
+  /** What the user's Ghostty config names; absent until the host answered. */
+  ghostty?: { face?: string; size?: number; files: string[]; problems: string[] };
+  sizeRange: { min: number; max: number };
+}
+export interface TerminalFontService {
+  /** The same object until something changed. */
+  getSnapshot(): TerminalFontServiceState;
+  subscribe(listener: () => void): () => void;
+  /** An empty string clears the field. */
+  set(change: { family?: string; size?: string }): void;
+  /** Reads the Ghostty config again. */
+  refresh(): Promise<void>;
+}
+
 // Mirrors of other kits' contracts. They are named here, not imported: a kit
 // never imports another kit, and each use degrades when the other kit is off.
 
@@ -171,8 +203,13 @@ export interface PreviewBrowserService {
   open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
 }
 
-/** Workspace Kit's store (`kits/workspace/protocol.ts`); only the row mark this kit draws. */
+/** Workspace Kit's store (`kits/workspace/protocol.ts`); the row mark this kit draws, and its "Open in". */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
-export interface WorkspaceRowMarks {
+export interface WorkspaceStoreMirror {
   registerThreadRowAccessory(accessory: (props: { session: { id: string } }) => unknown): () => void;
+  /** The project the store follows; `openInEditor` paths are relative to it. */
+  getSnapshot?(): { cwd?: string };
+  subscribe?(listener: () => void): () => void;
+  activeEditor?(): { id: string; name: string } | undefined;
+  openInEditor?(relPath?: string): Promise<void>;
 }
