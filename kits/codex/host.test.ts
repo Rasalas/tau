@@ -8,6 +8,7 @@ import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js
 import { CodexAppServer, spawnInput } from "./app-server.js";
 import createCodexHostExtension from "./host.js";
 import { codexMcpLaunch, TAU_MCP_TOKEN_VARIABLE } from "./mcp.js";
+import { codexToolArgs } from "./tools.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { CodexSessionStore } from "./session-store.js";
 
@@ -35,6 +36,7 @@ async function harness(options: { installed?: string | undefined; found?: boolea
   const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ version: "0.155.1" }) }) as Response);
   const launches: Array<{ threadId?: string; args: readonly string[]; env: NodeJS.ProcessEnv }> = [];
   const connected: RuntimeSessionInfo[] = [];
+  const connectOptions: unknown[] = [];
   const extension = createCodexHostExtension({
     env: options.env ?? {},
     fetch,
@@ -51,14 +53,14 @@ async function harness(options: { installed?: string | undefined; found?: boolea
     })),
   });
   const registry = await activateHostKit(extension, {
-    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async (thread) => { connected.push(thread); return TAU_SERVER; } },
+    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async (thread, narrowed) => { connected.push(thread); connectOptions.push(narrowed); return TAU_SERVER; } },
     findCommand: (name) => name === "codex" ? (options.found !== false ? path : undefined) : findExecutable(name),
     sessionsDir: join(root, "agent", "sessions"),
     stateDir: join(root, "state"),
     noteSubprocess: () => undefined,
     registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
   });
-  return { registry, provider: backends[0]!, root, fetch, launches, connected };
+  return { registry, provider: backends[0]!, root, fetch, launches, connected, connectOptions };
 }
 
 const context = { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) } as never;
@@ -91,6 +93,28 @@ describe("Codex host half", () => {
     // The token travels in the environment, never on the command line.
     expect(thread.args.join(" ")).not.toContain("secret");
     expect(thread.env[TAU_MCP_TOKEN_VARIABLE]).toBe("secret");
+  });
+
+  it("starts a thread created with a tool list without the Codex tools it leaves out, also after a resume", async () => {
+    const { provider, launches, connectOptions, root } = await harness();
+    expect(provider.restrictsTools).toBe(true);
+    const tools = ["read", "tau_spawn_thread"];
+    const created = await provider.open("tau-thread", root, { resume: false, tools }, context);
+    await created.prompt({ text: "Reply with one word.", delivery: "prompt" });
+    await created.dispose();
+    const resumed = await provider.open("tau-thread", root, { resume: true }, context);
+    await resumed.prompt({ text: "Again.", delivery: "prompt" });
+    await resumed.dispose();
+
+    for (const launch of launches) {
+      expect(launch.args).toEqual([...codexMcpLaunch(TAU_SERVER).args, ...codexToolArgs(tools)]);
+      // Reading keeps Codex's shell; what the list leaves out is switched off.
+      expect(launch.args).not.toContain("features.shell_tool=false");
+      expect(launch.args).toContain('web_search="disabled"');
+    }
+    expect(launches).toHaveLength(2);
+    expect(connectOptions).toEqual([{ tools }, { tools }]);
+    expect(codexToolArgs(["tau_list_threads"])).toContain("features.shell_tool=false");
   });
 
   it("puts the overrides after app-server, where the CLI reads them", () => {

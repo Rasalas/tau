@@ -6,6 +6,17 @@
 
 export const AGENTS_HOST_EXTENSION_ID = "tau.agents";
 
+/** The tool that starts agents, as Pi names it. */
+export const SPAWN_TOOL = "tau_spawn_thread";
+
+/** How a runtime other than Pi names Tau's tools: the MCP server's name in front (ADR 0022). */
+const MCP_TAU_PREFIX = "mcp__tau__";
+
+/** A tool's name as Pi spells it, whichever runtime reported the call. */
+export function tauToolName(name: string): string {
+  return name.startsWith(MCP_TAU_PREFIX) ? name.slice(MCP_TAU_PREFIX.length) : name;
+}
+
 /** Pushed whenever an agent appears, changes status or goes away. */
 export const AGENTS_STATE_EVENT = "state";
 

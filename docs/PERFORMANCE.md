@@ -143,11 +143,11 @@ After each completed prompt, Tau runs `SessionManager.listAll()`, rebuilds and s
 
 Session-file and Git invalidation events should update only changed shells. A full scan remains a recovery path, not the normal prompt-completion path.
 
-### Metadata actions return full host snapshots
+### Metadata actions still project the whole thread
 
-Compaction, title generation, and several workspace actions return a complete `HostSnapshot`. The payload includes messages, models, tool descriptions, and usage even when only one field changed. Model and thinking-level changes no longer do; see "Metadata commands without a snapshot" below.
+What these actions send is bounded now; what the host computes to send it is not. A title, generated or renamed, travels as one `thread-shell` update (`ThreadIndex.publishTitle`). Compaction, tree navigation, repair and project actions publish one `thread-detail`, and that detail holds the newest 10 turns (`detailFromSnapshot`), not the thread. Model and thinking-level changes send only the catalog; see "Metadata commands without a snapshot" below.
 
-Split the protocol into thread shell updates, active detail, run events, model and extension catalogs, and project metadata. IPC cost for a metadata action should stay constant as transcript length grows.
+Each of those actions still builds the full `HostSnapshot` first, mapping every message of the branch, and a project action also re-reads the transcript for the thread's shell. That work is linear, 40–80 ms for 20,000 entries on the development machine (see "Opening a large thread" below). IPC cost stays constant as the transcript grows; host CPU does not yet.
 
 ### Large diffs render in full
 
@@ -278,11 +278,13 @@ Initial local targets:
 - the two viewport scenarios over a 1000-turn transcript with 128 activities (`transcript-viewport-anchored-1000-turns`, `transcript-viewport-streaming-1000-turns`) mount at about 21 ms median and 27 ms p95 on the development machine; like their `transcript-1000-turns` sibling they carry their own mount budget (30 ms) instead of the 24 ms default, since 2026-09-05
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
-- a turn's traffic on the host socket within `hostTransfer` (recorded turn: 7,500 wire bytes, 64,000 decoded bytes, 110 messages)
+- a turn's traffic on the host socket within `hostTransfer` (recorded turn: 6,500 wire bytes, 46,400 decoded bytes, 110 messages)
 - unchanged sidebar rows do not rerender when another row changes
 - sidebar search remains responsive with 10,000 thread shells
 - transcript DOM size remains bounded with 1,000 loaded turns
 - metadata IPC payload size remains constant as transcript length grows
+- a thread of 20,000 entries with every kit loaded opens in the host within 2,500 ms at p95, starts the host within 5,000 ms and reaches full-ready within 7,500 ms (`largeThread*` in `scripts/performance-budgets.json`, since 2026-09-23); in the window its newest turn is on screen within 2,500 ms of the click (median, `tauLargeThread` in `scripts/compare/budgets.json`)
+- loading an older page with the reader at the top moves the row they were reading by at most 2 px, in the large thread and in a two-page one, and shows "Loading…" for at most 1,000 ms (median, `tauLargeThread`, since 2026-09-23)
 - opening cached project navigation performs no filesystem or Git work
 - full-mode local thread switches stay below 150 ms at p95 after cache warm-up
 
@@ -547,15 +549,19 @@ and WebSocket messages. Time is virtual, so the counts are the same on every
 machine; it runs in `npm test`. The same test checks that the client ends in the
 state the uncoalesced events produce, also after losing ten pushes mid-turn and
 replaying them, and that a client joining mid-tool receives the output whole.
+The expected state is the one a client should have: every tool as
+`src/main/client-tool-output.ts` shapes it (a live tail, a deferred output).
 It is Tau's counterpart of T3 Code's `TransferBudgetReport` gate.
 
-Two scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
+Three scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
 GPT-5.6 Luna turn recorded from a Tau host on 2026-09-23: thinking, a bash tool
 printing 200 lines that Pi reports every 100 ms, a two-sentence answer streamed
 per token, and the settle with its thread detail. **heavy-turn** is generated
 in the test in the spirit of T3's fixture: 1.2 KB of thinking, twenty tools with
 1 KB output each, one tool streaming 1.1 MB through the host's 128 KB tail
-window, and a 4 KB answer, at a model's pace.
+window, and a 4 KB answer, at a model's pace. **answer-turn** is all answer,
+like the comparison harness's replay: 150 KB of text in 200-character deltas
+every 16 ms, then the settle and its detail.
 
 Same fixtures, before (`4a7f515`) and after this change:
 
@@ -572,7 +578,7 @@ client that lost ten pushes in the middle of the heavy turn could not replay
 them (the buffer held the last 500 pushes) and had to resync; the byte-bounded
 buffer (8 MB) now replays the whole turn.
 
-What the savings come from: tool updates carry what the tool added
+What the savings of the lean stream came from: tool updates carry what the tool added
 (`tool-update-delta`), not the whole output each time (the recorded turn's 60
 tool updates went from 196 KB to 20 KB decoded, most of it the 83-character
 tool call id every delta repeats); text deltas are joined for
@@ -582,11 +588,62 @@ repeats: `tool-end` carries the final output, and the settled `thread-detail`
 carries each tool of the turn twice (`turnActivity` and
 `turnActivityHistory`): 318 KB of the heavy turn's 1.8 MB.
 
+**No repeated outputs (D17).** `tool-end` now refers to the push that carried
+the output (`tool-end-delta`), a settled detail sends its `turnActivity` once
+(`thread-detail-compact`), a settled output over 16 KB travels as its size and
+loads when its row opens (`tool-output`), and a running one over 16 KB streams
+its last 4 KB ([host-protocol.md](host-protocol.md#coalescing-and-tool-output-deltas)).
+Same fixtures, before (`ae88cee`) and after:
+
+| scenario | wire bytes | decoded bytes | messages |
+| --- | ---: | ---: | ---: |
+| recorded turn, before | 6,048 | 52,814 | 98 |
+| recorded turn, after | 5,669 | 40,346 | 98 |
+| heavy turn, before | 439,330 | 1,820,646 | 475 |
+| heavy turn, after | 130,525 | 553,323 | 475 |
+
+The recorded turn's `tool-end` went from 6,476 to 434 decoded bytes and its
+detail from 16,045 to 9,619; the heavy turn's detail from 318 KB to 30 KB,
+its `tool-end`s from 157 KB to 6 KB, and its tool updates from 1.29 MB to
+0.46 MB. The 1.1 MB tool sends whole 4 KB tails there: each 100 ms chunk of
+11 KB is longer than the tail, so no delta applies. The
+`hostTransfer` budgets are the after column plus about 15 % for bytes; the
+message budgets stay where they were. In the comparison harness the replayed
+turn went from 1,870 KiB to 649 KiB (325 and 324 messages, three runs each).
+What remains there is mostly the 151 KB answer, which arrives as deltas, again
+in `assistant-end` and again in the settled detail's messages.
+
 In the real app (isolated instance, headless host process, a recording client
 on the host socket, the same prompt in the same thread) one turn measured 124
 messages, 232,788 decoded and 233,284 wire bytes before, and 99 messages, 60,236
 decoded and 5,945 wire bytes after. Those counts include a few pushes unrelated
 to the turn (the instance's theme watcher), which the fixture leaves out.
+
+**Answer text once (D22).** `assistant-end` now refers to the text its
+message streamed (`assistant-end-delta`) and a detail to the `assistant-end`
+that carried a message's text (`thread-detail-compact` with `texts`)
+([host-protocol.md](host-protocol.md#answer-text-travels-once)). Same fixtures,
+before (`e15791a`) and after:
+
+| scenario | wire bytes | decoded bytes | messages |
+| --- | ---: | ---: | ---: |
+| recorded turn, before | 5,669 | 40,346 | 98 |
+| recorded turn, after | 5,701 | 40,258 | 98 |
+| heavy turn, before | 130,525 | 553,323 | 475 |
+| heavy turn, after | 130,093 | 543,992 | 475 |
+| answer turn, before | 122,594 | 482,221 | 196 |
+| answer turn, after | 47,251 | 178,856 | 196 |
+
+The recorded turn's answer is 92 characters and its thinking 41, so little
+changes there; its wire bytes moved by 32 within the deflate noise and its
+wire budget stays at 6,500, since 15 % over would raise it. The answer turn
+now costs about the answer once plus 19 % of framing, where it cost the
+answer three times. The other budgets are the after column plus about 15 %,
+messages as before. The test also checks that a client joining in the middle
+of the answer receives its end whole and ends with the same transcript. In
+the comparison harness the replayed turn went from 645.6 to 345.7 KiB
+(median of three runs each, 324 messages both); `replay.wire.receivedKiB` is
+now 398.
 
 ### Metadata commands without a snapshot
 
@@ -628,6 +685,136 @@ After, both threads measure 8–10 ms median; what is left is the 77 KB catalog
 the reply carries (every model the machine can use) and the socket. Picking a
 model in that thread's composer changes the picker's label 15–30 ms after the
 click.
+
+### Host process memory at idle
+
+The comparison harness below had Tau's host process at about 100 MiB more than
+T3's server at idle. Heap snapshots of the host after the harness fixture was
+imported (`--heapsnapshot-signal`, then the inspector for each kit worker)
+attributed its memory like this, on `ae88cee`:
+
+- **Garbage and a grown young generation, about 110 MiB.** 182 MiB of V8 heap
+  held 72 MiB of live objects. Start-up allocates heavily (kit bundles, the
+  desktop halves the host sends, the model catalog, session files), and Node
+  runs no GC while a process is idle, so none of it came back.
+- **Inline source maps of the kits' Node halves, about 17 MiB.** 9.6 of the
+  12.8 MB of `host.cjs`, `window.cjs` and `pi.cjs` were maps. V8 keeps a
+  module's source and, separately, its `sourceMappingURL`, so each map sat in
+  the heap twice; Node does not read them without `--enable-source-maps`.
+- **The models.dev catalog, 5.5 MiB**, parsed whole and kept for an hour,
+  though runtimes read only the `opencode` and `opencode-go` entries.
+- **Six kit workers, 60 to 70 MiB** (a worker isolate costs 7.5 MiB before it
+  loads anything; each measured 9 MiB of heap and 5 MiB external).
+- The rest is module code: 24 MiB of source, 11 MiB of it Pi's 1,416 modules
+  (its interactive TUI included), and 5.4 MiB for jiti's Babel, which Pi's
+  extension loader imports eagerly.
+
+A Pi runtime retained 0.2 MiB of its own in the fixture. For a large thread it
+holds about the session file's size (1.6 MiB for a 1.6 MB session in a probe
+with four such threads).
+
+What changed:
+
+- `IdleHeapCompactor` (`src/main/host-idle-compaction.ts`) runs one
+  memory-reducing collection when the host process has had no call and no push
+  for a second (a Files tab polls every two) and its heap grew by 32 MiB since
+  the last one. It took 26 to
+  79 ms in the harness and the isolated instance (for example "190 → 108 MiB in
+  71 ms" in `host-process.log`).
+- Kit halves that run in Node keep their map in `<file>.map` beside the module,
+  in `dist-kits/` and in the host's bundle cache.
+- The catalog keeps only the two providers Tau registers.
+- A runtime nobody used for ten minutes is released under the eviction guards
+  (`ThreadRuntimeRegistry.releaseIdle`, through the lifecycle queue). A turn
+  that starts or ends counts as use.
+
+Harness, tier A fixture, one warm-up and three runs each, before (`ae88cee`,
+built in a copy) and after on the same machine, run one after the other (load
+average 10 to 24, memory pressure). `reports/compare-20260923-host-memory-before.json`
+and `-after.json` hold the runs. Footprint is macOS's physical footprint; RSS
+dropped as low as 27 MiB under pressure and is not comparable.
+
+| metric (median / p95) | before | after |
+| --- | ---: | ---: |
+| host process footprint, idle (MiB) | 294 / 296 | 170 / 178 |
+| host process footprint, 5 s after the turn (MiB) | 314 / 331 | 181 / 187 |
+| whole tree footprint, idle (MiB) | 708 / 710 | 522 / 532 |
+| whole tree footprint, after the turn (MiB) | 873 / 953 | 690 / 699 |
+
+The host's V8 heap at idle went from 182 MiB total (72 live) to 51 total (48
+live). In an isolated instance with the user's own Pi setup, after two Luna
+turns in two threads, the live heap went from 137 to 109 MiB and the footprint
+from 292 and 332 MiB (two runs) to 281 and 258 MiB; that host carries the user's
+Pi packages in every runtime. Reopening a thread whose runtime was released took
+457 ms in that instance (171 ms before-open, 285 ms to create the runtime), a
+switch to a live runtime 32 ms. In `npm run benchmark:host`, `reopen-released`
+measured 9 ms median in Safe Mode and 22 ms in Full Mode, against 12 and 23 ms
+for a warm switch.
+
+Checks that catch a regression:
+
+- `npm run benchmark:host:check` reports `idleHeapMiB`, the heap left after a
+  compaction at the end of the run, and holds Safe Mode to 70 MiB
+  (`hostIdleHeapSafeMiB`; 57 to 60 MiB measured). Full Mode reads the user's own
+  Pi setup (127 to 132 MiB here) and is reported without a budget.
+- `npm run benchmark:compare -- --apps tau --check` holds the host process's
+  idle footprint to 200 MiB (`idleMemory.footprintByRoleMiB.backend` in
+  `scripts/compare/budgets.json`). It needs macOS's `footprint`.
+
+Not done: the six kit workers are now the largest owner after module code.
+Sharing one worker among the kits Tau ships would save about 40 MiB, but a
+wedged kit would then stop the others: it gives up the per-package containment
+ADR 0018 describes, which needs a decision first.
+
+### Opening a large thread
+
+Before 2026-09-23, a thread of 20,000 session entries (5,000 turns: prompt, tool call, tool result, answer) took tens of seconds to open once the kits were loaded. Without the kits it took half a second. When that thread was the workspace's newest session, the host was ready only after about 45 s and the window gave up with "request timed out after 30000ms".
+
+A CPU profile of the host (`node:inspector` around `switchSession`, 46.9 s) put 27.7 s in Pi's `SessionManager.getBranch` and most of the rest in the per-message map beside it:
+
+- **Quadratic mapping.** `ThreadProjection.branchMessages` and the Pi backend's `mapMessages` asked for the mapping options once per message. Those options include the entries kits pin (`pinTranscriptEntries`; Workspace Kit pins checkpoint anchors). Checking the pin cache reads `thread.entries`, and every read walks the whole branch. Every message therefore cost a walk of every entry, but only when a pin provider was registered, which is why the bare host was fast. Both callers now build the options once per call. `thread-projection.test.ts` counts branch walks for 2 and 200 turns and requires the same number (the old code made 805 walks where the new one makes 13).
+- **Restore recovery read every session file.** Workspace Kit's `beforeActivate` and `beforeWorkspace` look for interrupted checkpoint restores, and they did so by parsing every session file in the index on every thread activation. That cost about 140–180 ms with the 20,000-entry thread and 40 small sessions, more with a real store. The kit now keeps each file's claims stamped with its mtime and size and parses a file again only after it changed.
+
+What remains on the open path is linear. Pi parses the session file (about 200 ms for 20,000 entries), the host projects the branch once for the snapshot (40–80 ms), and each kit's `beforeOpen` hook makes one pass over the entries.
+
+**Host benchmark.** `npm run benchmark:host:full:check` now has a large-thread case, Full Mode with every shipped kit loaded from `dist-kits/`, in an agent directory, session store, `HOME`, config and `CODEX_HOME` of its own. Each sample is a host of its own, so the thread is never live before it is measured:
+
+- `open` runs from a short thread to the long one, until `switchSession` returns with the first page.
+- `bootstrap` is `start()` with the long thread as the workspace's newest session.
+- `full-ready` runs from that start to `bootstrap.full-ready`.
+
+The check fails when a p95 exceeds `largeThreadOpenP95Ms` (2,500 ms), `largeThreadBootstrapP95Ms` (5,000 ms) or `largeThreadFullReadyP95Ms` (7,500 ms), when the first page holds more than `largeThreadPageMessages` (60) messages, or when the thread has fewer than 10,000 entries. Report schema 3. Median / p95 in ms:
+
+| scenario | before (`t3/wave-d` e15791a, 1 sample, load ≈ 20) | after, load ≈ 22 | after, load ≈ 10 |
+| --- | ---: | ---: | ---: |
+| open | 92,989 | 1,221 / 1,250 | 290 / 335 |
+| bootstrap | 47,131 | 2,809 / 3,790 | 519 / 532 |
+| full-ready | 47,851 | 5,882 / 5,911 | 874 / 916 |
+
+**In the window.** `npm run benchmark:compare -- --large-thread [--seed] [--check]` runs Tau alone from a seeded profile of its own (`/tmp/tau-harness-large-thread`, or `$COMPARE_TAU_ROOT-large-thread` when that is set). Each run writes a fresh 20,000-entry Pi session into the profile's session store. Its prompts carry a tag of that run, so the renderer's persisted cache from an earlier run cannot show the newest turn. Each run has two launches: one where a short Pi thread is the workspace's newest and the harness clicks the large one in the rail, and one where the large thread is newest and active from the start. `--check` holds the medians to `tauLargeThread` in `scripts/compare/budgets.json`: 2,500 ms from the click to the newest turn, 1,000 ms for one older page at the tail and at the top, 2 px of drift for an older page loaded at the top (see "Older pages without a jump" below), and 8,000 ms from spawn to the newest turn with the thread active. T3 Code cannot run this case, because both importers keep at most 200 messages. Five runs after one warm-up, load average 10:
+
+| metric (median / p95) | before | after |
+| --- | ---: | ---: |
+| click → newest turn visible (ms) | timed out after 120 s | 295 / 324 |
+| spawn → newest turn visible, thread active (ms) | not shown | 3,201 / 3,665 |
+| spawn → rail and composer ready, thread active (ms) | – | 3,192 / 3,653 |
+| one older page (ms) | – | 60 / 83 |
+| open: KiB over the WebSocket | – | 141 |
+
+In the isolated instance before the change, one open from the rail took 25.1 s and two others did not finish within 120 s. At start-up the host reached `bootstrap.first-content` 14.4 s after spawn and `full-ready` after 36.5 s, and the window never showed the thread: it fell back to an empty new thread. After the change the same instance opens the thread in 0.54–0.57 s. With the thread active it shows the newest turn 6.2–7.3 s after spawn, as fast as a short thread does on that machine at that load. Twelve older pages loaded one after another to turn 4,750. A GPT-5.6 Luna turn at the end of the thread answered, and Pi compacted the thread afterwards.
+
+**Older pages without a jump.** With the reader at the top of the thread, "Load older turns" prepended a page of 20 turns whose rows the virtualizer placed at its 180 px estimate. The row the reader was on moved out of the rendered window. The history boundary looked for it in the DOM, did not find it, kept "Loading…" up for its 60-frame limit and left the view at the start of the new page. The same happened in a thread of two pages. Since 2026-09-23 `VirtualTranscript` notices a prepend itself (`usePrependAnchor`). In the commit that prepends, it mounts the rows the old viewport maps to and moves `scrollTop` by the height of the new rows. It keeps that row in place while the new rows get measured, until the reader or another writer scrolls. The boundary reports success as soon as the page is applied.
+
+The large-thread run measures it: after the load at the tail it wheels to the top three times and loads a page each time, then does the same in a 15-turn thread. A probe samples, every frame from the click until a second after "Loading…" went away, how far the row that led the viewport moved. A frame without that row counts as the viewport's height. `VirtualTranscript.test.tsx` covers the same case without a browser: 50 unmeasured rows prepended above a row 30 px above the viewport top. Three runs before the change (load ≈ 32) and five after (load ≈ 11), median / p95:
+
+| metric | before | after |
+| --- | ---: | ---: |
+| older page at the top: "Loading…" shown (ms) | 1,097 / 1,182 | 57 / 72 |
+| older page at the top: drift of the leading row (px) | 398 / 398 (row gone) | 0 / 0 |
+| older page at the top: frames without the leading row | 122 / 122 | 0 / 0 |
+| two-page thread, older page at the top: drift (px) | 448 / 448 | 0 / 0 |
+
+In the isolated instance, seven pages loaded one after another at the top of a 2,000-turn thread each moved the leading row by 0 px, with "Loading…" up for 23–36 ms; the older page of a 15-turn thread moved it by 0 px as well. What remains is older: scrolling up into rows the virtualizer has not measured yet still shifts the content by the error of the 180 px estimate (38 px and 133 px for the two rows of one turn in that thread), because the virtualizer does not compensate for rows above the viewport.
 
 ## T3 Code comparison
 
@@ -700,9 +887,12 @@ npm run build                                   # Tau
 (cd /tmp/t3-harness && vp i && vp run build:desktop)
 npm run benchmark:compare -- --seed             # first time: import the fixture in both apps
 npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
+npm run benchmark:compare -- --large-thread [--seed] --runs 5 --warmup 1 [--check]   # Tau alone, see "Opening a large thread"
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (9,300 KiB and 1,000 messages today, a little above the first measurement below). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (398 KiB and 360 messages today, about 15 % above the measurement after D22). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
+
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (2,100 KiB and 360 messages today) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once.
 
 ### First results (2026-09-23)
 

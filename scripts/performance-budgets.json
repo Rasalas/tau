@@ -39,6 +39,11 @@
   "hostBootstrapSafeMs": 1000,
   "metadataCommandP95Ms": 10,
   "metadataLongThreadEntries": 10000,
+  "largeThreadOpenP95Ms": 2500,
+  "largeThreadBootstrapP95Ms": 5000,
+  "largeThreadFullReadyP95Ms": 7500,
+  "largeThreadPageMessages": 60,
+  "hostIdleHeapSafeMiB": 70,
   "gitSubprocesses": 6,
   "gitOverlapSubprocesses": 6,
   "gitMaxParallelSubprocesses": 4,
@@ -46,8 +51,9 @@
   "gitManyProjectP95Ms": 500,
   "gitBytesRead": 524288,
   "hostTransfer": {
-    "recorded-turn": { "wireBytes": 7500, "decodedBytes": 64000, "messages": 110 },
-    "heavy-turn": { "wireBytes": 540000, "decodedBytes": 2200000, "messages": 530 }
+    "recorded-turn": { "wireBytes": 6500, "decodedBytes": 46300, "messages": 110 },
+    "heavy-turn": { "wireBytes": 149600, "decodedBytes": 625600, "messages": 530 },
+    "answer-turn": { "wireBytes": 54300, "decodedBytes": 205700, "messages": 220 }
   },
   "rendererRequiredScenarios": [
     "markdown-code-stream-150kb",

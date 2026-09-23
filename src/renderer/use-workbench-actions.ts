@@ -14,6 +14,7 @@ import type { WorkbenchActions } from "./extension-system";
 import { errorMessage } from "../workbench/error-message";
 import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
+import { effectiveNewThreadRuntime } from "./new-thread-runtime";
 
 export interface UseWorkbenchActionsOptions {
   client: HostClient | undefined;
@@ -70,6 +71,9 @@ export interface UseWorkbenchActionsOptions {
 export function useWorkbenchActions(options: UseWorkbenchActionsOptions): WorkbenchActions {
   const setComposerModelRef = useRef(options.setComposerModel);
   setComposerModelRef.current = options.setComposerModel;
+  // A draft's model changes without a new draft key, so it is read when asked.
+  const pendingNewThreadRef = useRef(options.pendingNewThread);
+  pendingNewThreadRef.current = options.pendingNewThread;
 
   const {
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
@@ -160,17 +164,34 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     },
     setThinkingLevel: (level: string) => options.threadCommands.setThinking(level as any),
     openWorkspace,
-    activeThread: () => ({
-      sessionId: options.pendingNewThread ? undefined : snapshot?.sessionId,
-      cwd: options.workspaceCwd,
-      workspaceId: options.pendingNewThread?.workspaceId ?? snapshot?.workspaceId,
-      model: snapshot?.model,
-      ...(snapshot?.backendKind ? { backendKind: snapshot.backendKind } : {}),
-      draftPending: options.newThreadDeliveryPending,
-    }),
+    activeThread: () => {
+      const pending = pendingNewThreadRef.current;
+      if (!pending) {
+        return {
+          sessionId: snapshot?.sessionId,
+          cwd: options.workspaceCwd,
+          workspaceId: snapshot?.workspaceId,
+          model: snapshot?.model,
+          ...(snapshot?.backendKind ? { backendKind: snapshot.backendKind } : {}),
+          draftPending: options.newThreadDeliveryPending,
+        };
+      }
+      // A draft starts on its own runtime and model, not on the last thread's.
+      const backendKind = effectiveNewThreadRuntime(options.preferences?.getSnapshot().newThreadRuntime, snapshot);
+      const inherited = backendKind === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
+      const model = pending.model ?? inherited;
+      return {
+        cwd: options.workspaceCwd,
+        workspaceId: pending.workspaceId ?? snapshot?.workspaceId,
+        ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+        backendKind,
+        draftPending: options.newThreadDeliveryPending,
+      };
+    },
     openFile: options.openFile,
     openThread,
     runShellAction: options.threadCommands.runShellAction,
+    toolOutput: options.threadCommands.loadToolOutput,
     holdComposer: () => {
       options.setComposerHolds((count) => count + 1);
       return () => options.setComposerHolds((count) => Math.max(0, count - 1));

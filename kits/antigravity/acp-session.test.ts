@@ -17,12 +17,18 @@ async function scratch(): Promise<string> {
   return directory;
 }
 
-function scripted(agent: FakeAgent, extras: { resume?: boolean } = {}) {
+function scripted(agent: FakeAgent, extras: { resume?: boolean; mcp?: { http?: boolean; sse?: boolean } } = {}) {
   agent.respond("initialize", () => ({
     protocolVersion: 1,
     agentInfo: { name: "antigravity-acp", version: "agy_acp_server_1.1.1" },
     authMethods: [{ id: "oauth-personal", name: "Google account" }],
-    agentCapabilities: { loadSession: true, sessionCapabilities: { resume: extras.resume === false ? undefined : {} }, auth: { logout: {} } },
+    agentCapabilities: {
+      loadSession: true,
+      sessionCapabilities: { resume: extras.resume === false ? undefined : {} },
+      auth: { logout: {} },
+      // What agy_acp_server 1.1.1 answers.
+      mcpCapabilities: extras.mcp ?? { http: true, sse: true },
+    },
   }));
   agent.respond("authenticate", () => ({}));
   agent.respond("session/new", () => ({
@@ -105,6 +111,23 @@ describe("AntigravitySession", () => {
     const sent = agent.received.filter((message) => message.method === "session/new" || message.method === "session/resume");
     expect(sent.map((message) => (message.params as { mcpServers: unknown }).mcpServers)).toEqual([mcpServers, mcpServers]);
     await session.close();
+  });
+
+  it("sends an http or sse server only to an agent that takes that transport", async () => {
+    const tau = { type: "http", name: "tau", url: "http://127.0.0.1:4100/mcp", headers: [{ name: "Authorization", value: "Bearer secret" }] };
+    const events = { type: "sse", name: "events", url: "http://127.0.0.1:4200/sse", headers: [] };
+    const pencil = { name: "pencil", command: "/opt/pencil", args: [], env: [] };
+    const sentWith = async (mcp: { http?: boolean; sse?: boolean }) => {
+      const agent = fakeAgent();
+      scripted(agent, { mcp });
+      const session = await AntigravitySession.open(options(agent, await scratch(), { mcpServers: [pencil, tau, events] }));
+      await session.newSession();
+      await session.close();
+      return (agent.received.find((message) => message.method === "session/new")!.params as { mcpServers: unknown }).mcpServers;
+    };
+    await expect(sentWith({ http: true, sse: true })).resolves.toEqual([pencil, tau, events]);
+    await expect(sentWith({ http: true })).resolves.toEqual([pencil, tau]);
+    await expect(sentWith({})).resolves.toEqual([pencil]);
   });
 
   it("shakes hands without signing in when asked to, so a sign-out never opens a browser", async () => {

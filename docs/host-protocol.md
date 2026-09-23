@@ -101,15 +101,72 @@ A running tool's output then travels as a change to the output the tool's
 previous push carried:
 `tool-update-delta { sessionId, id, after, keep, drop, text }` means "take the
 output of push `after`, keep its first `keep` characters, drop the `drop` after
-them, append `text`". Growth is `drop: 0`; the host's 128 KB tail window
-(`boundedToolOutput`) keeps its marker and drops the oldest part. The host
-sends the whole `tool-update` for a tool's first update, when the delta would
-not be smaller than half the output, and for the next update of every running
-tool after a client says hello without `lastSeq` or is told to resync. The
-event exists only on the wire: `HostConnection` rebuilds the output and hands
-its listeners the ordinary `tool-update`. A delta whose `after` push it never
-saw (it joined later, or resynced) is dropped; the whole output follows at the
-tool's next update, and `tool-end` always carries the final output.
+them, append `text`". Growth is `drop: 0`; a sliding tail keeps its marker and
+drops the oldest part. The host sends the whole `tool-update` for a tool's
+first update, when the delta would not be smaller than half the output, and for
+the next update of every running tool after a client says hello without
+`lastSeq` or is told to resync. The event exists only on the wire:
+`HostConnection` rebuilds the output and hands its listeners the ordinary
+`tool-update`. A delta whose `after` push it never saw (it joined later, or
+resynced) is dropped; the whole output follows at the tool's next update.
+
+A client receives a running tool's output whole while it is at most 16 KB
+(`INLINE_TOOL_OUTPUT_CHARS`, `src/main/client-tool-output.ts`). Past that it
+receives the last 4 KB from a line start, behind the line
+`[Earlier output is not sent while the tool runs.]`: enough for the live tail a
+running row shows, and a delta against it stays small however fast the tool
+writes.
+
+A tool's end refers to the output the client already has:
+`tool-end-delta { sessionId, tool, after, length, keep, drop, text }` is the
+`tool-end` whose `tool` lacks `output`, which is the output of push `after`
+with the change applied (usually none). The host sends it when the tool
+streamed and its final output is at most 16 KB, and a whole `tool-end`
+otherwise. A client that never saw push `after` ends the tool with its output
+deferred (below), `length` characters long.
+
+A settled tool whose output is longer than 16 KB reaches clients without it,
+in every event, thread detail and transcript page: `outputDeferred: true` and
+`outputLength` (characters) take the place of `output`. The workbench shows the
+size on the row and asks for the output when the row opens:
+`tool-output [sessionId, toolCallId]` answers
+`{ toolCallId, output, outputTruncated?, fullOutputAvailable? }`, the output as
+the transcript would have carried it (the host's 128 KB tail of the result).
+It reads the thread's session file for Pi and the turn activity a streamed
+backend keeps; it answers `undefined` for a tool the host no longer has.
+`read-tool-output` still reads the complete result for "copy full output".
+
+A settled `thread-detail` repeats its turn's tools: `turnActivity` is the last
+entry of `turnActivityHistory`. The push leaves it out,
+`thread-detail-compact { update, activityFromHistory: true }`, and
+`HostConnection` puts it back from that entry. A detail whose `turnActivity`
+differs (a running tool's live output) keeps it.
+
+### Answer text travels once
+
+A message's text streams as `assistant-delta` and `assistant-thinking`, and
+its end refers to that:
+`assistant-end-delta { sessionId, message, after, text, thinking? }` is the
+`assistant-end` whose `message` lacks `text` and `thinking`. `text` (and
+`thinking`, when the message has it) is a change to what the message streamed
+as of push `after`, its `assistant-start` or its last delta, in the shape of a
+tool output delta; usually it keeps everything and adds nothing. A thread
+detail then refers to the push that ended a message:
+`thread-detail-compact { update, texts: { [messageId]: seq } }` sends each
+named message with an empty `text` and without `thinking`, which are those of
+the `assistant-end` numbered `seq`. After an `assistant-anchor` the host
+names that message by its persisted entry id too, which is the id a Pi
+detail uses. Both sides forget a thread's ended messages when its next run
+starts, and the host keeps the latest 64 (`REMEMBERED_ENDED_MESSAGES`).
+
+The host sends the whole `assistant-end`, and the whole text in a detail, for
+a message that streamed nothing, for one shorter than 64 characters (a
+reference would cost as much), and for every message that streamed or ended
+before a client said hello without `lastSeq` or was told to resync. A client
+therefore only meets references it can resolve. If it meets one anyway (a
+push it could not decode, say), `HostConnection` drops the push, says hello
+again without `lastSeq` and refetches the bootstrap: a resync, which also makes
+the host send whole texts again.
 
 The socket negotiates `permessage-deflate` with context takeover, the `ws`
 default, so small frames compress against the ones before them. The budget

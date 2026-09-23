@@ -199,6 +199,109 @@ describe("host connection", () => {
     expect(connection.getState()).toBe("connected");
   });
 
+  it("ends a tool from the output it streamed, and deferred when it never saw that push", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const ended: HostEvent[] = [];
+    connection.onEvent((event) => { if (event.type === "tool-end") ended.push(event); });
+    const tool = { id: "t1", name: "bash", args: {}, status: "done" as const, startedAt: 0 };
+    link.push(1, { type: "tool-update", sessionId: "s1", id: "t1", output: "line 1\n" });
+    link.push(2, { type: "tool-end-delta", sessionId: "s1", tool, after: 1, length: 14, keep: 7, drop: 0, text: "line 2\n" });
+    link.push(3, { type: "tool-end-delta", sessionId: "s1", tool: { ...tool, id: "t2" }, after: 1, length: 40, keep: 7, drop: 0, text: "" });
+    expect(ended).toEqual([
+      { type: "tool-end", sessionId: "s1", tool: { ...tool, output: "line 1\nline 2\n" } },
+      { type: "tool-end", sessionId: "s1", tool: { ...tool, id: "t2", outputDeferred: true, outputLength: 40 } },
+    ]);
+  });
+
+  it("puts a compact detail's turn activity back from its history", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const updates: HostEvent[] = [];
+    connection.onEvent((event) => updates.push(event));
+    const tools = [{ id: "t1", name: "bash", args: {}, status: "done" as const, startedAt: 0, output: "ok" }];
+    const detail = { ...bootstrap.detail, turnActivityHistory: [{ id: "a1", anchorMessageId: "m1", status: "completed" as const, tools }] };
+    link.push(1, { type: "thread-detail-compact", update: { version: 1, type: "thread-detail", detail }, activityFromHistory: true });
+    link.push(2, { type: "thread-detail-compact", update: { version: 1, type: "thread-detail", detail }, texts: {} });
+    expect(updates).toEqual([
+      { type: "host-update", update: { version: 1, type: "thread-detail", detail: { ...detail, turnActivity: { tools, anchorMessageId: "m1" } } } },
+      { type: "host-update", update: { version: 1, type: "thread-detail", detail } },
+    ]);
+  });
+
+  describe("message text", () => {
+    const message = { id: "a1", role: "assistant" as const, timestamp: 1 };
+    const streamed = (link: Harness) => {
+      link.push(1, { type: "assistant-start", sessionId: "s1", id: "a1", timestamp: 1 });
+      link.push(2, { type: "assistant-thinking", sessionId: "s1", id: "a1", delta: "plan" });
+      link.push(3, { type: "assistant-delta", sessionId: "s1", id: "a1", delta: "Hello" });
+    };
+    const compactDetail = (texts: Record<string, number>): HostPushEvent => ({
+      type: "thread-detail-compact",
+      update: { version: 1, type: "thread-detail", detail: { ...bootstrap.detail, messages: [{ ...message, id: "e1", text: "" }] } },
+      texts,
+    });
+
+    it("ends a message from the text it streamed and fills a detail from that end", async () => {
+      const link = harness();
+      const connection = new HostConnection(link.transport);
+      await connection.start();
+      const events: HostEvent[] = [];
+      connection.onEvent((event) => events.push(event));
+      streamed(link);
+      link.push(4, { type: "assistant-end-delta", sessionId: "s1", message, after: 3, text: { keep: 5, drop: 0, text: "!" }, thinking: { keep: 4, drop: 0, text: "" } });
+      link.push(5, { type: "assistant-anchor", sessionId: "s1", id: "a1", sourceEntryId: "e1", timestamp: 1 });
+      link.push(6, compactDetail({ e1: 4 }));
+      expect(events.find((event) => event.type === "assistant-end")).toEqual({ type: "assistant-end", sessionId: "s1", message: { ...message, text: "Hello!", thinking: "plan" } });
+      expect(events.at(-1)).toEqual({ type: "host-update", update: { version: 1, type: "thread-detail", detail: {
+        ...bootstrap.detail, messages: [{ ...message, id: "e1", text: "Hello!", thinking: "plan" }],
+      } } });
+      expect(link.calls.map((call) => call.method)).toEqual(["hello"]);
+    });
+
+    it("keeps the chain across a replayed gap", async () => {
+      const link = harness();
+      const connection = new HostConnection(link.transport);
+      await connection.start();
+      const ended: HostEvent[] = [];
+      connection.onEvent((event) => { if (event.type === "assistant-end") ended.push(event); });
+      link.push(1, { type: "assistant-start", sessionId: "s1", id: "a1", timestamp: 1 });
+      link.buffered = [
+        { seq: 2, event: { type: "assistant-delta", sessionId: "s1", id: "a1", delta: "Hel" } },
+        { seq: 3, event: { type: "assistant-delta", sessionId: "s1", id: "a1", delta: "lo" } },
+      ];
+      link.nextSeq = 5;
+      link.push(4, { type: "assistant-end-delta", sessionId: "s1", message, after: 3, text: { keep: 5, drop: 0, text: "" } });
+      await settle();
+      expect(ended).toEqual([{ type: "assistant-end", sessionId: "s1", message: { ...message, text: "Hello" } }]);
+      expect(connection.getState()).toBe("connected");
+    });
+
+    it("starts over from a snapshot when a push refers to text it never saw", async () => {
+      const link = harness();
+      const connection = new HostConnection(link.transport);
+      await connection.start();
+      const events: HostEvent[] = [];
+      connection.onEvent((event) => events.push(event));
+      link.nextSeq = 10;
+      // Joined mid-message: the deltas it saw are not the whole text.
+      link.push(1, { type: "assistant-delta", sessionId: "s1", id: "a1", delta: "lo" });
+      link.push(2, { type: "assistant-end-delta", sessionId: "s1", message, after: 1, text: { keep: 2, drop: 0, text: "" } });
+      await settle();
+      expect(events.some((event) => event.type === "assistant-end")).toBe(false);
+      expect(link.calls.map((call) => call.method)).toEqual(["hello", "hello", "bootstrap"]);
+      expect(link.calls[1]!.params[0]).not.toHaveProperty("lastSeq");
+      expect(events.at(-1)).toEqual({ type: "host-update", update: { version: 1, type: "thread-detail", detail: bootstrap.detail } });
+      // A detail referring to an end it never saw does the same.
+      link.push(10, compactDetail({ e1: 4 }));
+      await settle();
+      expect(link.calls.map((call) => call.method)).toEqual(["hello", "hello", "bootstrap", "hello", "bootstrap"]);
+      expect(connection.getState()).toBe("connected");
+    });
+  });
+
   it("learns which methods the host wants run as jobs", async () => {
     const link = harness();
     const connection = new HostConnection(link.transport);

@@ -330,6 +330,50 @@ describe("PiHost deliberate tool-output reads", () => {
   });
 });
 
+describe("PiHost deferred tool output", () => {
+  const session = { sessionId: "session", model: { input: ["text"] }, isStreaming: false, prompt: vi.fn() };
+  const entries = (output: string) => [
+    { type: "message", id: "user", message: { role: "user", content: "inspect" } },
+    { type: "message", id: "assistant", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
+    { type: "message", id: "result", message: { role: "toolResult", toolCallId: "call", content: output, isError: false } },
+  ];
+
+  it("pages a large output as its size and reads back the preview the page held back", async () => {
+    const output = `${"line of output\n".repeat(20_000)}last`;
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const raw = entries(output);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime: piPromptThread(session, raw) });
+    const preview = turnActivityHistoryFromMessages(raw.map((entry) => entry.message)).at(-1)!.tools[0]!;
+
+    const page = await host.loadTranscript("session");
+    const paged = page.turnActivityHistory?.at(-1)?.tools[0];
+    expect(paged).toMatchObject({ id: "call", outputDeferred: true, outputLength: preview.output!.length, outputTruncated: true });
+    expect(paged).not.toHaveProperty("output");
+    await expect(host.toolOutput("session", "call")).resolves.toEqual({
+      toolCallId: "call", output: preview.output, outputTruncated: true, fullOutputAvailable: true,
+    });
+  });
+
+  it("keeps a small output in the page", async () => {
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime: piPromptThread(session, entries("small")) });
+    const page = await host.loadTranscript("session");
+    expect(page.turnActivityHistory?.at(-1)?.tools[0]).toMatchObject({ output: "small" });
+    expect(page.turnActivityHistory?.at(-1)?.tools[0]).not.toHaveProperty("outputDeferred");
+  });
+
+  it("reads a streamed backend's output from the turn activity it keeps", async () => {
+    const host = new PiHost("/repo", vi.fn(), {} as never, true, false);
+    const thread = piPromptThread(session);
+    (thread.backend as { kind: string }).kind = "codex";
+    const output = "codex ".repeat(5_000);
+    thread.adapterActivity.push({ id: "a1", status: "completed", tools: [{ id: "call", name: "shell", args: {}, status: "done", output, startedAt: 0 }] });
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime: thread });
+    await expect(host.toolOutput("session", "call")).resolves.toEqual({ toolCallId: "call", output });
+    await expect(host.toolOutput("session", "missing")).resolves.toBeUndefined();
+  });
+});
+
 // The kit is loaded the way the app loads it, straight from `kits/`: this is
 // core's side of the seam, so the extension has to be the real one.
 const appPath = fileURLToPath(new URL("../..", import.meta.url));

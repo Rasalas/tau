@@ -56,4 +56,6 @@ export interface PiHostOptions {
    * passes nothing.
    */
   appPath?: string;
+  /** How long an unused runtime stays live (default ten minutes); 0 keeps it until eviction. */
+  runtimeIdleReleaseMs?: number;
 }

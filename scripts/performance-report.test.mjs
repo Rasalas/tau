@@ -85,6 +85,18 @@ describe("performance report checks", () => {
     ]);
   });
 
+  it("fails an idle host heap over its budget, and one that was not reported", () => {
+    const report = { mode: "safe", summaries: {
+      bootstrap: { median: 100, p95: 100, maximum: 100 },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [], background: [{ name: "project-label", durationMs: 10 }] };
+    expect(evaluateHostBudgets({ ...report, idleHeapMiB: 80 }, { hostIdleHeapSafeMiB: 70 })).toEqual(["safe idle heap 80.0 MiB > 70 MiB"]);
+    expect(evaluateHostBudgets({ ...report, idleHeapMiB: 60 }, { hostIdleHeapSafeMiB: 70 })).toEqual([]);
+    expect(evaluateHostBudgets(report, { hostIdleHeapSafeMiB: 70 })).toEqual(["the idle heap was not reported by the host fixture"]);
+    // Full Mode reads the user's Pi setup, so it has no idle heap budget of its own.
+    expect(evaluateHostBudgets({ ...report, mode: "full", idleHeapMiB: 500, summaries: { ...report.summaries, "cold-switch": { median: 1, p95: 1, maximum: 1 } } }, { hostIdleHeapSafeMiB: 70 })).toEqual([]);
+  });
+
   it("rejects serial extension binding during a Full Mode cold switch", () => {
     const failures = evaluateHostBudgets({ mode: "full", summaries: {
       bootstrap: { median: 100, p95: 100, maximum: 100 },
@@ -125,6 +137,28 @@ describe("performance report checks", () => {
       "metadata long thread has 800 entries < 10000",
     ]);
     expect(evaluateHostBudgets(base)).toEqual(["metadata commands were not measured by the host fixture"]);
+  });
+
+  it("fails a large thread that opens slowly or sends more than a page", () => {
+    const lean = { median: 0.2, p95: 0.5, maximum: 0.6 };
+    const fast = { median: 400, p95: 600, maximum: 700 };
+    const base = { schemaVersion: 3, mode: "full", summaries: {
+      bootstrap: { median: 100, p95: 100, maximum: 100 },
+      "cold-switch": { median: 100, p95: 100, maximum: 100 },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [], background: [{ name: "project-label", durationMs: 10 }], metadata: { entries: { short: 8, long: 20_000 }, summaries: {
+      "set-model-short": lean, "set-thinking-short": lean, "set-model-long": lean, "set-thinking-long": lean,
+    } } };
+    const large = (open, pageMessages = 20) => ({ entries: 20_000, pageMessages, summaries: { open, bootstrap: fast, "full-ready": fast } });
+    expect(evaluateHostBudgets({ ...base, largeThread: large(fast) })).toEqual([]);
+    expect(evaluateHostBudgets({ ...base, largeThread: large({ median: 43_000, p95: 54_000, maximum: 54_000 }) })).toEqual([
+      "large-thread open p95 54000.0ms > 2500ms (median 43000.0ms)",
+    ]);
+    expect(evaluateHostBudgets({ ...base, largeThread: large(fast, 40_000) })).toEqual([
+      "large thread first page holds 40000 messages > 60",
+    ]);
+    expect(evaluateHostBudgets(base)).toEqual(["the large thread was not measured by the Full Mode host fixture"]);
+    expect(evaluateHostBudgets({ ...base, mode: "safe" })).toEqual([]);
   });
 
   it("fails Git fan-out and missing measurements", () => {

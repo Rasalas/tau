@@ -35,8 +35,6 @@ export interface TranscriptBootstrapRequest {
 export interface TranscriptScrollAnchor {
   messageId: string;
   viewportOffset: number;
-  /** Number of leading rows to keep mounted until their real heights are measured. */
-  measureThrough?: number;
 }
 
 export interface TranscriptPageApplication {

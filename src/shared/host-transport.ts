@@ -1,5 +1,5 @@
-import type { HostEvent } from "./contracts.js";
-import { isHostUpdate } from "./host-protocol.js";
+import type { HostEvent, UiMessage, UiToolRun } from "./contracts.js";
+import { isHostUpdate, type HostUpdate } from "./host-protocol.js";
 import type { ToolOutputDelta } from "./tool-output-delta.js";
 
 /**
@@ -75,8 +75,47 @@ export interface HostToolOutputDeltaEvent extends ToolOutputDelta {
   after: number;
 }
 
+/**
+ * A `tool-end` whose output is a change to the output the push numbered
+ * `after` carried, usually none. `length` is the output's length, for a client
+ * that never saw that push: it shows the output as deferred and loads it.
+ */
+export interface HostToolEndDeltaEvent extends ToolOutputDelta {
+  type: "tool-end-delta";
+  sessionId: string;
+  /** The tool without its `output`. */
+  tool: UiToolRun;
+  after: number;
+  length: number;
+}
+
+/** An `assistant-end` whose `text` and `thinking` are changes to what the message streamed as of push `after`. */
+export interface HostAssistantEndDeltaEvent {
+  type: "assistant-end-delta";
+  sessionId: string;
+  /** The message without `text` and `thinking`. */
+  message: Omit<UiMessage, "text" | "thinking">;
+  after: number;
+  text: ToolOutputDelta;
+  thinking?: ToolOutputDelta;
+}
+
+/**
+ * A `thread-detail` without what the client has: `turnActivity` is the last history entry
+ * (`activityFromHistory`); a message named in `texts` takes the text of that `assistant-end` push.
+ */
+export interface HostCompactThreadDetailEvent {
+  type: "thread-detail-compact";
+  update: Extract<HostUpdate, { type: "thread-detail" }>;
+  activityFromHistory?: true;
+  texts?: Record<string, number>;
+}
+
+/** Events only the transport speaks; `HostConnection` turns them back into `HostEvent`s. */
+export type HostWireEvent = HostToolOutputDeltaEvent | HostToolEndDeltaEvent | HostAssistantEndDeltaEvent | HostCompactThreadDetailEvent;
+
 /** Everything a host pushes: workbench events and job progress share one sequence. */
-export type HostPushEvent = HostEvent | HostJobEvent | HostToolOutputDeltaEvent;
+export type HostPushEvent = HostEvent | HostJobEvent | HostWireEvent;
 
 export interface HostPush {
   seq: number;
@@ -205,6 +244,31 @@ function isToolOutputDelta(item: Record<string, unknown>): boolean {
     && count(item.keep) && count(item.drop) && typeof item.text === "string";
 }
 
+function isToolEndDelta(item: Record<string, unknown>): boolean {
+  const tool = record(item.tool);
+  return typeof item.sessionId === "string" && Boolean(tool && nonEmptyString(tool.id)) && count(item.after)
+    && count(item.keep) && count(item.drop) && typeof item.text === "string" && count(item.length);
+}
+
+function isTextDelta(value: unknown): boolean {
+  const item = record(value);
+  return Boolean(item && count(item.keep) && count(item.drop) && typeof item.text === "string");
+}
+
+function isAssistantEndDelta(item: Record<string, unknown>): boolean {
+  const message = record(item.message);
+  return typeof item.sessionId === "string" && Boolean(message && nonEmptyString(message.id)) && count(item.after)
+    && isTextDelta(item.text) && (item.thinking === undefined || isTextDelta(item.thinking));
+}
+
+function isCompactDetail(item: Record<string, unknown>): boolean {
+  if (!isHostUpdate(item.update) || item.update.type !== "thread-detail") return false;
+  if (item.activityFromHistory !== undefined && item.activityFromHistory !== true) return false;
+  if (item.texts === undefined) return true;
+  const texts = record(item.texts);
+  return Boolean(texts && Object.values(texts).every((seq) => count(seq) && (seq as number) > 0));
+}
+
 function decodePushEvent(value: unknown): HostPushEvent | undefined {
   const item = record(value);
   if (!item || !nonEmptyString(item.type)) return undefined;
@@ -213,6 +277,9 @@ function decodePushEvent(value: unknown): HostPushEvent | undefined {
   if ((item.type === "job-progress" || item.type === "job-done") && !nonEmptyString(item.jobId)) return undefined;
   if (item.type === "job-progress" && typeof item.message !== "string") return undefined;
   if (item.type === "tool-update-delta" && !isToolOutputDelta(item)) return undefined;
+  if (item.type === "tool-end-delta" && !isToolEndDelta(item)) return undefined;
+  if (item.type === "assistant-end-delta" && !isAssistantEndDelta(item)) return undefined;
+  if (item.type === "thread-detail-compact" && !isCompactDetail(item)) return undefined;
   return item as unknown as HostPushEvent;
 }
 

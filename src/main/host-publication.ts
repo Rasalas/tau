@@ -14,6 +14,7 @@ import {
   type ThreadDetail,
 } from "../shared/host-protocol.js";
 import { localTranscriptCursorPolicy } from "./host-transcript.js";
+import { clientTranscript } from "./client-tool-output.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
 import type { ThreadIndex } from "./thread-index.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -46,7 +47,7 @@ export class HostPublication {
   }
 
   detailForSnapshot(snapshot: HostSnapshot, requestId?: NewThreadRequestId): ThreadDetail {
-    const detail = detailFromSnapshot(snapshot, undefined, localTranscriptCursorPolicy);
+    const detail = clientTranscript(detailFromSnapshot(snapshot, undefined, localTranscriptCursorPolicy));
     this.detailStore.set(detail);
     return requestId ? { ...detail, requestId } : detail;
   }

@@ -72,6 +72,8 @@ import { markTauHostRuntime } from "./tau-runtime-owner.js";
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
+/** A runtime nobody used for this long is released; its thread reopens from the session file. */
+const RUNTIME_IDLE_RELEASE_MS = 10 * 60_000;
 
 type Emit = (event: HostEvent) => void;
 
@@ -237,6 +239,20 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       .map((thread) => ({ waitForIdle: () => thread.backend.waitForIdle(), abort: () => deps.abortThread(thread) })),
     serialize: (operation) => lifecycle.run("workbench-reload", operation),
   });
+  const runtimeIdleMs = options.runtimeIdleReleaseMs ?? RUNTIME_IDLE_RELEASE_MS;
+  if (runtimeIdleMs > 0) {
+    threads.startIdleRelease({
+      idleMs: runtimeIdleMs,
+      serialize: (operation) => lifecycle.run("release-idle-runtimes", operation),
+      onReleased: (threadIds) => deps.log("runtime.idle.released", threadIds.map((id) => id.slice(0, 8)).join(", ")),
+      onError: (error) => deps.log("runtime.idle.release-failed", deps.errorMessage(error)),
+    });
+  }
+  // A turn that starts or ends is use, so a background thread keeps its runtime a while after.
+  turnObservers.add({
+    accepted: (threadId) => threads.touch(threadId),
+    ended: async (threadId) => { threads.touch(threadId); },
+  });
   /** What extensions know about projects: name, label, nesting, all cached. */
   const projects = new ProjectFactsCache({
     onLabel: (cwd, label) => deps.publishLabel(cwd, label),
@@ -321,6 +337,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     runtimeOwner: () => deps.ownedByPi(deps.getActive()) ? "pi" : "tau",
     thread: (sessionId) => deps.hostThread(sessionId),
     complete: (request, model) => completions.complete(request, model),
+    completionModels: () => completions.models(),
     setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(deps.requireThread(sessionId), title, source); },
     attachedRuntime: (sessionId) => deps.ownedByPi(deps.threadFor(sessionId)) ? attached.hostRuntime : undefined,
     describeProjects: (facts) => projects.add(facts),

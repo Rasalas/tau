@@ -27,6 +27,7 @@ import type {
   CustomProviderConfig,
   CustomProviderInput,
   SystemPromptInspection,
+  UiToolOutputPreview,
 } from "../shared/contracts.js";
 import { addModelProvider, loadModelsConfig } from "./models-config.js";
 import { discoverPromptOverrides } from "./system-prompt-resolver.js";
@@ -91,6 +92,7 @@ import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { requireCapability } from "./runtime-types.js";
 import { localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
+import { clientTranscript } from "./client-tool-output.js";
 import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
@@ -394,6 +396,7 @@ export class PiHost {
       get sessionFile() { return thread.sessionFile; },
       get parentThreadId() { return parentThreadId(); },
       get usage() { return thread.backend.catalogView().usage; },
+      get model() { const model = thread.backend.catalogView().model; return model && { provider: model.provider, id: model.id }; },
       isStreaming: () => thread.state.streaming || thread.adapterStreaming,
       isIdle: () => !thread.state.streaming && thread.state.idle && !thread.adapterStreaming
       && thread.adapterPending === 0 && !this.extensionUi.hasOpen(thread.threadId),
@@ -472,7 +475,10 @@ export class PiHost {
     this.workbenchReload.assertAvailable();
     const cwd = options.cwd || this.cwd;
     const backendKind = options.backend ?? "pi";
-    if (backendKind !== "pi") this.requireBackend(backendKind);
+    const provider = backendKind === "pi" ? undefined : this.requireBackend(backendKind);
+    if (options.tools && !provider?.restrictsTools) {
+      throw new Error(`The ${provider?.label ?? backendKind} runtime cannot restrict its tools${provider ? "" : " when a thread starts; a runtime extension sets them"}.`);
+    }
     const requestedAt = performance.now();
     // Background starts share the queue's background lane: they build their own
     // thread and touch nothing the thread on screen depends on, so serialising
@@ -489,7 +495,7 @@ export class PiHost {
         // Another backend keeps no Pi session file, so the link lives in the index only.
         const threadId = randomUUID();
         if (options.parent) this.index.rememberParent(threadId, options.parent.threadId);
-        runtime = await this.runtimes.openExternal(backendKind, threadId, cwd, { resume: false, adopt: false });
+        runtime = await this.runtimes.openExternal(backendKind, threadId, cwd, { resume: false, adopt: false, ...(options.tools ? { tools: options.tools } : {}) });
       }
       marks.mark("open");
       try {
@@ -795,14 +801,14 @@ export class PiHost {
   async getThreadDetail(cursor?: HostTranscriptCursor): Promise<TranscriptPage | ThreadDetail> {
     const snapshot = await this.snapshot();
     const result = cursor !== undefined
-      ? localTranscriptPage(
+      ? clientTranscript(localTranscriptPage(
         snapshot.sessionId,
         snapshot.messages,
         snapshot.taskHistory,
         snapshot.turnActivityHistory,
         snapshot.turnActivityHistoryComplete,
         cursor,
-      )
+      ))
       : this.detailForSnapshot(snapshot);
     this.lifecycleMetrics.recordIpc(result);
     return result;
@@ -811,7 +817,7 @@ export class PiHost {
   async loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
     const thread = this.threadFor(sessionId);
     if (!thread) {
-      const result = await this.releasedTranscript(sessionId, cursor);
+      const result = clientTranscript(await this.releasedTranscript(sessionId, cursor));
       this.lifecycleMetrics.recordIpc(result);
       return result;
     }
@@ -830,6 +836,7 @@ export class PiHost {
         cursor,
       );
     }
+    result = clientTranscript(result);
     this.lifecycleMetrics.recordIpc(result);
     return result;
   }
@@ -853,6 +860,22 @@ export class PiHost {
       : readLocalToolOutput(this.projection.branchMessages(thread), toolCallId);
     this.lifecycleMetrics.recordIpc(result);
     return result;
+  }
+
+  /** A deferred tool's output as the transcript would have carried it; `clientToolRun` held it back. */
+  async toolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputPreview | undefined> {
+    if (!toolCallId) throw new Error("A tool call id is required.");
+    const thread = this.threadFor(sessionId);
+    if (thread && !isPiBackend(thread)) {
+      const tool = [thread.tools.get(toolCallId), ...thread.adapterActivity.flatMap((entry) => entry.tools).reverse()]
+        .find((candidate) => candidate?.id === toolCallId);
+      if (tool?.output === undefined) return undefined;
+      return { toolCallId, output: tool.output, ...(tool.outputTruncated ? { outputTruncated: true } : {}), ...(tool.fullOutputAvailable ? { fullOutputAvailable: true } : {}) };
+    }
+    const read = await this.readToolOutput(sessionId, toolCallId);
+    if (!read) return undefined;
+    const output = boundedToolOutput(read.output);
+    return { toolCallId, output, ...(output !== read.output ? { outputTruncated: true, fullOutputAvailable: true } : {}) };
   }
 
   /**
@@ -1917,6 +1940,7 @@ export class PiHost {
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
       this.watch?.close();
+      this.threads.stopIdleRelease();
       this.prewarm.dispose();
       this.trash.dispose();
       const teardownErrors: unknown[] = [];

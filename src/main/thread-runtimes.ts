@@ -44,6 +44,7 @@ export class ThreadRuntimeRegistry<TRuntime> {
   private readonly canEvict: (record: ThreadRuntimeRecord<TRuntime>) => boolean;
   private readonly now: () => number;
   private activeThreadId?: string;
+  private idleTimer?: ReturnType<typeof setInterval>;
 
   constructor(options: ThreadRuntimeRegistryOptions<TRuntime>) {
     this.maxLive = Math.max(1, options.maxLive ?? 3);
@@ -125,12 +126,71 @@ export class ThreadRuntimeRegistry<TRuntime> {
         });
       } finally {
         slot.busy = Math.max(0, slot.busy - 1);
+        slot.lastUsedAt = this.now();
       }
     };
     const result = slot.queue.then(task, task);
     // The queue must survive a failed operation, or one error wedges the thread.
     slot.queue = result.then(() => undefined, () => undefined);
     return result;
+  }
+
+  /** Counts as use: a turn that just ended keeps its runtime as long as one just opened. */
+  touch(threadId: string): void {
+    const slot = this.slots.get(threadId);
+    if (slot) slot.lastUsedAt = this.now();
+  }
+
+  /** Threads whose runtime `releaseIdle` would release now. */
+  idleThreadIds(idleMs: number): string[] {
+    const cutoff = this.now() - idleMs;
+    return [...this.slots.values()]
+      .filter((slot) => slot.busy === 0
+        && slot.threadId !== this.activeThreadId
+        && slot.lastUsedAt <= cutoff
+        && this.canEvict(this.recordOf(slot)))
+      .map((slot) => slot.threadId);
+  }
+
+  /**
+   * Releases runtimes nobody used for `idleMs`, under the same guards as
+   * eviction. Reopening such a thread is a cold open from its session file.
+   */
+  async releaseIdle(idleMs: number): Promise<string[]> {
+    const released = this.idleThreadIds(idleMs);
+    for (const threadId of released) {
+      const slot = this.slots.get(threadId);
+      if (!slot) continue;
+      this.slots.delete(threadId);
+      await this.disposeRuntime(slot).catch(() => undefined);
+    }
+    return released;
+  }
+
+  /**
+   * Looks every `checkMs` for runtimes idle longer than `idleMs` and releases
+   * them through `serialize`, so a release never races an activation.
+   */
+  startIdleRelease(options: {
+    idleMs: number;
+    checkMs?: number;
+    serialize(operation: () => Promise<string[]>): Promise<string[]>;
+    onReleased?(threadIds: string[]): void;
+    onError?(error: unknown): void;
+  }): void {
+    this.stopIdleRelease();
+    this.idleTimer = setInterval(() => {
+      if (this.idleThreadIds(options.idleMs).length === 0) return;
+      void options.serialize(() => this.releaseIdle(options.idleMs))
+        .then((released) => { if (released.length > 0) options.onReleased?.(released); })
+        .catch((error: unknown) => options.onError?.(error));
+    }, options.checkMs ?? Math.min(60_000, options.idleMs));
+    this.idleTimer.unref?.();
+  }
+
+  stopIdleRelease(): void {
+    if (this.idleTimer) clearInterval(this.idleTimer);
+    this.idleTimer = undefined;
   }
 
   async release(threadId: string): Promise<void> {

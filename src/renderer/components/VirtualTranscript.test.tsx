@@ -130,7 +130,11 @@ function installDelayedMeasurementHarness(options: {
     },
     flushFrames: async (count = 2) => {
       for (let frame = 0; frame < count; frame += 1) {
-        await act(async () => { for (const callback of [...pendingFrameCallbacks.values()]) callback(0); });
+        await act(async () => {
+          const due = [...pendingFrameCallbacks.entries()];
+          for (const [id] of due) pendingFrameCallbacks.delete(id);
+          for (const [, callback] of due) callback(0);
+        });
       }
     },
     restore() {
@@ -241,6 +245,47 @@ describe("virtual transcript", () => {
       await harness.flushFrames();
       expect(container.scrollTop).toBe(300);
       expect(container.querySelector(".virtual-transcript-row:last-child")?.getBoundingClientRect().top).toBe(200);
+    } finally {
+      view?.unmount();
+      harness.restore();
+    }
+  });
+
+  it("follows an activity's height after the turn's rows remount under persisted ids", async () => {
+    const harness = installDelayedMeasurementHarness({ rowHeight: (node) => node.querySelector(".activity-expanded") ? 500 : 300 });
+    const live: UiMessage[] = [
+      { id: "user-live", role: "user", text: "Request", timestamp: 1 },
+      { id: "answer-live", role: "assistant", text: "Answer", timestamp: 2 },
+    ];
+    const persisted: UiMessage[] = [
+      { id: "user-entry", sourceEntryId: "user-entry", role: "user", text: "Request", timestamp: 1 },
+      { id: "answer-entry", sourceEntryId: "answer-entry", role: "assistant", text: "Answer", timestamp: 2 },
+    ];
+    const answerTop = (container: HTMLElement) => {
+      const row = container.querySelector<HTMLElement>('.virtual-transcript-row[data-index="1"]')!;
+      return Number.parseFloat(row.style.transform.match(/translateY\(([^p]+)px\)/u)?.[1] ?? "NaN");
+    };
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      view = render(<Fixture messages={live} activity={<ToggleActivity />} activityAfterMessageId="user-live" />);
+      await harness.flushFrames();
+      // A resize of the live rows is waiting for its frame when the settle
+      // replaces them with rows under the persisted ids.
+      for (const row of view.container.querySelectorAll<HTMLElement>(".virtual-transcript-row")) harness.trigger(row, 300);
+      view.rerender(<Fixture messages={persisted} activity={<ToggleActivity />} activityAfterMessageId="user-entry" />);
+      await harness.flushFrames();
+      expect(answerTop(view.container)).toBe(300);
+
+      fireEvent.click(screen.getByRole("button", { name: "Open activity" }));
+      const owner = view.container.querySelector<HTMLElement>('.virtual-transcript-row[data-index="0"]')!;
+      harness.trigger(owner, 500);
+      await harness.flushFrames();
+      expect(answerTop(view.container)).toBe(500);
+
+      fireEvent.click(screen.getByRole("button", { name: "Close activity" }));
+      harness.trigger(owner, 300);
+      await harness.flushFrames();
+      expect(answerTop(view.container)).toBe(300);
     } finally {
       view?.unmount();
       harness.restore();
@@ -518,6 +563,61 @@ describe("virtual transcript", () => {
     expect(view.container.querySelectorAll(".virtual-transcript-row").length).toBeLessThan(40);
     expect(view.container.querySelectorAll(".inline-transcript-activity").length).toBeLessThan(40);
     view.unmount();
+  });
+
+  it("keeps the leading row in place when unmeasured older rows are prepended", async () => {
+    // Older rows are 250 px once measured; the virtualizer first places them at its 180 px estimate.
+    const heights = new Map<string, number>();
+    const harness = installDelayedMeasurementHarness({
+      rowHeight: (node) => heights.get(node.dataset.messageId ?? "") ?? 100,
+    });
+    const page = (from: number, to: number): UiMessage[] => Array.from({ length: to - from }, (_, offset) => ({
+      id: `m${from + offset}`,
+      role: (from + offset) % 2 ? "assistant" : "user",
+      text: `Turn ${from + offset}`,
+      timestamp: from + offset,
+    }));
+    const newer = page(100, 200);
+    const older = page(50, 100);
+    older.forEach((message) => heights.set(message.id, 250));
+    const rowTop = (container: HTMLElement, id: string) => {
+      const row = container.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+      return row ? Number(row.style.transform.match(/translateY\((-?[\d.]+)px\)/u)?.[1]) - container.scrollTop : undefined;
+    };
+    const view = render(<Fixture messages={newer} />);
+    try {
+      const container = view.container.firstElementChild as HTMLDivElement;
+      container.scrollTop = 1_030;
+      await act(async () => { container.dispatchEvent(new Event("scroll")); });
+      await waitFor(() => expect(rowTop(container, "m110")).toBe(-30));
+
+      view.rerender(<Fixture messages={[...older, ...newer]} />);
+      // Same commit: the leading row is mounted and still 30 px above the viewport top.
+      expect(rowTop(container, "m110")).toBe(-30);
+      expect(container.scrollTop).toBeGreaterThan(50 * 180);
+
+      // The virtualizer catches up with the new offset; a row above the leading one is measured late.
+      await act(async () => { container.dispatchEvent(new Event("scroll")); });
+      expect(rowTop(container, "m110")).toBe(-30);
+      heights.set("m109", 400);
+      const lateRow = container.querySelector<HTMLElement>('[data-message-id="m109"]')!;
+      harness.trigger(lateRow, 400);
+      await harness.flushFrames();
+      expect(rowTop(container, "m110")).toBe(-30);
+
+      // Once the reader scrolls, later measurements no longer move the transcript.
+      container.scrollTop -= 500;
+      await act(async () => { container.dispatchEvent(new Event("scroll")); });
+      const readerScrollTop = container.scrollTop;
+      heights.set("m108", 600);
+      const releasedRow = container.querySelector<HTMLElement>('[data-message-id="m108"]')!;
+      harness.trigger(releasedRow, 600);
+      await harness.flushFrames();
+      expect(container.scrollTop).toBe(readerScrollTop);
+    } finally {
+      view.unmount();
+      harness.restore();
+    }
   });
 
   describe("keyboard navigation", () => {

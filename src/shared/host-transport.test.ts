@@ -53,6 +53,28 @@ describe("host transport frames", () => {
     expect(decodeHostPush(valid)).toEqual(valid);
   });
 
+  it("checks the transport's compact events before they reach a client", () => {
+    const tool = { id: "t1", name: "bash", args: {}, status: "done", startedAt: 0 };
+    const end = { seq: 2, event: { type: "tool-end-delta", sessionId: "s", tool, after: 1, length: 3, keep: 3, drop: 0, text: "" } };
+    expect(decodeHostPush(end)).toEqual(end);
+    expect(decodeHostPush({ seq: 2, event: { ...end.event, length: -1 } })).toBeUndefined();
+    expect(decodeHostPush({ seq: 2, event: { ...end.event, tool: { name: "bash" } } })).toBeUndefined();
+    const detail = { seq: 3, event: { type: "thread-detail-compact", update: { version: 1, type: "thread-detail", detail: { sessionId: "s", messages: [], isStreaming: false, activeTools: [] } } } };
+    expect(decodeHostPush(detail)).toEqual(detail);
+    expect(decodeHostPush({ seq: 3, event: { type: "thread-detail-compact", update: { version: 1, type: "error", message: "boom" } } })).toBeUndefined();
+    const texts = { seq: 3, event: { ...detail.event, activityFromHistory: true, texts: { a1: 2 } } };
+    expect(decodeHostPush(texts)).toEqual(texts);
+    expect(decodeHostPush({ seq: 3, event: { ...detail.event, texts: { a1: "2" } } })).toBeUndefined();
+    expect(decodeHostPush({ seq: 3, event: { ...detail.event, activityFromHistory: 1 } })).toBeUndefined();
+    const message = { id: "a1", role: "assistant", timestamp: 1 };
+    const ended = { seq: 4, event: { type: "assistant-end-delta", sessionId: "s", message, after: 3, text: { keep: 5, drop: 0, text: "" } } };
+    expect(decodeHostPush(ended)).toEqual(ended);
+    expect(decodeHostPush({ seq: 4, event: { ...ended.event, thinking: { keep: 1, drop: 0, text: "" } } })).toBeDefined();
+    expect(decodeHostPush({ seq: 4, event: { ...ended.event, text: { keep: -1, drop: 0, text: "" } } })).toBeUndefined();
+    expect(decodeHostPush({ seq: 4, event: { ...ended.event, thinking: "plan" } })).toBeUndefined();
+    expect(decodeHostPush({ seq: 4, event: { ...ended.event, message: { role: "assistant" } } })).toBeUndefined();
+  });
+
   it("decodes a hello reply with its replayed pushes", () => {
     const reply = { protocol: 1, hostVersion: "0.0.0", capabilities: ["jobs"], resync: false, missed: [push], nextSeq: 4 };
     expect(decodeHostHelloReply(reply)?.missed).toHaveLength(1);

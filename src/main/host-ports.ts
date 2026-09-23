@@ -9,6 +9,7 @@ import type {
   NewThreadRequestId,
   ThreadBackendKind,
   ThreadIndexSnapshot,
+  UiModel,
 } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostActionResult, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
 import type { CompletionRequest } from "./runtime-types.js";
@@ -126,6 +127,7 @@ export interface ExtensionServicesPort {
   runtimeOwner(): "tau" | "pi";
   thread(sessionId?: string): HostThread | undefined;
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
+  completionModels(): Promise<UiModel[]>;
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined;
   describeProjects(facts: HostProjectFacts): () => void;
@@ -279,6 +281,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     runtimeOwner: () => port.runtimeOwner(),
     thread: (sessionId) => port.thread(sessionId),
     complete: (request, model) => port.complete(request, model),
+    completionModels: () => port.completionModels(),
     setThreadTitle: (sessionId, title, source) => port.setThreadTitle(sessionId, title, source),
     attachedRuntime: (sessionId) => port.attachedRuntime(sessionId),
     describeProjects: (facts) => port.describeProjects(facts),
@@ -349,7 +352,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
           if (index >= 0) mcpGates.splice(index, 1);
         };
       },
-      connect: (thread) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread),
+      connect: (thread, options) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread, options),
     },
     // `extensionServices` binds the extension id in front of these two.
     callClient: ((extensionId: string, command: string, input?: unknown) => port.platform.callClient

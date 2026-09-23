@@ -12,9 +12,12 @@
     "manifest.json",
     "*/tau-extension.json",
     "*/host.cjs",
+    "*/host.cjs.map",
     "*/window.cjs",
+    "*/window.cjs.map",
     "*/desktop.js",
     "*/styles.css",
-    "*/pi.cjs"
+    "*/pi.cjs",
+    "*/pi.cjs.map"
   ]
 }

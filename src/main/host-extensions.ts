@@ -10,6 +10,7 @@ import type {
   ThreadBackendKind,
   UiComposerCommand,
   UiMessage,
+  UiModel,
   UiThreadUsage,
   UiToolRun,
 } from "../shared/contracts.js";
@@ -92,8 +93,14 @@ export interface HostRuntimeBackendProvider {
   /** Puts back what `removeThread` answered. */
   restoreThread?(threadId: string, record: unknown): Promise<void>;
   lookup(threadId: string): Promise<HostBackendThreadRecord | undefined>;
-  /** Opens a thread's backend; `resume` false creates it. */
-  open(threadId: string, cwd: string, options: { resume: boolean }, context: HostBackendOpenContext): Promise<ThreadRuntimeBackend>;
+  /**
+   * Opens a thread's backend; `resume` false creates it. `tools` comes only
+   * with a create and only to a provider that `restrictsTools`: the thread
+   * keeps just these tools for its whole life, resumes included.
+   */
+  open(threadId: string, cwd: string, options: { resume: boolean; tools?: readonly string[] }, context: HostBackendOpenContext): Promise<ThreadRuntimeBackend>;
+  /** The provider honours `tools` on `open`; `sessions.start({ tools })` is refused for one that does not. */
+  readonly restrictsTools?: boolean;
   /** Commands the composer offers for threads of this backend. */
   composerCommands(cwd: string): UiComposerCommand[];
   /** Rejects a prompt the backend cannot serve at this access level. */
@@ -169,6 +176,14 @@ export interface HostThreadStartOptions {
    * absent. A kind nobody registered is refused before anything is created.
    */
   backend?: ThreadBackendKind;
+  /**
+   * The only tools the thread may use, as Pi names them (`read`, `bash`,
+   * `tau_spawn_thread`, …); the backend maps them onto its own. Only for a
+   * backend whose provider `restrictsTools` — any other, Pi included, is
+   * refused before anything is created. A Pi thread's tools are set by a
+   * runtime extension instead.
+   */
+  tools?: readonly string[];
   /**
    * The thread this one is spawned from. The host records the link in the new
    * session before its first prompt, so the thread index knows the child's
@@ -413,7 +428,16 @@ export interface HostMcpServices {
    * in its session's MCP configuration. The credential is revoked when the
    * thread's runtime closes. `undefined` when the host cannot serve MCP.
    */
-  connect(thread: RuntimeSessionInfo): Promise<HostMcpConnection | undefined>;
+  connect(thread: RuntimeSessionInfo, options?: HostMcpConnectOptions): Promise<HostMcpConnection | undefined>;
+}
+
+export interface HostMcpConnectOptions {
+  /**
+   * The only tools the thread may list and call, by the names kits register
+   * (`tau_spawn_thread`, not `mcp__tau__…`); every tool when absent. A thread
+   * whose runtime was started with `tools` passes the same list here.
+   */
+  tools?: readonly string[];
 }
 
 /** What a host extension may do with one open thread. */
@@ -427,6 +451,8 @@ export interface HostThread {
   readonly parentThreadId?: string;
   /** Tokens and money the thread has used so far; absent when the runtime has no total. */
   readonly usage?: UiThreadUsage;
+  /** The model the thread runs on, as its runtime names it; absent before it has one. New in API 1.11.0. */
+  readonly model?: { provider: string; id: string };
   isStreaming(): boolean;
   /** Nothing running, queued or asked: the thread can be replaced safely. */
   isIdle(): boolean;
@@ -547,6 +573,8 @@ export interface HostExtensionServices {
    * thread; without a model it uses the default from `~/.pi/agent`.
    */
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
+  /** The models `complete` can be asked for: the user's Pi catalog, those with a key or a login. Absent before API 1.11.0. */
+  completionModels?(): Promise<UiModel[]>;
   /** Renames a thread the way the title menu does, and publishes the change. */
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   /** The Pi terminal owning a thread while Tau is attached; `undefined` when Tau runs it. */

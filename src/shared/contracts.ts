@@ -144,6 +144,12 @@ export interface UiToolRun {
   outputTruncated?: boolean;
   /** A deliberate host read can retrieve the complete durable result. */
   fullOutputAvailable?: boolean;
+  /**
+   * The host held `output` back because it is large: `outputLength` characters
+   * that load on request through `HostClient.toolOutput`. Only settled tools.
+   */
+  outputDeferred?: boolean;
+  outputLength?: number;
   startedAt: number;
   endedAt?: number;
 }
@@ -317,6 +323,14 @@ export interface ShellActionResult {
   exitCode?: number;
   cancelled: boolean;
   truncated: boolean;
+}
+
+/** A deferred tool's output as the transcript would have carried it. */
+export interface UiToolOutputPreview {
+  toolCallId: string;
+  output: string;
+  outputTruncated?: boolean;
+  fullOutputAvailable?: boolean;
 }
 
 /** Result of a deliberate, bounded read of a persisted tool result. */

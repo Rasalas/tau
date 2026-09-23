@@ -190,11 +190,11 @@ export class ThreadRuntimeLifecycle {
     kind: ThreadBackendKind,
     threadId: string,
     cwd: string,
-    options: { background?: boolean; adopt?: boolean; resume?: boolean } = {},
+    options: { background?: boolean; adopt?: boolean; resume?: boolean; tools?: readonly string[] } = {},
   ): Promise<ThreadRuntime> {
     if (this.port.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
     const provider = this.port.requireBackend(kind);
-    const backend = await provider.open(threadId, cwd, { resume: options.resume !== false }, {
+    const backend = await provider.open(threadId, cwd, { resume: options.resume !== false, ...(options.tools ? { tools: options.tools } : {}) }, {
       projectName: this.port.projects.name(cwd),
       projectLabel: this.port.projects.knownLabel(cwd),
       permissionLevel: () => this.port.permissionLevel(),
@@ -250,9 +250,12 @@ export class ThreadRuntimeLifecycle {
       });
       runtime = createdRuntime;
       const backend = new PiThreadRuntimeBackend(createdRuntime, this.port.adapterFor("pi"), {
-        mapMessages: (messages) => messages
-          .map((message, index) => mapMessage(message, index, this.port.projection.mapping(thread!)))
-          .filter((message): message is UiMessage => Boolean(message?.text || message?.skill)),
+        mapMessages: (messages) => {
+          const mapping = this.port.projection.mapping(thread!);
+          return messages
+            .map((message, index) => mapMessage(message, index, mapping))
+            .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
+        },
       });
       marks.mark("create-runtime");
       thread = new ThreadRuntime(backend, createdRuntime);

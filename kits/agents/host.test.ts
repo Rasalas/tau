@@ -1029,6 +1029,24 @@ describe("Agents Kit definitions", () => {
     }
   });
 
+  it("hands another runtime the definition's tools, and records its refusal as the spawn's error", async () => {
+    const { dir, bench, cleanup } = await withProject({
+      "scout.md": "---\ndescription: Reads elsewhere\nruntime: codex\ntools: [read, grep]\n---\nOnly read.",
+    });
+    try {
+      const parent = bench.runtime("parent", dir);
+      await parent.call("tau_spawn_thread", { prompt: "Look", agent: "scout" });
+      expect(bench.started[0]).toMatchObject({ backend: "codex", tools: ["read", "grep"] });
+      expect(bench.started[0]!.parent!.details).not.toHaveProperty("persona");
+
+      bench.holdStarts(async () => { throw new Error("The Antigravity runtime cannot restrict its tools."); });
+      await expect(parent.call("tau_spawn_thread", { prompt: "Look again", agent: "scout" }))
+        .resolves.toMatchObject({ status: "failed", error: "The Antigravity runtime cannot restrict its tools." });
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("lets the user start a definition as a child of the thread they read", async () => {
     const { bench, cleanup } = await withProject({ "reviewer.md": REVIEWER });
     try {

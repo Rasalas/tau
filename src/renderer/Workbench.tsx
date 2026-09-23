@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
 import { ChevronDown, Folder, X } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { StageState } from "../workbench/stage";
@@ -206,6 +206,7 @@ export interface WorkbenchThread {
   lastMessageId?: string;
   recoverThread(): Promise<unknown>;
   copyToolOutput(tool: UiToolRun): Promise<void>;
+  loadToolOutput(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
   runStartedAt?: number;
   activeDraftKey?: string;
   copyMessage(message: UiMessage): Promise<void>;
@@ -690,13 +691,13 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const {
     snapshot, conversationSnapshot, pendingNewThread, transcriptHistory, transcriptRef, loadTranscriptPage,
     applyTranscriptPage, transcriptScopeKey, transcriptScope, transcriptTurnStart,
-    visibleTranscriptTurnStart, lastMessageId, recoverThread, copyToolOutput,
+    visibleTranscriptTurnStart, lastMessageId, recoverThread, copyToolOutput, loadToolOutput,
     runStartedAt, activeDraftKey, copyMessage, forkMessage,
   } = thread;
   const detail = preferences.transcriptDetailFor(conversationSnapshot?.sessionId);
   const { conversationActivityTools, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread, conversationSnapshot, running: Boolean(snapshot?.isStreaming), lastMessageId, prompts,
-    registry, viewStore: view, detail, actions, recoverThread, copyToolOutput,
+    registry, viewStore: view, detail, actions, recoverThread, copyToolOutput, loadToolOutput,
     abortSessionId: snapshot?.sessionId, abort,
   });
   const messages = useMemo(
@@ -718,7 +719,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     loadPage={loadTranscriptPage}
     applyPage={applyTranscriptPage}
   >
-    {() => <TranscriptViewport
+    <TranscriptViewport
       messages={messages}
       scrollRef={transcriptRef}
       sessionId={conversationSnapshot?.sessionId}
@@ -733,7 +734,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       liveStatus={liveStatus}
       onCopyMessage={onCopyMessage}
       onForkMessage={onForkMessage}
-    />}
+    />
   </TranscriptHistoryBoundary>;
 }
 

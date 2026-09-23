@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule. Amended 2026-09-22: TLS with a pinned certificate. Amended 2026-09-23: a lean push stream.
+Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule. Amended 2026-09-22: TLS with a pinned certificate. Amended 2026-09-23: a lean push stream; no repeated outputs.
 
 ## Context
 
@@ -69,6 +69,20 @@ A turn cost a socket client about as many bytes as its tool output times the num
 The host now coalesces streamed text and tool updates for up to 50 ms before it numbers them, and sends a running tool's output as a delta against the push that carried it before (`tool-update-delta`), whole again when a client starts from a snapshot. `HostConnection` rebuilds the output, so nothing above the connection sees the difference. The socket negotiates `permessage-deflate`. The push buffer is bounded by bytes (8 MB), not by count. Details are in `docs/host-protocol.md`; the transfer budget test gates the result.
 
 We chose deltas keyed by sequence over deltas keyed by length, because a length can repeat once the tail window keeps the output at its cap, while a sequence names exactly one push. We chose a whole output on a client's arrival over one every second, because steady streaming then carries no repeated output at all.
+
+## Amendment, 2026-09-23: no repeated outputs
+
+After the lean stream, most of a turn's bytes were outputs a client had already received: `tool-end` carried the final output again, the settled `thread-detail` carried each tool twice (`turnActivity` and the last `turnActivityHistory` entry), and a tool writing faster than it could be read streamed every byte of it. T3 Code sends no command output at all.
+
+Now `tool-end` refers to the push that carried the output (`tool-end-delta`), and a settled detail's `turnActivity` travels once, inside its history (`thread-detail-compact`); `HostConnection` rebuilds both. A settled output longer than 16 KB reaches clients as its size (`outputDeferred`, `outputLength`) and loads through `tool-output` when its row opens; a running one longer than 16 KB streams its last 4 KB. Unlike the two wire events, the deferred output is a change of the contract: a client that renders a tool has to load its output.
+
+We chose to defer by size over deferring every output, because a short output costs less than a request and small results (a spawned thread's JSON, a file edit's message) are read by tool renderers. We chose a 4 KB live tail over the full 128 KB window because a running row shows five lines, and a tail keeps a flood of output from costing more than those lines.
+
+## Amendment, 2026-09-23: answer text once
+
+The answer then made up most of a long turn: a 151 KB answer arrived as deltas, again in `assistant-end`, and again in the settled detail's messages. Now `assistant-end` refers to the text its message streamed (`assistant-end-delta`), and a detail refers to the `assistant-end` that carried a message's text (`thread-detail-compact` with `texts`); `HostConnection` puts both back. The host sends whole texts again after a client starts from a snapshot, as it does for tool outputs.
+
+We chose to recover a reference the client cannot resolve by starting over from the bootstrap, over asking the host for the missing text, because the host only sends references a client can resolve; the fallback covers a defect, and a resync is the path that already repairs any state the push stream left wrong.
 
 ## Consequences
 

@@ -2,7 +2,8 @@
 // seeds the same Codex sessions through each onboarding, then measures start,
 // a large thread's scroll and one replayed turn over CDP.
 // Usage: node scripts/compare/run.mjs [--apps tau,t3] [--runs 5] [--warmup 1] [--seed] [--check] [--out <file>]
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+//        node scripts/compare/run.mjs --large-thread [--runs 5] [--warmup 1] [--seed] [--check]   (Tau only)
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadavg } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -14,6 +15,10 @@ import { descendants, processTable, stopTree, treeMemory } from "./processes.mjs
 import { writeCodexSessions, sessionPlan } from "./sessions-fixture.mjs";
 import { aggregateRuns, frameStats, longTaskStats, round } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
+import {
+  LARGE_THREAD_ROOT, LARGE_THREAD_TITLE, LARGE_THREAD_TURNS, OLDER_PAGE_DRIFT, OLDER_PAGES_AT_TOP, TWO_PAGE_THREAD_TITLE, TWO_PAGE_THREAD_TURNS,
+  largeThreadRows, newestTurnVisible, writePiThread,
+} from "./large-thread.mjs";
 import { clickWhenReady, locate } from "./ui.mjs";
 import { machineClass } from "../machine-class.mjs";
 
@@ -26,7 +31,7 @@ const PROMPT = "Replay the recorded comparison turn.";
 const wait = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 export function parseArgs(argv) {
-  const options = { apps: ["tau", "t3"], runs: 5, warmup: 1, seed: false, check: false, out: undefined, idleMs: 5_000, scrollSteps: 60 };
+  const options = { apps: ["tau", "t3"], runs: 5, warmup: 1, seed: false, check: false, out: undefined, idleMs: 5_000, scrollSteps: 60, largeThread: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = () => {
@@ -41,8 +46,11 @@ export function parseArgs(argv) {
     else if (arg === "--check") options.check = true;
     else if (arg === "--out") options.out = next();
     else if (arg === "--idle-ms") options.idleMs = Number(next());
-    else throw new Error(`unknown flag ${arg} (known: --apps, --runs, --warmup, --seed, --check, --out, --idle-ms)`);
+    else if (arg === "--large-thread") options.largeThread = true;
+    else throw new Error(`unknown flag ${arg} (known: --apps, --runs, --warmup, --seed, --check, --out, --idle-ms, --large-thread)`);
   }
+  // T3 has no way to hold a Pi session; its importers also stop at 200 messages.
+  if (options.largeThread) options.apps = ["tau"];
   for (const id of options.apps) if (!APPS[id]) throw new Error(`unknown app ${id} (known: ${Object.keys(APPS).join(", ")})`);
   if (!Number.isInteger(options.runs) || options.runs < 1) throw new Error("--runs must be a positive integer");
   return options;
@@ -223,6 +231,120 @@ async function measureRun(app, root, options, turn) {
   }
 }
 
+/** One launch of `app` from its template; `work` gets the page session and the spawn time. */
+async function withApp(app, root, work) {
+  const { child, session, spawnedAt } = await start(app, root, {});
+  try {
+    await session.send("Runtime.enable");
+    const result = await work(session, spawnedAt);
+    checkIsolation(child.pid, app.label);
+    return result;
+  } finally {
+    session.close();
+    const stopped = await stopTree([child.pid]);
+    if (stopped.stillAlive.length) console.error(`[compare] ${app.label}: still alive after stop: ${stopped.stillAlive.join(", ")}`);
+  }
+}
+
+/** Resolves in the page when one "Load older turns" click has finished loading. */
+const LOAD_ONE_OLDER_PAGE = `new Promise((resolvePromise, rejectPromise) => {
+  const button = document.querySelector('[aria-label="Load older turns"]');
+  if (!button) { rejectPromise(new Error("no Load older turns button")); return; }
+  const startedAt = performance.now();
+  let loading = false;
+  const check = () => {
+    if (document.querySelector('[aria-label="Loading older turns"]')) loading = true;
+    else if (loading) { observer.disconnect(); resolvePromise(performance.now() - startedAt); }
+  };
+  const observer = new MutationObserver(check);
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-label"] });
+  button.click();
+  check();
+  setTimeout(() => { observer.disconnect(); rejectPromise(new Error("older page did not load within 30 s")); }, 30_000);
+})`;
+
+/** Wheels the transcript up like a reader would until it rests at its first pixel. */
+async function wheelToTop(session) {
+  const state = `(() => { const s = document.getElementById("thread-transcript"); const r = s.getBoundingClientRect(); return { top: s.scrollTop, x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`;
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const { top, x, y } = await evaluate(session, state);
+    if (top <= 0) {
+      // Rows measured on the way up may still move the top; it has to stay at 0.
+      await wait(500);
+      if ((await evaluate(session, state)).top <= 0) return;
+      continue;
+    }
+    await session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY: -Math.min(2_400, top + 240) });
+    await wait(32);
+  }
+  throw new Error("the transcript did not reach its top");
+}
+
+/** Loads one older page with the reader at the top and reports how far the leading row moved. */
+async function olderPageAtTop(session) {
+  await wheelToTop(session);
+  return evaluate(session, OLDER_PAGE_DRIFT);
+}
+
+/**
+ * The large Pi thread, twice per run: opened from the rail while a short
+ * thread is the workspace's newest, then active at start-up as its newest.
+ * Each launch starts from the seeded profile with a thread written for it.
+ */
+async function measureLargeThreadRun(app, root, options) {
+  const loadAtStart = round(loadavg()[0]);
+  const { run, workspace } = app.paths(root);
+  const sessionDir = app.env(root).PI_CODING_AGENT_SESSION_DIR;
+  const tag = () => `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const write = (fields) => writePiThread(ROOT, { sessionDir, cwd: workspace, title: LARGE_THREAD_TITLE, turns: LARGE_THREAD_TURNS, ...fields });
+
+  resetRunFromTemplate(app, root);
+  const openTag = tag();
+  const { entries } = await write({ tag: openTag, modifiedAt: new Date(Date.now() - 3_600_000) });
+  await write({ title: TWO_PAGE_THREAD_TITLE, turns: TWO_PAGE_THREAD_TURNS, tag: openTag, modifiedAt: new Date(Date.now() - 7_200_000) });
+  await write({ title: "Short Pi thread", turns: 2, tag: openTag, modifiedAt: new Date() });
+  const open = await withApp(app, root, async (session) => {
+    await waitFor(session, app.ready(THREADS), { timeoutMs: 90_000, pollMs: 10 });
+    await session.send("Network.enable");
+    const wire = wireCounter(session);
+    await wait(options.idleMs);
+    wire.reset();
+    const startedAt = Date.now();
+    await clickWhenReady(session, app.selectors.threadRowClick, new RegExp(LARGE_THREAD_TITLE, "u"));
+    const shown = await waitFor(session, newestTurnVisible(app.selectors.messageRow, LARGE_THREAD_TURNS, openTag), { timeoutMs: 120_000, pollMs: 10 });
+    const openWire = wire.snapshot();
+    await wait(1_000);
+    const olderPageMs = await evaluate(session, LOAD_ONE_OLDER_PAGE);
+    const atTop = [];
+    for (let page = 0; page < OLDER_PAGES_AT_TOP; page += 1) atTop.push(await olderPageAtTop(session));
+    await clickWhenReady(session, app.selectors.threadRowClick, new RegExp(TWO_PAGE_THREAD_TITLE, "u"));
+    await waitFor(session, newestTurnVisible(app.selectors.messageRow, TWO_PAGE_THREAD_TURNS, openTag), { timeoutMs: 30_000, pollMs: 10 });
+    await wait(1_000);
+    const twoPage = await olderPageAtTop(session);
+    return {
+      newestTurnMs: shown.at - startedAt,
+      olderPageMs: round(olderPageMs),
+      // The worst of the loads at the top: a jump in any of them is a jump.
+      olderPageAtTopMs: round(Math.max(...atTop.map((load) => load.loadingMs))),
+      olderPageDriftPx: round(Math.max(...atTop.map((load) => load.driftPx))),
+      olderPageLostFrames: Math.max(...atTop.map((load) => load.lostFrames)),
+      twoPageDriftPx: round(twoPage.driftPx),
+      wire: openWire,
+    };
+  });
+
+  resetRunFromTemplate(app, root);
+  const startTag = tag();
+  await write({ tag: startTag, modifiedAt: new Date(Date.now() + 60_000) });
+  const startup = await withApp(app, root, async (session, spawnedAt) => {
+    const ready = await waitFor(session, app.ready(THREADS), { timeoutMs: 90_000, pollMs: 10 });
+    const shown = await waitFor(session, newestTurnVisible(app.selectors.messageRow, LARGE_THREAD_TURNS, startTag), { timeoutMs: 120_000, pollMs: 10 });
+    return { interactiveMs: ready.at - spawnedAt, newestTurnMs: shown.at - spawnedAt };
+  });
+  if (!existsSync(run)) throw new Error(`${app.label}: the run directory vanished`);
+  return { loadAtStart, entries, open, startup };
+}
+
 /** Imports the session fixture through the app's onboarding and saves the profile as the template. `plan` sizes the fixture. */
 export async function seed(app, root, turnFile, plan = {}) {
   rmSync(app.paths(root).run, { recursive: true, force: true });
@@ -245,8 +367,9 @@ export async function seed(app, root, turnFile, plan = {}) {
 }
 
 /**
- * Tau's own transfer budget per replayed turn (budgets.json): the medians
- * must stay at or under it. Timing is not gated here; it depends on the machine.
+ * Tau's own budgets (budgets.json): transfer per replayed turn and the host's
+ * idle footprint (macOS). The medians must stay at or under them. Timing is
+ * not gated here; it depends on the machine.
  */
 export function evaluateBudgets(aggregate, budgets) {
   const failures = [];
@@ -265,6 +388,8 @@ export function markdownTable(report) {
     ["rail + composer ready (ms)", "startup.interactiveMs"],
     ["memory idle, whole tree (MiB)", "idleMemory.totalMiB"],
     ["memory idle, host/server process (MiB)", "idleMemory.byRoleMiB.backend"],
+    ["footprint idle, whole tree (MiB, macOS)", "idleMemory.footprintMiB"],
+    ["footprint idle, host/server process (MiB, macOS)", "idleMemory.footprintByRoleMiB.backend"],
     ["renderer JS heap idle (MiB)", "idleMemory.rendererHeapMiB"],
     ["open 100-turn thread: first rows visible (ms)", "openLarge.ms"],
     ["load the rest of its history (pages · ms)", "openLarge.history.pages", "openLarge.history.ms"],
@@ -298,8 +423,52 @@ export function markdownTable(report) {
   return lines.join("\n");
 }
 
+/** `--large-thread`: Tau's own table and gate (`tauLargeThread` in budgets.json). */
+async function mainLargeThread(options) {
+  const app = APPS.tau;
+  const root = assertOwnedRoot(LARGE_THREAD_ROOT(), app);
+  const turn = buildTurn();
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "turn.json"), JSON.stringify(turn));
+  if (options.seed) await seed(app, root, JSON.stringify(turn));
+  const results = [];
+  for (let run = 0; run < options.warmup + options.runs; run += 1) {
+    const warmup = run < options.warmup;
+    const result = await measureLargeThreadRun(app, root, options);
+    console.log(`[compare] large thread ${warmup ? "warmup" : `run ${run - options.warmup + 1}/${options.runs}`}: open ${result.open.newestTurnMs} ms, start-up ${result.startup.newestTurnMs} ms`);
+    if (!warmup) results.push(result);
+  }
+  const aggregate = aggregateRuns(results);
+  const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    machine: machineClass(),
+    app: app.describe(),
+    window: WINDOW,
+    fixture: { title: LARGE_THREAD_TITLE, turns: LARGE_THREAD_TURNS, entries: results[0]?.entries },
+    options,
+    aggregate,
+    results,
+  };
+  const out = options.out ?? join(ROOT, "reports", `compare-large-thread-${report.generatedAt.replaceAll(/[:.]/gu, "-")}.json`);
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
+  const lines = ["| metric (median / p95) | Tau |", "| --- | ---: |"];
+  for (const [label, path] of largeThreadRows()) lines.push(`| ${label} | ${aggregate[path] ? `${aggregate[path].median} / ${aggregate[path].p95}` : "–"} |`);
+  console.log(`\n${lines.join("\n")}\n\nReport: ${out}`);
+  if (options.check) {
+    const budgets = JSON.parse(readFileSync(fileURLToPath(new URL("./budgets.json", import.meta.url)), "utf8")).tauLargeThread;
+    const failures = evaluateBudgets(aggregate, budgets);
+    if (failures.length) {
+      console.error(`Large-thread budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
+      process.exitCode = 1;
+    }
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.largeThread) return mainLargeThread(options);
   const turn = buildTurn();
   const turnFile = JSON.stringify(turn);
   const roots = Object.fromEntries(options.apps.map((id) => [id, assertOwnedRoot(APPS[id].defaultRoot(), APPS[id])]));
@@ -340,7 +509,7 @@ async function main() {
     const budgets = JSON.parse(readFileSync(fileURLToPath(new URL("./budgets.json", import.meta.url)), "utf8")).tau;
     const failures = evaluateBudgets(report.aggregate.tau, budgets);
     if (failures.length) {
-      console.error(`Transfer budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
+      console.error(`Budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
       process.exitCode = 1;
     }
   }

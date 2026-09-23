@@ -258,7 +258,10 @@ export function conversationMessagesFor(
 /** Splits the host's reported context usage over transcript and tool output. */
 /** The live turn's tool output in estimated tokens, rounded to the thousands the context meter shows. */
 export function toolOutputKiloTokens(tools: readonly UiToolRun[]): number {
-  return Math.round(tools.reduce((total, tool) => total + estimateTokens(tool.output ?? ""), 0) / 1000);
+  // A deferred output counts by its length, as it would with its text.
+  return Math.round(tools.reduce((total, tool) => total + (tool.output === undefined && tool.outputLength !== undefined
+    ? Math.ceil(tool.outputLength / 4)
+    : estimateTokens(tool.output ?? "")), 0) / 1000);
 }
 
 export function contextBreakdownFor(

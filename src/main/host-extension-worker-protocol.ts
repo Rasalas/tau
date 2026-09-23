@@ -42,6 +42,7 @@ export interface WorkerThreadSnapshot {
   idle: boolean;
   current: boolean;
   usage?: UiThreadUsage;
+  model?: { provider: string; id: string };
 }
 
 /** A persisted session file, read once, without its manager. */

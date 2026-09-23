@@ -109,4 +109,39 @@ describe("thread runtime registry", () => {
     expect(reg.has("a")).toBe(true);
     expect(reg.has("c")).toBe(true);
   });
+
+  it("releases runtimes nobody used for the idle time, never the one on screen or a busy one", async () => {
+    let now = 0;
+    const disposed: string[] = [];
+    const busy = new Set<string>();
+    const reg = new ThreadRuntimeRegistry<Fake>({
+      maxLive: 6,
+      dispose: async (entry) => { disposed.push(entry.threadId); },
+      canEvict: (entry) => !busy.has(entry.threadId),
+      now: () => now,
+    });
+    for (const id of ["shown", "stale", "working", "recent"]) await reg.adopt(record(id));
+    reg.setActive("shown");
+    busy.add("working");
+    now = 5_000;
+    reg.touch("recent");
+    now = 10_000;
+    expect(reg.idleThreadIds(10_000)).toEqual(["stale"]);
+    await expect(reg.releaseIdle(10_000)).resolves.toEqual(["stale"]);
+    expect(disposed).toEqual(["stale"]);
+    expect(reg.has("stale")).toBe(false);
+    expect(reg.has("shown") && reg.has("working") && reg.has("recent")).toBe(true);
+    // Work in flight on the thread keeps it, however old its last use.
+    now = 20_000;
+    let finish!: () => void;
+    const running = reg.run("recent", () => new Promise<void>((resolve) => { finish = resolve; }));
+    await new Promise((resolve) => setImmediate(resolve));
+    now = 40_000;
+    expect(reg.idleThreadIds(10_000)).toEqual([]);
+    finish();
+    await running;
+    expect(reg.idleThreadIds(10_000)).toEqual([]);
+    now = 50_000;
+    expect(reg.idleThreadIds(10_000)).toEqual(["recent"]);
+  });
 });

@@ -44,19 +44,49 @@ export function processRole(command) {
   return "other";
 }
 
-/** Resident memory of a process tree by role, without the fake CLI the harness itself supplies. */
+/** `footprint -f bytes` output as a map of pid to bytes. */
+export function parseFootprint(output) {
+  const bytes = new Map();
+  for (const match of output.matchAll(/\[(\d+)\]: .*?Footprint: (\d+) B/gu)) bytes.set(Number(match[1]), Number(match[2]));
+  return bytes;
+}
+
+/**
+ * macOS's physical footprint per pid: dirty memory including what the system
+ * compressed or swapped out. RSS drops under memory pressure; this does not.
+ */
+export function footprints(pids) {
+  if (process.platform !== "darwin" || pids.length === 0) return undefined;
+  try {
+    return parseFootprint(execFileSync("footprint", ["-f", "bytes", "--noCategories", ...pids.map(String)], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }));
+  } catch {
+    return undefined;
+  }
+}
+
+const mib = (kib) => Math.round((kib / 1024) * 10) / 10;
+
+/** Resident memory (and on macOS the footprint) of a process tree by role, without the fake CLI the harness itself supplies. */
 export function treeMemory(roots) {
   const rows = descendants(processTable(), roots).filter((row) => processRole(row.command) !== "excluded");
+  const footprint = footprints(rows.map((row) => row.pid));
   const byRole = {};
+  const footprintByRole = {};
   for (const row of rows) {
     const role = processRole(row.command);
     byRole[role] = (byRole[role] ?? 0) + row.rssKiB;
+    const bytes = footprint?.get(row.pid);
+    if (bytes !== undefined) footprintByRole[role] = (footprintByRole[role] ?? 0) + bytes / 1024;
   }
   const totalKiB = rows.reduce((sum, row) => sum + row.rssKiB, 0);
   return {
-    totalMiB: Math.round((totalKiB / 1024) * 10) / 10,
+    totalMiB: mib(totalKiB),
     processes: rows.length,
-    byRoleMiB: Object.fromEntries(Object.entries(byRole).map(([role, kib]) => [role, Math.round((kib / 1024) * 10) / 10])),
+    byRoleMiB: Object.fromEntries(Object.entries(byRole).map(([role, kib]) => [role, mib(kib)])),
+    ...(footprint ? {
+      footprintMiB: mib(Object.values(footprintByRole).reduce((sum, kib) => sum + kib, 0)),
+      footprintByRoleMiB: Object.fromEntries(Object.entries(footprintByRole).map(([role, kib]) => [role, mib(kib)])),
+    } : {}),
   };
 }
 

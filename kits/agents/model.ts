@@ -7,6 +7,7 @@ import {
   type AgentThreadStatus,
   type AgentWorkspace,
   type AgentsState,
+  tauToolName,
 } from "./protocol.js";
 
 /** One row of the Agents panel: a spawned thread plus what the index knows about it. */
@@ -289,7 +290,7 @@ function linkFor(tool: UiToolRun, links: readonly AgentThreadLink[], taken: Read
   }
   const endedAt = tool.endedAt ?? Number.MAX_SAFE_INTEGER;
   return links.find((link) => !taken.has(link.id)
-    && link.spawnedBy === tool.name
+    && link.spawnedBy === tauToolName(tool.name)
     && link.spawnedAt >= tool.startedAt
     && link.spawnedAt <= endedAt + 2_000);
 }
