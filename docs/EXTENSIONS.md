@@ -1006,6 +1006,13 @@ opens a shell in a tab of its own, shows the Terminal panel, types the command
 with `; exit` after it and answers `{ id, exitCode? }` once the shell ended —
 the command's status, or no `exitCode` when the shell was closed first. The
 click that asked for it is the consent; the output stays in the panel to read.
+It also publishes `tau.terminal/font`: `getSnapshot()` answers what the
+terminal draws with (`resolved`: face, CSS stack, size and where each came
+from), what the user set (`family`, `size`, empty when unset), what the user's
+Ghostty config names and the size range; `set({ family?, size? })` writes the
+kit's settings (an empty string clears one) and `refresh()` reads the Ghostty
+config again. Appearance Kit draws it as the Terminal font row under
+Typography, and leaves the row out while Terminal Kit is off.
 Thread Rail publishes
 `tau.thread-rail/siblings`: `siblingsOf(threadId)` answers the threads started
 together from one prompt on several models (the thread itself included, or
