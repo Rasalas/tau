@@ -101,8 +101,6 @@ export class TurnActivityStore {
   private readonly maxArgument: number;
   /** What this process wrote per thread and turn, so a save appends only the difference. */
   private readonly written = new Map<string, Map<string, Written>>();
-  /** A prefix per open thread: the host numbers turns from one again after a restart. */
-  private readonly epochs = new Map<string, string>();
   private readonly queues = new Map<string, Promise<void>>();
 
   constructor(private readonly options: TurnActivityStoreOptions) {
@@ -129,10 +127,9 @@ export class TurnActivityStore {
     });
   }
 
-  /** Earlier turns, oldest first, ready for the host; opening the thread again starts a new epoch. */
+  /** Earlier turns, oldest first, under the ids the host gave them. */
   load(threadId: string): Promise<UiTurnActivityEntry[]> {
     return this.serial(threadId, async () => {
-      this.epochs.set(threadId, randomBytes(4).toString("hex"));
       this.written.delete(threadId);
       const lines = await this.readLines(threadId);
       const all = fold(lines);
@@ -159,13 +156,8 @@ export class TurnActivityStore {
   /** The host's current record of one turn; later saves of the same turn add what changed. */
   save(threadId: string, entry: UiTurnActivityEntry): Promise<void> {
     return this.serial(threadId, async () => {
-      let epoch = this.epochs.get(threadId);
-      if (!epoch) {
-        epoch = randomBytes(4).toString("hex");
-        this.epochs.set(threadId, epoch);
-      }
-      // A turn read back from the file already carries its key.
-      const key = entry.id.includes("/") ? entry.id : `${epoch}/${entry.id}`;
+      // The host numbers a thread's turns past every id it loaded, so an id names one turn for good.
+      const key = entry.id;
       const turns = this.written.get(threadId) ?? new Map<string, Written>();
       this.written.set(threadId, turns);
       const known = turns.get(key) ?? { tools: new Map<string, string>() };
@@ -213,7 +205,6 @@ export class TurnActivityStore {
       const raw = await readFile(this.path(threadId), "utf8").catch(() => undefined);
       await rm(this.path(threadId), { force: true });
       this.written.delete(threadId);
-      this.epochs.delete(threadId);
       return raw;
     });
   }

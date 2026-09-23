@@ -48,18 +48,15 @@ describe("TurnActivityStore", () => {
     expect(entry!.tools.map((tool) => [tool.status, tool.output])).toEqual([["done", undefined], ["error", "half"], ["error", "The turn ended before this tool finished."]]);
   });
 
-  it("keeps turns the host numbers from one again apart after every open", async () => {
+  it("keeps the ids the host gave, so a client that saw a turn recognises it after a restart", async () => {
     const store = new TurnActivityStore({ directory });
     await store.load("t1");
     await store.save("t1", turn("activity-t1-1", "completed", [run("a", "done")]));
-    const first = await store.load("t1");
-    expect(first).toHaveLength(1);
-    // The reopened thread's host starts counting at its loaded length.
-    await store.save("t1", turn("activity-t1-1", "completed", [run("b", "done")]));
-    await store.save("t1", turn(`activity-t1-${first.length + 1}`, "completed", [run("c", "done")]));
+    const first = await new TurnActivityStore({ directory }).load("t1");
+    expect(first.map((entry) => entry.id)).toEqual(["activity-t1-1"]);
+    await store.save("t1", turn("activity-t1-2", "completed", [run("b", "done")]));
     const again = await new TurnActivityStore({ directory }).load("t1");
-    expect(again.map((entry) => entry.tools.map((tool) => tool.id))).toEqual([["a"], ["b"], ["c"]]);
-    expect(new Set(again.map((entry) => entry.id)).size).toBe(3);
+    expect(again.map((entry) => [entry.id, entry.tools.map((tool) => tool.id)])).toEqual([["activity-t1-1", ["a"]], ["activity-t1-2", ["b"]]]);
   });
 
   it("clips long output and arguments and drops turns beyond the limit", async () => {

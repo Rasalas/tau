@@ -34,7 +34,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
     case "turn-started":
       thread.turnError = undefined;
       thread.adapterStreaming = true;
-      thread.adapterActivity.push({ id: `activity-${sessionId}-${thread.adapterActivity.length + 1}`, tools: [], status: "running" });
+      thread.adapterActivity.push({ id: nextActivityId(thread), tools: [], status: "running" });
       services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
       services.emit({ type: "agent-status", sessionId, running: true });
       services.log("agent.started", sessionId.slice(0, 8));
@@ -106,11 +106,17 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
   }
 }
 
+/** Past every number in use: turns a runtime kept may have been thinned out, and ids must stay the ones a client saw. */
+function nextActivityId(thread: ThreadRuntime): string {
+  const used = thread.adapterActivity.map((entry) => Number(/-(\d+)$/u.exec(entry.id)?.[1] ?? 0));
+  return `activity-${thread.threadId}-${Math.max(thread.adapterActivity.length, ...used) + 1}`;
+}
+
 /** The turn's activity entry; a tool arriving outside a turn opens one. */
 function currentActivity(thread: ThreadRuntime): UiTurnActivityEntry {
   const last = thread.adapterActivity.at(-1);
   if (last?.status === "running") return last;
-  const entry: UiTurnActivityEntry = { id: `activity-${thread.threadId}-${thread.adapterActivity.length + 1}`, tools: [], status: "running" };
+  const entry: UiTurnActivityEntry = { id: nextActivityId(thread), tools: [], status: "running" };
   thread.adapterActivity.push(entry);
   return entry;
 }

@@ -183,6 +183,14 @@ describe("handleBackendRuntimeEvent", () => {
     expect(saved[0]!.tools[0]!.status).toBe("running");
   });
 
+  it("numbers a new turn past the turns a runtime kept, even when older ones were dropped", () => {
+    const thread = makeThread();
+    const { services } = makeServices();
+    thread.adapterActivity = [{ id: "activity-thread-1-7", status: "completed", tools: [tool] }, { id: "activity-thread-1-9", status: "interrupted", tools: [tool] }];
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    expect(thread.adapterActivity.at(-1)!.id).toBe("activity-thread-1-10");
+  });
+
   it("logs a runtime that fails to keep the activity instead of failing the turn", async () => {
     const thread = makeThread({ activityHistory: { load: async () => [], save: async () => { throw new Error("disk full"); } } });
     const { services, logs } = makeServices();
