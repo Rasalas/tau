@@ -1086,24 +1086,6 @@ button > svg { pointer-events: none; }
 }
 .composer-frame.stacked { z-index: 2; margin-top: -9px; }
 .composer-frame:focus-within { border-color: var(--line-focus); }
-.composer-attachments {
-  display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 2px;
-}
-.composer-attachment {
-  position: relative; width: 68px; height: 68px; flex: none;
-  border: 1px solid var(--line-control); border-radius: 11px; background: var(--sunken);
-}
-.attachment-preview-button {
-  width: 100%; height: 100%; display: block; overflow: hidden;
-  border: 0; border-radius: 10px; background: transparent; padding: 0; cursor: zoom-in;
-}
-.attachment-preview-button img { width: 100%; height: 100%; display: block; object-fit: cover; }
-.attachment-remove {
-  position: absolute; top: -7px; right: -7px; width: 24px; height: 24px;
-  display: grid; place-items: center; border: 1px solid var(--edge-highlight-strong); border-radius: 50%;
-  background: var(--raised-strong); color: var(--ink-2); cursor: pointer; box-shadow: 0 3px 10px var(--shadow);
-}
-.attachment-remove:hover { background: var(--raised-hover); color: var(--ink); }
 .composer-attachment-error { padding: 7px 16px 0; color: var(--danger); font: 11px/1.4 var(--sans); }
 .composer-command-menu {
   position: absolute; z-index: 30; left: 0; right: 0; bottom: calc(100% + 9px); max-height: 288px; overflow: auto;
@@ -1137,6 +1119,41 @@ button > svg { pointer-events: none; }
   outline: none; min-height: 46px; max-height: 220px; overflow-y: hidden;
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
+/* Chips in the text: the textarea's own glyphs turn transparent and the mirror behind it draws them with the same metrics. */
+.composer-input { position: relative; }
+.composer-frame textarea.mirrored { position: relative; z-index: 1; color: transparent; caret-color: var(--ink); }
+.composer-mirror {
+  position: absolute; left: 0; top: 0; overflow: hidden; pointer-events: none; box-sizing: border-box;
+  padding: calc(13px * var(--density)) var(--space-6) var(--space-3); line-height: 1.55; color: var(--ink);
+  font-family: var(--prompt-font-family, inherit); font-size: var(--prompt-font-size, 13px);
+  font-weight: 400; font-style: normal; font-variant: normal; font-stretch: normal; letter-spacing: normal; word-spacing: normal;
+  text-transform: none; text-indent: 0; tab-size: 8; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+}
+.composer-mirror-chip {
+  position: relative; border-radius: 5px; background: var(--chip); color: var(--ink);
+  box-shadow: 0 0 0 2px var(--chip), 0 0 0 3px var(--line-control); -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.composer-mirror-chip.failed { box-shadow: 0 0 0 2px var(--chip), 0 0 0 3px var(--danger-line); color: var(--danger); }
+.composer-mirror-chip.busy { color: var(--muted); }
+.composer-mirror-chip.busy .composer-chip-icon { animation: blink 1.2s var(--ease) infinite; }
+.composer-mirror-chip.unresolved { background: transparent; box-shadow: none; outline: 1px dashed var(--line-control); outline-offset: 1px; color: var(--muted); }
+.composer-chip-slot { position: relative; }
+.composer-chip-icon, .composer-chip-thumb { position: absolute; left: 1px; top: 50%; width: 11px; height: 11px; transform: translateY(-50%); color: var(--muted); }
+.composer-chip-thumb { border-radius: 2px; object-fit: cover; }
+.composer-mirror-mention { color: var(--info); }
+.composer-mirror-skill { border-radius: 4px; background: var(--chip); box-shadow: 0 0 0 2px var(--chip); }
+.composer-chip-list { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.composer-chip-popover { width: 300px; display: flex; flex-direction: column; gap: 8px; font: 12px/1.45 var(--sans); color: var(--ink-2); }
+.composer-chip-popover > header { display: flex; align-items: center; gap: 8px; }
+.composer-chip-popover > header > strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 500; }
+.composer-chip-popover > header > button {
+  flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--muted); cursor: pointer;
+}
+.composer-chip-popover > header > button:hover { background: var(--raised-hover); color: var(--danger); }
+.composer-chip-title { margin: 0; color: var(--muted); font: 11px/1.45 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 96px; overflow: auto; }
+.composer-chip-preview { padding: 0; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--sunken); cursor: zoom-in; overflow: hidden; }
+.composer-chip-preview img { display: block; width: 100%; max-height: 160px; object-fit: contain; }
 .composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) calc(10px * var(--density)) calc(10px * var(--density)) var(--space-5); }
 /* One row: blocks after the model drop their labels, then move into the overflow menu (ComposerFooterControls). */
 .composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; }

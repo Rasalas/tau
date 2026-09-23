@@ -16,6 +16,7 @@ import { expandFileMentions } from "../file-mention-expander.js";
 import type { ComposerInlineContext, ComposerInlineContribution, DocumentSourceContribution } from "../extension-system";
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
+import { plainChipText } from "./composer-chips";
 
 /** `alternate` is a plain send with the modifier held, which an extension may claim for a new thread. */
 export type ComposerDelivery = "followUp" | "steer" | "alternate";
@@ -170,7 +171,7 @@ export function useComposerSubmission({
             fileAttachments: inlineContext?.fileAttachments ?? false,
             imageInput: inlineContext?.imageInput ?? false,
             ...(inlineContext?.snapshot ? { snapshot: inlineContext.snapshot } : {}),
-            text: handle.text,
+            text: plainChipText(handle.text),
           });
         } catch (error) {
           handle.settle({ accepted: false, message: errorMessage(error) });
@@ -192,8 +193,10 @@ export function useComposerSubmission({
         attachmentsToSend: UiPromptAttachment[];
       };
       try {
-        const submittedText = handle.text;
-        let skillDraft = selectedSkillDraft(submittedText, selectedSkill);
+        // Chips go as their labels; the skill's range is read on the text as the editor had it.
+        const submittedText = plainChipText(handle.text);
+        let skillDraft = selectedSkillDraft(handle.text, selectedSkill);
+        if (skillDraft) skillDraft = { ...skillDraft, visibleText: plainChipText(skillDraft.visibleText) };
         let promptToSend = submittedText;
         let attachmentsToSend = [...handle.attachments];
 

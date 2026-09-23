@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, Brain, ChevronDown, Paperclip, Sparkles, Terminal, X } from "lucide-react";
 import type {
@@ -54,7 +54,10 @@ import {
   selectedSkillDraft,
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
-import { ComposerAttachmentsList } from "./ComposerAttachments";
+import { ComposerInput } from "./ComposerInput";
+import { ComposerChipPopover } from "./ComposerChipPopover";
+import { useComposerChips } from "./useComposerChips";
+import { findChipTokens, plainChipText } from "./composer-chips";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
@@ -205,21 +208,9 @@ export function Composer({
   const [escapedToken, setEscapedToken] = useState<string>();
   const [selectedSkill, setSelectedSkill] = useState<SelectedSkill>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chipInsertAt = useRef<number | undefined>(undefined);
   const [isExpanded, setIsExpanded] = useState(false);
   const text = value ?? activeScopeSnapshot.draft;
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    const contentHeight = textarea.scrollHeight;
-    if (contentHeight <= 0) {
-      textarea.style.height = "";
-      return;
-    }
-    const currentMaxHeight = isExpanded ? 520 : MAX_COMPOSER_HEIGHT;
-    textarea.style.height = `${Math.min(contentHeight, currentMaxHeight)}px`;
-    textarea.style.overflowY = contentHeight > currentMaxHeight ? "auto" : "hidden";
-  }, [isExpanded, text, textareaRef]);
   // Extensions contribute slash commands and the rest of the toolbar; outside
   // the workbench shell (tests, previews) there are none.
   const registry = useContext(WorkbenchShellContext)?.registry;
@@ -407,6 +398,7 @@ export function Composer({
     if (trigger?.kind !== "extension" || !extensionTrigger) return;
     const next = `${text.slice(0, trigger.start)}${text.slice(trigger.end)}`;
     const nextCaret = trigger.start;
+    chipInsertAt.current = nextCaret;
     updateDraft(next);
     setCaret(nextCaret);
     setCommandMenuDismissed(true);
@@ -504,7 +496,8 @@ export function Composer({
     return () => { for (const unsubscribe of unsubscribers) unsubscribe?.(); };
   }, [inlines]);
   const readInlineContent = useCallback(
-    () => inlines.some((inline) => inline.hasContent?.(attachmentScope) === true),
+    // A chip is text: a contribution with chips has content when its tokens are in the draft.
+    () => inlines.some((inline) => !inline.chips && inline.hasContent?.(attachmentScope) === true),
     [attachmentScope, inlines],
   );
   const inlineHasContent = useSyncExternalStore(subscribeInlines, readInlineContent, readInlineContent);
@@ -557,7 +550,7 @@ export function Composer({
   const thinkingSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
-  const { preview, setPreviewId, clearPreviewForScope, addFiles, removeAttachment } = useComposerAttachments({
+  const { preview, setPreviewId, clearPreviewForScope, addFiles } = useComposerAttachments({
     scopeStore,
     scope: attachmentScope,
     attachments,
@@ -565,6 +558,28 @@ export function Composer({
     attachmentRef,
     ...(inlineTakesFiles ? { takeFiles } : {}),
   });
+
+  const chips = useComposerChips({
+    scope: attachmentScope,
+    text,
+    draftStorageKey,
+    clientStorage,
+    inlines,
+    attachments,
+    scopeStore,
+    textareaRef,
+    insertAt: chipInsertAt,
+    paused: activeScopeSnapshot.submissionPending,
+    updateDraft,
+    setCaret,
+  });
+  const [openChip, setOpenChip] = useState<{ label: string; point: { x: number; y: number } }>();
+  const chipTokens = useMemo(() => findChipTokens(text), [text]);
+  const openChipPopover = (label: string, anchor?: HTMLElement | null) => {
+    const drawn = anchor ?? [...document.querySelectorAll<HTMLElement>(".composer-mirror [data-chip]")].find((element) => element.dataset.chip === label);
+    const rect = (drawn ?? textareaRef.current)?.getBoundingClientRect();
+    setOpenChip({ label, point: { x: rect?.left ?? 0, y: rect?.top ?? 0 } });
+  };
 
   const { submit: submitPrompt } = useComposerSubmission({
     scopeStore,
@@ -594,7 +609,7 @@ export function Composer({
     if (held) return;
     if (activeScopeSnapshot.submissionPending) return;
     const intent = classifyComposerInput({
-      text,
+      text: plainChipText(text),
       answerable: Boolean(answerable),
       promptActionAvailable: Boolean(promptSubmit && !promptSubmit.disabled),
       shellActionAvailable: onRunShellAction !== undefined,
@@ -619,7 +634,11 @@ export function Composer({
         });
         return;
       case "prompt": {
-        if (gated) { submitPrompt(intent.delivery); return; }
+        if (gated) {
+          chips.dropOrphans(text);
+          submitPrompt(intent.delivery);
+          return;
+        }
         const runtime = runtimeChoice?.kind ?? snapshot?.backendKind;
         const model = draftOnOtherRuntime ? undefined : snapshot?.model;
         passGates(
@@ -632,6 +651,7 @@ export function Composer({
   }, [
     activeScopeSnapshot.submissionPending,
     answerable,
+    chips,
     held,
     onAnswerPrompt,
     onNotify,
@@ -750,11 +770,6 @@ export function Composer({
           void addFiles(event.clipboardData.files);
         }}
       >
-        <ComposerAttachmentsList
-          attachments={attachments}
-          onPreview={(id) => setPreviewId(id)}
-          onRemove={(id) => removeAttachment(id)}
-        />
         {inlines.map((inline) => inline.Component ? (
           <LazyFeatureBoundary
             key={inline.id}
@@ -791,20 +806,22 @@ export function Composer({
             <small>↵ accept · esc cancel · ctrl+r cycle</small>
           </div>
         ) : null}
-        <textarea
-          ref={textareaRef}
-          rows={1}
+        <ComposerInput
+          textareaRef={textareaRef}
           value={text}
-          onChange={(event) => {
+          maxHeight={isExpanded ? 520 : MAX_COMPOSER_HEIGHT}
+          skill={selectedSkill && text.slice(selectedSkill.start, selectedSkill.end) === selectedSkill.invocation ? selectedSkill : undefined}
+          lookChip={chips.lookChip}
+          onValueChange={(next, nextCaret) => {
             if (promptHistoryRef.current.isNavigating) {
               promptHistoryRef.current.resetCursor();
             }
-            updateDraft(event.target.value);
-            setCaret(event.target.selectionStart);
+            updateDraft(next);
+            setCaret(nextCaret);
             setCommandMenuDismissed(false);
           }}
-          onClick={(event) => setCaret(event.currentTarget.selectionStart)}
-          onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
+          onCaret={setCaret}
+          onOpenChip={openChipPopover}
           onKeyDown={(event) => {
             if (historySearch.handleSearchKeyDown(event)) {
               return;
@@ -906,6 +923,17 @@ export function Composer({
                 : sendHint(sendShortcut, streaming, streamingBase)
           }
         />
+        {chipTokens.length > 0 ? (
+          // For a screen reader and the keyboard's browse mode; the pointer clicks the chip itself.
+          <div className="composer-chip-list" role="group" aria-label="Chips in the prompt">
+            {chipTokens.map((token, index) => {
+              const image = chips.chipFor(token.label)?.image;
+              return image
+                ? <button key={index} type="button" tabIndex={-1} aria-label={`Preview ${image.name}`} onClick={() => setPreviewId(image.id)} />
+                : <button key={index} type="button" tabIndex={-1} aria-label={`Chip ${token.label}`} onClick={() => openChipPopover(token.label)} />;
+            })}
+          </div>
+        ) : null}
 
         <div className="composer-toolbar">
           <ComposerFooterControls
@@ -1067,6 +1095,19 @@ export function Composer({
         </div>
       </div>
 
+      {openChip ? (
+        <ComposerChipPopover
+          label={openChip.label}
+          point={openChip.point}
+          entry={chips.chipFor(openChip.label)}
+          scope={attachmentScope}
+          registry={registry}
+          onNotify={onNotify}
+          onPreview={(id) => setPreviewId(id)}
+          onRemove={() => chips.removeChip(openChip.label)}
+          onClose={() => setOpenChip(undefined)}
+        />
+      ) : null}
       {preview ? createPortal(
         <div className="attachment-lightbox" role="dialog" aria-modal="true" aria-label={preview.name} onMouseDown={() => setPreviewId(undefined)}>
           <figure onMouseDown={(event) => event.stopPropagation()}>
