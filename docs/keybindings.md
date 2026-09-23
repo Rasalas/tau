@@ -131,6 +131,9 @@ reach the workbench as usual.
   composer, which Tau keeps for Pi's thinking-level cycle.
 - `composer.*` commands click the composer control that carries their id in
   `data-composer-shortcut`; a control another kit draws can answer the same way.
+  The attribute is a space-separated list, matched with `~=`: when a narrow
+  composer moves controls into its overflow menu, the menu's trigger carries
+  the ids of the controls inside, so the chord opens that menu instead.
 - Inside the composer ⌘⇧↵ sends the oldest queued message whatever the send
   setting, and leaves the draft where it is. "Switch
   project…" has no chord: T3 Code has no counterpart, and the palette finds

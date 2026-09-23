@@ -1398,6 +1398,51 @@ describe("Workspace Kit in the workbench", () => {
     expect(await screen.findByRole("button", { name: "feat-worktree-label" })).toBeTruthy();
     expect(getWorkspaceInfo).toHaveBeenLastCalledWith();
   });
+
+  it("leaves out the branch each project names as its default, and shows main where it is not", async () => {
+    const thread = (id: string, projectPath: string, projectLabel: string) => ({
+      id, path: `/sessions/${id}.jsonl`, title: id, modifiedAt: 1, projectPath, projectName: projectPath.slice(1), projectLabel, messageCount: 1,
+    });
+    const sessions = [thread("on-trunk", "/trunk", "trunk"), thread("main-on-trunk", "/trunk", "main"), thread("on-main", "/classic", "main")];
+    const getDefaultBranch = vi.fn(async (workspace?: string) => workspace === "/trunk" ? "trunk" : "main");
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/trunk", name: "trunk", lastOpenedAt: 2 }, { path: "/classic", name: "classic", lastOpenedAt: 1 }],
+          sessions,
+        },
+        detail: { sessionId: "on-trunk", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "on-trunk", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/trunk" },
+      }),
+      invokeHostExtension: workspaceHostStub({ getDefaultBranch }),
+    });
+    // A labelled section draws full rows without the virtual list jsdom cannot measure.
+    const organizing: DesktopExtension = {
+      id: "test.organizer",
+      name: "Organizer",
+      activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => store.registerThreadRailOrganizer({
+        subscribe: () => () => undefined,
+        getVersion: () => 1,
+        sections: (threads) => [{ id: "active", threads: [] }, { id: "all", label: "All", threads: [...threads] }],
+        menu: () => [],
+        runMenu: () => undefined,
+        toggleSettled: () => undefined,
+        dropLabel: () => undefined,
+        drop: () => undefined,
+      })),
+    };
+    renderApp(client, { extensions: [workspaceExtension, organizing] });
+
+    const branchOf = (title: string) => screen.getByText(title).closest(".thread-row")?.querySelector(".thread-branch")?.textContent ?? null;
+    await screen.findByText("on-main");
+    await waitFor(() => expect(branchOf("main-on-trunk")).toBe("main"));
+    expect(branchOf("on-trunk")).toBeNull();
+    expect(branchOf("on-main")).toBeNull();
+    // Once per project, however many rows it has.
+    expect(getDefaultBranch.mock.calls.map(([workspace]) => workspace).sort()).toEqual(["/classic", "/trunk"]);
+  });
 });
 
 describe("the turn changes dock", () => {

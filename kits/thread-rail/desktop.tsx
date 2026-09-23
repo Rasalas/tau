@@ -9,6 +9,7 @@ import {
   type DesktopExtensionContext,
   type NewThreadClaimEvent,
   type PreferencesStore,
+  type RegionProps,
   type SettingsPageProps,
   type UiSession,
   type WorkbenchActions,
@@ -92,6 +93,21 @@ function createFanOutChip(selection: FanOutSelection, workspace: () => Workspace
           />
         ) : null}
       </span>
+    );
+  };
+}
+
+/** T3 Code's quiet bar over a settled thread's composer, with the way back. */
+function createSettledNote(store: RailStore, unsettle: (threadId: string) => void) {
+  return function SettledNote({ snapshot, actions }: RegionProps) {
+    useSyncExternalStore(store.subscribe, store.getVersion);
+    const threadId = snapshot?.sessionId;
+    if (!threadId || actions.activeThread()?.draftPending || store.getState().threads[threadId]?.settledAt === undefined) return null;
+    return (
+      <div className="thread-rail-settled-note" role="status">
+        <span>This thread is settled</span>
+        <button type="button" onClick={() => unsettle(threadId)}>Un-settle</button>
+      </div>
     );
   };
 }
@@ -334,6 +350,7 @@ export const threadRailExtension: DesktopExtension = {
         };
       }),
       context.registerModelSelection(selection),
+      context.registerRegion({ id: "thread-rail.settled-note", placement: "composer-above", order: 90, profiles: ["desktop", "web"], Component: createSettledNote(store, organizer.toggleSettledById) }),
       context.registerComposerControl({ id: "thread-rail.fan-out", placement: "toolbar", order: 30, profiles: ["desktop"], Component: createFanOutChip(selection, () => workspace) }),
       context.registerPromptHook({
         id: "thread-rail.start",

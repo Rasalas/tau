@@ -93,10 +93,27 @@ describe("Message reasoning presentation", () => {
     timestamp: 0,
   } as const;
 
-  it("leaves thinking out of a focused transcript", () => {
+  it("folds thinking into one Thought row before the answer in a focused transcript", () => {
     const view = render(<TestProviders><Message message={reasoning} /></TestProviders>);
     expect(screen.getByText("Visible answer")).toBeTruthy();
-    expect(view.container.querySelector("details.message-thinking")).toBeNull();
+    const details = view.container.querySelector("details.message-thinking") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toBe("Thought");
+    expect(details.compareDocumentPosition(screen.getByText("Visible answer")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("Internal reasoning summary")).toBeNull();
+    details.open = true;
+    fireEvent(details, new Event("toggle", { bubbles: false }));
+    expect(screen.getByText("Internal reasoning summary")).toBeTruthy();
+  });
+
+  it("keeps the reader's toggle with the transcript, so a recycled row opens as it was left", () => {
+    const onToggleExpanded = vi.fn();
+    const view = render(<TestProviders><Message message={reasoning} onToggleExpanded={onToggleExpanded} expanded /></TestProviders>);
+    const details = view.container.querySelector("details.message-thinking") as HTMLDetailsElement;
+    expect(details.open).toBe(true);
+    details.open = false;
+    fireEvent(details, new Event("toggle", { bubbles: false }));
+    expect(onToggleExpanded).toHaveBeenCalledWith("assistant", false);
   });
 
   it("shows thinking open from detailed, and still lets the reader close it", () => {

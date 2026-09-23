@@ -6,6 +6,7 @@ import { unified } from "unified";
 import type { HLJSApi, LanguageFn } from "highlight.js";
 import { Check, Copy, WrapText } from "lucide-react";
 import { tooltipProps } from "./ui/Tooltip";
+import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
 import { remarkGfm } from "./remark-gfm-parse";
 type LanguageDefinition = LanguageFn;
@@ -293,6 +294,16 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
 
 type CodeChild = ReactElement<{ className?: string; children?: ReactNode }>;
 
+// A relative path with a directory and an extension, or a bare name of a common source file.
+const PATH_IN_CODE = /^(?:\.{1,2}\/)?(?:[\w@.-]+\/)+[\w@.-]*\w\.[A-Za-z0-9]{1,8}$/u;
+const FILE_IN_CODE = /^[\w@-][\w@.-]*\.(?:[cm]?[jt]sx?|json|md|css|html|py|rs|go|toml|ya?ml|sh)$/u;
+
+/** The file name an inline code span names, when it reads as a workspace path. */
+export function inlineCodeFile(text: string): string | undefined {
+  if (!PATH_IN_CODE.test(text) && !FILE_IN_CODE.test(text)) return undefined;
+  return text.slice(text.lastIndexOf("/") + 1);
+}
+
 const COMPONENTS: Components = {
   // `pre` owns fenced blocks; the nested `code` is read for its text and language
   // and never rendered, so the `code` override below only ever sees inline spans.
@@ -302,6 +313,12 @@ const COMPONENTS: Components = {
     const language = /language-([\w-]+)/u.exec(props.className ?? "")?.[1];
     const code = String(props.children ?? "").replace(/\n$/u, "");
     return <CodeBlock code={code} language={language} />;
+  },
+  // As T3 Code: a path in inline code reads as a file chip with its name; the path is its tooltip.
+  code({ children }) {
+    const name = typeof children === "string" ? inlineCodeFile(children) : undefined;
+    if (!name) return <code>{children}</code>;
+    return <code className="md-file-chip" {...tooltipProps(children as string, { variant: "code" })}><FileKindIcon name={name} size={12} />{name}</code>;
   },
   a({ href, children }) {
     return <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>;

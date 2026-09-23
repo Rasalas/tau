@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { ChevronDown, ChevronRight, Plus, Search, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
@@ -8,7 +8,8 @@ import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { runtimeUpdate } from "../runtime-update";
 import { modelKey, pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
-import { useFocusReturn, useFocusTrap } from "./ui/focus";
+import { Popover } from "./ui/Dialog";
+import { useFocusTrap } from "./ui/focus";
 import { VirtualList } from "./VirtualList";
 
 const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
@@ -69,6 +70,8 @@ export function ModelPicker({
   onNewThreadOnRuntime,
   badges = NO_BADGES,
   multiSelect,
+  anchor,
+  side = "top",
 }: {
   models: readonly UiModel[];
   activeKey?: string;
@@ -88,6 +91,10 @@ export function ModelPicker({
   badges?: readonly ModelBadgeContribution[];
   /** Shift-click builds a set of models here instead of picking one; a new thread's picker only. */
   multiSelect?: ModelSelectionContribution;
+  /** The control the picker opens beside, as T3 Code's picker at its chip. */
+  anchor: RefObject<HTMLElement | null>;
+  /** Where it prefers to open; it flips when that side has no room. */
+  side?: "top" | "bottom";
 }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -97,7 +104,7 @@ export function ModelPicker({
   const [expandedLegacy, setExpandedLegacy] = useState<ReadonlySet<string>>(() => new Set());
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const surfaceRef = useRef<HTMLElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const draft = onSelectRuntime !== undefined;
   const threadRuntime = runtime ?? catalogRuntime ?? DEFAULT_RUNTIME;
   const chosen = useSyncExternalStore(
@@ -149,11 +156,11 @@ export function ModelPicker({
     setExpandedLegacy((held) => held.has(group) ? held : new Set([...held, group]));
   }, [activeKey, catalogRuntime, entries]);
 
+  // Again after the add-provider form, which a popover picker gives its place to.
   useEffect(() => {
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, []);
-  useFocusReturn(true, surfaceRef);
-  useFocusTrap(surfaceRef);
+    if (!addProviderOpen) requestAnimationFrame(() => inputRef.current?.focus());
+  }, [addProviderOpen]);
+  useFocusTrap(surfaceRef, !addProviderOpen);
 
   const needle = query.trim().toLowerCase();
 
@@ -271,143 +278,146 @@ export function ModelPicker({
   };
   const inUse = (key: string) => key === activeKey && threadRuntime === (catalogRuntime ?? DEFAULT_RUNTIME);
 
-  return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <section
-        ref={surfaceRef}
-        className="model-picker"
-        data-keybinding-context="modelPicker"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Select model"
-        onMouseDown={(event) => event.stopPropagation()}
-        onKeyDown={onKeyDown}
-      >
-        <div className="model-picker-body">
-          <nav className="model-rail" aria-label="Providers">
-            {rail.map((item) => (
-              <button
-                key={item.key}
-                className={[
-                  !needle && item.key === tab ? "active" : "",
-                  item.kind === "runtime" && !item.listed && !draft && item.backend.kind !== threadRuntime ? "elsewhere" : "",
-                ].filter(Boolean).join(" ")}
-                aria-label={tabLabel(item)}
-                aria-pressed={!needle && item.key === tab}
-                title={tabTitle(item)}
-                onClick={() => { setQuery(""); setTab(item.key); }}
-              >
-                {item.kind === "favourites"
-                  ? <Star size={16} fill="currentColor" />
-                  : item.kind === "provider"
-                    ? <ProviderIconStack modelProvider={item.provider} className="rail-icon" />
-                    : <ProviderIconStack runtimeProvider={item.backend.kind} className="rail-icon" />}
-              </button>
-            ))}
-          </nav>
+  const content: ReactNode = (
+    <div
+      ref={surfaceRef}
+      className="model-picker-content"
+      data-keybinding-context="modelPicker"
+      onKeyDown={onKeyDown}
+    >
+      <div className="model-picker-body">
+        <nav className="model-rail" aria-label="Providers">
+          {rail.map((item) => (
+            <button
+              key={item.key}
+              className={[
+                !needle && item.key === tab ? "active" : "",
+                item.kind === "runtime" && !item.listed && !draft && item.backend.kind !== threadRuntime ? "elsewhere" : "",
+              ].filter(Boolean).join(" ")}
+              aria-label={tabLabel(item)}
+              aria-pressed={!needle && item.key === tab}
+              title={tabTitle(item)}
+              onClick={() => { setQuery(""); setTab(item.key); }}
+            >
+              {item.kind === "favourites"
+                ? <Star size={16} fill="currentColor" />
+                : item.kind === "provider"
+                  ? <ProviderIconStack modelProvider={item.provider} className="rail-icon" />
+                  : <ProviderIconStack runtimeProvider={item.backend.kind} className="rail-icon" />}
+            </button>
+          ))}
+        </nav>
 
-          <div className="model-main">
-            <div className="palette-input-wrap model-search">
-              <Search size={15} />
-              <input
-                ref={inputRef}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search models…"
-                aria-label="Search models"
-              />
-              <kbd>esc</kbd>
-              <button
-                className="model-provider-add"
-                aria-label="Add custom model provider"
-                title="Add custom model provider"
-                onClick={() => setAddProviderOpen(true)}
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-
-            {elsewhere ? (
-              <div className="model-runtime-pane" role="region" aria-label={elsewhere.label}>
-                <ProviderIconStack runtimeProvider={elsewhere.kind} className="runtime-pane-icon" />
-                <strong>{elsewhere.label}</strong>
-                <p>{elsewhere.kind === threadRuntime
-                  ? `This thread starts on ${elsewhere.label} with its default model. Its models are listed once the thread exists.`
-                  : draft
-                    ? `${elsewhere.label} runs the thread instead of ${threadRuntimeName}; choose it to pick one of its models.`
-                    : `This thread runs on ${threadRuntimeName}, and a thread keeps the runtime it started on. ${elsewhere.label} runs a thread of its own.`}</p>
-                {paneAction ? <button className="primary" onClick={paneAction.run}>{paneAction.label}</button> : null}
-              </div>
-            ) : <VirtualList
-              items={rows}
-              itemHeight={ROW_HEIGHT}
-              className="model-list"
-              scrollToIndex={cursor}
-              empty={<p className="palette-empty">{needle ? `No model matches “${query}”.` : "No models from this provider."}</p>}
-              renderItem={(row, index) => row.kind === "legacy"
-                ? <div key={row.key} className={`model-row model-legacy ${index === cursor ? "selected" : ""}`} onMouseMove={() => setCursor(index)}>
-                  <button className="model-choose" aria-expanded={row.expanded} onClick={() => toggleLegacy(row.group)}>
-                    <span className="model-line"><strong>Legacy models</strong></span>
-                    <small className="model-sub">{row.count} {row.count === 1 ? "model" : "models"}</small>
-                  </button>
-                  <span className="model-chevron">{row.expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
-                </div>
-                : <div
-                  key={row.key}
-                  data-provider={row.entry.model.provider}
-                  className={`model-row ${index === cursor ? "selected" : ""} ${inUse(row.key) ? "current" : ""}`}
-                  onMouseMove={() => setCursor(index)}
-                >
-                  <button className="model-choose" onClick={(event) => choose(row.entry, event.shiftKey)}>
-                    <span className="model-line">
-                      <strong>{row.entry.model.name}</strong>
-                      {row.entry.presentation.badge === "new" ? <span className="model-badge model-badge-new">NEW</span> : null}
-                      {needle && row.entry.presentation.legacy ? <span className="model-badge">legacy</span> : null}
-                      {row.entry.model.login === "subscription" ? <span className="model-badge">subscription login</span> : null}
-                      {badges.filter((badge) => wears(badge, row.entry.model, catalogRuntime)).map((badge) => (
-                        <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
-                      ))}
-                    </span>
-                    <small className="model-sub">
-                      <ProviderIconStack modelProvider={row.entry.model.provider} runtimeProvider={catalogRuntime} className="sub-icon" />
-                      {providerLabel(row.entry.model.provider)}
-                      <span className="model-id">{row.entry.model.id}</span>
-                    </small>
-                  </button>
-                  {inUse(row.key) && chosen.length === 0 ? <em>in use</em> : null}
-                  {chosen.includes(row.key) ? <em className="model-chosen">{selectedLabel(chosen, row.key)}</em> : null}
-                  {row.entry.jump ? <kbd className="model-kbd">⌘{row.entry.jump}</kbd> : null}
-                  <button className={`model-star ${row.entry.favourite ? "on" : ""}`} aria-label={row.entry.favourite ? `Unfavourite ${row.entry.model.name}` : `Favourite ${row.entry.model.name}`} aria-pressed={row.entry.favourite} onClick={() => preferences.toggleFavouriteModel(row.key)}><Star size={14} fill={row.entry.favourite ? "currentColor" : "none"} /></button>
-                </div>}
-            />}
+        <div className="model-main">
+          <div className="palette-input-wrap model-search">
+            <Search size={15} />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search models…"
+              aria-label="Search models"
+            />
+            <kbd>esc</kbd>
+            <button
+              className="model-provider-add"
+              aria-label="Add custom model provider"
+              title="Add custom model provider"
+              onClick={() => setAddProviderOpen(true)}
+            >
+              <Plus size={14} />
+            </button>
           </div>
+
+          {elsewhere ? (
+            <div className="model-runtime-pane" role="region" aria-label={elsewhere.label}>
+              <ProviderIconStack runtimeProvider={elsewhere.kind} className="runtime-pane-icon" />
+              <strong>{elsewhere.label}</strong>
+              <p>{elsewhere.kind === threadRuntime
+                ? `This thread starts on ${elsewhere.label} with its default model. Its models are listed once the thread exists.`
+                : draft
+                  ? `${elsewhere.label} runs the thread instead of ${threadRuntimeName}; choose it to pick one of its models.`
+                  : `This thread runs on ${threadRuntimeName}, and a thread keeps the runtime it started on. ${elsewhere.label} runs a thread of its own.`}</p>
+              {paneAction ? <button className="primary" onClick={paneAction.run}>{paneAction.label}</button> : null}
+            </div>
+          ) : <VirtualList
+            items={rows}
+            itemHeight={ROW_HEIGHT}
+            className="model-list"
+            scrollToIndex={cursor}
+            empty={<p className="palette-empty">{needle ? `No model matches “${query}”.` : "No models from this provider."}</p>}
+            renderItem={(row, index) => row.kind === "legacy"
+              ? <div key={row.key} className={`model-row model-legacy ${index === cursor ? "selected" : ""}`} onMouseMove={() => setCursor(index)}>
+                <button className="model-choose" aria-expanded={row.expanded} onClick={() => toggleLegacy(row.group)}>
+                  <span className="model-line"><strong>Legacy models</strong></span>
+                  <small className="model-sub">{row.count} {row.count === 1 ? "model" : "models"}</small>
+                </button>
+                <span className="model-chevron">{row.expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+              </div>
+              : <div
+                key={row.key}
+                data-provider={row.entry.model.provider}
+                className={`model-row ${index === cursor ? "selected" : ""} ${inUse(row.key) ? "current" : ""}`}
+                onMouseMove={() => setCursor(index)}
+              >
+                <button className="model-choose" onClick={(event) => choose(row.entry, event.shiftKey)}>
+                  <span className="model-line">
+                    <strong>{row.entry.model.name}</strong>
+                    {row.entry.presentation.badge === "new" ? <span className="model-badge model-badge-new">NEW</span> : null}
+                    {needle && row.entry.presentation.legacy ? <span className="model-badge">legacy</span> : null}
+                    {row.entry.model.login === "subscription" ? <span className="model-badge">subscription login</span> : null}
+                    {badges.filter((badge) => wears(badge, row.entry.model, catalogRuntime)).map((badge) => (
+                      <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
+                    ))}
+                  </span>
+                  <small className="model-sub">
+                    <ProviderIconStack modelProvider={row.entry.model.provider} runtimeProvider={catalogRuntime} className="sub-icon" />
+                    {providerLabel(row.entry.model.provider)}
+                    <span className="model-id">{row.entry.model.id}</span>
+                  </small>
+                </button>
+                {inUse(row.key) && chosen.length === 0 ? <em>in use</em> : null}
+                {chosen.includes(row.key) ? <em className="model-chosen">{selectedLabel(chosen, row.key)}</em> : null}
+                {row.entry.jump ? <kbd className="model-kbd">⌘{row.entry.jump}</kbd> : null}
+                <button className={`model-star ${row.entry.favourite ? "on" : ""}`} aria-label={row.entry.favourite ? `Unfavourite ${row.entry.model.name}` : `Favourite ${row.entry.model.name}`} aria-pressed={row.entry.favourite} onClick={() => preferences.toggleFavouriteModel(row.key)}><Star size={14} fill={row.entry.favourite ? "currentColor" : "none"} /></button>
+              </div>}
+          />}
         </div>
+      </div>
 
-        {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
-        {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
+      {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
+      {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
 
-        <footer>
+      <footer>
+        {anchor ? null : <>
           <span>↑↓ navigate</span>
           <span>↵ select</span>
           <span>⌥↵ favourite</span>
           <span>⌘1–9 favourite n</span>
-          {multiSelect ? <span>{chosen.length > 1 ? `${chosen.length} models chosen` : "⇧click add a model"}</span> : null}
-          <span className="spacer" />
-          <span>{entries.length} models · {new Set(entries.map((entry) => entry.model.provider)).size} providers</span>
-        </footer>
-      </section>
-      {addProviderOpen ? (
-        <Suspense fallback={null}>
-          <LazyAddModelProviderModal
-            onClose={() => setAddProviderOpen(false)}
-            onProviderAdded={(newModels) => {
-              setAddProviderOpen(false);
-              const latest = newModels[newModels.length - 1];
-              if (latest) setTab(railKeyForModel(latest.provider, catalogRuntime));
-            }}
-          />
-        </Suspense>
-      ) : null}
+        </>}
+        {multiSelect ? <span>{chosen.length > 1 ? `${chosen.length} models chosen` : "⇧click add a model"}</span> : null}
+        <span className="spacer" />
+        <span>{entries.length} models · {new Set(entries.map((entry) => entry.model.provider)).size} providers</span>
+      </footer>
     </div>
+  );
+  const addProvider = addProviderOpen ? (
+    <Suspense fallback={null}>
+      <LazyAddModelProviderModal
+        onClose={() => setAddProviderOpen(false)}
+        onProviderAdded={(newModels) => {
+          setAddProviderOpen(false);
+          const latest = newModels[newModels.length - 1];
+          if (latest) setTab(railKeyForModel(latest.provider, catalogRuntime));
+        }}
+      />
+    </Suspense>
+  ) : null;
+
+  // A press in the form would count as outside the popover, so the form takes the popover's place.
+  return addProvider ?? (
+    <Popover anchor={anchor} side={side} align="start" label="Select model" className="model-picker" onClose={onClose}>
+      {content}
+    </Popover>
   );
 }

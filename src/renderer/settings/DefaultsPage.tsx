@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Plus, Sparkles } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import { TRANSCRIPT_DETAIL_LEVELS, isTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
@@ -76,6 +76,7 @@ export function DefaultsPage({
   onSetThinking(level: string): void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerAnchor = useRef<HTMLButtonElement>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
   const { newThreadRuntime: runtimePreference, sendShortcut } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -115,7 +116,7 @@ export function DefaultsPage({
           title="Model"
           description={`What a new thread starts on, from Pi's configuration in ~/.pi/agent${snapshot?.model?.login === "subscription" ? " (a subscription login)" : ""}. The composer changes it per thread.`}
           control={<div className="settings-row-inline">
-            <button className="settings-field compact" onClick={() => setPickerOpen(true)}>
+            <button ref={pickerAnchor} className="settings-field compact" onClick={() => setPickerOpen((open) => !open)}>
               {snapshot?.model
                 ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={snapshot.backendKind} className="chip-icon" />
                 : <Sparkles size={14} className="accent" />}
@@ -269,6 +270,8 @@ export function DefaultsPage({
           activeKey={snapshot?.model ? modelKey(snapshot.model) : undefined}
           onSelect={(model) => onSetModel(model.provider, model.id)}
           onClose={() => setPickerOpen(false)}
+          anchor={pickerAnchor}
+          side="bottom"
           runtime={snapshot?.backendKind}
         />
       ) : null}

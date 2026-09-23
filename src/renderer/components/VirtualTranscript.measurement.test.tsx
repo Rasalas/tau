@@ -23,6 +23,9 @@ vi.mock("@tanstack/react-virtual", () => ({
         start: index * 180 + (index > 0 ? activityHeight : 0),
       })),
       getTotalSize: () => count * 180 + activityHeight,
+      measurementsCache: [],
+      scrollOffset: 0,
+      scrollRect: null,
       measureElement,
       measure: vi.fn(),
     };
