@@ -115,7 +115,8 @@ export function inlineChip(chip: ChipEntry, Detail?: ComposerInlineChip["Detail"
     id: chip.id,
     label: chip.label,
     icon: chip.error ? AlertCircle : ICONS[chip.kind],
-    title: chip.error ?? chipTitle(chip),
+    // An excerpt's popover shows it in full; a title would say it twice.
+    ...(chip.error || chip.kind !== "text-excerpt" ? { title: chip.error ?? chipTitle(chip) } : {}),
     ...(chip.uploading ? { state: "busy" as const } : chip.error ? { state: "failed" as const } : {}),
     ...(chip.kind === "text-excerpt" && Detail ? { Detail } : {}),
   };

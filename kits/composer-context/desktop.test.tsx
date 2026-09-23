@@ -47,7 +47,8 @@ describe("Composer Context desktop", () => {
     expect(service().chips().map((chip) => chip.id)).toEqual([id]);
     // The strip no longer draws chips; they are in the text.
     expect(screen.queryByText("Terminal")).toBeNull();
-    expect(contribution.chips!.list(SCOPE)[0]).toMatchObject({ id, title: "$ ls" });
+    expect(contribution.chips!.list(SCOPE)[0]).toMatchObject({ id, label: "Terminal" });
+    expect(contribution.chips!.list(SCOPE)[0]?.Detail).toBeDefined();
     act(() => contribution.chips!.remove(SCOPE, id));
     expect(service().chips()).toEqual([]);
   });
