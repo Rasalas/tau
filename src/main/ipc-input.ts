@@ -224,6 +224,15 @@ export function decodeSharedExports(channel: string, field: string, value: unkno
   return result;
 }
 
+/** What a client holds of each runtime's catalog: kind to `checkedAt`. */
+export function decodeKnownCatalogs(channel: string, field: string, value: unknown): Record<string, number> {
+  if (value === undefined || value === null) return {};
+  const item = record(channel, field, value);
+  const known: Record<string, number> = {};
+  for (const [kind, checkedAt] of Object.entries(item).slice(0, 64)) known[kind] = decodeNumber(channel, `${field}.${kind}`, checkedAt);
+  return known;
+}
+
 /** Mirrors the manifest id grammar in extension-packages.ts: lowercase, dot-separated. */
 const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 /** A plain lowercase identifier, matching the names extensions pass to registerCommand. */

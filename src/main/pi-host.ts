@@ -2161,8 +2161,8 @@ export class PiHost {
 
   /** What a runtime offers a thread that does not exist yet, from the host's cache (`RuntimeCatalogs`). */
   runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined> { return this.catalogs.get(kind); }
-  /** Every runtime's; `revalidate` asks again behind the answer those that are some minutes old. */
-  runtimeCatalogs(revalidate = false): Promise<UiRuntimeCatalog[]> { return this.catalogs.list(revalidate); }
+  /** Every runtime's the client does not hold (`known`); `revalidate` asks again behind the answer those some minutes old. */
+  runtimeCatalogs(revalidate = false, known?: Record<string, number>): Promise<UiRuntimeCatalog[]> { return this.catalogs.list(revalidate, known); }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {
     return loadModelsConfig(this.agentDir);

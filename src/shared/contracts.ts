@@ -525,7 +525,7 @@ export interface UiRuntimeCatalog {
    * the runtime named last, if any, and `note` says what failed.
    */
   status?: UiRuntimeCatalogStatus;
-  /** When the host last asked the runtime, in ms since the epoch. */
+  /** When the runtime named this list, in ms since the epoch; an unchanged answer keeps it. */
   checkedAt?: number;
 }
 

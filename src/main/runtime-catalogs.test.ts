@@ -69,15 +69,19 @@ describe("RuntimeCatalogs", () => {
 
     advance(11 * 60_000);
     await expect(cache.list(true)).resolves.toMatchObject([{ kind: "codex", checkedAt: 1_000_000 }]);
-    await vi.waitFor(async () => expect((await cache.list())[0]?.checkedAt).toBe(1_000_000 + 11 * 60_000));
-    expect(load).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    // The same answer: nothing published, nothing sent to a client that holds it.
+    await cache.get("codex");
     expect(published).toHaveLength(1);
+    await expect(cache.list(true, { codex: 1_000_000 })).resolves.toEqual([]);
+    expect(load).toHaveBeenCalledTimes(2);
 
     advance(11 * 60_000);
     answer = { ...ANSWER, models: [LUNA, { ...LUNA, id: "gpt-5.6-sol", name: "GPT-5.6 Sol" }] };
     await cache.list(true);
     await vi.waitFor(() => expect(published).toHaveLength(2));
     expect(published[1]!.models.map((model) => model.id)).toEqual(["gpt-5.6-luna", "gpt-5.6-sol"]);
+    await expect(cache.list(false, { codex: 1_000_000 })).resolves.toHaveLength(1);
   });
 
   it("asks a runtime registered anew even while the old answer is fresh", async () => {

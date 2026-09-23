@@ -52,6 +52,8 @@ export interface RuntimeCatalogsOptions {
 
 interface Held {
   catalog: UiRuntimeCatalog;
+  /** When the runtime was last asked; `catalog.checkedAt` stays at the answer that last changed it. */
+  askedAt: number;
   /** Undefined for an answer read from disk. */
   owner?: object;
 }
@@ -74,14 +76,19 @@ export class RuntimeCatalogs {
 
   constructor(private readonly options: RuntimeCatalogsOptions) {}
 
-  /** Every registered runtime's catalog on hand; `revalidate` asks again, without waiting, those that are no longer fresh. */
-  async list(revalidate = false): Promise<UiRuntimeCatalog[]> {
+  /**
+   * Every registered runtime's catalog on hand, less those a client already
+   * holds (`known`: kind to `checkedAt`); `revalidate` asks again, without
+   * waiting, those that are no longer fresh.
+   */
+  async list(revalidate = false, known: Readonly<Record<string, number>> = {}): Promise<UiRuntimeCatalog[]> {
     await this.restore();
     const sources = this.options.sources();
     if (revalidate) for (const source of sources) if (this.stale(source, this.options.freshMs ?? FRESH_MS)) this.askLater(source);
     return sources.flatMap((source) => {
       const held = this.held.get(source.kind);
-      return held ? [served(held.catalog, source)] : [];
+      const sent = held?.catalog.checkedAt !== undefined && known[source.kind] === held.catalog.checkedAt;
+      return held && !sent ? [served(held.catalog, source)] : [];
     });
   }
 
@@ -131,7 +138,7 @@ export class RuntimeCatalogs {
   private stale(source: RuntimeCatalogSource, maxAgeMs: number): boolean {
     const held = this.held.get(source.kind);
     if (!held || (held.owner !== undefined && held.owner !== source.owner)) return true;
-    return this.now() - (held.catalog.checkedAt ?? 0) >= maxAgeMs;
+    return this.now() - held.askedAt >= maxAgeMs;
   }
 
   private askLater(source: RuntimeCatalogSource): void {
@@ -162,8 +169,7 @@ export class RuntimeCatalogs {
         ? { ...previous, status: "unavailable", note, checkedAt }
         : { kind: source.kind, models: [], thinkingLevels: {}, status: "unavailable", note, checkedAt };
     }
-    this.keep(source, next);
-    return next;
+    return this.keep(source, next);
   }
 
   private bounded(source: RuntimeCatalogSource): Promise<HostRuntimeNewThreadCatalog | undefined> {
@@ -187,11 +193,14 @@ export class RuntimeCatalogs {
     return { ...rest, kind, models: models.map(shown), ...(model ? { model: shown(model) } : {}), checkedAt };
   }
 
-  private keep(source: RuntimeCatalogSource, next: UiRuntimeCatalog): void {
+  private keep(source: RuntimeCatalogSource, next: UiRuntimeCatalog): UiRuntimeCatalog {
     const previous = this.held.get(source.kind)?.catalog;
-    this.held.set(source.kind, { catalog: next, owner: source.owner });
-    if (!previous || !sameCatalog(previous, next)) this.options.publish(served(next, source));
+    // An unchanged answer keeps its `checkedAt`, so a client that holds it is sent nothing.
+    const catalog = previous && sameCatalog(previous, next) ? previous : next;
+    this.held.set(source.kind, { catalog, askedAt: next.checkedAt ?? this.now(), owner: source.owner });
+    if (catalog === next) this.options.publish(served(next, source));
     this.persist();
+    return catalog;
   }
 
   private restore(): Promise<void> {
@@ -202,7 +211,7 @@ export class RuntimeCatalogs {
       ...(this.options.logger ? { logger: this.options.logger } : {}),
     }).then((read) => {
       // An answer that came in while the file was read is newer than the file.
-      for (const catalog of read?.data ?? []) if (!this.held.has(catalog.kind)) this.held.set(catalog.kind, { catalog });
+      for (const { catalog, askedAt } of read?.data ?? []) if (!this.held.has(catalog.kind)) this.held.set(catalog.kind, { catalog, askedAt });
     }, () => undefined);
   }
 
@@ -210,7 +219,11 @@ export class RuntimeCatalogs {
     const file = this.options.file;
     if (!file) return;
     this.writing = this.writing
-      .then(() => writePersistedJson(file, VERSION, { catalogs: [...this.held.values()].map((held) => held.catalog) }, this.options.logger ? { logger: this.options.logger } : {}))
+      .then(() => {
+        const held = [...this.held.values()];
+        const askedAt = Object.fromEntries(held.map((entry) => [entry.catalog.kind, entry.askedAt]));
+        return writePersistedJson(file, VERSION, { catalogs: held.map((entry) => entry.catalog), askedAt }, this.options.logger ? { logger: this.options.logger } : {});
+      })
       .catch(() => undefined);
   }
 
@@ -290,7 +303,14 @@ function decodeCatalog(value: unknown): UiRuntimeCatalog | undefined {
 }
 
 /** The file as written by `persist`; entries it cannot read are left out. */
-export function decodeCatalogs(value: unknown): UiRuntimeCatalog[] | undefined {
+export function decodeCatalogs(value: unknown): Array<{ catalog: UiRuntimeCatalog; askedAt: number }> | undefined {
   const list = record(value)?.catalogs;
-  return Array.isArray(list) ? list.flatMap((entry) => decodeCatalog(entry) ?? []) : undefined;
+  const asked = record(record(value)?.askedAt) ?? {};
+  if (!Array.isArray(list)) return undefined;
+  return list.flatMap((entry) => {
+    const catalog = decodeCatalog(entry);
+    if (!catalog) return [];
+    const askedAt = asked[catalog.kind];
+    return [{ catalog, askedAt: count(askedAt) ? askedAt : catalog.checkedAt ?? 0 }];
+  });
 }

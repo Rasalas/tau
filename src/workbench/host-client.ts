@@ -128,11 +128,12 @@ export interface HostClient {
   /** What a runtime offers a thread that does not exist yet; undefined when it cannot say. */
   runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined>;
   /**
-   * Every runtime's catalog the host holds, stale or not; `revalidate` makes
-   * it ask again those that are some minutes old, and the answers arrive as
-   * `runtime-catalog` events.
+   * Every runtime's catalog the host holds, stale or not, less those the
+   * client names in `known` (kind to `checkedAt`); `revalidate` makes it ask
+   * again those that are some minutes old, and a change arrives as a
+   * `runtime-catalog` event.
    */
-  runtimeCatalogs(revalidate?: boolean): Promise<UiRuntimeCatalog[]>;
+  runtimeCatalogs(revalidate?: boolean, known?: Record<string, number>): Promise<UiRuntimeCatalog[]>;
   addModelProvider(input: CustomProviderInput): Promise<UiModel[]>;
   inspectSystemPrompt(threadId?: string, workspaceId?: string): Promise<SystemPromptInspection>;
   listUserThemes(workspaceId?: string): Promise<UserTheme[]>;
@@ -264,7 +265,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     clearConfig: (keys, scope, workspaceId) => call<ConfigLayers>("clear-config", [keys, scope, workspaceId]),
     getModelsConfig: () => call<CustomProviderConfig[]>("get-models-config"),
     runtimeCatalog: (kind) => call<UiRuntimeCatalog | undefined>("runtime-catalog", [kind]),
-    runtimeCatalogs: (revalidate) => call<UiRuntimeCatalog[]>("runtime-catalogs", [revalidate === true]),
+    runtimeCatalogs: (revalidate, known) => call<UiRuntimeCatalog[]>("runtime-catalogs", [revalidate === true, known ?? {}]),
     addModelProvider: (input) => call<UiModel[]>("add-model-provider", [input]),
     inspectSystemPrompt: (threadId, workspaceId) => call<SystemPromptInspection>("inspect-system-prompt", [threadId, workspaceId]),
     listUserThemes: (workspaceId) => call<UserTheme[]>("list-user-themes", [workspaceId]),

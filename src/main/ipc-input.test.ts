@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeKnownCatalogs,
   decodeBoolean,
   decodeClientTurnIdentity,
   decodeCommandName,
@@ -267,6 +268,15 @@ describe("ipc-input decoders", () => {
     it("rejects a non-string", () => {
       expect(() => decodeCommandName(CHANNEL, 5)).toThrow();
     });
+  });
+});
+
+describe("decodeKnownCatalogs", () => {
+  it("takes kind to checkedAt and nothing else", () => {
+    expect(decodeKnownCatalogs("runtime-catalogs", "known", undefined)).toEqual({});
+    expect(decodeKnownCatalogs("runtime-catalogs", "known", { codex: 5, pi: 7 })).toEqual({ codex: 5, pi: 7 });
+    expect(() => decodeKnownCatalogs("runtime-catalogs", "known", { codex: "5" })).toThrow("known.codex must be a finite number");
+    expect(() => decodeKnownCatalogs("runtime-catalogs", "known", [1])).toThrow("must be an object");
   });
 });
 
