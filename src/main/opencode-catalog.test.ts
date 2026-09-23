@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-import { withOpenCodeCatalog } from "./opencode-catalog.js";
+import { openCodeCatalogSubset, withOpenCodeCatalog } from "./opencode-catalog.js";
 
 const catalog = {
   "opencode-go": {
@@ -33,5 +33,11 @@ describe("OpenCode catalog", () => {
       contextWindow: 262144, maxTokens: 131072, input: ["text", "image"],
     }));
     expect(runtime.getModel("opencode-go", "minimax-m3")).toBeDefined();
+  });
+
+  it("keeps only the providers Tau registers from the whole catalog", () => {
+    const whole = { ...catalog, anthropic: { models: { big: {} } }, openai: { models: {} } };
+    expect(openCodeCatalogSubset(whole, ["opencode-go", "opencode"])).toEqual(catalog);
+    expect(openCodeCatalogSubset("not a catalog", ["opencode"])).toBe("not a catalog");
   });
 });

@@ -73,3 +73,13 @@ export function withOpenCodeCatalog(provider: Provider, catalog: unknown): Provi
   const models = [...provider.getModels(), ...extra];
   return { ...provider, getModels: () => models };
 }
+
+/**
+ * Only the named providers' entries of models.dev's catalog. The whole catalog
+ * parses to several megabytes the process would otherwise hold for an hour.
+ */
+export function openCodeCatalogSubset(catalog: unknown, providerIds: readonly string[]): unknown {
+  const all = record(catalog);
+  if (!all) return catalog;
+  return Object.fromEntries(providerIds.flatMap((id) => (id in all ? [[id, all[id]]] : [])));
+}
