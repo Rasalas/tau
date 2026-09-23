@@ -2,13 +2,10 @@
   "id": "tau.takeover",
   "name": "Takeover",
   "version": "1.0.0",
-  "engines": {
-    "api": "^1.11.0"
-  },
-  "permissions": [
-    "sessions",
-    "runtime:extend"
-  ],
+  "engines": { "api": "^1.11.0" },
+  "permissions": ["sessions", "runtime:extend"],
   "isolation": "in-process",
-  "host": "./host.ts"
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts",
+  "styles": "./styles.css"
 }
