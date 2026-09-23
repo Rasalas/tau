@@ -1,6 +1,6 @@
 import type { UiModel, UiSession, WorkbenchActions } from "tau";
 import { EMPTY_STATE, applyPatches, decodeState } from "./meta.js";
-import type { RailState, ThreadMetaPatch, ThreadSiblingsService } from "./protocol.js";
+import type { RailQuestion, RailState, ThreadMetaPatch, ThreadSiblingsService } from "./protocol.js";
 
 /**
  * The host's thread meta as this client last heard it, plus what the rail
@@ -19,6 +19,8 @@ export class RailStore implements ThreadSiblingsService {
   snoozeDialogFor?: readonly UiSession[];
   /** The thread the rename dialog is open for. */
   renameDialogFor?: UiSession;
+  /** The confirmation on screen, if any. */
+  question?: RailQuestion;
   /** The client's thread index, once the rail has drawn: how a command finds a thread by id. */
   threadStore?: { getSnapshot(): { threads: readonly UiSession[] }; markUnread(threadId: string): void };
   /** The workbench's actions as the rail last saw them, for a page that has none of its own. */
@@ -60,6 +62,14 @@ export class RailStore implements ThreadSiblingsService {
 
   openRename(session: UiSession | undefined): void {
     this.renameDialogFor = session;
+    this.changed();
+  }
+
+  /** Shows a confirmation; a second one while the first is open answers the first no. */
+  ask(question: RailQuestion | undefined): void {
+    const previous = this.question;
+    this.question = question;
+    if (previous && previous !== question) previous.answer(false);
     this.changed();
   }
 

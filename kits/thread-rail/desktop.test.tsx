@@ -23,7 +23,7 @@ const thread = (id: string, modifiedAt = 1): UiSession => ({
 const model = (id: string): UiModel => ({ provider: "openai", id, name: id } as UiModel);
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function setup(options: { isRepo?: boolean; initial?: Partial<RailState> } = {}) {
+function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confirmations?: boolean } = {}) {
   let state: RailState = { threads: {}, settings: { onMerged: true, onClosed: false }, ...options.initial };
   const invoke = vi.fn(async (_extensionId: string, command: string, input?: unknown) => {
     if (command === "state" || command === "import") return state;
@@ -69,6 +69,8 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState> } = {})
   };
   registry.activate({ id: "tau.workspace", name: "Workspace Kit", activate: (context) => context.provideService(WORKSPACE_STORE_SERVICE, workspace) });
   registry.activate(threadRailExtension);
+  // Deleting asks first by default; the tests about the question turn it back on.
+  if (!options.confirmations) preferences.setOption(THREAD_RAIL_EXTENSION_ID, "confirm-delete", false);
   const actions = {
     notify: vi.fn(),
     switchSession: vi.fn(async () => true),
@@ -433,5 +435,78 @@ describe("Thread Rail on the desktop", () => {
     await flush();
     await flush();
     expect(vi.mocked(actions.switchSession).mock.calls.map((call) => call[0])).toEqual(["/sessions/c.jsonl"]);
+  });
+
+  describe("asking first", () => {
+    function renderLayer(registry: ReturnType<typeof setup>["registry"], organizer: () => RailOrganizer, actions: WorkbenchActions) {
+      const Layer = organizer().Layer!;
+      render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+        <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={actions} /></ThreadStoreContext.Provider>
+      </WorkbenchShellContext.Provider>);
+    }
+    const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>(".confirm-dialog button")].find((entry) => entry.textContent === name)!;
+
+    it("asks before deleting by default, and deletes only once the user agrees", async () => {
+      const { registry, organizer, actions, calls } = setup({ confirmations: true });
+      await flush();
+      renderLayer(registry, organizer, actions);
+      organizer().sections([thread("a", 1), thread("b", 2)]);
+      await act(async () => { organizer().runMenu(thread("a"), "delete", actions); await flush(); });
+      expect(document.querySelector(".confirm-dialog h2")?.textContent).toBe("Delete “a”?");
+      await act(async () => { fireEvent.click(button("Cancel")); await flush(); });
+      expect(calls("remove")).toEqual([]);
+      expect(document.querySelector(".confirm-dialog")).toBeNull();
+      await act(async () => { organizer().runMenu(thread("a"), "delete", actions); await flush(); });
+      await act(async () => { fireEvent.click(button("Delete")); await flush(); });
+      expect(calls("remove")).toEqual([{ threadId: "a" }]);
+    });
+
+    it("asks once for a whole selection when archiving is set to ask", async () => {
+      const { registry, organizer, actions, calls, preferences } = setup({ confirmations: true });
+      await flush();
+      preferences.setOption(THREAD_RAIL_EXTENSION_ID, "confirm-archive", true);
+      renderLayer(registry, organizer, actions);
+      const selected = [thread("a", 2), thread("c", 1)];
+      organizer().sections(selected);
+      await act(async () => { organizer().runBulkMenu!(selected, "archive", actions); await flush(); });
+      expect(document.querySelectorAll(".confirm-dialog")).toHaveLength(1);
+      expect(document.querySelector(".confirm-dialog h2")?.textContent).toBe("Archive 2 threads?");
+      await act(async () => { fireEvent.click(button("Archive")); await flush(); await flush(); });
+      expect(calls("archive")).toEqual([{ threadId: "a" }, { threadId: "c" }]);
+    });
+
+    it("unpins without a question by default, and stops asking after Don't ask again", async () => {
+      const { registry, organizer, actions, calls, preferences } = setup({ confirmations: true, initial: { threads: { a: { pinned: true, pinOrder: 0 }, c: { pinned: true, pinOrder: 1 } } } });
+      await flush();
+      renderLayer(registry, organizer, actions);
+      organizer().sections([thread("a"), thread("c")]);
+      await act(async () => { organizer().runMenu(thread("a"), "unpin", actions); await flush(); });
+      expect(document.querySelector(".confirm-dialog")).toBeNull();
+      expect(calls("patch").at(-1)).toMatchObject({ patches: { a: { pinned: null } } });
+
+      preferences.setOption(THREAD_RAIL_EXTENSION_ID, "confirm-unpin", true);
+      await act(async () => { organizer().runMenu(thread("c"), "unpin", actions); await flush(); });
+      expect(document.querySelector(".confirm-dialog h2")?.textContent).toBe("Unpin “c”?");
+      const before = calls("patch").length;
+      await act(async () => {
+        fireEvent.click(document.querySelector<HTMLInputElement>(".confirm-dialog-skip input")!);
+        fireEvent.click(button("Unpin"));
+        await flush();
+      });
+      expect(calls("patch").length).toBe(before + 1);
+      expect(preferences.optionValue(THREAD_RAIL_EXTENSION_ID, "confirm-unpin", true)).toBe(false);
+    });
+
+    it("lets the settings page switch each question", async () => {
+      const { registry, preferences } = setup({ confirmations: true });
+      await flush();
+      const page = registry.getSettingsPages().find((entry) => entry.id === "thread-rail.settings")!;
+      const { getByRole } = render(<page.Component cwd="/project" onNotify={() => undefined} />);
+      const archive = getByRole("switch", { name: "Before archiving a thread" });
+      expect(archive.getAttribute("aria-checked")).toBe("false");
+      expect(getByRole("switch", { name: "Before deleting a thread" }).getAttribute("aria-checked")).toBe("true");
+      act(() => { fireEvent.click(archive); });
+      expect(preferences.optionValue(THREAD_RAIL_EXTENSION_ID, "confirm-archive", false)).toBe(true);
+    });
   });
 });
