@@ -281,10 +281,11 @@ describe("the navigator with agent threads", () => {
     expect(within(rail).queryByText("Alpha reply")).toBeNull();
   });
 
-  it("draws one card for a spawn batch and opens each agent from it", async () => {
+  // Pi names the tool itself; every other runtime reaches it over MCP.
+  it.each(["tau_spawn_thread", "mcp__tau__tau_spawn_thread"])("draws one card for a %s batch and opens each agent from it", async (name) => {
     const spawn = (id: string, threadId: string) => ({
       id,
-      name: "tau_spawn_thread",
+      name,
       args: { prompt: `work on ${threadId}` },
       status: "done" as const,
       output: JSON.stringify({ threadId }),

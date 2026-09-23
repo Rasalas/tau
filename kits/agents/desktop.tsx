@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { Bot, CornerUpLeft } from "lucide-react";
 import { HostUnavailableError, useThreadStore, type DesktopExtension, type RegionProps } from "tau";
-import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, THREAD_SIBLINGS_SERVICE, type ThreadSiblingsService } from "./protocol.js";
+import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, tauToolName, type ThreadSiblingsService } from "./protocol.js";
 import { AgentsPanel } from "./panel.js";
 import { SpawnCard } from "./spawn-card.js";
 import { agentsHost, agentsStore, definitionsStore, lineageOf, siblingsSource } from "./store.js";
@@ -70,7 +70,7 @@ export const agentsExtension: DesktopExtension = {
     // threads it started, so it never folds with the rest of the turn.
     context.registerToolCard({
       id: "agents.spawn",
-      match: (tool) => tool.name === "tau_spawn_thread",
+      match: (tool) => tauToolName(tool.name) === SPAWN_TOOL,
       profiles: ["desktop", "web", "compact"],
       Component: SpawnCard,
     });
