@@ -6,7 +6,7 @@ import { parseCodexSession } from "../../kits/codex/history-import.ts";
 import { APPS } from "./apps.mjs";
 import { codexNotifications } from "./fake-codex.mjs";
 import { assertEnvUnder, forbiddenPaths, openForbiddenFiles, parseLsofNames } from "./isolation.mjs";
-import { descendants, parsePs, processRole } from "./processes.mjs";
+import { descendants, parseFootprint, parsePs, processRole } from "./processes.mjs";
 import { evaluateBudgets, markdownTable, parseArgs } from "./run.mjs";
 import { rolloutLines, sessionPlan, writeCodexSessions } from "./sessions-fixture.mjs";
 import { aggregateRuns, frameStats, percentile } from "./stats.mjs";
@@ -126,6 +126,17 @@ describe("processes", () => {
 
   it("tells the backend from the window and leaves the fake CLI out", () => {
     expect(rows.map((row) => processRole(row.command))).toEqual(["main", "renderer", "backend", "excluded", "other"]);
+  });
+
+  it("reads each process's footprint from macOS's footprint tool", () => {
+    const output = [
+      "======================================================================",
+      "Electron [12]: 64-bit    Footprint: 157286400 B (16384 bytes per page)",
+      "======================================================================",
+      "Electron Helper (Renderer) [11]: 64-bit    Footprint: 2523520 B (16384 bytes per page)",
+      "Summary Footprint: 159809920 B",
+    ].join("\n");
+    expect([...parseFootprint(output)]).toEqual([[12, 157_286_400], [11, 2_523_520]]);
   });
 });
 
