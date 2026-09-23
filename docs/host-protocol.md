@@ -138,9 +138,35 @@ backend keeps; it answers `undefined` for a tool the host no longer has.
 
 A settled `thread-detail` repeats its turn's tools: `turnActivity` is the last
 entry of `turnActivityHistory`. The push leaves it out,
-`thread-detail-compact { update }`, and `HostConnection` puts it back from that
-entry. A detail whose `turnActivity` differs (a running tool's live output)
-travels as it is.
+`thread-detail-compact { update, activityFromHistory: true }`, and
+`HostConnection` puts it back from that entry. A detail whose `turnActivity`
+differs (a running tool's live output) keeps it.
+
+### Answer text travels once
+
+A message's text streams as `assistant-delta` and `assistant-thinking`, and
+its end refers to that:
+`assistant-end-delta { sessionId, message, after, text, thinking? }` is the
+`assistant-end` whose `message` lacks `text` and `thinking`. `text` (and
+`thinking`, when the message has it) is a change to what the message streamed
+as of push `after`, its `assistant-start` or its last delta, in the shape of a
+tool output delta; usually it keeps everything and adds nothing. A thread
+detail then refers to the push that ended a message:
+`thread-detail-compact { update, texts: { [messageId]: seq } }` sends each
+named message with an empty `text` and without `thinking`, which are those of
+the `assistant-end` numbered `seq`. After an `assistant-anchor` the host
+names that message by its persisted entry id too, which is the id a Pi
+detail uses. Both sides forget a thread's ended messages when its next run
+starts, and the host keeps the latest 64 (`REMEMBERED_ENDED_MESSAGES`).
+
+The host sends the whole `assistant-end`, and the whole text in a detail, for
+a message that streamed nothing, for one shorter than 64 characters (a
+reference would cost as much), and for every message that streamed or ended
+before a client said hello without `lastSeq` or was told to resync. A client
+therefore only meets references it can resolve. If it meets one anyway (a
+push it could not decode, say), `HostConnection` drops the push, says hello
+again without `lastSeq` and refetches the bootstrap: a resync, which also makes
+the host send whole texts again.
 
 The socket negotiates `permessage-deflate` with context takeover, the `ws`
 default, so small frames compress against the ones before them. The budget
