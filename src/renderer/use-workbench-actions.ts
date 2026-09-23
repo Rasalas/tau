@@ -177,6 +177,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           workspaceId: snapshot?.workspaceId,
           model: snapshot?.model,
           ...(snapshot?.backendKind ? { backendKind: snapshot.backendKind } : {}),
+          mode: snapshot?.mode ?? "default",
+          modes: snapshot?.modes ?? [],
           draftPending: options.newThreadDeliveryPending,
         };
       }
@@ -189,6 +191,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         workspaceId: pending.workspaceId ?? snapshot?.workspaceId,
         ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
         backendKind,
+        mode: pending.mode ?? "default",
+        modes: snapshot?.runtimeBackends?.find((backend) => backend.kind === backendKind)?.modes ?? [],
         draftPending: options.newThreadDeliveryPending,
       };
     },

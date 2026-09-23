@@ -76,7 +76,11 @@ export interface WorkbenchActions {
    * in, and whether a draft is pending. For a draft there is no id yet; model,
    * runtime and project are the ones the draft will start with.
    */
-  activeThread(): { sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; backendKind?: string; draftPending: boolean } | undefined;
+  activeThread(): {
+    sessionId?: string; cwd?: string; workspaceId?: string; model?: { provider: string; id: string }; backendKind?: string; draftPending: boolean;
+    /** The interaction mode and the modes on offer (API 1.11.0). */
+    mode?: string; modes?: readonly string[];
+  } | undefined;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number }): void;
   /** Opens a thread in the stage as a read-only tab, leaving the active thread alone. */
