@@ -5,6 +5,7 @@ import { createReviewHostExtension } from "./host.js";
 import { REVIEW_HOST_EXTENSION_ID, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
 import { explainCliFailure, serviceFor } from "./request-cli.js";
 import { fallbackDraft, parseDraft } from "./requests-host.js";
+import { LINK_SEAMS } from "./test-seams.js";
 
 const CONTEXT: ReviewRequestContext = {
   root: "/project",
@@ -55,6 +56,7 @@ async function harness(fixture: Fixture = {}) {
   });
   const complete = vi.fn(fixture.complete ?? (async () => "Add the feature\n\n## Summary\nIt works."));
   const registry = await activateHostKit(workspace, {
+    ...LINK_SEAMS,
     findCommand: (name: string) => tools[name],
     noteSubprocess: () => undefined,
     runtimeOwner: () => "tau",

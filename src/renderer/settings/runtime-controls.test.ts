@@ -163,6 +163,7 @@ describe("runtime controls keybindings", () => {
       "workbench.toggle-dock": ["mod+alt+b"],
       "workbench.toggle-sidebar": ["mod+b"],
       "runtime.open-prompt-editor": ["ctrl+g"],
+      "rightPanel.toggleMaximized": ["mod+alt+shift+b"],
     });
     const scoped = Object.fromEntries(registry.getKeybindings().filter((binding) => binding.when).map((binding) => [binding.keys, binding.when]));
     expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus" });

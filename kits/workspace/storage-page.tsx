@@ -126,7 +126,7 @@ function RuleRows({ rules, onChange }: { rules: WorktreeCleanupRules; onChange(p
       <Row title="Delete inactive worktrees" hint="No thread, commit or change there for this long">
         <Retention value={rules.afterDays} onChange={(afterDays) => onChange({ afterDays })} />
       </Row>
-      <Row title="Delete merged worktrees" hint="Every commit of the branch is in the default branch">
+      <Row title="Delete merged worktrees" hint="Every commit of the branch is in the default branch, or its pull request was merged">
         <Switch label="Delete merged worktrees" on={rules.onMerge} onChange={(onMerge) => onChange({ onMerge })} />
       </Row>
       <Row title="Delete unchanged worktrees" hint="No commits beyond the branch they started from">

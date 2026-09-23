@@ -1,9 +1,10 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
-import { Markdown, type WorkbenchActions } from "tau";
+import { ChevronDown, ChevronRight, Pencil, X } from "lucide-react";
+import { errorMessage, Markdown, type WorkbenchActions } from "tau";
 import type { PullRequestCheck, PullRequestComment, PullRequestDetail, PullRequestReviewer, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import { checksRollup, checksSummary, commentChip, relativeTime } from "./pull-request-logic.js";
 import { ChecksList, CommentCard, MarkdownEditor, RollupIcon } from "./pull-request-parts.js";
+import { ChipPicker } from "./pull-request-review.js";
 
 /** Comments shown at once before "Show older". */
 const WINDOW = 10;
@@ -55,7 +56,7 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
  * description, the checks, then every comment — active ones windowed, bots
  * and finished conversations folded away.
  */
-export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath }: {
+export function PullRequestSummary({ detail, checks, threads, threadsError, actions, onSend, onSaveBody, onRetry, onOpenPath, canEdit, onEdit, onReviewers, onLabels, candidates }: {
   detail: PullRequestDetail;
   checks: readonly PullRequestCheck[];
   threads: readonly PullRequestThread[];
@@ -65,8 +66,15 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
   onSaveBody(body: string): Promise<void>;
   onRetry(): void;
   onOpenPath(path: string): void;
+  canEdit(comment: PullRequestComment): boolean;
+  onEdit(comment: PullRequestComment, body: string): Promise<void>;
+  onReviewers(change: { add?: string[]; remove?: string[] }): Promise<void>;
+  onLabels(change: { add?: string[]; remove?: string[] }): Promise<void>;
+  candidates(): Promise<{ labels: Array<{ name: string }>; reviewers: string[] }>;
 }) {
   const [editingBody, setEditingBody] = useState(false);
+  const [chipError, setChipError] = useState<string>();
+  const remove = (change: () => Promise<void>) => { setChipError(undefined); change().catch((reason: unknown) => setChipError(errorMessage(reason))); };
   const [newestFirst, setNewestFirst] = useState(true);
   const [shown, setShown] = useState(WINDOW);
   const rollup = checksRollup(checks);
@@ -93,6 +101,7 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
       actions={actions}
       {...(thread ? { where: `${thread.path}${thread.line !== undefined ? `:${thread.line}` : ""}`, outdated: thread.outdated, onOpenWhere: () => onOpenPath(thread.path) } : {})}
       onSend={() => onSend(commentChip(detail, comment, thread))}
+      {...(canEdit(comment) ? { onEdit: (body: string) => onEdit(comment, body) } : {})}
     />
   );
 
@@ -105,8 +114,10 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
             <span key={reviewer.login} className={`pr-reviewer verdict-${reviewer.verdict}`} title={`${reviewer.login} — ${VERDICT_TITLES[reviewer.verdict]}`}>
               <i aria-hidden="true" />{reviewer.team ? `@${reviewer.login}` : reviewer.login}
               <span className="pr-sr"> — {VERDICT_TITLES[reviewer.verdict]}</span>
+              {reviewer.verdict === "pending" ? <button className="pr-chip-remove" aria-label={`Remove ${reviewer.login} from the reviewers`} title="Remove the review request" onClick={() => remove(() => onReviewers({ remove: [reviewer.login] }))}><X size={9} /></button> : null}
             </span>
           ))}
+          <ChipPicker label="Request a review" taken={detail.reviewers.map((reviewer) => reviewer.login)} allowTyped load={async () => (await candidates()).reviewers.filter((login) => login !== detail.author?.login)} onAdd={(login) => onReviewers({ add: [login] })} />
         </dd>
         <dt>Labels</dt>
         <dd>
@@ -114,10 +125,13 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
             <span key={label.name} className="pr-label">
               {/* The host's own label colour is data, drawn as a dot only. */}
               <i aria-hidden="true" style={label.color ? { background: `#${label.color}` } : undefined} />{label.name}
+              <button className="pr-chip-remove" aria-label={`Remove the label ${label.name}`} title="Remove the label" onClick={() => remove(() => onLabels({ remove: [label.name] }))}><X size={9} /></button>
             </span>
           ))}
+          <ChipPicker label="Add a label" taken={detail.labels.map((label) => label.name)} load={async () => (await candidates()).labels.map((label) => label.name)} onAdd={(name) => onLabels({ add: [name] })} />
         </dd>
       </dl>
+      {chipError ? <p className="pr-error" role="alert">{chipError}</p> : null}
 
       <Section
         title="Description"

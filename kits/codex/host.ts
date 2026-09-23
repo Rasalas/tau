@@ -275,6 +275,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         return {
           kind,
           label: settings.label(id),
+          order: 20,
           adapter,
           modelProvider: "openai",
           listThreads: async () => (await store.list(id)).map(record),

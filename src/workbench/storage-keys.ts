@@ -16,6 +16,8 @@ export const STORAGE_KEYS = {
   dock: "tau.dock.v1",
   dockWidth: "tau:dock-width",
   sidebarOpen: "tau:sidebar-open",
+  sidebarWidth: "tau:sidebar-width",
+  drawerHeight: "tau:drawer-height",
   reviewSidebarWidth: "tau:review-sidebar-width",
   reviewSidebarOpen: "tau:review-sidebar-open",
 } as const;

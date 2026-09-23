@@ -1,0 +1,406 @@
+[
+  {
+    "additions": 13,
+    "author": {
+      "is_bot": true,
+      "login": "app/dependabot"
+    },
+    "baseRefName": "trunk",
+    "createdAt": "2026-09-21T14:02:58Z",
+    "deletions": 15,
+    "headRefName": "dependabot/go_modules/google.golang.org/grpc-1.84.0",
+    "isDraft": false,
+    "labels": [
+      {
+        "id": "LA_kwDODKw3uc8AAAABYP6ixA",
+        "name": "dependencies",
+        "description": "Pull requests that update a dependency file",
+        "color": "0366d6"
+      },
+      {
+        "id": "LA_kwDODKw3uc8AAAABaLVG_Q",
+        "name": "go",
+        "description": "Pull requests that update Go code",
+        "color": "16e2e2"
+      },
+      {
+        "id": "LA_kwDODKw3uc8AAAACX8pa3w",
+        "name": "ready-for-review",
+        "description": "",
+        "color": "39d965"
+      }
+    ],
+    "mergeable": "MERGEABLE",
+    "number": 14485,
+    "reviewDecision": "REVIEW_REQUIRED",
+    "reviewRequests": [
+      {
+        "__typename": "User",
+        "login": "niik"
+      }
+    ],
+    "state": "OPEN",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-21T14:03:03Z",
+        "conclusion": "SKIPPED",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35609530032/job/106364923522",
+        "name": "label-external",
+        "startedAt": "2026-09-21T14:03:10Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-21T14:03:04Z",
+        "conclusion": "SKIPPED",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35609531129/job/106364883697",
+        "name": "label-external",
+        "startedAt": "2026-09-21T14:03:04Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-21T14:03:04Z",
+        "conclusion": "SKIPPED",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35609532487/job/106364936669",
+        "name": "label-external",
+        "startedAt": "2026-09-21T14:03:13Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      }
+    ],
+    "title": "chore(deps): bump google.golang.org/grpc from 1.83.2 to 1.84.0",
+    "updatedAt": "2026-09-22T17:16:21Z",
+    "url": "https://github.com/cli/cli/pull/14485"
+  },
+  {
+    "additions": 16765,
+    "author": {
+      "id": "MDQ6VXNlcjQ3Mzk0MjAw",
+      "is_bot": false,
+      "login": "BagToad",
+      "name": "Kynan Ware"
+    },
+    "baseRefName": "trunk",
+    "createdAt": "2026-09-18T23:27:22Z",
+    "deletions": 0,
+    "headRefName": "bagtoad/cli-video-comments",
+    "isDraft": false,
+    "labels": [],
+    "mergeable": "MERGEABLE",
+    "number": 14475,
+    "reviewDecision": "REVIEW_REQUIRED",
+    "reviewRequests": [
+      {
+        "__typename": "User",
+        "login": "williammartin"
+      }
+    ],
+    "state": "OPEN",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-19T00:32:54Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35409550318/job/105806228290",
+        "name": "CodeQL-Build (go, manual, ./.github/codeql/codeql-config.yml)",
+        "startedAt": "2026-09-19T00:29:58Z",
+        "status": "COMPLETED",
+        "workflowName": "Code Scanning"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-19T00:32:18Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35409550347/job/105806228284",
+        "name": "lint",
+        "startedAt": "2026-09-19T00:29:58Z",
+        "status": "COMPLETED",
+        "workflowName": "Lint"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-19T00:35:09Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35409550362/job/105806229420",
+        "name": "build (ubuntu-latest)",
+        "startedAt": "2026-09-19T00:29:59Z",
+        "status": "COMPLETED",
+        "workflowName": "Unit and Integration Tests"
+      }
+    ],
+    "title": "Add a skill for chaptered CLI recordings",
+    "updatedAt": "2026-09-23T08:08:16Z",
+    "url": "https://github.com/cli/cli/pull/14475"
+  },
+  {
+    "additions": 0,
+    "author": {
+      "id": "MDQ6VXNlcjEwNTM2OTUw",
+      "is_bot": false,
+      "login": "jarrensj",
+      "name": "Jarren"
+    },
+    "baseRefName": "trunk",
+    "createdAt": "2026-09-18T22:53:14Z",
+    "deletions": 1,
+    "headRefName": "remove-claude-md",
+    "isDraft": false,
+    "labels": [
+      {
+        "id": "MDU6TGFiZWwxNjc0OTI5MjQ0",
+        "name": "blocked",
+        "description": "",
+        "color": "ff5451"
+      },
+      {
+        "id": "LA_kwDODKw3uc7Vepyn",
+        "name": "external",
+        "description": "pull request originating outside of the CLI core team",
+        "color": "2700AF"
+      },
+      {
+        "id": "LA_kwDODKw3uc8AAAACX8pa3w",
+        "name": "ready-for-review",
+        "description": "",
+        "color": "39d965"
+      }
+    ],
+    "mergeable": "MERGEABLE",
+    "number": 14474,
+    "reviewDecision": "REVIEW_REQUIRED",
+    "reviewRequests": [
+      {
+        "__typename": "User",
+        "login": "niik"
+      }
+    ],
+    "state": "OPEN",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-18T23:26:22Z",
+        "conclusion": "SKIPPED",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35405689745/job/105794872073",
+        "name": "label-external",
+        "startedAt": "2026-09-18T23:26:22Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-22T12:30:05Z",
+        "conclusion": "SKIPPED",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35727536539/job/106744775612",
+        "name": "label-external",
+        "startedAt": "2026-09-22T12:30:05Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-18T22:53:26Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35403472514/job/105788209802",
+        "name": "label-external / label_issues",
+        "startedAt": "2026-09-18T22:53:21Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      }
+    ],
+    "title": "Remove CLAUDE.md in favor of AGENTS.md",
+    "updatedAt": "2026-09-22T12:29:58Z",
+    "url": "https://github.com/cli/cli/pull/14474"
+  },
+  {
+    "additions": 78,
+    "author": {
+      "id": "MDQ6VXNlcjE2MTE1MTA=",
+      "is_bot": false,
+      "login": "williammartin",
+      "name": "William Martin"
+    },
+    "baseRefName": "williammartin-improve-git-tests",
+    "createdAt": "2026-09-04T15:50:28Z",
+    "deletions": 185,
+    "headRefName": "williammartin-clean-git-test-seams",
+    "isDraft": true,
+    "labels": [],
+    "mergeable": "MERGEABLE",
+    "number": 14355,
+    "reviewDecision": "REVIEW_REQUIRED",
+    "reviewRequests": [],
+    "state": "OPEN",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-04T15:52:57Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/33891784819/job/101084938643",
+        "name": "lint",
+        "startedAt": "2026-09-04T15:50:35Z",
+        "status": "COMPLETED",
+        "workflowName": "Lint"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-04T15:50:39Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/33891785341/job/101084940387",
+        "name": "label-external / label_issues",
+        "startedAt": "2026-09-04T15:50:36Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-04T15:55:39Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/33891784710/job/101084938373",
+        "name": "build (ubuntu-latest)",
+        "startedAt": "2026-09-04T15:50:35Z",
+        "status": "COMPLETED",
+        "workflowName": "Unit and Integration Tests"
+      }
+    ],
+    "title": "Remove obsolete Git test seams",
+    "updatedAt": "2026-09-04T15:50:28Z",
+    "url": "https://github.com/cli/cli/pull/14355"
+  },
+  {
+    "additions": 18,
+    "author": {
+      "id": "MDQ6VXNlcjQ3Mzk0MjAw",
+      "is_bot": false,
+      "login": "BagToad",
+      "name": "Kynan Ware"
+    },
+    "baseRefName": "trunk",
+    "createdAt": "2026-09-22T15:56:26Z",
+    "deletions": 6,
+    "headRefName": "bagtoad/cli-security-reporting-guidance",
+    "isDraft": false,
+    "labels": [],
+    "mergeable": "UNKNOWN",
+    "number": 14497,
+    "reviewDecision": "APPROVED",
+    "reviewRequests": [
+      {
+        "__typename": "User",
+        "login": "niik"
+      }
+    ],
+    "state": "MERGED",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-22T15:59:30Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35750720086/job/106823792867",
+        "name": "CodeQL-Build (go, manual, ./.github/codeql/codeql-config.yml)",
+        "startedAt": "2026-09-22T15:56:35Z",
+        "status": "COMPLETED",
+        "workflowName": "Code Scanning"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-22T15:56:37Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35750720872/job/106823797251",
+        "name": "label-external / label_issues",
+        "startedAt": "2026-09-22T15:56:34Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-22T16:02:02Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35750720073/job/106823814145",
+        "name": "build (ubuntu-latest)",
+        "startedAt": "2026-09-22T15:56:38Z",
+        "status": "COMPLETED",
+        "workflowName": "Unit and Integration Tests"
+      }
+    ],
+    "title": "Prioritize HackerOne for vulnerability reports",
+    "updatedAt": "2026-09-23T04:41:32Z",
+    "url": "https://github.com/cli/cli/pull/14497"
+  },
+  {
+    "additions": 119,
+    "author": {
+      "id": "MDQ6VXNlcjgzMjk5ODMy",
+      "is_bot": false,
+      "login": "00200200",
+      "name": ""
+    },
+    "baseRefName": "trunk",
+    "createdAt": "2026-09-22T21:06:06Z",
+    "deletions": 19,
+    "headRefName": "fix/auth-status-rate-limit-network",
+    "isDraft": false,
+    "labels": [
+      {
+        "id": "LA_kwDODKw3uc7Vepyn",
+        "name": "external",
+        "description": "pull request originating outside of the CLI core team",
+        "color": "2700AF"
+      },
+      {
+        "id": "LA_kwDODKw3uc8AAAACX8pd_A",
+        "name": "unmet-requirements",
+        "description": "",
+        "color": "ee2329"
+      }
+    ],
+    "mergeable": "MERGEABLE",
+    "number": 14502,
+    "reviewDecision": "REVIEW_REQUIRED",
+    "reviewRequests": [
+      {
+        "__typename": "User",
+        "login": "BagToad"
+      }
+    ],
+    "state": "CLOSED",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-22T21:06:20Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35784527910/job/106937972639",
+        "name": "label-external / label_issues",
+        "startedAt": "2026-09-22T21:06:15Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-22T21:06:12Z",
+        "conclusion": "SKIPPED",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35784527910/job/106937973862",
+        "name": "close-from-default-branch / close-from-default-branch",
+        "startedAt": "2026-09-22T21:06:12Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-22T21:06:26Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cli/cli/actions/runs/35784527910/job/106937972221",
+        "name": "check-requirements / check-requirements",
+        "startedAt": "2026-09-22T21:06:15Z",
+        "status": "COMPLETED",
+        "workflowName": "PR Triaging"
+      }
+    ],
+    "title": "Distinguish rate-limit/network errors from invalid token in gh auth status",
+    "updatedAt": "2026-09-22T21:16:20Z",
+    "url": "https://github.com/cli/cli/pull/14502"
+  }
+]

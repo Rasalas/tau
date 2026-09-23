@@ -1,0 +1,247 @@
+[
+  {
+    "id": 537083058,
+    "iid": 3957,
+    "project_id": 34675721,
+    "title": "fix(issuable): validate output flag enums and trim changelog version tag",
+    "state": "opened",
+    "created_at": "2026-09-23T04:24:36.293Z",
+    "updated_at": "2026-09-23T05:13:03.756Z",
+    "merged_at": null,
+    "closed_at": null,
+    "target_branch": "main",
+    "source_branch": "fix/issue-list-output-enum-and-changelog-trim",
+    "author": {
+      "id": 15467827,
+      "username": "mohdquamartyagi",
+      "public_email": null,
+      "name": "Mohd Quamar Tyagi",
+      "state": "active",
+      "locked": false,
+      "avatar_url": "https://secure.gravatar.com/avatar/a4b5bfe2ec40d68e93783d7e2509b1d6846ff8e840df153bcc623ada05c2144f?s=80&d=identicon",
+      "web_url": "https://gitlab.com/mohdquamartyagi"
+    },
+    "assignees": [
+      {
+        "id": 15467827,
+        "username": "mohdquamartyagi",
+        "public_email": null,
+        "name": "Mohd Quamar Tyagi",
+        "state": "active",
+        "locked": false,
+        "avatar_url": "https://secure.gravatar.com/avatar/a4b5bfe2ec40d68e93783d7e2509b1d6846ff8e840df153bcc623ada05c2144f?s=80&d=identicon",
+        "web_url": "https://gitlab.com/mohdquamartyagi"
+      }
+    ],
+    "reviewers": [
+      {
+        "id": 21826781,
+        "username": "GitLabDuo",
+        "public_email": null,
+        "name": "GitLab Duo",
+        "state": "active",
+        "locked": false,
+        "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/21826781/duo-bot.png?v=1781708173",
+        "web_url": "https://gitlab.com/GitLabDuo"
+      }
+    ],
+    "labels": [
+      "1st contribution",
+      "Community contribution",
+      "devops::ai coding",
+      "group::code review",
+      "linked-issue",
+      "section::ai",
+      "type::bug",
+      "workflow::in dev"
+    ],
+    "draft": false,
+    "work_in_progress": false,
+    "merge_status": "can_be_merged",
+    "detailed_merge_status": "not_approved",
+    "has_conflicts": false,
+    "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3957",
+    "references": {
+      "short": "!3957",
+      "relative": "!3957",
+      "full": "gitlab-org/cli!3957"
+    },
+    "user_notes_count": 3,
+    "sha": "febdaf6a711333004dce3210dac9740edd849336"
+  },
+  {
+    "id": 537063975,
+    "iid": 3956,
+    "project_id": 34675721,
+    "title": "feat(theme): add per-role color overrides for accessibility",
+    "state": "opened",
+    "created_at": "2026-09-23T02:33:44.417Z",
+    "updated_at": "2026-09-23T02:46:36.928Z",
+    "merged_at": null,
+    "closed_at": null,
+    "target_branch": "feat/color-mode-plumbing",
+    "source_branch": "feat/theme-color-overrides",
+    "author": {
+      "id": 12294975,
+      "username": "jhebden",
+      "public_email": "",
+      "name": "James Hebden",
+      "state": "active",
+      "locked": false,
+      "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/12294975/avatar.png?v=1790130242",
+      "web_url": "https://gitlab.com/jhebden"
+    },
+    "assignees": [],
+    "reviewers": [
+      {
+        "id": 21826781,
+        "username": "GitLabDuo",
+        "public_email": null,
+        "name": "GitLab Duo",
+        "state": "active",
+        "locked": false,
+        "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/21826781/duo-bot.png?v=1781708173",
+        "web_url": "https://gitlab.com/GitLabDuo"
+      }
+    ],
+    "labels": [],
+    "draft": false,
+    "work_in_progress": false,
+    "merge_status": "can_be_merged",
+    "detailed_merge_status": "discussions_not_resolved",
+    "has_conflicts": false,
+    "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3956",
+    "references": {
+      "short": "!3956",
+      "relative": "!3956",
+      "full": "gitlab-org/cli!3956"
+    },
+    "user_notes_count": 4,
+    "sha": "d2388fe231a628948c3ca0f99faa8fde2b92be79"
+  },
+  {
+    "id": 537062469,
+    "iid": 3955,
+    "project_id": 34675721,
+    "title": "fix(iostreams): make background/color detection reachable, add --color mode",
+    "state": "opened",
+    "created_at": "2026-09-23T02:23:54.207Z",
+    "updated_at": "2026-09-23T02:39:18.074Z",
+    "merged_at": null,
+    "closed_at": null,
+    "target_branch": "main",
+    "source_branch": "feat/color-mode-plumbing",
+    "author": {
+      "id": 12294975,
+      "username": "jhebden",
+      "public_email": "",
+      "name": "James Hebden",
+      "state": "active",
+      "locked": false,
+      "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/12294975/avatar.png?v=1790130242",
+      "web_url": "https://gitlab.com/jhebden"
+    },
+    "assignees": [],
+    "reviewers": [
+      {
+        "id": 21826781,
+        "username": "GitLabDuo",
+        "public_email": null,
+        "name": "GitLab Duo",
+        "state": "active",
+        "locked": false,
+        "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/21826781/duo-bot.png?v=1781708173",
+        "web_url": "https://gitlab.com/GitLabDuo"
+      }
+    ],
+    "labels": [],
+    "draft": false,
+    "work_in_progress": false,
+    "merge_status": "can_be_merged",
+    "detailed_merge_status": "discussions_not_resolved",
+    "has_conflicts": false,
+    "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3955",
+    "references": {
+      "short": "!3955",
+      "relative": "!3955",
+      "full": "gitlab-org/cli!3955"
+    },
+    "user_notes_count": 4,
+    "sha": "c29535fc40055bd563e63c0db63c7dbfc089c5c8"
+  },
+  {
+    "id": 536909112,
+    "iid": 3954,
+    "project_id": 34675721,
+    "title": "feat(stack): add --skip-push for local stack synchronization",
+    "state": "opened",
+    "created_at": "2026-09-22T17:46:20.047Z",
+    "updated_at": "2026-09-23T00:40:18.302Z",
+    "merged_at": null,
+    "closed_at": null,
+    "target_branch": "main",
+    "source_branch": "feat/stack-sync-skip-push",
+    "author": {
+      "id": 28107916,
+      "username": "ahmedanwar1",
+      "public_email": "",
+      "name": "Ahmed Anwar",
+      "state": "active",
+      "locked": false,
+      "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/28107916/avatar.png?v=1790108197",
+      "web_url": "https://gitlab.com/ahmedanwar1"
+    },
+    "assignees": [
+      {
+        "id": 28107916,
+        "username": "ahmedanwar1",
+        "public_email": "",
+        "name": "Ahmed Anwar",
+        "state": "active",
+        "locked": false,
+        "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/28107916/avatar.png?v=1790108197",
+        "web_url": "https://gitlab.com/ahmedanwar1"
+      }
+    ],
+    "reviewers": [
+      {
+        "id": 21826781,
+        "username": "GitLabDuo",
+        "public_email": null,
+        "name": "GitLab Duo",
+        "state": "active",
+        "locked": false,
+        "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/21826781/duo-bot.png?v=1781708173",
+        "web_url": "https://gitlab.com/GitLabDuo"
+      }
+    ],
+    "labels": [
+      "1st contribution",
+      "Community contribution",
+      "automation:ml",
+      "backend",
+      "category:gitlab cli",
+      "devops::ai coding",
+      "documentation",
+      "feature::addition",
+      "group::code review",
+      "linked-issue",
+      "section::ai",
+      "type::feature",
+      "workflow::in dev"
+    ],
+    "draft": false,
+    "work_in_progress": false,
+    "merge_status": "can_be_merged",
+    "detailed_merge_status": "not_approved",
+    "has_conflicts": false,
+    "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3954",
+    "references": {
+      "short": "!3954",
+      "relative": "!3954",
+      "full": "gitlab-org/cli!3954"
+    },
+    "user_notes_count": 4,
+    "sha": "6f3eb9b347d08f20c86f22539512bb4f8953dee3"
+  }
+]

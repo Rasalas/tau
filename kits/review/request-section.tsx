@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ExternalLink, GitPullRequest, RefreshCw } from "lucide-react";
-import { errorMessage, type DesktopExtensionContext, type UiReviewRequest } from "tau";
+import { ExternalLink, GitPullRequest, Link2, RefreshCw, X } from "lucide-react";
+import { errorMessage, type DesktopExtensionContext, type UiReviewRequest, type WorkbenchActions } from "tau";
+import type { LinkDialogs } from "./link-dialog.js";
+import type { PullRequestClient } from "./pull-request-client.js";
+import type { ThreadLinkRows } from "./thread-links-store.js";
 import { commitMessageModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import type { ChangesSectionProps, MergeMethod, ReviewRequestStatus, WorkspaceStoreApi } from "./protocol.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
@@ -30,7 +33,7 @@ const METHODS: Array<{ value: MergeMethod; label: string }> = [
  * title and body), edit, merge. Each step shows its form or question first;
  * nothing reaches the hosting service before the user confirms it there.
  */
-export function createRequestSection(plugin: DesktopExtensionContext, store: WorkspaceStoreApi, client: RequestClient, rows: RowRequests) {
+export function createRequestSection(plugin: DesktopExtensionContext, store: WorkspaceStoreApi, client: RequestClient, rows: RowRequests, links: LinkedParts) {
   return function RequestSection({ actions, message, committed }: ChangesSectionProps) {
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const cwd = snapshot.cwd;
@@ -210,6 +213,8 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
             </div>
           </div>
         ) : null}
+
+        <LinkedRequests actions={actions} parts={links} />
       </div>
     );
   };
@@ -230,5 +235,58 @@ function RequestSummary({ request, onOpen, onBrowse }: { request: UiReviewReques
       <span className={`request-state state-${state}`}>{state}</span>
       {checks ? <span className={`request-checks ${checksTone(request.checks)}`}>checks {checks}</span> : null}
     </>
+  );
+}
+
+/** What the linked-requests list needs: the window's copy of the links, the host commands and the dialog. */
+export interface LinkedParts {
+  rows: ThreadLinkRows;
+  client: PullRequestClient;
+  dialogs: LinkDialogs;
+}
+
+/**
+ * The requests the thread on screen links, whichever repository they live
+ * in: open one as its tab, unlink it, or link another.
+ */
+function LinkedRequests({ actions, parts }: { actions: WorkbenchActions; parts: LinkedParts }) {
+  const thread = actions.activeThread();
+  const threadId = thread?.sessionId;
+  const links = useSyncExternalStore(parts.rows.subscribe, () => parts.rows.get(threadId));
+  const [error, setError] = useState<string>();
+  useEffect(() => { if (threadId) void parts.rows.load(threadId, true); }, [parts.rows, threadId]);
+  if (!threadId) return null;
+  const unlink = async (url: string) => {
+    setError(undefined);
+    try { await parts.client.unlink(threadId, url); await parts.rows.load(threadId); } catch (reason) { setError(errorMessage(reason)); }
+  };
+  return (
+    <div className="request-links" aria-label="Linked pull requests">
+      <div className="request-line">
+        <Link2 size={13} aria-hidden="true" />
+        <small className="request-none">{links.length === 0 ? "No linked pull requests" : `Linked (${links.length})`}</small>
+        <span className="spacer" />
+        <button className="icon-button compact" aria-label="Link pull request" title="Link pull request…" onClick={() => parts.dialogs.show({ threadId, ...(thread?.cwd ? { cwd: thread.cwd } : {}) })}>
+          <GitPullRequest size={12} />
+        </button>
+      </div>
+      {links.map((link) => {
+        const short = link.service === "gitlab" ? "MR" : "PR";
+        const state = link.state === "open" && link.draft ? "draft" : link.state ?? "open";
+        return (
+          <div key={link.url} className="request-link-row">
+            <button className="request-link" title={`${link.title ?? link.url} · opens the ${short} view`} onClick={() => openPullRequest(actions, { url: link.url, number: link.number, provider: link.service }, thread?.cwd)}>
+              {short} #{link.number}
+            </button>
+            <span className="request-link-title" title={`${link.repo}${link.title ? ` · ${link.title}` : ""}`}>{link.title ?? link.repo}</span>
+            <span className={`request-state state-${state}`}>{state}</span>
+            <button className="icon-button compact" aria-label={`Unlink ${short} #${link.number}`} title="Unlink" onClick={() => void unlink(link.url)}>
+              <X size={11} />
+            </button>
+          </div>
+        );
+      })}
+      {error ? <p className="request-error" role="alert">{error}</p> : null}
+    </div>
   );
 }

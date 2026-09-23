@@ -38,7 +38,7 @@ export const observatoryExtension: DesktopExtension = {
   id: SIGNALS_EXTENSION_ID,
   name: "Signals",
   activate(plugin) {
-    plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", Icon: Activity, order: 30, profiles: ["desktop", "web"], Component: ObservatoryPanel });
+    plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", Icon: Activity, order: 30, maximizable: true, profiles: ["desktop", "web"], Component: ObservatoryPanel });
     plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", run: (app) => app.openPanel(SIGNALS_PANEL) });
     // `mod+shift+o` is a new thread, as in T3 Code.
     plugin.registerKeybinding({ keys: "mod+alt+o", commandId: "observatory.open" });

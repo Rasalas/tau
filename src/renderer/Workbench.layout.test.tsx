@@ -1,0 +1,166 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import { afterEach, describe, expect, it } from "vitest";
+import { setHostClient } from "./host-client-context";
+import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
+import type { DesktopExtension, PanelProps } from "./extension-system";
+import { renderApp } from "./test-support/render-app";
+
+afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
+
+/** Counts its own clicks, so a remount would show as a reset counter. */
+function Counter({ placement, active }: PanelProps) {
+  const [count, setCount] = useState(0);
+  return <section className="panel-body">
+    <header className="panel-header"><h2>Counter</h2></header>
+    <button type="button" onClick={() => setCount((value) => value + 1)}>Count {count}</button>
+    <output data-testid="counter-place">{placement}:{active ? "active" : "hidden"}</output>
+  </section>;
+}
+
+const panels: DesktopExtension = {
+  id: "test.layout",
+  name: "Layout probe",
+  activate(plugin) {
+    plugin.registerPanel({ id: "counter", label: "Counter", order: 1, maximizable: true, Component: Counter });
+    plugin.registerPanel({ id: "fixed", label: "Fixed", order: 2, Component: () => <div>fixed panel</div> });
+    plugin.registerPanel({ id: "shell", label: "Shell", order: 3, placement: "drawer", maximizable: true, Component: () => <div>shell drawer</div> });
+  },
+};
+
+function pressMod(key: string, options: KeyboardEventInit = {}): void {
+  const mac = /mac|iphone|ipad/iu.test(navigator.platform);
+  fireEvent.keyDown(window, { key, metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true, ...options });
+}
+
+const rail: DesktopExtension = { id: "test.rail", name: "Rail probe", activate(plugin) {
+  plugin.registerSidebar({ id: "rail", Component: () => <aside className="session-rail">threads</aside> });
+} };
+
+const shell = (container: HTMLElement) => container.querySelector(".app-shell") as HTMLElement;
+
+describe("workbench layout", () => {
+  it("resizes the sidebar by keyboard within T3's bounds and keeps the width for this client", async () => {
+    const view = renderApp(undefined, { extensions: [rail] });
+    const handle = await screen.findByRole("separator", { name: "Resize sidebar" });
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("256px");
+    expect(handle.getAttribute("aria-valuemin")).toBe("208");
+
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("272px");
+    expect(view.storage.get("tau:sidebar-width")).toBe("272");
+    fireEvent.keyDown(handle, { key: "ArrowLeft", shiftKey: true });
+    fireEvent.keyDown(handle, { key: "ArrowLeft", shiftKey: true });
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("208px");
+    fireEvent.keyDown(handle, { key: "Home" });
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("256px");
+
+    fireEvent(handle, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 256 }));
+    fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientX: 330 }));
+    fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("330px");
+  });
+
+  it("restores the stored sidebar width, and never lets it squeeze the conversation below 640 px", async () => {
+    const storage = createMemoryStorage();
+    storage.set("tau:sidebar-width", "900");
+    const view = renderApp(undefined, { storage, extensions: [rail] });
+    await screen.findByRole("separator", { name: "Resize sidebar" });
+    // jsdom's window is 1024 wide: 1024 − 640.
+    expect(shell(view.container).style.getPropertyValue("--sidebar-width")).toBe("384px");
+    expect(view.storage.get("tau:sidebar-width")).toBe("900");
+  });
+
+  it("maximizes the dock's panel into a stage tab and back, keeping its state", async () => {
+    const view = renderApp(undefined, { extensions: [panels] });
+    fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Count 0" }));
+    expect(screen.getByTestId("counter-place").textContent).toBe("dock:active");
+
+    pressMod("b", { altKey: true, shiftKey: true });
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    await waitFor(() => expect(within(stage).getByRole("button", { name: "Count 1" })).toBeTruthy());
+    expect(within(stage).getByRole("tab", { name: /Counter/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("counter-place").textContent).toBe("stage:active");
+    // Never drawn twice: the dock let it go and closed.
+    expect(view.container.querySelector(".instrument-dock .panel-stage")).toBeNull();
+    expect(screen.getByRole("button", { name: "Counter" }).className).toContain("on-stage");
+
+    pressMod("b", { altKey: true, shiftKey: true });
+    await waitFor(() => expect(view.container.querySelector(".instrument-dock .panel-stage")).not.toBeNull());
+    expect(within(view.container.querySelector(".instrument-dock") as HTMLElement).getByRole("button", { name: "Count 1" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Stage" })).toBeNull();
+    expect(screen.getByTestId("counter-place").textContent).toBe("dock:active");
+  });
+
+  it("offers the maximize button only on a panel that declares it, and closing the tab puts the panel back", async () => {
+    renderApp(undefined, { extensions: [panels] });
+    fireEvent.click(await screen.findByRole("button", { name: "Fixed" }));
+    await screen.findByText("fixed panel");
+    expect(screen.queryByRole("button", { name: /as a tab/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Counter" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Counter as a tab" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    fireEvent.click(within(stage).getByRole("button", { name: "Close Counter" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Counter" }));
+    expect(await screen.findByRole("button", { name: "Count 0" })).toBeTruthy();
+  });
+
+  it("stands the dock's panel down while it is a tab, and moves it back from there", async () => {
+    renderApp(undefined, { extensions: [panels] });
+    fireEvent.click(await screen.findByRole("button", { name: "Counter" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Counter as a tab" }));
+    await screen.findByRole("region", { name: "Stage" });
+    fireEvent.click(screen.getByRole("button", { name: "Show panel" }));
+    expect(await screen.findByText("Counter is open as a tab.")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Count / })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Move back here" }));
+    await waitFor(() => expect(screen.queryByText("Counter is open as a tab.")).toBeNull());
+    expect(screen.getByTestId("counter-place").textContent).toBe("dock:active");
+  });
+
+  it("draws a drawer panel below the conversation, resizes it and keeps the height for this client", async () => {
+    const view = renderApp(undefined, { extensions: [panels] });
+    // A drawer panel has a title-bar toggle, not a rail button.
+    expect(screen.queryByRole("button", { name: "Shell" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Toggle Shell drawer" }));
+    const drawer = await screen.findByRole("region", { name: "Shell" });
+    expect(within(drawer).getByText("shell drawer")).toBeTruthy();
+    expect(drawer.style.height).toBe("280px");
+
+    const handle = within(drawer).getByRole("separator", { name: "Resize Shell drawer" });
+    fireEvent.keyDown(handle, { key: "ArrowUp" });
+    expect(drawer.style.height).toBe("296px");
+    expect(view.storage.get("tau:drawer-height")).toBe("296");
+    fireEvent(handle, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 500 }));
+    fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientY: 700 }));
+    fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
+    expect(drawer.style.height).toBe("180px");
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Shell drawer" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Shell" })).toBeNull());
+  });
+
+  it("opens a drawer panel from openPanel, and maximizes it into the stage", async () => {
+    let open: ((id: string) => void) | undefined;
+    const opener: DesktopExtension = { id: "test.opener", name: "Opener", activate(plugin) {
+      plugin.registerCommand({ id: "test.open-shell", label: "Open shell", group: "Test", run: (actions) => { open = actions.openPanel; actions.openPanel("shell"); } });
+    } };
+    const view = renderApp(undefined, { extensions: [panels, opener] });
+    await screen.findByRole("button", { name: "Toggle Shell drawer" });
+    pressMod("k");
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    fireEvent.change(within(palette).getByRole("textbox", { name: "Command" }), { target: { value: "Open shell" } });
+    fireEvent.keyDown(within(palette).getByRole("textbox", { name: "Command" }), { key: "Enter", bubbles: true, cancelable: true });
+    const drawer = await screen.findByRole("region", { name: "Shell" });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Open Shell as a tab" }));
+    const stage = await screen.findByRole("region", { name: "Stage" });
+    expect(within(stage).getByText("shell drawer")).toBeTruthy();
+    expect(view.container.querySelector(".workbench-drawer")).toBeNull();
+    // openPanel on a maximized panel brings its tab forward rather than drawing it again.
+    act(() => open?.("shell"));
+    expect(screen.getAllByText("shell drawer")).toHaveLength(1);
+  });
+});

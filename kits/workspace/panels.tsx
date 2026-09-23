@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Maximize2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FileDiff } from "lucide-react";
 import { ChangesTree, FileKindIcon, useWorkbench, VirtualList, type FileNode, type PanelProps } from "tau";
 import { relativeHostPath } from "./host-paths.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
@@ -133,7 +133,7 @@ export function ChangesPanel({ active, extensionName, actions }: PanelProps) {
       <small>{changes.branch ?? extensionName.toLowerCase()}</small>
       <span className="spacer" />
       {changes.refreshStatus?.state === "error" ? <small title={changes.refreshStatus.message}>stale · refresh failed</small> : null}
-      <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><Maximize2 size={14} /></button>
+      <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><FileDiff size={14} /></button>
       <button className="text-button" onClick={() => void refreshChanges()}>rescan</button>
     </header>
     {changesSections.map((Section, index) => <Section key={index} actions={actions} message={message} committed={() => setDirty(false)} />)}

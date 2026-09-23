@@ -28,7 +28,9 @@ export const defaultCliRunner: CliRunner = (command, args, cwd, options = {}) =>
     env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GLAB_NO_PROMPT: "1", NO_COLOR: "1" },
   }, (error, stdout, stderr) => {
     if (!error) { resolve(stdout); return; }
-    const detail = String(stderr || stdout || "").trim() || error.message;
+    // Past maxBuffer, stdout holds a cut-off answer rather than a reason.
+    const overflow = (error as { code?: unknown }).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+    const detail = overflow ? error.message : String(stderr || stdout || "").trim() || error.message;
     reject(new Error(detail));
   });
   if (options.input !== undefined) child.stdin?.end(options.input);
