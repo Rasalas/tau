@@ -2,9 +2,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TauConfig, WorkbenchActions } from "tau";
-import { HostClientProvider } from "../../src/renderer/host-client-context.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { HostClientProvider, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import usageExtension from "./desktop.js";
 import { UsagePage } from "./page.js";
