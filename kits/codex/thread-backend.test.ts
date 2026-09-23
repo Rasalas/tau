@@ -33,7 +33,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[] } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[] } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
@@ -53,6 +53,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
     onEvent: (event) => events.push(event),
     ask: async (prompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true }; },
     permissionLevel: () => options.level ?? "full",
+    ...(options.tools ? { tools: options.tools } : {}),
   });
   backends.push(backend);
   await backend.start(options.resume ? "resume" : "create");
@@ -183,6 +184,28 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     const turn = (await sent(space)).find((message) => message.method === "turn/start");
     expect(turn?.params).toMatchObject({ model: "gpt-5.5", effort: "low", approvalPolicy: "never", sandboxPolicy: { type: "readOnly" } });
     expect(await space.store.get("tau-1")).toMatchObject({ model: "gpt-5.5", effort: "low" });
+  });
+});
+
+describe("a Codex thread restricted to some tools", () => {
+  it("runs read-only without a tool that writes, whatever the workbench allows", async () => {
+    const space = await scratch();
+    const { backend } = await open(space, { tools: ["read", "grep"] });
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    await backend.dispose();
+    const resumed = await open(space, { resume: true });
+    await resumed.backend.prompt({ text: "Again.", delivery: "prompt" });
+    const turns = (await sent(space)).filter((message) => message.method === "turn/start");
+    expect(turns.map((turn) => turn.params?.sandboxPolicy)).toEqual([{ type: "readOnly" }, { type: "readOnly" }]);
+    expect((await space.store.get("tau-1"))?.tools).toEqual(["read", "grep"]);
+  });
+
+  it("keeps the workbench's level when the list names a tool that writes", async () => {
+    const space = await scratch();
+    const { backend } = await open(space, { tools: ["read", "edit"] });
+    await backend.prompt({ text: "Hello.", delivery: "prompt" });
+    const turn = (await sent(space)).find((message) => message.method === "turn/start");
+    expect(turn?.params).toMatchObject({ sandboxPolicy: { type: "dangerFullAccess" } });
   });
 });
 

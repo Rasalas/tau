@@ -33,6 +33,8 @@ export interface CodexSessionRecord {
   effort?: string;
   /** What the thread last ran on; shown before a session exists, never sent. */
   observedModel?: string;
+  /** The only tools the thread keeps, as Pi names them; set when it was created. */
+  tools?: string[];
   updatedAt: number;
 }
 
@@ -84,6 +86,7 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
     model: text(item.model, MAX_ID_LENGTH),
     effort: text(item.effort, MAX_ID_LENGTH),
     observedModel: text(item.observedModel, MAX_ID_LENGTH),
+    tools: storedTools(item.tools),
   };
   return {
     backendKind: "codex",
@@ -93,6 +96,12 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
     ...Object.fromEntries(Object.entries(optional).filter(([, entry]) => entry !== undefined)),
     updatedAt: item.updatedAt,
   };
+}
+
+function storedTools(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length > 256) return undefined;
+  const tools = value.filter((tool): tool is string => typeof tool === "string" && tool.length > 0 && tool.length <= 128);
+  return tools.length === value.length ? tools : undefined;
 }
 
 function storedModel(value: unknown): CodexStoredModel | undefined {
@@ -106,7 +115,12 @@ function storedModel(value: unknown): CodexStoredModel | undefined {
 }
 
 function clone(record: CodexSessionRecord): CodexSessionRecord {
-  return { ...record, messages: record.messages.map((message) => ({ ...message })), ...(record.usage ? { usage: { ...record.usage } } : {}) };
+  return {
+    ...record,
+    messages: record.messages.map((message) => ({ ...message })),
+    ...(record.usage ? { usage: { ...record.usage } } : {}),
+    ...(record.tools ? { tools: [...record.tools] } : {}),
+  };
 }
 
 interface StoredFile { sessions: CodexSessionRecord[]; models: CodexStoredModel[] }
@@ -187,6 +201,11 @@ export class CodexSessionStore {
         if (value) record[key] = value; else delete record[key];
       }
     });
+  }
+
+  /** Restricts a new thread to these tools for good. */
+  setTools(tauThreadId: string, cwd: string, tools: readonly string[]): Promise<void> {
+    return this.update(tauThreadId, cwd, (record) => { record.tools = [...tools]; });
   }
 
   setObservedModel(tauThreadId: string, cwd: string, model: string): Promise<void> {
