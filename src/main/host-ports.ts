@@ -349,7 +349,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
           if (index >= 0) mcpGates.splice(index, 1);
         };
       },
-      connect: (thread) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread),
+      connect: (thread, options) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread, options),
     },
     // `extensionServices` binds the extension id in front of these two.
     callClient: ((extensionId: string, command: string, input?: unknown) => port.platform.callClient
