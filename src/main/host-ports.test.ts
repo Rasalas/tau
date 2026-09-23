@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHostExtensionSeam, importDependency, loadDependencyModule, type ExtensionServicesPort } from "./host-ports.js";
+import { createHostExtensionSeam, type ExtensionServicesPort } from "./host-ports.js";
+import { importDependency, loadDependencyModule } from "./dependency-loader.js";
 import type { HostRuntimeBackendProvider } from "./host-extensions.js";
 
 describe("loadDependencyModule", () => {

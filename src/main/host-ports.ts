@@ -19,6 +19,7 @@ import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { AttachedSessionHost } from "./attached-pi-session.js";
 import { assertRuntimeAdapter, type RuntimePermissionLevel } from "./runtime-adapters.js";
 import { findExecutable } from "./shell-environment.js";
+import { importDependency, loadDependencyModule } from "./dependency-loader.js";
 import { runtimeDriver } from "../shared/runtime-instances.js";
 import {
   installExtensionSource,
@@ -55,9 +56,6 @@ import type {
   RuntimeExtensionFactory,
 } from "./host-extensions.js";
 
-/** `@scope/name` or `name`; a path would let a caller load anything on the disk. */
-const PACKAGE_NAME = /^(?:@[a-z0-9-][a-z0-9._-]*\/)?[a-z0-9-][a-z0-9._-]*$/u;
-
 /**
  * A Pi extension from Tau's own dependencies. The host resolves it, so the
  * package keeps the layout npm gave it and finds the files it ships beside
@@ -67,19 +65,6 @@ async function loadRuntimeExtensionPackage(packageName: string): Promise<Runtime
   const module = await importDependency(packageName);
   if (typeof module.default !== "function") throw new Error(`Package ${packageName} does not export a Pi extension.`);
   return module.default as RuntimeExtensionFactory;
-}
-
-/** A dependency by name only; a path would let a caller load anything on the disk. */
-export async function importDependency(packageName: string): Promise<{ default?: unknown }> {
-  if (!PACKAGE_NAME.test(packageName)) throw new Error(`"${packageName}" is not a package name Tau can load.`);
-  return await import(packageName) as { default?: unknown };
-}
-
-/** What `loadDependency` hands a kit: a CommonJS module's exports, or an ES module's namespace. */
-export async function loadDependencyModule(packageName: string, load: (name: string) => Promise<{ default?: unknown }> = importDependency): Promise<unknown> {
-  if (!PACKAGE_NAME.test(packageName)) throw new Error(`"${packageName}" is not a package name Tau can load.`);
-  const module = await load(packageName);
-  return module.default ?? module;
 }
 
 /**
