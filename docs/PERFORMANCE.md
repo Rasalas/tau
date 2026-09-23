@@ -280,6 +280,7 @@ Initial local targets:
 
 - the composer and picker alignment (U4, 2026-09-23) costs the renderer's initial script 3,053 bytes (790,407 → 793,460; gzip 243,153 → 244,560) and its initial stylesheet 337 bytes (137,853 → 138,190); total JavaScript gzip goes 500,256 → 501,668, over the 500 KB budget the base already missed by 256 bytes. Nearly all of it is the footer that folds controls into an overflow menu (about 1.37 KB gzip); the compact slash menu saved 256 bytes gzip against the four menus it replaced, the Thought row costs about 60, the picker as a popover about 120 (its modal form is gone), the file chip about 170. Splitting vim mode's key table into its own chunk was tried and dropped: it took 735 bytes gzip off the initial script but added 321 to the total, the budget that binds
 - the layout parity work (D08, 2026-09-23: one top bar, resizable sidebar, drawer, panels maximized onto the stage) costs the renderer's initial stylesheet about 870 bytes (138.70 kB → 139,574 bytes on the D08 base) and its initial script about 2.5 KB of gzip (237.26 → 239.77 kB). The rules a maximized panel needs load with the stage's chunk (`components/stage-panels.css`), the conversation header's rules went with it, and panel buttons are styled by their host instead of by the dock. Merged with wave D the initial stylesheet is 139,934 bytes, 66 under the 140,000 budget, and total JavaScript 437,029 bytes of gzip
+- initial stylesheet headroom won back on 2026-09-23 (ticket D29), budgets unchanged: 139,934 → 112,651 bytes (25,355 → 21,054 gzip), 27,349 bytes under the 140,000 budget. Settings, the model picker, the command palette, the reload conflict dialog and the renderer benchmark now load their rules with their own chunks, and rules that matched no element are gone; see "Initial stylesheet headroom" below
 - the two viewport scenarios over a 1000-turn transcript with 128 activities (`transcript-viewport-anchored-1000-turns`, `transcript-viewport-streaming-1000-turns`) mount at about 21 ms median and 27 ms p95 on the development machine; like their `transcript-1000-turns` sibling they carry their own mount budget (30 ms) instead of the 24 ms default, since 2026-09-05
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
@@ -517,6 +518,30 @@ Checked and left alone:
 - 27.5 KB of the initial script is reachable only through the `tau` module: the Settings rows and `useSetting`, `ThreadRow`, `ChangesTree`, `Dialog`, `VirtualList`, `FileKindIcon` and the config-layer store behind them. Kits read these names as soon as their modules run at startup, so they cannot move into a lazy chunk.
 - `property-information` (18.6 KB, most of it the SVG attribute table) comes in through `hast-util-to-jsx-runtime`, which chooses the table per element. Markdown produces no SVG, but slimming the table would tie Markdown rendering to a hand-kept list.
 - No package is bundled twice. The only nested copy is `escape-string-regexp`, which `mdast-util-find-and-replace` needs in its own version, and it is a few hundred bytes.
+
+### Initial stylesheet headroom
+
+After D08 the initial stylesheet was 139,934 bytes, 66 under its 140,000 budget. Ticket D29 (2026-09-23) moved the rules of surfaces that are never part of the first paint into stylesheets their lazy chunks import, as `toasts.css` (D05) and `stage-panels.css` (D08) already did. Vite resolves a lazy chunk only after its stylesheet has loaded, so the first open of each surface is never unstyled. Desktop build, from `reports/build-report.json`, each row measured after the one above it:
+
+| change | initial CSS | lazy stylesheet |
+| --- | ---: | ---: |
+| base (`t3/wave-d`, `b0b2c06`) | 139,934 (25,355 gzip) | |
+| rules that match no element removed | 138,446 | |
+| renderer benchmark (`renderer-benchmark.css`) | 138,112 | 335 |
+| settings (`settings/settings.css`) | 121,016 | 17,097 |
+| model picker (`components/model-picker.css`) | 116,234 | 4,783 |
+| command palette (`components/command-palette.css`) | 114,670 | 1,565 |
+| reload conflict dialog (`components/reload-conflict.css`) | 112,651 (21,054 gzip) | 2,074 |
+
+The initial script grew by 184 bytes (79 gzip), the chunks' lists of stylesheets to preload. The browser client's initial stylesheet went from 135,823 to 108,540 bytes (23,755 to 19,464 gzip).
+
+- **Dead rules.** `.option-row`, `.review-file` and `.review-diff` in `styles.css`, and the compact profile's `.work-row-output`, `.diff-view.split` and `.diff-pane.split`, name classes that no component renders, including class names built at run time. The last two were meant to unsplit diffs in the compact profile, but `DiffView` draws `.diff-grid.split`; the kits' diff surfaces are registered for the desktop profile only today.
+- **What stayed.** `.settings-screen` stays in the initial sheet because the settings chunk's loading fallback draws it. `.segmented`, `.chip`, `.checkbox`, `.modal-scrim`, the palette's backdrop, input row and empty line are shared with surfaces outside the moved chunks. `.settings-row .segmented`, `.settings-field-row .segmented` and `.settings-search-input` also stay: kit stylesheets override them at equal specificity (Thread Rail's segmented control, the Codex, Agent SDK and Antigravity path fields), and kit sheets load after the initial sheet but before a lazy one, so moving them would flip who wins.
+- **Order.** A lazy stylesheet lands after every sheet already in the document. The reload dialog's reduced-motion override moved with it so it still comes after the animation it turns off.
+
+`src/renderer/lazy-styles.test.ts` fails if a feature's selectors return to the initial sheets or its chunk stops importing its stylesheet; the build budget catches growth.
+
+Verification compared the base build with the new one in the isolated instance, both run from the same directory so resolved asset URLs match. A CDP probe went through onboarding, the workbench, the model picker (every rail tab), the command palette (empty and filtered), the thirteen settings pages, the two extension groups of the settings navigation, the settings search and four extension pages: 35 states, 8,144 elements. Every computed style, including `::before` and `::after`, was identical, and 30 of the 35 screenshots were byte-identical. The other five differ by at most 11 colour levels on a few antialiased pixels, apart from a timestamp on the Usage page. `npm run compare:screens -- --apps tau` over its thirteen screens (hero, rail, row menu, running and finished turns, composer, picker and palette, diff, terminal and preview, settings, onboarding, errors) in dark and light gave 89 captures, 44 of them byte-identical. The settings, onboarding, picker, palette and diff captures differ by the composer caret or a few antialiased pixels; the rest by content that changes from run to run: running-turn timers and spinners, the times in the snooze menu, the preview's port, a host toast that arrived in one run only. A MutationObserver on a fresh instance read each surface's first open at the moment its root was inserted: `.command-palette` was 560 px wide, `.model-rail` and `.settings-nav` were flex boxes, and each chunk's stylesheet was already in `document.styleSheets`. The reload conflict dialog was not opened in the app; it loads the same way.
 
 ### Deferred extension binding
 
