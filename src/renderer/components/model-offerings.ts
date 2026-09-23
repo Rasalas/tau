@@ -61,15 +61,22 @@ function scoreField(field: string, token: string, base: number): number | undefi
   const at = field.indexOf(token);
   if (at > 0 && /[\s\-./:()]/u.test(field[at - 1]!)) return base + 4;
   if (at > 0) return base + 6;
-  if (token.length >= 3) {
-    let from = 0;
-    for (const char of token) {
-      from = field.indexOf(char, from) + 1;
-      if (from === 0) return undefined;
+  return token.length >= 3 && looselyContains(field, token) ? base + 100 : undefined;
+}
+
+/** `token`'s letters in order within a short stretch of `field` ("gpt56" in "gpt-5.6"), not scattered across it. */
+function looselyContains(field: string, token: string): boolean {
+  for (let start = field.indexOf(token[0]!); start >= 0; start = field.indexOf(token[0]!, start + 1)) {
+    let at = start;
+    let found = true;
+    for (const char of token.slice(1)) {
+      at = field.indexOf(char, at + 1);
+      if (at < 0) { found = false; break; }
     }
-    return base + 100;
+    if (found && at - start < token.length + 3) return true;
+    if (!found) return false;
   }
-  return undefined;
+  return false;
 }
 
 /**

@@ -49,6 +49,9 @@ describe("offerings", () => {
     expect(searchScore(lunaCodex, "luna codex")).toBeDefined();
     expect(searchScore(lunaPi, "luna codex")).toBeUndefined();
     expect(searchScore(flash, "opencode")).toBeDefined();
+    // Letters in order count only close together.
+    expect(searchScore(lunaPi, "gpt56")).toBeDefined();
+    expect(searchScore(offering("pi", { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5 (latest)" }), "luna")).toBeUndefined();
     // A name beats an id, a whole word a part of one.
     expect(searchScore(mini, "o4-mini")!).toBeLessThan(searchScore(flash, "flash")! + 1);
     expect(searchScore(sol, "sol")!).toBeLessThan(searchScore(lunaPi, "lun")! + 10);
