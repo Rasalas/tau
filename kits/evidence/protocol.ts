@@ -168,4 +168,4 @@ export const PREVIEW_EXTENSION_ID = "tau.preview";
 
 export type PreviewEvidenceFrame =
   | { data: string; width: number; height: number; url: string; title: string; visible: boolean }
-  | { skipped: "closed" | "secret" | "empty" };
+  | { skipped: "closed" | "secret" | "empty" | "unavailable" };

@@ -700,7 +700,9 @@ class PreviewController implements PreviewToolController {
     if (!view || !state?.url || state.url === "about:blank") return { skipped: "closed" };
     // A page that cannot answer mid-navigation counts as one that might hold a secret.
     if (await view.evaluate(pageCall(previewSecretFocus), true).catch(() => true) !== false) return { skipped: "secret" };
-    const shot = await view.capture(maxWidth);
+    // A window on a hidden Space or mid-teardown cannot be drawn; that is a skipped frame, not a failed command.
+    const shot = await view.capture(maxWidth).catch(() => undefined);
+    if (!shot) return { skipped: "unavailable" };
     if (shot.width < 1 || shot.height < 1) return { skipped: "empty" };
     return { data: shot.base64, width: shot.width, height: shot.height, url: state.url, title: state.title, visible: previewVisible(this.bounds) };
   }
