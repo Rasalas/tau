@@ -8,6 +8,7 @@ import {
   type ReviewRequestDraft,
   type ReviewRequestStatus,
 } from "./protocol.js";
+import { withInstructions } from "./writing.js";
 import {
   authArgs,
   createArgs,
@@ -165,7 +166,9 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
 
   context.registerCommand("pr-draft", async (input): Promise<ReviewRequestDraft> => {
     const fields = record(input);
-    const git = await workspace<ReviewRequestContext>("review-request-context", { detail: true, ...(text(fields.base) ? { base: text(fields.base) } : {}) });
+    const read = await workspace<ReviewRequestContext>("review-request-context", { detail: true, ...(text(fields.base) ? { base: text(fields.base) } : {}) });
+    // The repository's template shapes the description unless the user turned that off.
+    const git = fields.template === false ? { ...read, template: undefined } : read;
     const service = serviceFor(git.remote?.url, (name) => services.findCommand(name));
     const provider = text(fields.provider);
     const modelId = text(fields.modelId);
@@ -174,7 +177,7 @@ export function registerRequestCommands(context: HostExtensionContext, options: 
     services.log("request-draft.started", provider && modelId ? `${provider}/${modelId}` : "default model");
     let answer: string;
     try {
-      answer = await services.complete({ system: draftSystemPrompt(SERVICES[service].noun), prompt: buildDraftPrompt(git), maxTokens: 900 }, provider && modelId ? { provider, id: modelId } : undefined);
+      answer = await services.complete({ system: withInstructions(draftSystemPrompt(SERVICES[service].noun), fields.instructions), prompt: buildDraftPrompt(git), maxTokens: 900 }, provider && modelId ? { provider, id: modelId } : undefined);
     } catch (error) {
       services.log("request-draft.failed", message(error));
       return { ...fallbackDraft(git), base: git.base, generated: false };

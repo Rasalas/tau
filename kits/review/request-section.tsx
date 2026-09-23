@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ExternalLink, GitPullRequest, RefreshCw } from "lucide-react";
 import { errorMessage, type DesktopExtensionContext, type UiReviewRequest } from "tau";
-import { commitMessageModel } from "./commit-messages.js";
+import { commitMessageModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import type { ChangesSectionProps, MergeMethod, ReviewRequestStatus, WorkspaceStoreApi } from "./protocol.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
@@ -83,7 +83,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
 
     const generate = async () => {
       const model = commitMessageModel(actions.activeThread()?.model, plugin.preferences);
-      const draft = await client.draft(model, form.base || status?.base);
+      const draft = await client.draft(model, form.base || status?.base, { instructions: writingInstructions(plugin.preferences), template: followRequestTemplate(plugin.preferences) });
       setForm((current) => ({ ...current, title: draft.title, body: draft.body, base: current.base || draft.base }));
     };
 

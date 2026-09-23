@@ -1,6 +1,7 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext } from "tau/host-extension";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 import { registerPullRequestCommands } from "./pull-request-host.js";
+import { withInstructions } from "./writing.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
@@ -70,7 +71,7 @@ export function createReviewHostExtension(options: RequestCommandOptions = {}): 
         let answer: string;
         try {
           answer = await services.complete({
-            system: SYSTEM_PROMPTS[style],
+            system: withInstructions(SYSTEM_PROMPTS[style], fields.instructions),
             prompt: buildCommitPrompt({ branch: text(fields.branch), files, diffs }),
             maxTokens: 220,
           }, provider && modelId ? { provider, id: modelId } : undefined);

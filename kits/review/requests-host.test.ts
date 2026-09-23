@@ -53,15 +53,16 @@ async function harness(fixture: Fixture = {}) {
     if (args[0] === "pr" && args[1] === "merge" && request) request = { ...request, state: "merged" };
     return answer;
   });
+  const complete = vi.fn(fixture.complete ?? (async () => "Add the feature\n\n## Summary\nIt works."));
   const registry = await activateHostKit(workspace, {
     findCommand: (name: string) => tools[name],
     noteSubprocess: () => undefined,
     runtimeOwner: () => "tau",
-    complete: vi.fn(fixture.complete ?? (async () => "Add the feature\n\n## Summary\nIt works.")),
+    complete,
   });
   await registry.activate(createReviewHostExtension({ run }));
   const invoke = (command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input);
-  return { registry, invoke, calls, pushes };
+  return { registry, invoke, calls, pushes, complete };
 }
 
 describe("Review Kit request lifecycle", () => {
@@ -97,6 +98,18 @@ describe("Review Kit request lifecycle", () => {
     await expect(failing.invoke("pr-draft")).resolves.toMatchObject({ title: "feat: add it", generated: false });
     expect(parseDraft("```markdown\nTitle: Fix it\n\nBody\n```")).toEqual({ title: "Fix it", body: "Body" });
     expect(fallbackDraft({ root: "/", base: "main", branch: "feat/make-it-work", commits: [] }).title).toBe("Make it work");
+  });
+
+  it("adds the user's instructions to the draft and leaves the template out when asked to", async () => {
+    const { invoke, complete } = await harness({ context: { template: "## What\n\n## Why" } });
+    await invoke("pr-draft", { instructions: "Write in German." });
+    const first = (complete.mock.calls as unknown as Array<[{ system: string; prompt: string }]>)[0]![0];
+    expect(first.system).toMatch(/instructions follow[\s\S]*Write in German\.$/u);
+    expect(first.prompt).toContain("Template:\n## What");
+    await invoke("pr-draft", { template: false });
+    const second = (complete.mock.calls as unknown as Array<[{ system: string; prompt: string }]>)[1]![0];
+    expect(second.prompt).not.toContain("Template:");
+    expect(second.system).not.toMatch(/instructions follow/u);
   });
 
   it("pushes, then creates a draft request against the base", async () => {

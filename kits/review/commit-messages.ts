@@ -1,5 +1,6 @@
 import type { DesktopExtensionContext, ExtensionOption, PreferencesStore } from "tau";
 import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle, type WorkspaceStoreApi } from "./protocol.js";
+import { INSTRUCTIONS_OPTION, TEMPLATE_OPTION } from "./writing.js";
 
 const MODEL_OPTION = "commit-model";
 const STYLE_OPTION = "commit-style";
@@ -14,6 +15,16 @@ export function commitMessageModel(threadModel: { provider: string; id: string }
 export function commitMessageStyle(preferences: PreferencesStore): CommitMessageStyle {
   const stored = preferences.value(REVIEW_HOST_EXTENSION_ID, STYLE_OPTION);
   return stored === "gitmoji" || stored === "plain" ? stored : "conventional";
+}
+
+/** What the user wants every commit message and request description to follow; empty when nothing. */
+export function writingInstructions(preferences: PreferencesStore): string {
+  return preferences.value(REVIEW_HOST_EXTENSION_ID, INSTRUCTIONS_OPTION)?.trim() ?? "";
+}
+
+/** Whether a request's description fills in the repository's template; on by default, as in T3 Code. */
+export function followRequestTemplate(preferences: PreferencesStore): boolean {
+  return preferences.optionValue(REVIEW_HOST_EXTENSION_ID, TEMPLATE_OPTION, true);
 }
 
 export function automaticCommitMessages(preferences: PreferencesStore): boolean {
@@ -44,6 +55,7 @@ export function registerCommitMessages(plugin: DesktopExtensionContext, workspac
       provider: model.provider,
       modelId: model.id,
       style: commitMessageStyle(plugin.preferences),
+      ...(writingInstructions(plugin.preferences) ? { instructions: writingInstructions(plugin.preferences) } : {}),
       branch: changes.branch,
       files: changes.files.map(({ path, added, removed }) => ({ path, added, removed })),
       diffs: diffs.map((diff) => ({
