@@ -61,7 +61,14 @@ describe("Worktree Names host extension", () => {
     expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
   });
 
-  it("answers a missing task as a hint that never switches the kit off", async () => {
+  it("names a branch on the draft's own model when nothing small is reachable", async () => {
+    const complete = vi.fn(async () => "fix-queue");
+    const registry = await registryWith(anyThread("codex"), complete, "tau", [{ provider: "openai-codex", id: "gpt-5.6-sol", name: "Sol" }]);
+    await registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { prefer: { provider: "openai", id: "gpt-5.6-sol" }, description: "Fix the queue" });
+    expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai-codex", id: "gpt-5.6-sol" });
+  });
+
+    it("answers a missing task as a hint that never switches the kit off", async () => {
     const registry = await registryWith(anyThread());
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { description: "" })).rejects.toThrow(/Describe the task/u);
