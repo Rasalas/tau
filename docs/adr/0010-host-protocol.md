@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule. Amended 2026-09-22: TLS with a pinned certificate. Amended 2026-09-23: a lean push stream; no repeated outputs.
+Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule. Amended 2026-09-22: TLS with a pinned certificate. Amended 2026-09-23: a lean push stream; no repeated outputs. Amended 2026-09-23 by [ADR 0023](0023-client-tokens-and-pairing.md): the host token is the owner's; other clients pair for tokens of their own.
 
 ## Context
 

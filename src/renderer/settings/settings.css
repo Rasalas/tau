@@ -384,3 +384,38 @@ body[data-profile="compact"] .settings-content { padding: 16px 12px 32px; }
 .runtime-model-name > code { font: 10.5px var(--mono); color: var(--faint); }
 .runtime-model-facts { display: flex; gap: 8px; font: 10.5px var(--mono); color: var(--muted); white-space: nowrap; }
 .runtime-model-moves { display: flex; justify-content: flex-end; }
+
+/* Connections: who holds a token for this host, and links to pair another device. */
+.connection-endpoints { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 0; padding: 0; list-style: none; }
+.connection-endpoints > li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.connection-endpoints code, .connection-fingerprint { font: 11.5px var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.connection-endpoints small { font-size: 11px; color: var(--faint); }
+.connection-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-5) var(--space-6); }
+.connection-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.connection-row-text > strong { display: flex; align-items: center; gap: 6px; font: 500 13px var(--sans); color: var(--ink); }
+.connection-row-text > small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connection-badge { padding: 0 5px; border: 1px solid var(--line-strong); border-radius: 4px; font: 500 10px var(--sans); font-style: normal; color: var(--muted); }
+.connection-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--faint); }
+.connection-dot.live { background: var(--ready); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ready) 22%, transparent); }
+.connection-dot.pending { background: var(--warn); }
+.connection-dot.idle { background: transparent; border: 1px solid var(--faint); }
+.chrome-button.danger { color: var(--danger); border-color: var(--danger-line); }
+.chrome-button.danger:hover:not(:disabled) { background: var(--danger-bg); color: var(--removed); border-color: var(--danger-line); }
+.connection-created { display: flex; gap: var(--space-6); align-items: flex-start; padding: var(--space-5) var(--space-6); background: var(--inset); }
+.connection-created-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.connection-created-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.connection-created-head > strong { font: 500 13px var(--sans); color: var(--ink); }
+.connection-created-text > p, .connection-qr-missing { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.connection-qr-missing { width: 180px; flex: none; padding: var(--space-4); border: 1px dashed var(--line-strong); border-radius: var(--radius-md); font-size: 11.5px; }
+.connection-endpoint-choice { display: flex; flex-wrap: wrap; gap: 6px; }
+.connection-endpoint-choice > button { padding: 3px 9px; border: 1px solid var(--line-control); border-radius: 999px; background: transparent; color: var(--muted); font: 500 11.5px var(--sans); cursor: pointer; }
+.connection-endpoint-choice > button.active { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
+.connection-link-box { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 4px 4px 10px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--stage); }
+.connection-link-box > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); color: var(--ink-2); }
+.connection-copy-code { align-self: flex-start; }
+.pairing-qr { flex: none; padding: 8px; border-radius: var(--radius-md); background: var(--qr-paper); }
+.pairing-qr > rect { fill: var(--qr-paper); }
+.pairing-qr > path { fill: var(--qr-ink); }
+.pairing-qr.pending { background: var(--well); }
+.connection-field { display: flex; flex-direction: column; gap: 5px; font: 500 12px var(--sans); color: var(--ink-2); }
+.connection-field > .settings-input, .connection-field > .settings-select { width: 100%; }

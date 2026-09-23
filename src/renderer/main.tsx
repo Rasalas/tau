@@ -12,6 +12,7 @@ import { ClientStorageProvider } from "./client-storage-context";
 import { createRendererServices } from "./renderer-services";
 import { RendererServicesProvider } from "./renderer-services-context";
 import { followThemePreference } from "./theme";
+import { accessRefusal } from "../workbench/access-refusal";
 import "./styles.css";
 // Loaded after the desktop rules so the narrow client can narrow them.
 import "./profile-compact.css";
@@ -27,7 +28,15 @@ function connect(): { client: HostClient; connection: HostConnection } | undefin
   if (remoteHost) {
     const local = window.tau ? new HostConnection(createElectronHostTransport(window.tau)) : undefined;
     void local?.start().catch(() => undefined);
-    const socket = createSocketHostClient(remoteHost, search.get("token") ?? undefined, undefined, local);
+    const socket = createSocketHostClient(remoteHost, search.get("token") ?? undefined, {
+      onUnauthorized: (reason) => socket.connection.refuse(accessRefusal(reason)),
+      // A reload keeps the address, so it carries the token a rotation gave this window.
+      onTokenChanged: (token) => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("token", token);
+        window.history.replaceState(window.history.state, "", url);
+      },
+    }, local);
     // The window's process refused this host (its certificate is not the trusted one).
     const refused = search.get("hostRefused");
     if (refused) socket.connection.refuse(refused);

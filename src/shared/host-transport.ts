@@ -163,6 +163,8 @@ export const HOST_ERROR = {
   invalidRequest: "invalid-request",
   unknownMethod: "unknown-method",
   unauthorized: "unauthorized",
+  /** Authenticated, but not allowed this: a paired client asking to manage access. */
+  forbidden: "forbidden",
   cancelled: "cancelled",
   /** The method exists in the protocol but not in this host. */
   unsupported: "unsupported",

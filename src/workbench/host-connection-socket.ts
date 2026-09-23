@@ -11,15 +11,18 @@ const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const OUTBOX_LIMIT = 100;
-/** `host-transport-socket.ts` closes with this when the hello carried the wrong token. */
+/** `host-transport-socket.ts` closes with this when the hello carried the wrong token, or its access was taken away. */
 const UNAUTHORIZED = 4401;
 
 export interface SocketTransportOptions {
   /**
    * The host refused the token. Retrying cannot help, so the transport stops
    * and the client asks for another one instead of reconnecting forever.
+   * `reason` is `ACCESS_CLOSE_REASON`'s: refused, revoked or rotated away.
    */
-  onUnauthorized?(): void;
+  onUnauthorized?(reason: string): void;
+  /** The token changed under the open connection (a rotation this client asked for); keep it where the next start reads it. */
+  onTokenChanged?(token: string): void;
 }
 
 interface Pending {
@@ -33,7 +36,8 @@ interface Pending {
  * transport reconnects with backoff and the connection above replays what it
  * missed, so a frozen or restarted host does not lose the workbench's state.
  */
-export function createSocketHostTransport(url: string, token?: string, options?: SocketTransportOptions): HostTransport {
+export function createSocketHostTransport(url: string, initialToken?: string, options?: SocketTransportOptions): HostTransport {
+  let token = initialToken;
   const pending = new Map<string, Pending>();
   const pushListeners = new Set<(push: HostPush) => void>();
   const openListeners = new Set<() => void>();
@@ -72,13 +76,13 @@ export function createSocketHostTransport(url: string, token?: string, options?:
       if (everOpened) for (const listener of openListeners) listener();
       everOpened = true;
     };
-    socket.onclose = (event?: { code?: number }) => {
+    socket.onclose = (event?: { code?: number; reason?: string }) => {
       failPending("The host connection dropped.");
       for (const listener of closeListeners) listener();
       if (closed) return;
       if (event?.code === UNAUTHORIZED) {
         closed = true;
-        options?.onUnauthorized?.();
+        options?.onUnauthorized?.(event.reason ?? "");
         return;
       }
       setTimeout(connect, delayMs);
@@ -157,6 +161,10 @@ export function createSocketHostTransport(url: string, token?: string, options?:
       closed = true;
       failPending(`The host connection was closed (${HOST_ERROR.cancelled}).`);
       socket?.close();
+    },
+    updateToken: (next) => {
+      token = next;
+      options?.onTokenChanged?.(next);
     },
   };
 }

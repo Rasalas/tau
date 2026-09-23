@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, Command, Cpu, Folder, Info, Monitor, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Command, Cpu, Folder, Info, Monitor, MonitorSmartphone, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
 import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
@@ -14,6 +14,7 @@ import { ConfigLayersStore, type SettingsProject } from "../../workbench/config-
 import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "./settings-search";
 import { SettingsLevelsProvider, useSettingsLevels } from "./settings-layout";
 import { AboutPage } from "./AboutPage";
+import { ConnectionsPage } from "./ConnectionsPage";
 import { DefaultsPage } from "./DefaultsPage";
 import { ExtensionPage, useAwaitingApproval } from "./ExtensionPage";
 import { InspectorPage } from "./InspectorPage";
@@ -93,6 +94,7 @@ const CORE_PAGE_LABELS: Record<string, string> = {
   pi: "Pi",
   providers: "Providers",
   keybindings: "Keybindings",
+  connections: "Connections",
   inspector: "Inspector",
   about: "About",
 };
@@ -310,6 +312,7 @@ export function SettingsScreen({
               {providers.length > 0 ? navButton("providers", "Providers", <Server size={15} />, undefined, onProviders) : null}
               {navButton("keybindings", "Keybindings", <Command size={15} />, () => { setKeybindingFilter((current) => ({ filter: "", seq: current.seq + 1 })); onSetPage("keybindings"); })}
               {pages.map((entry) => navButton(entry.id, entry.label, <PanelIcon Icon={entry.Icon} size={15} />))}
+              {navButton("connections", "Connections", <MonitorSmartphone size={15} />)}
               {navButton("inspector", "Inspector", <Puzzle size={15} />)}
               {navButton("about", "About", <Info size={15} />)}
               {navGroup("extensions", "Extensions", summaries.filter((summary) => !summary.core), (summary) => (
@@ -372,6 +375,8 @@ export function SettingsScreen({
                 <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
               ) : page === "inspector" ? (
                 <InspectorPage registry={registry} cwd={snapshot?.cwd} />
+              ) : page === "connections" ? (
+                <ConnectionsPage onNotify={onNotify} />
               ) : page === "about" ? (
                 <AboutPage />
               ) : active ? (

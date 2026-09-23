@@ -10,16 +10,39 @@ import {
   type HostPush,
   type HostServerFrame,
 } from "../shared/host-transport.js";
+import { ACCESS_CLOSE_REASON } from "../shared/connections.js";
 import { helloReply, type HostPushLog } from "./host-push-log.js";
 import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
+import type { AccessPeer, HostCredential } from "./host-access.js";
+import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
 import { socketCapabilities } from "./host-local-files.js";
 import type { HostClientSink } from "./host-transport-clients.js";
 import type { HostLogger } from "./host-log.js";
 
-/** Closed with this when the hello carried no token or the wrong one. */
+/** Closed with this when the hello carried no token or the wrong one, or its access was taken away. */
 const UNAUTHORIZED = 4401;
+
+/** What the transport asks of the host's access model; `HostAccess` implements it. */
+export interface SocketAccess {
+  authenticate(token: string | undefined): HostCredential | undefined;
+  /** Answers the connection's id; `close` ends it when its access is revoked or rotated away. */
+  attach(credential: HostCredential, peer: AccessPeer, close: (reason: string) => void): string;
+  touch(connectionId: string): void;
+  detach(connectionId: string): void;
+}
+
+/** One secret and nothing else: the shape of a host before per-client tokens. */
+function tokenOnlyAccess(token: string): SocketAccess {
+  let counter = 0;
+  return {
+    authenticate: (offered) => (hostTokenMatches(token, offered) ? { kind: "owner" } : undefined),
+    attach: () => `socket-${++counter}`,
+    touch: () => undefined,
+    detach: () => undefined,
+  };
+}
 
 export interface SocketHostTransportOptions {
   /** `host:port` as `TAU_HOST_LISTEN` gives it; port 0 picks a free one. */
@@ -28,8 +51,10 @@ export interface SocketHostTransportOptions {
   pushLog: HostPushLog;
   hostVersion: string;
   capabilities: string[];
-  /** The secret from `~/.tau/host-token`; every client repeats it in its hello. */
-  token: string;
+  /** The secret from `~/.tau/host-token`; every client repeats it in its hello. Ignored when `access` is given. */
+  token?: string;
+  /** The host token and the paired clients' tokens (ADR 0023). */
+  access?: SocketAccess;
   /** `TAU_HOST_INSECURE=1`: bind a public interface although nothing is encrypted. */
   allowNonLoopback?: boolean;
   /** Speak TLS with this certificate; any interface may then be bound. */
@@ -86,11 +111,16 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const server = http
     ? new WebSocketServer({ server: http, ...settings })
     : new WebSocketServer({ host, port, ...settings });
-  const authenticated = new Set<WebSocket>();
+  if (!options.access && !options.token) throw new Error("A socket listener needs a host token or an access model.");
+  const access = options.access ?? tokenOnlyAccess(options.token!);
+  /** Every authenticated socket, with the principal its requests run as. */
+  const authenticated = new Map<WebSocket, { connection: string; principal: HostInvocationPrincipal }>();
   /** The id the client registry knows a socket by, while it is authenticated. */
   const clientIds = new Map<WebSocket, string>();
   const forget = (socket: WebSocket): void => {
+    const session = authenticated.get(socket);
     authenticated.delete(socket);
+    if (session) access.detach(session.connection);
     const clientId = clientIds.get(socket);
     if (clientId === undefined) return;
     clientIds.delete(socket);
@@ -120,9 +150,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         return;
       }
       if (frame.type === "hello") {
-        if (!hostTokenMatches(options.token, frame.hello.token)) {
+        const credential = access.authenticate(frame.hello.token);
+        if (!credential) {
           options.logger?.warn("host-transport-socket.unauthorized");
-          socket.close(UNAUTHORIZED, HOST_ERROR.unauthorized);
+          socket.close(UNAUTHORIZED, ACCESS_CLOSE_REASON.unauthorized);
           return;
         }
         // A client that says hello twice on one socket replaces itself, with
@@ -130,7 +161,25 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         forget(socket);
         // Waiting pushes are numbered now, before the reply names the next sequence.
         options.beforeReply?.();
-        authenticated.add(socket);
+        const userAgent = request.headers["user-agent"];
+        const connection = access.attach(credential, {
+          ...(request.socket.remoteAddress ? { address: request.socket.remoteAddress } : {}),
+          ...(typeof userAgent === "string" ? { userAgent } : {}),
+          ...(frame.hello.profile ? { profile: frame.hello.profile } : {}),
+          ...(frame.hello.auxiliary ? { auxiliary: true } : {}),
+        }, (reason) => {
+          // Gone from the set first, so nothing more is delivered on the way out.
+          forget(socket);
+          socket.close(UNAUTHORIZED, reason);
+        });
+        authenticated.set(socket, {
+          connection,
+          principal: Object.freeze({
+            kind: "workbench-client",
+            connection,
+            ...(credential.kind === "client" ? { pairedClient: credential.clientId } : {}),
+          }),
+        });
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
         const reply = helloReply(options.pushLog, frame.hello, { ...options, capabilities });
@@ -144,14 +193,16 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         }
         return;
       }
-      if (!authenticated.has(socket)) {
-        socket.close(UNAUTHORIZED, HOST_ERROR.unauthorized);
+      const session = authenticated.get(socket);
+      if (!session) {
+        socket.close(UNAUTHORIZED, ACCESS_CLOSE_REASON.unauthorized);
         return;
       }
+      access.touch(session.connection);
       const { id, method, params } = frame.request;
       // JSON turns a missing positional argument into null; decoders expect undefined.
       const normalized = params.map((value) => (value === null ? undefined : value));
-      void invokeHostMethod(options.methods, method, normalized)
+      void invokeHostMethod(options.methods, method, normalized, session.principal)
         .then((result) => respond(socket, { type: "response", response: { id, result } }))
         .catch((error: unknown) => {
           const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : HOST_ERROR.failed;
@@ -180,10 +231,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     deliver: (push) => {
       if (authenticated.size === 0) return;
       const frame = JSON.stringify({ type: "push", push } satisfies HostServerFrame);
-      for (const socket of authenticated) if (socket.readyState === socket.OPEN) socket.send(frame);
+      for (const socket of authenticated.keys()) if (socket.readyState === socket.OPEN) socket.send(frame);
     },
     close: async () => {
-      for (const socket of [...authenticated]) { forget(socket); socket.close(); }
+      for (const socket of [...authenticated.keys()]) { forget(socket); socket.close(); }
       await new Promise<void>((resolve) => server.close(() => resolve()));
       if (http) await new Promise<void>((resolve) => http.close(() => resolve()));
     },

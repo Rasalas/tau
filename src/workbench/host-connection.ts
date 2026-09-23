@@ -30,6 +30,8 @@ export interface HostTransport {
   onOpen?(listener: () => void): () => void;
   onClose?(listener: () => void): () => void;
   close?(): void;
+  /** The token the next hello carries; a transport without one ignores it. */
+  updateToken?(token: string): void;
 }
 
 interface PendingJob {
@@ -167,6 +169,11 @@ export class HostConnection {
 
   close(): void {
     this.transport.close?.();
+  }
+
+  /** After a rotation: this connection stays, and its next reconnect says hello with `token`. */
+  updateToken(token: string): void {
+    this.transport.updateToken?.(token);
   }
 
   private settleJob<T>(event: HostJobEvent): T {

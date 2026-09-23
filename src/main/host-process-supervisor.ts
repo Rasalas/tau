@@ -157,7 +157,9 @@ export class HostProcessSupervisor {
     const running = this.running;
     if (!running) return;
     try {
-      const uplink = new HostUplink({ url: running.url, token: running.token, requestTimeoutMs: SHUTDOWN_TIMEOUT_MS });
+      // The file, not the token read at start: a rotation may have replaced it since.
+      const token = await readFile(running.tokenPath, "utf8").then((value) => value.trim()).catch(() => "") || running.token;
+      const uplink = new HostUplink({ url: running.url, token, requestTimeoutMs: SHUTDOWN_TIMEOUT_MS });
       await uplink.request("host.shutdown").catch(() => undefined);
       uplink.close();
     } catch {
