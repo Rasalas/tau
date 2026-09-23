@@ -1,12 +1,17 @@
+import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import {
   DEFAULT_INSTANCE_ID,
   HostCommandError,
   RuntimeInstanceSettings,
+  commandInvocation,
+  commandLine,
   npmLatestVersion,
   packageInstallCommand,
   packageUpdateCommand,
+  registerSignIn,
   runtimeUpdateCommand,
   runtimeVersionPolicy,
   skillInvocationCommand,
@@ -19,6 +24,7 @@ import {
   type HostRuntimeBackendProvider,
   type RuntimeInstanceConfig,
   type RuntimeToolVersion,
+  type SignInMethod,
   type UiComposerCommand,
   type VersionPolicy,
 } from "tau/host-extension";
@@ -33,7 +39,7 @@ import {
   type ClaudeInstancesReport,
   type ClaudeStatusReport,
 } from "./protocol.js";
-import { describeAccount, probeNewThreadCatalog, readClaudeVersion } from "./probe.js";
+import { authBilling, claudeAuthAccount, describeAccount, probeNewThreadCatalog, readClaudeAuth, readClaudeVersion, type ClaudeAuthStatus } from "./probe.js";
 import { createClaudeCodeRuntimeAdapter, sdkExtraArgs, type ClaudeCodeAgentRuntimeAdapter, type ClaudeCodeRuntimeOptions } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
@@ -54,6 +60,8 @@ export interface ClaudeCodeHostExtensionOptions {
   env?: NodeJS.ProcessEnv;
   /** `claude --version`; tests answer it. */
   readVersion?(path: string): Promise<string | undefined>;
+  /** `auth status --json`; the CLI itself by default. */
+  readAuth?(path: string, env: NodeJS.ProcessEnv): Promise<ClaudeAuthStatus | undefined>;
 }
 
 const CLAUDE_NPM_PACKAGE = "@anthropic-ai/claude-code";
@@ -81,6 +89,12 @@ export function claudeComposerCommands(
 }
 
 export const CLAUDE_COMMAND_VARIABLE = "TAU_CLAUDE_CODE_COMMAND";
+
+/** The CLI signs in only in a terminal: its login is an interactive page with a code to paste back. */
+export const CLAUDE_SIGN_IN_METHODS: readonly SignInMethod[] = [
+  { id: "plan", label: "Sign in with a Claude plan", kind: "terminal", description: "Runs claude auth login in a terminal you can see; it opens Anthropic's page in your browser." },
+  { id: "console", label: "Sign in with an Anthropic Console account", kind: "terminal", description: "Billed per token to the Console organization; runs claude auth login --console." },
+];
 
 /** A missing CLI fails with an explanation instead of a bare ENOENT from the first turn. */
 export function assertCommandInstalled(findCommand: (name: string) => string | undefined, command = process.env[CLAUDE_COMMAND_VARIABLE] ?? "claude"): void {
@@ -122,6 +136,13 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         env,
       });
       const policy = runtimeVersionPolicy(CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_VERSION_POLICY, env);
+      /** What the CLI says about its login; undefined when it is missing or cannot say. */
+      const authOf = async (id: string): Promise<ClaudeAuthStatus | undefined> => {
+        const path = services.findCommand(settings.command(id).command);
+        if (!path) return undefined;
+        services.noteSubprocess();
+        return (options.readAuth ?? readClaudeAuth)(path, settings.environment(id, env)).catch(() => undefined);
+      };
       const claudeCommand = (id: string): string => settings.command(id).command;
       const unregisters = new Map<string, () => void>();
       const adapters = new Map<string, ClaudeCodeAgentRuntimeAdapter>();
@@ -220,9 +241,16 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           composerCommands: offered,
           version: () => versionOf(id),
           // The plan's models; the probe is cached a few minutes and the host keeps the answer.
-          newThreadCatalog: async () => services.findCommand(claudeCommand(id))
-            ? probeNewThreadCatalog(await adapter.probe())
-            : { models: [], thinkingLevels: {}, status: "not-installed", note: `The CLI "${claudeCommand(id)}" is not installed.` },
+          newThreadCatalog: async () => {
+            if (!services.findCommand(claudeCommand(id))) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The CLI "${claudeCommand(id)}" is not installed.` };
+            // The probe lists models signed out too; the CLI's own login state decides.
+            const auth = await authOf(id);
+            if (auth && !auth.loggedIn) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
+            const catalog = probeNewThreadCatalog(await adapter.probe());
+            const billing = authBilling(auth);
+            if (!billing) return catalog;
+            return { ...catalog, models: catalog.models.map((model) => model.billing ? model : { ...model, billing }), ...(catalog.model ? { model: catalog.model.billing ? catalog.model : { ...catalog.model, billing } } : {}) };
+          },
         };
       };
 
@@ -260,8 +288,10 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         const id = instanceInput(input);
         adapterOf(id);
         const { command, source } = settings.command(id);
-        const version = await versionOf(id).catch(() => undefined);
+        const [version, auth] = await Promise.all([versionOf(id).catch(() => undefined), authOf(id)]);
+        const account = claudeAuthAccount(auth);
         return {
+          ...(auth ? { signedIn: auth.loggedIn, ...(account.label ? { account: account.label } : {}) } : {}),
           kind: settings.kind(id),
           ...(id === DEFAULT_INSTANCE_ID ? {} : { instance: id }),
           command,
@@ -359,8 +389,55 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         return { ...outcome, ...(outcome.imported.length ? { update: await services.sessions.refreshIndex() } : {}) };
       }, { long: true, callers: [ONBOARDING_KIT_ID] });
 
+      // Signing in from the window: the CLI's own login, in a terminal the user sees.
+      const signInEnv = (id: string): Record<string, string> => {
+        const added = settings.environment(id, {});
+        const inherited = env[CLAUDE_HOME_VARIABLE] && !added[CLAUDE_HOME_VARIABLE] ? { [CLAUDE_HOME_VARIABLE]: env[CLAUDE_HOME_VARIABLE] } : {};
+        return Object.fromEntries(Object.entries({ ...inherited, ...added }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+      };
+      const executable = (id: string): string => {
+        adapterOf(id);
+        const path = services.findCommand(claudeCommand(id));
+        if (!path) throw new HostCommandError(`Install the CLI first; "${claudeCommand(id)}" was not found.`);
+        return path;
+      };
+      const signIn = registerSignIn(context, {
+        defaultTarget: DEFAULT_INSTANCE_ID,
+        report: async (id) => {
+          adapterOf(id);
+          if (!services.findCommand(claudeCommand(id))) return { methods: CLAUDE_SIGN_IN_METHODS.map((method) => ({ ...method, unavailable: `Install the CLI first; "${claudeCommand(id)}" was not found.` })), account: { signedIn: false } };
+          const auth = await authOf(id);
+          const home = settings.environment(id, env)[CLAUDE_HOME_VARIABLE];
+          return {
+            methods: [...CLAUDE_SIGN_IN_METHODS],
+            account: auth ? claudeAuthAccount(auth) : { signedIn: false, detail: "This release cannot report its login; update it or run it once in a terminal." },
+            note: `The CLI keeps its login in ${home ?? "its own configuration"}; Tau stores none.`,
+          };
+        },
+        signIn: async (id, method, flow) => {
+          const path = executable(id);
+          flow.show({ terminal: { command: commandLine(path, ["auth", "login", method === "console" ? "--console" : "--claudeai"], signInEnv(id), process.platform) } });
+          const ended = await flow.ask({ kind: "text", message: "Waiting for the login to finish in the terminal." });
+          flow.verifying();
+          const auth = await authOf(id);
+          if (!auth?.loggedIn) throw new Error(ended === "0" || ended === "done" ? "The CLI still reports no login." : `The login ended without signing in (${ended}).`);
+          return `Signed in as ${claudeAuthAccount(auth).label}.`;
+        },
+        signOut: async (id) => {
+          const invocation = commandInvocation(executable(id), ["auth", "logout"]);
+          services.noteSubprocess();
+          await promisify(execFile)(invocation.command, invocation.args, { env: settings.environment(id, env), timeout: 20_000, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments });
+          const after = await authOf(id);
+          return after?.loggedIn ? `Signed out; the CLI still reaches a model through ${after.apiKeySource ?? after.apiProvider ?? "its environment"}.` : `Signed out of ${settings.label(id)}.`;
+        },
+        changed: (id) => { if (settings.get(id)) register(id); },
+      });
+
       for (const instance of settings.list()) register(instance.id);
-      return () => { for (const id of [...unregisters.keys()]) unregister(id); };
+      return () => {
+        signIn.dispose();
+        for (const id of [...unregisters.keys()]) unregister(id);
+      };
     },
   };
 }

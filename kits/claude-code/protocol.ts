@@ -38,4 +38,8 @@ export interface ClaudeStatusReport {
   compatibility?: RuntimeCompatibility;
   installed?: string;
   updateCommand?: string;
+  /** From `auth status`; absent when the CLI cannot say. */
+  signedIn?: boolean;
+  /** Who it is signed in as, for Onboarding's line. */
+  account?: string;
 }

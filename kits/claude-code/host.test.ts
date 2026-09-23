@@ -1,9 +1,12 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtension, HostRuntimeBackendProvider, RuntimeSessionInfo } from "tau/host-extension";
-import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import createClaudeCodeHostExtension from "./host.js";
 import { createClaudeCodeRuntimeAdapter, type ClaudeCodeRuntimeOptions, type ClaudeSessionInput } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -23,6 +26,7 @@ async function harness(findCommand: (name: string) => string | undefined, fetch:
   const registry = await activateHostKit(createClaudeCodeHostExtension({ fetch, env: {} }), {
     stateDir: join(agentDir, "state"),
     findCommand,
+    noteSubprocess: () => undefined,
     agentDir,
     sessionsDir: join(agentDir, "sessions"),
     skills: () => [{ name: "tdd", description: "Test first" }, { name: "not a skill name", description: "ignored" }],
@@ -49,6 +53,7 @@ describe("Claude Code host half", () => {
     await activateHostKit(createClaudeCodeHostExtension({ fetch: offline, env: {}, adapter }), {
       stateDir: join(agentDir, "state"),
       findCommand: () => "/usr/local/bin/claude",
+      noteSubprocess: () => undefined,
       agentDir,
       sessionsDir: join(agentDir, "sessions"),
       skills: () => [],
@@ -154,6 +159,7 @@ describe("Claude Code host half", () => {
       stateDir: join(root, "state"),
       sessionsDir: join(root, "sessions"),
       findCommand: () => undefined,
+      noteSubprocess: () => undefined,
       registerRuntimeBackend: () => () => undefined,
     });
     for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -176,6 +182,7 @@ describe("Claude Code host half", () => {
       stateDir: join(root, "state"),
       sessionsDir: join(root, "sessions"),
       findCommand: () => "/usr/local/bin/claude",
+      noteSubprocess: () => undefined,
       skills: () => [],
       registerRuntimeBackend: (provider) => { backends.push(provider); return () => { backends.splice(backends.indexOf(provider), 1); }; },
     });
@@ -212,6 +219,7 @@ describe("Claude Code host half", () => {
       stateDir: join(root, "state"),
       sessionsDir: join(root, "sessions"),
       findCommand: () => "/usr/local/bin/claude",
+      noteSubprocess: () => undefined,
       skills: () => [],
       registerRuntimeBackend: (provider) => { backends.push(provider); return () => { backends.splice(backends.indexOf(provider), 1); }; },
     });
@@ -232,10 +240,89 @@ describe("Claude Code host half", () => {
       stateDir: join(root, "state"),
       sessionsDir: join(root, "sessions"),
       findCommand: () => "/usr/local/bin/claude",
+      noteSubprocess: () => undefined,
       skills: () => [],
       registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
     });
     await expect(backends[0]!.version!()).resolves.toMatchObject({ installed: "2.1.280", compatibility: { status: "broken", message: "It drops tool results.", recommendedVersion: "2.2.1" } });
     await expect(backends[0]!.open("t", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full" } as never)).rejects.toThrow("It drops tool results. Install 2.2.1.");
+  });
+
+  describe("signing in from the window", () => {
+    const STUB = fileURLToPath(new URL("./fixtures/stub-cli.mjs", import.meta.url));
+    type Flow = { flowId: string; phase: string; terminal?: { command: string }; prompt?: { id: string }; message?: string };
+    type Report = { methods: Array<{ id: string; unavailable?: string }>; account?: { signedIn: boolean; label?: string; detail?: string; canSignOut?: boolean }; flow?: Flow; note?: string };
+
+    async function signInHarness(extraEnv: NodeJS.ProcessEnv = {}) {
+      const root = await mkdtemp(join(tmpdir(), "tau-claude-sign-in-"));
+      directories.push(root);
+      const home = join(root, "home");
+      const events: PublishedKitEvent[] = [];
+      const backends: HostRuntimeBackendProvider[] = [];
+      const registry = await activateHostKit(createClaudeCodeHostExtension({ fetch: offline, env: { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: home, ...extraEnv }, readVersion: async () => "2.1.280" }), {
+        stateDir: join(root, "state"),
+        findCommand: (name) => name === "claude" ? STUB : undefined,
+        noteSubprocess: () => undefined,
+        agentDir: root,
+        sessionsDir: join(root, "sessions"),
+        skills: () => [],
+        registerRuntimeBackend: (provider) => { backends.push(provider); return () => { backends.splice(backends.indexOf(provider), 1); }; },
+      }, (event) => events.push(event));
+      const finalReport = async (flowId: string) => {
+        let found: Report | undefined;
+        await vi.waitFor(() => {
+          found = events.filter((event) => event.name === "sign-in").map((event) => (event.payload as { report?: Report }).report).find((report) => report?.flow?.flowId === flowId);
+          expect(found).toBeDefined();
+        });
+        return found!;
+      };
+      const waitingFlow = async (flowId: string) => {
+        let found: Flow | undefined;
+        await vi.waitFor(() => {
+          found = events.filter((event) => event.name === "sign-in").map((event) => (event.payload as { flow?: Flow }).flow).find((flow) => flow?.flowId === flowId && flow.prompt !== undefined);
+          expect(found).toBeDefined();
+        });
+        return found!;
+      };
+      return { registry, backends, home, events, finalReport, waitingFlow };
+    }
+
+    it("says the CLI is signed out, so a draft offers no models, and offers its two logins", async () => {
+      const { registry, backends, home } = await signInHarness();
+      await expect(registry.invoke("tau.claude-code", "status")).resolves.toMatchObject({ signedIn: false, path: STUB });
+      await expect(backends[0]!.newThreadCatalog!()).resolves.toMatchObject({ models: [], status: "sign-in-required" });
+      const report = await registry.invoke("tau.claude-code", "sign-in-state") as Report;
+      expect(report.methods.map((method) => method.id)).toEqual(["plan", "console"]);
+      expect(report.account).toEqual({ signedIn: false });
+      expect(report.note).toContain(home);
+    });
+
+    it("runs the CLI's login for the instance's home in a terminal and checks it when the terminal ends", async () => {
+      const { registry, home, finalReport, waitingFlow } = await signInHarness();
+      const early = await registry.invoke("tau.claude-code", "sign-in", { method: "plan" }) as Flow;
+      await waitingFlow(early.flowId);
+      await registry.invoke("tau.claude-code", "sign-in-respond", { flowId: early.flowId, value: "0" });
+      expect((await finalReport(early.flowId)).flow).toMatchObject({ phase: "failed", message: "The CLI still reports no login." });
+
+      const started = await registry.invoke("tau.claude-code", "sign-in", { method: "plan" }) as Flow;
+      const waiting = await waitingFlow(started.flowId);
+      expect(waiting.terminal?.command).toBe(`CLAUDE_CONFIG_DIR=${home} ${STUB} auth login --claudeai`);
+      // The user's terminal: the same command, run by hand.
+      await promisify(execFile)(STUB, ["auth", "login", "--claudeai"], { env: { ...process.env, CLAUDE_CONFIG_DIR: home } });
+      await registry.invoke("tau.claude-code", "sign-in-respond", { flowId: started.flowId, value: "0" });
+      const report = await finalReport(started.flowId);
+      expect(report.flow).toMatchObject({ phase: "succeeded", message: "Signed in as stub@example.com." });
+      expect(report.account).toEqual({ signedIn: true, label: "stub@example.com", detail: "Claude Max · Stub Org", canSignOut: true });
+      await expect(registry.invoke("tau.claude-code", "status")).resolves.toMatchObject({ signedIn: true, account: "stub@example.com" });
+
+      const after = await registry.invoke("tau.claude-code", "sign-out") as Report;
+      expect(after).toMatchObject({ account: { signedIn: false }, note: "Signed out of Claude Code." });
+    });
+
+    it("treats a key from the environment as signed in that a sign-out cannot remove", async () => {
+      const { registry } = await signInHarness({ ANTHROPIC_API_KEY: "sk-ant-fake" });
+      const report = await registry.invoke("tau.claude-code", "sign-in-state") as Report;
+      expect(report.account).toEqual({ signedIn: true, label: "API key", detail: "API key · ANTHROPIC_API_KEY", canSignOut: false });
+    });
   });
 });
