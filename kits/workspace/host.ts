@@ -26,6 +26,7 @@ import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
 import { registerAppOpen } from "./app-open.js";
+import { worktreeSetupCommand } from "./agent-worktrees.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -210,7 +211,10 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (!runOnWorktreeCreate) return;
         services.noteSubprocess();
         try {
-          await execFileAsync("/bin/sh", ["-lc", runOnWorktreeCreate], {
+          const setup = worktreeSetupCommand(runOnWorktreeCreate);
+          await execFileAsync(setup.command, setup.args, {
+            windowsVerbatimArguments: setup.windowsVerbatimArguments,
+            windowsHide: true,
             cwd: worktree,
             timeout: 10 * 60 * 1000,
             maxBuffer: 4 * 1024 * 1024,
@@ -244,7 +248,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           });
         if (!parent) return undefined;
         const destination = join(parent, repositoryFolderName(url));
-        await execFileAsync(gitExecutable(), ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+        await execFileAsync(gitExecutable(), ["clone", "--", url, destination], { timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
         services.log("git.cloned", destination);
         return services.workspaceRef(destination);
       }, { long: true });

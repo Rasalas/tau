@@ -14,6 +14,8 @@ export interface WindowAttentionPorts {
   reveal(): boolean;
   /** `app.setBadgeCount`: the dock on macOS, the launcher on Linux. */
   setBadgeCount(count: number): boolean;
+  /** Windows has no badge count; the window's taskbar button takes an overlay icon instead. */
+  setOverlayBadge?(count: number): boolean;
   /** What the OS was asked and what came of it, for the window's log. */
   log?(label: string, detail?: unknown): void;
 }
@@ -54,8 +56,34 @@ export function createWindowAttention(ports: WindowAttentionPorts) {
       });
     },
     setBadge(count: number): void {
-      const set = ports.setBadgeCount(count);
+      const set = ports.setBadgeCount(count) || (ports.setOverlayBadge?.(count) ?? false);
       ports.log?.("window-attention.badge", { count, set });
     },
   };
+}
+
+/** Side of the overlay icon Windows draws on the taskbar button, in pixels. */
+export const OVERLAY_BADGE_SIZE = 16;
+
+/**
+ * A filled dot for `setOverlayIcon`, as raw BGRA: the overlay is too small for
+ * a legible count, so it says "something is unseen" and the tooltip the count.
+ */
+export function overlayBadgeBitmap(size = OVERLAY_BADGE_SIZE): Buffer {
+  const bitmap = Buffer.alloc(size * size * 4);
+  const radius = size / 2;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const distance = Math.hypot(x + 0.5 - radius, y + 0.5 - radius);
+      // One pixel of falloff at the rim, so the edge is not jagged.
+      const alpha = Math.round(255 * Math.max(0, Math.min(1, radius - distance)));
+      const offset = (y * size + x) * 4;
+      // Premultiplied, as Windows composites it: #e5484d.
+      bitmap[offset] = Math.round(0x4d * alpha / 255);
+      bitmap[offset + 1] = Math.round(0x48 * alpha / 255);
+      bitmap[offset + 2] = Math.round(0xe5 * alpha / 255);
+      bitmap[offset + 3] = alpha;
+    }
+  }
+  return bitmap;
 }

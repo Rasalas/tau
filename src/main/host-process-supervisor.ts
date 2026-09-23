@@ -53,7 +53,15 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 const KEPT_LOGS = 5;
 
 const LISTENING = /tau-host listening on (ws:\/\/\S+)/u;
-const TOKEN_LINE = /^token: (\S+)/mu;
+/** The whole path up to the note in parentheses: a Windows profile path often has a space. */
+const TOKEN_LINE = /^token: (.+?)(?: \([^()\\/]*\))?\r?$/mu;
+
+/** The socket and the token file a starting host announces on stdout, once both lines are in. */
+export function parseHostAnnouncement(output: string): { url: string; tokenPath: string } | undefined {
+  const url = LISTENING.exec(output)?.[1];
+  const tokenPath = TOKEN_LINE.exec(output)?.[1];
+  return url && tokenPath ? { url, tokenPath } : undefined;
+}
 
 export function hostDescriptorPath(userData: string): string {
   return join(userData, "host.json");
@@ -236,11 +244,10 @@ export class HostProcessSupervisor {
         const text = String(chunk);
         logStream.write(text);
         output += text.slice(0, 4_000);
-        const url = LISTENING.exec(output)?.[1];
-        const tokenPath = TOKEN_LINE.exec(output)?.[1];
-        if (url && tokenPath) {
+        const announced = parseHostAnnouncement(output);
+        if (announced) {
           clearTimeout(timer);
-          resolve({ url, tokenPath });
+          resolve(announced);
         }
       };
       child.stdout?.on("data", read);
@@ -322,7 +329,7 @@ export class HostProcessSupervisor {
 function defaultSpawn(command: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
   // Its own process group: a signal meant for the window (a terminal's Ctrl-C,
   // a stopped dev instance) must not take the host's threads with it.
-  return spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+  return spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], detached: true, windowsHide: true });
 }
 
 function portOf(url: string): number {

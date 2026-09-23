@@ -1,0 +1,56 @@
+name: Windows
+
+# Manual only. CI runs on one self-hosted Linux runner, and GitHub-hosted
+# Windows minutes may not be configured for this repository, so this never
+# runs on push or pull_request. Start it on a branch with:
+#
+#   gh workflow run windows.yml --ref <branch>
+#   gh workflow run windows.yml --ref <branch> -f full-suite=true
+#
+# What it proves and what it does not: docs/windows.md.
+on:
+  workflow_dispatch:
+    inputs:
+      full-suite:
+        description: Also run the whole test suite (not yet expected to pass on Windows; see docs/windows.md)
+        type: boolean
+        default: false
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      # The tests written for Windows, including the ones that only run there
+      # (a real cmd.exe, where.exe, Windows PowerShell and taskkill).
+      - name: Windows tests
+        run: >-
+          npx vitest run
+          src/main/shell-environment.test.ts
+          src/main/platform-process.test.ts
+          src/main/external-editor.test.ts
+          src/main/window-attention.test.ts
+          kits/terminal/shell.test.ts
+          kits/workspace/editors.test.ts
+          kits/workspace/host-paths.test.ts
+      - run: npm run build
+      - name: Smoke — remote host
+        run: npm run smoke:remote-host
+      - name: Smoke — extension install
+        run: npm run smoke:extension-install
+      - name: Full test suite
+        if: inputs.full-suite
+        continue-on-error: true
+        run: npx vitest run

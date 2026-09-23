@@ -64,6 +64,9 @@ describe("workspace identity", () => {
     expect(isWorkspaceRelativePath("../secrets")).toBe(false);
     expect(isWorkspaceRelativePath("/etc/passwd")).toBe(false);
     expect(isWorkspaceRelativePath("C:/Windows")).toBe(false);
+    // Separators on a Windows host.
+    expect(isWorkspaceRelativePath("a\\..\\..\\secrets")).toBe(false);
+    expect(isWorkspaceRelativePath("\\\\server\\share")).toBe(false);
     expect(isWorkspaceRelativePath("")).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AccountInfo, ModelInfo, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { UiModel } from "tau/host-extension";
+import { commandInvocation, type UiModel } from "tau/host-extension";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -63,7 +63,8 @@ export function parseClaudeModelId(id: string): { family: string; version: strin
  */
 export async function readClaudeVersion(command: string, run: typeof execFile = execFile): Promise<string | undefined> {
   try {
-    const { stdout } = await promisify(run)(command, ["--version"], { timeout: 5_000 });
+    const invocation = commandInvocation(command, ["--version"]);
+    const { stdout } = await promisify(run)(invocation.command, invocation.args, { timeout: 5_000, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments });
     return /\d+\.\d+\.\d+[^\s]*/u.exec(String(stdout))?.[0];
   } catch {
     return undefined;

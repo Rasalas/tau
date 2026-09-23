@@ -12,7 +12,7 @@ const ENV_SESSION_DIR = "PI_CODING_AGENT_SESSION_DIR";
 
 function expandTilde(path: string): string {
   if (path === "~") return homedir();
-  if (path.startsWith("~/")) return resolve(homedir(), path.slice(2));
+  if (path.startsWith("~/") || path.startsWith("~\\")) return resolve(homedir(), path.slice(2));
   return path;
 }
 

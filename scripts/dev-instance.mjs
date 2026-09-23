@@ -190,7 +190,8 @@ async function main() {
   const needsBuild = options.build || !existsSync(mainEntry);
   if (needsBuild) {
     console.log("[dev-instance] building (npm run build)…");
-    execFileSync("npm", ["run", "build"], { cwd: ROOT, stdio: "inherit" });
+    // `npm run build` without npm: npm is npm.cmd on Windows, which execFile cannot start.
+    execFileSync(process.execPath, [join(ROOT, "scripts", "build.mjs")], { cwd: ROOT, stdio: "inherit" });
   }
 
   const port = options.port ?? await findFreePort(ROOT);

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   HostCommandError,
+  commandInvocation,
   compareVersions,
   npmLatestVersion,
   packageUpdateCommand,
@@ -43,7 +44,8 @@ export const CODEX_COMMAND_VARIABLE = "TAU_CODEX_COMMAND";
 
 export async function readCodexVersion(path: string): Promise<string | undefined> {
   try {
-    const { stdout } = await promisify(execFile)(path, ["--version"], { timeout: 10_000 });
+    const invocation = commandInvocation(path, ["--version"]);
+    const { stdout } = await promisify(execFile)(invocation.command, invocation.args, { timeout: 10_000, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments });
     return /\d+\.\d+\.\d+[^\s]*/u.exec(String(stdout))?.[0];
   } catch {
     return undefined;

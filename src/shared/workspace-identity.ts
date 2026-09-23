@@ -20,9 +20,11 @@ export function isWorkspaceId(value: string): boolean {
 /**
  * A file inside a workspace travels as a POSIX path relative to its root.
  * Absolute paths and `..` escapes are refused before the host resolves them.
+ * A backslash is refused anywhere: a Windows host would read it as a separator,
+ * so `a\..\..\x` would escape the root there.
  */
 export function isWorkspaceRelativePath(value: string): boolean {
-  if (!value || value.startsWith("/") || value.startsWith("\\") || /^[a-z]:/iu.test(value)) return false;
+  if (!value || value.startsWith("/") || value.includes("\\") || /^[a-z]:/iu.test(value)) return false;
   return !value.split("/").some((segment) => segment === ".." || segment === "");
 }
 

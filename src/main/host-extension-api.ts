@@ -44,7 +44,9 @@ export type * from "../shared/workspace-kit-types.js";
 /** Leaf helpers a workspace kit needs and core keeps for itself as well. */
 export { assistantAnchorForBranch } from "./session-entries.js";
 export { readBoundedImagePreview } from "./image-preview.js";
-export { gitExecutable, findExecutable } from "./shell-environment.js";
+export { gitExecutable, findExecutable, type FindExecutableOptions } from "./shell-environment.js";
+/** Starting a command the way the platform needs: `.cmd` shims through `cmd.exe`, process trees ended whole. */
+export { commandInvocation, killProcessTree, type CommandInvocation, type CommandInvocationOptions } from "./platform-process.js";
 export { assertAllowedCloneSource } from "./clone-source.js";
 
 /** For a backend that drives a CLI: the newest npm release, the package manager's update command, version order. */

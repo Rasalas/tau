@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { createWindowAttention, type NativeNotification } from "./window-attention.js";
+import { createWindowAttention, overlayBadgeBitmap, type NativeNotification } from "./window-attention.js";
 
 class FakeNotification extends EventEmitter implements NativeNotification {
   shown = false;
@@ -70,5 +70,29 @@ describe("notifications and the badge, drawn by the window's process", () => {
     attention.setBadge(3);
     attention.setBadge(0);
     expect(setBadgeCount.mock.calls).toEqual([[3], [0]]);
+  });
+});
+
+describe("the badge on Windows", () => {
+  it("falls back to the taskbar overlay where there is no badge count", () => {
+    const setOverlayBadge = vi.fn(() => true);
+    const attention = createWindowAttention({
+      isSupported: () => true,
+      create: () => new FakeNotification({ title: "" }),
+      reveal: () => true,
+      setBadgeCount: () => false,
+      setOverlayBadge,
+    });
+    attention.setBadge(3);
+    attention.setBadge(0);
+    expect(setOverlayBadge.mock.calls).toEqual([[3], [0]]);
+  });
+
+  it("draws an opaque dot with a transparent corner", () => {
+    const bitmap = overlayBadgeBitmap(16);
+    expect(bitmap.length).toBe(16 * 16 * 4);
+    const pixel = (x: number, y: number) => [...bitmap.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4)];
+    expect(pixel(8, 8)).toEqual([0x4d, 0x48, 0xe5, 255]);
+    expect(pixel(0, 0)).toEqual([0, 0, 0, 0]);
   });
 });

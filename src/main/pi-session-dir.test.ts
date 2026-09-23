@@ -22,6 +22,8 @@ describe("resolvePiSessionsDirOverride", () => {
     expect(resolvePiSessionsDirOverride({ PI_CODING_AGENT_SESSION_DIR: "~/tau-dev/pi-sessions" }))
       .toBe(join(homedir(), "tau-dev/pi-sessions"));
     expect(resolvePiSessionsDirOverride({ PI_CODING_AGENT_SESSION_DIR: "~" })).toBe(homedir());
+    // The Windows spelling.
+    expect(resolvePiSessionsDirOverride({ PI_CODING_AGENT_SESSION_DIR: "~\\pi-sessions" })).toBe(join(homedir(), "pi-sessions"));
   });
 
   it("ignores an empty string, the same as unset", () => {

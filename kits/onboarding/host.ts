@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
+import { commandInvocation } from "tau/host-extension";
 import {
   IMPORT_PROGRESS_EVENT,
   ONBOARDING_EXTENSION_ID,
@@ -24,7 +25,9 @@ const PROBE_TIMEOUT_MS = 8_000;
 type Run = (command: string, args: readonly string[]) => Promise<{ ok: boolean; stdout: string }>;
 
 const run: Run = (command, args) => new Promise((resolve) => {
-  execFile(command, args, { timeout: PROBE_TIMEOUT_MS }, (error, stdout) => resolve({ ok: !error, stdout: String(stdout) }));
+  // `claude` and `codex` from npm are `.cmd` shims on Windows.
+  const invocation = commandInvocation(command, args);
+  execFile(invocation.command, invocation.args, { timeout: PROBE_TIMEOUT_MS, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments }, (error, stdout) => resolve({ ok: !error, stdout: String(stdout) }));
 });
 
 /** The vendors' own installers and login commands, as T3 Code offers them. */

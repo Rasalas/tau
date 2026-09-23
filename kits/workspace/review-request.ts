@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { UiReviewRequest, UiReviewRequestChecks } from "tau/host-extension";
+import { commandInvocation, type UiReviewRequest, type UiReviewRequestChecks } from "tau/host-extension";
 
 /** Runs a host tool in a checkout and resolves its stdout; rejects on any failure. */
 export type ToolRunner = (command: string, args: string[], cwd: string) => Promise<string>;
@@ -17,8 +17,11 @@ export interface ReviewRequestTools {
 const TOOL_TIMEOUT_MS = 8_000;
 
 const defaultRunner: ToolRunner = (command, args, cwd) => new Promise((resolve, reject) => {
-  execFile(command, args, {
+  const invocation = commandInvocation(command, args);
+  execFile(invocation.command, invocation.args, {
     cwd,
+    windowsHide: true,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
     timeout: TOOL_TIMEOUT_MS,
     maxBuffer: 1024 * 1024,
     // Both CLIs would otherwise prompt for a login or a remote choice.

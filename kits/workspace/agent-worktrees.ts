@@ -32,6 +32,7 @@ export const runAgentGit: AgentGitRunner = async (cwd, args, options = {}) => {
     cwd,
     maxBuffer: PATCH_BUFFER,
     timeout: 120_000,
+    windowsHide: true,
     ...(options.indexFile ? { env: { ...process.env, GIT_INDEX_FILE: options.indexFile, GIT_OPTIONAL_LOCKS: "0" } } : {}),
   });
   if (options.stdin !== undefined) child.child.stdin?.end(options.stdin);
@@ -92,6 +93,20 @@ export function latestCheckpointSnapshotRef(entries: readonly unknown[]): string
     if (typeof after === "string" && after.startsWith("refs/tau/checkpoints/")) return after;
   }
   return undefined;
+}
+
+/**
+ * How a project's `runOnWorktreeCreate` line runs: a POSIX login shell, or on
+ * Windows `cmd.exe`, the way Node's `shell: true` would start it.
+ */
+export function worktreeSetupCommand(
+  script: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): { command: string; args: string[]; windowsVerbatimArguments?: boolean } {
+  if (platform !== "win32") return { command: "/bin/sh", args: ["-lc", script] };
+  const comSpec = Object.entries(env).find(([key]) => key.toUpperCase() === "COMSPEC")?.[1];
+  return { command: comSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${script}"`], windowsVerbatimArguments: true };
 }
 
 /**

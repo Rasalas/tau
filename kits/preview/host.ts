@@ -2,7 +2,8 @@ import { Type, type TSchema } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
 import { mkdir, open, type FileHandle } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { join, posix, win32 } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { HostExtension, HostExtensionContext, RuntimeExtensionFactory } from "tau/host-extension";
 import {
   EMPTY_PREVIEW_STATE,
@@ -186,12 +187,16 @@ export function readPreviewBounds(input: unknown): PreviewBounds {
  * What the preview may load: web pages, and files of the thread's own
  * workspace. A `javascript:` or `data:` URL never becomes a page.
  */
-export function normalizePreviewUrl(input: unknown, workspaceRoot: string): string {
+export function normalizePreviewUrl(input: unknown, workspaceRoot: string, platform: NodeJS.Platform = process.platform): string {
   const raw = typeof input === "string" ? input.trim() : "";
   if (!raw) throw new Error("Preview needs a URL.");
+  const windows = platform === "win32";
+  // `C:\site\index.html` would otherwise read as the scheme `c:`.
+  const windowsPath = windows && (/^[a-z]:[\\/]/iu.test(raw) || raw.startsWith("\\\\"));
   // `localhost:3000` is a host and a port, not a scheme.
   const hasScheme = /^[a-z][a-z0-9+.-]*:/iu.test(raw) && !/^[a-z0-9.-]+:\d+(?:[/?#]|$)/iu.test(raw);
-  const candidate = raw.startsWith("/") ? `file://${raw}` : hasScheme ? raw : `http://${raw}`;
+  const candidate = windowsPath ? pathToFileURL(raw, { windows: true }).href
+    : raw.startsWith("/") ? `file://${raw}` : hasScheme ? raw : `http://${raw}`;
   let url: URL;
   try {
     url = new URL(candidate);
@@ -201,9 +206,17 @@ export function normalizePreviewUrl(input: unknown, workspaceRoot: string): stri
   if (url.protocol === "http:" || url.protocol === "https:") return url.toString();
   if (url.protocol === "about:" && url.pathname === "blank") return "about:blank";
   if (url.protocol !== "file:") throw new Error(`Preview opens http, https and workspace files only, not ${url.protocol}`);
-  const path = decodeURIComponent(url.pathname);
+  let path = "";
+  try {
+    path = windows ? fileURLToPath(url, { windows: true }) : decodeURIComponent(url.pathname);
+  } catch {
+    // A file URL without a drive letter names nothing on Windows.
+  }
+  const sep = windows ? win32.sep : posix.sep;
   const root = workspaceRoot.endsWith(sep) ? workspaceRoot : `${workspaceRoot}${sep}`;
-  if (!workspaceRoot || !path.startsWith(root)) throw new Error("Preview opens local files only inside the workspace.");
+  // Windows paths compare case-insensitively.
+  const inside = windows ? path.toLowerCase().startsWith(root.toLowerCase()) : path.startsWith(root);
+  if (!workspaceRoot || !path || !inside) throw new Error("Preview opens local files only inside the workspace.");
   return url.toString();
 }
 

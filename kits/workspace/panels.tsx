@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Maximize2 } from "lucide-react";
 import { ChangesTree, FileKindIcon, useWorkbench, VirtualList, type FileNode, type PanelProps } from "tau";
+import { relativeHostPath } from "./host-paths.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
 interface FlatNode { node: FileNode; depth: number; }
@@ -124,7 +125,7 @@ export function ChangesPanel({ active, extensionName, actions }: PanelProps) {
   const allStaged = stagedCount === changes.files.length;
   const submit = (push: boolean) => { if (canCommit) void commit(message, push).then(() => setDirty(false)); };
   const leadPush = pushPrimary && canPush;
-  const activeRelative = activePath && snapshot?.cwd && activePath.startsWith(`${snapshot.cwd}/`) ? activePath.slice(snapshot.cwd.length + 1) : undefined;
+  const activeRelative = relativeHostPath(activePath, snapshot?.cwd);
 
   return <section className="panel-body">
     <header className="panel-header">

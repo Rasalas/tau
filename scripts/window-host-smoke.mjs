@@ -98,7 +98,7 @@ function createClient(url, token) {
 
 if (!existsSync(HOST_ENTRY)) {
   console.log("Building (npm run build)…");
-  execFileSync("npm", ["run", "build"], { cwd: ROOT, stdio: "inherit" });
+  execFileSync(process.execPath, [join(ROOT, "scripts", "build.mjs")], { cwd: ROOT, stdio: "inherit" });
 }
 
 const { HostProcessSupervisor, readHostDescriptor } = await import(pathToFileURL(join(MAIN, "host-process-supervisor.js")).href);

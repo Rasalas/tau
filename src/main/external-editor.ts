@@ -4,6 +4,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { commandInvocation } from "./platform-process.js";
 
 export interface ExternalEditorOptions {
   /** Explicit editor command override, e.g. from config or settings. */
@@ -49,9 +50,9 @@ export function resolveEditorCommand(options: ExternalEditorOptions = {}): strin
 }
 
 /** Determines whether the given editor command is a terminal-based editor. */
-export function isTerminalEditor(command: string): boolean {
-  const binary = editorCommandArgv(command)?.[0] ?? command.trim().split(/\s+/)[0];
-  const baseName = binary.replace(/^.*[\\/]/, "");
+export function isTerminalEditor(command: string, platform: NodeJS.Platform = process.platform): boolean {
+  const binary = editorCommandArgv(command, platform)?.[0] ?? command.trim().split(/\s+/)[0];
+  const baseName = binary.replace(/^.*[\\/]/, "").replace(/\.exe$/i, "");
   return CLI_EDITORS.has(baseName);
 }
 
@@ -61,12 +62,16 @@ export function isTerminalEditor(command: string): boolean {
  * argv and spawned without a shell.
  */
 const SHELL_METACHARACTERS = /[>|;`&$(){}[\]*?~\n]/;
+/** cmd.exe's; parentheses and brackets are common in Windows paths and harmless there. */
+const CMD_METACHARACTERS = /[<>|&^%\n]/;
 
 /**
  * Splits a command line into argv, respecting single quotes, double quotes, and
- * backslash escapes. Returns null if quotes are unterminated.
+ * backslash escapes. Returns null if quotes are unterminated. On Windows a
+ * backslash is a path separator and only double quotes quote.
  */
-export function parseCommandArgv(command: string): string[] | null {
+export function parseCommandArgv(command: string, platform: NodeJS.Platform = process.platform): string[] | null {
+  if (platform === "win32") return parseWindowsArgv(command);
   const argv: string[] = [];
   let current = "";
   let started = false;
@@ -114,10 +119,33 @@ export function parseCommandArgv(command: string): string[] | null {
   return argv;
 }
 
+function parseWindowsArgv(command: string): string[] | null {
+  const argv: string[] = [];
+  let current = "";
+  let started = false;
+  let quoted = false;
+  for (const char of command.trim()) {
+    if (char === '"') {
+      quoted = !quoted;
+      started = true;
+    } else if (!quoted && /\s/.test(char)) {
+      if (started) argv.push(current);
+      current = "";
+      started = false;
+    } else {
+      current += char;
+      started = true;
+    }
+  }
+  if (quoted) return null;
+  if (started) argv.push(current);
+  return argv;
+}
+
 /** Returns argv for the command line, or null if it needs a shell to interpret. */
-export function editorCommandArgv(command: string): string[] | null {
-  if (SHELL_METACHARACTERS.test(command)) return null;
-  const argv = parseCommandArgv(command);
+export function editorCommandArgv(command: string, platform: NodeJS.Platform = process.platform): string[] | null {
+  if ((platform === "win32" ? CMD_METACHARACTERS : SHELL_METACHARACTERS).test(command)) return null;
+  const argv = parseCommandArgv(command, platform);
   return argv && argv.length > 0 ? argv : null;
 }
 
@@ -141,7 +169,7 @@ export async function openExternalEditor(options: ExternalEditorOptions = {}): P
   await writeFile(tempFile, initialText, "utf8");
 
   try {
-    const isCli = isTerminalEditor(command);
+    const isCli = isTerminalEditor(command, platform);
 
     if (isCli && platform === "darwin") {
       // On macOS, if it's a CLI editor, launch Terminal.app running the editor
@@ -177,11 +205,13 @@ export async function openExternalEditor(options: ExternalEditorOptions = {}): P
       try { await unlink(doneFile); } catch {}
     } else {
       // Spawn directly (GUI editor with --wait or standard editor process)
-      const argv = editorCommandArgv(command);
+      const argv = editorCommandArgv(command, platform);
       await new Promise<void>((resolve, reject) => {
-        const child = argv
-          ? spawn(argv[0], [...argv.slice(1), tempFile], { env, stdio: "inherit" })
-          : spawn(command, [tempFile], { shell: true, env, stdio: "inherit" });
+        // `code --wait` is `code.cmd` on Windows, which starts only through cmd.exe.
+        const invocation = argv ? commandInvocation(argv[0]!, [...argv.slice(1), tempFile], { platform, env }) : undefined;
+        const child = invocation
+          ? spawn(invocation.command, invocation.args, { env, stdio: "inherit", windowsVerbatimArguments: invocation.windowsVerbatimArguments, windowsHide: invocation.windowsVerbatimArguments === true })
+          : spawn(command, [platform === "win32" ? `"${tempFile}"` : tempFile], { shell: true, env, stdio: "inherit" });
         child.on("error", reject);
         child.on("close", (code) => {
           if (code === 0) resolve();

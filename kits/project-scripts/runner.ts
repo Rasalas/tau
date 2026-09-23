@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { killProcessTree } from "tau/host-extension";
 import { RUN_DISMISSED_EVENT, RUN_EVENT, type ProjectScript, type UiScriptRun } from "./protocol.js";
 
 /** A started script, as a shape: the test drives a fake, the host a child process. */
@@ -33,7 +34,8 @@ const PREVIEW_WAIT_MS = 30_000;
 /**
  * `sh -c` in the host's environment, which already is the login shell's. The
  * script leads a process group of its own: stopping a dev server also stops
- * what `npm run` started under it.
+ * what `npm run` started under it. Windows runs it through `cmd.exe` and ends
+ * the tree with `taskkill /T`, having no process groups.
  */
 export const spawnScript: ScriptSpawner = ({ command, cwd, env }) => {
   const windows = process.platform === "win32";
@@ -44,12 +46,7 @@ export const spawnScript: ScriptSpawner = ({ command, cwd, env }) => {
   let output: (text: string) => void = () => undefined;
   const signalGroup = (signal: NodeJS.Signals) => {
     if (exited || child.pid === undefined) return;
-    try {
-      if (windows) child.kill(signal);
-      else process.kill(-child.pid, signal);
-    } catch {
-      // Already gone.
-    }
+    killProcessTree(child.pid, signal);
   };
   return {
     onOutput: (listener) => {

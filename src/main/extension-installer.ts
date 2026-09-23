@@ -19,6 +19,7 @@ import {
   type PackageScope,
 } from "./extension-sources.js";
 import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState } from "./extension-signature.js";
+import { commandInvocation } from "./platform-process.js";
 import { findExecutable, gitExecutable } from "./shell-environment.js";
 
 const execFileAsync = promisify(execFile);
@@ -53,7 +54,11 @@ export interface InstalledExtension {
 }
 
 function run(command: string, args: string[], options: { cwd?: string; signal?: AbortSignal }): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(command, args, {
+  // npm is `npm.cmd` on Windows, which only runs through cmd.exe.
+  const invocation = commandInvocation(command, args);
+  return execFileAsync(invocation.command, invocation.args, {
+    ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    windowsHide: true,
     ...(options.cwd ? { cwd: options.cwd } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     timeout: COMMAND_TIMEOUT_MS,
