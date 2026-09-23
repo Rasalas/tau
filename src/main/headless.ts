@@ -28,6 +28,7 @@ import { selectDefaultBackend } from "./runtime-adapters.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
+import { IdleHeapCompactor } from "./host-idle-compaction.js";
 
 /**
  * The host without a window: the same `PiHost` and the same method table,
@@ -50,8 +51,13 @@ const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
 const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
 const pushLog = new HostPushLog();
+const compactor = new IdleHeapCompactor({
+  onCompacted: ({ beforeBytes, afterBytes, ms }) =>
+    hostLog.info("host.heap.compacted", `${Math.round(beforeBytes / 1048576)} → ${Math.round(afterBytes / 1048576)} MiB in ${Math.round(ms)} ms`),
+});
 /** Streamed text and tool output are merged here before they are numbered. */
 const pushes = new HostPushCoalescer((event) => {
+  compactor.noteActivity();
   const push = pushLog.record(event);
   socket?.deliver(push);
   return push.seq;
@@ -161,6 +167,7 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     void (async () => {
       clientCalls.dispose();
+      compactor.dispose();
       await socket?.close();
       await host?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
       process.exit(0);
@@ -186,7 +193,7 @@ async function main(): Promise<void> {
     : undefined;
   socket = await startSocketHostTransport({
     listen,
-    methods,
+    methods: compactor.observe(methods),
     pushLog,
     beforeReply: () => pushes.flush(),
     onSnapshotClient: () => pushes.resendWholeOutputs(),
@@ -218,6 +225,7 @@ async function main(): Promise<void> {
     console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
   }
 
+  compactor.start();
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }

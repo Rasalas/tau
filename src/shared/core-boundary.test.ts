@@ -63,7 +63,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./external-editor.js",   "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
   "./host-clients.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
-  "./host-extensions.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
+  "./host-extensions.js",   "./host-idle-compaction.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
   "./host-process-supervisor.js",
