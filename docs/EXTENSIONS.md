@@ -409,11 +409,43 @@ plugin.registerComposerInline({
 | `hasContent`, `subscribe` | Whether the draft has something worth sending with no text at all; Send enables on it. |
 | `prepareSend` | Runs once per prompt, after `beginSubmission` captured the draft. `context` is put before the user's text (after it when a skill is selected, which reads its instruction first); `attachments` join the images. A throw refuses the send and keeps the draft. A `/command` never asks. |
 | `settleSend` | The prompt `prepareSend` contributed to was accepted (clear what went) or refused (put it back). |
+| `chips` (new in API 1.12.0) | `{ list(scope), remove(scope, id) }`: chips drawn inside the text rather than by `Component`. See "Chips in the text" below. |
 | `keyDown` | A key in the text field, asked before core's own handling while no trigger menu is open. It gets the key, its modifiers and the field's text and selection as plain data, plus `setText(text)`, which replaces the draft's text with the caret at the end; answering `true` claims the key and core does nothing else with it. Prompt Tools recalls earlier prompts this way. |
 
 `scope` is the draft key core persists the text under; a new thread's draft
 gets a new one once the thread exists, so a contribution keeps its state by
 scope and lets go of it on `settleSend(scope, true)`.
+
+**Chips in the text.** A contribution with `chips` keeps its chips and their
+payloads as before; core places them. `list(scope)` answers
+`ComposerInlineChip`s — `{ id, label, icon?, title?, state?, Detail? }`, where
+`icon` is a component drawn in the chip's icon slot (a lucide icon),
+`state` is `"busy"` while it is still being prepared and `"failed"` when it
+cannot be sent, and `Detail` is drawn in the popover a click on the chip opens
+(props `{ scope, chipId, close }`). `subscribe` announces changes. Core then:
+
+- puts a token for each new chip into the draft's text, at the caret while the
+  field has the keyboard and at the end otherwise. The token is
+  `U+2063`, two `U+2007`, the label with no-break spaces, `U+2063`: the
+  textarea lays it out as plain characters, without a line break inside it,
+  and a mirror behind the (then transparent) text draws the same characters as
+  a chip, so both wrap alike. `composerDraft()` answers the text with its
+  tokens; a label stays on one line, at most 48 characters, and unique within
+  the draft (`a.ts`, `a.ts 2`);
+- takes the token out when the chip leaves `list` (the kit removed it), and a
+  token that comes back with the text (a stash, a reload) takes its chip back;
+- lets the user delete a chip like a character: Backspace or Delete takes the
+  whole token, the caret steps over it, and the popover has Remove, which calls
+  `remove`. A chip whose token the user deleted stays in `list` until the
+  prompt is sent, so an undo brings it back; the send calls `remove` for it;
+- sends a token as its label, so the prompt reads where each chip sat, and
+  hands `prepareSend` the same text; `hasContent` is not asked, since a chip is
+  text.
+
+Core draws the images a prompt carries the same way, with a thumbnail in the
+slot and the image large from the popover. `Component` still renders, so a
+contribution with chips uses it for what is not a chip — an error, its state's
+hydration.
 
 **File attachments.** A prompt attachment is an image
 (`{ kind: "image", name, mimeType, data, size }`, the bytes) or a file
@@ -454,12 +486,16 @@ order and before the user's text:
 | `kind` | `payload` | Sent as |
 |---|---|---|
 | `file` | `{ path, startLine?, endLine? }`, workspace-relative, lines 1-based | `<file path="…" lines="a-b">…</file>`, read at send time, 200 KB at most |
-| `text-excerpt` | `{ source, text }` | `From <source>:` and the text as a `>` quote |
+| `text-excerpt` | `{ source, text, comment? }` | `From <source>:` and the text as a `>` quote, then `My comment on this excerpt: <comment>` when the user wrote one in the chip's popover |
 | `pull-request` | `{ number, title, url, branch? }` | `Pull request [#n](url): title` |
 | `attachment` | `{ name, mimeType, size, path? }`, `path` on the host | a `kind: "file"` attachment for a runtime that opens files; otherwise the text inline (200 KB at most) or, for anything else, a sentence naming the path |
 
-A draft's chips persist with its text (the `draftState` slot above) and go when
-the prompt was accepted; a refused prompt puts them back. The kit's own limits
+Composer Context fills `chips`, so its chips sit in the text; a click on an
+excerpt opens it in full with a field for the user's comment on it. A draft's
+chips persist with its text (the `draftState` slot above) and go when
+the prompt was accepted; a refused prompt puts them back. An attachment whose
+upload the connection lost after its three retries is uploaded again, from the
+start, once the host is back (`host-connection` below). The kit's own limits
 are T3 Code's: eight attachments a message, 10 MB an image (an image goes to
 core as an image whenever the model sees images), 50 MB any other file, and a
 paste from 32 KiB on becomes `pasted-text-<n>.txt` with a chip — removing the
@@ -1600,7 +1636,10 @@ On the desktop side the same two facts arrive as workbench events:
 `context.events.on("client-count", …)` carries `{ count }` whenever a client
 comes or goes, and `context.events.on("workspace-changed", …)` carries
 `{ from?, to }` when the host opens another project — so a panel reacts
-without asking the host what changed.
+without asking the host what changed. `context.events.on("host-connection", …)`
+(new in API 1.12.0) carries `{ state }` — `connected`, `reconnecting`,
+`resyncing` or `refused` — whenever the window's link to the host changes;
+`connected` after any other state means it is back.
 
 ### Reaching the user outside the window: `context.attention`
 

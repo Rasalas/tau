@@ -2,6 +2,7 @@ import type { WindowShellEvent } from "../shared/window-shell";
 import type { ExtensionUiAnswer, HostEvent, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
 import type { HostUpdate } from "../shared/host-protocol";
 import type { HostClient } from "./host-client";
+import type { HostConnectionState } from "./host-connection";
 import type { TranscriptTurnStart } from "./transcript-navigation";
 import { isSameUserMessage } from "./app-state";
 import type { ThreadStore } from "./thread-store";
@@ -22,7 +23,8 @@ export type WorkbenchEventCandidate =
   | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" | "client-count" }>
   | { type: "active-thread-changed"; sessionId?: string }
   /** The host opened another project; `from` is absent for the first one this client saw. */
-  | { type: "workspace-changed"; from?: string; to: string };
+  | { type: "workspace-changed"; from?: string; to: string }
+  | { type: "host-connection"; state: HostConnectionState };
 
 /** What a host event needs of the user's preferences. */
 export interface SettledThreadsPort {

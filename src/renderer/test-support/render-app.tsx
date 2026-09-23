@@ -48,3 +48,6 @@ export function renderApp(client: HostClient | undefined, options?: RenderAppOpt
   );
   return { ...result, storage, services };
 }
+
+/** A composer draft as it is sent: every chip written as its label. */
+export { plainChipText } from "../components/composer-chip-token";

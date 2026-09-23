@@ -12,6 +12,7 @@ import { runtimeUpdate } from "../runtime-update";
 import type { SendShortcut } from "../components/composer-send-keys";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { SettingRow, SettingsSection, Switch, useSetting } from "./settings-layout";
+import { composerFold } from "../components/composer-fold";
 import { settingAnchor } from "./settings-search";
 import { UPDATE_CHANNELS, defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
 import { QUIT_CONFIRMATIONS, isQuitConfirmation, type QuitConfirmation } from "../../shared/window-shell";
@@ -84,6 +85,7 @@ export function DefaultsPage({
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
   const { newThreadRuntime: runtimePreference, sendShortcut } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const composerFolds = useSyncExternalStore(composerFold.subscribe, composerFold.get);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   const detail = useSetting<TranscriptDetail>("transcriptDetail", {
@@ -213,6 +215,12 @@ export function DefaultsPage({
             <button className={!vimMode.value ? "active" : ""} aria-pressed={!vimMode.value} onClick={() => vimMode.set(false)}>Standard</button>
             <button className={vimMode.value ? "active" : ""} aria-pressed={vimMode.value} onClick={() => vimMode.set(true)}>Vim</button>
           </div>}
+        />
+        <SettingRow
+          id={settingAnchor("Fold the composer while scrolling")}
+          title="Fold the composer while scrolling"
+          description="Scrolling back through a thread folds an idle one-line composer to its text; typing, a click or scrolling to the end opens it again. This window's own choice."
+          control={<Switch label="Fold the composer while scrolling" checked={composerFolds} onChange={composerFold.set} />}
         />
         <SettingRow
           id={settingAnchor("Send with")}

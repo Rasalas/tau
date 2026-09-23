@@ -11,6 +11,7 @@ import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
 import AppToolStreamScenario from "./RendererBenchmarkApp";
+import ComposerTypingScenario from "./RendererBenchmarkComposer";
 import "./renderer-benchmark.css";
 
 /**
@@ -239,7 +240,7 @@ function makeLongUserMessage(bytes: number, revision: number): UiMessage {
 export default function RendererBenchmark() {
   const params = new URLSearchParams(window.location.search);
   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
-  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number; streamEnd?: boolean; updates?: number; linesPerUpdate?: number };
+  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number; streamEnd?: boolean; updates?: number; linesPerUpdate?: number; chars?: number; chips?: number };
   const targetBytes = scenarioConfig.bytes ?? 0;
   const fenced = scenario.includes("fenced");
   const fencedText = useMemo(() => fenced ? fencedDocument(targetBytes) : "", [fenced, targetBytes]);
@@ -495,8 +496,8 @@ export default function RendererBenchmark() {
           });
         });
       });
-    } else if (scenario === "app-tool-output-stream") {
-      // The scenario drives itself and calls back; see RendererBenchmarkApp.
+    } else if (scenario === "app-tool-output-stream" || scenario.startsWith("composer-typing")) {
+      // The scenario drives itself and calls back; see RendererBenchmarkApp and RendererBenchmarkComposer.
       finishRef.current = finish;
     } else if (scenario === "transcript-viewport-streaming-1000-turns") {
       let settleFrames = 0;
@@ -559,6 +560,15 @@ export default function RendererBenchmark() {
     content = <AppToolStreamScenario
       updates={scenarioConfig.updates ?? 120}
       linesPerUpdate={scenarioConfig.linesPerUpdate ?? 16}
+      onReady={onAppStreamReady}
+      onUpdate={onAppStreamUpdate}
+      onFinished={onAppStreamFinished}
+    />;
+  } else if (scenario.startsWith("composer-typing")) {
+    content = <ComposerTypingScenario
+      bytes={targetBytes}
+      chars={scenarioConfig.chars ?? 120}
+      chips={scenarioConfig.chips ?? 0}
       onReady={onAppStreamReady}
       onUpdate={onAppStreamUpdate}
       onFinished={onAppStreamFinished}

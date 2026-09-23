@@ -394,6 +394,8 @@ export default function App() {
     registry.dispatchWorkbenchEvent({ type: "active-thread-changed", sessionId: activeThreadIdForEvents });
   }, [activeThreadIdForEvents, registry]);
 
+  useEffect(() => client?.onConnectionState((state) => registry.dispatchWorkbenchEvent({ type: "host-connection", state })), [client, registry]);
+
   // The project the host has open, as the workbench's own event: a panel reacts
   // to a project change without asking the host what changed.
   const hostWorkspace = snapshot?.cwd;

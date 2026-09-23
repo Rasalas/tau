@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerInlineContext, HostSnapshot } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import composerContext, { parseFileQuery, storeInChunks, storeWithRetry } from "./desktop.js";
+import composerContext, { ExcerptDetail, parseFileQuery, storeInChunks, storeWithRetry } from "./desktop.js";
+import { ChipStore } from "./chips.js";
 import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, UPLOAD_CHUNK_BYTES, type ComposerContextChips } from "./protocol.js";
 
 afterEach(cleanup);
@@ -12,11 +13,11 @@ const SCOPE = "session:t1";
 const snapshot = { cwd: "/repo", sessionId: "t1" } as HostSnapshot;
 const inline = (overrides: Partial<ComposerInlineContext> = {}): ComposerInlineContext => ({ scope: SCOPE, snapshot, fileAttachments: false, imageInput: true, ...overrides });
 
-function activate() {
+function activate(storeAttachment?: () => void) {
   const invoke = vi.fn(async (_id: string, command: string, input?: unknown): Promise<unknown> => {
     const fields = input as Record<string, unknown>;
     switch (command) {
-      case "store-attachment": return { path: `/state/attachments/t1/${String(fields.name)}`, size: atob(String(fields.data)).length };
+      case "store-attachment": storeAttachment?.(); return { path: `/state/attachments/t1/${String(fields.name)}`, size: atob(String(fields.data)).length };
       case "read-files": return (fields.files as Array<{ path: string }>).map((file) => ({ path: file.path, text: `contents of ${file.path}` }));
       case "describe-attachments": return (fields.paths as string[]).map((path) => ({ path, ...(path.endsWith(".txt") ? { text: "folded text" } : {}) }));
       case "list-files": return ["src/notes.md", "src/alpha.ts"];
@@ -33,27 +34,71 @@ function activate() {
   const draftState = { read: () => saved.value, write: (value: unknown) => { saved.value = value; } };
   const Strip = contribution!.Component!;
   const view = render(<Strip {...inline()} draftState={draftState} />);
-  return { contribution: contribution!, invoke, service: () => service!, saved, view, draftState, Strip };
+  const labels = () => contribution!.chips!.list(SCOPE).map((chip) => chip.label);
+  return { contribution: contribution!, invoke, service: () => service!, saved, view, draftState, Strip, registry, labels };
 }
 
 describe("Composer Context desktop", () => {
-  it("lets another kit add a chip through the service and draws it with a way to remove it", async () => {
-    const { service } = activate();
+  it("lets another kit add a chip through the service and hands it to core to draw in the text", async () => {
+    const { service, contribution, labels } = activate();
     let id = "";
     act(() => { id = service().addChip({ kind: "text-excerpt", payload: { source: "Terminal", text: "$ ls" } }); });
-    expect(screen.getByText("Terminal")).toBeTruthy();
+    expect(labels()).toEqual(["Terminal"]);
     expect(service().chips().map((chip) => chip.id)).toEqual([id]);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Terminal" }));
+    // The strip no longer draws chips; they are in the text.
+    expect(screen.queryByText("Terminal")).toBeNull();
+    expect(contribution.chips!.list(SCOPE)[0]).toMatchObject({ id, label: "Terminal" });
+    expect(contribution.chips!.list(SCOPE)[0]?.Detail).toBeDefined();
+    act(() => contribution.chips!.remove(SCOPE, id));
     expect(service().chips()).toEqual([]);
   });
 
+  it("keeps a comment on an excerpt and sends it below the quote", async () => {
+    const { service, contribution } = activate();
+    act(() => { service().addChip({ kind: "text-excerpt", payload: { source: "Terminal", text: "$ ls\nboom" } }); });
+    const [chip] = contribution.chips!.list(SCOPE);
+    const Detail = chip!.Detail!;
+    const close = vi.fn();
+    render(<Detail scope={SCOPE} chipId={chip!.id} close={close} />);
+    fireEvent.change(screen.getByLabelText("Comment on this excerpt"), { target: { value: "why does this fail?" } });
+    fireEvent.keyDown(screen.getByLabelText("Comment on this excerpt"), { key: "Enter" });
+    expect(close).toHaveBeenCalledOnce();
+    const sent = await contribution.prepareSend!({ ...inline(), text: "" });
+    expect(sent?.context).toBe("From Terminal:\n> $ ls\n> boom\n\nMy comment on this excerpt: why does this fail?");
+  });
+
+  it("draws no comment field for a chip that is not an excerpt", () => {
+    const store = new ChipStore();
+    const chip = store.add(SCOPE, { kind: "file", payload: { path: "a.ts" } });
+    const { container } = render(<ExcerptDetail store={store} scope={SCOPE} chipId={chip.id} close={() => {}} />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("uploads a file again once the host is back after the upload gave up", async () => {
+    vi.useFakeTimers();
+    let down = true;
+    const { contribution, registry } = activate(() => { if (down) throw new Error("The host connection dropped."); });
+    const pdf = new File(["%PDF-1.4"], "spec.pdf", { type: "application/pdf" });
+    act(() => { contribution.takeFiles!([pdf], inline()); });
+    expect(contribution.chips!.list(SCOPE)[0]?.state).toBe("busy");
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(contribution.chips!.list(SCOPE)[0]?.state).toBe("failed");
+    vi.useRealTimers();
+    down = false;
+    act(() => registry.dispatchWorkbenchEvent({ type: "host-connection", state: "reconnecting" }));
+    act(() => registry.dispatchWorkbenchEvent({ type: "host-connection", state: "connected" }));
+    await waitFor(() => expect(contribution.chips!.list(SCOPE)[0]?.state).toBeUndefined());
+    const sent = await contribution.prepareSend!({ ...inline({ fileAttachments: true }), text: "" });
+    expect(sent?.attachments).toEqual([expect.objectContaining({ name: "spec.pdf", path: "/state/attachments/t1/spec.pdf" })]);
+  });
+
   it("turns @ into a file chip with its lines, and sends the file as a block before the text", async () => {
-    const { contribution, invoke } = activate();
+    const { contribution, invoke, labels } = activate();
     const trigger = contribution.triggers!.find((entry) => entry.char === "@")!;
     const items = await trigger.search("alpha.ts:2-4", inline());
     expect(invoke).toHaveBeenCalledWith(COMPOSER_CONTEXT_ID, "list-files", { cwd: "/repo", query: "alpha.ts" });
     act(() => trigger.select(items[1]!, "alpha.ts:2-4", inline()));
-    expect(screen.getByText("alpha.ts:2-4")).toBeTruthy();
+    expect(labels()).toEqual(["alpha.ts:2-4"]);
     expect(contribution.hasContent!(SCOPE)).toBe(true);
 
     const sent = await contribution.prepareSend!({ ...inline(), text: "explain" });
@@ -74,29 +119,29 @@ describe("Composer Context desktop", () => {
   });
 
   it("folds a large paste into a text attachment, embedded for a runtime that cannot open files", async () => {
-    const { contribution, invoke, saved } = activate();
+    const { contribution, invoke, saved, labels } = activate();
     expect(contribution.pasteText!("short", inline())).toBe(false);
     let taken = false;
     act(() => { taken = contribution.pasteText!("z".repeat(PASTE_FOLD_BYTES + 5), inline()); });
     expect(taken).toBe(true);
-    expect(screen.getByText("pasted-text-1.txt")).toBeTruthy();
+    expect(labels()).toEqual(["pasted-text-1.txt"]);
     const sent = await contribution.prepareSend!({ ...inline(), text: "summarise" });
     expect(invoke).toHaveBeenCalledWith(COMPOSER_CONTEXT_ID, "store-attachment", expect.objectContaining({ scope: SCOPE, name: "pasted-text-1.txt", mimeType: "text/plain" }));
     expect(sent?.context).toBe('<file path="/state/attachments/t1/pasted-text-1.txt" name="pasted-text-1.txt">\nfolded text\n</file>');
     // Refused: the chip comes back, and so does what the draft keeps.
     act(() => contribution.settleSend!(SCOPE, false));
-    expect(screen.getByText("pasted-text-1.txt")).toBeTruthy();
+    expect(labels()).toEqual(["pasted-text-1.txt"]);
     expect(saved.value).toMatchObject({ chips: [{ kind: "attachment", label: "pasted-text-1.txt" }] });
   });
 
   it("takes a dropped PDF as a file for a runtime that opens files, and leaves images to core", async () => {
-    const { contribution } = activate();
+    const { contribution, labels } = activate();
     const pdf = new File(["%PDF-1.4"], "spec.pdf", { type: "application/pdf" });
     const png = new File(["x"], "shot.png", { type: "image/png" });
     let left: readonly File[] = [];
     act(() => { left = contribution.takeFiles!([pdf, png], inline()); });
     expect(left).toEqual([png]);
-    await screen.findByText("spec.pdf");
+    await waitFor(() => expect(labels()).toEqual(["spec.pdf"]));
     const sent = await contribution.prepareSend!({ ...inline({ fileAttachments: true }), text: "read it" });
     expect(sent).toEqual({ context: "", attachments: [{ kind: "file", name: "spec.pdf", mimeType: "application/pdf", path: "/state/attachments/t1/spec.pdf", size: 8 }] });
   });
@@ -115,10 +160,11 @@ describe("Composer Context desktop", () => {
     cleanup();
     const again = createKitHarness(vi.fn());
     again.registry.activate(composerContext);
-    const Reloaded = again.registry.getComposerInlines()[0]!.Component!;
+    const reloaded = again.registry.getComposerInlines()[0]!;
+    const Reloaded = reloaded.Component!;
     expect(Reloaded).not.toBe(Strip);
     render(<Reloaded {...inline()} draftState={{ read: () => saved.value, write: () => undefined }} />);
-    await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
+    await waitFor(() => expect(reloaded.chips!.list(SCOPE).map((chip) => chip.label)).toEqual(["a.ts"]));
   });
 
   it("sends a file larger than one chunk in pieces, each continuing the first", async () => {

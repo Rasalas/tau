@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   drawerHeight: "tau:drawer-height",
   reviewSidebarWidth: "tau:review-sidebar-width",
   reviewSidebarOpen: "tau:review-sidebar-open",
+  composerFold: "tau:composer-fold",
 } as const;
 
 /** `tau.stage.v1:<workspace>`; `workspace` is a workspace id, or a path from a host that mints none. */

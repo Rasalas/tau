@@ -1,6 +1,8 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { AlertCircle, FileText, GitPullRequest, Paperclip, Quote, X } from "lucide-react";
 import type {
+  ComposerChipDetailProps,
+  ComposerInlineChip,
   ComposerInlineContext,
   ComposerInlineProps,
   ComposerSendContribution,
@@ -66,7 +68,7 @@ export async function storeInChunks(
 }
 
 /** A request the transport lost rather than one the host refused. */
-const TRANSIENT_UPLOAD_ERROR = /connection dropped|connection was closed|timed out|not available/iu;
+export const TRANSIENT_UPLOAD_ERROR = /connection dropped|connection was closed|timed out|not available/iu;
 const UPLOAD_RETRY_DELAYS_MS = [1_000, 3_000, 8_000];
 
 /** Uploads again, from the start, when the connection to the host dropped on the way: after a reconnect it goes through. */
@@ -107,7 +109,48 @@ function chipTitle(chip: ChipEntry): string {
   }
 }
 
-export function ChipStrip({ store, scope, draftState }: { store: ChipStore } & Pick<ComposerInlineProps, "scope" | "draftState">) {
+/** The chip core draws in the text for one of the store's chips. */
+export function inlineChip(chip: ChipEntry, Detail?: ComposerInlineChip["Detail"]): ComposerInlineChip {
+  return {
+    id: chip.id,
+    label: chip.label,
+    icon: chip.error ? AlertCircle : ICONS[chip.kind],
+    // An excerpt's popover shows it in full; a title would say it twice.
+    ...(chip.error || chip.kind !== "text-excerpt" ? { title: chip.error ?? chipTitle(chip) } : {}),
+    ...(chip.uploading ? { state: "busy" as const } : chip.error ? { state: "failed" as const } : {}),
+    ...(chip.kind === "text-excerpt" && Detail ? { Detail } : {}),
+  };
+}
+
+/** An excerpt in full, and the user's own words about it, sent right below the quote. */
+export function ExcerptDetail({ store, scope, chipId, close }: { store: ChipStore } & ComposerChipDetailProps) {
+  const chip = useSyncExternalStore(store.subscribe, () => store.list(scope).find((entry) => entry.id === chipId));
+  if (chip?.kind !== "text-excerpt") return null;
+  const setComment = (comment: string) => store.update(scope, chip.id, { payload: { ...chip.payload, comment } });
+  return (
+    <div className="composer-context-excerpt">
+      <small>{chip.payload.source}</small>
+      <pre>{chip.payload.text}</pre>
+      <textarea
+        aria-label="Comment on this excerpt"
+        placeholder="Add a comment for the agent…"
+        rows={3}
+        autoFocus
+        value={chip.payload.comment ?? ""}
+        onChange={(event) => setComment(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); close(); }
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Core draws the chips in the text; the strip keeps the draft's chips loaded,
+ * marks the composer on screen for the service, and shows what failed.
+ */
+export function ChipStrip({ store, scope, draftState, inline = false }: { store: ChipStore; inline?: boolean } & Pick<ComposerInlineProps, "scope" | "draftState">) {
   const chips = useSyncExternalStore(store.subscribe, () => store.list(scope));
   const error = useSyncExternalStore(store.subscribe, () => store.error(scope));
   useEffect(() => {
@@ -115,10 +158,11 @@ export function ChipStrip({ store, scope, draftState }: { store: ChipStore } & P
     store.activeScope = scope;
     return () => { if (store.activeScope === scope) store.activeScope = undefined; };
   }, [draftState, scope, store]);
-  if (chips.length === 0 && !error) return null;
+  const shown = inline ? [] : chips;
+  if (shown.length === 0 && !error) return null;
   return (
     <div className="composer-context" aria-label="Context">
-      {chips.map((chip) => {
+      {shown.map((chip) => {
         const Icon = chip.error ? AlertCircle : ICONS[chip.kind];
         const custom = chip.render?.(chip) as ReactNode | undefined;
         return (
@@ -195,13 +239,33 @@ const composerContext: DesktopExtension = {
     });
     const cwdFor = (inline: ComposerInlineContext) => workspace?.getSnapshot().cwd ?? inline.snapshot?.cwd;
 
+    // Uploads the connection lost for good, started again once the host is back.
+    const lost = new Map<string, () => void>();
     const upload = (scope: string, name: string, mimeType: string, size: number, read: (start: number, end: number) => Promise<Uint8Array>) => {
       const chip = store.add(scope, { kind: "attachment", payload: { name, mimeType, size } });
-      const uploading = storeWithRetry(host, { scope, name, mimeType, size }, read)
-        .then((stored) => store.update(scope, chip.id, { payload: { name, mimeType, size: stored.size, path: stored.path }, uploading: undefined }))
-        .catch((error: unknown) => store.update(scope, chip.id, { error: error instanceof Error ? error.message : String(error), uploading: undefined }));
-      store.update(scope, chip.id, { uploading });
+      const start = () => {
+        lost.delete(chip.id);
+        const uploading = storeWithRetry(host, { scope, name, mimeType, size }, read)
+          .then((stored) => store.update(scope, chip.id, { payload: { name, mimeType, size: stored.size, path: stored.path }, uploading: undefined }))
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            store.update(scope, chip.id, { error: message, uploading: undefined });
+            if (TRANSIENT_UPLOAD_ERROR.test(message)) lost.set(chip.id, start);
+          });
+        store.update(scope, chip.id, { uploading, error: undefined });
+      };
+      start();
     };
+    let connected = true;
+    context.events.on("host-connection", ({ state }) => {
+      const back = state === "connected" && !connected;
+      connected = state === "connected";
+      if (!back) return;
+      for (const [id, restart] of [...lost]) {
+        if (store.scopeOf(id)) restart();
+        else lost.delete(id);
+      }
+    });
 
     const service: ComposerContextChips = {
       addChip: (input: ChipInput) => {
@@ -218,12 +282,17 @@ const composerContext: DesktopExtension = {
     };
     context.provideService(COMPOSER_CONTEXT_CHIPS_SERVICE, service);
 
-    const Strip = ({ scope, draftState }: ComposerInlineProps) => <ChipStrip store={store} scope={scope} draftState={draftState} />;
+    const Strip = ({ scope, draftState }: ComposerInlineProps) => <ChipStrip store={store} scope={scope} draftState={draftState} inline />;
+    const Detail = (props: ComposerChipDetailProps) => <ExcerptDetail store={store} {...props} />;
 
     context.registerComposerInline({
       id: "composer-context",
       profiles: ["desktop"],
       Component: Strip,
+      chips: {
+        list: (scope) => store.list(scope).map((chip) => inlineChip(chip, Detail)),
+        remove: (scope, id) => store.remove(scope, id),
+      },
       triggers: [
         {
           char: "@",

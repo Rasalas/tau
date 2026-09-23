@@ -56,7 +56,8 @@ import {
   selectedSkillDraft,
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
-import { ComposerAttachmentsList } from "./ComposerAttachments";
+import type { ChipLayerApi } from "./ComposerChipLayer";
+import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
 import { takePasteAsText } from "../paste-as-text";
@@ -90,6 +91,8 @@ const NO_INLINES: readonly never[] = [];
 const NO_GATES: readonly ComposerGateContribution[] = [];
 // The picker is its own chunk: nothing of it is drawn until it opens.
 const ModelPicker = lazy(() => import("./ModelPicker").then((module) => ({ default: module.ModelPicker })));
+// Chips in the text load after the textarea is up, so the first key never waits for them.
+const ComposerChipLayer = lazy(() => import("./ComposerChipLayer"));
 
 /** A gate that asked: where the run stopped, and what finishes it. */
 interface OpenGate {
@@ -209,6 +212,7 @@ export function Composer({
   const [escapedToken, setEscapedToken] = useState<string>();
   const [selectedSkill, setSelectedSkill] = useState<SelectedSkill>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chipInsertAt = useRef<number | undefined>(undefined);
   const [isExpanded, setIsExpanded] = useState(false);
   const text = value ?? activeScopeSnapshot.draft;
   useLayoutEffect(() => {
@@ -366,7 +370,10 @@ export function Composer({
       }
     }
   }, [snapshot?.sessionId, snapshot?.messages, recordPrompt]);
-  const updateDraft = useCallback((next: string) => {
+  const chipLayer = useRef<ChipLayerApi | undefined>(undefined);
+  const updateDraft = useCallback((edited: string) => {
+    // An edit that cut into a chip (a Backspace, Vim's `x`, Readline's ctrl+w) takes the whole chip.
+    const next = chipLayer.current?.repair(scopeStore.getSnapshot(attachmentScope).draft, edited)?.text ?? edited;
     scopeStore.setDraft(attachmentScope, next);
     writeComposerDraft(clientStorage, draftStorageKey, next);
     onChange?.(next);
@@ -411,6 +418,7 @@ export function Composer({
     if (trigger?.kind !== "extension" || !extensionTrigger) return;
     const next = `${text.slice(0, trigger.start)}${text.slice(trigger.end)}`;
     const nextCaret = trigger.start;
+    chipInsertAt.current = nextCaret;
     updateDraft(next);
     setCaret(nextCaret);
     setCommandMenuDismissed(true);
@@ -522,7 +530,8 @@ export function Composer({
     return () => { for (const unsubscribe of unsubscribers) unsubscribe?.(); };
   }, [inlines]);
   const readInlineContent = useCallback(
-    () => inlines.some((inline) => inline.hasContent?.(attachmentScope) === true),
+    // A chip is text: a contribution with chips has content when its tokens are in the draft.
+    () => inlines.some((inline) => !inline.chips && inline.hasContent?.(attachmentScope) === true),
     [attachmentScope, inlines],
   );
   const inlineHasContent = useSyncExternalStore(subscribeInlines, readInlineContent, readInlineContent);
@@ -575,7 +584,7 @@ export function Composer({
   const thinkingSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.thinkingLevels.length ?? 0) > 1;
   const composerControls = registry?.getComposerControls() ?? [];
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
-  const { preview, setPreviewId, clearPreviewForScope, addFiles, removeAttachment } = useComposerAttachments({
+  const { preview, setPreviewId, clearPreviewForScope, addFiles } = useComposerAttachments({
     scopeStore,
     scope: attachmentScope,
     attachments,
@@ -612,8 +621,9 @@ export function Composer({
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
     if (held) return;
+    // An answer's chips go along as its files; its text is the user's own words.
     const intent = classifyComposerInput({
-      text,
+      text: plainChipText(text, Boolean(answerable)),
       answerable: Boolean(answerable),
       answerFiles: answerHasFiles,
       promptActionAvailable: Boolean(promptSubmit && !promptSubmit.disabled),
@@ -645,7 +655,11 @@ export function Composer({
         });
         return;
       case "prompt": {
-        if (gated) { submitPrompt(intent.delivery); return; }
+        if (gated) {
+          chipLayer.current?.dropOrphans(text);
+          submitPrompt(intent.delivery);
+          return;
+        }
         const runtime = runtimeChoice?.kind ?? snapshot?.backendKind;
         const model = draftOnOtherRuntime ? undefined : snapshot?.model;
         passGates(
@@ -780,11 +794,6 @@ export function Composer({
           void addFiles(event.clipboardData.files);
         }}
       >
-        <ComposerAttachmentsList
-          attachments={attachments}
-          onPreview={(id) => setPreviewId(id)}
-          onRemove={(id) => removeAttachment(id)}
-        />
         {inlines.map((inline) => inline.Component ? (
           <LazyFeatureBoundary
             key={inline.id}
@@ -936,6 +945,21 @@ export function Composer({
                 : sendHint(sendShortcut, streaming, streamingBase)
           }
         />
+        <Suspense fallback={null}>
+          <ComposerChipLayer
+            apiRef={chipLayer}
+            scope={attachmentScope}
+            draftStorageKey={draftStorageKey}
+            scopeStore={scopeStore}
+            textareaRef={textareaRef}
+            insertAt={chipInsertAt}
+            updateDraft={updateDraft}
+            setCaret={setCaret}
+            selectedSkill={selectedSkill}
+            onNotify={onNotify}
+            onPreview={setPreviewId}
+          />
+        </Suspense>
 
         <div className="composer-toolbar">
           <ComposerFooterControls
@@ -1063,7 +1087,7 @@ export function Composer({
           />
 
           {answerable && prompt ? (() => {
-            const typedAnswer = Boolean(text.trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
+            const typedAnswer = Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
             const submitLabel = typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer";
             return (
               <button

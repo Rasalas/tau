@@ -25,6 +25,7 @@ import { MountedPanel } from "./Workbench";
 import { mergeTranscriptMessages, restoreTranscriptScrollAnchor } from "../workbench/transcript-history";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 import type { NewThreadResult, TranscriptPage } from "../shared/host-protocol";
+import { plainChipText } from "./components/composer-chips";
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
@@ -575,12 +576,13 @@ describe("App render isolation", () => {
     const dialog = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(dialog).getByRole("option", { name: /other/u }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Change project, current project other" })).toBeTruthy());
-    expect(composer.value).toBe("carry this draft");
+    // The image is a chip at the end of the text.
+    expect(plainChipText(composer.value)).toBe("carry this draft carry.png ");
     expect(screen.getByRole("button", { name: "Preview carry.png" })).toBeTruthy();
 
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalledWith(
-      "carry this draft",
+      "carry this draft carry.png",
       [expect.objectContaining({ name: "carry.png" })],
       "/other",
       expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
@@ -855,7 +857,7 @@ describe("App render isolation", () => {
     liveFilesBacking.length = 0;
     expect(screen.queryByRole("status")).toBeNull();
     expect(await screen.findByRole("button", { name: "Preview dropped.png" })).toBeTruthy();
-    expect(draft.value).toBe("keep this draft");
+    expect(plainChipText(draft.value)).toBe("keep this draft dropped.png ");
 
     const linkEvent = createEvent.drop(column, {
       dataTransfer: {
@@ -1312,10 +1314,11 @@ describe("App render isolation", () => {
     await screen.findByRole("button", { name: "Preview new.png" });
 
     client.emit({ type: "user-message-failed", sessionId: "generated-session", clientMessageId, message: "runtime failed" });
-    await waitFor(() => expect(composer.value).toBe("failed first prompt\n\nnewer queued text"));
+    // The host hands back the text it was sent, where a chip is its label; the image comes back as a chip.
+    await waitFor(() => expect(plainChipText(composer.value)).toBe("failed first prompt old.png\n\nnewer queued text new.png old.png "));
     expect(screen.getByRole("button", { name: "Preview old.png" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Preview new.png" })).toBeTruthy();
-    expect(JSON.parse(getClientStorage()?.get("tau.active-new-thread.v1") ?? "{}").draft).toBe("failed first prompt\n\nnewer queued text");
+    expect(plainChipText(JSON.parse(getClientStorage()?.get("tau.active-new-thread.v1") ?? "{}").draft)).toBe("failed first prompt old.png\n\nnewer queued text new.png old.png ");
   });
 
   it("does not rerender existing transcript messages for a composer keystroke", () => {
