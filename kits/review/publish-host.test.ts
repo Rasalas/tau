@@ -4,6 +4,7 @@ import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js
 import { createReviewHostExtension } from "./host.js";
 import { REVIEW_HOST_EXTENSION_ID, type PublishInfo, type ReviewRequestContext } from "./protocol.js";
 import { githubCreatedRepository, gitlabCreatedRepository, isRepositoryPath } from "./request-cli.js";
+import { LINK_SEAMS } from "./test-seams.js";
 
 const UNPUBLISHED: ReviewRequestContext = { root: "/work/app", branch: "main", base: "main" };
 
@@ -39,7 +40,7 @@ async function harness(fixture: Fixture = {}) {
     if (args[0] === "repo" && args[1] === "create") return `https://github.com/${args[2]}\n`;
     return "";
   });
-  const registry = await activateHostKit(workspace, { findCommand: (name: string) => tools[name], noteSubprocess: () => undefined, runtimeOwner: () => "tau" });
+  const registry = await activateHostKit(workspace, { ...LINK_SEAMS, findCommand: (name: string) => tools[name], noteSubprocess: () => undefined, runtimeOwner: () => "tau" });
   await registry.activate(createReviewHostExtension({ run }));
   const invoke = (command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input);
   return { invoke, calls, remotes, pushes };
@@ -113,7 +114,7 @@ describe("publishing a repository", () => {
         context.registerCommand("add-remote", () => ({ hasCommits: true }), callers);
         context.registerCommand("push", () => { throw new Error("Permission denied (publickey)."); }, callers);
       },
-    }, { findCommand: () => "/stub/gh", noteSubprocess: () => undefined, runtimeOwner: () => "tau" });
+    }, { ...LINK_SEAMS, findCommand: () => "/stub/gh", noteSubprocess: () => undefined, runtimeOwner: () => "tau" });
     await failingPush.activate(createReviewHostExtension({ run: async (_command, args) => (args[1] === "create" ? "https://github.com/octo/app\n" : "") }));
     await expect(failingPush.invoke(REVIEW_HOST_EXTENSION_ID, "publish-repository", { service: "github", repository: "octo/app", confirm: true }))
       .rejects.toThrow("https://github.com/octo/app was created, but pushing to it failed: Permission denied (publickey).");
