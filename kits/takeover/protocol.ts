@@ -108,7 +108,7 @@ export interface PreviewCookieImportService {
 export const COMPUTER_USE_SCREEN_SERVICE = "tau.computer-use/screen";
 
 export interface ComputerUseScreenService {
-  state(threadId: string): { window?: { app?: string; title?: string } } | undefined;
+  load(threadId: string): Promise<{ window?: { app?: string; title?: string } } | undefined>;
   bringToFront(threadId: string): Promise<void>;
 }
 

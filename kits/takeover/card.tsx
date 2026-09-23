@@ -26,7 +26,8 @@ const isStagedPreview = (actions: WorkbenchActions) => {
   return front?.kind === "panel" && front.panelId === PREVIEW_PANEL;
 };
 
-const nextFrame = () => new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); });
+// A timer, not a frame: an occluded window draws no frames, and the layout only needs one render.
+const settle = () => new Promise<void>((resolve) => { setTimeout(resolve, 50); });
 
 /** Takeovers whose Preview this client moved onto the stage, so Done can put it back. */
 const staged = new Set<string>();
@@ -34,12 +35,11 @@ const staged = new Set<string>();
 /** The Preview on the stage beside the chat, large enough to sign in; the dock's toggle puts it back. */
 async function enlargePreview(actions: WorkbenchActions, takeoverId: string): Promise<void> {
   if (!actions.togglePanelMaximized || isStagedPreview(actions)) return;
-  // The panel opened this frame; the layout knows it as the one in front only after it drew.
-  await nextFrame();
-  await nextFrame();
+  // The panel opened just now; the layout knows it as the one in front only after it rendered.
+  await settle();
   if (isStagedPreview(actions)) return;
   actions.togglePanelMaximized();
-  await nextFrame();
+  await settle();
   if (isStagedPreview(actions)) staged.add(takeoverId);
   else if (actions.activeStageTab?.()?.kind === "panel") actions.togglePanelMaximized();
 }
@@ -139,8 +139,15 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
   const screen = useSyncExternalStore(services.screen.subscribe, services.screen.get);
   const [passwords, setPasswords] = useState(false);
   const [busy, setBusy] = useState(false);
-  const app = takeover.target.kind === "window" ? screen?.state(takeover.threadId)?.window?.app : undefined;
-  const label = jumpLabel(takeover, app);
+  const [driven, setDriven] = useState<{ app?: string; title?: string }>();
+  useEffect(() => {
+    if (takeover.target.kind !== "window" || !screen) return;
+    let live = true;
+    void screen.load(takeover.threadId).then((state) => { if (live) setDriven(state?.window); }, () => undefined);
+    return () => { live = false; };
+  }, [screen, takeover]);
+  const label = jumpLabel(takeover, driven?.app);
+  const where = takeover.target.kind === "browser" ? takeover.target.url : driven?.title;
   const passwordsApply = takeover.target.kind === "preview";
   const finish = (command: "done" | "cancel") => {
     setBusy(true);
@@ -171,7 +178,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
             </button>
           ) : null}
           {label ? (
-            <button type="button" className="takeover-button" onClick={jump} {...(takeover.target.kind === "browser" ? tooltipProps(takeover.target.url, { variant: "code" }) : {})}>
+            <button type="button" className="takeover-button" onClick={jump} {...(where ? tooltipProps(where, takeover.target.kind === "browser" ? { variant: "code" } : {}) : {})}>
               {label}
             </button>
           ) : null}

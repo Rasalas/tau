@@ -39,7 +39,7 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {})
   const { registry } = createKitHarness(invoke, undefined, platform);
   const preview = { open: vi.fn(async () => undefined), jump: vi.fn(async () => undefined) } satisfies PreviewBrowserService;
   const cookies = { importSite: vi.fn<PreviewCookieImportService["importSite"]>(async () => ({ imported: 2, skipped: 0, skippedSites: [], profile: "default", reloaded: true })) };
-  const screen = { state: () => ({ window: { app: "TextEdit" } }), bringToFront: vi.fn(async () => undefined) } satisfies ComputerUseScreenService;
+  const screen = { load: async () => ({ window: { app: "TextEdit" } }), bringToFront: vi.fn(async () => undefined) } satisfies ComputerUseScreenService;
   let rowMark: ((props: { session: { id: string } }) => unknown) | undefined;
   registry.activate({
     id: "test.services",
@@ -118,7 +118,7 @@ describe("Takeover card", () => {
     const { card, publish, preview, actions } = setup();
     const view = card();
     publish([takeover({ kind: "window" })]);
-    fireEvent.click(view.getByRole("button", { name: "Show TextEdit" }));
+    fireEvent.click(await waitFor(() => view.getByRole("button", { name: "Show TextEdit" })));
     await waitFor(() => expect(preview.jump).toHaveBeenCalledWith({ kind: "app", threadId: "s1" }, actions));
 
     publish([takeover({ kind: "browser", url: "https://example.test/device" })]);
