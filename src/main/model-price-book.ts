@@ -14,7 +14,7 @@ export interface PiModelData {
   readonly maxTokens?: number;
 }
 
-type ModelFacts = Pick<UiModel, "price" | "contextWindow" | "maxOutput" | "images" | "reasoning">;
+type ModelFacts = Pick<UiModel, "price" | "contextWindow" | "maxOutput" | "images" | "reasoning" | "releasedAt">;
 
 const LOCAL_URL = /^https?:\/\/(?:localhost|127\.\d+\.\d+\.\d+|\[::1\]|0\.0\.0\.0)(?::\d+)?(?:\/|$)/iu;
 
@@ -51,7 +51,19 @@ function priceIds(id: string): string[] {
  * list Pi already holds instead of indexing a copy of it.
  */
 export class ModelPriceBook {
-  constructor(private readonly models: () => readonly PiModelData[]) {}
+  constructor(
+    private readonly models: () => readonly PiModelData[],
+    /** When a model came out, by id; models.dev's dates. */
+    private readonly releaseDate: (id: string) => string | undefined = () => undefined,
+  ) {}
+
+  releasedAt(id: string): string | undefined {
+    for (const candidate of priceIds(id)) {
+      const date = this.releaseDate(candidate);
+      if (date) return date;
+    }
+    return undefined;
+  }
 
   /**
    * The facts Pi has for a model: the same provider's entry first, the price
@@ -71,9 +83,10 @@ export class ModelPriceBook {
     const own = pick((model, candidate) => model.provider === provider && model.id === candidate);
     const priced = own && priceOf(own.cost) ? own : pick((model, candidate) => model.id === candidate && priceOf(model.cost) !== undefined);
     const base = own ?? priced;
-    if (!base) return undefined;
+    const releasedAt = this.releasedAt(id);
+    if (!base) return releasedAt ? { releasedAt } : undefined;
     const price = priced ? priceOf(priced.cost) : undefined;
-    return { ...factsOf(base), ...(price ? { price } : {}) };
+    return { ...factsOf(base), ...(price ? { price } : {}), ...(releasedAt ? { releasedAt } : {}) };
   }
 
   /** The model with what its backend left out filled in; `apiModelId` stays behind. */
@@ -109,6 +122,7 @@ export function piNewThreadCatalog(input: PiCatalogInput): HostRuntimeNewThreadC
     const subscription = input.subscription(entry.provider);
     // A subscription model Pi lists at no price still has its API price elsewhere in the book.
     const price = priceOf(entry.cost) ?? (subscription ? input.book.lookup(entry.provider, entry.id)?.price : undefined);
+    const releasedAt = input.book.releasedAt(entry.id);
     return {
       provider: entry.provider,
       id: entry.id,
@@ -117,6 +131,7 @@ export function piNewThreadCatalog(input: PiCatalogInput): HostRuntimeNewThreadC
       billing: piBilling(entry, subscription),
       ...factsOf(entry),
       ...(price ? { price } : {}),
+      ...(releasedAt ? { releasedAt } : {}),
     };
   };
   return {

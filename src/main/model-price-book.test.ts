@@ -91,4 +91,12 @@ describe("ModelPriceBook", () => {
     expect(piBilling(models[1]!, false)).toBe("api-key");
     expect(piBilling(models[1]!, true)).toBe("subscription");
   });
+
+  it("dates a model by its bare id where models.dev knows it, and says nothing otherwise", () => {
+    const dated = new ModelPriceBook(() => models, (id) => (id === "m-1" ? "2026-01-15" : undefined));
+    expect(dated.lookup("api", "m-1-20260101")).toMatchObject({ releasedAt: "2026-01-15" });
+    expect(dated.enrich({ provider: "acme", id: "m-1[1m]", name: "M" })).toMatchObject({ releasedAt: "2026-01-15" });
+    expect(piNewThreadCatalog({ available: [models[1]!], subscription: () => false, book: dated }).models[0]?.releasedAt).toBe("2026-01-15");
+    expect(book.lookup("api", "m-2")).not.toHaveProperty("releasedAt");
+  });
 });
