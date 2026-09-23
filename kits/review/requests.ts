@@ -6,7 +6,8 @@ export interface RequestClient {
   status(fresh?: boolean): Promise<ReviewRequestStatus>;
   request(workspace: string): Promise<ReviewRequest | undefined>;
   draft(model?: { provider: string; id: string }, base?: string, writing?: { instructions?: string; template?: boolean }): Promise<ReviewRequestDraft>;
-  create(input: { title: string; body: string; base: string; draft: boolean }): Promise<{ status: ReviewRequestStatus; url?: string }>;
+  /** `uploadConfirmed`: the user saw which pictures the body names go where. */
+  create(input: { title: string; body: string; base: string; draft: boolean; uploadConfirmed?: boolean }): Promise<{ status: ReviewRequestStatus; url?: string; uploaded?: number; kept?: number }>;
   merge(method: MergeMethod, deleteBranch?: boolean): Promise<ReviewRequestStatus & { merge?: MergeOutcome }>;
   /** Arms or disarms a merge the host runs once it allows it. */
   autoMerge(enable: boolean, method?: MergeMethod, deleteBranch?: boolean): Promise<ReviewRequestStatus>;
@@ -23,7 +24,7 @@ export function requestClient(host: HostExtensionClient): RequestClient {
       ...(writing?.instructions ? { instructions: writing.instructions } : {}),
       ...(writing?.template === false ? { template: false } : {}),
     }) as Promise<ReviewRequestDraft>,
-    create: (input) => host.invoke("pr-create", input) as Promise<{ status: ReviewRequestStatus; url?: string }>,
+    create: (input) => host.invoke("pr-create", input) as Promise<{ status: ReviewRequestStatus; url?: string; uploaded?: number; kept?: number }>,
     merge: (method, deleteBranch) => host.invoke("pr-merge", { method, ...(deleteBranch ? { deleteBranch } : {}) }) as Promise<ReviewRequestStatus & { merge?: MergeOutcome }>,
     autoMerge: (enable, method, deleteBranch) => host.invoke("pr-auto-merge", { enable, ...(method ? { method } : {}), ...(deleteBranch ? { deleteBranch } : {}) }) as Promise<ReviewRequestStatus>,
     edit: (input) => host.invoke("pr-edit", input) as Promise<ReviewRequestStatus>,

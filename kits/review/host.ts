@@ -7,6 +7,7 @@ import { registerPullRequestListCommands } from "./pull-request-list-host.js";
 import { withInstructions } from "./writing.js";
 import { registerPublishCommands } from "./publish-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
+import { registerLocalRequestCommands } from "./local-request-host.js";
 import { registerThreadLinks, type ThreadLinks } from "./thread-links-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
@@ -66,6 +67,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         // A request opened from the Changes panel belongs to the thread on screen.
         created: (url) => { const thread = services.thread(); if (thread) void links?.link(thread.sessionId, url, "created"); },
       });
+      registerLocalRequestCommands(context, sources);
       registerPublishCommands(context, options);
       registerProviderSettings(context, sources);
       context.registerCommand("suggest-commit-message", async (input) => {

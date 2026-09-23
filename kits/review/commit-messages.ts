@@ -6,10 +6,15 @@ const MODEL_OPTION = "commit-model";
 const STYLE_OPTION = "commit-style";
 const AUTO_OPTION = "propose-message";
 
-export function commitMessageModel(threadModel: { provider: string; id: string } | undefined, preferences: PreferencesStore): { provider: string; id: string } | undefined {
+/** The model the user chose for Review's writing, without the thread's as a fallback. */
+export function chosenWritingModel(preferences: PreferencesStore): { provider: string; id: string } | undefined {
   const stored = preferences.value(REVIEW_HOST_EXTENSION_ID, MODEL_OPTION) ?? "";
   const at = stored.indexOf("/");
-  return at > 0 && at < stored.length - 1 ? { provider: stored.slice(0, at), id: stored.slice(at + 1) } : threadModel;
+  return at > 0 && at < stored.length - 1 ? { provider: stored.slice(0, at), id: stored.slice(at + 1) } : undefined;
+}
+
+export function commitMessageModel(threadModel: { provider: string; id: string } | undefined, preferences: PreferencesStore): { provider: string; id: string } | undefined {
+  return chosenWritingModel(preferences) ?? threadModel;
 }
 
 export function commitMessageStyle(preferences: PreferencesStore): CommitMessageStyle {

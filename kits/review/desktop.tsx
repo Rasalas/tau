@@ -26,6 +26,10 @@ import { registerPullRequestTab } from "./pull-request-tab.js";
 import { requestClient, RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 import type { StripParts } from "./pull-request-strip.js";
+import { EVIDENCE_SERVICE, localRequestClient, type EvidenceService } from "./local-request-client.js";
+import { PROJECT_SCRIPTS_EXTENSION_ID } from "./local-request-checks.js";
+import { registerLocalRequestTab } from "./local-request-tab.js";
+import { LocalDrafts } from "./local-request.js";
 
 // Evaluated on the first thread drawn, not when the kit activates.
 const PullRequestStrip = lazy(() => import("./pull-request-strip.js"));
@@ -81,6 +85,25 @@ export const reviewExtension: DesktopExtension = {
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
     const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared);
+    // Evidence Kit shrinks the pictures and says when a thread's changed; without it the view reads them whole.
+    let evidence: EvidenceService | undefined;
+    const evidenceListeners = new Set<() => void>();
+    const releaseEvidence = plugin.useService<EvidenceService>(EVIDENCE_SERVICE, (service) => {
+      evidence = service;
+      const off = service.subscribe(() => { for (const listener of [...evidenceListeners]) listener(); });
+      return () => { off(); if (evidence === service) evidence = undefined; };
+    });
+    const releaseLocal = registerLocalRequestTab(plugin, {
+      client: localRequestClient(plugin.host, () => evidence),
+      requests,
+      rows,
+      changes: workspace,
+      store: () => workspaceStore,
+      scripts: plugin.hostExtension(PROJECT_SCRIPTS_EXTENSION_ID),
+      preferences: plugin.preferences,
+      drafts: new LocalDrafts(getClientStorage),
+      onEvidence: (listener) => { evidenceListeners.add(listener); return () => { evidenceListeners.delete(listener); }; },
+    });
     const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
     // Below the runtime banners, Pi's widgets and quick actions; above Thread Rail's settled note (90), which sits on the composer.
     const releaseStrip = plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: ["desktop", "web"], Component: createPullRequestStrip({ rows, links, preferences: plugin.preferences }) });
@@ -100,7 +123,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseTabs(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseLocal(); releaseEvidence(); releaseTabs(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 

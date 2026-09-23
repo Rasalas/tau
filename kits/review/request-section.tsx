@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ExternalLink, GitPullRequest, Link2, RefreshCw, X } from "lucide-react";
+import { ExternalLink, GitPullRequest, GitPullRequestDraft, Link2, RefreshCw, X } from "lucide-react";
 import { errorMessage, type DesktopExtensionContext, type WorkbenchActions } from "tau";
 import type { LinkDialogs } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
@@ -8,6 +8,7 @@ import { commitMessageModel, followRequestTemplate, writingInstructions } from "
 import { providerInfo, type ChangesSectionProps, type MergeMethod, type ReviewRequest, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
+import { openLocalPullRequest } from "./local-request-tab.js";
 import { PublishForm } from "./publish-form.js";
 import { deleteBranchByDefault, outcomeText, preferredMethod, rememberMethod } from "./merge-controls.js";
 
@@ -146,6 +147,11 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
             <small className="request-none">{status ? (branch ? `No ${short} for ${branch}` : `No ${short}`) : "Checking…"}</small>
           )}
           <span className="spacer" />
+          {branch ? (
+            <button className="icon-button compact" title="Review the branch as a pull request, with its pictures, before anything is pushed" aria-label="Open the local pull request" onClick={() => openLocalPullRequest(actions)}>
+              <GitPullRequestDraft size={12} />
+            </button>
+          ) : null}
           <button className="icon-button compact" title="Refresh request status" aria-label="Refresh request status" disabled={Boolean(busy)} onClick={() => void refresh(true)}>
             <RefreshCw size={12} />
           </button>
