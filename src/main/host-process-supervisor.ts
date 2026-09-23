@@ -4,6 +4,7 @@ import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostLogger } from "./host-log.js";
 import { HostUplink } from "./host-uplink.js";
+import { killProcessTree } from "./platform-process.js";
 
 /** `<userData>/host.json`: how a later window finds the host that is already running. */
 export interface HostProcessDescriptor {
@@ -117,6 +118,7 @@ export class HostProcessSupervisor {
   private stopping = false;
   private detached = false;
   private logPath = "";
+  private restartTimer: ReturnType<typeof setTimeout> | undefined;
   /** The port a restart asks for again, so the window's client keeps its URL. */
   private preferredPort = 0;
 
@@ -132,6 +134,7 @@ export class HostProcessSupervisor {
 
   /** Adopts the host named in `host.json` when it is alive and current; starts one otherwise. */
   async start(): Promise<RunningHost> {
+    this.stopping = false;
     const adopted = await this.adopt();
     if (adopted) {
       this.running = adopted;
@@ -142,10 +145,15 @@ export class HostProcessSupervisor {
 
   /**
    * Asks the host to shut down and waits for it, then signals. A host that is
-   * meant to outlive this window is detached instead.
+   * meant to outlive this window is detached instead. A pending restart is
+   * cancelled, and a host still starting is ended.
    */
   async stop(): Promise<void> {
     this.stopping = true;
+    clearTimeout(this.restartTimer);
+    this.restartTimer = undefined;
+    const starting = this.child && this.child.pid !== this.running?.pid ? this.child : undefined;
+    if (starting) await endChild(starting);
     const running = this.running;
     if (!running) return;
     try {
@@ -235,7 +243,6 @@ export class HostProcessSupervisor {
 
     const child = (this.options.spawnProcess ?? defaultSpawn)(this.options.execPath, [this.options.entry], env);
     this.child = child;
-    this.stopping = false;
 
     let output = "";
     const started = new Promise<{ url: string; tokenPath: string }>((resolve, reject) => {
@@ -256,8 +263,19 @@ export class HostProcessSupervisor {
       child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`The host exited with ${code ?? "a signal"} before it listened.`)); });
     });
 
-    const { url, tokenPath } = await started;
-    const token = await readFile(tokenPath, "utf8").then((value) => value.trim());
+    let url: string;
+    let tokenPath: string;
+    let token: string;
+    try {
+      ({ url, tokenPath } = await started);
+      token = await readFile(tokenPath, "utf8").then((value) => value.trim());
+      if (this.stopping) throw new Error("The host was stopped while it started.");
+    } catch (error) {
+      // Detached, it would outlive the window and every test that started it.
+      await endChild(child);
+      logStream.end();
+      throw error;
+    }
     this.preferredPort = portOf(url);
     const running: RunningHost = { url, token, tokenPath, pid: child.pid ?? 0, adopted: false };
     this.running = running;
@@ -300,14 +318,17 @@ export class HostProcessSupervisor {
       return;
     }
     const previous = this.running?.url;
-    setTimeout(() => {
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = undefined;
       void this.restart()
         .then((running) => { if (running.url !== previous) this.options.onUrlChanged?.(running.url); })
         .catch((error: unknown) => {
+          if (this.stopping) return;
           this.options.logger?.error("host-process.restart-failed", error);
           this.options.onFatal?.({ message: `Tau's host could not be restarted: ${String(error)}`, logPath: this.logPath });
         });
-    }, this.options.restartDelayMs ?? 250 * this.restarts.length).unref?.();
+    }, this.options.restartDelayMs ?? 250 * this.restarts.length);
+    this.restartTimer.unref?.();
   }
 
   /**
@@ -318,7 +339,7 @@ export class HostProcessSupervisor {
     try {
       return await this.spawnHost();
     } catch (error) {
-      if (this.preferredPort === 0) throw error;
+      if (this.preferredPort === 0 || this.stopping) throw error;
       this.options.logger?.warn("host-process.port-taken", { port: this.preferredPort });
       this.preferredPort = 0;
       return this.spawnHost();
@@ -330,6 +351,16 @@ function defaultSpawn(command: string, args: string[], env: NodeJS.ProcessEnv): 
   // Its own process group: a signal meant for the window (a terminal's Ctrl-C,
   // a stopped dev instance) must not take the host's threads with it.
   return spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], detached: true, windowsHide: true });
+}
+
+/** Signals a child's process group and waits until the child is gone. */
+async function endChild(child: ChildProcess): Promise<void> {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  killProcessTree(child.pid, "SIGTERM");
+  const timer = setTimeout(() => { if (child.pid !== undefined) killProcessTree(child.pid, "SIGKILL"); }, SHUTDOWN_TIMEOUT_MS);
+  await exited;
+  clearTimeout(timer);
 }
 
 function portOf(url: string): number {
