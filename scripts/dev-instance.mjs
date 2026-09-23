@@ -47,15 +47,37 @@ export function prepareCodexHome(codexHome, realHome = join(homedir(), ".codex")
   if (!linked && existsSync(join(realHome, "auth.json"))) symlinkSync(join(realHome, "auth.json"), link);
 }
 
+/**
+ * A Pi agent directory of the instance's own. Pi writes into its agent dir on
+ * its own (`lastChangelogVersion`, the default model when one is picked), so an
+ * instance must not run on the user's. The login, model list, packages,
+ * extensions and keybindings are linked; settings, the model store and trust are
+ * copied once and then belong to the instance.
+ */
+export function preparePiAgentDir(agentDir, realDir = join(homedir(), ".pi", "agent")) {
+  mkdirSync(agentDir, { recursive: true });
+  for (const name of ["auth.json", "models.json", "npm", "extensions", "keybindings.json"]) {
+    const link = join(agentDir, name);
+    let present = false;
+    try { present = lstatSync(link) !== undefined; } catch { /* not there yet */ }
+    if (!present && existsSync(join(realDir, name))) symlinkSync(join(realDir, name), link);
+  }
+  for (const name of ["settings.json", "models-store.json", "trust.json"]) {
+    const copy = join(agentDir, name);
+    if (!existsSync(copy) && existsSync(join(realDir, name))) writeFileSync(copy, readFileSync(join(realDir, name)));
+  }
+}
+
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
 export function parseArgs(argv) {
-  const options = { build: false, safe: false, fresh: false, sharedSessions: false, port: undefined, workspace: undefined, agentDir: undefined };
+  const options = { build: false, safe: false, fresh: false, sharedSessions: false, realAgentDir: false, port: undefined, workspace: undefined, agentDir: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--build") options.build = true;
     else if (arg === "--safe") options.safe = true;
     else if (arg === "--fresh") options.fresh = true;
     else if (arg === "--shared-sessions") options.sharedSessions = true;
+    else if (arg === "--real-agent-dir") options.realAgentDir = true;
     else if (arg === "--port") {
       const value = argv[++index];
       if (!value || Number.isNaN(Number(value))) throw new Error(`--port needs a number, got ${JSON.stringify(value)}`);
@@ -69,7 +91,7 @@ export function parseArgs(argv) {
       if (!value) throw new Error("--agent-dir needs a path");
       options.agentDir = value;
     } else {
-      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --port <n>, --workspace <path>, --agent-dir <path>)`);
+      throw new Error(`unknown flag ${JSON.stringify(arg)} (known: --build, --safe, --fresh, --shared-sessions, --real-agent-dir, --port <n>, --workspace <path>, --agent-dir <path>)`);
     }
   }
   return options;
@@ -159,7 +181,10 @@ async function main() {
   // --agent-dir points PI_CODING_AGENT_DIR at a shadow directory (a test's own
   // keybindings.json, say) without touching the real ~/.pi/agent; see the
   // shadow-dir recipe in docs/agents/testing-the-app.md.
-  const agentDir = options.agentDir ? resolve(options.agentDir) : undefined;
+  // Without it the instance gets .tau-dev/pi-agent (see preparePiAgentDir);
+  // --real-agent-dir is for the rare test that must run on the user's own.
+  const agentDir = options.agentDir ? resolve(options.agentDir) : options.realAgentDir ? undefined : join(DEV_DIR, "pi-agent");
+  if (agentDir && !options.agentDir) preparePiAgentDir(agentDir);
   // Settings the instance toggles land in its own copy of ~/.tau/config.json,
   // its agent worktrees and host token under .tau-dev, never in the user's real ~/.tau.
   const configFile = join(DEV_DIR, "tau-config.json");
@@ -260,7 +285,7 @@ async function main() {
   })();
   console.log(
     `[dev-instance] pid=${child.pid} port=${port} userData=${userData} workspace=${workspace} `
-    + `sessions=${sessionsDir ?? "(shared: ~/.pi/agent/sessions)"} agentDir=${agentDir ?? "(default: ~/.pi/agent)"} log=${logPath}`,
+    + `sessions=${sessionsDir ?? "(shared: ~/.pi/agent/sessions)"} agentDir=${agentDir ?? "(real ~/.pi/agent)"} log=${logPath}`,
   );
 
   const forward = (signal) => () => { if (!child.killed) child.kill(signal); };

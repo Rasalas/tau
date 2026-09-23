@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { derivePort, findFreePort, parseArgs, prepareCodexHome, seedConfigFile } from "./dev-instance.mjs";
+import { derivePort, findFreePort, parseArgs, prepareCodexHome, preparePiAgentDir, seedConfigFile } from "./dev-instance.mjs";
 
 describe("derivePort", () => {
   it("is deterministic for the same seed", () => {
@@ -60,6 +60,7 @@ describe("parseArgs", () => {
       safe: false,
       fresh: false,
       sharedSessions: false,
+      realAgentDir: false,
       port: undefined,
       workspace: undefined,
       agentDir: undefined,
@@ -67,11 +68,12 @@ describe("parseArgs", () => {
   });
 
   it("reads boolean flags", () => {
-    expect(parseArgs(["--build", "--safe", "--fresh", "--shared-sessions"])).toEqual({
+    expect(parseArgs(["--build", "--safe", "--fresh", "--shared-sessions", "--real-agent-dir"])).toEqual({
       build: true,
       safe: true,
       fresh: true,
       sharedSessions: true,
+      realAgentDir: true,
       port: undefined,
       workspace: undefined,
       agentDir: undefined,
@@ -151,5 +153,24 @@ describe("prepareCodexHome", () => {
     const dir = mkdtempSync(join(tmpdir(), "tau-dev-codex-"));
     prepareCodexHome(join(dir, "home"), join(dir, "missing"));
     expect(readdirSync(join(dir, "home"))).toEqual([]);
+  });
+});
+
+describe("preparePiAgentDir", () => {
+  it("links the login and packages, copies settings once, and never writes the real directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "tau-dev-pi-agent-"));
+    const real = join(root, "real");
+    mkdirSync(join(real, "npm"), { recursive: true });
+    writeFileSync(join(real, "auth.json"), "{}");
+    writeFileSync(join(real, "settings.json"), '{"lastChangelogVersion":"0.84.4"}');
+    const own = join(root, "own");
+    preparePiAgentDir(own, real);
+    expect(readlinkSync(join(own, "auth.json"))).toBe(join(real, "auth.json"));
+    expect(readlinkSync(join(own, "npm"))).toBe(join(real, "npm"));
+    writeFileSync(join(own, "settings.json"), '{"lastChangelogVersion":"0.85.1"}');
+    preparePiAgentDir(own, real);
+    expect(readFileSync(join(own, "settings.json"), "utf8")).toContain("0.85.1");
+    expect(readFileSync(join(real, "settings.json"), "utf8")).toContain("0.84.4");
+    expect(readdirSync(own).sort()).toEqual(["auth.json", "npm", "settings.json"]);
   });
 });

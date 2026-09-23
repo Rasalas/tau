@@ -33,7 +33,7 @@ Because the default userData and workspace live under the worktree's own `.tau-d
 
 Pi (the coding agent Tau embeds) keeps every session under `~/.pi/agent/sessions/<encoded cwd>/`, and Tau's thread index lists all of them across every project the user has ever opened — that is how the sidebar's "All projects" grouping works. Without isolating this store, an instance's test threads would write into that real store and show up in the user's own Tau sidebar (this happened: a verification run once left twenty "Index n" sub-agent threads in a real user's projects).
 
-By default `dev-instance.mjs` sets `PI_CODING_AGENT_SESSION_DIR=<worktree>/.tau-dev/pi-sessions`, so every session the instance creates, opens, or lists lives under that path instead — it never reaches `~/.pi/agent/sessions`, and threads it writes never reach the user's real sidebar. Auth, models, settings, and extensions are unaffected and still come from the real `~/.pi/agent`, so models keep working. `--fresh` wipes `.tau-dev/pi-sessions` along with userData. Pass `--shared-sessions` to skip the override and use the real session store — only for a test that specifically needs the user's existing threads.
+By default `dev-instance.mjs` sets `PI_CODING_AGENT_SESSION_DIR=<worktree>/.tau-dev/pi-sessions`, so every session the instance creates, opens, or lists lives under that path instead — it never reaches `~/.pi/agent/sessions`, and threads it writes never reach the user's real sidebar. Pi's own directory is the instance's too: `PI_CODING_AGENT_DIR=<worktree>/.tau-dev/pi-agent`, where `auth.json`, `models.json`, `npm`, `extensions` and `keybindings.json` link to the real `~/.pi/agent` and `settings.json`, `models-store.json` and `trust.json` are copied once. Pi writes into its agent dir by itself (`lastChangelogVersion`, the default model when one is picked), so an instance on the real one changes the user's settings. Pass `--real-agent-dir` only for a test that must run on it. `--fresh` wipes `.tau-dev/pi-sessions` along with userData. Pass `--shared-sessions` to skip the override and use the real session store — only for a test that specifically needs the user's existing threads.
 
 Tau's own settings get the same treatment: `TAU_CONFIG_FILE=<worktree>/.tau-dev/tau-config.json`, seeded once as a copy of the user's `~/.tau/config.json` (read, never written), `TAU_WORKTREES_DIR=<worktree>/.tau-dev/worktrees` for the worktrees its threads create, `TAU_THEMES_DIR=<worktree>/.tau-dev/themes` for the themes it saves (so the real `~/.tau/themes` is neither read nor written), and `TAU_HOST_TOKEN_FILE=<worktree>/.tau-dev/host-token` for the secret its host process and window share. A setting toggled in the instance — `hostBackground`, `threads.continueAfterRestart` — stays in the instance. `--fresh` reseeds the config.
 
@@ -123,7 +123,7 @@ What it does, and why each part is shaped the way it is:
   yours.
 - **`PI_CODING_AGENT_SESSION_DIR` under `.tau-dev/`**, so the session file never
   reaches `~/.pi/agent/sessions` and never shows up in the user's own sidebar.
-  Auth, models and settings still come from the real `~/.pi/agent`.
+  Auth, models and packages are linked from the real `~/.pi/agent`; settings are the instance's own copy.
 - **`expect` for the pty.** The bridge only starts its socket when
   `ctx.mode === "tui"` (`print`, `json` and `rpc` all skip it — that guard is
   what keeps Tau's own embedded Pi from attaching to itself), and the TUI needs
