@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { HostSnapshot, PreferencesStore } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { shouldTitleAutomatically, titleModel } from "./desktop.js";
+import { shouldTitleAutomatically, threadModel, titleModel } from "./desktop.js";
 import { THREAD_TITLES_HOST_EXTENSION_ID } from "./protocol.js";
 
 function snapshot(messages: HostSnapshot["messages"], backendKind?: string): HostSnapshot {
@@ -45,22 +45,17 @@ describe("automatic title generation", () => {
 });
 
 describe("the model that writes a title", () => {
-  it("is the thread's own while Pi owns it", () => {
-    expect(titleModel(snapshot([], "pi"), preferences)).toEqual({ provider: "provider", id: "model", name: "Model" });
-    expect(titleModel(snapshot([]), preferences)).toMatchObject({ id: "model" });
-  });
-
-  it("is none for another runtime's thread, so the host falls back to the user's default", () => {
-    // A model id belongs to the runtime that reported it; Pi's catalog does not know it.
-    expect(titleModel(snapshot([], "claude-code"), preferences)).toBeUndefined();
-    expect(titleModel(undefined, preferences)).toBeUndefined();
-  });
-
-  it("is whatever the settings name, for every thread", () => {
+  it("is whatever the settings name, else left to the host", () => {
+    expect(titleModel(preferences)).toBeUndefined();
     preferences.setValue(THREAD_TITLES_HOST_EXTENSION_ID, "model", "openai-codex/gpt-5.6-luna");
-    expect(titleModel(snapshot([], "antigravity"), preferences)).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
-    expect(titleModel(snapshot([], "pi"), preferences)).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
+    expect(titleModel(preferences)).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
     preferences.setValue(THREAD_TITLES_HOST_EXTENSION_ID, "model", "malformed");
-    expect(titleModel(snapshot([], "antigravity"), preferences)).toBeUndefined();
+    expect(titleModel(preferences)).toBeUndefined();
+  });
+
+  it("passes the thread's model on as a hint, whatever its runtime", () => {
+    expect(threadModel(snapshot([], "codex"))).toEqual({ provider: "provider", id: "model" });
+    expect(threadModel(snapshot([], "pi"))).toEqual({ provider: "provider", id: "model" });
+    expect(threadModel(undefined)).toBeUndefined();
   });
 });
