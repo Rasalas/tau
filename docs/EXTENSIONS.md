@@ -176,6 +176,20 @@ someone who wrote `app.session.new` there meant that key, not that key and
 Tau's default too. Without `replaces`, a binding is additive, which is what a
 package adding a chord of its own wants.
 
+`registerUserKeymap({ id, label, setChords, resetAll })` (new in API 1.12.0)
+offers the file Settings → Keybindings writes the chords the user records.
+`setChords(commandId, chords)` replaces a command's chords (`{ key, when? }`,
+`when` absent keeps the replaced default's clause, `"true"` applies
+everywhere) and `undefined` gives the command its defaults back;
+`resetAll()` gives every command its defaults. Resolve once the new chords
+are bound: the owner still binds what the file holds with `registerKeybinding`
+and `replaces`, and the page marks those chords, the owner's, as the user's.
+One keymap at a time, the last registered wins; without one the page only
+lists. Keybindings Kit registers `keybindings.json`. An element marked
+`data-keybinding-capture` (new in API 1.12.0) gets every key while it has
+the keyboard: no workbench chord runs, so a field that records chords can
+take ⌘K.
+
 `when` (new in API 1.10.0) says where a chord applies, as in VS Code and T3
 Code: context names joined by `!`, `&&`, `||` and parentheses, e.g.
 `"terminalFocus && !stageFocus"`; `true` and `false` are constants. Contexts
