@@ -775,8 +775,11 @@ export interface MessageBlockProps {
 export interface MessageBlockContribution extends ProfileScoped {
   id: string;
   tag: string;
+  /** The messages whose blocks it draws; assistant replies when absent. A user message draws its blocks above the bubble. */
+  roles?: readonly ("user" | "assistant")[];
   Component: ComponentType<MessageBlockProps>;
 }
+
 
 /**
  * A set of models a new thread's picker builds with Shift-click, kept by the

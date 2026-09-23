@@ -2,6 +2,11 @@ export type MessagePart =
   | { kind: "text"; text: string }
   | { kind: "block"; tag: string; body: string; complete: boolean };
 
+/** Whether a block contribution draws in messages of this role; assistant replies when it names none. */
+export function drawsBlocksFor(block: { roles?: readonly string[] }, role: "user" | "assistant"): boolean {
+  return (block.roles ?? ["assistant"]).includes(role);
+}
+
 const FENCE = /^\s{0,3}(`{3,}|~{3,})/u;
 
 /**

@@ -32,11 +32,12 @@ import titleGenerator from "./thread-titles/desktop.js";
 import workspace from "./workspace/desktop.js";
 import worktreeNames from "./worktree-names/desktop.js";
 import appearance from "./appearance/desktop.js";
+import handoff from "./handoff/desktop.js";
 
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [access, agents, claudeCode, codex, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames, appearance];
+const kits = [access, agents, claudeCode, codex, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, workspace, worktreeNames, appearance, handoff];
 
 afterEach(cleanup);
 

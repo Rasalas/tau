@@ -1,12 +1,11 @@
 import { Bot, Brain, ChevronRight, EyeOff } from "lucide-react";
-import { memo, useContext, useState } from "react";
-import { WorkbenchShellContext } from "../workbench-context";
+import { memo, useState } from "react";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { splitMessageBlocks } from "./message-blocks";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { MessageActions } from "./MessageActions";
-import { UserMessage } from "./UserMessage";
+import { UserMessage, useMessageBlocks } from "./UserMessage";
 import { Markdown } from "./Markdown";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
@@ -59,8 +58,7 @@ function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
 
 /** A reply whose tagged blocks an extension draws itself; the rest stays Markdown. */
 function AssistantText({ message, streaming }: { message: UiMessage; streaming: boolean }) {
-  const registry = useContext(WorkbenchShellContext)?.registry;
-  const blocks = registry?.getMessageBlocks() ?? [];
+  const { registry, blocks } = useMessageBlocks("assistant", true);
   const parts = splitMessageBlocks(message.text, blocks.map((block) => block.tag));
   if (parts.length === 1 && parts[0]!.kind === "text") return <Markdown streaming={streaming}>{message.text}</Markdown>;
   return <>{parts.map((part, index) => {
