@@ -22,8 +22,8 @@ export interface SignInFlowContext {
   readonly signal: AbortSignal;
   /** Replaces what the window shows; the flow is waiting on the user from here on. */
   show(shown: SignInShown): void;
-  /** Asks the user and waits; rejects when the flow ends first. */
-  ask(prompt: Omit<SignInPrompt, "id">): Promise<string>;
+  /** Asks the user and waits; rejects when the flow ends first, or when `signal` says the answer is no longer needed. */
+  ask(prompt: Omit<SignInPrompt, "id">, options?: { signal?: AbortSignal }): Promise<string>;
   /** The program has what it needs and is being asked whether it worked. */
   verifying(message?: string): void;
 }
@@ -130,12 +130,19 @@ export function registerSignIn(context: RegisteringContext, options: SignInOptio
       signal: flow.controller.signal,
       show: (shown) => update(target, flow, { ...shown, phase: "waiting" }),
       verifying: (line) => update(target, flow, { phase: "verifying", ...(line ? { message: line } : {}) }),
-      ask: (prompt) => new Promise<string>((resolve, reject) => {
+      ask: (prompt, askOptions) => new Promise<string>((resolve, reject) => {
         if (!signInActive(flow.state)) { reject(new Error("The sign-in ended.")); return; }
         flow.prompt?.reject(new Error("Another question replaced this one."));
         const id = `p${++flow.prompts}`;
         flow.prompt = { id, resolve, reject };
         update(target, flow, { prompt: { ...prompt, id }, phase: "waiting" });
+        askOptions?.signal?.addEventListener("abort", () => {
+          if (flow.prompt?.id !== id) return;
+          flow.prompt = undefined;
+          const { prompt: _asked, ...rest } = flow.state;
+          if (flows.get(target) === flow && signInActive(flow.state)) { flow.state = rest; publish(target, flow); }
+          reject(new Error("The question is no longer needed."));
+        }, { once: true });
       }),
     };
     void options.signIn(target, method, flowContext).then(

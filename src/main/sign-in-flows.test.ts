@@ -134,6 +134,26 @@ describe("registerSignIn", () => {
     expect(events.at(-1)!.report?.account?.signedIn).toBe(false);
   });
 
+  it("takes a question back when the kit no longer needs its answer", async () => {
+    const withdrawn = new AbortController();
+    let outcome: string | undefined;
+    const { call, events, settle } = harness({
+      signIn: async (_target, _method, flow) => {
+        flow.show({ browser: { url: "http://127.0.0.1:9/consent" } });
+        await flow.ask({ kind: "code", message: "Paste the code" }, { signal: withdrawn.signal }).catch((error: Error) => { outcome = error.message; });
+        await new Promise<void>((resolve) => flow.signal.addEventListener("abort", () => resolve(), { once: true }));
+      },
+    });
+    await call("sign-in", { method: "browser" });
+    await settle();
+    expect(events.at(-1)!.flow?.prompt).toMatchObject({ kind: "code" });
+    withdrawn.abort();
+    await settle();
+    expect(outcome).toBe("The question is no longer needed.");
+    expect(events.at(-1)!.flow).toMatchObject({ phase: "waiting", browser: { url: "http://127.0.0.1:9/consent" } });
+    expect(events.at(-1)!.flow?.prompt).toBeUndefined();
+  });
+
   it("publishes a target's report when the kit says what it offers changed", async () => {
     const { registration, events } = harness();
     await registration.publish();
