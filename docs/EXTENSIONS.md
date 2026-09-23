@@ -882,6 +882,14 @@ throws is reported and the draft stays where it was, so a prompt is never lost
 to a workspace that could not be prepared. Workspace Kit uses it to create the
 worktree a new thread runs in ([ADR 0017](adr/0017-worktrees-for-threads-and-agents.md)).
 
+The draft moves to the named workspace before its thread exists, and its panels
+ask about it right away. A host half that made the folder itself (a worktree)
+names it with `services.admitWorkspace(path)` (new in API 1.11.0, permission
+`workspace:write`) rather than `workspaceRef`: the same identity, and from then
+on `knownWorkspacePath` accepts it for the rest of the host's run. A folder a
+host half only found — a browsed directory, a clone the user has not opened yet
+— gets `workspaceRef` and stays unknown until the user opens it.
+
 A third half runs before both: `claimNewThread(event, actions)` is offered a
 pending draft's first prompt, and answering `true` takes it — core creates no
 thread, the composer empties and the draft stays open for the next prompt; the
@@ -1475,7 +1483,7 @@ the port — nothing that hands out a live object. From
 | Available in a worker | Not available — declare `"isolation": "in-process"` instead |
 |---|---|
 | `cwd`, `log`, `safeMode` | `attachedRuntime` (a live Pi terminal) |
-| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension`, `loadDependency` |
+| `openWorkspace`, `knownWorkspacePath`, `pickDirectory`, `workspaceRef`, `admitWorkspace` | `registerRuntimeBackend`, `registerRuntimeExtension`, `loadRuntimeExtension`, `loadDependency` |
 | `projectName`, `rememberProjectName`, `describeProjects` (round trip) | `decorateUiPrompt`, `setPermissionLevel`, `presentUi` |
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex` |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
