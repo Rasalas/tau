@@ -8,9 +8,17 @@ import { pathToFileURL } from "node:url";
 import { realTmp } from "./apps.mjs";
 
 export const LARGE_THREAD_TITLE = "Large Pi thread";
-export const LARGE_THREAD_ROOT = () => realTmp("tau-harness-large-thread");
+// Beside COMPARE_TAU_ROOT, so a checkout that sets it keeps this profile to itself too.
+export const LARGE_THREAD_ROOT = () => process.env.COMPARE_TAU_ROOT
+  ? `${process.env.COMPARE_TAU_ROOT}-large-thread`
+  : realTmp("tau-harness-large-thread");
 /** Four entries a turn: prompt, tool call, tool result, answer. */
 export const LARGE_THREAD_TURNS = 5_000;
+/** One page more than a thread opens with (10 turns), for the short-thread case. */
+export const TWO_PAGE_THREAD_TITLE = "Two-page Pi thread";
+export const TWO_PAGE_THREAD_TURNS = 15;
+/** Older pages loaded with the reader at the top of the large thread, one after another. */
+export const OLDER_PAGES_AT_TOP = 3;
 
 async function sessionManager(tauRoot) {
   const url = pathToFileURL(join(tauRoot, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "index.js")).href;
@@ -47,6 +55,47 @@ export function newestTurnVisible(messageRow, turns, tag) {
   return `[...document.querySelectorAll(${JSON.stringify(messageRow)})].some((row) => row.textContent.includes(${JSON.stringify(`Question ${turns - 1}:`)}) && row.textContent.includes(${JSON.stringify(tag)}))`;
 }
 
+/**
+ * Resolves in the page after one "Load older turns" click. Samples, every
+ * frame until a second after the label went away, how far the row that led
+ * the viewport before the click has moved; a frame without that row counts
+ * as the viewport's height.
+ */
+export const OLDER_PAGE_DRIFT = `new Promise((resolvePromise, rejectPromise) => {
+  const scroller = document.getElementById("thread-transcript");
+  const button = document.querySelector('[aria-label="Load older turns"]');
+  if (!scroller || !button) { rejectPromise(new Error("no transcript or no Load older turns button")); return; }
+  const viewportTop = () => scroller.getBoundingClientRect().top;
+  const rows = () => [...scroller.querySelectorAll("[data-message-id]")];
+  const lead = rows().find((row) => row.getBoundingClientRect().bottom > viewportTop());
+  if (!lead) { rejectPromise(new Error("no transcript row in the viewport")); return; }
+  const id = lead.dataset.messageId;
+  const offset = (row) => row.getBoundingClientRect().top - viewportTop();
+  const before = offset(lead);
+  const startedAt = performance.now();
+  let loading = false;
+  let loadedAt;
+  let driftPx = 0;
+  let lostFrames = 0;
+  let frames = 0;
+  const tick = () => {
+    const row = rows().find((candidate) => candidate.dataset.messageId === id);
+    frames += 1;
+    if (!row) lostFrames += 1;
+    driftPx = Math.max(driftPx, row ? Math.abs(offset(row) - before) : scroller.clientHeight);
+    if (document.querySelector('[aria-label="Loading older turns"]')) loading = true;
+    else if (loading && loadedAt === undefined) loadedAt = performance.now();
+    if (loadedAt !== undefined && performance.now() - loadedAt > 1000) {
+      resolvePromise({ driftPx, lostFrames, frames, loadingMs: loadedAt - startedAt });
+      return;
+    }
+    if (performance.now() - startedAt > 30000) { rejectPromise(new Error("older page did not load within 30 s")); return; }
+    requestAnimationFrame(tick);
+  };
+  button.click();
+  requestAnimationFrame(tick);
+})`;
+
 /** The table's rows: label and the aggregate path it reads. */
 export function largeThreadRows() {
   return [
@@ -54,6 +103,10 @@ export function largeThreadRows() {
     ["spawn → newest turn visible, thread active (ms)", "startup.newestTurnMs"],
     ["click → newest turn visible (ms)", "open.newestTurnMs"],
     ["load one older page (ms)", "open.olderPageMs"],
+    ["older page at the top: \"Loading…\" shown (ms)", "open.olderPageAtTopMs"],
+    ["older page at the top: drift of the leading row (px)", "open.olderPageDriftPx"],
+    ["older page at the top: frames without the leading row", "open.olderPageLostFrames"],
+    ["two-page thread, older page at the top: drift (px)", "open.twoPageDriftPx"],
     ["open: KiB over WebSocket", "open.wire.receivedKiB"],
     ["load average (1 min) at run start", "loadAtStart"],
   ];

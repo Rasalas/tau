@@ -15,7 +15,10 @@ import { descendants, processTable, stopTree, treeMemory } from "./processes.mjs
 import { writeCodexSessions, sessionPlan } from "./sessions-fixture.mjs";
 import { aggregateRuns, frameStats, longTaskStats, round } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
-import { LARGE_THREAD_ROOT, LARGE_THREAD_TITLE, LARGE_THREAD_TURNS, largeThreadRows, newestTurnVisible, writePiThread } from "./large-thread.mjs";
+import {
+  LARGE_THREAD_ROOT, LARGE_THREAD_TITLE, LARGE_THREAD_TURNS, OLDER_PAGE_DRIFT, OLDER_PAGES_AT_TOP, TWO_PAGE_THREAD_TITLE, TWO_PAGE_THREAD_TURNS,
+  largeThreadRows, newestTurnVisible, writePiThread,
+} from "./large-thread.mjs";
 import { clickWhenReady, locate } from "./ui.mjs";
 import { machineClass } from "../machine-class.mjs";
 
@@ -260,6 +263,29 @@ const LOAD_ONE_OLDER_PAGE = `new Promise((resolvePromise, rejectPromise) => {
   setTimeout(() => { observer.disconnect(); rejectPromise(new Error("older page did not load within 30 s")); }, 30_000);
 })`;
 
+/** Wheels the transcript up like a reader would until it rests at its first pixel. */
+async function wheelToTop(session) {
+  const state = `(() => { const s = document.getElementById("thread-transcript"); const r = s.getBoundingClientRect(); return { top: s.scrollTop, x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`;
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const { top, x, y } = await evaluate(session, state);
+    if (top <= 0) {
+      // Rows measured on the way up may still move the top; it has to stay at 0.
+      await wait(500);
+      if ((await evaluate(session, state)).top <= 0) return;
+      continue;
+    }
+    await session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY: -Math.min(2_400, top + 240) });
+    await wait(32);
+  }
+  throw new Error("the transcript did not reach its top");
+}
+
+/** Loads one older page with the reader at the top and reports how far the leading row moved. */
+async function olderPageAtTop(session) {
+  await wheelToTop(session);
+  return evaluate(session, OLDER_PAGE_DRIFT);
+}
+
 /**
  * The large Pi thread, twice per run: opened from the rail while a short
  * thread is the workspace's newest, then active at start-up as its newest.
@@ -275,6 +301,7 @@ async function measureLargeThreadRun(app, root, options) {
   resetRunFromTemplate(app, root);
   const openTag = tag();
   const { entries } = await write({ tag: openTag, modifiedAt: new Date(Date.now() - 3_600_000) });
+  await write({ title: TWO_PAGE_THREAD_TITLE, turns: TWO_PAGE_THREAD_TURNS, tag: openTag, modifiedAt: new Date(Date.now() - 7_200_000) });
   await write({ title: "Short Pi thread", turns: 2, tag: openTag, modifiedAt: new Date() });
   const open = await withApp(app, root, async (session) => {
     await waitFor(session, app.ready(THREADS), { timeoutMs: 90_000, pollMs: 10 });
@@ -288,7 +315,22 @@ async function measureLargeThreadRun(app, root, options) {
     const openWire = wire.snapshot();
     await wait(1_000);
     const olderPageMs = await evaluate(session, LOAD_ONE_OLDER_PAGE);
-    return { newestTurnMs: shown.at - startedAt, olderPageMs: round(olderPageMs), wire: openWire };
+    const atTop = [];
+    for (let page = 0; page < OLDER_PAGES_AT_TOP; page += 1) atTop.push(await olderPageAtTop(session));
+    await clickWhenReady(session, app.selectors.threadRowClick, new RegExp(TWO_PAGE_THREAD_TITLE, "u"));
+    await waitFor(session, newestTurnVisible(app.selectors.messageRow, TWO_PAGE_THREAD_TURNS, openTag), { timeoutMs: 30_000, pollMs: 10 });
+    await wait(1_000);
+    const twoPage = await olderPageAtTop(session);
+    return {
+      newestTurnMs: shown.at - startedAt,
+      olderPageMs: round(olderPageMs),
+      // The worst of the loads at the top: a jump in any of them is a jump.
+      olderPageAtTopMs: round(Math.max(...atTop.map((load) => load.loadingMs))),
+      olderPageDriftPx: round(Math.max(...atTop.map((load) => load.driftPx))),
+      olderPageLostFrames: Math.max(...atTop.map((load) => load.lostFrames)),
+      twoPageDriftPx: round(twoPage.driftPx),
+      wire: openWire,
+    };
   });
 
   resetRunFromTemplate(app, root);
