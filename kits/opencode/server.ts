@@ -124,8 +124,8 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
           if (closedByTau) return exit;
           closedByTau = true;
           stop();
-          const timer = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), input.closeGraceMs ?? CLOSE_GRACE_MS).unref?.());
-          if (!await Promise.race([exit.then(() => true), timer]) && child.pid !== undefined) killProcessTree(child.pid, "SIGKILL");
+          const grace = new Promise<boolean>((done) => setTimeout(() => done(false), input.closeGraceMs ?? CLOSE_GRACE_MS).unref?.());
+          if (!await Promise.race([exit.then(() => true), grace]) && child.pid !== undefined) killProcessTree(child.pid, "SIGKILL");
           await exit;
         },
       });
