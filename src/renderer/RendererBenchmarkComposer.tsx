@@ -1,4 +1,5 @@
 import { createRef, useEffect, useState } from "react";
+import { FileText } from "lucide-react";
 import type { HostSnapshot } from "../shared/contracts";
 import { Composer } from "./components/Composer";
 import { ClientStorageProvider } from "./client-storage-context";
@@ -43,13 +44,13 @@ function draft(bytes: number): string {
   return text.slice(0, bytes);
 }
 
-/** A kit holding `count` file chips for the draft, the way Composer Context does. */
+/** A kit holding `count` file chips for the draft, the way Composer Context does; core draws them in the text. */
 function chipContribution(count: number): ComposerInlineContribution {
-  const chips = Array.from({ length: count }, (_, index) => ({ id: `chip-${index}`, label: `module-${index}.ts` }));
+  const chips = Array.from({ length: count }, (_, index) => ({ id: `chip-${index}`, label: `module-${index}.ts`, icon: FileText }));
   return {
     id: "benchmark.chips",
-    Component: () => <div className="composer-context">{chips.map((chip) => <span key={chip.id} className="composer-context-chip">{chip.label}</span>)}</div>,
-    hasContent: () => count > 0,
+    chips: { list: () => chips, remove: () => {} },
+    subscribe: () => () => {},
   };
 }
 
@@ -69,6 +70,8 @@ export default function ComposerTypingScenario(options: ComposerTypingOptions) {
       const field = document.querySelector<HTMLTextAreaElement>(".composer-frame textarea");
       if (!field) { nextFrame(type); return; }
       if (typed === options.chars) { nextFrame(options.onFinished); return; }
+      // Wait for core to have put the chips into the text.
+      if (typed === 0 && options.chips > 0 && !field.value.includes("\u2063")) { nextFrame(type); return; }
       if (typed === 0) {
         field.focus();
         options.onReady();

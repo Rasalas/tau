@@ -55,7 +55,6 @@ import {
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
 import { ComposerInput } from "./ComposerInput";
-import { ComposerChipPopover } from "./ComposerChipPopover";
 import { useComposerChips } from "./useComposerChips";
 import { useComposerCollapse } from "./useComposerCollapse";
 import { findChipTokens, plainChipText } from "./composer-chips";
@@ -91,6 +90,7 @@ const NO_INLINES: readonly never[] = [];
 const NO_GATES: readonly ComposerGateContribution[] = [];
 // The picker is its own chunk: nothing of it is drawn until it opens.
 const ModelPicker = lazy(() => import("./ModelPicker").then((module) => ({ default: module.ModelPicker })));
+const ComposerChipPopover = lazy(() => import("./ComposerChipPopover").then((module) => ({ default: module.ComposerChipPopover })));
 
 /** A gate that asked: where the run stopped, and what finishes it. */
 interface OpenGate {
@@ -564,6 +564,7 @@ export function Composer({
   const chips = useComposerChips({
     scope: attachmentScope,
     text,
+    readText: useCallback(() => value ?? scopeStore.getSnapshot(attachmentScope).draft, [attachmentScope, scopeStore, value]),
     draftStorageKey,
     clientStorage,
     inlines,
@@ -1105,6 +1106,7 @@ export function Composer({
       </div>
 
       {openChip ? (
+        <Suspense fallback={null}>
         <ComposerChipPopover
           label={openChip.label}
           point={openChip.point}
@@ -1116,6 +1118,7 @@ export function Composer({
           onRemove={() => chips.removeChip(openChip.label)}
           onClose={() => setOpenChip(undefined)}
         />
+        </Suspense>
       ) : null}
       {preview ? createPortal(
         <div className="attachment-lightbox" role="dialog" aria-modal="true" aria-label={preview.name} onMouseDown={() => setPreviewId(undefined)}>

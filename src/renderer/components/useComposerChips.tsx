@@ -32,6 +32,8 @@ interface Candidate { key: string; base: string; entry: Omit<ComposerChipEntry, 
 export interface UseComposerChipsOptions {
   scope: ComposerScope;
   text: string;
+  /** The draft as the store holds it now, which an effect of the same commit may have changed. */
+  readText(): string;
   draftStorageKey?: string;
   clientStorage: ClientStorage;
   inlines: readonly Inline[];
@@ -52,7 +54,7 @@ export interface UseComposerChipsOptions {
  * token, and a token the user deleted leaves its chip until the prompt is
  * sent (so an undo brings it back); the send drops those.
  */
-export function useComposerChips({ scope, text, draftStorageKey, clientStorage, inlines, attachments, scopeStore, textareaRef, insertAt, paused, updateDraft, setCaret }: UseComposerChipsOptions) {
+export function useComposerChips({ scope, text, readText, draftStorageKey, clientStorage, inlines, attachments, scopeStore, textareaRef, insertAt, paused, updateDraft, setCaret }: UseComposerChipsOptions) {
   const chipInlines = useMemo(() => inlines.filter((inline) => inline.chips), [inlines]);
   const subscribe = useCallback((listener: () => void) => {
     const unsubscribers = chipInlines.map((inline) => inline.subscribe?.(listener));
@@ -108,11 +110,12 @@ export function useComposerChips({ scope, text, draftStorageKey, clientStorage, 
   useEffect(() => {
     if (paused) return;
     const labels = labelsFor(scope);
-    const tokens = findChipTokens(text);
+    const current = readText();
+    const tokens = findChipTokens(current);
     const tokenLabels = new Set(tokens.map((token) => token.label));
     const present = new Set(candidates.map((candidate) => candidate.key));
     const owners = new Set([IMAGE_OWNER, ...chipInlines.map((inline) => inline.id)]);
-    let next = text;
+    let next = current;
     let changed = false;
     for (const [key, label] of [...labels]) {
       if (present.has(key)) continue;
@@ -150,7 +153,7 @@ export function useComposerChips({ scope, text, draftStorageKey, clientStorage, 
       next = inserted.text;
       caret = inserted.caret;
     }
-    if (next === text) return;
+    if (next === current) return;
     updateDraft(next);
     if (caret !== undefined && focused) {
       const at = caret;
@@ -158,7 +161,9 @@ export function useComposerChips({ scope, text, draftStorageKey, clientStorage, 
       // After any frame callback that placed the caret for the edit that added the chip.
       requestAnimationFrame(() => requestAnimationFrame(() => field!.setSelectionRange(at, at)));
     }
-  }, [candidates, chipInlines, clientStorage, draftStorageKey, insertAt, labelsFor, paused, scope, setCaret, text, textareaRef, updateDraft]);
+    // `text` stands for the draft `readText` answers.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidates, chipInlines, clientStorage, draftStorageKey, insertAt, labelsFor, paused, readText, scope, setCaret, text, textareaRef, updateDraft]);
 
   const byLabel = useMemo(() => {
     const labels = labelsFor(scope);
