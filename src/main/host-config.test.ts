@@ -323,5 +323,13 @@ describe("HostConfigManager", () => {
       const layers = await manager.clear(["modelPreferences.pi"], "project", projectDir);
       expect(layers.project?.modelPreferences).toBeUndefined();
     });
+
+    it("keeps the user's model prices entry by entry, and clears one", async () => {
+      await manager.update({ modelPrices: { "openai/gpt-5.6-luna": { input: 0.2, output: 1.2 } } }, "global");
+      await manager.update({ modelPrices: { "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 }, bad: { input: -1, output: 1 } } }, "global");
+      expect((await manager.read()).modelPrices).toEqual({ "openai/gpt-5.6-luna": { input: 0.2, output: 1.2 }, "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 } });
+      const layers = await manager.clear(["modelPrices.openai/gpt-5.6-luna"], "global");
+      expect(layers.host.modelPrices).toEqual({ "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 } });
+    });
   });
 });

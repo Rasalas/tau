@@ -376,6 +376,13 @@ describe("decodeConfigPatch", () => {
       .toThrow("update-config: patch.modelPreferences must map runtimes");
   });
 
+  it("takes the user's model prices, and rejects a malformed one", () => {
+    expect(decodeConfigPatch(CH, "patch", { modelPrices: { "openai/o4-mini": { input: 1, output: 4 } } }))
+      .toEqual({ modelPrices: { "openai/o4-mini": { input: 1, output: 4 } } });
+    expect(() => decodeConfigPatch(CH, "patch", { modelPrices: { "o4-mini": { input: "1", output: 4 } } }))
+      .toThrow("update-config: patch.modelPrices must map model ids");
+  });
+
   it("takes the update channel, and only a known one", () => {
     expect(decodeConfigPatch(CH, "patch", { updates: { channel: "nightly" } })).toEqual({ updates: { channel: "nightly" } });
     expect(() => decodeConfigPatch(CH, "patch", { updates: { channel: "beta" } }))

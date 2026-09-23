@@ -2,8 +2,9 @@ import { getClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { isTranscriptDetail, type TranscriptDetail } from "../workbench/transcript-folding";
 import type { HostClient } from "../workbench/host-client";
-import type { TauConfig, TauModelPreferences } from "../shared/contracts";
+import type { TauConfig, TauModelPreferences, UiModelPrice } from "../shared/contracts";
 import { readModelPreferenceRecord } from "../shared/model-preferences";
+import { readModelPrices } from "../shared/model-prices";
 import { DEFAULT_THEME, isThemePreference, registerUserThemes, applyTheme, type ThemePreference } from "./theme";
 import { SEND_SHORTCUTS, type SendShortcut } from "./components/composer-send-keys";
 
@@ -25,6 +26,8 @@ export interface PreferencesState {
   favouriteModels: readonly string[];
   /** Models the picker hides and the order it lists them in, by runtime backend kind. */
   modelPreferences: Readonly<Record<string, TauModelPreferences>>;
+  /** The user's own model prices from the host's config (`modelPrices`); the picker shows and sorts by them. */
+  modelPrices: Readonly<Record<string, UiModelPrice>>;
   /** The models last chosen in a picker, newest first, keyed like favourites; this client's own. */
   recentModels: readonly string[];
   /** The runtime backend a new thread is created on; unset means the host's default. */
@@ -60,6 +63,7 @@ const DEFAULTS: PreferencesState = {
   pinnedThreadIds: [],
   favouriteModels: [],
   modelPreferences: {},
+  modelPrices: {},
   recentModels: [],
   extensionOptions: {},
   extensionValues: {},
@@ -118,6 +122,7 @@ function load(): PreferencesState {
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
       modelPreferences: readModelPreferenceRecord(raw.modelPreferences) ?? {},
+      modelPrices: readModelPrices(raw.modelPrices) ?? {},
       recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
@@ -195,6 +200,7 @@ export class PreferencesStore {
     else if (previous?.confirm?.quitWhileRunning !== undefined) patch.confirmQuitWhileRunning = DEFAULTS.confirmQuitWhileRunning;
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
     if (config.modelPreferences || previous?.modelPreferences) patch.modelPreferences = record(this.state.modelPreferences, previous?.modelPreferences, config.modelPreferences);
+    if (config.modelPrices || previous?.modelPrices) patch.modelPrices = record(this.state.modelPrices, previous?.modelPrices, config.modelPrices);
     if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
     if (config.options || previous?.options) patch.extensionOptions = record(this.state.extensionOptions, previous?.options, config.options);
     if (config.values || previous?.values) patch.extensionValues = record(this.state.extensionValues, previous?.values, config.values);
