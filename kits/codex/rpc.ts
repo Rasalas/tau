@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
+import { commandInvocation, killProcessTree } from "tau/host-extension";
 
 /**
  * The app-server wire: one JSON-RPC message per line on the CLI's stdin and
@@ -24,7 +25,14 @@ export interface RpcSpawnInput {
 }
 
 export function spawnRpcProcess(input: RpcSpawnInput): RpcProcess {
-  const child = spawn(input.command, [...input.args], { cwd: input.cwd, env: input.env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  const invocation = commandInvocation(input.command, input.args, { env: input.env });
+  const child = spawn(invocation.command, invocation.args, {
+    cwd: input.cwd,
+    env: input.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+  });
   // `close` rather than `exit`: by then stderr is drained, so the exit message can quote it.
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
     child.once("close", (code, signal) => resolve({ code, signal }));
@@ -35,7 +43,12 @@ export function spawnRpcProcess(input: RpcSpawnInput): RpcProcess {
     stdin: child.stdin!,
     stdout: child.stdout!,
     stderr: child.stderr!,
-    kill: (signal) => child.kill(signal),
+    // An npm shim runs under cmd.exe on Windows; ending only cmd.exe would orphan the CLI.
+    kill: (signal) => {
+      if (process.platform !== "win32" || child.pid === undefined || child.exitCode !== null) return child.kill(signal);
+      killProcessTree(child.pid);
+      return true;
+    },
     exited,
   };
 }

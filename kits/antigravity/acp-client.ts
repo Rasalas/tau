@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
+import { commandInvocation, killProcessTree } from "tau/host-extension";
 
 /**
  * The Agent Client Protocol wire: newline-delimited JSON-RPC 2.0 on the
@@ -26,7 +27,14 @@ export interface AcpSpawnInput {
 }
 
 export function spawnAcpProcess(input: AcpSpawnInput): AcpProcess {
-  const child = spawn(input.command, [...input.args], { cwd: input.cwd, env: input.env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  const invocation = commandInvocation(input.command, input.args, { env: input.env });
+  const child = spawn(invocation.command, invocation.args, {
+    cwd: input.cwd,
+    env: input.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+  });
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
     child.once("exit", (code, signal) => resolve({ code, signal }));
     child.once("error", () => resolve({ code: null, signal: null }));
@@ -36,7 +44,12 @@ export function spawnAcpProcess(input: AcpSpawnInput): AcpProcess {
     stdin: child.stdin!,
     stdout: child.stdout!,
     stderr: child.stderr!,
-    kill: (signal) => child.kill(signal),
+    // An npm shim runs under cmd.exe on Windows; ending only cmd.exe would orphan the CLI.
+    kill: (signal) => {
+      if (process.platform !== "win32" || child.pid === undefined || child.exitCode !== null) return child.kill(signal);
+      killProcessTree(child.pid);
+      return true;
+    },
     exited,
   };
 }

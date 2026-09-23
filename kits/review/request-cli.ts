@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { commandInvocation } from "tau/host-extension";
 import type { MergeMethod, RequestService } from "./protocol.js";
 
 /**
@@ -16,8 +17,11 @@ export interface CliRunOptions {
 const CLI_TIMEOUT_MS = 25_000;
 
 export const defaultCliRunner: CliRunner = (command, args, cwd, options = {}) => new Promise((resolve, reject) => {
-  const child = execFile(command, args, {
+  const invocation = commandInvocation(command, args);
+  const child = execFile(invocation.command, invocation.args, {
     cwd,
+    windowsHide: true,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
     timeout: CLI_TIMEOUT_MS,
     maxBuffer: options.maxBuffer ?? 2 * 1024 * 1024,
     // Neither CLI may stop for a prompt: there is no terminal to answer it.

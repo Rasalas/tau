@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
+import { commandInvocation } from "tau/host-extension";
 import { rankFuzzy } from "./fuzzy.js";
 import { parseRipgrepLine, projectPath, ripgrepArgs, ripgrepError, ripgrepFileArgs } from "./ripgrep.js";
 import { findInThread, queryTokens, sessionText, type ThreadText } from "./threads.js";
@@ -43,7 +44,8 @@ interface Process {
 
 /** Runs a program and hands each stdout line over; `false` from `onLine` stops it. */
 function streamLines(command: string, args: readonly string[], cwd: string, onLine: (line: string) => boolean): Process {
-  const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  const invocation = commandInvocation(command, args);
+  const child = spawn(invocation.command, invocation.args, { cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments });
   let rest = "";
   let stderr = "";
   let stopped = false;
