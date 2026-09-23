@@ -210,7 +210,7 @@ describe("lineage and bringing it back", () => {
     expect(invoke).not.toHaveBeenCalledWith(HANDOFF_EXTENSION_ID, "commit-merge-back", expect.anything());
 
     await registry.notifyPromptSubmitted({ prompt: `${MERGE_BACK}\n\nAnd then?`, snapshot: snapshot("parent") }, parentActions);
-    expect(invoke).toHaveBeenCalledWith(HANDOFF_EXTENSION_ID, "commit-merge-back", { threadId: "fork", through: "f2" });
+    expect(invoke).toHaveBeenCalledWith(HANDOFF_EXTENSION_ID, "commit-merge-back", { parentThreadId: "parent" });
   });
 
   it("says why when the thread on screen has nothing to bring back", async () => {

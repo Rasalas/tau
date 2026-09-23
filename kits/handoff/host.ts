@@ -74,6 +74,8 @@ interface ThreadRecord {
   files: string[];
   mergedThrough?: string;
   mergedAt?: number;
+  /** A merge-back in a parent's composer, committed once a prompt carries it there. */
+  pendingMerge?: { parentThreadId: string; through: string };
 }
 
 interface Stored extends Record<string, unknown> {
@@ -292,21 +294,31 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         const what = known?.strategy ? "the fork" : "the sub-agent";
         const since = known?.mergedThrough ? "since it was last brought back" : "since it started";
         const header = `Brought back from ${what} ${source}, ${delta.length} messages ${since}:`;
-        return { parentThreadId, context: formatBlock(MERGE_BACK_TAG, header, summaryBody(written)), through: messages.at(-1)?.id ?? "" };
+        const through = messages.at(-1)?.id ?? "";
+        // Kept here rather than in a window: the parent may be sent to from another client, or after a reload.
+        state.threads[thread.sessionId] = { ...known, files, pendingMerge: { parentThreadId, through } };
+        persist();
+        return { parentThreadId, context: formatBlock(MERGE_BACK_TAG, header, summaryBody(written)), through };
       });
 
+      // A prompt carrying a merge-back reached the parent: the threads brought back to it start after that point next time.
       context.registerCommand("commit-merge-back", (input) => {
-        const threadId = required(input, "threadId");
-        const through = text(record(input).through);
-        state.threads[threadId] = { ...state.threads[threadId], files: state.threads[threadId]?.files ?? [], ...(through ? { mergedThrough: through } : {}), mergedAt: now() };
-        changed();
+        const parentThreadId = required(input, "parentThreadId");
+        let committed = false;
+        for (const [threadId, thread] of Object.entries(state.threads)) {
+          if (thread.pendingMerge?.parentThreadId !== parentThreadId) continue;
+          const { pendingMerge, ...rest } = thread;
+          state.threads[threadId] = { ...rest, ...(pendingMerge.through ? { mergedThrough: pendingMerge.through } : {}), mergedAt: now() };
+          committed = true;
+        }
+        if (committed) changed();
         return lineage();
       });
 
       const disposers = [
         services.registerTurnObserver({
-          toolEnded: (sessionId, tool) => {
-            const files = filesFromTool(tool);
+          toolEnded: (sessionId, tool, cwd) => {
+            const files = filesFromTool(tool, cwd);
             if (files.length === 0) return;
             const known = state.threads[sessionId];
             // Only threads that can be brought back: this kit's forks and spawned threads.

@@ -78,13 +78,18 @@ export function messagesAfter<T extends ConversationMessage>(messages: readonly 
   return index < 0 ? [...messages] : messages.slice(index + 1);
 }
 
-/** Workspace files an edit or a write touched, the way the transcript names them. */
-export function filesFromTool(tool: Pick<UiToolRun, "name" | "args" | "status">): string[] {
+/** Workspace files an edit or a write touched, relative to `cwd` where they lie inside it. */
+export function filesFromTool(tool: Pick<UiToolRun, "name" | "args" | "status">, cwd?: string): string[] {
   if (tool.status === "error" || !/^(?:edit|write|multiedit|apply_patch)$/iu.test(tool.name)) return [];
   const args = tool.args ?? {};
   const one = [args.path, args.file_path].find((value): value is string => typeof value === "string" && value.length > 0);
   const many = Array.isArray(args.paths) ? args.paths.filter((value): value is string => typeof value === "string" && value.length > 0) : [];
-  return [...new Set([...(one ? [one] : []), ...many].map((path) => path.replaceAll("\\", "/")))];
+  const root = cwd ? `${cwd.replaceAll("\\", "/").replace(/\/+$/u, "")}/` : undefined;
+  const relative = (path: string) => {
+    const normal = path.replaceAll("\\", "/");
+    return root && normal.startsWith(root) ? normal.slice(root.length) : normal;
+  };
+  return [...new Set([...(one ? [one] : []), ...many].map(relative))];
 }
 
 export function addFiles(known: readonly string[], added: readonly string[]): string[] {

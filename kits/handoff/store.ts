@@ -46,8 +46,6 @@ export class HandoffStore {
   private readonly awaiting: string[] = [];
   /** Per draft scope: clears the draft's own slot once its prompt went. */
   private readonly clearers = new Map<string, () => void>();
-  /** A merge-back sent from the parent's composer is committed by its `through`. */
-  pendingMerge: { threadId: string; parentThreadId: string; through: string } | undefined;
   /** The window's thread index, lent by the title region while it is drawn. */
   threads: ThreadStore | undefined;
 
@@ -138,7 +136,6 @@ export class HandoffStore {
     this.armed = undefined;
     this.awaiting.length = 0;
     this.clearers.clear();
-    this.pendingMerge = undefined;
     this.threads = undefined;
     this.view = { lineage: EMPTY_LINEAGE, runtimes: [], drafts: {} };
     for (const listener of [...this.listeners]) listener();

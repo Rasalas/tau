@@ -113,7 +113,6 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           const prepared = await host.invoke("prepare-merge-back", { threadId: thread.sessionId }) as PrepareMergeBackResult;
           const parent = store.threads?.getSnapshot().threads.find((entry) => entry.id === prepared.parentThreadId);
           if (!parent) throw new Error("The parent thread is not in the thread list any more.");
-          store.pendingMerge = { threadId: thread.sessionId, parentThreadId: prepared.parentThreadId, through: prepared.through };
           store.setMergeDraft({ parentThreadId: prepared.parentThreadId, text: prepared.context });
           toast?.dismiss();
           await actions.switchSession(parent.path);
@@ -309,11 +308,8 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
             const transferId = store.nextAwaiting();
             if (transferId) store.setLineage(await host.invoke("bind-transfer", { transferId, threadId }));
           }
-          const merge = store.pendingMerge;
-          if (merge && merge.parentThreadId === threadId && event.prompt.includes(`<${MERGE_BACK_TAG}>`)) {
-            store.pendingMerge = undefined;
-            store.setLineage(await host.invoke("commit-merge-back", { threadId: merge.threadId, through: merge.through }));
-          }
+          // The host knows which merge-backs wait for this thread; whichever window sent it.
+          if (event.prompt.includes(`<${MERGE_BACK_TAG}>`)) store.setLineage(await host.invoke("commit-merge-back", { parentThreadId: threadId }));
         },
       });
       context.registerCommand({

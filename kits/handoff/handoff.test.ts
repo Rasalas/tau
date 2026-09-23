@@ -90,6 +90,7 @@ describe("delta and files", () => {
   it("reads the files an edit or a write names, and nothing a read or a failed call did", () => {
     expect(filesFromTool({ name: "edit", args: { path: "src/a.ts" }, status: "done" })).toEqual(["src/a.ts"]);
     expect(filesFromTool({ name: "write", args: { path: "src\\b.ts", paths: ["src/b.ts", "src/c.ts"] }, status: "done" })).toEqual(["src/b.ts", "src/c.ts"]);
+    expect(filesFromTool({ name: "edit", args: { file_path: "/repo/src/a.ts" }, status: "done" }, "/repo/")).toEqual(["src/a.ts"]);
     expect(filesFromTool({ name: "read", args: { path: "src/a.ts" }, status: "done" })).toEqual([]);
     expect(filesFromTool({ name: "edit", args: { path: "src/a.ts" }, status: "error" })).toEqual([]);
   });

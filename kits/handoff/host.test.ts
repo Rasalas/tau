@@ -151,7 +151,7 @@ describe("Handoff Kit host half", () => {
     const registry = await activate();
     await invoke(registry, "create-transfer", { threadId: "parent", target: "codex" });
     await invoke(registry, "bind-transfer", { transferId: "t1", threadId: "fork" });
-    observer!.toolEnded!("fork", { id: "x", name: "write", args: { path: "src/parser.test.ts" }, status: "done", startedAt: 1 }, "/project");
+    observer!.toolEnded!("fork", { id: "x", name: "write", args: { path: "/project/src/parser.test.ts" }, status: "done", startedAt: 1 }, "/project");
     observer!.toolEnded!("unrelated", { id: "y", name: "write", args: { path: "src/other.ts" }, status: "done", startedAt: 1 }, "/project");
     complete.mockClear();
 
@@ -166,7 +166,9 @@ describe("Handoff Kit host half", () => {
     expect(request.prompt).not.toContain("Parent's context.");
     expect(complete.mock.calls[0]![1]).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
 
-    await invoke(registry, "commit-merge-back", { threadId: "fork", through: prepared.through });
+    // Nothing is recorded until a prompt carried it to the parent.
+    await expect(invoke(registry, "prepare-merge-back", { threadId: "fork" })).resolves.toMatchObject({ through: "f2" });
+    await invoke(registry, "commit-merge-back", { parentThreadId: "parent" });
     await expect(invoke(registry, "prepare-merge-back", { threadId: "fork" })).rejects.toThrow("Nothing new since it was last brought back.");
     forkMessages.push(message("f3", "user", "Also docs."), message("f4", "assistant", "Wrote README."));
     const next = await invoke(registry, "prepare-merge-back", { threadId: "fork" }) as PrepareMergeBackResult;

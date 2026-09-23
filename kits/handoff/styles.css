@@ -1,13 +1,13 @@
 /* Handoff Kit: the lineage before the thread title, the draft's handoff chip and the context cards. */
 
-.handoff-lineage { flex: none; display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 40%; }
+.handoff-lineage { flex: none; display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
 .handoff-lineage > .menu-anchor { display: inline-flex; }
 .handoff-parent, .handoff-forks, .handoff-icon {
   height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px;
   border: 0; border-radius: var(--radius-sm); background: transparent;
   color: var(--muted); font: 12px var(--sans); cursor: pointer;
 }
-.handoff-parent { min-width: 0; max-width: 220px; }
+.handoff-parent { min-width: 0; max-width: 240px; }
 .handoff-parent > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .handoff-parent > svg, .handoff-forks > svg { flex: none; color: var(--faint); }
 .handoff-icon { width: 26px; padding: 0; justify-content: center; }
