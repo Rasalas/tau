@@ -428,7 +428,7 @@ Tau's own source can be changed from inside Tau too. A clean installation carrie
 - model picker with provider tabs, cross-provider search and favourites
 - clickable workspace bar under the composer: switch between the checkout and its worktrees, create a worktree for a new branch, and pick a ref from a searchable list
 - enforced access levels: Tau's inline Pi extension gates workspace mutations and computer-control actions; read-only threads retain inspection tools, while ask-before-edits requires approval before clicks, typing, launches, shell commands, and file changes
-- a Preview panel (`/preview <url>`, `Cmd/Ctrl+Shift+B`) showing a real browser view the host draws over the dock, and `preview_open/navigate/status/snapshot/screenshot/click/type/press/scroll/evaluate/wait_for` tools so the agent can read and drive the page it just changed
+- a Preview panel (`/preview <url>`, `Cmd/Ctrl+Shift+B`) showing a real browser view the host draws over the dock, and `preview_open/navigate/status/snapshot/screenshot/click/type/press/scroll/evaluate/wait_for/resize/set_appearance/recording_start/recording_stop` tools so the agent can read and drive the page it just changed; a floating picture of what an agent drives while the panel is hidden
 - built-in cross-platform computer use through `@amaster.ai/pi-computer-use` (Apache-2.0) and its bundled Cua Driver assets; safe mode excludes it, and an explicitly configured Pi package wins over Tau's bundled registration
 - grouped command palette (`Cmd/Ctrl+K`) with arrow-key navigation, attributing every command to the extension that contributed it
 - one settings page: workbench defaults, keybindings, and a click-through list of extensions rendered from the options each one declares
