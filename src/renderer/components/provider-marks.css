@@ -1,0 +1,42 @@
+/*
+ * Marks of model providers beyond the few ProviderIconStack imports: drawn
+ * here so their URLs cost the initial script nothing. Monochrome marks take
+ * the text colour through a mask, coloured ones keep their colours.
+ */
+.provider-mark-styled {
+  background: currentColor no-repeat center / contain;
+  mask: var(--mark) no-repeat center / contain;
+  -webkit-mask: var(--mark) no-repeat center / contain;
+}
+.provider-family-deepseek > .provider-mark-styled, .provider-family-mistral > .provider-mark-styled,
+.provider-family-cerebras > .provider-mark-styled, .provider-family-fireworks > .provider-mark-styled, .provider-family-together > .provider-mark-styled,
+.provider-family-huggingface > .provider-mark-styled, .provider-family-kimi > .provider-mark-styled, .provider-family-minimax > .provider-mark-styled,
+.provider-family-qwen > .provider-mark-styled, .provider-family-nvidia > .provider-mark-styled, .provider-family-bedrock > .provider-mark-styled,
+.provider-family-azure > .provider-mark-styled, .provider-family-cloudflare > .provider-mark-styled {
+  background: var(--mark) no-repeat center / contain; mask: none; -webkit-mask: none;
+}
+.provider-family-openrouter { --mark: url("@lobehub/icons-static-svg/icons/openrouter.svg?no-inline"); }
+.provider-family-deepseek { --mark: url("@lobehub/icons-static-svg/icons/deepseek-color.svg?no-inline"); }
+.provider-family-xai { --mark: url("@lobehub/icons-static-svg/icons/xai.svg?no-inline"); }
+.provider-family-grok { --mark: url("@lobehub/icons-static-svg/icons/grok.svg?no-inline"); }
+.provider-family-mistral { --mark: url("@lobehub/icons-static-svg/icons/mistral-color.svg?no-inline"); }
+.provider-family-groq { --mark: url("@lobehub/icons-static-svg/icons/groq.svg?no-inline"); }
+.provider-family-cerebras { --mark: url("@lobehub/icons-static-svg/icons/cerebras-color.svg?no-inline"); }
+.provider-family-fireworks { --mark: url("@lobehub/icons-static-svg/icons/fireworks-color.svg?no-inline"); }
+.provider-family-together { --mark: url("@lobehub/icons-static-svg/icons/together-color.svg?no-inline"); }
+.provider-family-huggingface { --mark: url("@lobehub/icons-static-svg/icons/huggingface-color.svg?no-inline"); }
+.provider-family-moonshot { --mark: url("@lobehub/icons-static-svg/icons/moonshot.svg?no-inline"); }
+.provider-family-kimi { --mark: url("@lobehub/icons-static-svg/icons/kimi-color.svg?no-inline"); }
+.provider-family-minimax { --mark: url("@lobehub/icons-static-svg/icons/minimax-color.svg?no-inline"); }
+.provider-family-zai { --mark: url("@lobehub/icons-static-svg/icons/zai.svg?no-inline"); }
+.provider-family-qwen { --mark: url("@lobehub/icons-static-svg/icons/qwen-color.svg?no-inline"); }
+.provider-family-nvidia { --mark: url("@lobehub/icons-static-svg/icons/nvidia-color.svg?no-inline"); }
+.provider-family-bedrock { --mark: url("@lobehub/icons-static-svg/icons/bedrock-color.svg?no-inline"); }
+.provider-family-azure { --mark: url("@lobehub/icons-static-svg/icons/azure-color.svg?no-inline"); }
+.provider-family-copilot { --mark: url("@lobehub/icons-static-svg/icons/githubcopilot.svg?no-inline"); }
+.provider-family-vercel { --mark: url("@lobehub/icons-static-svg/icons/vercel.svg?no-inline"); }
+.provider-family-cloudflare { --mark: url("@lobehub/icons-static-svg/icons/cloudflare-color.svg?no-inline"); }
+.provider-family-xiaomi { --mark: url("@lobehub/icons-static-svg/icons/xiaomimimo.svg?no-inline"); }
+.provider-family-ollama { --mark: url("@lobehub/icons-static-svg/icons/ollama.svg?no-inline"); }
+.provider-family-lmstudio { --mark: url("@lobehub/icons-static-svg/icons/lmstudio.svg?no-inline"); }
+.provider-family-cursor { --mark: url("@lobehub/icons-static-svg/icons/cursor.svg?no-inline"); }
