@@ -78,5 +78,26 @@ describe("a client with a host in another process", () => {
 
   it("routes every client-side method name", () => {
     expect([...CLIENT_SIDE_METHODS]).toContain("desktop-extensions");
+    expect([...CLIENT_SIDE_METHODS]).toContain("window-action");
+  });
+
+  it("hears the window's own events beside the host's, and nothing else from the window", async () => {
+    let pushLocal: (push: unknown) => void = () => undefined;
+    const local = new HostConnection({
+      platform: "local",
+      request: async () => ({ id: "1", result: { protocol: 1, hostVersion: "0.5.0", capabilities: [], resync: false, missed: [], nextSeq: 1 } }),
+      onPush: (listener) => { pushLocal = listener as (push: unknown) => void; return () => undefined; },
+    });
+    await local.start();
+    const client = createHostClient(new HostConnection(recordingTransport("host", [])), local);
+    const heard: string[] = [];
+    const stop = client.onHostEvent((event) => heard.push(event.type));
+    pushLocal({ seq: 1, event: { type: "app-update", version: "0.6.0" } });
+    pushLocal({ seq: 2, event: { type: "window-shell", event: { kind: "menu", action: "open-about" } } });
+    pushLocal({ seq: 3, event: { type: "event-log", label: "workbench.build", timestamp: 1 } });
+    expect(heard).toEqual(["app-update", "window-shell"]);
+    stop();
+    pushLocal({ seq: 4, event: { type: "app-update", version: "0.6.1" } });
+    expect(heard).toHaveLength(2);
   });
 });

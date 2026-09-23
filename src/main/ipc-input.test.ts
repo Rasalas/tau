@@ -358,6 +358,12 @@ describe("decodeConfigPatch", () => {
       .toThrow('update-config: patch.updates.channel must be "stable" or "nightly"');
   });
 
+  it("takes the quit confirmations, and only a known mode", () => {
+    expect(decodeConfigPatch(CH, "patch", { confirm: { quit: "hold", quitWhileRunning: false } })).toEqual({ confirm: { quit: "hold", quitWhileRunning: false } });
+    expect(() => decodeConfigPatch(CH, "patch", { confirm: { quit: "never" } }))
+      .toThrow('update-config: patch.confirm.quit must be "hold", "double-press" or "off"');
+  });
+
   it("decodes the keys clear-config removes", () => {
     expect(decodeSettingKeys("clear-config", "keys", ["showCosts", "values.tau.x"])).toEqual(["showCosts", "values.tau.x"]);
     expect(() => decodeSettingKeys("clear-config", "keys", [])).toThrow("clear-config: keys must be a list of 1 to 100 setting keys");

@@ -1322,6 +1322,30 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
   display: flex; justify-content: center; align-items: flex-start; padding-top: 64px;
 }
 .dialog-backdrop { align-items: center; padding: 24px; }
+/* ConfirmDialog: a question with Cancel and the action at the bottom right. */
+.confirm-dialog {
+  width: 400px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: 10px; padding: 18px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay);
+  box-shadow: var(--elevation-3); color: var(--ink); animation: fade-up .14s ease;
+}
+.confirm-dialog > h2 { margin: 0; font: 600 15px var(--sans); }
+.confirm-dialog > p { margin: 0; color: var(--muted); font: 12.5px/1.5 var(--sans); }
+.confirm-dialog-skip { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 12px var(--sans); }
+.confirm-dialog > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.confirm-dialog > footer > button { padding: 7px 14px; border-radius: var(--radius-sm); font: 500 12.5px var(--sans); cursor: pointer; }
+.confirm-dialog > footer > button.primary { border: 0; background: var(--acid); color: var(--acid-ink); }
+.confirm-dialog > footer > button.danger { border: 1px solid var(--danger-line); background: var(--danger-bg); color: var(--removed); }
+.release-notes { width: 460px; }
+.release-notes > ul { margin: 0; padding-left: 18px; max-height: min(50vh, 420px); overflow: auto; color: var(--ink-2); font: 12.5px/1.55 var(--sans); }
+.release-notes > ul > li + li { margin-top: 4px; }
+.release-notes > footer { align-items: center; }
+.release-notes-link { display: inline-flex; align-items: center; gap: 4px; margin-right: auto; }
+/* The quit shortcut's hint, as T3 Code draws it: a pill high in the window. */
+.quit-hint {
+  position: fixed; inset: 22% 0 auto; z-index: 120; width: max-content; margin: 0 auto; padding: 14px 28px;
+  border-radius: 999px; background: color-mix(in srgb, var(--ink) 88%, transparent); color: var(--stage);
+  font: 600 20px var(--sans); box-shadow: var(--elevation-3); pointer-events: none;
+}
 .palette-input-wrap {
   display: flex; align-items: center; gap: 11px; height: 52px;
   border-bottom: 1px solid var(--line); padding: 0 16px;
