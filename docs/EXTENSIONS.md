@@ -1019,7 +1019,18 @@ host keeps the last three per thread), `bringToFront`, `icon`, `access` (the
 Screen Recording status, read without asking) and `openAccessSettings` do what
 they say, and `live(threadId, onFrame, ended?)` records that one window a few
 frames a second where the system already allows it. Preview Kit's Screen view
-draws it; the types are in `kits/computer-use/protocol.ts`. Thread Rail publishes
+draws it; the types are in `kits/computer-use/protocol.ts`. Its host commands
+`screen-state` and `screen-frame` also answer Evidence Kit (`callers`), which
+fetches each new frame before the feed lets go of it after three. Evidence Kit publishes
+`tau.evidence/capture` (types in `kits/evidence/protocol.ts`): `list(threadId)`
+and `image(threadId, id, thumb?)` read a thread's turn pictures,
+`subscribe` hears which thread's changed, and `pause(threadId, reason)` /
+`resume(threadId)` hold every capture of that thread — and every capture of
+the shared Preview — until resumed, for a hand-over where the user signs in;
+its host commands `pause` and `resume` take the same from a host half named in
+`EVIDENCE_PAUSE_CALLERS`. Preview Kit's `evidence-frame` command answers
+Evidence Kit alone with a picture of the page, and nothing while a password
+or one-time-code field has the keyboard. Thread Rail publishes
 `tau.thread-rail/siblings`: `siblingsOf(threadId)` answers the threads started
 together from one prompt on several models (the thread itself included, or
 `[]`), and the Agents panel lists them beside a thread's agents. `actions.attachFiles(files, { sessionId? })` (new in API 1.11.0) hands `File`s to the composer the way a drop on the thread does, with the same limits; named for a thread, they wait until that thread's composer is mounted — open it with `switchSession` first — and are dropped if it has not come in ten seconds. Workspace Kit's rail uses it for files dropped on a row. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
@@ -1717,6 +1728,39 @@ OpenCode switches its own tools off in every prompt's `tools`
 (`kits/opencode/tools.ts`) and runs read-only without `bash`, `edit` or `write`.
 Antigravity and Cursor cannot restrict their tools and refuse such a thread.
 
+### Media on a turn: `services.turnAttachments` (new in API 1.12.0)
+
+A kit that takes pictures or recordings of what a turn did offers them to
+the others without anyone knowing it by name. Core keeps no bytes and draws
+nothing: it knows a `TurnAttachment` — `id`, the `turnId` of
+`HostTurnObserver` with the turn's `turnStartedAt` and `turnEndedAt`, `at`,
+`mediaType`, `size`, `width`, `height`, `caption` — and which extension
+provided it (`source`, filled in by core). It needs `sessions` and is
+in-process only, since a provider is a live object.
+
+| Member | What it does |
+|---|---|
+| `provide({ list(threadId), read(threadId, id) })` | Offers this extension's attachments; `read` answers `{ mediaType, data }` (base64). A second call replaces the first. Returns the withdrawal. |
+| `changed(threadId)` | Tells the readers that this extension's attachments of a thread changed. |
+| `list(threadId)` | Every provider's attachments of a thread, oldest first; a provider that throws is left out and logged. |
+| `read(threadId, source, id)` | One attachment's bytes, from the extension that provided it. |
+| `observe((threadId, source) => …)` | Hears every `changed`. |
+
+Evidence Kit (`kits/evidence/`) provides its turn pictures this way; a local
+pull-request view reads them to show and upload what a branch's turns did.
+
+### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
+
+A host half reads its own entries of `options` and `values` the way the
+settings levels resolve them: the project's `.tau/config.json` over this
+machine's for `cwd`, this machine's alone without one. The answer is
+`{ options, values }` keyed without the package id in front
+(`options["tau.evidence.preview"]` is `options.preview`), so a package never
+sees another's settings. Ungated, and a worker has it too. It is how work the
+host does on its own — a capture while no window watches — honours a
+setting a project overrides on a Settings page (`useSetting(…, { scope:
+"both" })`).
+
 ### Lifecycle hooks a host half may step into
 
 `services.registerThreadLifecycle(hooks)` and
@@ -1831,7 +1875,7 @@ A package's `permissions` array draws from a fixed list
 | `workspace:read` | read the current project's path, name and file contents through the host services. |
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
-| `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
+| `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and provide and read turn attachments. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
 | `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
