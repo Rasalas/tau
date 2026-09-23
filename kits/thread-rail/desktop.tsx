@@ -3,7 +3,10 @@ import { AlarmClock, Archive, GitFork, ListTree, X } from "lucide-react";
 import {
   HostUnavailableError,
   Menu,
+  SettingRow,
+  SettingsSection,
   errorMessage,
+  useSetting,
   type ComposerControlProps,
   type DesktopExtension,
   type DesktopExtensionContext,
@@ -120,17 +123,37 @@ const INACTIVE_CHOICES: Array<{ days?: number; label: string }> = [
   { label: "Off" }, { days: 1, label: "1 day" }, { days: 3, label: "3 days" }, { days: 7, label: "7 days" }, { days: 30, label: "30 days" },
 ];
 
+const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
+
+/** One "ask first" switch: an option in Tau's config, so it shows its level like any row. */
+function ConfirmationRow({ action, preferences }: { action: RailQuestionAction; preferences: PreferencesStore }) {
+  const { option, fallback, label, hint } = RAIL_CONFIRMATIONS[action];
+  const setting = useSetting<boolean>(`options.${THREAD_RAIL_EXTENSION_ID}.${option}`, { defaultValue: fallback, read: readBoolean, offline: (value) => preferences.setOption(THREAD_RAIL_EXTENSION_ID, option, value) });
+  return (
+    <SettingRow
+      id={`setting-thread-rail-${option}`}
+      title={label}
+      description={hint}
+      setting={setting}
+      control={<button type="button" role="switch" aria-checked={setting.value} aria-label={label} className={`switch ${setting.value ? "on" : ""}`} onClick={() => setting.set(!setting.value)}><i /></button>}
+    />
+  );
+}
+
 function createSettingsPage(store: RailStore, preferences: PreferencesStore, update: (settings: Partial<Record<keyof RailSettings, unknown>>) => Promise<void>) {
   return function ThreadRailSettings({ onNotify }: SettingsPageProps) {
     useSyncExternalStore(store.subscribe, store.getVersion);
     useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
     const settings = store.getState().settings;
     const change = (patch: Partial<Record<keyof RailSettings, unknown>>) => { update(patch).catch((error: unknown) => onNotify(errorMessage(error))); };
+    // The rules live with the host's sweep (its own state file), not in Tau's config, so these rows have no levels.
     const toggle = (key: "onMerged" | "onClosed", label: string, hint: string) => (
-      <div className="settings-field-row">
-        <span className="settings-field-label"><strong>{label}</strong><small>{hint}</small></span>
-        <button type="button" role="switch" aria-checked={settings[key]} aria-label={label} className={`switch ${settings[key] ? "on" : ""}`} onClick={() => change({ [key]: !settings[key] })}><i /></button>
-      </div>
+      <SettingRow
+        id={`setting-thread-rail-${key}`}
+        title={label}
+        description={hint}
+        control={<button type="button" role="switch" aria-checked={settings[key]} aria-label={label} className={`switch ${settings[key] ? "on" : ""}`} onClick={() => change({ [key]: !settings[key] })}><i /></button>}
+      />
     );
     return (
       <div className="settings-page thread-rail-settings">
@@ -139,34 +162,29 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
           Settled threads leave the active list without being deleted. These rules settle a thread on their own, on the
           host, even while no window is open. A running thread, a snoozed one and one you just took off the shelf are left alone.
         </p>
-        <div className="settings-label">Settle automatically</div>
-        <div className="settings-field-row">
-          <span className="settings-field-label"><strong>After a quiet spell</strong><small>No turn for this long</small></span>
-          <div className="segmented" role="group" aria-label="Settle after">
-            {INACTIVE_CHOICES.map((choice) => (
-              <button
-                key={choice.label}
-                type="button"
-                className={settings.inactiveDays === choice.days ? "active" : ""}
-                aria-pressed={settings.inactiveDays === choice.days}
-                onClick={() => change({ inactiveDays: choice.days ?? null })}
-              >{choice.label}</button>
-            ))}
-          </div>
-        </div>
-        {toggle("onMerged", "When its pull request merges", "Worktree threads only: their branch is theirs alone")}
-        {toggle("onClosed", "When its pull request is closed", "Closed without merging")}
-        <div className="settings-label">Ask first</div>
-        {(Object.keys(RAIL_CONFIRMATIONS) as RailQuestionAction[]).map((action) => {
-          const { option, fallback, label, hint } = RAIL_CONFIRMATIONS[action];
-          const on = preferences.optionValue(THREAD_RAIL_EXTENSION_ID, option, fallback);
-          return (
-            <div className="settings-field-row" key={action}>
-              <span className="settings-field-label"><strong>{label}</strong><small>{hint}</small></span>
-              <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "on" : ""}`} onClick={() => preferences.setOption(THREAD_RAIL_EXTENSION_ID, option, !on)}><i /></button>
-            </div>
-          );
-        })}
+        <SettingsSection title="Settle automatically">
+          <SettingRow
+            id="setting-thread-rail-inactive"
+            title="After a quiet spell"
+            description="No turn for this long."
+            control={<div className="segmented" role="group" aria-label="Settle after">
+              {INACTIVE_CHOICES.map((choice) => (
+                <button
+                  key={choice.label}
+                  type="button"
+                  className={settings.inactiveDays === choice.days ? "active" : ""}
+                  aria-pressed={settings.inactiveDays === choice.days}
+                  onClick={() => change({ inactiveDays: choice.days ?? null })}
+                >{choice.label}</button>
+              ))}
+            </div>}
+          />
+          {toggle("onMerged", "When its pull request merges", "Worktree threads only: their branch is theirs alone.")}
+          {toggle("onClosed", "When its pull request is closed", "Closed without merging.")}
+        </SettingsSection>
+        <SettingsSection title="Ask first">
+          {(Object.keys(RAIL_CONFIRMATIONS) as RailQuestionAction[]).map((action) => <ConfirmationRow key={action} action={action} preferences={preferences} />)}
+        </SettingsSection>
       </div>
     );
   };
