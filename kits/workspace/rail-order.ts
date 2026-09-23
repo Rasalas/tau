@@ -1,12 +1,7 @@
 import type { PreferencesStore, UiProject, UiSession } from "tau";
 import { WORKSPACE_HOST_EXTENSION_ID } from "./protocol.js";
 
-/**
- * How the rail's main list is laid out, as T3 Code's sidebar settings put it:
- * flat, or grouped by repository (a repository and its worktrees), by
- * repository path (each project folder of a repository apart) or by checkout
- * (every worktree its own group).
- */
+/** Flat, or grouped by repository (with its worktrees), by project folder, or by checkout. */
 export type RailGrouping = "none" | "repository" | "repository_path" | "separate";
 /** Groups by their newest thread, by when the project was last opened, or by name. */
 export type RailProjectSort = "activity" | "opened" | "name";
@@ -28,7 +23,8 @@ export const RAIL_PREVIEW_OPTION = "rail-preview";
 export const LEGACY_GROUP_OPTION = "group-by-project";
 
 export const DEFAULT_PREVIEW = 6;
-export const PREVIEW_CHOICES = [3, 5, 6, 8, 10, 15] as const;
+/** T3 Code's range, 1 to 15. */
+export const PREVIEW_CHOICES = Array.from({ length: 15 }, (_, index) => index + 1);
 
 export const RAIL_ORDER_OPTIONS = [
   {
@@ -77,7 +73,7 @@ export function readRailOrder(preferences: Pick<PreferencesStore, "value" | "opt
     grouping: oneOf(preferences.value(id, RAIL_GROUPING_OPTION), ["none", "repository", "repository_path", "separate"]) ?? legacy,
     projectSort: oneOf(preferences.value(id, RAIL_PROJECT_SORT_OPTION), ["activity", "opened", "name"]) ?? "activity",
     threadSort: oneOf(preferences.value(id, RAIL_THREAD_SORT_OPTION), ["updated", "created"]) ?? "updated",
-    preview: Number.isInteger(preview) && preview >= 1 && preview <= 15 ? preview : DEFAULT_PREVIEW,
+    preview: PREVIEW_CHOICES.includes(preview) ? preview : DEFAULT_PREVIEW,
   };
 }
 
@@ -110,17 +106,14 @@ export function groupOf(session: UiSession, grouping: RailGrouping, project: UiP
   return { key: `repository:${session.projectName}`, label: session.projectName };
 }
 
-/**
- * The main list in groups, each keeping the order the threads came in.
- * `threads` is sorted already; "activity" keeps the order of each group's first thread.
- */
+/** The main list in groups; each group keeps the order its threads came in. */
 export function groupThreads(
   threads: readonly UiSession[],
   grouping: Exclude<RailGrouping, "none">,
   projectSort: RailProjectSort,
   projectOf: (session: UiSession) => UiProject | undefined,
 ): RailGroup[] {
-  const groups = new Map<string, RailGroup & { opened: number }>();
+  const groups = new Map<string, RailGroup & { opened: number; active: number }>();
   for (const session of threads) {
     const project = projectOf(session);
     const { key, label } = groupOf(session, grouping, project);
@@ -128,12 +121,15 @@ export function groupThreads(
     if (group) {
       group.threads.push(session);
       group.opened = Math.max(group.opened, project?.lastOpenedAt ?? 0);
+      group.active = Math.max(group.active, session.modifiedAt);
     } else {
-      groups.set(key, { key, label, threads: [session], opened: project?.lastOpenedAt ?? 0 });
+      groups.set(key, { key, label, threads: [session], opened: project?.lastOpenedAt ?? 0, active: session.modifiedAt });
     }
   }
   const list = [...groups.values()];
   if (projectSort === "name") list.sort((left, right) => left.label.localeCompare(right.label));
   else if (projectSort === "opened") list.sort((left, right) => right.opened - left.opened);
+  // By the newest activity in the group, whatever order its threads are in.
+  else list.sort((left, right) => right.active - left.active);
   return list.map(({ key, label, threads: grouped }) => ({ key, label, threads: grouped }));
 }

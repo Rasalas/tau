@@ -1,11 +1,7 @@
 import type { PreferencesStore } from "tau";
 import { WORKSPACE_HOST_EXTENSION_ID } from "./protocol.js";
 
-/**
- * A project's own icon, chosen in Project settings (T3 Code's icon picker):
- * a Lucide icon, an emoji, a monogram or an image. Every kind is kept with
- * the picture it draws as, so a row only ever shows an `<img>`.
- */
+/** A project's chosen icon (T3 Code's picker). Every kind keeps the picture it draws as, so a row only shows an `<img>`. */
 export type ProjectIconChoice =
   | { kind: "icon"; name: string; hue: number; image: string }
   | { kind: "emoji"; emoji: string; image: string }

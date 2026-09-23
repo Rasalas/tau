@@ -118,6 +118,24 @@ describe("rail selection", () => {
     fireEvent.keyDown(list, { key: "Escape" });
     expect(selectedIds()).toEqual([]);
   });
+
+  it("starts a keyboard run where plain arrows left the cursor", async () => {
+    await renderRail(threads);
+    const list = screen.getByRole("navigation", { name: "Threads" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    fireEvent.keyDown(list, { key: "ArrowDown", shiftKey: true });
+    expect(selectedIds()).toEqual(["c", "d"]);
+  });
+
+  it("ends the selection when the project filter changes", async () => {
+    const { main, workspace } = await renderRail(threads);
+    fireEvent.click(main("a"), { metaKey: true });
+    fireEvent.click(main("b"), { metaKey: true });
+    act(() => workspace.setRailProjectFilter("project"));
+    expect(selectedIds()).toEqual([]);
+  });
 });
 
 describe("the rest of the rail", () => {

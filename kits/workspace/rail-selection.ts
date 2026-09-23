@@ -1,8 +1,4 @@
-/**
- * The rail's multi-selection, as T3 Code's sidebar has it: mod-click toggles
- * a row, shift-click (or shift+arrow) selects the run from the anchor, and a
- * plain click or Escape ends it. The anchor is the last row toggled or opened.
- */
+/** T3 Code's rail selection: mod-click toggles, shift-click runs from the anchor (the last row toggled or opened). */
 export interface RailSelection {
   ids: ReadonlySet<string>;
   anchor?: string;

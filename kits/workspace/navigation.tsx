@@ -647,6 +647,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const compactRows = option("compact-rows", false);
   const order = useMemo(() => readRailOrder(preferences), [preferences, settings]);
 
+  // As in T3 Code, a new scope starts without a selection.
+  useEffect(() => { setSelection(NO_SELECTION); }, [projectFilter]);
+
   useEffect(() => {
     workspace.projectsOf = threadStore.getProjects;
     return () => { if (workspace.projectsOf === threadStore.getProjects) workspace.projectsOf = undefined; };
@@ -941,8 +944,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           if (event.key === "Enter") { void actions.switchSession(findSession(orderIds[current]!)?.path ?? ""); return; }
           const next = (current + (event.key === "ArrowDown" ? 1 : -1) + orderIds.length) % orderIds.length;
           setNavigationIndex(next);
-          // Shift and an arrow grow the selection from where it began, as a shift-click would.
+          // Shift and an arrow grow the selection from where it began; a plain arrow moves where it begins.
           if (event.shiftKey) setSelection((selectionNow) => selectRange(selectionNow.anchor ? selectionNow : { ...selectionNow, anchor: orderIds[current]! }, orderIds[next]!, orderIds));
+          else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
         }}
       >
         {sections.slice(0, mainIndex).map(renderSection)}

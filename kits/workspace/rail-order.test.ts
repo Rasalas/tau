@@ -70,4 +70,12 @@ describe("groupThreads", () => {
     expect(shape(groupThreads(threads, "repository_path", "name", projectOf)).map(([label]) => label)).toEqual(["repo", "repo · web", "zeta"]);
     expect(shape(groupThreads(threads, "repository_path", "opened", projectOf)).map(([label]) => label)).toEqual(["repo · web", "zeta", "repo"]);
   });
+
+  it("orders groups by their newest activity even when threads are sorted by creation", () => {
+    const sorted = sortThreads([
+      thread("fresh-old-repo", { projectName: "old", modifiedAt: 50, createdAt: 1 }),
+      thread("new-repo", { projectName: "new", modifiedAt: 10, createdAt: 40 }),
+    ], "created");
+    expect(groupThreads(sorted, "repository", "activity", () => undefined).map((group) => group.label)).toEqual(["old", "new"]);
+  });
 });

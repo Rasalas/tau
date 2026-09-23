@@ -107,8 +107,8 @@ describe("rail render cost with a thousand threads", () => {
     }
     // Printed for docs/PERFORMANCE.md (medians of 15); the row counts below are what the test holds.
     console.info(`[rail-render] threads=${THREADS} mount=${mountMs.toFixed(0)}ms running=${rows.running} rows/${median(runs.running).toFixed(2)}ms stopped=${rows.stopped} rows/${median(runs.stopped).toFixed(2)}ms organizer=${rows.organizer} rows/${median(runs.organizer).toFixed(2)}ms`);
-    expect(rows.running).toBeLessThanOrEqual(2);
-    expect(rows.stopped).toBeLessThanOrEqual(2);
+    expect(rows.running).toBe(1);
+    expect(rows.stopped).toBe(1);
     expect(rows.organizer).toBe(0);
   });
 
