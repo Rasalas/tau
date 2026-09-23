@@ -94,11 +94,15 @@ if (installed.signature.state !== "signed") fail(`install called the package ${d
 step("install from a local folder", `${installed.id} · ${describeSignature(installed.signature)}`);
 
 // 4. A git source, with a stand-in for git so the smoke stays offline.
+// `git clone --depth 1 -- <url> <dir>`: the sixth argument is the target.
 const bin = await temp("bin");
 const origin = await writePackage(await temp("origin"), "acme.remote", "remote");
-const shim = join(bin, "git");
-await writeFile(shim, `#!/bin/sh\ncp -R "${origin}" "$6"\n`, "utf8");
-await chmod(shim, 0o755);
+const windows = process.platform === "win32";
+const shim = join(bin, windows ? "git.cmd" : "git");
+await writeFile(shim, windows
+  ? `@echo off\r\nxcopy /E /I /Q /Y "${origin}" "%~6" >NUL\r\n`
+  : `#!/bin/sh\ncp -R "${origin}" "$6"\n`, "utf8");
+if (!windows) await chmod(shim, 0o755);
 const cloned = await installExtensionSource("git:https://example.com/acme/remote.git", "project", {
   ...options,
   findCommand: (name) => (name === "git" ? shim : undefined),
@@ -176,5 +180,5 @@ const remaining = await listExtensionSources(options);
 if (remaining.some((entry) => entry.source === source)) fail("remove left the source listed");
 step("remove", `${remaining.length} sources left`);
 
-await Promise.all(scratch.map((dir) => rm(dir, { recursive: true, force: true })));
+await Promise.all(scratch.map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })));
 console.log("\nExtension install smoke passed.");

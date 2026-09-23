@@ -8,7 +8,7 @@ import { X509Certificate } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket as PinnedWebSocket } from "ws";
 
@@ -112,6 +112,8 @@ async function startHost({ workspace, userData, tokenHome, tls }) {
     env: {
       ...process.env,
       HOME: tokenHome,
+      // os.homedir() reads USERPROFILE on Windows; without it the token lands in the real home.
+      USERPROFILE: tokenHome,
       TAU_WORKSPACE: workspace,
       TAU_USER_DATA: userData,
       TAU_HOST_LISTEN: "127.0.0.1:0",
@@ -166,7 +168,7 @@ async function exercise(url, token, fingerprint, label) {
   const { workspaceId, displayPath } = bootstrap.project;
   if (typeof workspaceId !== "string" || !workspaceId.startsWith("ws1_")) fail("bootstrap carried no workspace id");
   // displayPath is the canonical path, so it may differ from cwd by a symlink.
-  if (typeof displayPath !== "string" || !displayPath.startsWith("/")) fail("bootstrap carried no display path");
+  if (typeof displayPath !== "string" || !isAbsolute(displayPath)) fail("bootstrap carried no display path");
   step(`${label}: bootstrap`, `workspace ${workspaceId} at ${displayPath}`);
 
   // The same id names the project everywhere the host publishes it.
@@ -221,9 +223,12 @@ async function exerciseTls(host, userData, token) {
   const keyPath = join(userData, "tls", "host-key.pem");
   const onDisk = new X509Certificate(readFileSync(certPath, "utf8")).fingerprint256;
   if (onDisk !== host.fingerprint) fail(`the printed fingerprint ${host.fingerprint} is not the certificate's ${onDisk}`);
-  if ((statSync(keyPath).mode & 0o777) !== 0o600) fail("the TLS key is not 0600");
-  if ((statSync(join(userData, "tls")).mode & 0o777) !== 0o700) fail("the TLS directory is not 0700");
-  step("tls: certificate kept 0600 under userData", host.fingerprint);
+  // Windows has no POSIX modes; the key is private through the user profile's ACL there.
+  if (process.platform !== "win32") {
+    if ((statSync(keyPath).mode & 0o777) !== 0o600) fail("the TLS key is not 0600");
+    if ((statSync(join(userData, "tls")).mode & 0o777) !== 0o700) fail("the TLS directory is not 0700");
+  }
+  step(process.platform === "win32" ? "tls: certificate kept under userData (modes not checked on Windows)" : "tls: certificate kept 0600 under userData", host.fingerprint);
 
   const impostor = `${host.fingerprint.slice(0, -2)}${host.fingerprint.endsWith("00") ? "01" : "00"}`;
   const wrongPin = createClient(host.url, token, impostor);
@@ -265,9 +270,11 @@ async function scenario({ tls }) {
     }
   } finally {
     await host?.stop();
-    await rm(workspace, { recursive: true, force: true });
-    await rm(userData, { recursive: true, force: true });
-    await rm(tokenHome, { recursive: true, force: true });
+    // Windows keeps a file busy for a moment after the process that held it ends.
+    const removal = { recursive: true, force: true, maxRetries: 10, retryDelay: 200 };
+    await rm(workspace, removal);
+    await rm(userData, removal);
+    await rm(tokenHome, removal);
   }
 }
 
