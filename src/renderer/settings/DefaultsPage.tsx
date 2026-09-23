@@ -104,7 +104,8 @@ export function DefaultsPage({
   const continueAfterRestart = useSetting<boolean>("threads.continueAfterRestart", {
     defaultValue: CONFIG_DEFAULTS["threads.continueAfterRestart"] as boolean, read: readBoolean, offline: (value) => preferences.setContinueThreadsAfterRestart(value),
   });
-  const watchFiles = useSetting<boolean>("extensions.watch", { defaultValue: CONFIG_DEFAULTS["extensions.watch"] as boolean, read: readBoolean });
+  // CONFIG_DEFAULTS' value, written out: reading it here would keep the entry in the start-up chunk.
+  const watchFiles = useSetting<boolean>("extensions.watch", { defaultValue: true, read: readBoolean });
   // Unset, a nightly build stays on nightly: the updater reads it the same way.
   const versions = useHostClient()?.getVersions();
   const updateChannel = useSetting<UpdateChannel>("updates.channel", {
