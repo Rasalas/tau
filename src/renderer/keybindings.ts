@@ -105,6 +105,30 @@ export function chordMatchesEvent(chord: KeyChord, event: KeyboardEvent, mac = i
   return event.metaKey === wantsMeta && event.ctrlKey === wantsCtrl && event.altKey === chord.alt && event.shiftKey === chord.shift;
 }
 
+/** Keys a keydown reports that are not a key to bind on their own. */
+const MODIFIER_KEYS = new Set(["shift", "control", "alt", "altgraph", "meta", "os", "capslock", "fn", "dead", "process", "unidentified"]);
+
+/**
+ * The chord a keydown presses, spelled for keybindings.json (`mod+shift+k`),
+ * or undefined for a modifier alone or a key that only types. Digits,
+ * punctuation and ⌥-letters are read by position, as `chordMatchesEvent` does.
+ */
+export function chordFromKeyboardEvent(event: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">, mac = isMacPlatform()): string | undefined {
+  const typed = event.key.toLowerCase();
+  if (!typed || MODIFIER_KEYS.has(typed)) return undefined;
+  const code = event.code ?? "";
+  const letter = /^Key([A-Z])$/u.exec(code)?.[1]?.toLowerCase();
+  let key = CODE_KEYS[code] ?? /^Digit(\d)$/u.exec(code)?.[1] ?? (letter && (event.altKey || !/^[a-z]$/u.test(typed)) ? letter : typed);
+  if (key === " " || key === "spacebar") key = "space";
+  const mod = mac ? event.metaKey : event.ctrlKey;
+  const ctrl = mac && event.ctrlKey;
+  const meta = !mac && event.metaKey;
+  const named = key.length > 1;
+  // A bare or ⇧-only printable key types text; a function key alone is fine.
+  if (!mod && !ctrl && !meta && !event.altKey && !(named && (event.shiftKey || /^f\d{1,2}$/u.test(key)))) return undefined;
+  return [mod && "mod", ctrl && "ctrl", meta && "meta", event.altKey && "alt", event.shiftKey && "shift", key].filter(Boolean).join("+");
+}
+
 const KEY_LABELS: Record<string, string> = {
   escape: "Esc",
   enter: "↵",

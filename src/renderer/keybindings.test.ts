@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord, platformChordId } from "./keybindings";
+import { chordFromKeyboardEvent, chordMatchesEvent, formatKeyChord, isModified, normalizeKeyChord, parseKeyChord, platformChordId } from "./keybindings";
 
 const event = (init: Partial<KeyboardEvent> & { key: string }) =>
   ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...init }) as KeyboardEvent;
@@ -66,5 +66,28 @@ describe("key chords", () => {
     expect(formatKeyChord(parseKeyChord("escape")!, true)).toBe("Esc");
     expect(formatKeyChord(parseKeyChord("ctrl+l")!, true)).toBe("⌃L");
     expect(formatKeyChord(parseKeyChord("alt+enter")!, false)).toBe("Alt+↵");
+  });
+
+  it("records a keydown as the chord keybindings.json spells, per platform", () => {
+    expect(chordFromKeyboardEvent(event({ key: "k", code: "KeyK", metaKey: true }), true)).toBe("mod+k");
+    expect(chordFromKeyboardEvent(event({ key: "k", code: "KeyK", ctrlKey: true }), true)).toBe("ctrl+k");
+    expect(chordFromKeyboardEvent(event({ key: "k", code: "KeyK", ctrlKey: true }), false)).toBe("mod+k");
+    expect(chordFromKeyboardEvent(event({ key: "k", code: "KeyK", metaKey: true }), false)).toBe("meta+k");
+    expect(chordFromKeyboardEvent(event({ key: "K", code: "KeyK", metaKey: true, shiftKey: true }), true)).toBe("mod+shift+k");
+    // The physical key when ⇧ or ⌥ changed the character, so the chord matches what was pressed.
+    expect(chordFromKeyboardEvent(event({ key: "}", code: "BracketRight", metaKey: true, shiftKey: true }), true)).toBe("mod+shift+]");
+    expect(chordFromKeyboardEvent(event({ key: "∆", code: "KeyJ", metaKey: true, altKey: true }), true)).toBe("mod+alt+j");
+    expect(chordFromKeyboardEvent(event({ key: "Tab", code: "Tab", shiftKey: true }), true)).toBe("shift+tab");
+    expect(chordFromKeyboardEvent(event({ key: " ", code: "Space", ctrlKey: true }), true)).toBe("ctrl+space");
+    expect(chordFromKeyboardEvent(event({ key: "F5", code: "F5" }), true)).toBe("f5");
+    for (const recorded of ["mod+shift+k", "mod+shift+]", "ctrl+space", "shift+tab"]) expect(parseKeyChord(recorded)).toBeDefined();
+  });
+
+  it("records nothing for a modifier alone or a key that only types", () => {
+    expect(chordFromKeyboardEvent(event({ key: "Meta", code: "MetaLeft", metaKey: true }), true)).toBeUndefined();
+    expect(chordFromKeyboardEvent(event({ key: "Shift", code: "ShiftLeft", shiftKey: true }), true)).toBeUndefined();
+    expect(chordFromKeyboardEvent(event({ key: "a", code: "KeyA" }), true)).toBeUndefined();
+    expect(chordFromKeyboardEvent(event({ key: "A", code: "KeyA", shiftKey: true }), true)).toBeUndefined();
+    expect(chordFromKeyboardEvent(event({ key: "Enter", code: "Enter" }), true)).toBeUndefined();
   });
 });
