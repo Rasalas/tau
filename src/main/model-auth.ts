@@ -46,6 +46,8 @@ export interface HostModelAuthServices {
   logout(providerId: string): Promise<void>;
 }
 
+const REFRESH_TIMEOUT_MS = 5_000;
+
 export interface ModelAuthOptions {
   /** The runtime whose credential store is Pi's file: the host's own, the one small jobs complete on. */
   runtime(): Promise<ModelRuntime>;
@@ -84,6 +86,8 @@ export function createModelAuth(options: ModelAuthOptions): HostModelAuthService
       const { runtime, found } = await provider(providerId);
       if (type === "oauth" ? !found.auth.oauth : !found.auth.apiKey?.login) throw new Error(`${found.name} has no ${type === "oauth" ? "sign-in" : "key to enter"}.`);
       await runtime.login(providerId, type, interaction);
+      // A provider whose models come from its account (a gateway) names them only once signed in.
+      await runtime.refresh({ providers: [providerId], allowNetwork: process.env.PI_OFFLINE === undefined, signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS) }).catch(() => undefined);
       options.changed();
     },
     logout: async (providerId) => {

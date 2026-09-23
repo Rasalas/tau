@@ -27,7 +27,7 @@ afterEach(async () => {
 function setup() {
   const changed = vi.fn();
   const runtime = ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json"), refreshOnCreate: false });
-  return { auth: createModelAuth({ runtime: () => runtime, changed }), changed };
+  return { auth: createModelAuth({ runtime: () => runtime, changed }), changed, runtime };
 }
 
 const stored = async () => JSON.parse(await readFile(join(dir, "auth.json"), "utf8").catch(() => "{}")) as Record<string, { type: string; key?: string }>;
@@ -62,6 +62,18 @@ describe("createModelAuth", () => {
     await auth.logout("fakegw");
     expect((await stored()).fakegw).toBeUndefined();
     expect(changed).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks a gateway for the models its account offers once signed in", async () => {
+    delete process.env.PI_OFFLINE;
+    const { auth, runtime } = setup();
+    await auth.login("fakegw", "oauth", {
+      signal: new AbortController().signal,
+      prompt: async () => "device-code",
+      notify: (event) => { if (event.type === "device_code") gateway.approveDevice(); },
+    });
+    expect(gateway.requests).toContain("/v1/config");
+    expect((await runtime).getModels("fakegw").map((model) => model.id)).toContain("fake-small");
   });
 
   it("stores a key typed for a provider that takes one", async () => {
