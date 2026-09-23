@@ -154,8 +154,75 @@ describe("HostPushCoalescer", () => {
     }) as HostPushEvent;
     coalescer.publish(detail({ tools, anchorMessageId: "m1" }));
     coalescer.publish(detail({ tools: [{ ...tool, status: "running" }], anchorMessageId: "m1" }));
-    expect(recorded[0]).toMatchObject({ type: "thread-detail-compact" });
+    expect(recorded[0]).toMatchObject({ type: "thread-detail-compact", activityFromHistory: true });
     expect((recorded[0] as { update: { detail: object } }).update.detail).not.toHaveProperty("turnActivity");
     expect(recorded[1]).toEqual(detail({ tools: [{ ...tool, status: "running" }], anchorMessageId: "m1" }));
+  });
+
+  describe("message text", () => {
+    const LONG = "The answer, long enough that referring to it costs less than sending it.";
+    const start = (id = "a"): HostPushEvent => ({ type: "assistant-start", sessionId: "s", id, timestamp: 1 });
+    const end = (text: string, extra: object = {}, id = "a"): HostPushEvent => ({ type: "assistant-end", sessionId: "s", message: { id, role: "assistant", text, timestamp: 1, ...extra } });
+    const detail = (messages: unknown[]): HostPushEvent => ({
+      type: "host-update",
+      update: { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: { sessionId: "s", messages, isStreaming: false, activeTools: [] } },
+    }) as HostPushEvent;
+
+    it("ends a message with a reference to the text it streamed", () => {
+      const { clock, recorded, coalescer } = setup();
+      coalescer.publish(start());
+      coalescer.publish({ type: "assistant-thinking", sessionId: "s", id: "a", delta: "plan\n\n" });
+      coalescer.publish(delta("a", LONG));
+      clock.fire();
+      coalescer.publish(end(`${LONG}!`, { thinking: "plan" }));
+      expect(recorded.at(-1)).toEqual({
+        type: "assistant-end-delta",
+        sessionId: "s",
+        message: { id: "a", role: "assistant", timestamp: 1 },
+        after: 3,
+        text: { keep: LONG.length, drop: 0, text: "!" },
+        thinking: { keep: 4, drop: 2, text: "" },
+      });
+    });
+
+    it("ends a message whole when it never streamed, is short, or a client started from a snapshot", () => {
+      const { clock, recorded, coalescer } = setup();
+      coalescer.publish(end(LONG));
+      coalescer.publish(start("b"));
+      coalescer.publish(delta("b", "Short"));
+      clock.fire();
+      coalescer.publish(end("Short", {}, "b"));
+      coalescer.publish(start("c"));
+      coalescer.publish(delta("c", LONG));
+      clock.fire();
+      coalescer.resendWholeOutputs();
+      coalescer.publish(end(LONG, {}, "c"));
+      expect(recorded.filter((event) => event.type === "assistant-end")).toEqual([end(LONG), end("Short", {}, "b"), end(LONG, {}, "c")]);
+    });
+
+    it("sends a detail's ended messages as references to the push that ended them", () => {
+      const { clock, recorded, coalescer } = setup();
+      coalescer.publish(start());
+      coalescer.publish(delta("a", LONG));
+      clock.fire();
+      coalescer.publish(end(LONG, { thinking: "plan" }));
+      coalescer.publish({ type: "assistant-anchor", sessionId: "s", id: "a", sourceEntryId: "e1", timestamp: 1 });
+      const user = { id: "u", role: "user", text: "Hi", timestamp: 0 };
+      coalescer.publish(detail([user, { id: "e1", sourceEntryId: "e1", role: "assistant", text: LONG, thinking: "plan", timestamp: 1 }]));
+      expect(recorded.at(-1)).toEqual({
+        type: "thread-detail-compact",
+        update: { version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: {
+          sessionId: "s", isStreaming: false, activeTools: [],
+          messages: [user, { id: "e1", sourceEntryId: "e1", role: "assistant", text: "", timestamp: 1 }],
+        } },
+        texts: { e1: 3 },
+      });
+      // A text that changed since, or a new turn, travels whole.
+      coalescer.publish(detail([{ id: "e1", role: "assistant", text: `${LONG}, edited`, timestamp: 1 }]));
+      expect(recorded.at(-1)).toMatchObject({ type: "host-update" });
+      coalescer.publish({ type: "agent-status", sessionId: "s", running: true });
+      coalescer.publish(detail([{ id: "e1", role: "assistant", text: LONG, thinking: "plan", timestamp: 1 }]));
+      expect(recorded.at(-1)).toMatchObject({ type: "host-update" });
+    });
   });
 });

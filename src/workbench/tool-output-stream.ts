@@ -5,7 +5,8 @@ import { applyToolOutputDelta } from "../shared/tool-output-delta";
 const toolKey = (sessionId: string, id: string) => `${sessionId}\u0000${id}`;
 
 export function isWireEvent(event: HostPushEvent): event is HostWireEvent {
-  return event.type === "tool-update-delta" || event.type === "tool-end-delta" || event.type === "thread-detail-compact";
+  return event.type === "tool-update-delta" || event.type === "tool-end-delta"
+    || event.type === "assistant-end-delta" || event.type === "thread-detail-compact";
 }
 
 /**
@@ -47,6 +48,7 @@ export class ToolOutputStream {
       }
       case "thread-detail-compact": {
         const { detail } = event.update;
+        if (!event.activityFromHistory) return { type: "host-update", update: event.update } satisfies HostEvent;
         const last = detail.turnActivityHistory?.at(-1);
         const turnActivity: UiTurnActivity | undefined = last && {
           tools: last.tools,
