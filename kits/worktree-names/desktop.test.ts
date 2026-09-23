@@ -45,9 +45,10 @@ describe("Worktree Names desktop extension", () => {
     const workspaceStore = new WorkspaceStore(new PreferencesStore(), createWorkspaceHostClient(async () => undefined));
     registry.activate(workspaceProvider(workspaceStore));
     const notify = vi.fn();
+    let composerDraft = "Steer queued messages into the running turn";
     const actions = {
       notify,
-      composerDraft: () => "Steer queued messages into the running turn",
+      composerDraft: () => composerDraft,
       activeThread: () => ({ model: threadModel, backendKind: "pi", draftPending: true }),
     } as unknown as WorkbenchActions;
     workspaceStore.bind(actions);
@@ -65,6 +66,14 @@ describe("Worktree Names desktop extension", () => {
     expect(invoke).toHaveBeenCalledWith(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", {
       provider: undefined, modelId: undefined, prefer: threadModel, description: "Steer queued messages into the running turn", hint: "fix", taken: ["main"],
     });
+
+    // Nothing to name the branch after: a notice, and the host is not asked.
+    composerDraft = "  ";
+    invoke.mockClear();
+    await expect(workspaceStore.suggestWorktreeName("")).resolves.toBeUndefined();
+    expect(invoke).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenLastCalledWith("Describe the task in the composer first, or type the start of a name.");
+    composerDraft = "Steer queued messages into the running turn";
 
     invoke.mockRejectedValueOnce(new Error("The model did not answer with a usable branch name."));
     await expect(workspaceStore.suggestWorktreeName("")).resolves.toBeUndefined();

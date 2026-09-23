@@ -1,6 +1,6 @@
 import type { DesktopExtension, PreferencesStore } from "tau";
 import { WORKSPACE_STORE_SERVICE, type WorkspaceStoreApi } from "../workspace/protocol.js";
-import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
+import { DESCRIBE_THE_TASK, WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
 
 const MODEL_OPTION = "model";
 
@@ -31,6 +31,8 @@ export const worktreeNamesExtension: DesktopExtension = {
     ]);
     return context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (workspace) =>
       workspace.registerWorktreeNamer(async ({ hint, description, taken, actions }) => {
+        // The store shows this as a notice; no host round trip for an empty ask.
+        if (!description.trim() && !hint.trim()) throw new Error(DESCRIBE_THE_TASK);
         const model = namingModel(context.preferences);
         const prefer = model ? undefined : draftModel(actions.activeThread());
         const result = await context.host.invoke("suggest", { provider: model?.provider, modelId: model?.id, ...(prefer ? { prefer } : {}), description, hint, taken }) as { branch: string };

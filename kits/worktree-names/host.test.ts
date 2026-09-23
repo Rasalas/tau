@@ -61,6 +61,15 @@ describe("Worktree Names host extension", () => {
     expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
   });
 
+  it("answers a missing task as a hint that never switches the kit off", async () => {
+    const registry = await registryWith(anyThread());
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { description: "" })).rejects.toThrow(/Describe the task/u);
+    }
+    expect(registry.isActive(WORKTREE_NAMES_HOST_EXTENSION_ID)).toBe(true);
+    expect(registry.summaries().find((entry) => entry.id === WORKTREE_NAMES_HOST_EXTENSION_ID)?.error).toBeUndefined();
+  });
+
   it("refuses without a task or a thread", async () => {
     const registry = await registryWith(anyThread());
     const suggest = (input: unknown) => registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", input);
