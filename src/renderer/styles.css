@@ -914,6 +914,7 @@ button > svg { pointer-events: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tool-run-stamp { font: 10px var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
+.tool-run-size { font: 10px var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
 .tool-run-state { font: 11px var(--mono); color: var(--ready); flex: none; }
 .tool-run-state.error { color: var(--removed); }
 .tool-run-state.waiting { color: var(--acid-text); }
@@ -941,6 +942,8 @@ button > svg { pointer-events: none; }
   max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 .tool-run.running .tool-output { max-height: 104px; }
+/* A deferred output always overflows the box, so its placeholder takes the box's full height. */
+.tool-output-pending { height: 260px; color: var(--faint); }
 .tool-output-truncated { display: block; border: 0; padding: 0; background: transparent; color: var(--acid-text); margin-bottom: 6px; cursor: pointer; font: inherit; text-align: left; }
 .streaming-tail { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0; }
 

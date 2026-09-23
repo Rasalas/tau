@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import type { ExtensionUiPrompt, HostSnapshot, UiToolRun } from "../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, UiToolOutputPreview, UiToolRun } from "../shared/contracts";
 import { answerTimestampAfter, type TranscriptDetail } from "../workbench/transcript-folding";
 import { TaskProgress } from "./components/TaskProgress";
 import { WorkGroup } from "./components/WorkRows";
@@ -23,6 +23,7 @@ export interface ConversationActivityInput {
   actions?: WorkbenchActions;
   recoverThread(): Promise<unknown>;
   copyToolOutput(tool: UiToolRun): Promise<void>;
+  loadToolOutput(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
   abortSessionId?: string;
   abort(sessionId?: string): void;
 }
@@ -43,7 +44,7 @@ export function hasActivityTools(view: ThreadViewStore): boolean {
 export function useConversationActivities(input: ConversationActivityInput) {
   const {
     pendingNewThread, conversationSnapshot, running, lastMessageId, prompts, registry, viewStore, detail, actions,
-    recoverThread, copyToolOutput, abortSessionId, abort,
+    recoverThread, copyToolOutput, loadToolOutput, abortSessionId, abort,
   } = input;
   const { tools, toolAnchorId, turnActivityHistory } = useSyncExternalStore(viewStore.subscribeToTools, viewStore.getToolView);
   const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion);
@@ -84,9 +85,10 @@ export function useConversationActivities(input: ConversationActivityInput) {
           {...(actions ? { actions } : {})}
           onRecover={entry.status === "interrupted" ? () => void recoverThread() : undefined}
           onCopyOutput={copyToolOutput}
+          onLoadOutput={loadToolOutput}
         />,
       };
-    }), [actions, conversationActivityHistory, copyToolOutput, currentActivityHistoryId, detail, messages, recoverThread, registry]);
+    }), [actions, conversationActivityHistory, copyToolOutput, currentActivityHistoryId, detail, loadToolOutput, messages, recoverThread, registry]);
   // One element per progress value, so a tool flush leaves the row list's inputs alone.
   const taskProgress = conversationSnapshot?.isStreaming ? conversationSnapshot.taskProgress : undefined;
   const liveTaskProgress = useMemo(
@@ -127,9 +129,10 @@ export function useConversationActivities(input: ConversationActivityInput) {
         onRecover={() => void recoverThread()}
         onStop={() => abort(abortSessionId)}
         onCopyOutput={copyToolOutput}
+        onLoadOutput={loadToolOutput}
       />,
     }] : []),
-  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, historicalActivityRows, liveTaskProgress, recoverThread, registry, registryVersion, visibleToolAnchorId]);
+  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId]);
 
   return { conversationActivityTools, liveStatusLabel, transcriptActivities };
 }

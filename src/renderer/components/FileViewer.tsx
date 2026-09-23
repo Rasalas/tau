@@ -6,15 +6,10 @@ import type { CommandContribution, WorkbenchActions } from "../extension-system"
 import { errorMessage } from "../../workbench/error-message";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
 import { DiffPane } from "./DiffPane";
+import { formatBytes } from "../format-bytes";
 
 /** Past this, highlighting a whole file stalls the renderer; plain text still reads fine. */
 const HIGHLIGHT_LIMIT_BYTES = 200 * 1024;
-
-export function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function lineCount(text: string): number {
   if (text.length === 0) return 0;

@@ -19,6 +19,7 @@ import type {
   UiPromptAttachment,
   UiPromptImageAttachment,
   UiSharedFile,
+  UiToolOutputPreview,
   UiToolRun,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -87,6 +88,8 @@ export interface WorkbenchActions {
   activeStageTab?(): StageTab | undefined;
   /** Runs a shell command the way Pi's `!` does; output goes to the thread when asked. */
   runShellAction(command: string, includeInContext: boolean): Promise<ShellActionResult>;
+  /** The output the host held back from a tool of the thread on screen (`outputDeferred`). */
+  toolOutput?(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
   /** Keeps the composer from submitting until the returned release is called. */
   holdComposer(): () => void;
   /** What the user has typed into the visible composer and not sent yet. */

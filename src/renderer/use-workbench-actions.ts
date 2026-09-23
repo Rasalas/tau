@@ -167,6 +167,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     openFile: options.openFile,
     openThread,
     runShellAction: options.threadCommands.runShellAction,
+    toolOutput: options.threadCommands.loadToolOutput,
     holdComposer: () => {
       options.setComposerHolds((count) => count + 1);
       return () => options.setComposerHolds((count) => Math.max(0, count - 1));
