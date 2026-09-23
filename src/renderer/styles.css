@@ -77,6 +77,12 @@ button > svg { pointer-events: none; }
 /* No panel registered (safe mode, or every kit removed): the dock column is gone, not empty. */
 .app-shell.no-dock { --dock-width: 0px; grid-template-columns: var(--sidebar-width) minmax(480px, 1fr) 0; }
 .app-shell.no-dock .instrument-dock { display: none; }
+/* Panels open and close over --panel-motion, which a client sets on <html> (Appearance); never while a divider is dragged. */
+.app-shell { transition: grid-template-columns var(--panel-motion, 0ms) var(--ease); }
+.workbench-drawer { animation: drawer-open var(--panel-motion, 0ms) var(--ease); }
+@keyframes drawer-open { from { height: 0; } }
+body.resizing-col .app-shell { transition: none; }
+@media (prefers-reduced-motion: reduce) { .app-shell { transition: none; } .workbench-drawer { animation: none; } }
 
 .lazy-feature-loading,
 .lazy-feature-error {

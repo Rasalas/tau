@@ -2539,6 +2539,7 @@ their pixels until a visual pass moves them.
 | `--code-font-family`, `--code-font-scale` | code blocks, tool output, the file view and diffs | `--mono`, `1` |
 | `data-density` | Appearance Kit's stylesheet, into `--density` | normal |
 | `data-timestamps` | message and tool timestamps: `12h`, `24h` or `locale` | 24-hour |
+| `--panel-motion` | how long the sidebar and the dock take to open or close, and the drawer to open; never while a divider is dragged or the system asks for reduced motion | `0ms` |
 
 `--project-hue` is not a token: the thread row sets it per project, and
 `--project-tint` and `--project-ink` say how deep that hue reads. The same goes
