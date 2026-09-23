@@ -6,6 +6,7 @@ import { SourceControlSettings } from "./source-settings.js";
 import { INSTRUCTIONS_OPTION, TEMPLATE_OPTION } from "./writing.js";
 import { DELETE_BRANCH_OPTION } from "./merge-controls.js";
 import { PROACTIVE_OPTION } from "./proactive-panels.js";
+import { STRIP_OPTION } from "./pull-request-strip-logic.js";
 
 const value = (key: string) => `values.${ID}.${key}`;
 const option = (key: string) => `options.${ID}.${key}`;
@@ -81,6 +82,7 @@ export function ReviewSettingsPage({ host }: { host?: HostExtensionClient } = {}
   const collapsed = useSetting<boolean>(option(COLLAPSED_OPTION), { defaultValue: false, read: readBoolean });
   const deleteBranch = useSetting<boolean>(option(DELETE_BRANCH_OPTION), { defaultValue: false, scope: "both", read: readBoolean });
   const proactive = useSetting<boolean>(option(PROACTIVE_OPTION), { defaultValue: false, read: readBoolean });
+  const strip = useSetting<boolean>(option(STRIP_OPTION), { defaultValue: true, read: readBoolean });
 
   return (
     <div className="settings-page review-settings-page">
@@ -100,6 +102,8 @@ export function ReviewSettingsPage({ host }: { host?: HostExtensionClient } = {}
           control={<Toggle label="Delete the branch after merging" setting={deleteBranch} />} />
         <SettingRow id="setting-review-proactive" title="Proactive panels" description="Open a pull request when the thread links a new one. Otherwise, open the Changes panel after a turn that changed at least 3 files or 50 lines." setting={proactive}
           control={<Toggle label="Proactive panels" setting={proactive} />} />
+        <SettingRow id="setting-review-strip" title="Show the pull request above the composer" description="The thread's pull or merge request, or the one it links, with its state. Its × hides it in that thread until the request or its state changes." setting={strip}
+          control={<Toggle label="Show the pull request above the composer" setting={strip} />} />
       </SettingsSection>
       <SettingsSection title="Diffs">
         <SettingRow id="setting-review-colors" title="Colours" description="Additions and removals, including change counts. Blue and orange read apart for most kinds of colour blindness." setting={colors}

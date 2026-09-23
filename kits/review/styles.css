@@ -87,7 +87,7 @@
 .pr-number:hover { text-decoration: underline; }
 .pr-number.state-open, .pr-state.state-open { color: var(--ready); }
 .pr-number.state-draft, .pr-state.state-draft { color: var(--muted); }
-.pr-number.state-merged, .pr-state.state-merged { color: var(--info-ink); }
+.pr-number.state-merged, .pr-state.state-merged { color: var(--merged); }
 .pr-number.state-closed, .pr-state.state-closed { color: var(--removed); }
 .pr-state { font: 10px var(--mono); }
 .pr-head-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 600; }
@@ -334,7 +334,7 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-row-glyphs { position: relative; flex: none; width: 16px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 2px; }
 .pr-glyph.open { color: var(--ready); }
 .pr-glyph.draft { color: var(--muted); }
-.pr-glyph.merged { color: var(--info-ink); }
+.pr-glyph.merged { color: var(--merged); }
 .pr-glyph.closed { color: var(--removed); }
 .pr-row-conflict { position: absolute; top: 9px; right: -3px; display: inline-flex; border-radius: 50%; background: var(--stage); color: var(--warn); }
 .pr-row-checks { display: inline-flex; color: var(--faint); }
@@ -448,3 +448,41 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .review-source-hosts span { flex: 1; font-size: 12px; color: var(--muted); }
 .review-source-add { display: flex; gap: 8px; align-items: center; padding: var(--space-4) var(--space-6); }
 .review-source-add > input { flex: 1; min-width: 0; }
+
+/* The thread's request over the composer: calm, tinted by its state. */
+.review-pr-strip {
+  --strip-tone: var(--ready);
+  /* As wide as the composer: its zone keeps 32 px each side (12 px in a narrow window). */
+  display: flex; align-items: center; box-sizing: border-box; width: min(780px, calc(100% - 64px)); margin: 0 auto;
+  border: 1px solid color-mix(in srgb, var(--strip-tone) 24%, transparent); border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--strip-tone) 10%, var(--stage));
+  color: var(--strip-tone); font: 12.5px/18px var(--sans);
+}
+.review-pr-strip.state-draft { --strip-tone: var(--muted); }
+.review-pr-strip.state-merged { --strip-tone: var(--merged); }
+.review-pr-strip.state-closed { --strip-tone: var(--removed); }
+.review-pr-strip:has(.review-pr-strip-open:hover) { background: color-mix(in srgb, var(--strip-tone) 14%, var(--stage)); }
+.review-pr-strip-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 12px;
+  border: 0; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.review-pr-strip-open:focus-visible, .review-pr-strip-hide:focus-visible { outline: 1px solid var(--focus); outline-offset: -2px; }
+.review-pr-strip-glyph, .review-pr-strip-number, .review-pr-strip-more, .review-pr-strip-state { flex: none; }
+.review-pr-strip-number { font-weight: 500; font-variant-numeric: tabular-nums; }
+.review-pr-strip-service { flex: none; display: inline-flex; margin-left: 6px; opacity: .7; }
+.review-pr-strip-repo { flex: none; max-width: 28%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: -3px; }
+.review-pr-strip-repo, .review-pr-strip-more { color: color-mix(in srgb, var(--strip-tone) 62%, transparent); }
+.review-pr-strip-branch { flex: 0 1 auto; min-width: 48px; }
+.review-pr-strip-fill { flex: 1; }
+.review-pr-strip-more { font-variant-numeric: tabular-nums; }
+.review-pr-strip-checks { flex: none; display: inline-flex; }
+.review-pr-strip-checks.passed { color: var(--ready); }
+.review-pr-strip-checks.failed { color: var(--fail); }
+.review-pr-strip-checks.pending { color: var(--warn); }
+.review-pr-strip-state { font-weight: 500; }
+.review-pr-strip-hide {
+  flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 4px;
+  border: 0; border-radius: var(--radius-sm); background: none; color: inherit; opacity: .7; cursor: pointer;
+}
+.review-pr-strip-hide:hover { opacity: 1; background: color-mix(in srgb, var(--strip-tone) 16%, transparent); }
+@media (max-width: 700px) { .review-pr-strip { width: calc(100% - 24px); } }

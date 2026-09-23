@@ -2414,6 +2414,7 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 | `--info` | a step in progress | `#3457d5` | `#4d7cff` |
 | `--info-deep` | a step already done, in a dense bar | `#2745ad` | `#426fe1` |
 | `--info-ink` | the same, as text | `#2b4bbf` | `#79acf0` |
+| `--merged` | a merged pull or merge request | `#7446c2` | `#b59cf2` |
 | `--done` | a step that finished | `#0d7f5f` | `#13c99a` |
 | `--stale` | how long ago something ran | `#8a5a3f` | `#c9a18b` |
 | `--folder` | a directory | `#6f6118` | `#a59d68` |
