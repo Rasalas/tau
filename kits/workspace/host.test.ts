@@ -1,7 +1,8 @@
+import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionServices } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
@@ -19,7 +20,7 @@ async function workspace(): Promise<string> {
   return path;
 }
 
-async function activated(cwd: string) {
+async function activated(cwd: string, overrides: Partial<HostExtensionServices> = {}) {
   const services: Partial<HostExtensionServices> = {
     cwd: () => cwd,
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
@@ -56,12 +57,13 @@ async function activated(cwd: string) {
     registerRuntimeBackend: () => () => undefined,
     presentUi: () => () => undefined,
     callClient: async () => { throw new Error("no window half in this test"); },
+    ...overrides,
   };
   return activateHostKit(createWorkspaceHostExtension(), services);
 }
 
-async function client(cwd: string) {
-  const registry = await activated(cwd);
+async function client(cwd: string, overrides: Partial<HostExtensionServices> = {}) {
+  const registry = await activated(cwd, overrides);
   return createWorkspaceHostClient((command, input) => registry.invoke("tau.workspace", command, input));
 }
 
@@ -111,6 +113,27 @@ describe("Workspace Kit host extension", () => {
     const kit = await client(cwd);
     await expect(kit.readFile("")).rejects.toThrow("Name a file by its path inside the workspace.");
     await expect(kit.openInEditor("")).rejects.toThrow('Workspace command needs "editorId".');
+  });
+
+  it("admits the worktree it creates, so the draft that moves there can ask about it at once", async () => {
+    const cwd = await workspace();
+    const worktrees = await workspace();
+    const git = (...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Tau", "-c", "user.email=tau@example.invalid", ...args], { stdio: "ignore" });
+    git("init", "-b", "main");
+    await writeFile(join(cwd, "README.md"), "# fixture\n");
+    git("add", "README.md");
+    git("commit", "-m", "fixture");
+    const admitWorkspace = vi.fn((path: string) => ({ workspaceId: `admitted_${path}`, displayPath: path }));
+    vi.stubEnv("TAU_WORKTREES_DIR", worktrees);
+    try {
+      const kit = await client(cwd, { admitWorkspace });
+      const created = await kit.createWorktree("feature", { startFromOrigin: false });
+      expect(admitWorkspace).toHaveBeenCalledWith(created.displayPath);
+      expect(created.workspaceId).toBe(`admitted_${created.displayPath}`);
+      expect(created.displayPath.startsWith(worktrees)).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("answers folder browsing with an identity for the folder a client would keep", async () => {
