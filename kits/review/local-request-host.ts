@@ -92,7 +92,8 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
     const { info } = sources.get(await sources.detect(git.remote?.url));
     const captions = (Array.isArray(fields.evidence) ? fields.evidence : []).filter((caption): caption is string => typeof caption === "string" && caption.trim().length > 0).slice(0, 30);
     if (services.runtimeOwner() === "pi") return { ...fallbackDraft(git), base: git.base, generated: false };
-    const model = modelRef(fields.model) ?? await smallCompletionModel(services, modelRef(fields.prefer));
+    // Nothing small reachable: the thread's own model, as a thread's title does.
+    const model = modelRef(fields.model) ?? await smallCompletionModel(services, modelRef(fields.prefer), { elsePrefer: true });
     const label = model ? `${model.provider}/${model.id}` : "default model";
     services.log("local-request.describe", label);
     const prompt = [
