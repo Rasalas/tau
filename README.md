@@ -184,11 +184,14 @@ A Tau without a single thread opens its welcome wizard (Onboarding,
 `kits/onboarding/`); `/welcome`, or "Set up Tau…" in the palette, opens it again
 later. Its three steps follow T3 Code's:
 
-1. **Agents** — Pi and how many models your Pi configuration signs in to, the
-   CLIs of the Agent SDK runtime and of Codex, and `gh` and `glab`: installed or
-   not, which version, signed in or not, with the vendor's install or sign-in
-   command to copy. The CLIs answer through their own kits, so a path set under
-   Settings → Providers counts.
+1. **Agents** — Pi and how many models your Pi configuration signs in to, then
+   every other runtime Tau has (the Agent SDK runtime, Codex, Antigravity, and
+   any instance of them): installed or not, which version, signed in or not,
+   with the vendor's install or sign-in command to copy, or a link to its card
+   under Settings → Providers. Each runtime answers through its own kit, so a
+   path set there counts. Below them, marked optional, **Tools for pull
+   requests**: `gh` and `glab`, which Tau needs only to open pull and merge
+   requests and show their checks.
 2. **Projects** — the folders those CLIs and Pi worked in, newest first, each
    with the conversations it has and when it was last used. Git repositories
    used in the last 30 days with three conversations or more are chosen for you;

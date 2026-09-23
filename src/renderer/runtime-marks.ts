@@ -1,3 +1,5 @@
+import { runtimeDriver } from "../shared/runtime-instances";
+
 /** The runtime a thread gets unless another is chosen; it earns no mark of its own. */
 export const DEFAULT_RUNTIME = "pi";
 
@@ -6,8 +8,9 @@ export interface ProviderMarks {
   runtime?: string;
 }
 
+/** An instance (`codex@work`) wears its program's mark. */
 function spelling(value: string): string {
-  return value.toLocaleLowerCase().replace(/[_.\s]/gu, "-");
+  return runtimeDriver(value).toLocaleLowerCase().replace(/[_.\s]/gu, "-");
 }
 
 /**

@@ -64,6 +64,41 @@ async function sent(space: Scratch): Promise<Array<{ method?: string; params?: R
   return (await readFile(space.log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
 }
 
+describe("CodexThreadRuntimeBackend before its first turn", () => {
+  const unopened = async (configured?: { model?: string; effort?: string }) => {
+    const space = await scratch();
+    const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
+      adapter: createCodexRuntimeAdapter("codex@work"),
+      store: space.store,
+      instance: "work",
+      openSession: async () => { throw new Error("no session before the first turn"); },
+      storedModels: async () => frames.models.map(storedModel),
+      ...(configured ? { configuredModel: async () => configured } : {}),
+    });
+    backends.push(backend);
+    await backend.start("create");
+    return { backend, space };
+  };
+
+  it("shows the model and effort the home's config.toml sets, not the account's default", async () => {
+    const { backend } = await unopened({ model: "gpt-5.6-luna", effort: "low" });
+    expect(backend.catalogView()).toMatchObject({ model: { provider: "openai", id: "gpt-5.6-luna" }, thinkingLevel: "default (low)" });
+    expect(backend.catalogView().thinkingLevels).toEqual(["default (low)", "low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("falls back to the account's default model without a config.toml", async () => {
+    const { backend } = await unopened();
+    expect(backend.catalogView()).toMatchObject({ model: { id: "gpt-6-astra" }, thinkingLevel: "default (medium)" });
+  });
+
+  it("carries its instance's kind and keeps its record on that instance", async () => {
+    const { backend, space } = await unopened();
+    expect(backend.kind).toBe("codex@work");
+    await expect(space.store.get("tau-1")).resolves.toMatchObject({ instance: "work" });
+    await expect(space.store.list("default")).resolves.toEqual([]);
+  });
+});
+
 describe("CodexThreadRuntimeBackend against the app-server stub", () => {
   it("starts a Codex thread, streams the answer and keeps both messages and the usage", async () => {
     const space = await scratch();
@@ -129,7 +164,7 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     const space = await scratch();
     const { backend, events } = await open(space);
     await backend.prompt({ text: "Go [scenario:crash]", delivery: "prompt" });
-    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error" });
+    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error", error: "Codex exited with code 3.\nstub: gone" });
     expect(events).toContainEqual({ type: "notice", message: "Codex exited with code 3.\nstub: gone", level: "error" });
     // The next prompt spawns a new app-server and resumes the same Codex thread.
     await backend.prompt({ text: "Again.", delivery: "prompt" });
@@ -140,7 +175,7 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     const space = await scratch();
     const { backend, events } = await open(space, { script: ["-e", "process.stderr.write('stub: no login\\n'); process.exit(4)"] });
     await expect(backend.prompt({ text: "Hello.", delivery: "prompt" })).rejects.toThrow("Codex exited with code 4.\nstub: no login");
-    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error" });
+    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error", error: "Codex exited with code 4.\nstub: no login" });
     expect(events.filter((event) => event.type === "notice")).toEqual([
       { type: "notice", message: "Codex reported an error: Codex exited with code 4.\nstub: no login", level: "error" },
     ]);

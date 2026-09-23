@@ -1,4 +1,5 @@
 import { Component, createRef, useEffect, useState, type ReactNode } from "react";
+import { CircleAlert } from "lucide-react";
 
 function elapsedLabel(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -6,14 +7,21 @@ function elapsedLabel(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-export function LiveStatus({ startedAt, label = "Pi is working" }: { startedAt?: number; label?: string }) {
+/** The run's own line; it names no runtime, since the thread may run on any of them. */
+export function LiveStatus({ startedAt, label }: { startedAt?: number; label?: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (startedAt === undefined) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [startedAt]);
-  return <div className="live-status"><span className="spinner" /><span>{label}{startedAt ? ` · ${elapsedLabel(now - startedAt)}` : ""}</span></div>;
+  const text = label ?? (startedAt ? `Working for ${elapsedLabel(Math.max(0, now - startedAt))}` : "Working…");
+  return <div className="live-status"><span className="spinner" /><span>{text}</span></div>;
+}
+
+/** Why the thread's last turn failed, at the end of that turn, until the next prompt. */
+export function TurnErrorLine({ message }: { message: string }) {
+  return <div className="turn-error-line" role="status"><CircleAlert size={14} aria-hidden="true" /><span>{message}</span></div>;
 }
 
 export function measureComposerGeometry(host: HTMLElement): DOMRect {

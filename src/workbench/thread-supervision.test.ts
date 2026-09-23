@@ -43,4 +43,14 @@ describe("thread supervision", () => {
     store.setThreadRunning("a", false);
     expect(threadSupervisionStatus("a", store.getActivity())).toBe("done");
   });
+
+  it("reports a failed turn for as long as the index carries its error", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [{ ...thread("a", 1), turnError: "stream disconnected" }, thread("b", 2)] });
+    expect(store.getActivity().failedThreadIds).toEqual(["a"]);
+    store.markFailed("b");
+    expect(store.getActivity().failedThreadIds).toEqual(["b", "a"]);
+    store.applyThreadIndex({ projects: [], sessions: [thread("a", 1), thread("b", 2)] });
+    expect(store.getActivity().failedThreadIds).toEqual(["b"]);
+  });
 });

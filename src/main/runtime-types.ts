@@ -105,7 +105,8 @@ export type RuntimeEventListener = (event: unknown, threadId: string) => void;
  */
 export type ThreadRuntimeEvent =
   | { type: "turn-started" }
-  | { type: "turn-settled"; status: "completed" | "interrupted" | "error" }
+  /** `error` says why a turn with status "error" failed; the transcript and the rail show it. */
+  | { type: "turn-settled"; status: "completed" | "interrupted" | "error"; error?: string }
   | { type: "assistant-start"; id: string; timestamp: number }
   | { type: "assistant-delta"; id: string; delta: string }
   | { type: "assistant-thinking"; id: string; delta: string }

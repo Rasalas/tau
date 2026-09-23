@@ -7,6 +7,7 @@ import type {
   GlobalHostEvent,
   HostExtensionSummary,
   RuntimeToolVersion,
+  UiRuntimeCatalog,
   ThreadBackendKind,
   UiComposerCommand,
   UiMessage,
@@ -111,7 +112,16 @@ export interface HostRuntimeBackendProvider {
    * `runtimeBackends`; clients show a hint when `installed` is older.
    */
   version?(): Promise<RuntimeToolVersion | undefined>;
+  /**
+   * The models and thinking levels a new thread may start with, without
+   * opening one; asked when a draft is bound for this backend. The chosen
+   * pair reaches the thread through `catalogWrite` right after `open`.
+   */
+  newThreadCatalog?(): Promise<HostRuntimeNewThreadCatalog | undefined>;
 }
+
+/** A backend's answer to `newThreadCatalog`; the host adds the kind and the adapter's capabilities. */
+export type HostRuntimeNewThreadCatalog = Omit<UiRuntimeCatalog, "kind" | "runtimeCapabilities">;
 
 /**
  * Facts an extension knows about a project folder. Core caches them, refreshes

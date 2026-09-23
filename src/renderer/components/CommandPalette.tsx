@@ -144,7 +144,11 @@ export function CommandPalette({
       event.preventDefault();
       setCursor((value) => (rows.length ? (value - 1 + rows.length) % rows.length : 0));
     }
-    if (event.key === "Enter" && rows[cursor]) run(rows[cursor]);
+    if (event.key === "Enter" && rows[cursor]) {
+      // Cancelling the keydown drops its keypress, which would submit a dialog the command opens.
+      event.preventDefault();
+      run(rows[cursor]);
+    }
   };
 
   return (

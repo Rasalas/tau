@@ -1,4 +1,6 @@
-/** The backend kind the host entry registers; threads of this kind carry it as `backendKind`. */
+import type { RuntimeCompatibility, RuntimeInstanceConfig } from "tau";
+
+/** The backend kind the default instance registers; threads carry it (or `codex@<instance>`) as `backendKind`. */
 export const CODEX_BACKEND_KIND = "codex" as const;
 export const CODEX_HOST_EXTENSION_ID = "tau.codex";
 /** Usage Kit may read each thread's running total through the `usage` command. */
@@ -13,8 +15,26 @@ export const CODEX_NPM_PACKAGE = "@openai/codex";
  */
 export const MIN_CODEX_VERSION = "0.154.0";
 
-/** What the `status` command reports to the Settings page. */
+/** The variable an instance's home becomes. */
+export const CODEX_HOME_VARIABLE = "CODEX_HOME";
+/** Pushed with a `CodexInstancesReport` whenever an instance is added, changed or removed. */
+export const INSTANCES_EVENT = "instances";
+
+/** One instance as the Providers page shows it. */
+export interface CodexInstanceView extends RuntimeInstanceConfig {
+  kind: string;
+  label: string;
+  /** Threads Tau keeps for it. */
+  threads: number;
+}
+
+export interface CodexInstancesReport {
+  instances: CodexInstanceView[];
+}
+
+/** What the `status` command reports to the Settings page, for one instance. */
 export interface CodexStatusReport {
+  instance?: string;
   command: string;
   /** Who chose `command`: the environment variable, or the path set on the card; absent for the PATH lookup. */
   commandSource?: "env" | "setting";
@@ -24,8 +44,10 @@ export interface CodexStatusReport {
   updateCommand?: string;
   /** `latest` is newer than `version`. */
   updateAvailable?: boolean;
-  /** Below `MIN_CODEX_VERSION`: threads refuse to start. */
+  /** The version policy calls it broken (below `MIN_CODEX_VERSION`, say): threads refuse to start. */
   unsupported?: boolean;
+  /** The policy's verdict on `version`, with the release to install. */
+  compatibility?: RuntimeCompatibility;
   /** The CLI's home, where its sessions and login live. */
   codexHome?: string;
   account?: { kind: "chatgpt" | "apiKey" | "other"; plan?: string; email?: string };

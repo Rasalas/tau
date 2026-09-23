@@ -66,7 +66,7 @@ export function useRailDrag(organizer: ThreadRailOrganizer | undefined, sections
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     if (!organizer || event.button !== 0) return;
     const target = event.target as Element;
-    if (target.closest(".thread-settle")) return;
+    if (target.closest(".thread-row-actions")) return;
     const row = target.closest<HTMLElement>("[data-rail-thread]");
     const threadId = row?.dataset.railThread;
     if (threadId) pressed.current = { threadId, x: event.clientX, y: event.clientY };

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Markdown, loadHighlightLanguage, pendingHighlightCount } from "./Markdown";
 import { TRICKY_MARKDOWN } from "./markdown-fixtures";
@@ -61,5 +61,19 @@ describe("streamed Markdown", () => {
     const { container } = render(<Markdown streaming>{text}</Markdown>);
     expect(container.querySelectorAll(".md-code .hljs-keyword")).toHaveLength(2);
     expect(container.querySelector(".md-code code")?.textContent).toBe("const a = 1;\nconst b = 2;\nconst c");
+  });
+});
+
+describe("code block head", () => {
+  it("wraps long lines on demand and names its icon buttons", () => {
+    const { container, getByRole, unmount } = render(<Markdown>{"```ts\nconst a = 1;\n```"}</Markdown>);
+    expect(getByRole("button", { name: "Copy code" })).toBeTruthy();
+    const wrap = getByRole("button", { name: "Wrap lines" });
+    expect(container.querySelector(".md-code")?.hasAttribute("data-wrap")).toBe(false);
+    fireEvent.click(wrap);
+    expect(wrap.getAttribute("aria-pressed")).toBe("true");
+    expect(wrap.getAttribute("aria-label")).toBe("Disable line wrap");
+    expect(container.querySelector(".md-code")?.hasAttribute("data-wrap")).toBe(true);
+    unmount();
   });
 });

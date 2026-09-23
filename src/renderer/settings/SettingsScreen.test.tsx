@@ -34,10 +34,11 @@ function hostWithFiles() {
   return { files, client };
 }
 
-function renderScreen(options: { page?: string; client?: ReturnType<typeof hostWithFiles>["client"]; onClose?: () => void } = {}) {
+function renderScreen(options: { page?: string; client?: ReturnType<typeof hostWithFiles>["client"]; onClose?: () => void; extensions?: string[] } = {}) {
   const onClose = options.onClose ?? vi.fn();
   const onSetPage = vi.fn();
   const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+  for (const name of options.extensions ?? []) registry.activate({ id: name.toLowerCase(), name, activate() {} });
   const view = render(<HostClientProvider client={options.client}>
     <TestProviders>
       <SettingsScreen page={options.page ?? "defaults"} snapshot={snapshot} registry={registry} projects={[{ path: "/work/other", workspaceId: "ws-other", name: "other", lastOpenedAt: 1 }]} onSetPage={onSetPage} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={onClose} onNotify={vi.fn()} />
@@ -147,5 +148,22 @@ describe("the Settings screen", () => {
     const { page } = renderScreen({ client, page: "keybindings" });
     await act(async () => undefined);
     expect(within(page).queryByRole("button", { name: /Settings apply to/u })).toBeNull();
+  });
+});
+
+describe("the extension lists in the section column", () => {
+  it("start folded, open on a click, and open by themselves around the page on screen", () => {
+    const { page } = renderScreen({ extensions: ["Alpha", "Beta"] });
+    const toggle = within(page).getByRole("button", { name: /· 2$/u });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(page).queryByRole("button", { name: "Alpha" })).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(within(page).getByRole("button", { name: "Alpha" })).toBeTruthy();
+    cleanup();
+
+    const onBeta = renderScreen({ extensions: ["Alpha", "Beta"], page: "beta" });
+    expect(within(onBeta.page).getByRole("button", { name: /· 2$/u }).getAttribute("aria-expanded")).toBe("true");
+    expect(within(onBeta.page).getByRole("button", { name: "Beta" }).getAttribute("aria-current")).toBe("page");
   });
 });

@@ -1,11 +1,11 @@
 import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ArchiveRestore, Check, PlugZap } from "lucide-react";
+import { ArchiveRestore, Check, CircleAlert, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { threadCostLabel, threadUsageDetail } from "../cost-format";
 import { tooltipProps } from "./ui/Tooltip";
 
-export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted";
+export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted" | "failed";
 
 interface ThreadRowProps {
   activity: ThreadActivity;
@@ -25,6 +25,10 @@ interface ThreadRowProps {
   startedAt?: number;
   /** A kit's own marks for this thread (a request status, say), drawn beside the branch. */
   accessory?: ReactNode;
+  /** Buttons drawn beside Settle while the row is hovered or focused (a snooze clock, say). */
+  actions?: ReactNode;
+  /** Off when the project label says nothing new, e.g. the repository's default branch. */
+  showLabel?: boolean;
   onSelect(path: string): void;
   onToggleSettled(id: string): void;
 }
@@ -59,6 +63,7 @@ function ThreadStatus({ activity, label, hint, startedAt }: { activity: ThreadAc
     <span className={`thread-status-age status-${activity}`} {...tooltipProps(hint)}>
       {working ? <i /> : null}
       {activity === "interrupted" ? <PlugZap size={11} aria-hidden="true" /> : null}
+      {activity === "failed" ? <CircleAlert size={11} aria-hidden="true" /> : null}
       {label}
       {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
     </span>
@@ -79,6 +84,8 @@ export const ThreadRow = memo(function ThreadRow({
   showCost,
   startedAt,
   accessory,
+  actions,
+  showLabel = true,
   onSelect,
   onToggleSettled,
 }: ThreadRowProps) {
@@ -91,7 +98,7 @@ export const ThreadRow = memo(function ThreadRow({
     settled ? "Settled" : activity === "ready" ? "Ready" : activity === "idle" ? "Idle" : "Working"
   );
   const working = activity === "working" || activity === "tool";
-  const showStatus = working || activity === "waiting" || activity === "ready" || activity === "interrupted";
+  const showStatus = working || activity === "waiting" || activity === "ready" || activity === "interrupted" || activity === "failed";
   const childCount = workingChildren > 0
     ? (
       <span className="thread-agent-count" aria-label={`${workingChildren} agent${workingChildren === 1 ? "" : "s"} running`}>
@@ -111,14 +118,17 @@ export const ThreadRow = memo(function ThreadRow({
           {accessory}
           <time>{age}</time>
         </button>
-        <button
-          className="thread-settle"
-          {...tooltipProps(settled ? "Return thread to the rail" : "Settle thread")}
-          aria-label={`${settled ? "Return" : "Settle"} ${session.title}`}
-          onClick={() => onToggleSettled(session.id)}
-        >
-          {settled ? <ArchiveRestore size={14} /> : <Check size={15} />}
-        </button>
+        <span className="thread-row-actions">
+          {settled ? null : actions}
+          <button
+            className="thread-settle"
+            {...tooltipProps(settled ? "Return thread to the rail" : "Settle thread")}
+            aria-label={`${settled ? "Return" : "Settle"} ${session.title}`}
+            onClick={() => onToggleSettled(session.id)}
+          >
+            {settled ? <ArchiveRestore size={13} /> : <Check size={13} />}
+          </button>
+        </span>
       </article>
     );
   }
@@ -136,20 +146,23 @@ export const ThreadRow = memo(function ThreadRow({
         <span className="thread-title" {...tooltipProps(session.title, { when: "truncated", side: "right" })}>{session.title}</span>
         <span className="thread-meta-line">
           {childCount}
-          {session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
+          {showLabel && session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
           {accessory}
           {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadUsageDetail(session.usage))}>{cost}</span> : null}
           <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
         </span>
       </button>
-      <button
-        className="thread-settle"
-        {...tooltipProps("Settle thread")}
-        aria-label={`Settle ${session.title}`}
-        onClick={() => onToggleSettled(session.id)}
-      >
-        <Check size={15} />
-      </button>
+      <span className="thread-row-actions">
+        {actions}
+        <button
+          className="thread-settle"
+          {...tooltipProps("Settle thread")}
+          aria-label={`Settle ${session.title}`}
+          onClick={() => onToggleSettled(session.id)}
+        >
+          <Check size={13} /><span>Settle</span>
+        </button>
+      </span>
     </article>
   );
 });

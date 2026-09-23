@@ -69,7 +69,7 @@ describe("command palette sources", () => {
   it("runs the row Enter lands on and opens a Settings page from core's own rows", async () => {
     const { actions, input, opened } = setup();
     fireEvent.change(input, { target: { value: "alp" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
     expect(opened).toHaveBeenCalledWith(actions);
 
     cleanup();

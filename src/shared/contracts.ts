@@ -183,6 +183,22 @@ export interface RuntimeToolVersion {
   latest?: string;
   /** What updates it: a shell command, or where in Tau to click. */
   updateCommand?: string;
+  /** How well Tau works with `installed`, when the backend keeps a policy for it. */
+  compatibility?: RuntimeCompatibility;
+}
+
+/**
+ * Where an installed version falls in a backend's policy: `supported`, `unsafe`
+ * (it runs, with known problems) or `broken` (threads refuse to start).
+ */
+export interface RuntimeCompatibility {
+  status: "supported" | "unsafe" | "broken";
+  /** Why, in a sentence. */
+  message?: string;
+  /** The release Tau was tested against. */
+  recommendedVersion?: string;
+  /** The shell command that installs `recommendedVersion`; the user runs it, never Tau. */
+  installCommand?: string;
 }
 
 export interface UiComposerCommand {
@@ -258,6 +274,10 @@ export interface UiSession {
   usage?: UiThreadUsage;
   /** A turn of this thread was cut short by a restart and was not continued. */
   interrupted?: boolean;
+  /** Why the thread's last turn failed; the host drops it at the next prompt. */
+  turnError?: string;
+  /** Why the thread's runtime could not start; the thread shows read-only until it does. */
+  runtimeError?: string;
   /**
    * The thread that spawned this one, as its own session file records it
    * (ADR 0013, amended). Absent for a thread the user started.
@@ -417,8 +437,26 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
 export interface NewThreadConfiguration {
   /** An explicit per-thread choice; omitted means use the runtime default. */
   model?: Pick<UiModel, "provider" | "id">;
+  /** The thinking level chosen with it, one the runtime's catalog offers; omitted means its default. */
+  thinkingLevel?: string;
   /** The interaction mode the thread starts in; omitted means `default`. */
   mode?: string;
+}
+
+/**
+ * What a runtime offers a thread that does not exist yet, so a draft bound
+ * for it chooses a model and a thinking level before its first prompt.
+ */
+export interface UiRuntimeCatalog {
+  kind: ThreadBackendKind;
+  models: UiModel[];
+  /** What a new thread runs on when nobody chooses. */
+  model?: UiModel;
+  /** The levels each model offers, by model id; the first is the runtime's own default. */
+  thinkingLevels: Record<string, string[]>;
+  runtimeCapabilities?: RuntimeCapabilities;
+  /** Why the models are known only once a thread runs, when they are. */
+  note?: string;
 }
 
 export interface PreparedThreadCapability {

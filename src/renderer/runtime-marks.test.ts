@@ -21,4 +21,9 @@ describe("providerMarks", () => {
     expect(providerMarks(undefined, "pi")).toEqual({ runtime: "pi" });
     expect(providerMarks(undefined, undefined)).toEqual({});
   });
+
+  it("treats an instance like its program", () => {
+    expect(providerMarks("openai", "codex@work")).toEqual({ model: "openai", runtime: "codex@work" });
+    expect(providerMarks("opencode", "opencode@second")).toEqual({ model: "opencode" });
+  });
 });

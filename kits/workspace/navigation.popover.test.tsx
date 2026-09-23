@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProjectSwitcherPopover } from "./navigation.js";
+import { ProjectSwitcherPopover, RailRowAction } from "./navigation.js";
 
 afterEach(cleanup);
 
@@ -39,5 +39,55 @@ describe("ProjectSwitcherPopover", () => {
     />);
 
     expect(screen.getByText("current")).toBeTruthy();
+  });
+});
+
+describe("RailRowAction", () => {
+  const action = {
+    id: "snooze",
+    label: "Snooze thread",
+    icon: <i />,
+    menu: () => [
+      { items: [{ id: "snooze:1h", label: "In 1 hour", hint: "10:00" }, { id: "snooze:tomorrow", label: "Tomorrow", hint: "9:00" }] },
+      { items: [{ id: "snooze:custom", label: "Custom…" }] },
+    ],
+  };
+  const focused = () => document.activeElement?.textContent;
+
+  it("walks the list from the keyboard and picks with Enter's click, without the rail seeing the keys", () => {
+    const onPick = vi.fn();
+    const railKeys = vi.fn();
+    render(<div onKeyDown={railKeys}><RailRowAction action={action} onPick={onPick} /></div>);
+    const button = screen.getByRole("button", { name: "Snooze thread" });
+    button.focus();
+    fireEvent.click(button, { detail: 0 });
+
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(focused()).toBe("In 1 hour10:00");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(focused()).toBe("Tomorrow9:00");
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(focused()).toBe("Custom…");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(focused()).toBe("In 1 hour10:00");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(railKeys).not.toHaveBeenCalled();
+
+    fireEvent.click(document.activeElement!);
+    expect(onPick).toHaveBeenCalledWith("snooze:custom");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes on Escape and gives focus back to its button", () => {
+    render(<RailRowAction action={action} onPick={() => {}} />);
+    const button = screen.getByRole("button", { name: "Snooze thread" });
+    button.focus();
+    fireEvent.click(button, { detail: 1 });
+    // Opened by the pointer the list holds focus, not its first row.
+    expect(document.activeElement?.getAttribute("role")).toBe("menu");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(button);
   });
 });

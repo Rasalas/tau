@@ -100,6 +100,7 @@ export function decodeNewThreadConfiguration(channel: string, field: string, val
   if (value === undefined) return undefined;
   const item = record(channel, field, value);
   const mode = item.mode === undefined ? undefined : decodeString(channel, `${field}.mode`, item.mode);
+  const thinkingLevel = item.thinkingLevel === undefined ? undefined : decodeString(channel, `${field}.thinkingLevel`, item.thinkingLevel);
   const model = item.model === undefined ? undefined : record(channel, `${field}.model`, item.model);
   return {
     ...(model ? {
@@ -108,6 +109,7 @@ export function decodeNewThreadConfiguration(channel: string, field: string, val
         id: decodeString(channel, `${field}.model.id`, model.id),
       },
     } : {}),
+    ...(thinkingLevel ? { thinkingLevel } : {}),
     ...(mode ? { mode } : {}),
   };
 }

@@ -4,6 +4,8 @@ import remarkBreaks from "remark-breaks";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { HLJSApi, LanguageFn } from "highlight.js";
+import { Check, Copy, WrapText } from "lucide-react";
+import { tooltipProps } from "./ui/Tooltip";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
 import { remarkGfm } from "./remark-gfm-parse";
 type LanguageDefinition = LanguageFn;
@@ -224,6 +226,7 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
   const contextPhase = useContext(StreamedCodePhase);
   const phase = givenPhase ?? contextPhase;
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [wrapped, setWrapped] = useState(false);
   const canonicalLanguage = language ? (LANGUAGE_ALIASES[language] ?? language) : undefined;
   const [languageReady, setLanguageReady] = useState(() => Boolean(canonicalLanguage && hljs?.getLanguage(canonicalLanguage)));
 
@@ -270,12 +273,17 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
     void write.then(() => settle("copied"), () => settle("failed"));
   };
 
+  const wrapLabel = wrapped ? "Disable line wrap" : "Wrap lines";
+  const copyLabel = copyState === "idle" ? "Copy code" : copyState === "copied" ? "Copied" : "Copy failed";
   return (
-    <div className="md-code">
+    <div className="md-code" data-wrap={wrapped || undefined}>
       <div className="md-code-head">
         <span>{language ?? "text"}</span>
-        <button className={copyState} onClick={copy}>
-          {copyState === "idle" ? "copy" : copyState}
+        <button type="button" aria-pressed={wrapped} aria-label={wrapLabel} {...tooltipProps(wrapLabel)} onClick={() => setWrapped((value) => !value)}>
+          <WrapText size={13} aria-hidden="true" />
+        </button>
+        <button type="button" className={copyState} aria-label={copyLabel} {...tooltipProps(copyLabel)} onClick={copy}>
+          {copyState === "copied" ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
         </button>
       </div>
       <pre>{body}</pre>

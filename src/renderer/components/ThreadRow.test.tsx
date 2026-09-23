@@ -120,6 +120,23 @@ describe("ThreadRow project mark", () => {
     />);
     expect(ready.container.querySelector(".thread-status-age")?.textContent).toBe("Ready");
   });
+
+  it("says a thread failed, with the reason on the badge", () => {
+    const { container } = render(<ThreadRow
+      activity="failed"
+      activityLabel="Failed"
+      activityHint="stream disconnected"
+      active={false}
+      age="now"
+      session={session}
+      onSelect={() => {}}
+      onToggleSettled={() => {}}
+    />);
+    const badge = container.querySelector(".thread-status-age.status-failed");
+    expect(badge?.textContent).toBe("Failed");
+    expect(badge?.querySelector("svg")).toBeTruthy();
+    expect(badge?.getAttribute("data-tooltip")).toBe("stream disconnected");
+  });
 });
 
 describe("ThreadRow cost", () => {
@@ -176,5 +193,33 @@ describe("ThreadRow accessory", () => {
       expect(container.querySelector(".kit-mark")?.textContent).toBe("PR #4");
       unmount();
     }
+  });
+});
+
+describe("ThreadRow hover actions and label", () => {
+  it("puts a caller's actions before Settle, and none on a settled row", () => {
+    const { container, unmount } = render(<ThreadRow
+      activity="idle" active={false} age="now" session={session}
+      actions={<button type="button" aria-label="Snooze thread" />}
+      onSelect={() => {}} onToggleSettled={() => {}}
+    />);
+    const buttons = [...container.querySelectorAll(".thread-row-actions > button")].map((button) => button.getAttribute("aria-label"));
+    expect(buttons).toEqual(["Snooze thread", "Settle Use project icon"]);
+    unmount();
+
+    const settled = render(<ThreadRow
+      activity="settled" active={false} age="now" session={session}
+      actions={<button type="button" aria-label="Snooze thread" />}
+      onSelect={() => {}} onToggleSettled={() => {}}
+    />);
+    expect(settled.container.querySelector("[aria-label='Snooze thread']")).toBeNull();
+  });
+
+  it("leaves the label line out when the caller says it tells nothing", () => {
+    const shown = render(<ThreadRow activity="idle" active={false} age="now" session={{ ...session, projectLabel: "feature/x" }} onSelect={() => {}} onToggleSettled={() => {}} />);
+    expect(shown.container.querySelector(".thread-branch")?.textContent).toBe("feature/x");
+    shown.unmount();
+    const hidden = render(<ThreadRow activity="idle" active={false} age="now" showLabel={false} session={{ ...session, projectLabel: "main" }} onSelect={() => {}} onToggleSettled={() => {}} />);
+    expect(hidden.container.querySelector(".thread-branch")).toBeNull();
   });
 });

@@ -10,7 +10,7 @@ import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_IN
 import { ANTIGRAVITY_RELEASE_VERSION, releaseAssetFor } from "./release.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
-import { AntigravityThreadRuntimeBackend, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
+import { AntigravityThreadRuntimeBackend, MODEL_PROVIDER, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
 
 export { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID };
 
@@ -125,6 +125,13 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           return backend;
         },
         composerCommands: () => [],
+        // The server names its models only in a session; a draft offers the ones the last session named.
+        newThreadCatalog: async () => {
+          const models = (await store.listModels()).map((model) => ({ provider: MODEL_PROVIDER, id: model.value, name: model.name.trim() || model.value }));
+          return models.length > 0
+            ? { models, thinkingLevels: {} }
+            : { models: [], thinkingLevels: {}, note: "Antigravity names its models once a thread has started; choose one then." };
+        },
         // Tau installs the release it pins; one on the PATH or named by the override is the user's to keep current.
         version: async () => {
           const executable = await resolveExecutable().catch(() => undefined);

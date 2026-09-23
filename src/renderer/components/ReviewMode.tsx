@@ -404,7 +404,8 @@ export function ReviewMode({
       const next = await suggestCommitMessage(visibleChanges, [...diffs.values()]);
       if (next) { setMessage(next); setEditingMessage(false); }
     } catch (error) {
-      setMessageError(error instanceof Error ? error.message : "Could not generate a commit message.");
+      setMessageError(`No suggestion: ${error instanceof Error ? error.message : "the model did not answer."}`);
+      setMessage((current) => current || visibleChanges.proposedMessage || "");
     } finally {
       setGeneratingMessage(false);
     }

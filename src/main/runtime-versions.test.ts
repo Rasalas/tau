@@ -11,7 +11,8 @@ describe("RuntimeVersions", () => {
     let now = 0;
     const version = vi.fn(async () => ({ tool: "codex", installed: "0.154.0", latest: "0.155.1" }));
     const onChange = vi.fn();
-    const versions = new RuntimeVersions({ providers: () => [provider("codex", version), provider("plain")], onChange, log: () => undefined, now: () => now });
+    const registered = [provider("codex", version), provider("plain")];
+    const versions = new RuntimeVersions({ providers: () => registered, onChange, log: () => undefined, now: () => now });
     versions.refresh();
     versions.refresh();
     await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
@@ -30,5 +31,18 @@ describe("RuntimeVersions", () => {
     versions.refresh();
     await vi.waitFor(() => expect(log).toHaveBeenCalledWith("runtime-version.failed", "broken: no binary"));
     expect(versions.get("broken")).toBeUndefined();
+  });
+
+  it("asks a kind registered anew at once, as after its instance was edited", async () => {
+    const first = vi.fn(async () => ({ tool: "codex", installed: "0.154.0" }));
+    const second = vi.fn(async () => ({ tool: "codex", installed: "0.160.0" }));
+    let registered = [provider("codex@work", first)];
+    const versions = new RuntimeVersions({ providers: () => registered, onChange: () => undefined, log: () => undefined, now: () => 0 });
+    versions.refresh();
+    await vi.waitFor(() => expect(versions.get("codex@work")?.installed).toBe("0.154.0"));
+    registered = [provider("codex@work", second)];
+    versions.refresh();
+    await vi.waitFor(() => expect(versions.get("codex@work")?.installed).toBe("0.160.0"));
+    expect(first).toHaveBeenCalledTimes(1);
   });
 });

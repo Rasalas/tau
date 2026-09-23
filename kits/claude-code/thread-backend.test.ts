@@ -311,7 +311,7 @@ describe("thread runtime backends", () => {
     await expect(backend.prompt({ text: "break", delivery: "prompt" })).rejects.toThrow("not logged in");
     expect(events.filter((event) => event.type === "notice" || event.type === "turn-settled")).toEqual([
       { type: "notice", message: "Claude Code reported an error: not logged in", level: "error" },
-      { type: "turn-settled", status: "error" },
+      { type: "turn-settled", status: "error", error: "not logged in" },
     ]);
     expect(backend.state().streaming).toBe(false);
     expect((await store.get("tau-thread"))?.lastAttemptOutcome).toBe("failed");

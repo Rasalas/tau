@@ -107,6 +107,45 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getByRole("button", { name: "+ show 21 more" })).toBeTruthy();
   });
 
+  it("marks a thread whose last turn failed as Failed, with the reason on the badge", async () => {
+    const shell = (id: string) => ({ id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 2 });
+    // A labelled section is drawn without the virtual list, which jsdom cannot measure.
+    const organizing: DesktopExtension = {
+      id: "test.organizer",
+      name: "Organizer",
+      activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => store.registerThreadRailOrganizer({
+        subscribe: () => () => undefined,
+        getVersion: () => 1,
+        sections: (threads) => [{ id: "pinned", label: "Pinned", threads: [...threads] }, { id: "active", threads: [] }],
+        menu: () => [],
+        runMenu: () => undefined,
+        toggleSettled: () => undefined,
+        dropLabel: () => "Move",
+        drop: () => undefined,
+      })),
+    };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
+          sessions: [{ ...shell("broken"), turnError: "stream disconnected" }, shell("fine")],
+        },
+        detail: { sessionId: "fine", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "fine", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub(),
+    });
+    renderApp(client, { extensions: [workspaceExtension, organizing] });
+
+    const row = (await screen.findByText("Thread broken")).closest(".thread-row") as HTMLElement;
+    const badge = row.querySelector(".thread-status-age.status-failed");
+    expect(badge?.textContent).toBe("Failed");
+    expect(badge?.getAttribute("data-tooltip")).toBe("stream disconnected");
+    expect(screen.getByText("Thread fine").closest(".thread-row")?.querySelector(".status-failed")).toBeNull();
+  });
+
   it("opens settled history by default and reveals it in batches of twenty-five", async () => {
     const sessions = Array.from({ length: 71 }, (_, index) => ({
       id: `settled-${index}`,
@@ -226,8 +265,8 @@ describe("Workspace Kit in the workbench", () => {
         threadIndex: {
           projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
           sessions: [
-            { id: "current", path: "/current.jsonl", title: "Current thread", modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 0 },
-            { id: "target", path: "/target.jsonl", title: "Target thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 },
+            { id: "current", path: "/current.jsonl", title: "Current thread", modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 1 },
+            { id: "target", path: "/target.jsonl", title: "Target thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1 },
           ],
         },
         detail: { sessionId: "current", messages: [], isStreaming: false, activeTools: [] },

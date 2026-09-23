@@ -33,6 +33,7 @@ import type { ThreadBinding } from "./thread-binding.js";
 import type { ThreadProjection } from "./thread-projection.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
+import { UnavailableThreadBackend } from "./unavailable-thread-backend.js";
 import { discoverPromptOverrides } from "./system-prompt-resolver.js";
 import { defaultHostConfigManager } from "./host-config.js";
 
@@ -78,6 +79,8 @@ export interface ThreadRuntimeLifecyclePort {
   logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string): void;
   log(label: string, detail?: string): void;
   errorMessage(error: unknown): string;
+  /** Why a thread's runtime could not start, or undefined once it did. */
+  runtimeUnavailable(threadId: string, reason: string | undefined): void;
 }
 
 /**
@@ -325,9 +328,25 @@ export class ThreadRuntimeLifecycle {
           if (this.port.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
           const threadId = external?.threadId ?? indexedSession?.id;
           if (!threadId) throw new Error("The thread has no durable Tau thread id.");
-          const record = await this.port.requireBackend(owner).lookup(threadId);
+          const provider = this.port.requireBackend(owner);
+          const record = await provider.lookup(threadId);
           if (!record) throw new Error("The selected thread is no longer available in its runtime.");
-          return this.openExternal(owner, record.threadId, record.cwd, { background });
+          try {
+            const thread = await this.openExternal(owner, record.threadId, record.cwd, { background });
+            this.port.runtimeUnavailable(record.threadId, undefined);
+            return thread;
+          } catch (error) {
+            if (background) throw error;
+            // The thread still opens, read-only, so its history is not hidden behind a missing CLI.
+            const why = this.port.errorMessage(error);
+            this.port.log("runtime.unavailable", `${owner} ${record.threadId.slice(0, 8)}: ${why}`);
+            const thread = new ThreadRuntime(new UnavailableThreadBackend(owner, provider.adapter, record, why));
+            thread.adapterMessages = await thread.backend.transcript();
+            thread.adapterTitle = record.title;
+            this.port.runtimeUnavailable(record.threadId, why);
+            await this.port.adopt(thread);
+            return thread;
+          }
         }
         if (external) throw new Error("The selected thread is owned by another runtime backend.");
         return this.open(

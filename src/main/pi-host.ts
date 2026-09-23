@@ -14,6 +14,7 @@ import type {
   ShellActionResult,
   UiComposerCommand,
   UiModel,
+  UiRuntimeCatalog,
   UiPromptAttachment,
   UiRuntimeBackend,
   SubmissionResult,
@@ -97,6 +98,7 @@ import { clientTranscript } from "./client-tool-output.js";
 import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
+import { isUnavailableBackend } from "./unavailable-thread-backend.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { ClientMessageTracker } from "./client-message-tracker.js";
 import type { ThreadProjection } from "./thread-projection.js";
@@ -1290,6 +1292,7 @@ export class PiHost {
             configuration.model.id,
           );
         }
+        if (configuration?.thinkingLevel) await requireCapability(thread.backend, "catalogWrite").setThinkingLevel(configuration.thinkingLevel);
         if (configuration?.mode) await requireCapability(thread.backend, "mode").set(configuration.mode);
         // Decode and validate attachment data before promoting a prepared
         // runtime, so malformed input cannot leave an adopted blank thread.
@@ -1322,7 +1325,7 @@ export class PiHost {
         // (except a prompt rejection after promotion: the visible blank thread
         // remains active and the scoped renderer draft remains untouched).
         if (lifecycle === "prepared") {
-          if (isLocalPiRuntime(thread) && !configuration?.model && !configuration?.mode) this.prewarm.retainSpare(thread);
+          if (isLocalPiRuntime(thread) && !configuration?.model && !configuration?.thinkingLevel && !configuration?.mode) this.prewarm.retainSpare(thread);
           else {
             await this.runtimes.dispose(thread);
             if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd, true);
@@ -1534,7 +1537,7 @@ export class PiHost {
     // A thread whose runtime is already live switches immediately and outside
     // the lifecycle queue: nothing is created, aborted or replaced.
     const live = this.ownedByPi(this.active) ? undefined : this.liveThreadForPath(path);
-    if (live) {
+    if (live && !isUnavailableBackend(live.backend)) {
       return this.lifecycle.runActivation("live-switch", async (activation) => {
         const startedAt = performance.now();
         if (!await this.activateThread(live, false, activation.epoch)) return this.staleActivationResult();
@@ -1559,6 +1562,9 @@ export class PiHost {
       this.attached.session.detach();
       await this.leaveWorkspaceFor(indexedSession?.projectPath ?? dirname(path));
       await this.threadLifecycle.beforeWorkspace(this.cwd);
+      // A thread that opened read-only tries its runtime again on every switch to it.
+      const unavailable = this.liveThreadForPath(path);
+      if (unavailable && isUnavailableBackend(unavailable.backend)) await this.threads.release(unavailable.threadId);
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {
@@ -1612,6 +1618,7 @@ export class PiHost {
     }
     // Whatever a restart left behind, this thread is moving again.
     this.index.setInterrupted(thread.threadId, false);
+    this.index.setTurnError(thread.threadId, undefined);
     if (!thread.backend.capabilities.journal) {
       // The composer waits for admission, not for the whole turn: a streamed
       // runtime reports it as soon as the message is on its way, and this call
@@ -2049,6 +2056,7 @@ export class PiHost {
       releaseTool: (id) => { this.toolOwners.delete(id); },
       pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
+      turnSettled: (owner, error) => this.index.setTurnError(owner, error),
     });
   }
 
@@ -2074,6 +2082,7 @@ export class PiHost {
       pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
       refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
+      turnSettled: (owner, error) => this.index.setTurnError(owner, error),
     });
   }
 
@@ -2105,6 +2114,13 @@ export class PiHost {
     const models = await active.backend.models();
     this.modelCatalogCache.set(key, models);
     return models;
+  }
+
+  /** What a registered backend offers a thread that does not exist yet; Pi's catalog is the snapshot's. */
+  async runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined> {
+    const provider = this.seam.backends.get(kind);
+    const catalog = await provider?.newThreadCatalog?.();
+    return provider && catalog ? { ...catalog, kind, runtimeCapabilities: provider.adapter.capabilities } : undefined;
   }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {

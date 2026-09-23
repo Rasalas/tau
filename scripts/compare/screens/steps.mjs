@@ -66,10 +66,7 @@ export const railState = {
   },
 };
 
-/**
- * Runs a palette command by typing its label. Enter goes without its `char`
- * event: the snooze dialog the command opens would take that as a submit.
- */
+/** Runs a palette command by typing its label and pressing Enter the way a keyboard does. */
 export async function tauPaletteRun(ctx, label) {
   await ctx.press("mod+k");
   await ctx.waitFor(`document.activeElement?.tagName === "INPUT"`);
@@ -77,8 +74,17 @@ export async function tauPaletteRun(ctx, label) {
   // Enter runs the highlighted row, so wait until the palette has caught up with the query.
   await ctx.waitFor(`[...document.querySelectorAll("[role=option], [role=dialog] button")].some((row) => row.textContent.trim().startsWith(${JSON.stringify(label)}))`);
   await ctx.wait(300);
-  await ctx.keyDownUp("Enter");
+  await ctx.press("Enter");
   await ctx.wait(500);
+}
+
+/** Hovers the row and clicks its snooze clock with the pointer, as a user would. */
+export async function tauOpenSnooze(ctx, title) {
+  await ctx.hover("article.thread-row", titled(title));
+  await ctx.wait(300);
+  await ctx.eval(`[...document.querySelectorAll("article.thread-row")].find((row) => /${title}:/u.test(row.textContent)).querySelector("button[aria-label='Snooze thread']").setAttribute("data-compare-target", "")`);
+  await ctx.click("[data-compare-target]");
+  await ctx.waitFor(`!!document.querySelector(".rail-row-popover")`);
 }
 
 export async function t3OpenSnooze(ctx, title) {

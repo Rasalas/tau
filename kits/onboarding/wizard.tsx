@@ -1,24 +1,35 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
-import { ArrowRight, Bot, Check, Copy, FolderPlus, GitMerge, GitPullRequest, Sparkles, SquareTerminal } from "lucide-react";
+import { ArrowRight, Bot, Check, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
 import { useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
-import { defaultProjects, defaultSessions, type AgentStatus, type FlowState, type WelcomeFlow } from "./flow.js";
-import type { ImportableSession, ProjectCandidate, ToolId } from "./protocol.js";
+import { backendKit, defaultProjects, defaultSessions, type AgentStatus, type FlowState, type WelcomeFlow } from "./flow.js";
+import type { ImportableSession, ProjectCandidate, ToolReport } from "./protocol.js";
 
 const STEPS = ["Agents", "Projects", "Conversations"] as const;
 const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some projects or conversations may be missing.";
 
-type RowState = "checking" | "ready" | "signIn" | "install" | "update" | "off";
+type RowState = "checking" | "ready" | "signIn" | "install" | "update" | "settings";
 type Icon = ComponentType<{ size?: number; "aria-label"?: string }>;
 
 export interface AgentRow {
-  id: ToolId | "pi";
+  /** A runtime backend kind, or `gh`/`glab`. */
+  id: string;
   label: string;
   state: RowState;
   summary: string;
+  /** Shown to copy; without one the action opens `settings`. */
   command?: string;
+  settings?: string;
 }
 
-const ICONS: Record<AgentRow["id"], Icon> = { pi: Sparkles, "claude-code": Bot, codex: SquareTerminal, gh: GitPullRequest, glab: GitMerge };
+/** A runtime backend as the snapshot lists it. */
+export interface BackendEntry {
+  kind: string;
+  label: string;
+  version?: { installed?: string };
+}
+
+const ICONS: Record<string, Icon> = { pi: Sparkles, "claude-code": Bot, codex: SquareTerminal, antigravity: Orbit, gh: GitPullRequest, glab: GitMerge };
+const iconOf = (id: string): Icon => ICONS[id] ?? ICONS[id.split("@")[0]!] ?? Bot;
 const SOURCE_LABEL = { "claude-code": "Claude Code", codex: "Codex", pi: "Pi" } as const;
 
 function plural(count: number, one: string): string {
@@ -39,41 +50,51 @@ export function age(at: number, now: number): string {
   return months < 12 ? `${months}mo` : `${Math.round(months / 12)}y`;
 }
 
-function agentRow(id: "claude-code" | "codex", label: string, status: AgentStatus | undefined, commands: { install?: string; login?: string }, published?: string): AgentRow {
+function backendRow(backend: BackendEntry, status: AgentStatus | undefined, commands: { install?: string; login?: string }): AgentRow {
+  const { kind: id, label } = backend;
+  // Without a command of its own, a runtime is set up on its Providers card.
+  const next = (state: RowState, summary: string, command?: string): AgentRow => ({ id, label, state, summary, ...(command ? { command } : { settings: "providers" }) });
   if (!status) return { id, label, state: "checking", summary: "Checking…" };
-  if (status.error) return { id, label, state: "off", summary: `Not available: ${status.error.replace(/\.$/u, "")}` };
-  if (!status.path) return { id, label, state: "install", summary: "Not installed", ...(commands.install ? { command: commands.install } : {}) };
-  const version = status.version ?? published ?? "Installed";
-  if (status.update) return { id, label, state: "update", summary: `${version} is older than Tau speaks to`, command: status.update };
-  if (status.signedIn) return { id, label, state: "ready", summary: `${version} · ${status.account ?? "signed in"}` };
-  return { id, label, state: "signIn", summary: `${version} · Not signed in`, ...(commands.login ? { command: commands.login } : {}) };
+  const version = status.version ?? backend.version?.installed;
+  if (status.error) return next("settings", `${version ? `${version} · ` : ""}Could not check: ${status.error.replace(/\.$/u, "")}`);
+  if (!status.installed) return next("install", "Not installed", commands.install);
+  const shown = version ?? "Installed";
+  if (status.update) return next("update", `${shown} is older than Tau speaks to`, status.update.command);
+  if (status.signedIn) return { id, label, state: "ready", summary: `${shown} · ${status.account ?? "signed in"}` };
+  if (status.signedIn === false) return next("signIn", `${shown} · Not signed in`, commands.login);
+  return next("settings", shown);
 }
 
 /**
- * What the agents step lists, in T3 Code's order of importance: the runtimes
- * first, then the review CLIs. `versions` is what core publishes per backend.
+ * What "Your agents" lists: Pi, then every registered runtime backend in the
+ * order core gives, instances included. `gh`/`glab` are `toolRows`.
  */
-export function agentRows(state: FlowState, piModels: number | undefined, versions: Readonly<Record<string, string | undefined>> = {}): AgentRow[] {
-  const tool = (id: ToolId) => state.tools?.tools.find((entry) => entry.id === id);
+export function agentRows(state: FlowState, piModels: number | undefined, backends: readonly BackendEntry[] = []): AgentRow[] {
   const pi: AgentRow = piModels === undefined
     ? { id: "pi", label: "Pi", state: "checking", summary: "Checking…" }
     : piModels > 0
       ? { id: "pi", label: "Pi", state: "ready", summary: `Tau's own runtime · ${plural(piModels, "model")} from your Pi configuration` }
-      : { id: "pi", label: "Pi", state: "signIn", summary: "Tau's own runtime · No provider signed in" };
-  const clis = (["gh", "glab"] as const).map((id): AgentRow => {
+      : { id: "pi", label: "Pi", state: "signIn", summary: "Tau's own runtime · No provider signed in", settings: "pi" };
+  return [
+    pi,
+    ...backends.filter((backend) => backend.kind !== "pi").map((backend) => {
+      // An instance has a home of its own; the default login command would sign in the wrong one.
+      const tool = backendKit(backend.kind).instance ? undefined : state.tools?.tools.find((entry) => entry.id === backend.kind);
+      return backendRow(backend, state.agents[backend.kind], tool ?? {});
+    }),
+  ];
+}
+
+/** The review CLIs, for the optional group after the agents. */
+export function toolRows(state: FlowState): AgentRow[] {
+  return (["gh", "glab"] as const).map((id): AgentRow => {
     const label = id === "gh" ? "GitHub CLI" : "GitLab CLI";
-    const report = tool(id);
+    const report: ToolReport | undefined = state.tools?.tools.find((entry) => entry.id === id);
     if (!report) return { id, label, state: "checking", summary: "Checking…" };
-    if (!report.path) return { id, label, state: "install", summary: "Not installed · pull requests need it", command: report.install };
+    if (!report.path) return { id, label, state: "install", summary: "Not installed", command: report.install };
     const version = report.version ?? "Installed";
     return report.signedIn ? { id, label, state: "ready", summary: `${version} · Signed in` } : { id, label, state: "signIn", summary: `${version} · Not signed in`, command: report.login };
   });
-  return [
-    pi,
-    agentRow("claude-code", "Claude Code", state.agents["claude-code"], tool("claude-code") ?? {}, versions["claude-code"]),
-    agentRow("codex", "Codex", state.agents.codex, tool("codex") ?? {}, versions.codex),
-    ...clis,
-  ];
 }
 
 function StepShell({ title, description, children }: { title: string; description: string; children?: ReactNode }) {
@@ -120,9 +141,9 @@ function CommandBlock({ command, actions }: { command: string; actions: Workbenc
 
 function AgentCard({ row, actions }: { row: AgentRow; actions: WorkbenchActions }) {
   const [open, setOpen] = useState(false);
-  const Glyph = ICONS[row.id];
-  const label = row.state === "install" ? "Install" : row.state === "update" ? "Update" : row.id === "pi" ? "Open Settings" : "Sign in";
-  const act = () => row.id === "pi" ? actions.openSettings("pi") : setOpen(!open);
+  const Glyph = iconOf(row.id);
+  const label = !row.command ? "Open Settings" : row.state === "install" ? "Install" : row.state === "update" ? "Update" : "Sign in";
+  const act = () => row.command ? setOpen(!open) : actions.openSettings(row.settings);
   return (
     <div className="onboarding-card-wrap">
       <div className="onboarding-card" data-state={row.state}>
@@ -130,9 +151,9 @@ function AgentCard({ row, actions }: { row: AgentRow; actions: WorkbenchActions 
         <span className="onboarding-card-text"><strong>{row.label}</strong><small>{row.summary}</small></span>
         {row.state === "ready"
           ? <span className="onboarding-ready"><Check size={13} /> Ready</span>
-          : row.state === "checking" || row.state === "off"
+          : row.state === "checking"
             ? null
-            : <button type="button" className="onboarding-button ghost small" aria-expanded={row.id === "pi" ? undefined : open} onClick={act}>{label}</button>}
+            : <button type="button" className="onboarding-button ghost small" aria-expanded={row.command ? open : undefined} onClick={act}>{label}</button>}
       </div>
       {open && row.command ? <CommandBlock command={row.command} actions={actions} /> : null}
     </div>
@@ -142,7 +163,7 @@ function AgentCard({ row, actions }: { row: AgentRow; actions: WorkbenchActions 
 function SourceMarks({ sources }: { sources: ReadonlyArray<keyof typeof SOURCE_LABEL> }) {
   return <>
     {(["claude-code", "codex", "pi"] as const).map((source) => {
-      const Glyph = ICONS[source];
+      const Glyph = iconOf(source);
       return <span key={source} className="onboarding-source">{sources.includes(source) ? <Glyph size={12} aria-label={SOURCE_LABEL[source]} /> : null}</span>;
     })}
   </>;
@@ -178,11 +199,18 @@ function Looking({ onSkip, what }: { onSkip(): void; what: string }) {
 
 function AgentsStep({ state, flow, actions }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions }) {
   const snapshot = useWorkbenchShell().snapshot;
-  const versions = Object.fromEntries((snapshot?.runtimeBackends ?? []).map((backend) => [backend.kind, backend.version?.installed]));
-  const rows = agentRows(state, snapshot ? (snapshot.completionModels ?? snapshot.models).length : undefined, versions);
+  const backends = (snapshot?.runtimeBackends ?? []).filter((backend) => backend.kind !== "pi");
+  const kinds = backends.map((backend) => backend.kind);
+  useEffect(() => { flow.askAgents(kinds); }, [kinds.join("\n")]);
+  const rows = agentRows(state, snapshot ? (snapshot.completionModels ?? snapshot.models).length : undefined, backends);
   return (
-    <StepShell title="Your agents" description="The agents and tools Tau found on this computer. Install or sign in to the ones you want to use; Settings → Providers has them later too.">
+    <StepShell title="Your agents" description="Agents available on this computer. Install or sign in to the ones you want to use; Settings → Providers has them later too.">
       <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} />)}</div>
+      <section className="onboarding-optional" aria-labelledby="onboarding-pr-tools">
+        <h3 id="onboarding-pr-tools" className="onboarding-subtitle">Tools for pull requests <span className="onboarding-badge">Optional</span></h3>
+        <p className="onboarding-note">Tau uses them to open pull and merge requests and show their checks. Your agents work without them.</p>
+        <div className="onboarding-list compact">{toolRows(state).map((row) => <AgentCard key={row.id} row={row} actions={actions} />)}</div>
+      </section>
       <div className="onboarding-actions">
         <button type="button" className="onboarding-button ghost" onClick={() => flow.checkAgents()}>Check again</button>
         <button type="button" className="onboarding-button primary" onClick={() => flow.goTo(1)}>Continue <ArrowRight size={14} /></button>

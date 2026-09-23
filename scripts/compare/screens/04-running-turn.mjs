@@ -9,6 +9,9 @@ const seen = (pattern) => `${pattern}.test(document.body.innerText)`;
 async function run(ctx, { shot }) {
   await startTurn(ctx, "Small thread 4");
   await ctx.moveMouse(900, 120);
+  // Before the first tool: the run's own live line.
+  await ctx.waitFor(seen(/Working for|Working…/u), { timeoutMs: 15_000, pollMs: 20 });
+  await shot("live", { probes: PROBES, settleMs: 0 });
   // The thinking summary streams first; the intro follows it.
   await ctx.waitFor(seen(/streaming path first/u), { timeoutMs: 15_000, pollMs: 50 });
   await shot("thought", { probes: PROBES, settleMs: 50 });
