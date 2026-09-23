@@ -55,6 +55,7 @@ import {
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
 import { ComposerAttachmentsList } from "./ComposerAttachments";
+import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
@@ -907,97 +908,99 @@ export function Composer({
         />
 
         <div className="composer-toolbar">
-          <div className="composer-chips">
-          {text.trimStart().startsWith("!") ? (
-            <span className="runtime-chip shell-mode-chip" {...tooltipProps("Shell command mode")}>
-              <Terminal size={12} className="chip-icon" />
-              {text.trimStart().startsWith("!!") ? "Silent Shell" : "Shell"}
-            </span>
-          ) : null}
-          <button
-            ref={modelChipRef}
-            className="runtime-chip composer-model-chip"
-            aria-expanded={modelPickerOpen}
-            aria-haspopup="dialog"
-            disabled={!modelPickerAvailable}
-            {...tooltipProps(modelSelectionAvailable
-              ? runtimeChoice ? "Select runtime and model" : "Select model"
-              : draftOnOtherRuntime ? `Change runtime or start with ${runtimeLabel}'s default model.`
-                : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime.", { shortcut: registry?.keybindingLabel?.("runtime.model") })}
-            aria-label={modelSelectionAvailable
-              ? `${runtimeChoice ? "Select runtime and model" : "Select model"}: ${snapshot?.model?.name ?? "current model"}`
-              : runtimeChoice ? `Select runtime and model: ${runtimeLabel}` : "Model selection unavailable"}
-            onClick={() => { if (modelPickerAvailable) setModelPickerOpen((open) => !open); }}
-          >
-            {snapshot?.model && !draftOnOtherRuntime
-              ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={runtimeChoice?.kind ?? snapshot.backendKind} className="chip-icon" />
-              : runtimeChoice
-                ? <ProviderIconStack runtimeProvider={runtimeChoice.kind} className="chip-icon" />
-                : <Sparkles size={13} className="accent" />}
-            {draftOnOtherRuntime
-              ? "default model"
-              : snapshot?.model?.name ?? (runtimeOwnsModel ? "runtime model" : "select model")}
-            {modelPickerAvailable ? <ChevronDown size={12} className="chev" /> : null}
-          </button>
-
-          <span className="menu-anchor composer-runtime-menu-anchor">
-            <button
-              className="runtime-chip"
-              data-composer-shortcut="composer.effort"
-              disabled={!thinkingSelectionAvailable}
-              {...tooltipProps(thinkingSelectionAvailable
-                ? "Reasoning"
-                : draftOnOtherRuntime ? `${runtimeLabel} sets reasoning once this thread exists.`
-                  : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable.", { shortcut: thinkingSelectionAvailable ? registry?.keybindingLabel?.("runtime.cycle-thinking") : undefined })}
-              aria-label={thinkingSelectionAvailable ? "Reasoning" : "Reasoning controls unavailable"}
-              onClick={() => {
-                if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
-              }}
-            >
-              <Brain size={13} />
-              {draftOnOtherRuntime ? "—" : snapshot?.thinkingLevel ?? "—"}
-              {thinkingSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
-            </button>
-            {menu === "thinking" ? (
-              <Menu
-                placement="above"
-                sections={[
-                  {
-                    heading: "Reasoning",
-                    items: (snapshot?.thinkingLevels ?? []).map((level) => ({
-                      id: `thinking:${level}`,
-                      label: THINKING_LABELS[level] ?? level,
-                      badge: level === DEFAULT_THINKING ? "Default" : undefined,
-                      selected: level === snapshot?.thinkingLevel,
-                      disabled: !thinkingSelectionAvailable,
-                      description: !thinkingSelectionAvailable && runtimeOwnsModel ? "This runtime controls reasoning itself." : undefined,
-                    })),
-                  },
-                ]}
-                onSelect={(id) => {
-                  const [group, thinkingLevel] = id.split(":");
-                  if (group === "thinking" && thinkingLevel) onSetThinking(thinkingLevel);
-                }}
-                onClose={() => setMenu(undefined)}
-              />
-            ) : null}
-          </span>
-
-          {composerControls.filter((control) => control.placement !== "footer").map((control) => (
-            <LazyFeatureBoundary
-              key={control.id}
-              label={control.id}
-              extensionId={control.extensionId}
-              extensionName={control.extensionName}
-              registry={registry}
-              onNotify={onNotify}
-            >
-              <control.Component snapshot={snapshot} actions={shellContext?.actions} />
-            </LazyFeatureBoundary>
-          ))}
-
-          </div>
-          <span className="spacer" />
+          <ComposerFooterControls
+            revision={text.trimStart().startsWith("!!") ? "silent-shell" : text.trimStart().startsWith("!") ? "shell" : ""}
+            leading={<>
+              {text.trimStart().startsWith("!") ? (
+                <span className="runtime-chip shell-mode-chip" {...tooltipProps("Shell command mode")}>
+                  <Terminal size={12} className="chip-icon" />
+                  {text.trimStart().startsWith("!!") ? "Silent Shell" : "Shell"}
+                </span>
+              ) : null}
+              <button
+                ref={modelChipRef}
+                className="runtime-chip composer-model-chip"
+                aria-expanded={modelPickerOpen}
+                aria-haspopup="dialog"
+                disabled={!modelPickerAvailable}
+                {...tooltipProps(modelSelectionAvailable
+                  ? runtimeChoice ? "Select runtime and model" : "Select model"
+                  : draftOnOtherRuntime ? `Change runtime or start with ${runtimeLabel}'s default model.`
+                    : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime.", { shortcut: registry?.keybindingLabel?.("runtime.model") })}
+                aria-label={modelSelectionAvailable
+                  ? `${runtimeChoice ? "Select runtime and model" : "Select model"}: ${snapshot?.model?.name ?? "current model"}`
+                  : runtimeChoice ? `Select runtime and model: ${runtimeLabel}` : "Model selection unavailable"}
+                onClick={() => { if (modelPickerAvailable) setModelPickerOpen((open) => !open); }}
+              >
+                {snapshot?.model && !draftOnOtherRuntime
+                  ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={runtimeChoice?.kind ?? snapshot.backendKind} className="chip-icon" />
+                  : runtimeChoice
+                    ? <ProviderIconStack runtimeProvider={runtimeChoice.kind} className="chip-icon" />
+                    : <Sparkles size={13} className="accent" />}
+                <span className="runtime-chip-label">{draftOnOtherRuntime
+                  ? "default model"
+                  : snapshot?.model?.name ?? (runtimeOwnsModel ? "runtime model" : "select model")}</span>
+                {modelPickerAvailable ? <ChevronDown size={12} className="chev" /> : null}
+              </button>
+            </>}
+            blocks={[
+              { id: "reasoning", node: (
+                <span className="menu-anchor composer-runtime-menu-anchor">
+                  <button
+                    className="runtime-chip"
+                    data-composer-shortcut="composer.effort"
+                    disabled={!thinkingSelectionAvailable}
+                    {...tooltipProps(thinkingSelectionAvailable
+                      ? "Reasoning"
+                      : draftOnOtherRuntime ? `${runtimeLabel} sets reasoning once this thread exists.`
+                        : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable.", { shortcut: thinkingSelectionAvailable ? registry?.keybindingLabel?.("runtime.cycle-thinking") : undefined })}
+                    aria-label={thinkingSelectionAvailable ? "Reasoning" : "Reasoning controls unavailable"}
+                    onClick={() => {
+                      if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
+                    }}
+                  >
+                    <Brain size={13} />
+                    {draftOnOtherRuntime ? "—" : snapshot?.thinkingLevel ?? "—"}
+                    {thinkingSelectionAvailable ? <ChevronDown size={12} className="chev" /> : null}
+                  </button>
+                  {menu === "thinking" ? (
+                    <Menu
+                      placement="above"
+                      sections={[
+                        {
+                          heading: "Reasoning",
+                          items: (snapshot?.thinkingLevels ?? []).map((level) => ({
+                            id: `thinking:${level}`,
+                            label: THINKING_LABELS[level] ?? level,
+                            badge: level === DEFAULT_THINKING ? "Default" : undefined,
+                            selected: level === snapshot?.thinkingLevel,
+                            disabled: !thinkingSelectionAvailable,
+                            description: !thinkingSelectionAvailable && runtimeOwnsModel ? "This runtime controls reasoning itself." : undefined,
+                          })),
+                        },
+                      ]}
+                      onSelect={(id) => {
+                        const [group, thinkingLevel] = id.split(":");
+                        if (group === "thinking" && thinkingLevel) onSetThinking(thinkingLevel);
+                      }}
+                      onClose={() => setMenu(undefined)}
+                    />
+                  ) : null}
+                </span>
+              ) },
+              ...composerControls.filter((control) => control.placement !== "footer").map((control) => ({ id: control.id, node: (
+                <LazyFeatureBoundary
+                  label={control.id}
+                  extensionId={control.extensionId}
+                  extensionName={control.extensionName}
+                  registry={registry}
+                  onNotify={onNotify}
+                >
+                  <control.Component snapshot={snapshot} actions={shellContext?.actions} />
+                </LazyFeatureBoundary>
+              ) })),
+            ]}
+          />
 
           {isVimEnabled ? (
             <span className={`vim-badge ${vim.vimMode}`}>

@@ -1128,8 +1128,17 @@ button > svg { pointer-events: none; }
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
 .composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) calc(10px * var(--density)) calc(10px * var(--density)) var(--space-5); }
-/* Chips wrap among themselves; attach and send keep their place on the right. */
-.composer-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+/* One row: blocks after the model drop their labels, then move into the overflow menu (ComposerFooterControls). */
+.composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.composer-block { flex: none; display: flex; align-items: center; }
+.composer-block:empty { display: none; }
+.composer-block[data-icon-only] .runtime-chip { gap: 0; font-size: 0; }
+.composer-block[data-icon-only] .runtime-chip .chev { display: none; }
+.composer-model-chip { flex: 0 1 auto; min-width: 64px; }
+.runtime-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.popover.composer-overflow { padding: 4px; }
+.composer-overflow-list { display: flex; flex-direction: column; gap: 2px; }
+.composer-overflow-list .runtime-chip { width: 100%; }
 .runtime-chip {
   display: flex; align-items: center; gap: 6px; border: 0; border-radius: 7px; white-space: nowrap;
   background: transparent; color: var(--ink-3);
@@ -1137,7 +1146,6 @@ button > svg { pointer-events: none; }
 }
 .runtime-chip:hover { background: var(--raised); color: var(--ink); }
 .runtime-chip { font-family: var(--sans); font-size: 12.5px; }
-.composer-toolbar .spacer { flex: 1; }
 .attach-button {
   width: 32px; height: 32px; flex: none; display: grid; place-items: center;
   border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer;
@@ -2588,14 +2596,6 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   .composer-zone { padding-inline: 12px; }
   .conversation-column.conversation-start .conversation-start-content > .conversation-composer-host > .composer-zone { padding-inline: 0; }
   .composer-toolbar { gap: 4px; padding-inline: 8px; }
-  .composer-toolbar > .spacer { display: none; }
-  .composer-toolbar > .runtime-chip,
-  .composer-toolbar > .composer-runtime-menu-anchor { flex: 1 1 0; min-width: 0; }
-  .composer-toolbar > .runtime-chip,
-  .composer-toolbar > .composer-runtime-menu-anchor > .runtime-chip {
-    width: 100%; min-width: 0; overflow: hidden; padding-inline: 4px;
-    gap: 4px; text-overflow: ellipsis; white-space: nowrap;
-  }
 }
 
 @media (max-width: 560px), (pointer: coarse) {

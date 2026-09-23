@@ -95,7 +95,7 @@ export const runtimeControls: DesktopExtension = {
     });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: (app) => app.abort() });
     plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", run: (app) => {
-      const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut="composer.effort"]');
+      const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut~="composer.effort"]');
       if (control && !control.disabled) control.click();
       else app.notify("This thread's runtime sets its reasoning itself.");
     } });
