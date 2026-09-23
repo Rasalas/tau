@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { dedupeLegalComments } from "./vite.legal-comments";
 import { stripIconKeys } from "./vite.icon-keys";
+import { rendererBuild } from "./vite.renderer-build";
 
 /**
  * The browser client (`dist-web/`), served by a listening host at its own root.
@@ -11,8 +12,7 @@ import { stripIconKeys } from "./vite.icon-keys";
  */
 export default defineConfig(({ mode }) => ({
   plugins: [react(), stripIconKeys(), dedupeLegalComments()],
-  // The polyfill's 3 KB sat in the initial script behind a native call.
-  resolve: { alias: { "@ungap/structured-clone": fileURLToPath(new URL("src/renderer/components/structured-clone.ts", import.meta.url)) } },
+  resolve: rendererBuild.resolve,
   base: "/",
   build: {
     outDir: "dist-web",
@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: { input: fileURLToPath(new URL("index.web.html", import.meta.url)) },
     sourcemap: mode === "development" || process.env.TAU_SOURCEMAP === "true",
     minify: "esbuild",
+    target: rendererBuild.target,
+    cssTarget: rendererBuild.cssTarget,
     manifest: true,
   },
 }));
