@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HostExtensionContext, RuntimeExtensionFactory } from "tau/host-extension";
+import type { HostExtensionContext, HostMcpToolCall, HostMcpToolGate, RuntimeExtensionFactory } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createAccessHostExtension } from "./host.js";
 import { ACCESS_HOST_EXTENSION_ID, type AccessLevel } from "./protocol.js";
@@ -72,6 +72,51 @@ describe("Access Kit host extension", () => {
     await expect(toolCall("child", "edit")).resolves.toBeUndefined();
 
     await expect(stranger!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level", { threadId: "child", level: "full" })).rejects.toThrow();
+  });
+
+  it("gates Tau's tools over MCP with the same decision as Pi's, thread levels included", async () => {
+    const gates: HostMcpToolGate[] = [];
+    const registry = await activateHostKit(createAccessHostExtension(), {
+      log: vi.fn(),
+      registerRuntimeExtension: () => () => undefined,
+      setPermissionLevel: () => undefined,
+      mcp: {
+        registerTools: () => () => undefined,
+        gate: (gate) => { gates.push(gate); return () => { gates.splice(gates.indexOf(gate), 1); }; },
+        connect: async () => undefined,
+      },
+    });
+    let agents: HostExtensionContext | undefined;
+    await registry.activate({ id: "tau.agents", name: "Agents", activate: (context) => { agents = context; } });
+    const asked: string[] = [];
+    let approve = false;
+    const call = (toolName: string, threadId = "codex-thread") => gates[0]!({
+      threadId,
+      cwd: "/project",
+      toolName,
+      input: { threadId: "child-1" },
+      signal: new AbortController().signal,
+      confirm: async (title, message) => { asked.push(`${title} ${message}`); return approve; },
+    } satisfies HostMcpToolCall);
+
+    expect(gates).toHaveLength(1);
+    // Full access runs everything, as it does for Pi.
+    await expect(call("tau_apply_thread_changes")).resolves.toBeUndefined();
+
+    await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "ask" });
+    await expect(call("preview_snapshot")).resolves.toBeUndefined();
+    await expect(call("tau_apply_thread_changes")).resolves.toEqual({ block: true, reason: "Blocked by Tau: tau_apply_thread_changes was not approved." });
+    expect(asked).toEqual(["Approve tau_apply_thread_changes? Apply the changes of thread child-1"]);
+    approve = true;
+    await expect(call("tau_apply_thread_changes")).resolves.toBeUndefined();
+
+    await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "full" });
+    await agents!.invokeHostExtension(ACCESS_HOST_EXTENSION_ID, "thread-level", { threadId: "narrow", level: "read-only" });
+    await expect(call("tau_apply_thread_changes", "narrow")).resolves.toMatchObject({ block: true, reason: expect.stringContaining("read-only") });
+    await expect(call("tau_apply_thread_changes", "codex-thread")).resolves.toBeUndefined();
+
+    await registry.deactivate(ACCESS_HOST_EXTENSION_ID);
+    expect(gates).toEqual([]);
   });
 
   it("does not activate without the runtime permission its manifest declares", async () => {
