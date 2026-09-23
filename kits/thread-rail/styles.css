@@ -15,7 +15,7 @@
   color: var(--ink); animation: fade-up .14s ease;
 }
 .thread-rail-snooze > h2 {
-  margin: 0; font: 600 14px var(--sans);
+  margin: 0; font: 600 16px var(--sans);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .thread-rail-snooze > form { display: flex; flex-direction: column; gap: 14px; }

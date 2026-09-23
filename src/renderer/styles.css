@@ -1301,6 +1301,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
   background: var(--scrim);
   display: flex; justify-content: center; align-items: flex-start; padding-top: 64px;
 }
+.dialog-backdrop { align-items: center; padding: 24px; }
 .command-palette {
   width: 560px; max-width: calc(100vw - 48px);
   border: 1px solid var(--line-float); border-radius: 12px;
@@ -1504,7 +1505,7 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
 }
 .reload-conflict > header { display: flex; align-items: center; gap: 11px; padding: 15px 16px 13px; border-bottom: 1px solid var(--line); }
 .reload-conflict > header > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.reload-conflict > header h2 { margin: 0; font-size: 13.5px; }
+.reload-conflict > header h2 { margin: 0; font-size: 16px; font-weight: 600; }
 .reload-conflict > header small { color: var(--faint); font: 10px var(--mono); }
 .reload-conflict-mark {
   width: 27px; height: 27px; flex: none; display: grid; place-items: center;

@@ -19,7 +19,7 @@ function useEscape(onClose: () => void): void {
 }
 
 /**
- * A modal over a scrim: Tab stays inside it, Escape and a click on the scrim
+ * A modal over a scrim, centred in the window: Tab stays inside it, Escape and a click on the scrim
  * close it, and focus goes back to whatever had it when it opened. The first
  * field that asks for `autoFocus` gets focus, else the first control.
  */
@@ -39,7 +39,7 @@ export function Dialog({ label, className, onClose, children }: {
     (focusableElements(element)[0] ?? element).focus({ preventScroll: true });
   }, []);
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
+    <div className="palette-backdrop dialog-backdrop" onMouseDown={onClose}>
       <section
         ref={surface}
         className={className}
