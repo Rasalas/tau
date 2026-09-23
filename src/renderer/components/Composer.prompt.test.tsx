@@ -112,6 +112,44 @@ describe("prompt controls in the composer", () => {
     expect(onAnswerPrompt.mock.calls[1]).toEqual(["", true, [expect.objectContaining({ name: "second.png" })]]);
   });
 
+  it("answers the question a prompt still in flight asked, with its files", async () => {
+    const onAnswerPrompt = vi.fn();
+    // The prompt that runs the asking command settles only once the question is answered.
+    const onSubmit = vi.fn(() => new Promise<{ accepted: true }>(() => {}));
+    const scopeStore = new ComposerScopeStore();
+    const view = (prompt?: ExtensionUiPrompt) => (
+      <TestProviders>
+        <Composer
+          scopeStore={scopeStore}
+          snapshot={{ ...snapshot, isStreaming: false, supportsImageInput: true }}
+          {...(prompt ? { prompt } : {})}
+          queue={[]}
+          contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+          textareaRef={createRef<HTMLTextAreaElement>()}
+          onSubmit={onSubmit}
+          onAbort={() => {}}
+          onCancelQueued={() => {}}
+          onSteerQueued={() => {}}
+          onSetModel={() => {}}
+          onSetThinking={() => {}}
+          onAnswerPrompt={onAnswerPrompt}
+          onCompactContext={() => {}}
+        />
+      </TestProviders>
+    );
+    const { rerender } = render(view());
+    fireEvent.change(screen.getByPlaceholderText(/./u), { target: { value: "/ask" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+
+    rerender(view({ id: "why", sessionId: "session", kind: "input", title: "Why?" }));
+    fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [new File([new Uint8Array([137, 80, 78, 71])], "late.png", { type: "image/png" })] } });
+    await screen.findByRole("button", { name: "Preview late.png" });
+    fireEvent.change(screen.getByPlaceholderText(/Answer yourself/u), { target: { value: "Here" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
+    await waitFor(() => expect(onAnswerPrompt).toHaveBeenCalledWith("Here", true, [expect.objectContaining({ name: "late.png" })]));
+  });
+
   it("submits registered prompt actions from the composer button and on Enter", () => {
     const onSubmit = vi.fn();
     function CustomPrompt() {

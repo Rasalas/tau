@@ -568,7 +568,7 @@ export function Composer({
     ...(inlineTakesFiles ? { takeFiles } : {}),
   });
 
-  const { submit: submitPrompt } = useComposerSubmission({
+  const { submit: submitPrompt, answer: answerWithDraft } = useComposerSubmission({
     scopeStore,
     scope: attachmentScope,
     draftStorageKey,
@@ -596,7 +596,6 @@ export function Composer({
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean) => void>(() => {});
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false) => {
     if (held) return;
-    if (activeScopeSnapshot.submissionPending) return;
     const intent = classifyComposerInput({
       text,
       answerable: Boolean(answerable),
@@ -605,6 +604,8 @@ export function Composer({
       shellActionAvailable: onRunShellAction !== undefined,
       delivery,
     });
+    // An answer never waits for a prompt in flight: the prompt that asked may be the one still running.
+    if (activeScopeSnapshot.submissionPending && intent.kind !== "prompt-answer" && intent.kind !== "prompt-action") return;
     switch (intent.kind) {
       case "noop":
         return;
@@ -613,7 +614,7 @@ export function Composer({
         return;
       case "prompt-answer":
         if (answerHasFiles) {
-          submitPrompt(undefined, (answer, files) => onAnswerPrompt?.(answer, true, files));
+          answerWithDraft((answer, files) => onAnswerPrompt?.(answer, true, files));
           return;
         }
         onAnswerPrompt?.(intent.text, true);
@@ -641,6 +642,7 @@ export function Composer({
   }, [
     activeScopeSnapshot.submissionPending,
     answerHasFiles,
+    answerWithDraft,
     answerable,
     held,
     onAnswerPrompt,

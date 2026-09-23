@@ -140,7 +140,13 @@ export type ComposerAnswerSink = (text: string, attachments: UiPromptAttachment[
 
 export interface UseComposerSubmissionResult {
   /** Captures the current scope and starts its asynchronous host submission, or answers with it. */
-  submit(delivery?: ComposerDelivery, answer?: ComposerAnswerSink): void;
+  submit(delivery?: ComposerDelivery): void;
+  /**
+   * Hands the draft, its images and what the inline contributions add to
+   * `sink` as the answer to the open question, then clears them. It never waits
+   * for a prompt in flight: the prompt that asked may be the one still running.
+   */
+  answer(sink: ComposerAnswerSink): void;
 }
 
 /**
@@ -161,13 +167,13 @@ export function useComposerSubmission({
   recordPrompt,
   clearPreviewForScope,
 }: UseComposerSubmissionOptions): UseComposerSubmissionResult {
-  const submit = useCallback((delivery?: ComposerDelivery, answer?: ComposerAnswerSink) => {
+  const submit = useCallback((delivery?: ComposerDelivery) => {
     const submission = scopeStore.beginSubmission(scope);
     if ("busy" in submission) return;
 
     const sendSubmission = async (handle: SubmissionHandle) => {
       // A `/command` is not a prompt the context belongs to; it stays for the next one.
-      const isCommand = !answer && !selectedSkillDraft(handle.text, selectedSkill) && handle.text.trimStart().startsWith("/");
+      const isCommand = !selectedSkillDraft(handle.text, selectedSkill) && handle.text.trimStart().startsWith("/");
       let inline: InlineSend = { context: "", attachments: [], asked: [] };
       if (!isCommand && inlines.length > 0) {
         try {
@@ -233,10 +239,7 @@ export function useComposerSubmission({
       const { submittedText, skillDraft, promptToSend, attachmentsToSend } = prepared;
       let result: SubmissionResult;
       try {
-        if (answer) {
-          answer(promptToSend, attachmentsToSend);
-          result = { accepted: true };
-        } else result = skillDraft
+        result = skillDraft
           ? await onSubmit(promptToSend, attachmentsToSend, delivery, skillDraft)
           : delivery
             ? await onSubmit(promptToSend, attachmentsToSend, delivery)
@@ -255,7 +258,7 @@ export function useComposerSubmission({
           writeComposerDraft(clientStorage, scope, scopeStore.getSnapshot(scope).draft);
         }
         if (result.accepted) {
-          if (!answer) recordPrompt(submittedText);
+          recordPrompt(submittedText);
           clearPreviewForScope(scope);
         }
       } catch {
@@ -294,5 +297,35 @@ export function useComposerSubmission({
     selectedSkill,
   ]);
 
-  return { submit };
+  const answer = useCallback((sink: ComposerAnswerSink) => {
+    void (async () => {
+      await scopeStore.getSnapshot(scope).attachmentProcessing.catch(() => undefined);
+      const captured = scopeStore.getSnapshot(scope);
+      const ids = new Set(captured.attachments.map((attachment) => attachment.id));
+      const images: UiPromptAttachment[] = captured.attachments.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
+      let inline: InlineSend = { context: "", attachments: [], asked: [] };
+      if (inlines.length > 0) {
+        try {
+          inline = await collectInlineSend(inlines, {
+            scope,
+            fileAttachments: inlineContext?.fileAttachments ?? false,
+            imageInput: inlineContext?.imageInput ?? false,
+            ...(inlineContext?.snapshot ? { snapshot: inlineContext.snapshot } : {}),
+            text: captured.draft,
+          });
+        } catch (error) {
+          scopeStore.setAttachmentError(scope, errorMessage(error), scopeStore.getAttachmentGeneration(scope));
+          return;
+        }
+      }
+      sink(withInlineContext(captured.draft, inline.context).text, [...images, ...inline.attachments]);
+      settleInlineSend(inline.asked, scope, true);
+      scopeStore.setAttachments(scope, scopeStore.getSnapshot(scope).attachments.filter((attachment) => !ids.has(attachment.id)));
+      if (scopeStore.getSnapshot(scope).draft === captured.draft) scopeStore.setDraft(scope, "");
+      if (draftStorageKey !== undefined) writeComposerDraft(clientStorage, scope, scopeStore.getSnapshot(scope).draft);
+      clearPreviewForScope(scope);
+    })();
+  }, [clearPreviewForScope, clientStorage, draftStorageKey, inlineContext, inlines, scope, scopeStore]);
+
+  return { submit, answer };
 }
