@@ -56,7 +56,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",   "./attached-pi-session.js",   "./attached-runtime.js",
   "./attached-thread-backend.js",   "./backend-events.js",   "./bridge-snapshot.js",
   "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-tool-output.js",   "./client-turn-ledger.js",
-  "./cli-versions.js",   "./clone-source.js",   "./config-watcher.js",   "./dangling-tool-calls.js",   "./desktop-extensions.js",
+  "./cli-versions.js",   "./clone-source.js",   "./config-watcher.js",   "./dangling-tool-calls.js",   "./dependency-loader.js",   "./desktop-extensions.js",
   "./extension-bundle-server.js",   "./extension-grants.js",   "./extension-installer.js",
   "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
