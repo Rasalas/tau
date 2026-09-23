@@ -96,6 +96,7 @@ import { clientTranscript } from "./client-tool-output.js";
 import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
+import { isUnavailableBackend } from "./unavailable-thread-backend.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { ClientMessageTracker } from "./client-message-tracker.js";
 import type { ThreadProjection } from "./thread-projection.js";
@@ -1531,7 +1532,7 @@ export class PiHost {
     // A thread whose runtime is already live switches immediately and outside
     // the lifecycle queue: nothing is created, aborted or replaced.
     const live = this.ownedByPi(this.active) ? undefined : this.liveThreadForPath(path);
-    if (live) {
+    if (live && !isUnavailableBackend(live.backend)) {
       return this.lifecycle.runActivation("live-switch", async (activation) => {
         const startedAt = performance.now();
         if (!await this.activateThread(live, false, activation.epoch)) return this.staleActivationResult();
@@ -1556,6 +1557,9 @@ export class PiHost {
       this.attached.session.detach();
       await this.leaveWorkspaceFor(indexedSession?.projectPath ?? dirname(path));
       await this.threadLifecycle.beforeWorkspace(this.cwd);
+      // A thread that opened read-only tries its runtime again on every switch to it.
+      const unavailable = this.liveThreadForPath(path);
+      if (unavailable && isUnavailableBackend(unavailable.backend)) await this.threads.release(unavailable.threadId);
       const alreadyLive = this.liveThreadForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {

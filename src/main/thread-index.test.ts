@@ -167,6 +167,9 @@ describe("ThreadIndex", () => {
     await flush();
     expect(updates).toHaveLength(2);
     expect((updates[1] as { update: { shell: UiSession } }).update.shell.turnError).toBeUndefined();
+    index.setRuntimeError("a", "The CLI was not found.");
+    await flush();
+    expect(updates[2]).toMatchObject({ update: { shell: { runtimeError: "The CLI was not found." } } });
   });
 
   it("carries a project's new label into every shell of that project", async () => {

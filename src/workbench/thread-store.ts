@@ -62,6 +62,7 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.backendKind === right.backendKind &&
     left.interrupted === right.interrupted &&
     left.turnError === right.turnError &&
+    left.runtimeError === right.runtimeError &&
     left.modelProvider === right.modelProvider;
 }
 

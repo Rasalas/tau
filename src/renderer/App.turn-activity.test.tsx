@@ -590,3 +590,31 @@ describe("a failed turn", () => {
     await waitFor(() => expect(document.querySelector(".turn-error-line")).toBeNull());
   });
 });
+
+describe("a thread whose runtime did not start", () => {
+  it("shows the thread under a banner that says why and tries again on request", async () => {
+    const switchSession = vi.fn(async () => ({ version: 1 as const, updates: [] }));
+    const client = createFakeHostClient({
+      platform: "darwin",
+      switchSession,
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
+          sessions: [{ id: "session", path: "tau-external:codex:session", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1, runtimeError: "The Codex CLI was not found." }],
+        },
+        detail: { sessionId: "session", messages: [{ id: "u1", role: "user" as const, text: "Earlier work.", timestamp: 1 }], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0 },
+        project: { cwd: "/project" },
+      }),
+    });
+    setHostClient(client);
+    renderApp(client);
+
+    const banner = await screen.findByRole("alert");
+    expect(banner.textContent).toContain("The Codex CLI was not found.");
+    expect(screen.getByText("Earlier work.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(switchSession).toHaveBeenCalledWith("tau-external:codex:session"));
+  });
+});

@@ -77,6 +77,8 @@ export class ThreadIndex {
   private readonly interrupted = new Set<string>();
   /** Why a thread's last turn failed, until its next prompt. */
   private readonly turnErrors = new Map<string, string>();
+  /** Why a thread's runtime could not start, until it does. */
+  private readonly runtimeErrors = new Map<string, string>();
   private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
   private recoveryTimer?: ReturnType<typeof setInterval>;
   private readonly pendingShellUpdates = new Map<string, UiSession>();
@@ -365,8 +367,17 @@ export class ThreadIndex {
 
   /** The last turn of a thread failed (a message) or a new one began (undefined). */
   setTurnError(sessionId: string, message: string | undefined): void {
-    if (message === this.turnErrors.get(sessionId)) return;
-    if (message === undefined) this.turnErrors.delete(sessionId); else this.turnErrors.set(sessionId, message);
+    this.setMark(this.turnErrors, sessionId, message);
+  }
+
+  /** The thread's runtime could not start (a reason) or has started (undefined). */
+  setRuntimeError(sessionId: string, reason: string | undefined): void {
+    this.setMark(this.runtimeErrors, sessionId, reason);
+  }
+
+  private setMark(marks: Map<string, string>, sessionId: string, value: string | undefined): void {
+    if (value === marks.get(sessionId)) return;
+    if (value === undefined) marks.delete(sessionId); else marks.set(sessionId, value);
     const shell = this.byId(sessionId);
     if (shell) this.publishShellSoon(shell);
   }
@@ -380,6 +391,7 @@ export class ThreadIndex {
       projectDisplayPath: displayPath,
       ...(this.interrupted.has(session.id) ? { interrupted: true } : {}),
       ...(this.turnErrors.has(session.id) ? { turnError: this.turnErrors.get(session.id) } : {}),
+      ...(this.runtimeErrors.has(session.id) ? { runtimeError: this.runtimeErrors.get(session.id) } : {}),
     };
   }
 

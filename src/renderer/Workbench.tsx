@@ -24,6 +24,7 @@ import type { ClientProfile } from "../workbench/client-profile";
 import { ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
+import { ThreadRuntimeBanner } from "./components/ThreadRuntimeBanner";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import { useConversationActivities } from "./conversation-activities";
@@ -573,6 +574,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 />
                 <span className="title-spacer" />
               </header>
+              {snapshot?.sessionId ? <ThreadRuntimeBanner
+                sessionId={snapshot.sessionId}
+                onRetry={(path) => void actions.switchSession(path)}
+                onOpenProviders={() => actions.openSettings("providers")}
+              /> : null}
               <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} />
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
             </> : null}

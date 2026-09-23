@@ -462,6 +462,14 @@ button > svg { pointer-events: none; }
   flex: none; display: flex; align-items: center; gap: 12px;
   height: 52px; padding: 0 var(--space-7); border-bottom: 1px solid var(--line);
 }
+.thread-runtime-banner {
+  flex: none; display: flex; align-items: flex-start; gap: 10px; margin: 12px var(--space-7) 0; padding: 10px 12px;
+  border: 1px solid var(--danger-line); border-radius: 10px; background: var(--danger-bg); color: var(--fail-ink);
+}
+.thread-runtime-banner > svg { flex: none; margin-top: 2px; }
+.thread-runtime-banner > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.thread-runtime-banner p { margin: 2px 0; }
+.thread-runtime-banner span { color: var(--muted); font-size: 12px; }
 .thread-title-control { min-width: 0; }
 .thread-title-trigger {
   min-width: 0; max-width: min(560px, 48vw); display: flex; align-items: center; gap: 6px;

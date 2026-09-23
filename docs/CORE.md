@@ -12,6 +12,7 @@ Transcript
 - tool calls with live output, elapsed time and stop; presentation of a tool is an extension concern, its existence is not, and so is which rows fold: a failure never folds, and a batch a tool card claims (`registerToolCard`) is never folded, grouped or hidden
 - Pi extension dialogs: select, confirm, input, editor; notifications
 - bounded history paging
+- **a thread whose runtime does not start still opens**: when a backend's `open` fails (its CLI is missing, say), the thread opens read-only from what its provider keeps (`src/main/unavailable-thread-backend.ts`), its index entry carries `runtimeError`, and a banner above the transcript says why, with Try again (the next switch tries the runtime again) and Providers
 - **a failed turn says so where it happened**: the host keeps why a thread's last turn failed (`turnError` on its index entry, from Pi's error stop or a backend's `turn-settled` error) until the next prompt; the transcript ends with that error line and the rail row reads "Failed", beside the toast
 
 What a turn's rows are is derived, not decided in a component:
