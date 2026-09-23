@@ -18,6 +18,8 @@ export interface RuntimeInstanceSettingsOptions {
   driver: string;
   /** What the program is called: `Codex`. */
   label: string;
+  /** The executable's name on the PATH when an instance names none; the driver by default. */
+  executable?: string;
   /** The variable that names the default instance's executable and wins over the saved one. */
   commandVariable?: string;
   /** The variable that points the program at its home, set from an instance's `home`. */
@@ -111,7 +113,7 @@ export class RuntimeInstanceSettings {
     const fromEnv = id === DEFAULT_INSTANCE_ID && variable ? this.env[variable]?.trim() : undefined;
     if (fromEnv) return { command: fromEnv, source: "env" };
     const saved = this.get(id)?.command;
-    return saved ? { command: saved, source: "setting" } : { command: this.options.driver };
+    return saved ? { command: saved, source: "setting" } : { command: this.options.executable ?? this.options.driver };
   }
 
   /** The instance's home folder, expanded; undefined leaves the program's own. */
