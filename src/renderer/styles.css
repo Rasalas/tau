@@ -2602,16 +2602,18 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   .transcript-turn-navigation-preview { animation: none; }
 }
 
-/* Thinking blocks: collapsed by default, like Pi's terminal with Ctrl+T. */
-.message-thinking { margin: 2px 0 8px; }
+/* Thinking: one "Thought" row before the answer, folded in a focused transcript. */
+.message-thinking { margin: 0 0 8px; }
 .message-thinking > summary {
-  display: inline-flex; align-items: center; gap: 4px; cursor: pointer; list-style: none;
-  font-size: 12px; letter-spacing: 0.02em; color: var(--ink); opacity: 0.6; user-select: none;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 4px 0 2px; border-radius: 6px;
+  cursor: pointer; list-style: none; user-select: none; color: var(--muted); font: 13px var(--sans);
 }
+.message-thinking > summary:hover { background: var(--hover); color: var(--ink-2); }
 .message-thinking > summary::-webkit-details-marker { display: none; }
+.message-thinking > summary > svg { flex: none; opacity: .75; }
 .message-thinking > summary .chev { transition: transform 120ms ease; }
 .message-thinking[open] > summary .chev { transform: rotate(90deg); }
-.message-thinking-body { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-card); opacity: 0.85; font-size: 13px; }
+.message-thinking-body { margin: 4px 0 0 22px; max-height: 384px; overflow: auto; color: var(--ink-2); font-size: 13px; }
 .message-stamp { display: block; margin-top: 6px; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 /* Regions and status line: placement is core, content belongs to extensions. */
