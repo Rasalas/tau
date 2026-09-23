@@ -1,5 +1,6 @@
+import { Suspense, lazy } from "react";
 import { GitCompare } from "lucide-react";
-import { getClientStorage, type DesktopExtension } from "tau";
+import { getClientStorage, type DesktopExtension, type RegionProps } from "tau";
 import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
 import { ReviewCommentStore } from "./comments.js";
 import { createReviewOverlay } from "./overlay.js";
@@ -24,6 +25,16 @@ import { pullRequestClient } from "./pull-request-client.js";
 import { registerPullRequestTab } from "./pull-request-tab.js";
 import { requestClient, RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
+import type { StripParts } from "./pull-request-strip.js";
+
+// Evaluated on the first thread drawn, not when the kit activates.
+const PullRequestStrip = lazy(() => import("./pull-request-strip.js"));
+
+function createPullRequestStrip(parts: StripParts) {
+  return function PullRequestStripRegion(props: RegionProps) {
+    return <Suspense fallback={null}><PullRequestStrip {...props} parts={parts} /></Suspense>;
+  };
+}
 
 /**
  * Review Kit: the full review over the live worktree, the commit message the
@@ -57,7 +68,7 @@ export const reviewExtension: DesktopExtension = {
       order: 36,
       scope: "both",
       keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace",
-        "delete branch", "merge", "proactive panels",
+        "delete branch", "merge", "proactive panels", "composer", "strip",
         "git hosts", "github", "gitlab", "forgejo", "gitea", "codeberg", "bitbucket", "azure devops", "self-hosted", "tea", "az"],
       profiles: ["desktop", "web"],
       Component: createReviewSettingsPage(plugin.host),
@@ -71,6 +82,8 @@ export const reviewExtension: DesktopExtension = {
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
     const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared);
     const releaseProactive = plugin.registerRegion({ id: "review.proactive-panels", placement: "title-bar", profiles: ["desktop"], Component: createProactivePanels(plugin, links, () => workspaceStore) });
+    // Below the runtime banners, Pi's widgets and quick actions; above Thread Rail's settled note (90), which sits on the composer.
+    const releaseStrip = plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: ["desktop", "web"], Component: createPullRequestStrip({ rows, links, preferences: plugin.preferences }) });
     const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       workspaceStore = store;
       const disposers = [
@@ -87,7 +100,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseStore(); releaseProactive(); releaseTabs(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { releaseStore(); releaseStrip(); releaseProactive(); releaseTabs(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 
