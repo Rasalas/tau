@@ -96,4 +96,69 @@ describe("Keybindings desktop extension", () => {
       ["runtime.new-session", "mod+t", "!terminalFocus"],
     ]);
   });
+
+  it("lets an entry under the command id win over a Pi action that names the same command", async () => {
+    const invoke = vi.fn(async (_extensionId: string, command: string) => {
+      if (command === "pi-keybindings") return { bindings: {
+        "app.session.new": ["ctrl+n"],
+        "runtime.new-session": ["mod+t"],
+        "app.model.select": ["ctrl+l"],
+        // An empty list gives the command Tau's defaults, whatever Pi's entry says.
+        "runtime.model": [],
+      } };
+      if (command === "shortcuts") return { shortcuts: [] };
+      throw new Error(`unexpected ${command}`);
+    });
+    const { registry } = createKitHarness(invoke);
+    registry.activateCore({ id: "tau.runtime-settings", name: "Runtime Controls", activate(context) {
+      context.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
+      context.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
+    } });
+    registry.activate(keybindingsExtension);
+    await flush();
+    expect(registry.getKeybindings().map((binding) => [binding.commandId, binding.keys])).toEqual([
+      ["runtime.model", "mod+shift+m"],
+      ["runtime.new-session", "mod+t"],
+    ]);
+  });
+
+  it("offers keybindings.json to the Keybindings page, and rebinds before a write resolves", async () => {
+    let file: Record<string, string[]> = { "runtime.abort": ["ctrl+c"] };
+    const invoke = vi.fn(async (_extensionId: string, command: string, input?: unknown) => {
+      if (command === "pi-keybindings") return { bindings: file, path: "~/.pi/agent/keybindings.json" };
+      if (command === "shortcuts") return { shortcuts: [] };
+      if (command === "set-chords") {
+        const { commandId, chords } = input as { commandId: string; chords: Array<{ key: string }> | null };
+        file = { ...file };
+        if (chords) file[commandId] = chords.map((chord) => chord.key);
+        else delete file[commandId];
+        return undefined;
+      }
+      if (command === "reset-chords") { file = {}; return undefined; }
+      throw new Error(`unexpected ${command}`);
+    });
+    const { registry } = createKitHarness(invoke);
+    registry.activateCore({ id: "tau.runtime-settings", name: "Runtime Controls", activate(context) {
+      context.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
+    } });
+    expect(registry.getUserKeymap()).toBeUndefined();
+    registry.activate(keybindingsExtension);
+    await flush();
+    const keymap = registry.getUserKeymap();
+    expect(keymap?.label).toBe("~/.pi/agent/keybindings.json");
+    const chords = () => registry.getKeybindings().map((binding) => binding.keys);
+
+    await keymap!.setChords("runtime.abort", [{ key: "mod+." }]);
+    expect(invoke).toHaveBeenCalledWith(KEYBINDINGS_HOST_EXTENSION_ID, "set-chords", { commandId: "runtime.abort", chords: [{ key: "mod+." }] });
+    expect(chords()).toEqual(["mod+."]);
+    await keymap!.setChords("runtime.abort", undefined);
+    expect(invoke).toHaveBeenCalledWith(KEYBINDINGS_HOST_EXTENSION_ID, "set-chords", { commandId: "runtime.abort", chords: null });
+    expect(chords()).toEqual(["escape"]);
+    file = { "runtime.abort": ["ctrl+c"] };
+    await keymap!.resetAll();
+    expect(chords()).toEqual(["escape"]);
+
+    registry.deactivate("tau.keybindings");
+    expect(registry.getUserKeymap()).toBeUndefined();
+  });
 });
