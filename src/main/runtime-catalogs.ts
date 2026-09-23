@@ -10,7 +10,8 @@ import type { HostCatalogModel, HostRuntimeNewThreadCatalog } from "./host-exten
 import type { ModelPriceBook } from "./model-price-book.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
-const VERSION = 1;
+/** 2 keeps `apiModelId`; a version-1 answer is served but asked again as if old. */
+const VERSION = 2;
 /** A client that opens a picker gets an answer this old as it is; an older one is asked again behind it. */
 const FRESH_MS = 10 * 60_000;
 /** At start an answer from disk younger than this stands; the programs are not started for it. */
@@ -229,7 +230,8 @@ export class RuntimeCatalogs {
       ...(this.options.logger ? { logger: this.options.logger } : {}),
     }).then((read) => {
       // An answer that came in while the file was read is newer than the file.
-      for (const { catalog, askedAt } of read?.data ?? []) if (!this.held.has(catalog.kind)) this.held.set(catalog.kind, { catalog, askedAt });
+      const outdated = (read?.version ?? VERSION) < VERSION;
+      for (const { catalog, askedAt } of read?.data ?? []) if (!this.held.has(catalog.kind)) this.held.set(catalog.kind, { catalog, askedAt: outdated ? 0 : askedAt });
     }, () => undefined);
   }
 
