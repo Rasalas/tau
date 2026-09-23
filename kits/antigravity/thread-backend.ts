@@ -1,4 +1,3 @@
-import { pathToFileURL } from "node:url";
 import {
   clientMessageFingerprint,
   knownSkillNames,
@@ -21,13 +20,13 @@ import {
   type UiContextUsage,
   type UiMessage,
   type UiModel,
-  type UiPromptAttachment,
   type UiSkillDraft,
   type UiThreadUsage,
 } from "tau/host-extension";
-import type { AcpContentBlock, AcpElicitationAnswer, AcpElicitationRequest, AcpInitializeResult, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "./acp-session.js";
+import { AcpTurnTranslator, addUsage, type AcpCommand, type AcpPromptResponse, type AcpSessionUpdate } from "../_acp/events.js";
+import type { AcpContentBlock, AcpElicitationAnswer, AcpElicitationRequest, AcpInitializeResult, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "../_acp/session.js";
+import { activityHistory, derivedTitle, imagesOf, promptBlocks } from "../_acp/thread.js";
 import { answerElicitation, modeForLevel, permissionDialog } from "./approvals.js";
-import { AcpTurnTranslator, addUsage, type AcpCommand, type AcpPromptResponse, type AcpSessionUpdate } from "./events.js";
 import type { AuthorizationLink } from "./profile.js";
 import type { AntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
@@ -100,34 +99,7 @@ interface Turn {
 export const MODEL_PROVIDER = "google";
 const RESUME_MISSING = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid|expired)|(?:no|cannot|could not)\s+(?:find\s+|load\s+|resume\s+)?(?:the\s+)?(?:session|conversation)/iu;
 
-function derivedTitle(text: string): string | undefined {
-  const firstLine = text.split(/\r?\n/u).find((line) => line.trim())?.trim() ?? "";
-  const title = firstLine.replace(/(?:\*\*|__|~~|`)+/gu, "").replace(/[.!?:;]+$/u, "").trim();
-  return title ? title.slice(0, 80) : undefined;
-}
-
-/**
- * Text first, then images as native content and files as links the agent
- * opens itself; the agent reads a slash command from the leading text.
- */
-export function promptBlocks(text: string, attachments: readonly UiPromptAttachment[] | undefined): AcpContentBlock[] {
-  const blocks: AcpContentBlock[] = text.trim() ? [{ type: "text", text }] : [];
-  for (const attachment of attachments ?? []) {
-    blocks.push(attachment.kind === "image"
-      ? { type: "image", data: attachment.data, mimeType: attachment.mimeType }
-      : { type: "resource_link", uri: pathToFileURL(attachment.path).href, name: attachment.name, mimeType: attachment.mimeType });
-  }
-  return blocks;
-}
-
-/** The capability over the kit's store; the agent's own history is not read back. */
-function activityHistory(threadId: string, store: TurnActivityStore | undefined): Pick<ThreadBackendCapabilities, "activityHistory"> {
-  return store ? { activityHistory: { load: () => store.load(threadId), save: (entry) => store.save(threadId, entry) } } : {};
-}
-
-function imagesOf(attachments: readonly UiPromptAttachment[] | undefined): Array<{ mimeType: string; data: string }> {
-  return (attachments ?? []).flatMap((attachment) => attachment.kind === "image" ? [{ mimeType: attachment.mimeType, data: attachment.data }] : []);
-}
+export { promptBlocks };
 
 /**
  * Antigravity's complete thread owner: one ACP session per live thread,
@@ -307,7 +279,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
     const blocks = promptBlocks(prepared.runtimeText, input.attachments);
     let finish!: () => void;
     const done = new Promise<void>((resolve) => { finish = resolve; });
-    const turn: Turn = { translator: new AcpTurnTranslator(this.now), text: prepared.visibleText, blocks, done, finish };
+    const turn: Turn = { translator: new AcpTurnTranslator(this.now, "antigravity"), text: prepared.visibleText, blocks, done, finish };
     if (input.delivery === "steer" && this.turns.length > 0) {
       // A steer takes the running turn's place: the agent stops, then hears the new text.
       const running = this.turns[0]!;
@@ -453,7 +425,7 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
   private onUpdate(update: AcpSessionUpdate): void {
     const turn = this.turns[0];
     if (!turn) {
-      const probe = new AcpTurnTranslator(this.now);
+      const probe = new AcpTurnTranslator(this.now, "antigravity");
       probe.push(update);
       this.noteFacts(probe);
       return;

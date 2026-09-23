@@ -96,7 +96,7 @@ function textOfContent(content: AcpToolCallContent[] | null | undefined): string
   return parts.join("\n");
 }
 
-/** Google's native field names on the raw payloads; the ACP fields come first. */
+/** Native field names agents put on raw payloads (Google's among them); the ACP fields come first. */
 function textOfRawOutput(raw: unknown): string {
   if (typeof raw === "string") return raw;
   if (!raw || typeof raw !== "object") return "";
@@ -122,7 +122,8 @@ export class AcpTurnTranslator {
   private readonly texts: string[] = [];
   private segments = 0;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  /** `idPrefix` names the assistant messages: `antigravity-assistant-…`. */
+  constructor(private readonly now: () => number = Date.now, private readonly idPrefix = "acp") {}
 
   static emptyUsage(): UiThreadUsage { return { ...EMPTY_USAGE }; }
 
@@ -189,7 +190,7 @@ export class AcpTurnTranslator {
     const events: ThreadRuntimeEvent[] = [];
     if (!this.segment) {
       this.segments += 1;
-      this.segment = { id: `antigravity-assistant-${this.now()}-${this.segments}`, text: "", thinking: "", timestamp: this.now() };
+      this.segment = { id: `${this.idPrefix}-assistant-${this.now()}-${this.segments}`, text: "", thinking: "", timestamp: this.now() };
       events.push({ type: "assistant-start", id: this.segment.id, timestamp: this.segment.timestamp });
     }
     this.segment[field] += text;

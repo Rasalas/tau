@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TurnActivityStore, type ThreadRuntimeEvent, type UiMessage, type UiToolRun } from "tau/host-extension";
 import type { AcpContentBlock, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "./acp-session.js";
-import type { AcpPromptResponse, AcpSessionUpdate } from "./events.js";
+import type { AcpPromptResponse, AcpSessionUpdate } from "../_acp/events.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
 import { AntigravityThreadRuntimeBackend, promptBlocks, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
-import { until } from "./acp-fake.js";
+import { until } from "../_acp/fake.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });

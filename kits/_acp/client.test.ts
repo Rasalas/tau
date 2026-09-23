@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { AcpClient, AcpRequestError, lineSplitter } from "./acp-client.js";
-import { fakeAgent, until } from "./acp-fake.js";
+import { AcpClient, AcpRequestError, lineSplitter } from "./client.js";
+import { fakeAgent, until } from "./fake.js";
 
 describe("AcpClient", () => {
   it("sends requests with ids and notifications without, and matches answers", async () => {

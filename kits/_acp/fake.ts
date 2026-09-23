@@ -1,5 +1,5 @@
 import { PassThrough } from "node:stream";
-import type { AcpProcess } from "./acp-client.js";
+import type { AcpProcess } from "./client.js";
 
 /**
  * A fake agent process for tests: Tau writes to `stdin`, the script answers

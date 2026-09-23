@@ -38,8 +38,8 @@ function specifiers(path: string): string[] {
 
 const isTest = (path: string) => /\.test\.[cm]?[jt]sx?$/u.test(path);
 
-/** Folder names under `kits/`; `package.json` and `README.md` are not kits. */
-const kitDirectories = () => readdirSync("kits").sort().filter((name) => statSync(join("kits", name)).isDirectory());
+/** Folder names under `kits/`; `package.json`, `README.md` and `_`-folders the kits share are not kits. */
+const kitDirectories = () => readdirSync("kits").sort().filter((name) => !name.startsWith("_") && statSync(join("kits", name)).isDirectory());
 
 describe("kits boundary", () => {
   it("a kit names no Tau module but the three API modules", () => {
