@@ -42,4 +42,6 @@ export interface ClaudeStatusReport {
   signedIn?: boolean;
   /** Who it is signed in as, for Onboarding's line. */
   account?: string;
+  /** The installed release, from `--version`. */
+  version?: string;
 }

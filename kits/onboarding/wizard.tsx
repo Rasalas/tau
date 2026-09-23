@@ -158,6 +158,9 @@ function AgentCard({ row, actions, flow, runner }: { row: AgentRow; actions: Wor
   const label = inPlace || (row.command && row.state === "signIn") ? "Sign in" : !row.command ? "Open Settings" : row.state === "install" ? "Install" : row.state === "update" ? "Update" : "Sign in";
   const act = () => row.command || inPlace ? setOpen(!open) : actions.openSettings(row.settings);
   const run = runner?.();
+  const place = useRef<HTMLDivElement>(null);
+  // The list scrolls; a row near its end would open its sign-in below the fold.
+  useEffect(() => { if (open) place.current?.scrollIntoView?.({ block: "nearest" }); }, [open]);
   return (
     <div className="onboarding-card-wrap">
       <div className="onboarding-card" data-state={row.state}>
@@ -171,7 +174,7 @@ function AgentCard({ row, actions, flow, runner }: { row: AgentRow; actions: Wor
       </div>
       {open && row.command ? <CommandBlock command={row.command} actions={actions} /> : null}
       {open && row.signIn && flow ? (
-        <div className="onboarding-sign-in">
+        <div className="onboarding-sign-in" ref={place}>
           <Suspense fallback={null}>
             <SignIn
               host={flow.kitHost(row.signIn.extensionId)}

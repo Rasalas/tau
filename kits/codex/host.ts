@@ -377,7 +377,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           newThreadCatalog: async () => {
             if (!locate(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The Codex CLI "${codexCommand(id)}" is not installed.` };
             const probe = await runProbe(id);
-            if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: "Codex is not signed in. Run codex login, then open the picker again." };
+            if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
             const models = probe.models.map(storedModel);
             await store.setModels(models, id).catch(() => undefined);
             return codexNewThreadCatalog(models, await readCodexConfiguredModel(home()), codexBilling(probe.account));

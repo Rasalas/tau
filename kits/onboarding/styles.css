@@ -181,3 +181,4 @@ fieldset:disabled .onboarding-row { cursor: default; opacity: .7; }
 /* A runtime's own sign-in, opened under its row (the rows core lends with `loadSignInUi`). */
 .onboarding-sign-in { padding: 2px 12px 12px; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--stage); }
 .onboarding-sign-in .sign-in { max-width: none; }
+.onboarding-sign-in .settings-note { margin-top: 10px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; line-height: 1.5; }

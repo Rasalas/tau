@@ -292,6 +292,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         const account = claudeAuthAccount(auth);
         return {
           ...(auth ? { signedIn: auth.loggedIn, ...(account.label ? { account: account.label } : {}) } : {}),
+          ...(version?.installed ? { version: version.installed } : {}),
           kind: settings.kind(id),
           ...(id === DEFAULT_INSTANCE_ID ? {} : { instance: id }),
           command,

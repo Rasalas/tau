@@ -202,8 +202,8 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
     <>
       <p className="settings-note">
         Gemini through Google's own agent. Tau downloads Google's Antigravity server, checks it against the release it
-        expects, and runs it with your Google account. The sign-in happens in that server, in your browser; Tau never
-        sees a token.
+        expects, and runs it with the sign-in you choose below. A Google sign-in happens in that server, in your
+        browser; Tau never sees a token.
       </p>
 
       <div className="settings-label">Runtime</div>

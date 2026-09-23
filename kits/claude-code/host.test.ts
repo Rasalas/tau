@@ -121,7 +121,7 @@ describe("Claude Code host half", () => {
     const { registry } = await harness((name) => name === cli ? cli : undefined);
     await expect(registry.invoke("tau.claude-code", "set-command", { command: join(directory, "nothing") })).rejects.toThrow("No executable");
     await expect(registry.invoke("tau.claude-code", "set-command", { command: cli })).resolves.toEqual({ command: cli });
-    await expect(registry.invoke("tau.claude-code", "status")).resolves.toEqual({ kind: "claude-code", command: cli, path: cli, commandSource: "setting" });
+    await expect(registry.invoke("tau.claude-code", "status")).resolves.toEqual({ kind: "claude-code", command: cli, path: cli, commandSource: "setting", version: "2.1.280" });
   });
 
   it("hands each thread's running total to the Usage kit and to no other kit", async () => {

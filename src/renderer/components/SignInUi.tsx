@@ -230,7 +230,7 @@ export function SignInSetup({ host, target, program, heading = "Account", runInT
       ) : null}
       {confirming ? (
         <div className="sign-in-row" role="alert">
-          <span>Sign out of {program}{account?.label ? ` (${account.label})` : ""}? Threads on it stop working until you sign in again; their history stays.</span>
+          <span>Sign out of {program}{account?.label && account.label !== program ? ` (${account.label})` : ""}? Threads on it stop working until you sign in again; their history stays.</span>
           <button type="button" className="sign-in-button" onClick={() => setConfirming(false)}>Keep</button>
           <button type="button" className="sign-in-button danger" onClick={signOut}>Sign out</button>
         </div>

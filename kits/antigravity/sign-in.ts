@@ -124,7 +124,7 @@ export function callbackAddress(pasted: string, link: AuthorizationLink): string
     throw new Error("That is not the address of the page Google sent you to.");
   }
   if (url.origin !== new URL(link.redirectUri).origin) throw new Error(`Paste the address that starts with ${link.redirectUri}.`);
-  if (url.searchParams.get("state") !== link.state) throw new Error("That address belongs to another sign-in. Start again.");
+  if (url.searchParams.get("state") !== link.state) throw new Error("That address belongs to another sign-in.");
   if (!url.searchParams.get("code") && !url.searchParams.get("error")) throw new Error("That address carries no answer from Google.");
   return url.toString();
 }
