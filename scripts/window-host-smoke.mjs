@@ -140,6 +140,9 @@ try {
   const first = createClient(running.url, running.token);
   await first.opened;
   await first.hello();
+  // A window asks for its themes and kit bundles beside its bootstrap, not after it.
+  await first.request("list-user-themes", [workspace]);
+  step("a call before the bootstrap waited for the host to start");
   await first.request("bootstrap");
   await first.request("rename-thread", ["Survived the window"]);
   step("a client worked in it", "bootstrap and a renamed thread");

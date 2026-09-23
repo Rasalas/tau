@@ -121,7 +121,7 @@ export interface HostMethodDeps {
   clientCalls?: { settle(callId: string, result: unknown, error?: string): void };
   /** Starts the host on the first call; later calls read what is already running. */
   bootstrap(): Promise<HostBootstrap>;
-  /** Resolves once the host finished starting. */
+  /** Resolves once the host finished starting; it never asks for a bootstrap first. */
   requireHost(): Promise<PiHost>;
   /** The host as it is, for calls that must not queue behind readiness. */
   host(): PiHost | undefined;

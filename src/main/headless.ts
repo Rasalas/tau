@@ -23,6 +23,7 @@ import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { PiHost } from "./pi-host.js";
+import { HostStart } from "./host-start.js";
 import { ClientCalls } from "./client-calls.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
@@ -80,51 +81,39 @@ async function main(): Promise<void> {
   const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
   await projectHistory.load();
 
-  let host: PiHost | undefined;
-  let ready: Promise<unknown> | undefined;
   /** The socket transport reports its clients here; the host publishes the count. */
   const clients = new HostClientRegistry();
+  const started = new HostStart(() => {
+    primeOpenCodeCatalog();
+    return new PiHost(workspace, publish, projectHistory, safeMode, false, {
+      defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
+      hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
+      hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
+        versions,
+        cacheDir: join(userData, "host-extensions"),
+      }),
+      logger: hostLog,
+      workspaceIdentity,
+      clients,
+      appPath: appRoot,
+      kitStateDir: join(userData, "kit-state"),
+      turnsInFlightPath: join(userData, "turns-in-flight.json"),
+      threadTrashDir: join(userData, "thread-trash"),
+      // A window half of a kit lives in the client's process; this is the
+      // only way a host without a window of its own reaches one. The folder
+      // picker is the window's own, asked for the same way.
+      platform: {
+        callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input),
+        pickDirectory: async (options) =>
+          await clientCalls.call(WINDOW_SERVICES_ID, "pick-directory", options, 10 * 60_000) as string | undefined,
+      },
+      sessionUsageCachePath: join(userData, "session-usage.json"),
+      sessionLineageCachePath: join(userData, "session-lineage.json"),
+    });
+  });
   const methods = createHostMethods({
     clientCalls,
-    bootstrap: async () => {
-      if (!host) {
-        primeOpenCodeCatalog();
-        host = new PiHost(workspace, publish, projectHistory, safeMode, false, {
-          defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
-          hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
-          hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
-            versions,
-            cacheDir: join(userData, "host-extensions"),
-          }),
-          logger: hostLog,
-          workspaceIdentity,
-          clients,
-          appPath: appRoot,
-          kitStateDir: join(userData, "kit-state"),
-          turnsInFlightPath: join(userData, "turns-in-flight.json"),
-          threadTrashDir: join(userData, "thread-trash"),
-          // A window half of a kit lives in the client's process; this is the
-          // only way a host without a window of its own reaches one. The folder
-          // picker is the window's own, asked for the same way.
-          platform: {
-            callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input),
-            pickDirectory: async (options) =>
-              await clientCalls.call(WINDOW_SERVICES_ID, "pick-directory", options, 10 * 60_000) as string | undefined,
-          },
-          sessionUsageCachePath: join(userData, "session-usage.json"),
-          sessionLineageCachePath: join(userData, "session-lineage.json"),
-        });
-        ready = host.start();
-      }
-      await ready;
-      return host.bootstrap();
-    },
-    requireHost: async () => {
-      if (!host) throw new Error("The host has not started yet; call bootstrap first.");
-      await ready;
-      return host;
-    },
-    host: () => host,
+    ...started.methodDeps(),
     jobs,
     platform: {
       // A headless host has no clipboard, no window and no build of its own.
@@ -162,7 +151,7 @@ async function main(): Promise<void> {
     void (async () => {
       clientCalls.dispose();
       await socket?.close();
-      await host?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
+      await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
       process.exit(0);
     })();
   };
