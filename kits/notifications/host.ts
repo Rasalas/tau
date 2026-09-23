@@ -5,6 +5,7 @@ import {
   NOTIFICATIONS_EXTENSION_ID,
   NOTIFY_EVENT,
   PRESENCE_REQUEST_EVENT,
+  promptReason,
   type AttentionReason,
   type PresenceInput,
   type PresenceReply,
@@ -61,7 +62,7 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
         services.registerTurnObserver({
           ended: async (sessionId, _turnId, outcome) => raise(sessionId, outcome === "failed" ? "failed" : "completed"),
         }),
-        services.decorateUiPrompt((prompt) => raise(prompt.sessionId, "question")),
+        services.decorateUiPrompt((prompt) => raise(prompt.sessionId, promptReason(prompt))),
         services.registerThreadLifecycle({ threadDeleted: async (sessionId) => publish(book.drop(sessionId)) }),
         services.clients.observe({
           detached: () => {

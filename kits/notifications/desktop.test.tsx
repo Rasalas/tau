@@ -109,6 +109,8 @@ describe("Notifications on the desktop", () => {
     expect(attention.notify).not.toHaveBeenCalled();
     expect(oscillators).toHaveLength(1);
     expect(screen.getByText("Waiting for your answer")).toBeTruthy();
+    // The rail's status mark for the reason, as T3 Code draws it.
+    expect(document.querySelector('.notifications-toast[data-reason="question"] > svg')?.getAttribute("class")).toContain("lucide-message-circle-question-mark");
     fireEvent.click(screen.getByText("Open"));
     expect(actions.switchSession).toHaveBeenCalledWith("/sessions/t1.jsonl");
     expect(screen.queryByText("Waiting for your answer")).toBeNull();

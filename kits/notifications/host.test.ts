@@ -53,13 +53,17 @@ describe("the notifications host half", () => {
     expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1" }] });
   });
 
-  it("reports a failed turn and a question as what they are", async () => {
+  it("reports a failed turn, a permission and a question as what they are", async () => {
     const { observers, decorators, presence, named, tick } = await harness();
     await presence({ clientKey: "window", focused: false });
     await observers[0]!.ended!("t1", "turn-1", "failed");
     tick(10_000);
     decorators[0]!({ id: "q1", sessionId: "t1", kind: "confirm", title: "Run rm?" });
-    expect(named(NOTIFY_EVENT).map((payload) => (payload as { items: Array<{ reason: string }> }).items[0]?.reason)).toEqual(["failed", "question"]);
+    tick(10_000);
+    decorators[0]!({ id: "q2", sessionId: "t1", kind: "select", title: "Codex wants to run a command", options: ["Allow", "Allow for this session", "Deny"] });
+    tick(10_000);
+    decorators[0]!({ id: "q3", sessionId: "t1", kind: "select", title: "Which file?", options: ["a.ts", "b.ts"] });
+    expect(named(NOTIFY_EVENT).map((payload) => (payload as { items: Array<{ reason: string }> }).items[0]?.reason)).toEqual(["failed", "approval", "approval", "question"]);
   });
 
   it("counts nothing for a thread a focused client shows, and ignores a sub-agent", async () => {
