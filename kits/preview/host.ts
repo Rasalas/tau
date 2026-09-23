@@ -827,12 +827,18 @@ export function createPreviewHostExtension(createSurface: PreviewSurfaceFactory 
       context.registerCommand("profiles", () => controller.profileList());
       context.registerCommand("use-profile", (input) => controller.useProfile(field(input, "name")));
 
+      const tools = previewTools(controller);
       const factory: RuntimeExtensionFactory = (pi, session) => {
         controller.noteWorkspace(session.cwd);
-        for (const tool of previewTools(controller)) pi.registerTool(tool);
+        for (const tool of tools) pi.registerTool(tool);
       };
       const release = context.services.registerRuntimeExtension("tau-preview", factory);
-      return () => { release(); controller.dispose(); };
+      // The same tools for the runtimes that are not Pi; the calling thread's workspace gates `file://`.
+      const releaseMcp = context.services.mcp.registerTools((thread) => {
+        controller.noteWorkspace(thread.cwd);
+        return tools;
+      });
+      return () => { release(); releaseMcp(); controller.dispose(); };
     },
   };
 }
