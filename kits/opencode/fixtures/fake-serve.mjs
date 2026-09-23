@@ -29,4 +29,4 @@ server.listen(0, "127.0.0.1", () => {
   process.stderr.write("Warning: something on stderr first\n");
   process.stdout.write(`opencode server listening on http://127.0.0.1:${server.address().port}\n`);
 });
-process.on("SIGTERM", () => process.exit(0));
+process.on("SIGTERM", () => { if (!process.env.FAKE_IGNORE_TERM) process.exit(0); });

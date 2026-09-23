@@ -34,6 +34,12 @@ describe("a local OpenCode server", () => {
       .rejects.toThrow(/exited with code 3[\s\S]*database is locked/u);
   });
 
+  it("kills a server that ignores SIGTERM once the grace is over", async () => {
+    const server = await startOpenCodeServer({ command: FAKE, cwd: process.cwd(), env: { ...process.env, FAKE_IGNORE_TERM: "1" }, closeGraceMs: 50 });
+    await server.close();
+    await expect(server.client.health()).rejects.toThrow();
+  });
+
   it("keeps a config it cannot read out of the merge", () => {
     expect(mergedConfigContent("not json", { a: 1 })).toBe('{"a":1}');
     expect(mergedConfigContent('{"a":1}', undefined)).toBe('{"a":1}');

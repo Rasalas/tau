@@ -29,11 +29,15 @@ export interface OpenCodeServeInput {
   onExit?(error: Error | undefined): void;
   onStderrLine?(line: string): void;
   timeoutMs?: number;
+  /** How long `close` waits after SIGTERM before it kills. */
+  closeGraceMs?: number;
   fetch?: typeof globalThis.fetch;
 }
 
 const READY = /opencode server listening on (https?:\/\/\S+)/u;
 const OUTPUT_TAIL = 8 * 1024;
+/** A server still at work may ignore SIGTERM for seconds; after this it is killed. */
+const CLOSE_GRACE_MS = 2_000;
 
 /** The user's own `OPENCODE_CONFIG_CONTENT`, with Tau's keys laid over it one level deep. */
 export function mergedConfigContent(existing: string | undefined, config: Record<string, unknown> | undefined): string | undefined {
@@ -77,6 +81,7 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
   let output = "";
   let closedByTau = false;
   let exited = false;
+  const exit = new Promise<void>((resolve) => { child.once("close", () => resolve()); child.once("error", () => resolve()); });
   const tail = (chunk: string) => { output = `${output}${chunk}`.slice(-OUTPUT_TAIL); };
 
   return new Promise<OpenCodeServerHandle>((resolve, reject) => {
@@ -116,9 +121,12 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
         client,
         get closed() { return exited || closedByTau; },
         close: async () => {
-          if (closedByTau) return;
+          if (closedByTau) return exit;
           closedByTau = true;
           stop();
+          const timer = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), input.closeGraceMs ?? CLOSE_GRACE_MS).unref?.());
+          if (!await Promise.race([exit.then(() => true), timer]) && child.pid !== undefined) killProcessTree(child.pid, "SIGKILL");
+          await exit;
         },
       });
     });
