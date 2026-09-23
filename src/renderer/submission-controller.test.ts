@@ -40,6 +40,7 @@ function harness(options: {
   slash?: ReturnType<ExtensionRegistry["findSlashCommand"]>;
   prepareNewThread?: ExtensionRegistry["prepareNewThread"];
   claimNewThread?: ExtensionRegistry["claimNewThread"];
+  newThreadRuntime?: string;
 } = {}) {
   const client = createFakeHostClient(options.client);
   const view = new ThreadViewStore(options.snapshot ?? SESSION_SNAPSHOT);
@@ -141,7 +142,7 @@ function harness(options: {
     scopes,
     registry,
     storage,
-    preferences: new PreferencesStore(),
+    preferences: (() => { const preferences = new PreferencesStore(); if (options.newThreadRuntime) preferences.setNewThreadRuntime(options.newThreadRuntime); return preferences; })(),
     hostSession,
     notify: (message) => view.setNotice(message),
     actions: () => actions,
@@ -326,6 +327,29 @@ describe("SubmissionController", () => {
     expect(client.calls.find((call) => call.method === "newSession")?.args[5]).toEqual({
       model: { provider: "opencode-go", id: "deepseek-flash" },
     });
+  });
+
+  it("starts a thread on another runtime with the model and level the draft chose from that runtime's catalog, and never with a Pi choice", async () => {
+    const backends = [{ kind: "pi", label: "Pi" }, { kind: "codex@work", label: "Codex · Work" }];
+    const created = async () => ({ version: 1 as const, submission: { accepted: true as const }, sessionId: "created", updates: [] });
+    const chosen = harness({
+      pending: { ...DRAFT, model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }, thinkingLevel: "low", selectionRuntime: "codex@work" },
+      snapshot: { ...SESSION_SNAPSHOT, backendKind: "pi", runtimeBackends: backends } as HostSnapshot,
+      newThreadRuntime: "codex@work",
+      client: { newSession: created },
+    });
+    await chosen.submission.submit({ text: "one word" });
+    expect(chosen.client.calls.find((call) => call.method === "newSession")?.args[5]).toEqual({ model: { provider: "openai", id: "gpt-5.6-luna" }, thinkingLevel: "low" });
+
+    // A model picked for Pi stays with Pi: the Codex thread starts on its own default.
+    const piChoice = harness({
+      pending: { ...DRAFT, model: { provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" }, thinkingLevel: "high" },
+      snapshot: { ...SESSION_SNAPSHOT, backendKind: "pi", runtimeBackends: backends } as HostSnapshot,
+      newThreadRuntime: "codex@work",
+      client: { newSession: created },
+    });
+    await piChoice.submission.submit({ text: "one word" });
+    expect(piChoice.client.calls.find((call) => call.method === "newSession")?.args[5]).toBeUndefined();
   });
 
   it("sends a new thread's first prompt to the workspace a gate named, and stays put when none does", async () => {

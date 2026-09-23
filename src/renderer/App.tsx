@@ -28,6 +28,9 @@ import { useClientEnvironment } from "./client-environment";
 import { useLayoutProfile } from "./use-layout-profile";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
+import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { useRuntimeCatalog } from "./use-runtime-catalog";
+import { draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
 import { useStageTabs } from "./stage-tab-controller";
@@ -422,12 +425,19 @@ export default function App() {
 
   const { reloadWorkbench, reloadUi } = useWorkbenchReload({ client, requireHost, addEvent, setNotice });
 
+  // A draft keeps its choice for the runtime it will run on, whatever thread is on screen.
+  const draftRuntime = useCallback(() => effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, viewStore.getSnapshot()), [preferences, viewStore]);
   const setComposerModel = useCallback(
     (provider: string, id: string) => newThreadController.setModel(
       provider, id, threadCommands.setModel,
       (p, mid) => viewStore.getSnapshot()?.models.find((m) => m.provider === p && m.id === mid)?.name,
+      draftRuntime(),
     ),
-    [newThreadController, threadCommands, viewStore],
+    [draftRuntime, newThreadController, threadCommands, viewStore],
+  );
+  const setComposerThinking = useCallback(
+    (level: string) => newThreadController.setThinking(level, threadCommands.setThinking, draftRuntime()),
+    [draftRuntime, newThreadController, threadCommands],
   );
   const actions = useWorkbenchActions({
     client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
@@ -485,15 +495,24 @@ export default function App() {
     viewStore.subscribeToConversation,
     () => viewStore.selectConversation(activeDraftKey, Boolean(pendingNewThread)),
   );
-  const conversationSnapshot = useMemo(() => pendingNewThread && snapshot ? {
-    ...snapshot,
+  // A draft bound for another runtime than the one on screen chooses from that runtime's own catalog.
+  const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(settings.newThreadRuntime, snapshot) : undefined;
+  const otherDraftRuntime = boundRuntime && boundRuntime !== (snapshot?.backendKind ?? "pi") ? boundRuntime : undefined;
+  const draftCatalog = useRuntimeCatalog(otherDraftRuntime);
+  const draftSnapshot = useMemo(() => pendingNewThread && snapshot && otherDraftRuntime
+    ? draftRuntimeSnapshot(snapshot, pendingNewThread, otherDraftRuntime, draftCatalog)
+    : snapshot, [draftCatalog, otherDraftRuntime, pendingNewThread, snapshot]);
+  const conversationSnapshot = useMemo(() => pendingNewThread && snapshot && draftSnapshot ? {
+    ...draftSnapshot,
     cwd: pendingNewThread.projectPath,
     // A draft is a semantic scope, not a Pi session. The session ID remains
     // the last real runtime while the draft ID travels in TranscriptTurnStart.
     sessionName: undefined,
     sessionTitle: "Untitled thread",
     isStreaming: false,
-    ...(pendingNewThread.model ? { model: pendingNewThread.model } : {}),
+    // The draft's choice shows on the catalog of the runtime it was made for; another runtime's overlay applied it already.
+    ...(draftSnapshot === snapshot && pendingNewThread.model && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi") ? { model: pendingNewThread.model } : {}),
+    ...(draftSnapshot === snapshot && pendingNewThread.thinkingLevel && (pendingNewThread.selectionRuntime ?? "pi") === (snapshot.backendKind ?? "pi") ? { thinkingLevel: pendingNewThread.thinkingLevel } : {}),
     supportsImageInput: pendingNewThread.sessionId
       ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true
       : preparedThreadCapability?.cwd === pendingNewThread.projectPath
@@ -502,7 +521,7 @@ export default function App() {
     taskProgress: undefined,
     taskHistory: [],
   } : snapshot ? { ...snapshot, isStreaming: visibleStreaming } : snapshot,
-  [pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability]);
+  [draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability]);
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
     void composerAttachmentRef.current?.addFiles(files);
   }, []);
@@ -567,11 +586,11 @@ export default function App() {
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
     submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue,
-    setModel: setComposerModel, setThinking: threadCommands.setThinking,
+    setModel: setComposerModel, setThinking: setComposerThinking,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
-    conversationPrompts, queue, reorderQueue, setComposerModel, steerQueued, submitPrompt,
+    conversationPrompts, queue, reorderQueue, setComposerModel, setComposerThinking, steerQueued, submitPrompt,
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({

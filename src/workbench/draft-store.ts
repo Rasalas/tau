@@ -18,6 +18,10 @@ export interface NewThreadDraft {
   sessionId?: string;
   /** Explicit composer choice for this thread; never applied to the previously active runtime. */
   model?: UiModel;
+  /** The thinking level chosen with it. */
+  thinkingLevel?: string;
+  /** The runtime `model` and `thinkingLevel` were chosen from; absent means Pi. They go to no other. */
+  selectionRuntime?: string;
   /** Text-only recovery state; pending attachments remain memory-only. */
   draft?: string;
   /** What extensions keep beside the text, as JSON, by extension id. */
@@ -139,6 +143,8 @@ export function readNewThreadDraft(storage: ClientStorage): NewThreadDraft | und
         && typeof value.model.name === "string"
         ? { model: { provider: value.model.provider, id: value.model.id, name: value.model.name } }
         : {}),
+      ...(typeof value.thinkingLevel === "string" ? { thinkingLevel: value.thinkingLevel } : {}),
+      ...(typeof value.selectionRuntime === "string" ? { selectionRuntime: value.selectionRuntime } : {}),
       ...(typeof value.draft === "string" ? { draft: value.draft } : {}),
       ...(isStringRecord(value.extensions) ? { extensions: value.extensions } : {}),
     };

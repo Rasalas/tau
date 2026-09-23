@@ -334,7 +334,7 @@ export function ModelPicker({
                 <p>{elsewhere.kind === threadRuntime
                   ? `This thread starts on ${elsewhere.label} with its default model. Its models are listed once the thread exists.`
                   : draft
-                    ? `${elsewhere.label} runs the thread instead of ${threadRuntimeName}. Its models are listed once the thread exists.`
+                    ? `${elsewhere.label} runs the thread instead of ${threadRuntimeName}; choose it to pick one of its models.`
                     : `This thread runs on ${threadRuntimeName}, and a thread keeps the runtime it started on. ${elsewhere.label} runs a thread of its own.`}</p>
                 {paneAction ? <button className="primary" onClick={paneAction.run}>{paneAction.label}</button> : null}
               </div>
