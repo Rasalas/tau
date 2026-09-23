@@ -34,15 +34,8 @@ body[data-profile="compact"] .conversation-start-screen { padding: 20px 12px 24p
 body[data-profile="compact"] .conversation-start-content > h1 { font-size: 21px; }
 
 /* Tool work stays folded: a phone shows that something ran, not its output. */
-body[data-profile="compact"] .tool-output,
-body[data-profile="compact"] .work-row-output { max-height: 180px; overflow: auto; }
+body[data-profile="compact"] .tool-output { max-height: 180px; overflow: auto; }
 body[data-profile="compact"] .tool-output-pending { height: 180px; }
-
-/* No diff splits below this width; whatever draws one draws it unified. */
-body[data-profile="compact"] .diff-view.split,
-body[data-profile="compact"] .diff-pane.split { display: block; }
-body[data-profile="compact"] .diff-view.split > * + *,
-body[data-profile="compact"] .diff-pane.split > * + * { border-left: 0; }
 
 /* --------------------------------------------------- supervision + sheet */
 
