@@ -13,6 +13,13 @@ const TEMPLATE_FILES = [
   "docs/pull_request_template.md",
   "docs/PULL_REQUEST_TEMPLATE.md",
   ".gitlab/merge_request_templates/Default.md",
+  // Forgejo and Gitea read their own folders first, Azure DevOps its own and `.vsts`.
+  ".forgejo/pull_request_template.md",
+  ".forgejo/PULL_REQUEST_TEMPLATE.md",
+  ".gitea/pull_request_template.md",
+  ".gitea/PULL_REQUEST_TEMPLATE.md",
+  ".azuredevops/pull_request_template.md",
+  ".vsts/pull_request_template.md",
 ];
 const TEMPLATE_DIRECTORIES = [".github/PULL_REQUEST_TEMPLATE", "PULL_REQUEST_TEMPLATE", "docs/PULL_REQUEST_TEMPLATE", ".gitlab/merge_request_templates"];
 
