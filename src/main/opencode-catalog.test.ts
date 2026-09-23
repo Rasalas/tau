@@ -40,4 +40,11 @@ describe("OpenCode catalog", () => {
     expect(openCodeCatalogSubset(whole, ["opencode-go", "opencode"])).toEqual(catalog);
     expect(openCodeCatalogSubset("not a catalog", ["opencode"])).toBe("not a catalog");
   });
+
+  // The model picker and Usage show these prices; the trim must not take them.
+  it("keeps each model's price through the trim", () => {
+    const priced = { "opencode-go": { ...catalog["opencode-go"], models: { "new-model": { ...catalog["opencode-go"].models["new-model"], cost: { input: 0.6, output: 2.4, cache_read: 0.06 } } } } };
+    const provider = withOpenCodeCatalog(opencodeGoProvider(), openCodeCatalogSubset({ ...priced, openai: { models: {} } }, ["opencode-go"]));
+    expect(provider.getModels().find((model) => model.id === "new-model")?.cost).toEqual({ input: 0.6, output: 2.4, cacheRead: 0.06, cacheWrite: 0 });
+  });
 });

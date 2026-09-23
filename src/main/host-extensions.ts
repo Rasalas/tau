@@ -128,14 +128,25 @@ export interface HostRuntimeBackendProvider {
   version?(): Promise<RuntimeToolVersion | undefined>;
   /**
    * The models and thinking levels a new thread may start with, without
-   * opening one; asked when a draft is bound for this backend. The chosen
-   * pair reaches the thread through `catalogWrite` right after `open`.
+   * opening one. The host asks in the background and keeps the answer on
+   * disk, so it may spawn the program; it asks again when a client opens a
+   * picker and the answer is some minutes old. The chosen pair reaches the
+   * thread through `catalogWrite` right after `open`.
    */
   newThreadCatalog?(): Promise<HostRuntimeNewThreadCatalog | undefined>;
 }
 
-/** A backend's answer to `newThreadCatalog`; the host adds the kind and the adapter's capabilities. */
-export type HostRuntimeNewThreadCatalog = Omit<UiRuntimeCatalog, "kind" | "runtimeCapabilities">;
+/**
+ * A backend's answer to `newThreadCatalog`; the host adds the kind, the
+ * adapter's capabilities and `checkedAt`, and fills price, context and
+ * input facts it knows from Pi's model data for what a model leaves out.
+ */
+export type HostRuntimeNewThreadCatalog = Omit<UiRuntimeCatalog, "kind" | "runtimeCapabilities" | "checkedAt" | "models"> & {
+  models: HostCatalogModel[];
+};
+
+/** A model as a backend names it; `apiModelId` is the provider's own id when `id` is an alias (`opus` → `claude-opus-5`). */
+export type HostCatalogModel = UiModel & { apiModelId?: string };
 
 /**
  * Facts an extension knows about a project folder. Core caches them, refreshes

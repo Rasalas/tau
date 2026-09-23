@@ -302,6 +302,8 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     case "client-call":
     // Who else is attached is client-wide, not thread state; extensions read it.
     case "client-count":
+    // The runtime catalog store follows these itself.
+    case "runtime-catalog":
     case "window-title":
     case "config-changed":
       return state;
