@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
@@ -462,6 +462,13 @@ export function linkSourceMap(code: string, mapFileName: string): { code: string
     code: `${code.slice(0, match.index)}\n//# sourceMappingURL=${mapFileName}\n`,
     map: Buffer.from(match[1], "base64").toString("utf8"),
   };
+}
+
+const LINKED_SOURCE_MAP = /\/\/# sourceMappingURL=(?![a-z][a-z0-9+.-]*:)(\S+)\s*$/u;
+
+/** Points a module's map link at the map beside `file`, for a copy that runs from elsewhere. */
+export function absoluteSourceMapLink(code: string, file: string): string {
+  return code.replace(LINKED_SOURCE_MAP, (_line, name: string) => `//# sourceMappingURL=${pathToFileURL(join(dirname(file), name)).href}\n`);
 }
 
 async function writeOnce(file: string, contents: string): Promise<void> {

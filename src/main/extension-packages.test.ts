@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
-import { bundleHostExtension, importHostExtension, inspectExtensionPackages, isThemeManifest, linkSourceMap, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest, writeHostExtensionBundle } from "./extension-packages.js";
+import { absoluteSourceMapLink, bundleHostExtension, importHostExtension, inspectExtensionPackages, isThemeManifest, linkSourceMap, listExtensionPackages, loadHostExtensionPackages, manifestIncompatibility, parseExtensionManifest, writeHostExtensionBundle } from "./extension-packages.js";
 import { grantPackage } from "./extension-grants.js";
 
 const dirs: string[] = [];
@@ -221,6 +221,13 @@ describe("extension packages", () => {
     const map = JSON.parse(await readFile(`${file}.map`, "utf8")) as { sources: string[] };
     expect(map.sources.some((source) => source.endsWith("host.ts"))).toBe(true);
     expect((await readdir(cache)).sort()).toEqual([file.split("/").at(-1), `${file.split("/").at(-1)}.map`].sort());
+  });
+
+  it("points a copied module's map link at the shipped map", () => {
+    expect(absoluteSourceMapLink("x();\n//# sourceMappingURL=host.cjs.map\n", "/app/dist-kits/tau.files/host.cjs"))
+      .toBe("x();\n//# sourceMappingURL=file:///app/dist-kits/tau.files/host.cjs.map\n");
+    const inline = "x();\n//# sourceMappingURL=data:application/json;base64,e30=\n";
+    expect(absoluteSourceMapLink(inline, "/app/host.cjs")).toBe(inline);
   });
 
   it("leaves a bundle without an inline map as it is", () => {
