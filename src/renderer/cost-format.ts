@@ -37,7 +37,7 @@ export function threadCostLabel(usage: UiThreadUsage | undefined): string | unde
   if (cost) return cost;
   if (plan) {
     const value = formatCost(plan.apiValueUsd);
-    return value ? `plan ≈${value}` : `plan · ${formatTokens(plan.totalTokens)} tok`;
+    return value ? `plan ≈${value}` : "plan";
   }
   return usage.totalTokens > 0 ? `${formatTokens(usage.totalTokens)} tok` : undefined;
 }

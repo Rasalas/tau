@@ -82,3 +82,4 @@
 .usage-link { border: 0; background: transparent; padding: 0; color: var(--muted); font-size: 11.5px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .usage-link:hover { color: var(--ink-2); }
 .usage-link:disabled { opacity: .5; cursor: default; }
+.usage-price-add .settings-input, .usage-price-table .settings-input { width: 100%; min-width: 0; box-sizing: border-box; }

@@ -42,7 +42,7 @@ describe("cost formatting", () => {
     const plan = { inputTokens: 10_000, outputTokens: 2_000, cacheReadTokens: 8_000, cacheWriteTokens: 0, totalTokens: 20_000, turns: 2, apiValueUsd: 1.5 };
     const onPlan = { ...usage, costUsd: 0, subscription: { ...plan, inputTokens: 12_300, outputTokens: 2_100, totalTokens: 22_400, turns: 3 } };
     expect(threadCostLabel(onPlan)).toBe("plan ≈$1.50");
-    expect(threadCostLabel({ ...onPlan, subscription: { ...onPlan.subscription, apiValueUsd: 0 } })).toBe("plan · 22.4k tok");
+    expect(threadCostLabel({ ...onPlan, subscription: { ...onPlan.subscription, apiValueUsd: 0 } })).toBe("plan");
     expect(threadCostLabel({ ...usage, subscription: plan })).toBe("$0.42 + plan");
     expect(threadUsageSections(onPlan)).toEqual({ plan: { value: "$1.50", detail: "12.3k in · 2.1k out · 8.0k cache read · 3 turns" } });
     expect(threadUsageSections({ ...usage, subscription: plan })).toEqual({

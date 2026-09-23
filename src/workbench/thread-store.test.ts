@@ -57,6 +57,15 @@ describe("ThreadStore selective navigation subscriptions", () => {
     expect(store.getThreadIds()).toEqual(["two"]);
   });
 
+  it("takes a shell whose only change is what the thread cost, as a price change makes it", () => {
+    const store = new ThreadStore();
+    const usage = { inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 11, costUsd: 0.01, turns: 1 };
+    store.applyThreadIndex({ projects: [], sessions: [{ ...shell("one"), usage }] });
+    const repriced = { ...usage, costUsd: 0, subscription: { inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 11, turns: 1, apiValueUsd: 0.01 } };
+    store.applyThreadShell("one", { ...shell("one"), usage: repriced });
+    expect(store.getThread("one")?.usage).toEqual(repriced);
+  });
+
   it("keeps an observed provider when a later index shell omits it", () => {
     const store = new ThreadStore();
     store.applyThreadIndex({ projects: [], sessions: [shell("one"), shell("two")] });

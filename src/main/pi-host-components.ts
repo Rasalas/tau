@@ -83,6 +83,8 @@ import { readModelPrices } from "../shared/model-prices.js";
 
 /** Pi's model data is read this long after the first price is asked for, clear of the start. */
 const PRICING_LOAD_DELAY_MS = 2_000;
+/** Otherwise read this long after start, beside the runtime catalogs' own first read. */
+const PRICING_START_DELAY_MS = 5_000;
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
@@ -248,11 +250,15 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     log: (label, detail) => deps.log(label, detail),
   });
   let pricingScheduled = false;
+  const schedulePricing = (delay: number) => {
+    if (pricingScheduled) return;
+    pricingScheduled = true;
+    setTimeout(() => void pricing.ready(), delay).unref?.();
+  };
+  // Before the first thread needs a price, as the runtime catalogs do; a price asked for sooner brings it forward.
+  if (!safeMode) setTimeout(() => schedulePricing(0), PRICING_START_DELAY_MS).unref?.();
   const priceUsage = (tallies: readonly UsageTally[]) => {
-    if (!pricingScheduled) {
-      pricingScheduled = true;
-      setTimeout(() => void pricing.ready(), PRICING_LOAD_DELAY_MS).unref?.();
-    }
+    schedulePricing(PRICING_LOAD_DELAY_MS);
     return pricing.threadUsage(tallies);
   };
   const piAdapter = assertRuntimeAdapter(safeMode ? PI_AGENT_RUNTIME_ADAPTER : options.runtimeAdapter ?? PI_AGENT_RUNTIME_ADAPTER);

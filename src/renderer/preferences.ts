@@ -122,7 +122,7 @@ function load(): PreferencesState {
       favouriteModels: stringList(raw.favouriteModels),
       modelPreferences: readModelPreferenceRecord(raw.modelPreferences) ?? {},
       // The host checked them; the picker's own chunk reads each entry it uses.
-      modelPrices: raw.modelPrices && typeof raw.modelPrices === "object" && !Array.isArray(raw.modelPrices) ? raw.modelPrices as Record<string, UiModelPrice> : {},
+      modelPrices: typeof raw.modelPrices === "object" && raw.modelPrices ? raw.modelPrices as Record<string, UiModelPrice> : {},
       recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
