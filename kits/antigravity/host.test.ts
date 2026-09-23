@@ -157,4 +157,14 @@ describe("Antigravity host half", () => {
     });
     await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.antigravity/usage.");
   });
+
+  it("offers a draft the models its last session named, and says when it knows none yet", async () => {
+    const { backends, directory } = await harness(true);
+    await expect(backends[0]!.newThreadCatalog!()).resolves.toEqual({ models: [], thinkingLevels: {}, note: "Antigravity names its models once a thread has started; choose one then." });
+    const backend = await backends[0]!.open("agy-thread", directory, { resume: false }, { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) } as never);
+    await backend.prompt({ text: "Reply with one word.", delivery: "prompt" }).catch(() => undefined);
+    await backend.dispose();
+    await expect(backends[0]!.newThreadCatalog!()).resolves.toEqual({ models: [{ provider: "google", id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }], thinkingLevels: {} });
+  });
 });
+
