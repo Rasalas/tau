@@ -12,6 +12,9 @@ export const COMPUTER_USE_SCREEN_RUNTIME_EXTENSION = "tau-computer-use-screen";
 /** Every computer-use tool is `computer_use_<operation>`. */
 export const COMPUTER_USE_TOOL_PREFIX = "computer_use_";
 
+/** Host extensions granted `screen-state` and `screen-frame`: Evidence Kit. */
+export const SCREEN_CALLERS: readonly string[] = ["tau.evidence"];
+
 /** Event the host emits with a `ScreenState` whenever a thread's screen changes. */
 export const SCREEN_EVENT = "screen";
 

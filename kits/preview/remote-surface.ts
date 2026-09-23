@@ -56,11 +56,14 @@ export function createRemotePreviewSurface(
     place: (rect: PreviewRect, visible: boolean) => send("place", { rect, visible }),
     load: async (url: string, timeoutMs: number) => { await run("load", { url, timeoutMs }); },
     navigate: (action) => send("navigate", { action }),
+    setZoom: (factor: number) => send("zoom", { factor }),
+    setAppearance: async (appearance) => { await run("appearance", { appearance }); },
     state: () => snapshot.state,
     viewport: () => snapshot.viewport,
     evaluate: (expression: string, isolated?: boolean) => run("evaluate", { expression, ...(isolated ? { isolated } : {}) }),
-    capture: async (maxWidth: number, rect?: PreviewRect) => await run("capture", { maxWidth, ...(rect ? { rect } : {}) }) as { base64: string; width: number; height: number },
-    record: async (action) => await run("record", { action }) as PreviewRecordingChunks,
+    capture: async (maxWidth: number, rect?: PreviewRect, jpeg?: boolean) =>
+      await run("capture", { maxWidth, ...(rect ? { rect } : {}), ...(jpeg ? { jpeg } : {}) }) as { base64: string; width: number; height: number },
+    record: async (action, recordOptions) => await run("record", { action, ...(recordOptions?.frameRate ? { frameRate: recordOptions.frameRate } : {}) }) as PreviewRecordingChunks,
     pressKey: (key: string) => send("press-key", { key }),
     destroy: () => send("destroy"),
   };

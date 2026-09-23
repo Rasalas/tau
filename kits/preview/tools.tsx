@@ -1,12 +1,79 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Circle, Crosshair, PenLine, Send, Square, SquareDashed, StickyNote } from "lucide-react";
-import type { WorkbenchActions } from "tau";
+import { ArrowUpRight, Circle, Cookie, Crosshair, MonitorSmartphone, PenLine, Send, Square, SquareDashed, StickyNote } from "lucide-react";
+import { Menu, tooltipProps, type MenuSection, type WorkbenchActions } from "tau";
 import { attachAnnotations, attachPickedElement, attachRecording } from "./attach.js";
 import type { PreviewAnnotationTool } from "./page-overlay.js";
-import type { PreviewProfiles, PreviewState } from "./protocol.js";
+import { DEFAULT_PREVIEW_PROFILE, profileLabel, type PreviewAppearance, type PreviewProfiles, type PreviewState } from "./protocol.js";
 import { previewKit } from "./store.js";
+import { VIEWPORT_PRESETS } from "./viewport.js";
+import { cookieImportDialogs } from "./cookie-import-dialog.js";
 
 const NEW_PROFILE = "\u0000new";
+const RENAME_PROFILE = "\u0000rename";
+const DELETE_PROFILE = "\u0000delete";
+
+const APPEARANCES: ReadonlyArray<{ id: PreviewAppearance; label: string }> = [
+  { id: "system", label: "System" },
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+];
+
+/** `125%`. */
+export const zoomLabel = (factor: number): string => `${Math.round(factor * 100)}%`;
+
+/** The page's viewport, zoom and appearance: T3 Code's device toolbar, as one menu. */
+function ViewOptions({ state, run }: { state: PreviewState; run(work: () => Promise<unknown>): void }) {
+  // The tool row clips what overflows it, so the menu opens over the whole window.
+  const [open, setOpen] = useState<{ x: number; y: number } | undefined>();
+  const fixed = state.viewport.mode === "fixed" ? state.viewport : undefined;
+  const sections: MenuSection[] = [
+    {
+      heading: "Viewport",
+      items: [
+        { id: "viewport:fill", label: "Fill the panel", selected: !fixed },
+        ...VIEWPORT_PRESETS.map((preset) => ({
+          id: `viewport:${preset.id}`,
+          label: preset.label,
+          hint: `${preset.width}×${preset.height}`,
+          selected: fixed?.preset === preset.id,
+        })),
+      ],
+    },
+    { heading: "Appearance", items: APPEARANCES.map((entry) => ({ id: `appearance:${entry.id}`, label: entry.label, selected: state.appearance === entry.id })) },
+    {
+      heading: `Zoom · ${zoomLabel(state.zoom)}`,
+      items: [
+        { id: "zoom:in", label: "Zoom in", hint: "⌘+" },
+        { id: "zoom:out", label: "Zoom out", hint: "⌘−" },
+        { id: "zoom:reset", label: "Actual size", hint: "⌘0", disabled: state.zoom === 1 },
+      ],
+    },
+  ];
+  const choose = (id: string) => {
+    setOpen(undefined);
+    const [kind, value = ""] = id.split(":");
+    const preset = VIEWPORT_PRESETS.find((candidate) => candidate.id === value);
+    if (kind === "viewport") run(() => previewKit.viewport(preset ? { mode: "fixed", width: preset.width, height: preset.height, preset: preset.id } : { mode: "fill" }));
+    else if (kind === "appearance") run(() => previewKit.appearance({ appearance: value as PreviewAppearance }));
+    else if (kind === "zoom") run(() => previewKit.zoom({ step: value as "in" | "out" | "reset" }));
+  };
+  const label = fixed ? `Viewport ${fixed.width}×${fixed.height}` : "Viewport, zoom and appearance";
+  return <>
+    <button
+      type="button"
+      className={fixed || state.appearance !== "system" ? "icon-button compact active" : "icon-button compact"}
+      aria-label="Viewport, zoom and appearance"
+      aria-haspopup="menu"
+      aria-expanded={Boolean(open)}
+      {...tooltipProps(label)}
+      onClick={(event) => {
+        const box = event.currentTarget.getBoundingClientRect();
+        setOpen(open ? undefined : { x: box.left, y: box.bottom + 4 });
+      }}
+    ><MonitorSmartphone size={13} /></button>
+    {open ? <Menu at={open} label="Viewport, zoom and appearance" sections={sections} onSelect={choose} onClose={() => setOpen(undefined)} /> : null}
+  </>;
+}
 
 /** `12 s`, `3:05`. */
 export function elapsed(ms: number): string {
@@ -25,7 +92,8 @@ function RecordingClock({ since }: { since: number }) {
 
 function ProfilePicker({ active, run }: { active: string; run(work: () => Promise<unknown>): void }) {
   const [profiles, setProfiles] = useState<PreviewProfiles | undefined>();
-  const [naming, setNaming] = useState(false);
+  const [naming, setNaming] = useState<"new" | "rename" | undefined>();
+  const [confirming, setConfirming] = useState(false);
   const [name, setName] = useState("");
 
   useEffect(() => {
@@ -33,41 +101,62 @@ function ProfilePicker({ active, run }: { active: string; run(work: () => Promis
   }, [active]);
 
   const use = (profile: string) => run(async () => setProfiles(await previewKit["use-profile"]({ name: profile })));
+  const activeLabel = profileLabel(profiles, active);
 
   if (naming) {
     return <form
       className="preview-profile-name"
       onSubmit={(event) => {
         event.preventDefault();
-        setNaming(false);
-        if (name.trim()) use(name);
+        setNaming(undefined);
+        const typed = name.trim();
         setName("");
+        if (!typed) return;
+        if (naming === "new") use(typed);
+        else run(async () => setProfiles(await previewKit["rename-profile"]({ id: active, name: typed })));
       }}
     >
       <input
-        aria-label="New profile name"
+        aria-label={naming === "new" ? "New profile name" : `New name for ${activeLabel}`}
         placeholder="profile name"
         autoFocus
         value={name}
         onChange={(event) => setName(event.target.value)}
-        onKeyDown={(event) => { if (event.key === "Escape") setNaming(false); }}
-        onBlur={() => setNaming(false)}
+        onKeyDown={(event) => { if (event.key === "Escape") setNaming(undefined); }}
+        onBlur={() => setNaming(undefined)}
       />
     </form>;
+  }
+  if (confirming) {
+    return <span className="preview-profile-confirm" role="group" aria-label={`Delete ${activeLabel}`}>
+      <span className="preview-hint">Delete “{activeLabel}” and its cookies?</span>
+      <button type="button" className="text-button" autoFocus onClick={() => setConfirming(false)}>cancel</button>
+      <button
+        type="button"
+        className="text-button danger"
+        onClick={() => { setConfirming(false); run(async () => setProfiles(await previewKit["delete-profile"]({ id: active }))); }}
+      >delete</button>
+    </span>;
   }
   const listed = profiles?.profiles.includes(active) ? profiles.profiles : [...profiles?.profiles ?? [], active];
   return <select
     className="preview-profile"
     aria-label="Browser profile"
-    title="Browser profile: each has its own cookies and storage"
+    {...tooltipProps("Browser profile: each has its own cookies and storage")}
     value={active}
     onChange={(event) => {
-      if (event.target.value === NEW_PROFILE) setNaming(true);
-      else use(event.target.value);
+      const value = event.target.value;
+      if (value === NEW_PROFILE) setNaming("new");
+      else if (value === RENAME_PROFILE) { setName(activeLabel); setNaming("rename"); }
+      else if (value === DELETE_PROFILE) setConfirming(true);
+      else use(value);
     }}
   >
-    {listed.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
+    {listed.map((profile) => <option key={profile} value={profile}>{profileLabel(profiles, profile)}</option>)}
+    <option disabled>──────</option>
     <option value={NEW_PROFILE}>New profile…</option>
+    <option value={RENAME_PROFILE}>Rename “{activeLabel}”…</option>
+    {active !== DEFAULT_PREVIEW_PROFILE ? <option value={DELETE_PROFILE}>Delete “{activeLabel}”…</option> : null}
   </select>;
 }
 
@@ -159,6 +248,21 @@ export function PreviewTools({ state, actions, run }: {
     >{recording ? <Square size={11} /> : <Circle size={12} />}</button>
     {recording ? <RecordingClock since={state.recordingSince!} /> : null}
     <span className="spacer" />
+    <button
+      type="button"
+      className="icon-button compact"
+      aria-label="Import cookies from a browser"
+      title="Import sign-ins from another browser into a profile"
+      onClick={() => { void cookieImportDialogs.open({ profile: state.profile || "default" }); }}
+    ><Cookie size={13} /></button>
+    {state.zoom !== 1 ? <button
+      type="button"
+      className="text-button preview-zoom"
+      aria-label={`Zoom ${zoomLabel(state.zoom)}, reset to actual size`}
+      {...tooltipProps("Actual size", { shortcut: "⌘0" })}
+      onClick={() => run(() => previewKit.zoom({ step: "reset" }))}
+    >{zoomLabel(state.zoom)}</button> : null}
+    <ViewOptions state={state} run={run} />
     <ProfilePicker active={state.profile || "default"} run={run} />
   </div>;
 }

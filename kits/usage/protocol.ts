@@ -141,6 +141,7 @@ export const BACKEND_USAGE_SOURCES: readonly BackendUsageSource[] = [
   { extensionId: "tau.codex", backend: "codex", label: "Codex" },
   { extensionId: "tau.opencode", backend: "opencode", label: "OpenCode" },
   { extensionId: "tau.grok", backend: "grok", label: "Grok" },
+  { extensionId: "tau.cursor", backend: "cursor", label: "Cursor" },
 ];
 
 export const PI_BACKEND = "pi";

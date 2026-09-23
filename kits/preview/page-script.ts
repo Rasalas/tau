@@ -17,6 +17,11 @@ export interface PreviewActionResult {
   ok: boolean;
   detail?: string;
   error?: string;
+  /** Where the action landed and the viewport it landed in, CSS pixels: the agent cursor goes there. */
+  point?: { x: number; y: number };
+  viewport?: { width: number; height: number };
+  /** The text went into a password field and must not be shown. */
+  sensitive?: boolean;
 }
 
 /** `ref` ids are minted by the snapshot; anything else is not one. */
@@ -142,9 +147,15 @@ export function previewClick(find: PreviewFinder, target: PreviewTarget): Previe
   const node = element as HTMLElement;
   if (typeof node.scrollIntoView === "function") node.scrollIntoView({ block: "center", inline: "center" });
   if (typeof node.focus === "function") node.focus();
+  const box = node.getBoundingClientRect();
   if (typeof node.click === "function") node.click();
   else node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-  return { ok: true, detail: `${node.tagName.toLowerCase()} "${(node.getAttribute("aria-label") ?? node.textContent ?? "").trim().slice(0, 60)}"` };
+  return {
+    ok: true,
+    detail: `${node.tagName.toLowerCase()} "${(node.getAttribute("aria-label") ?? node.textContent ?? "").trim().slice(0, 60)}"`,
+    point: { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) },
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+  };
 }
 
 /**
@@ -156,7 +167,14 @@ export function previewType(find: PreviewFinder, target: PreviewTarget, text: st
   const element = find(target);
   if (!element) return { ok: false, error: "No element matched." };
   const node = element as HTMLInputElement;
+  if (typeof node.scrollIntoView === "function") node.scrollIntoView({ block: "center", inline: "nearest" });
   if (typeof node.focus === "function") node.focus();
+  const box = node.getBoundingClientRect();
+  const landed = {
+    point: { x: Math.round(box.left + Math.min(box.width / 2, 24)), y: Math.round(box.top + box.height / 2) },
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    ...(node.getAttribute("type")?.toLowerCase() === "password" ? { sensitive: true } : {}),
+  };
   if (node.getAttribute("contenteditable") === "true") {
     node.textContent = text;
     node.dispatchEvent(new Event("input", { bubbles: true }));
@@ -175,19 +193,22 @@ export function previewType(find: PreviewFinder, target: PreviewTarget, text: st
     const form = node.form;
     if (accepted && form && typeof form.requestSubmit === "function") form.requestSubmit();
   }
-  return { ok: true, detail: `typed ${text.length} characters into ${node.tagName.toLowerCase()}` };
+  return { ok: true, detail: `typed ${text.length} characters into ${node.tagName.toLowerCase()}`, ...landed };
 }
 
 export function previewScroll(find: PreviewFinder, target: PreviewTarget | undefined, dx: number, dy: number): PreviewActionResult {
   const element = target && (target.ref || target.selector) ? find(target) : undefined;
   if (target && (target.ref || target.selector) && !element) return { ok: false, error: "No element matched." };
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
   if (element) {
     element.scrollLeft += dx;
     element.scrollTop += dy;
-    return { ok: true, detail: `scrolled ${element.tagName.toLowerCase()} to ${element.scrollLeft},${element.scrollTop}` };
+    const box = element.getBoundingClientRect();
+    const point = { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+    return { ok: true, detail: `scrolled ${element.tagName.toLowerCase()} to ${element.scrollLeft},${element.scrollTop}`, point, viewport };
   }
   window.scrollBy(dx, dy);
-  return { ok: true, detail: `scrolled page to ${Math.round(window.scrollX)},${Math.round(window.scrollY)}` };
+  return { ok: true, detail: `scrolled page to ${Math.round(window.scrollX)},${Math.round(window.scrollY)}`, point: { x: Math.round(viewport.width / 2), y: Math.round(viewport.height / 2) }, viewport };
 }
 
 /** True once the page shows what `preview_wait_for` was told to wait for. */

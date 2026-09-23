@@ -3,7 +3,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 export type { PricedUsage, UsageTally, UsageTurn } from "./usage-pricing.js";
 import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
-import type { DirectoryPickerOptions, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
+import type { DirectoryPickerOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
 
 /**
  * The wire between the main process and an isolated host extension. Only plain
@@ -131,6 +131,8 @@ export interface WorkerHostServices {
   rememberProjectName(cwd: string, name: string): Promise<void>;
   /** Tallies priced the way core prices a thread; see `HostExtensionServices.priceUsage`. New in API 1.12.0. */
   priceUsage(tallies: readonly UsageTally[]): Promise<PricedUsage[]>;
+  /** This extension's own settings; see `HostExtensionServices.settings`. New in API 1.12.0. */
+  settings(cwd?: string): Promise<HostExtensionSettings>;
   pickDirectory(options?: DirectoryPickerOptions): Promise<string | undefined>;
   runtimeOwner(): Promise<"tau" | "pi">;
   /** An open thread by id, or the active one, reduced to plain facts. */

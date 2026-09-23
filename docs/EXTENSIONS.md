@@ -1002,7 +1002,17 @@ matter. The shipped kits publish, among others, Workspace Kit's store as
 `tau.workspace/store`, and Preview Kit's `tau.preview/browser`, whose
 `open(url, actions)` brings the Preview panel forward and navigates — Project
 Scripts opens a script's `previewUrl` through it, and falls back to
-`actions.openExternal` when Preview Kit is off. Terminal Kit publishes
+`actions.openExternal` when Preview Kit is off. Its `jump(target, actions)`
+(new in API 1.12.0) brings forward what an agent drives: `{ kind: "browser" }`
+the Preview panel with the page, `{ kind: "app", threadId }` the window that
+thread's Computer Use driver steers, raised by the driver itself; a handover
+that asks the user to take over uses it. Preview Kit also publishes
+`tau.preview/cookie-import` (new in API 1.12.0): `importSite({ site, profile? })`
+opens its cookie import dialog with that site filtered to and ticked and that
+Preview profile as the target, and answers the import's result, or `undefined`
+when the user closed the dialog. The user still picks the browser and clicks
+Import; that click is the consent, and no agent tool can import cookies
+([browser-cookie-import.md](browser-cookie-import.md)). Terminal Kit publishes
 `tau.terminal/run` (new in API 1.11.0): `run({ command, label? }, actions?)`
 opens a shell in a tab of its own, shows the Terminal panel, types the command
 with `; exit` after it and answers `{ id, exitCode? }` once the shell ended —
@@ -1026,7 +1036,18 @@ host keeps the last three per thread), `bringToFront`, `icon`, `access` (the
 Screen Recording status, read without asking) and `openAccessSettings` do what
 they say, and `live(threadId, onFrame, ended?)` records that one window a few
 frames a second where the system already allows it. Preview Kit's Screen view
-draws it; the types are in `kits/computer-use/protocol.ts`. Thread Rail publishes
+draws it; the types are in `kits/computer-use/protocol.ts`. Its host commands
+`screen-state` and `screen-frame` also answer Evidence Kit (`callers`), which
+fetches each new frame before the feed lets go of it after three. Evidence Kit publishes
+`tau.evidence/capture` (types in `kits/evidence/protocol.ts`): `list(threadId)`
+and `image(threadId, id, thumb?)` read a thread's turn pictures,
+`subscribe` hears which thread's changed, and `pause(threadId, reason)` /
+`resume(threadId)` hold every capture of that thread — and every capture of
+the shared Preview — until resumed, for a hand-over where the user signs in;
+its host commands `pause` and `resume` take the same from a host half named in
+`EVIDENCE_PAUSE_CALLERS`. Preview Kit's `evidence-frame` command answers
+Evidence Kit alone with a picture of the page, and nothing while a password
+or one-time-code field has the keyboard. Thread Rail publishes
 `tau.thread-rail/siblings`: `siblingsOf(threadId)` answers the threads started
 together from one prompt on several models (the thread itself included, or
 `[]`), and the Agents panel lists them beside a thread's agents. `actions.attachFiles(files, { sessionId? })` (new in API 1.11.0) hands `File`s to the composer the way a drop on the thread does, with the same limits; named for a thread, they wait until that thread's composer is mounted — open it with `switchSession` first — and are dropped if it has not come in ten seconds. Workspace Kit's rail uses it for files dropped on a row. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
@@ -1111,8 +1132,8 @@ provider. Since API 1.12.0 a thread also names its `turns`: one `UsageTurn` per 
 (`at`, `provider?`, `model?`, `billing?`, the token counts, the runtime's own
 `costUsd` and the `turns` it sums), so the Usage page dates every turn on its own
 and keeps a plan's turns apart from billed ones; a thread from before its kit kept
-turns has only `usage` and is dated by its last activity. Claude Code, Antigravity,
-Codex and Grok answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
+turns has only `usage` and is dated by its last activity. The Agent SDK runtime,
+Antigravity, Codex, OpenCode, Grok and Cursor answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
 in `kits/usage/protocol.ts`, and one that does not answer is listed as not available.
 
 A kit whose runtime's login reports quota windows answers `usage-limits`, granted to
@@ -1163,7 +1184,7 @@ removed, more }` — new and newer threads newest first, `limit` of them (25 by
 default), the known ids the store no longer has, and whether more are left.
 Only user and assistant text travels, the first 64,000 characters of a
 thread (`THREAD_TEXT_CHARS`). Codex, the Agent SDK runtime, Antigravity,
-OpenCode and Grok answer it; a backend that adds it adds its id to
+OpenCode, Grok and Cursor answer it; a backend that adds it adds its id to
 `THREAD_TEXT_SOURCES` in `kits/search/protocol.ts`. Search Kit asks at most
 every five seconds, four pages per backend at a time, and past four million
 characters forgets the oldest threads' text but keeps their `updatedAt`, so it
@@ -1371,15 +1392,27 @@ would otherwise go unnamed. It needs the `sessions` permission. The models it ac
 `completionModels`, which a `kind: "model"` option offers the user; they are the
 same list whatever runtime owns the visible thread, while `models` stays that
 thread's own. A host half reads the same list with `completionModels()` (new in
-API 1.11.0, `sessions`, in-process only; absent on an older host).
-`smallCompletionModel(services, prefer)` from `tau/host-extension` (API
+API 1.11.0, `sessions`, in-process only; absent on an older host). The list
+holds only what a login reaches: Pi lists every model it knows for a provider
+it has a login for, but a subscription serves fewer (a ChatGPT login refuses
+`gpt-5.4-mini`, which Pi still lists under `openai-codex`). Where another
+runtime's catalog reports what the same vendor's subscription serves (Codex's
+`model/list` over the same ChatGPT account, the Agent SDK runtime's models by
+their `apiModelId`), a subscription offer missing from it is left out; with no
+such report Pi's list stands. The vendor is the provider or the provider Pi
+names its subscription route after (`openai-codex` is `openai`'s).
+`smallCompletionModel(services, prefer, options?)` from `tau/host-extension` (API
 1.11.0) picks a small model from it — `isSmallModel(id)` knows the tiers by id
 (`haiku`, `mini`, `flash`, `luna`, …) — the one closest to `prefer`: same
-provider first, then the longest shared id, so a thread on `gpt-5.6-sol` gets
-`gpt-5.6-luna`; `undefined` when none is small, which leaves `complete` on
-the default. Thread Title Generator and Worktree Names take the model their
-setting names, else this pick with the thread's or draft's model as `prefer`,
-for a thread of any runtime. `HostThread.model` (new in API 1.11.0) is that
+provider first, then the same vendor under another name (a Codex thread's
+`openai` is Pi's `openai-codex`), then the longest shared id, so a thread on
+`gpt-5.6-sol` gets `gpt-5.6-luna`; `undefined` when none is small, which
+leaves `complete` on the default. With `{ elsePrefer: true }` (API 1.12.0) it
+answers `prefer` itself instead, where `complete` runs that model under the
+same vendor. Thread Title Generator and Worktree Names take the model their
+setting names, else this pick with the thread's or draft's model as `prefer`
+and `elsePrefer`, for a thread of any runtime; Handoff keeps `undefined` and
+writes an excerpt instead of a summary. `HostThread.model` (new in API 1.11.0) is that
 model as the thread's runtime names it — a Codex thread's `openai/gpt-5.6-sol`
 — so a thread whose draft named none still gives the hint.
 
@@ -1730,6 +1763,39 @@ OpenCode switches its own tools off in every prompt's `tools`
 (`kits/opencode/tools.ts`) and runs read-only without `bash`, `edit` or `write`.
 Antigravity, Cursor and Grok cannot restrict their tools and refuse such a thread.
 
+### Media on a turn: `services.turnAttachments` (new in API 1.12.0)
+
+A kit that takes pictures or recordings of what a turn did offers them to
+the others without anyone knowing it by name. Core keeps no bytes and draws
+nothing: it knows a `TurnAttachment` — `id`, the `turnId` of
+`HostTurnObserver` with the turn's `turnStartedAt` and `turnEndedAt`, `at`,
+`mediaType`, `size`, `width`, `height`, `caption` — and which extension
+provided it (`source`, filled in by core). It needs `sessions` and is
+in-process only, since a provider is a live object.
+
+| Member | What it does |
+|---|---|
+| `provide({ list(threadId), read(threadId, id) })` | Offers this extension's attachments; `read` answers `{ mediaType, data }` (base64). A second call replaces the first. Returns the withdrawal. |
+| `changed(threadId)` | Tells the readers that this extension's attachments of a thread changed. |
+| `list(threadId)` | Every provider's attachments of a thread, oldest first; a provider that throws is left out and logged. |
+| `read(threadId, source, id)` | One attachment's bytes, from the extension that provided it. |
+| `observe((threadId, source) => …)` | Hears every `changed`. |
+
+Evidence Kit (`kits/evidence/`) provides its turn pictures this way; a local
+pull-request view reads them to show and upload what a branch's turns did.
+
+### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
+
+A host half reads its own entries of `options` and `values` the way the
+settings levels resolve them: the project's `.tau/config.json` over this
+machine's for `cwd`, this machine's alone without one. The answer is
+`{ options, values }` keyed without the package id in front
+(`options["tau.evidence.preview"]` is `options.preview`), so a package never
+sees another's settings. Ungated, and a worker has it too. It is how work the
+host does on its own — a capture while no window watches — honours a
+setting a project overrides on a Settings page (`useSetting(…, { scope:
+"both" })`).
+
 ### Lifecycle hooks a host half may step into
 
 `services.registerThreadLifecycle(hooks)` and
@@ -1844,7 +1910,7 @@ A package's `permissions` array draws from a fixed list
 | `workspace:read` | read the current project's path, name and file contents through the host services. |
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
-| `sessions` | read session files, threads and transcript entries, and hook into thread lifecycle and turns. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
+| `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and provide and read turn attachments. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
 | `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |

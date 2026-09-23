@@ -1,9 +1,10 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
-import { errorMessage, reserveRegion, type PanelProps } from "tau";
+import { errorMessage, reserveRegion, tooltipProps, type PanelProps } from "tau";
 import { overlayWatch } from "./overlay-watch.js";
 import { activeThread, previewView, screenService, type PreviewView } from "./screen-store.js";
-import { isPreviewState, notePanelShown, previewKit, previewStore, usePreviewState } from "./store.js";
+import { isPreviewState, notePanelShown, previewKit, previewStore, readPreviewState, usePreviewState } from "./store.js";
+import { RecentPages, RecentSuggestions, useRecentPages } from "./recent.js";
 import { PortSuggestions } from "./suggestions.js";
 import { PreviewTools } from "./tools.js";
 
@@ -49,7 +50,7 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
 
   // A reloaded renderer missed the pushes; ask the host what it shows.
   useEffect(() => {
-    void previewKit.state().then((value) => { if (isPreviewState(value)) previewStore.set(value); }).catch(() => undefined);
+    void previewKit.state().then((value) => { if (isPreviewState(value)) previewStore.set(readPreviewState(value)); }).catch(() => undefined);
   }, []);
 
   useEffect(() => { if (!editing.current) setDraft(state.url); }, [state.url]);
@@ -99,6 +100,7 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
     guard(previewKit.open({ url }));
   };
   const cwd = actions?.activeThread?.()?.cwd;
+  const recent = useRecentPages(state.url);
 
   return <section className="panel-body preview-panel" data-keybinding-context="preview">
     <header className="panel-header">
@@ -119,9 +121,9 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
       <ScreenView service={screen} threadId={threadId} />
     </Suspense> : <>
       <div className="preview-toolbar">
-        <button className="icon-button compact" aria-label="Back" disabled={!state.canGoBack} onClick={() => guard(previewKit.navigate({ action: "back" }))}><ArrowLeft size={13} /></button>
-        <button className="icon-button compact" aria-label="Forward" disabled={!state.canGoForward} onClick={() => guard(previewKit.navigate({ action: "forward" }))}><ArrowRight size={13} /></button>
-        <button className="icon-button compact" aria-label="Reload" onClick={() => guard(previewKit.navigate({ action: "reload" }))}><RotateCw size={13} /></button>
+        <button className="icon-button compact" aria-label="Back" {...tooltipProps("Back")} disabled={!state.canGoBack} onClick={() => guard(previewKit.navigate({ action: "back" }))}><ArrowLeft size={13} /></button>
+        <button className="icon-button compact" aria-label="Forward" {...tooltipProps("Forward")} disabled={!state.canGoForward} onClick={() => guard(previewKit.navigate({ action: "forward" }))}><ArrowRight size={13} /></button>
+        <button className="icon-button compact" aria-label="Reload" {...tooltipProps("Reload", { shortcut: "⌘R" })} onClick={() => guard(previewKit.navigate({ action: "reload" }))}><RotateCw size={13} /></button>
         <form onSubmit={(event) => { event.preventDefault(); openUrl(draft); }}>
           <input
             aria-label="Preview address"
@@ -135,11 +137,14 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
         </form>
       </div>
       {active && (addressFocused || !state.url) ? <PortSuggestions cwd={cwd} current={state.url} onOpen={openUrl} /> : null}
+      {active && addressFocused ? <RecentSuggestions entries={recent.entries} typed={draft} current={state.url} onOpen={openUrl} onForget={recent.forget} /> : null}
       <PreviewTools state={state} actions={actions} run={(work) => guard(work())} />
       <div className={error ? "preview-status error" : "preview-status"}>
         {error || state.recordingNotice || (state.loading ? "loading…" : state.title || "nothing loaded")}
       </div>
-      <div className="preview-surface" ref={surface} />
+      <div className="preview-surface" ref={surface}>
+        {!state.url && !state.loading ? <RecentPages entries={recent.entries} onOpen={openUrl} onForget={recent.forget} /> : null}
+      </div>
     </>}
   </section>;
 }

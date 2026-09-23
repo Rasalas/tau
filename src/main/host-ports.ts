@@ -6,6 +6,7 @@ import { getAgentDir, loadSkills, SessionManager } from "@earendil-works/pi-codi
 import type {
   ExtensionUiPrompt,
   HostEvent,
+  TauConfig,
   HostSnapshot,
   NewThreadRequestId,
   ThreadBackendKind,
@@ -29,6 +30,7 @@ import {
   type InstallerOptions,
 } from "./extension-installer.js";
 import { McpEndpoint } from "./mcp-endpoint.js";
+import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import { defaultGlobalThemesDir } from "./user-themes.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
@@ -36,6 +38,7 @@ import type {
   HostAttachedRuntime,
   HostClientServices,
   HostExtensionServices,
+  HostExtensionSettings,
   HostMcpInstructionsProvider,
   HostMcpToolGate,
   HostMcpToolProvider,
@@ -118,6 +121,8 @@ export interface ExtensionServicesPort {
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   completionModels(): Promise<UiModel[]>;
   priceUsage(tallies: readonly UsageTally[]): Promise<PricedUsage[]>;
+  /** Tau's config as the levels resolve it for a project, or for this machine alone. */
+  readConfig?(cwd?: string): Promise<TauConfig>;
   readonly modelAuth: HostModelAuthServices;
   setThreadTitle(sessionId: string, title: string, source: "generated" | "renamed"): Promise<void>;
   attachedRuntime(sessionId?: string): HostAttachedRuntime | undefined;
@@ -207,6 +212,15 @@ export interface HostExtensionSeam {
   readonly mcp: McpEndpoint;
 }
 
+/** One extension's entries of `options` and `values`, without its id in front. */
+export async function extensionSettings(port: Pick<ExtensionServicesPort, "readConfig">, extensionId: string, cwd?: string): Promise<HostExtensionSettings> {
+  const config = port.readConfig ? await port.readConfig(cwd) : {};
+  const prefix = `${extensionId}.`;
+  const own = <T,>(record: Readonly<Record<string, T>> | undefined): Record<string, T> =>
+    Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => key.startsWith(prefix)).map(([key, value]) => [key.slice(prefix.length), value]));
+  return { options: own(config.options), values: own(config.values) };
+}
+
 /** A program's kind, and `<kind>@<instance>` for another setup of it. */
 const BACKEND_KIND = /^[A-Za-z][A-Za-z0-9_.-]*(?:@[a-z][a-z0-9_-]*)?$/u;
 
@@ -230,6 +244,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   });
   // A closed runtime's process is gone; its credential goes with it.
   port.registerTurnObserver({ closed: async (threadId) => { mcp.revoke(threadId); } });
+  const turnAttachments = new TurnAttachmentRegistry((label, detail) => port.log(label, detail));
 
   const sessionFile = (manager: SessionManager): HostSessionFile => {
     const path = manager.getSessionFile();
@@ -369,7 +384,9 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       },
       connect: (thread, options) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread, options),
     },
-    // `extensionServices` binds the extension id in front of these two.
+    // `extensionServices` binds the extension id in front of these three.
+    turnAttachments: turnAttachments as unknown as HostExtensionServices["turnAttachments"],
+    settings: ((extensionId: string, cwd?: string) => extensionSettings(port, extensionId, cwd)) as unknown as HostExtensionServices["settings"],
     callClient: ((extensionId: string, command: string, input?: unknown) => port.platform.callClient
       ? port.platform.callClient(extensionId, command, input)
       : Promise.reject(new Error("This host has no client process that can answer."))) as unknown as HostExtensionServices["callClient"],

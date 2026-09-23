@@ -1,7 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { HostUnavailableError, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
 import { EMPTY_PREVIEW_STATE, createPreviewHostClient, type PreviewState } from "./protocol.js";
-import { previewView, useScreenFollower } from "./screen-store.js";
+import { Cell, previewView, useScreenFollower } from "./screen-store.js";
 
 /**
  * The kit's own host entry, handed over by `activate`. The panel is a React
@@ -22,15 +22,18 @@ export const previewKit = createPreviewHostClient((command, input) => connection
 
 export const PREVIEW_PANEL = "preview";
 
-/** Whether the Preview panel is on screen, which decides what `preview.toggle` does. */
-let panelShown = false;
+/**
+ * Whether the Preview panel is on screen in this window: `preview.toggle`
+ * reads it, and the floating preview shows only while it is not.
+ */
+export const panelShown = new Cell(false);
 
 export function notePanelShown(shown: boolean): void {
-  panelShown = shown;
+  panelShown.set(shown);
 }
 
 export function togglePreviewPanel(actions: Pick<WorkbenchActions, "openPanel" | "toggleDock">): void {
-  if (panelShown) actions.toggleDock();
+  if (panelShown.get()) actions.toggleDock();
   else actions.openPanel(PREVIEW_PANEL);
 }
 
@@ -60,13 +63,25 @@ export function isPreviewState(value: unknown): value is PreviewState {
   return Boolean(state && typeof state.url === "string" && Array.isArray(state.consoleErrors));
 }
 
+/** A host from before this version sends no zoom, viewport or floating-preview fields. */
+export function readPreviewState(value: PreviewState): PreviewState {
+  return { ...EMPTY_PREVIEW_STATE, ...value };
+}
+
 export function usePreviewState(store: PreviewStore = previewStore): PreviewState {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
+/** The workbench's actions, for what runs outside a component: a link click that opens the panel. */
+export const workbenchActions = new Cell<WorkbenchActions | undefined>(undefined);
+
 /** Brings the panel forward when the agent points the preview at a new page or drives a new window. */
 export function PreviewFollower({ actions }: RegionProps): null {
   const state = usePreviewState();
+  useEffect(() => {
+    workbenchActions.set(actions);
+    return () => { if (workbenchActions.get() === actions) workbenchActions.set(undefined); };
+  }, [actions]);
   useScreenFollower(actions, PREVIEW_PANEL);
   const shown = useRef("");
   useEffect(() => {

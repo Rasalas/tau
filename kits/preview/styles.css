@@ -101,3 +101,119 @@
   .agent-cursor { transition: none; }
   .agent-cursor-ping { animation: none; opacity: 0.5; }
 }
+
+/* The page's zoom beside the tools, while it is not 100%. */
+.preview-zoom { color: var(--acid-text); font: 10px var(--mono); }
+.preview-tools .text-button.danger { color: var(--danger); }
+.preview-profile-confirm { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+
+/* Recent pages: the empty panel's list, and the matches under the focused address. */
+.preview-surface { position: relative; overflow: auto; }
+.preview-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: 420px; margin: 40px auto; padding: 0 16px; color: var(--muted); text-align: center; font: 12px var(--sans); }
+.preview-empty strong { color: var(--ink-2); font-weight: 600; }
+.preview-empty p { margin: 0; color: var(--faint); }
+.preview-empty.list { align-items: stretch; text-align: left; margin-top: 24px; }
+.preview-empty h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; color: var(--muted); font: 600 11px var(--sans); }
+.preview-recents { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--raised); overflow: hidden; }
+.preview-recents.suggestions { flex: none; margin: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.preview-recent { position: relative; display: flex; align-items: center; }
+.preview-recent + .preview-recent { border-top: 1px solid var(--line-soft); }
+.preview-recents.suggestions .preview-recent + .preview-recent { border-top: 0; }
+.preview-recent-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 8px 34px 8px 10px;
+  border: 0; background: transparent; color: var(--muted); text-align: left; cursor: pointer;
+}
+.preview-recent.compact .preview-recent-open { gap: 7px; padding: 3px 30px 3px 10px; }
+.preview-recent-open:hover, .preview-recent-open:focus-visible { background: var(--hover); color: var(--ink-2); outline: none; }
+.preview-recent-text { min-width: 0; display: flex; flex-direction: column; }
+.preview-recent.compact .preview-recent-text { flex-direction: row; align-items: baseline; gap: 6px; }
+.preview-recent-text strong, .preview-recent-text small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preview-recent-text strong { color: var(--ink-2); font: 500 12px var(--sans); }
+.preview-recent.compact .preview-recent-text strong { font: 11px var(--mono); flex: none; max-width: 60%; }
+.preview-recent-text small { color: var(--faint); font: 10.5px var(--sans); }
+.preview-recent-forget { position: absolute; right: 6px; opacity: 0; }
+.preview-recent:hover .preview-recent-forget, .preview-recent-forget:focus-visible { opacity: 1; }
+
+/* The floating preview: a picture of what an agent drives, fixed in a corner of the chat column. */
+.preview-mini-anchor { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+.preview-mini {
+  position: fixed; z-index: 30; display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--float);
+  box-shadow: var(--elevation-3); user-select: none;
+  transition: width 200ms var(--ease) 120ms, transform 120ms var(--ease);
+}
+/* The player sets these inline from its width, the room around it and the picture. */
+.preview-mini {
+  --mini-width: 280px;
+  --mini-large: 280px;
+  --mini-aspect: 1.6;
+  width: var(--mini-width);
+}
+.preview-mini:is(:hover, :focus-within):not(.dragging) { width: var(--mini-large); }
+.preview-mini.dragging { transition: none; cursor: grabbing; opacity: 0.92; }
+.preview-mini-head { flex: none; display: flex; align-items: center; gap: 2px; height: 26px; padding: 0 3px 0 7px; border-bottom: 1px solid var(--line); cursor: grab; }
+.preview-mini-head .spacer { flex: 1; }
+/* Core styles icon buttons inside panels only; the player floats outside them. */
+.preview-mini-head button {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0;
+  border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--muted); cursor: pointer;
+}
+.preview-mini-head button:hover:not(:disabled) { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.preview-mini-head button:disabled { opacity: .4; cursor: default; }
+.preview-mini-head button:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; }
+.preview-mini-source { display: inline-flex; color: var(--muted); }
+.preview-mini-body {
+  position: relative; display: block; width: 100%; aspect-ratio: var(--mini-aspect); padding: 0; border: 0;
+  background: var(--sunken); cursor: zoom-in; overflow: hidden;
+}
+.preview-mini-body img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.preview-mini-body.cropped img { object-fit: cover; object-position: top center; }
+.preview-mini-body:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.preview-mini-waiting { display: grid; place-items: center; height: 100%; color: var(--faint); font: 11px var(--sans); }
+.preview-mini-error { padding: 3px 8px; border-top: 1px solid var(--line); color: var(--danger); font: 10.5px var(--sans); }
+/* The inner edge, below the header: only the width is the user's, the height follows the picture. */
+.preview-mini-resize { position: absolute; top: 26px; bottom: 0; width: 6px; z-index: 1; cursor: ew-resize; }
+.preview-mini-resize.left { left: 0; }
+.preview-mini-resize.right { right: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .preview-mini { transition: none; }
+}
+
+/* Cookie import: T3 Code's browser import dialog, with a list of sites to choose from. */
+.cookie-import-dialog {
+  width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px); display: flex; flex-direction: column; gap: 12px; padding: 18px;
+  border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--overlay); box-shadow: var(--elevation-3);
+  color: var(--ink); animation: fade-up .14s ease;
+}
+.cookie-import-dialog h2 { margin: 0; font: 600 16px var(--sans); }
+.cookie-import-dialog header p { margin: 6px 0 0; color: var(--muted); font: 12.5px/1.45 var(--sans); }
+.cookie-import-route { display: flex; align-items: flex-end; gap: 10px; color: var(--faint); }
+.cookie-import-route label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cookie-import-route label > span { color: var(--muted-2); font: 500 10.5px var(--sans); letter-spacing: .04em; text-transform: uppercase; }
+.cookie-import-route svg { flex: none; margin-bottom: 7px; }
+.cookie-import-dialog select {
+  height: 28px; min-width: 0; padding: 0 6px; border: 1px solid var(--line-field); border-radius: var(--radius-sm);
+  background: var(--field); color: var(--ink); font: 12.5px var(--sans);
+}
+.cookie-import-dialog select:focus { outline: none; border-color: var(--line-focus); }
+.cookie-import-sites { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); }
+.cookie-import-filter { flex: none; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--faint); }
+.cookie-import-filter input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 12px var(--mono); outline: none; }
+.cookie-import-filter .text-button { flex: none; font: 11px var(--sans); }
+.cookie-import-list { flex: 1; min-height: 0; max-height: 240px; margin: 0; padding: 3px 0; overflow: auto; list-style: none; }
+.cookie-import-list label { display: flex; align-items: center; gap: 8px; padding: 3px 10px; cursor: pointer; }
+.cookie-import-list label:hover { background: var(--wash); }
+.cookie-import-site { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); }
+.cookie-import-list small { flex: none; color: var(--faint); font: 11px var(--mono); font-variant-numeric: tabular-nums; }
+.cookie-import-more { padding: 4px 10px; color: var(--muted-2); font: 11px var(--sans); }
+.cookie-import-wait { display: flex; align-items: center; gap: 8px; padding: 10px; color: var(--muted); font: 12px var(--sans); }
+.cookie-import-note { margin: 0; color: var(--muted-2); font: 11.5px/1.45 var(--sans); }
+.cookie-import-sites .cookie-import-note { padding: 10px; }
+.cookie-import-note code { font: 11px var(--mono); }
+.cookie-import-problem { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 10px; color: var(--danger); font: 12px/1.45 var(--sans); }
+.cookie-import-problem span { flex: 1 1 100%; }
+.cookie-import-dialog footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.cookie-import-count { flex: 1; color: var(--muted-2); font: 11.5px var(--sans); }
+.cookie-import-dialog footer > button { padding: 7px 14px; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: transparent; color: var(--ink-2); font: 500 12.5px var(--sans); cursor: pointer; }
+.cookie-import-dialog footer > button.primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+.cookie-import-dialog footer > button:disabled { opacity: .45; cursor: default; }
