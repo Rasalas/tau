@@ -133,6 +133,8 @@ export type {
   PaletteSearchContext,
   PaletteSourceContribution,
   ModelSelectionContribution,
+  UserKeybinding,
+  UserKeymapContribution,
   NewThreadClaimEvent,
   NewThreadPromptEvent,
   NewThreadPromptGate,

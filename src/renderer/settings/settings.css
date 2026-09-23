@@ -287,6 +287,45 @@
   border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px;
 }
 .keybinding-keys { display: flex; gap: 4px; }
+/* The editor: a chord is a button that records, a draft opens a strip under its row. */
+.keybinding-row > span > strong { display: inline-flex; align-items: center; gap: 6px; }
+.keybinding-badge { padding: 0 5px; border: 1px solid var(--line-strong); border-radius: 4px; font: 500 10px var(--sans); font-style: normal; color: var(--muted); }
+.keybinding-chord {
+  display: inline-flex; align-items: center; min-height: 26px; padding: 0 4px;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; cursor: pointer;
+}
+.keybinding-chord:hover, .keybinding-chord:focus-visible { border-color: var(--line-control); background: var(--raised); }
+.keybinding-chord[data-drafted] kbd { border-color: var(--line-focus); color: var(--ink); }
+.keybinding-recorder {
+  width: 150px; height: 26px; padding: 0 8px;
+  border: 1px solid var(--line-focus); border-radius: var(--radius-sm); background: var(--field);
+  color: var(--ink); font: 11.5px var(--mono); caret-color: transparent; outline: none;
+}
+.keybinding-recorder::placeholder { color: var(--muted-2); }
+.settings-filter > .keybinding-recorder { flex: 1; height: 24px; border: 0; padding: 0; background: transparent; }
+.keybinding-row > .keybinding-row-menu { flex: none; }
+.keybinding-row-menu > .text-button { display: grid; place-items: center; width: 24px; height: 24px; opacity: 0; }
+.keybinding-row:hover .keybinding-row-menu > .text-button, .keybinding-row-menu > .text-button:focus-visible, .keybinding-row-menu > .text-button[aria-expanded="true"] { opacity: 1; }
+.keybinding-row-group[data-editing] { background: var(--inset); }
+.keybinding-add-row { padding-top: 0; }
+.keybinding-draft { display: flex; flex-direction: column; gap: 6px; padding: 0 var(--space-6) 10px; }
+.keybinding-when { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.keybinding-when > .settings-input { width: 260px; height: 26px; font: 11.5px var(--mono); }
+.keybinding-when > .settings-input[aria-invalid] { border-color: var(--danger-line); }
+.keybinding-draft-error { margin: 0; font-size: 11.5px; color: var(--danger); }
+.keybinding-collision { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.keybinding-collision > svg { flex: none; margin-top: 2px; color: var(--warn); }
+.keybinding-collision[data-outcome="clash"] { color: var(--warn); }
+.keybinding-draft-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.keybinding-search { display: flex; align-items: center; gap: 8px; }
+.keybinding-search > .settings-filter { flex: 1; }
+.keybinding-search > .icon-button[aria-pressed="true"] { color: var(--ink); border-color: var(--line-focus); }
+.settings-page > p.lede + .keybinding-search { margin-top: var(--space-7); }
+.settings-page > .keybinding-search + .settings-section, .settings-page > .keybinding-search + .keybinding-reset-confirm { margin-top: var(--space-6); }
+.keybinding-key-filter { flex: 1; display: flex; align-items: center; gap: 4px; }
+.keybinding-key-filter kbd { font: 10.5px var(--mono); color: var(--ink-2); border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px; }
+.keybinding-reset-confirm { display: flex; align-items: center; gap: 8px; max-width: none; }
+.keybinding-reset-confirm > span { flex: 1; }
 
 /* The narrow client stacks the section column over the page. */
 body[data-profile="compact"] .settings-nav { max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }

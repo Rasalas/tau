@@ -1,37 +1,5 @@
 import { HostUnavailableError, errorMessage, type DesktopExtension, type DesktopExtensionContext } from "tau";
-import { KEYBINDINGS_HOST_EXTENSION_ID, type PiKeybindingsState, type PiShortcutsState } from "./protocol.js";
-
-/**
- * The Pi actions in `~/.pi/agent/keybindings.json` and the workbench command
- * each one reaches. Core binds Tau's own chords for these commands; a chord
- * the user wrote for one of them replaces Tau's, because someone who rebound
- * `app.session.new` meant that key and not that key as well (`replaces` on
- * `registerKeybinding`). The commands belong to whoever registered them; this
- * kit only decides which keys reach them.
- */
-const PI_KEYBINDINGS: ReadonlyArray<{ commandId: string; piAction: string }> = [
-  { commandId: "runtime.new-session", piAction: "app.session.new" },
-  { commandId: "runtime.abort", piAction: "app.interrupt" },
-  { commandId: "runtime.model", piAction: "app.model.select" },
-  { commandId: "runtime.cycle-model", piAction: "app.model.cycleForward" },
-  { commandId: "runtime.cycle-model-backward", piAction: "app.model.cycleBackward" },
-  { commandId: "runtime.cycle-thinking", piAction: "app.thinking.cycle" },
-  // Pi's thinking toggle is Tau's transcript detail: the level that shows reasoning.
-  { commandId: "runtime.transcript-detail", piAction: "app.thinking.toggle" },
-  { commandId: "runtime.thread-tree", piAction: "app.session.tree" },
-  { commandId: "runtime.fork-thread", piAction: "app.session.fork" },
-  { commandId: "runtime.rename-thread", piAction: "app.session.rename" },
-  { commandId: "runtime.instructions", piAction: "app.instructions.view" },
-  { commandId: "runtime.instructions", piAction: "app.system.prompt" },
-  { commandId: "runtime.command-palette", piAction: "app.palette.open" },
-  { commandId: "runtime.command-palette", piAction: "app.command.palette" },
-  { commandId: "workspace.open-prompt-editor", piAction: "app.editor.open" },
-  { commandId: "workspace.open-prompt-editor", piAction: "app.editor.external" },
-  { commandId: "runtime.copy-chat", piAction: "app.chat.copy" },
-  { commandId: "runtime.copy-chat", piAction: "app.message.copy" },
-  { commandId: "workbench.focus-transcript", piAction: "tui.altScreen.top" },
-  { commandId: "workbench.focus-composer", piAction: "tui.altScreen.bottom" },
-];
+import { KEYBINDINGS_HOST_EXTENSION_ID, PI_ACTION_COMMANDS, type PiKeybindingsState, type PiShortcutsState, type SetChordsInput } from "./protocol.js";
 
 // No host, or a host without this kit's entry (safe mode): core's chords stay.
 const ignoreHostUnavailable = (error: unknown) => {
@@ -39,35 +7,39 @@ const ignoreHostUnavailable = (error: unknown) => {
   console.warn("Pi keybindings are unavailable", error);
 };
 
-function bindPiKeys(plugin: DesktopExtensionContext, isDisposed: () => boolean): { refresh: () => void; clear: () => void } {
+/**
+ * Binds what `keybindings.json` holds. Core binds Tau's own chords; a chord the
+ * user wrote for one of those commands replaces Tau's, because someone who
+ * rebound `app.session.new` meant that key and not that key as well
+ * (`replaces` on `registerKeybinding`). The commands belong to whoever
+ * registered them; this kit only decides which keys reach them.
+ */
+function bindPiKeys(plugin: DesktopExtensionContext, isDisposed: () => boolean, onRead: (state: PiKeybindingsState) => void): { refresh: () => Promise<void>; clear: () => void } {
   let disposers: Array<() => void> = [];
   const clear = () => { disposers.forEach((dispose) => dispose()); disposers = []; };
-  const refresh = () => {
-    void plugin.host.invoke("pi-keybindings").then((state) => {
-      if (isDisposed()) return;
-      // The file is the whole truth about these chords, so a re-read replaces
-      // what the last one bound rather than adding to it.
-      clear();
-      const bindings = (state as PiKeybindingsState).bindings;
-      const actionToCommand = new Map<string, string>(
-        PI_KEYBINDINGS.map((entry) => [entry.piAction, entry.commandId])
-      );
-      for (const [action, keys] of Object.entries(bindings)) {
-        if (!keys?.length) continue;
-        const commandId = actionToCommand.get(action) ?? action;
-        for (const entry of keys) {
-          // Without `when` a rebound key keeps the context of the default it replaces.
-          const { key, when } = typeof entry === "string" ? { key: entry, when: undefined } : entry;
-          try {
-            disposers.push(plugin.registerKeybinding({ keys: key, commandId, replaces: commandId, ...(when !== undefined ? { when } : {}) }));
-          } catch (error) {
-            console.warn(`keybindings.json: ${action} = ${key} is not a chord Tau understands`, error);
-          }
+  const refresh = () => plugin.host.invoke("pi-keybindings").then((state) => {
+    if (isDisposed()) return;
+    // The file is the whole truth about these chords, so a re-read replaces
+    // what the last one bound rather than adding to it.
+    clear();
+    const { bindings } = state as PiKeybindingsState;
+    const ownEntries = new Set(Object.keys(bindings).filter((id) => !PI_ACTION_COMMANDS.has(id)));
+    for (const [action, keys] of Object.entries(bindings)) {
+      const commandId = PI_ACTION_COMMANDS.get(action) ?? action;
+      if (!keys?.length || (action !== commandId && ownEntries.has(commandId))) continue;
+      for (const entry of keys) {
+        // Without `when` a rebound key keeps the context of the default it replaces.
+        const { key, when } = typeof entry === "string" ? { key: entry, when: undefined } : entry;
+        try {
+          disposers.push(plugin.registerKeybinding({ keys: key, commandId, replaces: commandId, ...(when !== undefined ? { when } : {}) }));
+        } catch (error) {
+          console.warn(`keybindings.json: ${action} = ${key} is not a chord Tau understands`, error);
         }
       }
-    }).catch(ignoreHostUnavailable);
-  };
-  refresh();
+    }
+    onRead(state as PiKeybindingsState);
+  }).catch(ignoreHostUnavailable);
+  void refresh();
   return { refresh, clear };
 }
 
@@ -109,11 +81,27 @@ export const keybindingsExtension: DesktopExtension = {
   name: "Keybindings",
   activate(plugin) {
     let disposed = false;
-    const piKeys = bindPiKeys(plugin, () => disposed);
+    let keymap: (() => void) | undefined;
+    const piKeys = bindPiKeys(plugin, () => disposed, (state) => {
+      // Settings → Keybindings writes here once the host has answered.
+      keymap ??= plugin.registerUserKeymap({
+        id: "keybindings-json",
+        label: state.path ?? "keybindings.json",
+        setChords: async (commandId, chords) => {
+          const input: SetChordsInput = { commandId, chords: chords ? [...chords] : null };
+          await plugin.host.invoke("set-chords", input);
+          await piKeys.refresh();
+        },
+        resetAll: async () => {
+          await plugin.host.invoke("reset-chords");
+          await piKeys.refresh();
+        },
+      });
+    });
     const clearShortcuts = bindPiShortcuts(plugin, () => disposed);
     // The host half hears that keybindings.json moved and says so here.
     const stopWatching = plugin.host.onEvent("changed", () => piKeys.refresh());
-    return () => { disposed = true; stopWatching(); piKeys.clear(); clearShortcuts(); };
+    return () => { disposed = true; stopWatching(); piKeys.clear(); clearShortcuts(); keymap?.(); };
   },
 };
 

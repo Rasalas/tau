@@ -7,6 +7,8 @@
  * `contenteditable` has the keyboard.
  */
 export const KEYBINDING_CONTEXT_ATTRIBUTE = "data-keybinding-context";
+/** Marks an element that records chords: while it has the keyboard, no chord runs. */
+export const KEYBINDING_CAPTURE_ATTRIBUTE = "data-keybinding-capture";
 
 /** What owns the keyboard for text editing, so a chord native editing shares (`mod+z`) yields to it. */
 const EDITABLE_SELECTOR = [
