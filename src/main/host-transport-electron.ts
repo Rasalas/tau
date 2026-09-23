@@ -30,6 +30,10 @@ export interface ElectronHostTransportOptions {
   logger?: HostLogger;
   /** Delivers one push to the window, if there still is one. */
   send(channel: string, payload: unknown): void;
+  /** Runs before every reply, so pushes still waiting to be coalesced reach the window first. */
+  beforeReply?(): void;
+  /** The window starts from a snapshot, not a replay: its first hello, or a resync. */
+  onSnapshotClient?(): void;
 }
 
 export interface ElectronHostTransport {
@@ -82,12 +86,18 @@ export function installElectronHostTransport(options: ElectronHostTransportOptio
         // After this reply is on its way: the push the attach publishes must
         // not reach the window before the sequence it starts counting from.
         setImmediate(() => { if (!event.sender.isDestroyed()) attach(event.sender, hello.profile); });
-        return { id: request.id, result: helloReply(pushLog, hello, options) };
+        options.beforeReply?.();
+        const reply = helloReply(pushLog, hello, options);
+        if (hello.lastSeq === undefined || reply.resync) options.onSnapshotClient?.();
+        return { id: request.id, result: reply };
       }
-      return { id: request.id, result: await invokeHostMethod(methods, request.method, request.params) };
+      const result = await invokeHostMethod(methods, request.method, request.params);
+      options.beforeReply?.();
+      return { id: request.id, result };
     } catch (error) {
       // A failed method is a failed request, never a broken channel.
       const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : HOST_ERROR.failed;
+      options.beforeReply?.();
       return { id: request.id, error: hostErrorInfo(error, code) };
     }
   });

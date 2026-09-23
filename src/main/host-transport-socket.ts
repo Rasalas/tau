@@ -43,6 +43,10 @@ export interface SocketHostTransportOptions {
   attachTo?: Server;
   /** Where attached clients are reported; without one the host counts nobody. */
   clients?: HostClientSink;
+  /** Runs before every reply, so pushes still waiting to be coalesced reach the client first. */
+  beforeReply?(): void;
+  /** A client starts from a snapshot, not a replay: its first hello, or a resync. */
+  onSnapshotClient?(): void;
   logger?: HostLogger;
 }
 
@@ -96,6 +100,11 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const send = (socket: WebSocket, frame: HostServerFrame): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
   };
+  /** A response goes after every push its method caused, even one still being coalesced. */
+  const respond = (socket: WebSocket, response: HostServerFrame): void => {
+    options.beforeReply?.();
+    send(socket, response);
+  };
 
   server.on("connection", (socket, request) => {
     // Only a peer on this machine may be told that the host's files are local.
@@ -119,10 +128,14 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         // A client that says hello twice on one socket replaces itself, with
         // whatever profile it now claims.
         forget(socket);
+        // Waiting pushes are numbered now, before the reply names the next sequence.
+        options.beforeReply?.();
         authenticated.add(socket);
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
-        send(socket, { type: "hello-reply", id: frame.id, reply: helloReply(options.pushLog, frame.hello, { ...options, capabilities }) });
+        const reply = helloReply(options.pushLog, frame.hello, { ...options, capabilities });
+        send(socket, { type: "hello-reply", id: frame.id, reply });
+        if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
         if (options.clients && !frame.hello.auxiliary) {
           clientIds.set(socket, options.clients.attached({
             transport: "socket",
@@ -139,10 +152,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       // JSON turns a missing positional argument into null; decoders expect undefined.
       const normalized = params.map((value) => (value === null ? undefined : value));
       void invokeHostMethod(options.methods, method, normalized)
-        .then((result) => send(socket, { type: "response", response: { id, result } }))
+        .then((result) => respond(socket, { type: "response", response: { id, result } }))
         .catch((error: unknown) => {
           const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : HOST_ERROR.failed;
-          send(socket, { type: "response", response: { id, error: hostErrorInfo(error, code) } });
+          respond(socket, { type: "response", response: { id, error: hostErrorInfo(error, code) } });
         });
     });
     socket.on("close", () => forget(socket));

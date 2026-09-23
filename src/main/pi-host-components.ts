@@ -56,7 +56,6 @@ import { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
 import { RuntimePrewarm } from "./runtime-prewarm.js";
 import { PromptPreparation } from "./prompt-preparation.js";
 import { TurnDelivery } from "./turn-delivery.js";
-import { ToolOutputBatcher } from "./tool-output-batcher.js";
 import { TurnsInFlight } from "./turns-in-flight.js";
 import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
@@ -171,7 +170,6 @@ export interface PiHostComponents {
   readonly turnsInFlight: TurnsInFlight;
   /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
   readonly continueThreadsAfterRestart: () => boolean;
-  readonly toolOutputBatcher: ToolOutputBatcher;
 }
 
 export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps): PiHostComponents {
@@ -465,11 +463,6 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     fail: (error, sessionId) => deps.fail(error, sessionId),
   });
   markTauHostRuntime();
-  const toolOutputBatcher = new ToolOutputBatcher((updates) => {
-    for (const [id, output] of updates) {
-      emit({ type: "tool-update", sessionId: toolOwners.get(id) ?? "", id, output });
-    }
-  });
   return {
     agentDir: getAgentDir(),
     sessionsDirOverride,
@@ -508,6 +501,5 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     turns,
     turnsInFlight,
     continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
-    toolOutputBatcher,
   };
 }

@@ -15,7 +15,6 @@ export interface BackendEventServices {
   ownTool(toolCallId: string, sessionId: string): void;
   releaseTool(toolCallId: string): void;
   pushToolOutput(toolCallId: string, output: string): void;
-  flushToolOutput(toolCallId: string): void;
   toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void;
   /** Republishes the thread's shell in the index: title, count, usage. */
   refreshShell(thread: ThreadRuntime, touch: boolean): Promise<void>;
@@ -131,7 +130,6 @@ function remember(thread: ThreadRuntime, message: UiMessage): void {
 }
 
 function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEventServices): void {
-  services.flushToolOutput(tool.id);
   const previous = thread.tools.get(tool.id);
   const ended: UiToolRun = { ...tool, args: Object.keys(tool.args).length > 0 ? tool.args : previous?.args ?? {}, startedAt: previous?.startedAt ?? tool.startedAt, endedAt: tool.endedAt ?? Date.now() };
   recordTool(thread, ended);

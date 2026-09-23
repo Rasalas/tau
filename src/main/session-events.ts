@@ -27,7 +27,6 @@ export interface SessionEventServices {
   ownTool(toolCallId: string, sessionId: string): void;
   releaseTool(toolCallId: string): void;
   pushToolOutput(toolCallId: string, output: string): void;
-  flushToolOutput(toolCallId: string): void;
   toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void;
 }
 
@@ -198,7 +197,6 @@ function publishAssistantAnchor(
 }
 
 function finishTool(event: any, thread: LiveTurnState, sessionId: string, cwd: string, services: SessionEventServices): void {
-  services.flushToolOutput(event.toolCallId);
   const previous = thread.tools.get(event.toolCallId);
   const output = resultText(event.result);
   const preview = boundedToolOutput(output);

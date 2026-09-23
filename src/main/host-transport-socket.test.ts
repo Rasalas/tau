@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostServerFrame } from "../shared/host-transport.js";
 import { HostPushLog } from "./host-push-log.js";
+import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { clientHostToken, hostTokenMatches, readHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
@@ -179,6 +180,63 @@ describe("socket host transport", () => {
     const reply = await again.frame;
     expect(reply.type === "hello-reply" && reply.reply.missed.map((entry) => entry.seq)).toEqual([2, 3]);
     expect(reply.type === "hello-reply" && reply.reply.resync).toBe(false);
+  });
+});
+
+describe("socket host transport and the coalescer", () => {
+  it("compresses frames and answers only after the pushes its method caused", async () => {
+    const pushLog = new HostPushLog();
+    let started: SocketHostTransport | undefined;
+    const pushes = new HostPushCoalescer((event) => {
+      const push = pushLog.record(event);
+      started?.deliver(push);
+      return push.seq;
+    });
+    started = await startSocketHostTransport({
+      listen: "127.0.0.1:0",
+      methods: {
+        stream: async () => {
+          pushes.publish({ type: "assistant-delta", sessionId: "s", id: "a", delta: "streamed" });
+          return "done";
+        },
+      },
+      pushLog,
+      hostVersion: "test",
+      capabilities: [],
+      token: TOKEN,
+      beforeReply: () => pushes.flush(),
+    });
+    transport = started;
+    const { socket, frame } = await hello(started.port, TOKEN);
+    await frame;
+    expect(socket.extensions).toContain("permessage-deflate");
+    const frames: HostServerFrame[] = [];
+    const both = new Promise<void>((resolve) => socket.on("message", (data) => {
+      frames.push(decodeHostServerFrame(JSON.parse(String(data)) as unknown)!);
+      if (frames.length === 2) resolve();
+    }));
+    socket.send(JSON.stringify({ type: "request", request: { id: "r1", method: "stream", params: [] } }));
+    await both;
+    expect(frames.map((entry) => entry.type)).toEqual(["push", "response"]);
+  });
+
+  it("reports a client that starts from a snapshot, not one that replays or a window's own process", async () => {
+    const onSnapshotClient = vi.fn();
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0", methods, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], token: TOKEN, onSnapshotClient,
+    });
+    await (await hello(transport.port, TOKEN)).frame;
+    expect(onSnapshotClient).toHaveBeenCalledTimes(1);
+    await (await hello(transport.port, TOKEN, 0)).frame;
+    expect(onSnapshotClient).toHaveBeenCalledTimes(1);
+    // Ahead of the host: told to resync, so it starts over from a snapshot.
+    await (await hello(transport.port, TOKEN, 5)).frame;
+    expect(onSnapshotClient).toHaveBeenCalledTimes(2);
+    const auxiliary = connect(transport.port);
+    await opened(auxiliary);
+    auxiliary.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN, auxiliary: true } }));
+    await nextFrame(auxiliary);
+    expect(onSnapshotClient).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -37,7 +37,6 @@ function makeServices() {
     ownTool: vi.fn(),
     releaseTool: vi.fn(),
     pushToolOutput: vi.fn(),
-    flushToolOutput: vi.fn(),
     toolEnded: vi.fn(),
     refreshShell: vi.fn(async () => undefined),
   };
@@ -74,7 +73,6 @@ describe("handleBackendRuntimeEvent", () => {
     for (const event of run.slice(5, 8)) handleBackendRuntimeEvent(event, thread, services);
     expect(services.ownTool).toHaveBeenCalledWith("tool-1", "thread-1");
     expect(services.pushToolOutput).toHaveBeenCalledWith("tool-1", "file");
-    expect(services.flushToolOutput).toHaveBeenCalledWith("tool-1");
     // The card keeps the arguments and start time of the running card it closes.
     const ended = { ...tool, status: "done", output: "file.txt", endedAt: 9 };
     expect(services.toolEnded).toHaveBeenCalledWith("thread-1", ended, "/repo");

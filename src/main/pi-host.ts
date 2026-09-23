@@ -82,7 +82,6 @@ import type { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
 import type { RuntimePrewarm } from "./runtime-prewarm.js";
 import type { PromptPreparation } from "./prompt-preparation.js";
 import type { TurnDelivery } from "./turn-delivery.js";
-import type { ToolOutputBatcher } from "./tool-output-batcher.js";
 import type { AttachedThreadBackend } from "./attached-thread-backend.js";
 import type { HostExtensionSeam } from "./host-ports.js";
 import { findPiBridge } from "./pi-bridge-client.js";
@@ -209,7 +208,6 @@ export class PiHost {
   private readonly continueThreadsAfterRestart: () => boolean;
   /** Set by the app shell so extensions can retitle the window. */
   onWindowTitle?: (title: string) => void;
-  private readonly toolOutputBatcher: ToolOutputBatcher;
   private readonly toolOwners: Map<string, string>;
   /** Extensions stepping into thread opening, forking, activation and the index sweep. */
   private readonly threadLifecycle: HostThreadLifecycleSet;
@@ -314,7 +312,6 @@ export class PiHost {
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
     this.toolOwners = components.toolOwners;
-    this.toolOutputBatcher = components.toolOutputBatcher;
     this.emit = components.emit;
     this.activation = new ThreadActivation({
       assertHostOwned: (thread) => {
@@ -1880,7 +1877,6 @@ export class PiHost {
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
       this.watch?.close();
-      this.toolOutputBatcher.dispose();
       this.prewarm.dispose();
       const teardownErrors: unknown[] = [];
       this.attached.session.detach();
@@ -1976,10 +1972,14 @@ export class PiHost {
       pinnedEntries: (runtime) => this.projection.pinnedEntries(runtime),
       ownTool: (id, owner) => this.toolOwners.set(id, owner),
       releaseTool: (id) => { this.toolOwners.delete(id); },
-      pushToolOutput: (id, output) => this.toolOutputBatcher.push(id, output),
-      flushToolOutput: (id) => this.toolOutputBatcher.flushId(id),
+      pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
     });
+  }
+
+  /** The transport coalesces these per tool; the host sends each one on. */
+  private pushToolOutput(toolCallId: string, output: string): void {
+    this.emit({ type: "tool-update", sessionId: this.toolOwners.get(toolCallId) ?? "", id: toolCallId, output });
   }
 
   /** A streamed external backend reports in Tau's dialect; the same bookkeeping applies. */
@@ -1996,8 +1996,7 @@ export class PiHost {
       detailForSnapshot: (snapshot) => this.detailForSnapshot(snapshot),
       ownTool: (id, owner) => this.toolOwners.set(id, owner),
       releaseTool: (id) => { this.toolOwners.delete(id); },
-      pushToolOutput: (id, output) => this.toolOutputBatcher.push(id, output),
-      flushToolOutput: (id) => this.toolOutputBatcher.flushId(id),
+      pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
       refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
     });

@@ -10,6 +10,7 @@ import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/ext
 import { HostLog } from "./host-log.js";
 import { HostJobRunner } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
+import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods } from "./host-methods.js";
 import { hostTokenPath, readOrCreateHostToken } from "./host-token.js";
 import { HostClientRegistry } from "./host-clients.js";
@@ -49,13 +50,19 @@ const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
 const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
 const pushLog = new HostPushLog();
+/** Streamed text and tool output are merged here before they are numbered. */
+const pushes = new HostPushCoalescer((event) => {
+  const push = pushLog.record(event);
+  socket?.deliver(push);
+  return push.seq;
+});
 const jobs = new HostJobRunner((event) => broadcast(event));
 /** The other direction: what a host extension asks the client's process to do. */
 const clientCalls = new ClientCalls((event) => publish(event));
 let socket: SocketHostTransport | undefined;
 
 function broadcast(event: HostPushEvent): void {
-  socket?.deliver(pushLog.record(event));
+  pushes.publish(event);
 }
 
 function publish(event: HostEvent): void {
@@ -180,6 +187,8 @@ async function main(): Promise<void> {
     listen,
     methods,
     pushLog,
+    beforeReply: () => pushes.flush(),
+    onSnapshotClient: () => pushes.resendWholeOutputs(),
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token,
