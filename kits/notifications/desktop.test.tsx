@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlatformAttention, SettingsPageProps, UiSession, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import notifications from "./desktop.js";
 import { ATTENTION_EVENT, NOTIFICATIONS_EXTENSION_ID, NOTIFY_EVENT, PRESENCE_REQUEST_EVENT, type AttentionItem } from "./protocol.js";
 
@@ -147,7 +148,8 @@ describe("Notifications on the desktop", () => {
     const { registry, preferences, attention } = setup();
     const page = registry.getSettingsPages().find((entry) => entry.id === "notifications.settings")!;
     const props: SettingsPageProps = { onNotify: vi.fn() };
-    render(<page.Component {...props} />);
+    render(<TestProviders preferences={preferences}><page.Component {...props} /></TestProviders>);
+    for (const title of ["Tell me with", "Sound", "Show a toast instead", "Also for the thread on screen"]) expect(screen.getByRole("heading", { level: 3, name: title })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Both" }));
     expect(preferences.value(NOTIFICATIONS_EXTENSION_ID, "mode")).toBe("both");
     expect(attention.requestPermission).toHaveBeenCalled();
