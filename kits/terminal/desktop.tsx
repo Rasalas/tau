@@ -2,7 +2,7 @@ import { Terminal } from "lucide-react";
 import type { DesktopExtension, WorkbenchActions } from "tau";
 import { TerminalPanel } from "./panel.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
-import { connectTerminalFont, connectTerminalHost, terminalKit, terminalServices, terminalStore } from "./store.js";
+import { connectTerminalFont, connectTerminalHost, createTerminalFontService, terminalKit, terminalServices, terminalStore } from "./store.js";
 import { TerminalSettingsPage } from "./settings.js";
 import { paneIds } from "./layout.js";
 import { closeTerminals, focusNextPane, keyboardShell, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
@@ -10,6 +10,7 @@ import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   PREVIEW_BROWSER_SERVICE,
   TERMINAL_COMMANDS,
+  TERMINAL_FONT_SERVICE,
   TERMINAL_HOST_EXTENSION_ID,
   TERMINAL_PANEL,
   TERMINAL_PANEL_ORDER,
@@ -17,6 +18,7 @@ import {
   TERMINAL_RUN_SERVICE,
   TERMINAL_STAGE_TAB,
   terminalPlacement,
+  type TerminalFontService,
   type TerminalRunService,
   type ComposerContextChips,
   type PreviewBrowserService,
@@ -98,6 +100,7 @@ export const terminalExtension: DesktopExtension = {
         };
       }),
       plugin.provideService<TerminalRunService>(TERMINAL_RUN_SERVICE, { run: (request, actions) => runInTerminal(actions ?? terminalServices.actions, request) }),
+      plugin.provideService<TerminalFontService>(TERMINAL_FONT_SERVICE, createTerminalFontService(plugin.preferences)),
     ];
     // The setting picks dock or drawer; changing it registers the panel again in its new place.
     const placementNow = () => terminalPlacement(plugin.preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));

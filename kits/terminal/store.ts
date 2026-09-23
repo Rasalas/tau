@@ -1,11 +1,15 @@
 import { useSyncExternalStore } from "react";
 import { getClientStorage, HostUnavailableError, type HostExtensionClient, type PreferencesStore, type WorkbenchActions } from "tau";
 import {
-  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, type TerminalFontDefaults, type UiTerminalSession, type WorkspaceStoreMirror,
+  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT,
+  type TerminalFontDefaults, type TerminalFontService, type TerminalFontServiceState, type UiTerminalSession, type WorkspaceStoreMirror,
 } from "./protocol.js";
 import { EMPTY_LAYOUT, focusPane, paneIds, parseLayout, reconcileLayout, type TerminalLayout } from "./layout.js";
 import type { ComposerContextChips, PreviewBrowserService } from "./protocol.js";
-import { FONT_FAMILY_SETTING, FONT_SIZE_SETTING, resolveTerminalFont, type ResolvedTerminalFont, type TerminalFontSettings } from "./font.js";
+import {
+  FONT_FAMILY_SETTING, FONT_SIZE_SETTING, MAX_TERMINAL_FONT_SIZE, MIN_TERMINAL_FONT_SIZE, resolveTerminalFont, splitFamilyList,
+  type ResolvedTerminalFont, type TerminalFontSettings,
+} from "./font.js";
 
 let connection: HostExtensionClient | undefined;
 
@@ -248,4 +252,43 @@ export async function refreshGhosttyFont(): Promise<void> {
 
 export function useTerminalFont(): TerminalFontState {
   return useSyncExternalStore(terminalFont.subscribe, terminalFont.getSnapshot, terminalFont.getSnapshot);
+}
+
+function fontServiceState({ settings, ghostty, resolved }: TerminalFontState): TerminalFontServiceState {
+  const ghosttyFace = ghostty?.families.flatMap(splitFamilyList)[0];
+  return {
+    family: settings.family ?? "",
+    size: settings.size ?? "",
+    resolved: {
+      ...(resolved.face ? { face: resolved.face } : {}),
+      stack: resolved.family, size: resolved.size, familySource: resolved.familySource, sizeSource: resolved.sizeSource,
+    },
+    ...(ghostty ? {
+      ghostty: {
+        ...(ghosttyFace ? { face: ghosttyFace } : {}),
+        ...(ghostty.size ? { size: ghostty.size } : {}),
+        files: ghostty.files,
+        problems: ghostty.problems,
+      },
+    } : {}),
+    sizeRange: { min: MIN_TERMINAL_FONT_SIZE, max: MAX_TERMINAL_FONT_SIZE },
+  };
+}
+
+/** `tau.terminal/font`: the font store as another kit's settings row reads and writes it. */
+export function createTerminalFontService(preferences: PreferencesStore): TerminalFontService {
+  let cached: { state: TerminalFontState; snapshot: TerminalFontServiceState } | undefined;
+  return {
+    getSnapshot: () => {
+      const state = terminalFont.getSnapshot();
+      if (cached?.state !== state) cached = { state, snapshot: fontServiceState(state) };
+      return cached.snapshot;
+    },
+    subscribe: terminalFont.subscribe,
+    set: (change) => {
+      if (change.family !== undefined) preferences.setValue(TERMINAL_HOST_EXTENSION_ID, FONT_FAMILY_SETTING, change.family.trim());
+      if (change.size !== undefined) preferences.setValue(TERMINAL_HOST_EXTENSION_ID, FONT_SIZE_SETTING, change.size.trim());
+    },
+    refresh: refreshGhosttyFont,
+  };
 }

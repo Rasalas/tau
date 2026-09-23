@@ -161,6 +161,33 @@ export interface TerminalRunService {
   run(request: TerminalRunRequest, actions?: TerminalRunActions): Promise<TerminalRunResult>;
 }
 
+/**
+ * The desktop service that shows and sets the terminal's font, for Settings →
+ * Appearance to draw (`useService`). Empty fields follow the user's Ghostty
+ * config, then the platform's monospace faces.
+ */
+export const TERMINAL_FONT_SERVICE = "tau.terminal/font";
+export type TerminalFontSource = "settings" | "ghostty" | "default";
+export interface TerminalFontServiceState {
+  /** What the user set; empty when the field follows Ghostty or the platform. */
+  family: string;
+  size: string;
+  /** What the terminal draws with now: the first face asked for, the whole CSS stack, the size in px. */
+  resolved: { face?: string; stack: string; size: number; familySource: TerminalFontSource; sizeSource: TerminalFontSource };
+  /** What the user's Ghostty config names; absent until the host answered. */
+  ghostty?: { face?: string; size?: number; files: string[]; problems: string[] };
+  sizeRange: { min: number; max: number };
+}
+export interface TerminalFontService {
+  /** The same object until something changed. */
+  getSnapshot(): TerminalFontServiceState;
+  subscribe(listener: () => void): () => void;
+  /** An empty string clears the field. */
+  set(change: { family?: string; size?: string }): void;
+  /** Reads the Ghostty config again. */
+  refresh(): Promise<void>;
+}
+
 // Mirrors of other kits' contracts. They are named here, not imported: a kit
 // never imports another kit, and each use degrades when the other kit is off.
 

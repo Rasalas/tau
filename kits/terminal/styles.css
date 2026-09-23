@@ -74,11 +74,6 @@
 .terminal-view .xterm-decoration-top { z-index: 2; position: relative; }
 
 
-.terminal-settings-row { display: flex; gap: 8px; align-items: center; max-width: 420px; }
-.terminal-settings-row input { flex: 1; }
-.terminal-settings-row .terminal-settings-size { flex: none; width: 96px; }
-.terminal-settings-sample { max-width: 420px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--sunken); color: var(--ink); white-space: pre; overflow: hidden; }
-
 /* A rail row whose thread runs a program in one of its shells (T3 Code's pulsing terminal). */
 .terminal-row-status { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--working); font: 10px var(--mono); animation: terminal-row-pulse 1.6s ease-in-out infinite; }
 @keyframes terminal-row-pulse { 50% { opacity: .45; } }
