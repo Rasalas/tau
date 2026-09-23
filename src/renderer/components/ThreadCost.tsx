@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
-import { useKeepClear } from "../reserved-region";
+import { lazy, Suspense, useState } from "react";
 import type { UiThreadUsage } from "../../shared/contracts";
-import { threadCostLabel, threadUsageDetail, threadUsageSections } from "../cost-format";
+import { planUsage, threadCostLabel, threadUsageDetail } from "../cost-format";
 import { tooltipProps } from "./ui/Tooltip";
+
+const ThreadCostPopover = lazy(() => import("./ThreadCostPopover"));
 
 /**
  * What the open thread has cost, beside the context dial. It opens into the
@@ -12,13 +13,9 @@ import { tooltipProps } from "./ui/Tooltip";
  */
 export function ThreadCost({ usage }: { usage: UiThreadUsage }) {
   const [open, setOpen] = useState(false);
-  const popover = useRef<HTMLDivElement>(null);
-  // It hangs past the composer's right edge, which is where the dock begins.
-  useKeepClear(popover, open);
   const label = threadCostLabel(usage);
   if (!label) return null;
-  const sections = threadUsageSections(usage);
-  const tooltip = sections.plan ? label : threadUsageDetail(usage);
+  const onPlan = planUsage(usage) !== undefined;
 
   return (
     <span
@@ -27,38 +24,14 @@ export function ThreadCost({ usage }: { usage: UiThreadUsage }) {
       onMouseLeave={() => setOpen(false)}
     >
       <button
-        className={sections.plan && !sections.billed?.cost ? "thread-cost plan" : "thread-cost"}
-        {...tooltipProps(tooltip)}
+        className={onPlan && usage.costUsd <= 0 ? "thread-cost plan" : "thread-cost"}
+        {...tooltipProps(onPlan ? label : threadUsageDetail(usage))}
         aria-label={`Thread cost ${label}`}
         onClick={() => setOpen((value) => !value)}
       >
         {label}
       </button>
-      {open ? (
-        <div className="thread-cost-popover" ref={popover}>
-          {sections.billed ? (
-            <>
-              <header>
-                <strong>Spent</strong>
-                <b>{sections.billed.cost ?? "no price"}</b>
-              </header>
-              <small>{sections.billed.detail}</small>
-            </>
-          ) : null}
-          {sections.plan ? (
-            <>
-              <header>
-                <strong>Subscription</strong>
-                <b>included</b>
-              </header>
-              <small>{sections.plan.detail}</small>
-              <small className="thread-cost-value">
-                {sections.plan.value ? `Would have cost ≈ ${sections.plan.value} via the API` : "No API price known for these tokens"}
-              </small>
-            </>
-          ) : null}
-        </div>
-      ) : null}
+      {open ? <Suspense fallback={null}><ThreadCostPopover usage={usage} /></Suspense> : null}
     </span>
   );
 }

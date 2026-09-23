@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatCost, formatTokens, threadCostLabel, threadUsageDetail, threadUsageSections } from "./cost-format";
+import { formatCost, formatTokens, threadCostLabel, threadUsageDetail } from "./cost-format";
+import { threadUsageSections } from "./cost-sections";
 
 const usage = {
   inputTokens: 12_300,

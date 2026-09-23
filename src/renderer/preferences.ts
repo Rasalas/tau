@@ -4,7 +4,6 @@ import { isTranscriptDetail, type TranscriptDetail } from "../workbench/transcri
 import type { HostClient } from "../workbench/host-client";
 import type { TauConfig, TauModelPreferences, UiModelPrice } from "../shared/contracts";
 import { readModelPreferenceRecord } from "../shared/model-preferences";
-import { readModelPrices } from "../shared/model-prices";
 import { DEFAULT_THEME, isThemePreference, registerUserThemes, applyTheme, type ThemePreference } from "./theme";
 import { SEND_SHORTCUTS, type SendShortcut } from "./components/composer-send-keys";
 
@@ -122,7 +121,8 @@ function load(): PreferencesState {
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
       modelPreferences: readModelPreferenceRecord(raw.modelPreferences) ?? {},
-      modelPrices: readModelPrices(raw.modelPrices) ?? {},
+      // The host checked them; the picker's own chunk reads each entry it uses.
+      modelPrices: raw.modelPrices && typeof raw.modelPrices === "object" && !Array.isArray(raw.modelPrices) ? raw.modelPrices as Record<string, UiModelPrice> : {},
       recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,

@@ -56,13 +56,13 @@ function renderComposer(threadUsage?: UiThreadUsage, contextUsage?: UiContextUsa
 afterEach(cleanup);
 
 describe("composer thread cost", () => {
-  it("shows what the thread has spent, and its split when opened", () => {
+  it("shows what the thread has spent, and its split when opened", async () => {
     renderComposer(usage);
     const button = screen.getByLabelText("Thread cost $0.42");
     expect(button.textContent).toBe("$0.42");
 
     fireEvent.click(button);
-    expect(screen.getByText("12.3k in · 2.1k out · 8.0k cache read · 3 turns")).toBeTruthy();
+    expect(await screen.findByText("12.3k in · 2.1k out · 8.0k cache read · 3 turns")).toBeTruthy();
   });
 
   it("shows nothing when the cost is unknown", () => {
@@ -85,11 +85,11 @@ describe("composer thread cost", () => {
     expect(context.compareDocumentPosition(attachment) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows a subscription's usage apart, with what the API would have charged", () => {
+  it("shows a subscription's usage apart, with what the API would have charged", async () => {
     renderComposer({ ...usage, costUsd: 0, subscription: { ...usage, apiValueUsd: 1.2 } });
     const button = screen.getByLabelText("Thread cost plan ≈$1.20");
     fireEvent.click(button);
-    expect(screen.getByText("Subscription")).toBeTruthy();
+    expect(await screen.findByText("Subscription")).toBeTruthy();
     expect(screen.getByText("Would have cost ≈ $1.20 via the API")).toBeTruthy();
     expect(screen.queryByText("Spent")).toBeNull();
   });
