@@ -202,6 +202,9 @@ const services: WorkerHostServices = {
     read: (path) => rpc("sessions.read", path) as ReturnType<WorkerHostServices["sessions"]["read"]>,
     start: (options) => rpc("sessions.start", options) as ReturnType<WorkerHostServices["sessions"]["start"]>,
     remove: async (sessionId) => { await rpc("sessions.remove", sessionId); },
+    restore: async (sessionId) => { await rpc("sessions.restore", sessionId); },
+    trash: () => rpc("sessions.trash") as ReturnType<WorkerHostServices["sessions"]["trash"]>,
+    purge: async (sessionId) => { await rpc("sessions.purge", sessionId); },
     exclusive: <T>(work: () => Promise<T> | T): Promise<T> => {
       const id = nextId++;
       exclusiveWork.set(id, async () => work());

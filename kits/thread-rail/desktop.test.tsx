@@ -41,6 +41,13 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState> } = {})
       state = { ...state, threads };
       return state;
     }
+    if (command === "archive") {
+      const id = (input as { threadId: string }).threadId;
+      state = { ...state, threads: { ...state.threads, [id]: { ...state.threads[id], archivedAt: 5 } } };
+      return state;
+    }
+    if (command === "remove" || command === "restore") return undefined;
+    if (command === "trash") return [];
     if (command === "start") return { sessionId: `started-${invoke.mock.calls.filter((call) => call[1] === "start").length}`, cwd: (input as { cwd: string }).cwd };
     return undefined;
   });
@@ -59,7 +66,13 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState> } = {})
   };
   registry.activate({ id: "tau.workspace", name: "Workspace Kit", activate: (context) => context.provideService(WORKSPACE_STORE_SERVICE, workspace) });
   registry.activate(threadRailExtension);
-  const actions = { notify: vi.fn(), switchSession: vi.fn(async () => true), activeThread: vi.fn(() => ({ sessionId: "b", draftPending: false })) } as unknown as WorkbenchActions;
+  const actions = {
+    notify: vi.fn(),
+    switchSession: vi.fn(async () => true),
+    newSession: vi.fn(),
+    openSettings: vi.fn(),
+    activeThread: vi.fn(() => ({ sessionId: "b", draftPending: false })),
+  } as unknown as WorkbenchActions;
   const push = (payload: RailState) => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: THREAD_RAIL_EXTENSION_ID, name: META_EVENT, payload });
   const calls = (command: string) => invoke.mock.calls.filter((call) => call[1] === command).map((call) => call[2]);
   return { registry, preferences, invoke, actions, push, calls, worktrees, organizer: () => organizer!, current: () => state };
@@ -87,7 +100,7 @@ describe("Thread Rail on the desktop", () => {
     await flush();
     organizer().sections([thread("a")]);
     const items = organizer().menu(thread("a")).flatMap((section) => section.items.map((item) => item.id));
-    expect(items).toEqual(["pin", "snooze:1h", "snooze:tomorrow", "snooze:next-week", "snooze:custom", "settle", "move-up", "move-down"]);
+    expect(items).toEqual(["pin", "snooze:1h", "snooze:tomorrow", "snooze:next-week", "snooze:custom", "settle", "move-up", "move-down", "archive", "delete"]);
     organizer().runMenu(thread("a"), "pin", actions);
     expect(organizer().sections([thread("a")])[0]?.threads.map((entry) => entry.id)).toEqual(["a"]);
     expect(calls("patch")).toEqual([{ patches: { a: { pinned: true, pinOrder: 0 } } }]);
@@ -168,5 +181,71 @@ describe("Thread Rail on the desktop", () => {
     expect(actions.switchSession).toHaveBeenLastCalledWith("/sessions/c.jsonl");
     expect(registry.getKeybindings().some((binding) => binding.commandId === "thread.jump-1" && binding.keys === "mod+1" && binding.when === "!modelPickerOpen")).toBe(true);
     expect(registry.getKeybindings().filter((binding) => binding.commandId === "thread.next").map((binding) => binding.keys)).toEqual(["mod+shift+]", "mod+alt+arrowdown"]);
+  });
+
+  it("archives from the row menu, leaves the rail without it, and mod+z brings it back", async () => {
+    const { registry, organizer, actions, calls } = setup();
+    await flush();
+    organizer().sections([thread("a", 2), thread("b", 1)]);
+    organizer().runMenu(thread("a"), "archive", actions);
+    await flush();
+    expect(calls("archive")).toEqual([{ threadId: "a" }]);
+    expect(organizer().sections([thread("a", 2), thread("b", 1)]).flatMap((section) => section.threads.map((entry) => entry.id))).toEqual(["b"]);
+    expect(actions.newSession).not.toHaveBeenCalled();
+
+    await registry.executeCommand("thread.undo", actions);
+    expect(calls("patch").at(-1)).toEqual({ patches: { a: { archivedAt: null } } });
+    expect(registry.getKeybindings().find((binding) => binding.commandId === "thread.undo")).toMatchObject({ keys: "mod+z", when: "!terminalFocus && !editableFocus" });
+  });
+
+  it("opens a new thread in the project when the thread on screen is archived, and undo returns to it", async () => {
+    const { registry, organizer, actions } = setup();
+    await flush();
+    organizer().sections([thread("a"), thread("b")]);
+    organizer().runMenu(thread("b"), "archive", actions);
+    await flush();
+    expect(actions.newSession).toHaveBeenCalledWith({ workspace: "/project" });
+    await registry.executeCommand("thread.undo", actions);
+    await flush();
+    expect(actions.switchSession).toHaveBeenLastCalledWith("/sessions/b.jsonl");
+  });
+
+  it("deletes the thread on screen after moving to the next one, and undo restores it", async () => {
+    const { registry, organizer, actions, calls } = setup();
+    await flush();
+    organizer().sections([thread("a", 1), thread("b", 2)]);
+    organizer().runMenu(thread("b"), "delete", actions);
+    await flush();
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/a.jsonl");
+    expect(calls("remove")).toEqual([{ threadId: "b" }]);
+
+    await registry.executeCommand("thread.undo", actions);
+    await flush();
+    expect(calls("restore")).toEqual([{ threadId: "b" }]);
+    expect(actions.switchSession).toHaveBeenLastCalledWith("/sessions/b.jsonl");
+  });
+
+  it("refuses to archive or delete a running thread", async () => {
+    const { registry, organizer, actions, calls } = setup();
+    await flush();
+    registry.dispatchWorkbenchEvent({ type: "agent-status", sessionId: "a", running: true });
+    const lifecycle = organizer().menu(thread("a")).at(-1)!.items;
+    expect(lifecycle.map((item) => [item.id, item.disabled, item.destructive ?? false])).toEqual([["archive", true, false], ["delete", true, true]]);
+    organizer().runMenu(thread("a"), "delete", actions);
+    await flush();
+    expect(calls("remove")).toEqual([]);
+    expect(actions.notify).toHaveBeenCalledWith("Stop the thread before deleting it.");
+  });
+
+  it("takes back a settle with the pin it cleared, and offers archive and delete in the title menu", async () => {
+    const { registry, organizer, actions, calls, push } = setup();
+    await flush();
+    push({ threads: { p: { pinned: true, pinOrder: 0 } }, settings: { onMerged: true, onClosed: false } });
+    organizer().runMenu(thread("p"), "settle", actions);
+    await registry.executeCommand("thread.undo", actions);
+    expect(calls("patch").at(-1)).toEqual({ patches: { p: { settledAt: null, settledBy: null, pinned: true, pinOrder: 0, order: null, snoozedUntil: null, keptAt: null } } });
+
+    const title = registry.getCommandsFor("thread-title").map((command) => [command.id, command.destructive ?? false]);
+    expect(title).toEqual(expect.arrayContaining([["thread.archive", false], ["thread.delete", true]]));
   });
 });

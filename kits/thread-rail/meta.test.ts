@@ -4,7 +4,10 @@ import {
   DAY_MS,
   EMPTY_STATE,
   applyPatches,
+  archivePatch,
   decodeState,
+  fallbackThread,
+  inversePatch,
   dropLabel,
   dropPatches,
   nextWake,
@@ -197,5 +200,39 @@ describe("snooze presets", () => {
     expect(new Date(week.until)).toEqual(new Date(2026, 8, 28, 9, 0));
     const monday = new Date(2026, 8, 28, 8, 0);
     expect(new Date(snoozePresets(monday)[2].until)).toEqual(new Date(2026, 9, 5, 9, 0));
+  });
+});
+
+describe("archive and undo", () => {
+  it("takes an archived thread out of every section it held, and puts it back where it was", () => {
+    const meta = applyPatches(state({ p: { pinned: true, pinOrder: 0 }, d: { settledAt: 1, archivedAt: NOW - 5 } }), { p: archivePatch(NOW) });
+    const sections = railSections([thread("p"), thread("d"), thread("a")], meta, NOW);
+    expect(ids(sections.pinned)).toEqual([]);
+    expect(ids(sections.settled)).toEqual([]);
+    expect(ids(sections.archived)).toEqual(["p", "d"]);
+    const back = railSections([thread("p"), thread("d")], applyPatches(meta, { p: { archivedAt: null } }), NOW);
+    expect(ids(back.pinned)).toEqual(["p"]);
+    expect(decodeState({ threads: { x: { archivedAt: 3 } } }).threads.x).toEqual({ archivedAt: 3 });
+  });
+
+  it("never settles an archived thread by a rule", () => {
+    const patches = sweepPatches([{ id: "old", cwd: "/old", modifiedAt: NOW - 9 * DAY_MS }], state({ old: { archivedAt: NOW - DAY_MS } }, { inactiveDays: 1 }), new Set(), new Map(), NOW);
+    expect(patches).toEqual({});
+  });
+
+  it("inverts a patch to the fields as they were", () => {
+    const before: ThreadMeta = { pinned: true, pinOrder: 2, snoozedUntil: NOW + 5 };
+    const patch = settlePatch(NOW, "user");
+    const after = applyPatches(state({ t: before }), { t: patch });
+    expect(applyPatches(after, { t: inversePatch(before, patch) }).threads.t).toEqual(before);
+    expect(inversePatch(undefined, { archivedAt: NOW })).toEqual({ archivedAt: null });
+  });
+
+  it("falls back to the newest other thread of the same project, then to any other", () => {
+    const other = (id: string, projectPath: string, modifiedAt: number) => ({ ...thread(id, modifiedAt), projectPath });
+    const leaving = other("x", "/one", 5);
+    expect(fallbackThread([other("far", "/two", 9), leaving, other("old", "/one", 1), other("new", "/one", 3)], leaving)?.id).toBe("new");
+    expect(fallbackThread([other("far", "/two", 9), leaving], leaving)?.id).toBe("far");
+    expect(fallbackThread([leaving], leaving)).toBeUndefined();
   });
 });

@@ -26,7 +26,8 @@ only the string entries, so an entry with an object in it is Tau's alone.
 
 Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 `stageFocus`, `modelPickerFocus`, and the matching `…Open` (`modelPickerOpen`,
-`terminalOpen`, …). Any extension can add its own with
+`terminalOpen`, …). `editableFocus` holds while any text field, select or
+`contenteditable` element has the keyboard. Any extension can add its own with
 `data-keybinding-context`.
 
 ## Defaults
@@ -73,6 +74,7 @@ Contexts: `terminalFocus`, `editorFocus`, `previewFocus`, `composerFocus`,
 | `mod+1` … `mod+9` | `!modelPickerOpen` | `thread.jump-1` … `thread.jump-9` | Thread 1–9 of the rail | Thread Rail | `thread.jump.1` … |
 | `mod+shift+p` | | `thread.pin` | Pin or unpin | Thread Rail | same |
 | `mod+shift+s` | | `thread.settle` | Settle or un-settle | Thread Rail | same |
+| `mod+z` | `!terminalFocus && !editableFocus` | `thread.undo` | Undo the last unpin, settle, snooze, archive or delete | Thread Rail | same |
 | `mod+o` | | `workspace.open-in-editor` | Open in the external editor | Workspace | `editor.openFavorite` |
 | `mod+alt+p` | | `workspace.open-project` | Open a project | Workspace | – |
 | `mod+alt+j` | | `workspace.open-terminal` | Open in the external terminal | Workspace | – |

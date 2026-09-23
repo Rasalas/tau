@@ -167,7 +167,7 @@ function services(cwd: string, sessionsDir: string, threads: readonly HostThread
       prepare: async () => { throw new Error("no runtimes here"); },
       start: async () => { throw new Error("no threads in this test"); },
       exclusive: (work) => work(),
-      remove: async () => undefined,
+      remove: async () => undefined, restore: async () => undefined, trash: async () => [], purge: async () => undefined,
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
     setThreadTitle: async () => undefined,

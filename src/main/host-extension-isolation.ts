@@ -305,6 +305,9 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "sessions.read": return readSession(String(args[0]));
       case "sessions.start": return services.sessions.start(args[0] as HostThreadStartOptions);
       case "sessions.remove": return services.sessions.remove(String(args[0]));
+      case "sessions.restore": return services.sessions.restore(String(args[0]));
+      case "sessions.trash": return services.sessions.trash();
+      case "sessions.purge": return services.sessions.purge(String(args[0]));
       case "clients.count": return services.clients.count();
       case "clients.observe": {
         const handle = nextHandle++;

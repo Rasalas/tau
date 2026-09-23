@@ -6,6 +6,7 @@ import { PiHost } from "./pi-host.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import type { HostExtension } from "./host-extensions.js";
+import { ThreadTrash } from "./thread-trash.js";
 
 function idleThread(threadId: string, cwd: string) {
   const backend = {
@@ -99,23 +100,35 @@ describe("workspace lifecycle hooks", () => {
     expect(order).toEqual(["close /repo shutdown"]);
   });
 
-  it("deletes a thread, announces it and drops its session file", async () => {
+  it("moves a deleted thread to the trash and announces it only when purged", async () => {
     const order: string[] = [];
     const { host, internals } = await hostWithHooks(order);
     const directory = await mkdtemp(join(tmpdir(), "tau-remove-"));
     const path = join(directory, "gone.jsonl");
     await writeFile(path, "{}\n", "utf8");
     const announced: Array<[string, string]> = [];
+    const refreshed: string[] = [];
     internals.index = {
-      byId: (sessionId: string) => sessionId === "gone" ? { id: "gone", path, projectPath: "/repo" } : undefined,
-      announceDeleted: async (sessionId: string, cwd: string) => { announced.push([sessionId, cwd]); },
-      refresh: async () => undefined,
+      byId: (sessionId: string) => sessionId === "gone" ? { id: "gone", path, projectPath: "/repo", title: "Gone" } : undefined,
+      refresh: async (publish: string) => { refreshed.push(publish); },
     };
+    internals.trash = new ThreadTrash({
+      backend: () => undefined,
+      threadDeleted: async (sessionId, cwd) => { announced.push([sessionId, cwd]); },
+      log: () => undefined,
+    }, { dir: join(directory, "trash") });
 
     await host.removeThread("gone");
+    expect(await readdir(directory)).toEqual(["trash"]);
+    expect(announced).toEqual([]);
 
+    await host.restoreThread("gone");
+    expect(await readdir(directory)).toEqual(["gone.jsonl", "trash"]);
+
+    await host.removeThread("gone");
+    await host.purgeThread("gone");
     expect(announced).toEqual([["gone", "/repo"]]);
-    expect(await readdir(directory)).toEqual([]);
+    expect(refreshed).toEqual(["changes", "changes", "changes"]);
   });
 
   it("refuses to delete the thread on screen", async () => {

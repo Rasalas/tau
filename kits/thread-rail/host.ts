@@ -9,8 +9,10 @@ import {
 } from "tau/host-extension";
 import {
   EMPTY_STATE,
+  UNARCHIVE_PATCH,
   WAKE_PATCH,
   applyPatches,
+  archivePatch,
   decodeSettings,
   decodeState,
   isSnoozed,
@@ -27,6 +29,7 @@ import {
   META_EVENT,
   REVIEW_EXTENSION_ID,
   THREAD_RAIL_EXTENSION_ID,
+  TRASH_EVENT,
   type RailState,
   type ThreadMetaPatch,
 } from "./protocol.js";
@@ -179,6 +182,33 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         await sweep();
         return publicState();
       });
+      const threadId = (input: unknown): string => {
+        const id = record(input).threadId;
+        if (typeof id !== "string" || !id) throw new HostCommandError("Name the thread with \"threadId\".");
+        return id;
+      };
+      // Archive rejects a thread with a turn in flight, as in T3 Code.
+      context.registerCommand("archive", (input) => {
+        const id = threadId(input);
+        if (running.has(id)) throw new HostCommandError("Cannot archive a running thread.");
+        change({ [id]: archivePatch(clock()) });
+        return publicState();
+      });
+      // The thread's meta stays until the trash purges it, so a restored thread comes back where it was.
+      const publishTrash = async () => { context.emit(TRASH_EVENT, await services.sessions.trash()); };
+      context.registerCommand("remove", async (input) => {
+        await services.sessions.remove(threadId(input));
+        await publishTrash();
+      }, { long: true });
+      context.registerCommand("restore", async (input) => {
+        await services.sessions.restore(threadId(input));
+        await publishTrash();
+      }, { long: true });
+      context.registerCommand("purge", async (input) => {
+        await services.sessions.purge(threadId(input));
+        await publishTrash();
+      }, { long: true });
+      context.registerCommand("trash", () => services.sessions.trash());
       context.registerCommand("start", async (input) => {
         const fields = record(input);
         const cwd = typeof fields.cwd === "string" ? fields.cwd : "";
@@ -209,12 +239,13 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
             running.add(sessionId);
             const meta = state.threads[sessionId];
             const now = clock();
-            // New work takes a thread off the shelf and out of a snooze.
+            // New work takes a thread off the shelf, out of a snooze and out of the archive.
             change({
               [sessionId]: {
                 activityAt: now,
                 ...(meta?.settledAt !== undefined ? unsettlePatch(now) : {}),
                 ...(isSnoozed(meta, now) ? WAKE_PATCH : {}),
+                ...(meta?.archivedAt !== undefined ? UNARCHIVE_PATCH : {}),
               },
             });
           },
@@ -227,7 +258,11 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
           closed: async (sessionId) => { running.delete(sessionId); },
         }),
         services.registerThreadLifecycle({
-          threadDeleted: async (sessionId) => { change({ [sessionId]: null }); },
+          threadDeleted: async (sessionId) => {
+            change({ [sessionId]: null });
+            // A purge by the host's own timer: the Archived page's list moved too.
+            await publishTrash().catch(() => undefined);
+          },
         }),
       ];
 

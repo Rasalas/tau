@@ -261,6 +261,26 @@ export class AntigravitySessionStore {
     await this.persist();
   }
 
+  /** Takes a thread's record out for the host's trash; the CLI's own history stays where it is. */
+  async take(tauThreadId: string): Promise<AntigravitySessionRecord | undefined> {
+    await this.load();
+    const record = this.records.get(tauThreadId);
+    if (!record) return undefined;
+    this.records.delete(tauThreadId);
+    await this.persist();
+    return cloneRecord(record);
+  }
+
+  /** Puts back what `take` answered. */
+  async put(tauThreadId: string, value: unknown): Promise<void> {
+    await this.load();
+    const record = storedRecord(value);
+    if (!record || record.tauThreadId !== tauThreadId) throw new Error("This is not the Antigravity thread that was deleted.");
+    if (this.records.has(tauThreadId)) throw new Error("A Antigravity thread with this id exists again; it was not restored.");
+    this.records.set(tauThreadId, record);
+    await this.persist();
+  }
+
   private persist(): Promise<void> {
     return writePersistedJson(this.options.filePath, CURRENT_VERSION, { sessions: [...this.records.values()], models: this.models }, { logger: this.options.logger });
   }

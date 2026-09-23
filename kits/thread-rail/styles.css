@@ -35,3 +35,25 @@
 
 .thread-rail-settings .segmented { max-width: none; }
 .thread-rail-settings .segmented > button { white-space: nowrap; padding: 8px 10px; }
+
+/* The undo notice at the foot of the rail, after T3 Code's sidebar notice. */
+.thread-rail-undo {
+  flex: none; margin: 0 var(--space-4) var(--space-3);
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--raised); color: var(--muted);
+  font: 11px/16px var(--sans); animation: fade-up .14s ease;
+}
+.thread-rail-undo > button {
+  padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--ink); font: 500 11px/16px var(--sans); text-underline-offset: 2px;
+}
+.thread-rail-undo > button:hover, .thread-rail-undo > button:focus-visible { text-decoration: underline; }
+
+/* Settings → Archived. */
+.thread-rail-archived-empty { display: inline-flex; align-items: center; gap: 8px; }
+.thread-rail-archived-empty > svg { color: var(--muted-2); }
+.thread-rail-archived .chrome-button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.thread-rail-archived .chrome-button.danger { color: var(--danger); }
+.thread-rail-archived .chrome-button.danger:hover:not(:disabled) { border-color: var(--danger-line); background: var(--danger-bg); color: var(--danger); }
+.thread-rail-archived-actions { display: inline-flex; gap: 6px; }
+.thread-rail-menu-anchor { position: fixed; z-index: 61; width: 0; height: 0; }

@@ -33,7 +33,11 @@ export function registerWorktreeStorage(
   const storage = new WorktreeStorage({
     stateDir: services.stateDir,
     runGit,
-    sessions: async () => (await services.sessions.list()).map(({ sessionId, path, cwd }) => ({ sessionId, path, cwd })),
+    sessions: async () => {
+      const [live, trashed] = await Promise.all([services.sessions.list(), services.sessions.trash?.() ?? []]);
+      // A thread in the host's trash may come back; its worktree waits for the purge.
+      return [...live.map(({ sessionId, path, cwd }) => ({ sessionId, path, cwd })), ...trashed.map(({ sessionId, cwd }) => ({ sessionId, path: "", cwd }))];
+    },
     threadOpen: (sessionId) => services.thread(sessionId)?.sessionId === sessionId,
     hostCwd: () => services.cwd(),
     log: (label, detail) => services.log(label, detail),

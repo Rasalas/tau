@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { AlarmClock, GitFork, ListTree, X } from "lucide-react";
+import { AlarmClock, Archive, GitFork, ListTree, X } from "lucide-react";
 import {
   HostUnavailableError,
   Menu,
@@ -14,18 +14,24 @@ import {
   type WorkbenchActions,
 } from "tau";
 import { sectionOf, wakeLabel } from "./meta.js";
+import { createArchivedPage } from "./archived-page.js";
 import { createRailOrganizer } from "./organizer.js";
 import {
   META_EVENT,
   SIBLINGS_SERVICE,
   THREAD_RAIL_EXTENSION_ID,
+  TRASH_EVENT,
   WORKSPACE_STORE_SERVICE,
+  type TrashedThread,
   type RailSettings,
   type RailState,
   type ThreadMetaPatch,
   type WorkspaceStoreSlice,
 } from "./protocol.js";
 import { FanOutSelection, RailStore, modelKey, parseModelKey } from "./store.js";
+import { ThreadUndo, type UndoAction } from "./undo.js";
+
+const UNDO_VERB: Record<UndoAction, string> = { Unpinned: "unpin", Settled: "settle", Snoozed: "snooze", Archived: "archive", Deleted: "delete" };
 
 const noSubscription = () => () => undefined;
 
@@ -255,7 +261,16 @@ export const threadRailExtension: DesktopExtension = {
         void context.host.invoke("state").then((state) => store.set(state)).catch(() => undefined);
       });
     };
-    const organizer = createRailOrganizer(store, send);
+    const undo = new ThreadUndo({ onError: (action, error) => store.actions?.notify(`Failed to undo ${UNDO_VERB[action]}: ${errorMessage(error)}`) });
+    const trashListeners = new Set<(trash: readonly TrashedThread[]) => void>();
+    const organizer = createRailOrganizer(store, {
+      send,
+      undo,
+      archive: async (threadId) => { store.set(await context.host.invoke("archive", { threadId })); },
+      remove: async (threadId) => { await context.host.invoke("remove", { threadId }); },
+      restore: async (threadId) => { await context.host.invoke("restore", { threadId }); },
+      running: (threadId) => store.running.has(threadId),
+    });
     const load = (state: unknown, preferences: PreferencesStore) => {
       const { pinnedThreadIds, settledThreadIds } = preferences.getSnapshot();
       if (store.loaded || (pinnedThreadIds.length === 0 && settledThreadIds.length === 0)) { store.set(state); return; }
@@ -265,6 +280,14 @@ export const threadRailExtension: DesktopExtension = {
         .catch(() => store.set(state));
     };
     const stopMeta = context.host.onEvent(META_EVENT, (payload) => store.set(payload));
+    const stopTrash = context.host.onEvent(TRASH_EVENT, (payload) => {
+      const list = Array.isArray(payload) ? payload as TrashedThread[] : [];
+      for (const listener of trashListeners) listener(list);
+    });
+    const stopRunning = context.events.on("agent-status", (event) => {
+      if (event.running) store.running.add(event.sessionId);
+      else store.running.delete(event.sessionId);
+    });
     void context.host.invoke("state").then((state) => load(state as RailState, context.preferences)).catch((error: unknown) => {
       if (!(error instanceof HostUnavailableError)) console.warn("Thread Rail could not read its state", error);
     });
@@ -287,8 +310,19 @@ export const threadRailExtension: DesktopExtension = {
       if (next) void app.switchSession(next.path);
     };
 
+    /** The thread a title-menu command acts on. */
+    const withActiveSession = (app: WorkbenchActions, run: (session: UiSession) => Promise<void>) => withActive(app, (threadId) => {
+      store.actions = app;
+      const session = store.session(threadId);
+      if (session) void run(session);
+      else app.notify("This thread is not in the index yet.");
+    });
+
     const disposers: Array<() => void> = [
       stopMeta,
+      stopTrash,
+      stopRunning,
+      () => undo.dispose(),
       stopBridge,
       context.provideService(SIBLINGS_SERVICE, { siblingsOf: store.siblingsOf, subscribe: store.subscribe }),
       context.useService<WorkspaceStoreSlice>(WORKSPACE_STORE_SERVICE, (value) => {
@@ -326,6 +360,49 @@ export const threadRailExtension: DesktopExtension = {
           else app.notify("This thread is not in the rail.");
         }),
       }),
+      context.registerCommand({
+        id: "thread.archive",
+        label: "Archive thread",
+        group: "Thread",
+        surfaces: ["thread-title"],
+        run: (app) => withActiveSession(app, (session) => organizer.archive(session, app)),
+      }),
+      context.registerCommand({
+        id: "thread.delete",
+        label: "Delete thread",
+        group: "Thread",
+        surfaces: ["thread-title"],
+        destructive: true,
+        run: (app) => withActiveSession(app, (session) => organizer.remove(session, app)),
+      }),
+      context.registerCommand({
+        id: "thread.undo",
+        label: "Undo the last thread action",
+        group: "Thread",
+        run: (app) => { store.actions ??= app; undo.undo(); },
+      }),
+      context.registerCommand({ id: "thread.archived", label: "Show archived threads", group: "Thread", run: (app) => app.openSettings("thread-rail.archived") }),
+      context.registerSettingsPage({
+        id: "thread-rail.archived",
+        label: "Archived",
+        Icon: Archive,
+        order: 41,
+        keywords: ["archive", "deleted", "trash", "restore", "unarchive"],
+        profiles: ["desktop", "web"],
+        Component: createArchivedPage(store, {
+          unarchive: organizer.unarchive,
+          remove: (session) => organizer.remove(session, store.actions),
+          restore: organizer.restore,
+          purge: async (threadId) => { await context.host.invoke("purge", { threadId }); },
+          trash: async () => (await context.host.invoke("trash")) as TrashedThread[],
+          subscribeTrash: (listener) => {
+            trashListeners.add(listener);
+            return () => { trashListeners.delete(listener); };
+          },
+        }),
+      }),
+      // As in T3 Code: outside a text field, where mod+z is the field's own undo.
+      context.registerKeybinding({ keys: "mod+z", commandId: "thread.undo", when: "!terminalFocus && !editableFocus" }),
       context.registerCommand({ id: "thread.next", label: "Next thread in the rail", group: "Thread", run: (app) => go(app, 1) }),
       context.registerCommand({ id: "thread.prev", label: "Previous thread in the rail", group: "Thread", run: (app) => go(app, -1) }),
       context.registerKeybinding({ keys: "mod+shift+p", commandId: "thread.pin" }),

@@ -34,6 +34,8 @@ export interface PiHostOptions {
   sessionUsageCachePath?: string;
   /** Where the markers of turns in flight live; without one they last only for this run. */
   turnsInFlightPath?: string;
+  /** Where deleted threads wait until they are removed for good (`<userData>/thread-trash`). */
+  threadTrashDir?: string;
   /** Where the index keeps which thread spawned which; defaults to memory only. */
   sessionLineageCachePath?: string;
   /**
