@@ -37,6 +37,7 @@
   "rendererDomNodes": 5000,
   "hostBootstrapFullMs": 2500,
   "hostBootstrapSafeMs": 1000,
+  "hostIdleHeapSafeMiB": 70,
   "gitSubprocesses": 6,
   "gitOverlapSubprocesses": 6,
   "gitMaxParallelSubprocesses": 4,
