@@ -79,6 +79,10 @@ export {
 } from "../shared/runtime-instances";
 export const loadRuntimeInstanceUi = () => import("./components/RuntimeInstanceUi");
 export type { RuntimeInstanceDialogProps, RuntimeInstanceSetupProps, RuntimeInstanceView, RuntimeVersionBannerProps } from "./components/RuntimeInstanceUi";
+export { compareVersions, updateAvailable } from "../shared/runtime-version";
+/** The update toasts a backend kit offers for its program, as their own chunk (API 1.11.0). */
+export const loadRuntimeUpdateToasts = () => import("./runtime-update-toasts");
+export type { RuntimeUpdateRun, RuntimeUpdateToasts, RuntimeUpdateToastsOptions } from "./runtime-update-toasts";
 export type {
   DesktopExtension,
   DesktopExtensionContext,
