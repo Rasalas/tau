@@ -174,6 +174,8 @@ export interface WorkspaceHostCommands {
   "remove-worktree": { input: { path: string; branch?: string; workspace?: string }; output: void };
   /** Recreates a worktree whose folder vanished, so opening it still works; `true` when it had to. */
   "ensure-worktree": { input: { path: string; branch?: string; workspace?: string }; output: boolean };
+  /** The project's main line by name (`origin/HEAD`, `init.defaultBranch`, `main`); read once per project. */
+  "default-branch": { input: { workspace?: string } | undefined; output: string };
   /** Defaults a project checks in under `.tau/project.json`, plus this client's own. */
   "project-defaults": { input: { workspace?: string } | undefined; output: ProjectDefaults };
   "switch-ref": { input: { ref: string }; output: HostActionResult };
@@ -225,6 +227,7 @@ export interface WorkspaceHostClient {
   removeWorktree(path: string, branch?: string, workspace?: string): Promise<void>;
   ensureWorktree(path: string, branch?: string, workspace?: string): Promise<boolean>;
   getProjectDefaults(workspace?: string): Promise<ProjectDefaults>;
+  getDefaultBranch(workspace?: string): Promise<string>;
   switchRef(ref: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
@@ -268,6 +271,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     removeWorktree: (path, branch, workspace) => call("remove-worktree", { path, branch, workspace }),
     ensureWorktree: (path, branch, workspace) => call("ensure-worktree", { path, branch, workspace }),
     getProjectDefaults: (workspace) => call("project-defaults", { workspace }),
+    getDefaultBranch: (workspace) => call("default-branch", workspace === undefined ? undefined : { workspace }),
     switchRef: (ref) => call("switch-ref", { ref }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),
@@ -326,6 +330,8 @@ export interface WorkspaceKitState {
   threadRowAccessories: ReadonlyArray<ComponentType<ThreadRowAccessoryProps>>;
   /** Another kit's say over the rail's sections, menus and drops. */
   threadRailOrganizer?: ThreadRailOrganizer;
+  /** Each project's main line as the host read it, by workspace id or path. */
+  defaultBranches: Readonly<Record<string, string>>;
 }
 
 export interface WorktreeNameRequest {

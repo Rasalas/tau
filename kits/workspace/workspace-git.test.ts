@@ -27,6 +27,7 @@ import {
   push,
   previewWorkspaceRestore,
   ensureWorktree,
+  readDefaultBranch,
   readProjectGitState,
   readWorktreeStatuses,
   removeWorktree,
@@ -929,6 +930,34 @@ describe("worktree classification", () => {
       async () => false,
     )).resolves.toBe(true);
     expect(gitCalled).toBe(false);
+  });
+});
+
+describe("default branch", () => {
+  it("names origin/HEAD's branch, then init.defaultBranch, then main", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-default-branch-"));
+    const run = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+    try {
+      const origin = join(root, "origin");
+      await mkdir(origin);
+      run(origin, "init", "-q", "-b", "trunk");
+      run(origin, "-c", "user.email=tau@example.test", "-c", "user.name=Tau", "commit", "-q", "--allow-empty", "-m", "first");
+      run(root, "clone", "-q", origin, "clone");
+      await expect(readDefaultBranch(join(root, "clone"))).resolves.toBe("trunk");
+
+      const configured = join(root, "configured");
+      await mkdir(configured);
+      run(configured, "init", "-q", "-b", "work");
+      run(configured, "config", "init.defaultBranch", "develop");
+      await expect(readDefaultBranch(configured)).resolves.toBe("develop");
+
+      const plain = join(root, "plain");
+      await mkdir(plain);
+      run(plain, "init", "-q", "-b", "master");
+      await expect(readDefaultBranch(plain)).resolves.toBe("main");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

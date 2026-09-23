@@ -56,6 +56,7 @@ const INITIAL: WorkspaceKitState = {
   preparingWorktree: false,
   changesSections: [],
   threadRowAccessories: [],
+  defaultBranches: {},
 };
 
 /** The user's global answer for where a new thread runs. */
@@ -133,6 +134,18 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   private notify(message: string): void { this.actions?.notify(message); }
+
+  private readonly defaultBranchRequests = new Set<string>();
+
+  /** Asks the host once per project; until it answers, or when it cannot, the rail guesses. */
+  loadDefaultBranch(workspace: string): void {
+    if (this.defaultBranchRequests.has(workspace)) return;
+    this.defaultBranchRequests.add(workspace);
+    void this.host.getDefaultBranch(workspace).then(
+      (branch) => this.update({ defaultBranches: { ...this.state.defaultBranches, [workspace]: branch } }),
+      () => undefined,
+    );
+  }
 
   /** Blocks actions that would otherwise run against the previous thread's workspace. */
   private allowed(what: string): boolean {

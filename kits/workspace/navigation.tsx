@@ -59,8 +59,13 @@ export function visibleThreads(
     !(parents[session.id] ?? session.parentThreadId) && (session.messageCount > 0 || live(session.id)));
 }
 
-/** The branch every checkout starts on says nothing on a row; T3 Code's card leaves it out too. */
-export function isDefaultBranch(label: string | undefined): boolean {
+/**
+ * The branch every checkout starts on says nothing on a row; T3 Code's card
+ * leaves it out too. Until the host names the project's own, `main` and
+ * `master` stand in for it.
+ */
+export function isDefaultBranch(label: string | undefined, defaultBranch?: string): boolean {
+  if (defaultBranch !== undefined) return label === defaultBranch;
   return label === "main" || label === "master";
 }
 
@@ -400,12 +405,15 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
   const workspace = useWorkspaceStore();
   const accessories = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowAccessories);
+  const project = session ? session.workspaceId ?? session.projectPath : undefined;
+  const defaultBranch = useSyncExternalStore(workspace.subscribe, () => project ? workspace.getSnapshot().defaultBranches[project] : undefined);
+  useEffect(() => { if (project) workspace.loadDefaultBranch(project); }, [project, workspace]);
   if (!session) return null;
   const offered = activity === "settled" ? [] : rowActions?.(session) ?? [];
   return (
     <ThreadRow
       session={session}
-      showLabel={!isDefaultBranch(session.projectLabel)}
+      showLabel={!isDefaultBranch(session.projectLabel, defaultBranch)}
       actions={offered.length > 0
         ? offered.map((action) => <RailRowAction key={action.id} action={action} onPick={(itemId) => onRowAction(session, itemId)} />)
         : undefined}

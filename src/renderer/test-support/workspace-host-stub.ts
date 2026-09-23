@@ -28,6 +28,7 @@ interface WorkspaceHostClient {
   removeWorktree(path: string, branch?: string, workspace?: string): Promise<unknown>;
   ensureWorktree(path: string, branch?: string, workspace?: string): Promise<unknown>;
   getProjectDefaults(workspace?: string): Promise<unknown>;
+  getDefaultBranch(workspace?: string): Promise<unknown>;
   switchRef(ref: string): Promise<unknown>;
   listEditors(): Promise<unknown>;
   openInEditor(editorId: string, relPath?: string, workspace?: string): Promise<unknown>;
@@ -81,6 +82,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     removeWorktree: unsupported("removeWorktree"),
     ensureWorktree: async () => false,
     getProjectDefaults: async () => ({}),
+    getDefaultBranch: async () => "main",
     switchRef: unsupported("switchRef"),
     openInEditor: unsupported("openInEditor"),
     checkpoints: async () => ({ checkpoints: [], restoreSupported: false }),
@@ -131,6 +133,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "remove-worktree": return client.removeWorktree(field(input, "path")!, field(input, "branch"), field(input, "workspace"));
       case "ensure-worktree": return client.ensureWorktree(field(input, "path")!, field(input, "branch"), field(input, "workspace"));
       case "project-defaults": return client.getProjectDefaults(field(input, "workspace"));
+      case "default-branch": return client.getDefaultBranch(...optional(field<string>(input, "workspace")));
       case "switch-ref": return client.switchRef(field(input, "ref")!);
       case "list-editors": return client.listEditors();
       case "open-in-editor": return client.openInEditor(field(input, "editorId")!, field(input, "relPath"), field(input, "workspace"));

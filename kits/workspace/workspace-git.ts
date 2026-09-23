@@ -2601,6 +2601,17 @@ export async function resolveDefaultBaseRef(cwd: string, runGit: GitRunner = git
   return branch || "HEAD";
 }
 
+/**
+ * The branch a project calls its main line, by name: the one `origin/HEAD`
+ * points at, else `init.defaultBranch`, else `main`.
+ */
+export async function readDefaultBranch(cwd: string, runGit: GitRunner = git): Promise<string> {
+  const originHead = (await runGit(cwd, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).catch(() => "")).trim();
+  if (originHead) return originHead.replace(/^origin\//u, "");
+  const configured = (await runGit(cwd, ["config", "--get", "init.defaultBranch"]).catch(() => "")).trim();
+  return configured || "main";
+}
+
 /** Where a new worktree starts: the ref the user sees, and the commit it resolved to. */
 export interface WorktreeBase {
   /** `origin/main`, `main`, a tag — whatever names the base for a human. */
