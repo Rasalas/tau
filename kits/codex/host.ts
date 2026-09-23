@@ -23,6 +23,8 @@ import {
   type RuntimeCompatibility,
   type RuntimeInstanceConfig,
   type RuntimeToolVersion,
+  type UiModel,
+  type UiModelBilling,
   type VersionPolicy,
 } from "tau/host-extension";
 import { CodexAppServer, type CodexAccount, type CodexModel } from "./app-server.js";
@@ -75,12 +77,29 @@ export const CODEX_VERSION_POLICY: VersionPolicy = {
   recommendedVersion: MIN_CODEX_VERSION,
 };
 
-/** The models a new thread may start on, with the effort each offers; the first entry is Codex's own default. */
-export function codexNewThreadCatalog(models: readonly CodexStoredModel[], configured: { model?: string; effort?: string }): HostRuntimeNewThreadCatalog {
+/** A ChatGPT login is the subscription; an API key is billed per token. */
+export function codexBilling(account: CodexAccount | undefined): UiModelBilling | undefined {
+  if (account?.type === "chatgpt") return "subscription";
+  return account?.type === "apiKey" ? "api-key" : undefined;
+}
+
+/**
+ * The models a new thread may start on, with the effort each offers; the first
+ * entry is Codex's own default. Price and context come from the host's model data.
+ */
+export function codexNewThreadCatalog(models: readonly CodexStoredModel[], configured: { model?: string; effort?: string }, billing?: UiModelBilling): HostRuntimeNewThreadCatalog {
   const start = (configured.model ? models.find((model) => model.id === configured.model) : undefined) ?? models.find((model) => model.isDefault) ?? models[0];
+  const shown = (model: CodexStoredModel): UiModel => ({
+    provider: MODEL_PROVIDER,
+    id: model.id,
+    name: model.name,
+    ...(billing ? { billing } : {}),
+    ...(model.images !== undefined ? { images: model.images } : {}),
+    ...(model.efforts.length > 0 ? { reasoning: true } : {}),
+  });
   return {
-    models: models.map((model) => ({ provider: MODEL_PROVIDER, id: model.id, name: model.name })),
-    ...(start ? { model: { provider: MODEL_PROVIDER, id: start.id, name: start.name } } : {}),
+    models: models.map(shown),
+    ...(start ? { model: shown(start) } : {}),
     thinkingLevels: Object.fromEntries(models.map((model) => {
       const applied = configured.effort ?? model.defaultEffort;
       return [model.id, [applied ? `default (${applied})` : "default", ...model.efforts]];
@@ -309,8 +328,15 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           },
           composerCommands: () => [],
           version: () => versionOf(id),
-          // A draft on this instance chooses from the account's models, starting where config.toml points.
-          newThreadCatalog: async () => codexNewThreadCatalog(await cachedModels(id), await readCodexConfiguredModel(home())),
+          // The account's models, starting where config.toml points; the host keeps the answer and asks again now and then.
+          newThreadCatalog: async () => {
+            if (!locate(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The Codex CLI "${codexCommand(id)}" is not installed.` };
+            const probe = await runProbe(id);
+            if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: "Codex is not signed in. Run codex login, then open the picker again." };
+            const models = probe.models.map(storedModel);
+            await store.setModels(models, id).catch(() => undefined);
+            return codexNewThreadCatalog(models, await readCodexConfiguredModel(home()), codexBilling(probe.account));
+          },
         };
       };
 

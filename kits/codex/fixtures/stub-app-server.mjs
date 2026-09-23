@@ -65,7 +65,8 @@ async function handle(message) {
   if (id === undefined) return;
   switch (method) {
     case "initialize": return send({ id, result: { userAgent: "stub", codexHome: process.env.CODEX_HOME ?? "/stub/.codex", platformFamily: "unix", platformOs: "macos" } });
-    case "account/read": return send({ id, result: { account: { type: "chatgpt", email: null, planType: "pro" }, requiresOpenaiAuth: true } });
+    // A `signed-out` file in the home stands for a CLI nobody logged in to.
+    case "account/read": return send({ id, result: { account: process.env.CODEX_HOME && existsSync(join(process.env.CODEX_HOME, "signed-out")) ? null : { type: "chatgpt", email: null, planType: "pro" }, requiresOpenaiAuth: true } });
     case "model/list": return send({ id, result: { data: fixture.models, nextCursor: null } });
     case "thread/start": {
       const thread = `thread-${process.pid}-${threads.size + 1}`;

@@ -305,10 +305,20 @@ describe("Codex host half", () => {
     await mkdir(join(root, "home"), { recursive: true });
     await writeFile(join(root, "home", "config.toml"), 'model = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"\n');
     const catalog = await provider.newThreadCatalog!();
-    expect(catalog?.model).toEqual({ provider: "openai", id: "gpt-5.6-luna", name: expect.any(String) });
+    // A ChatGPT login is the subscription; price and context are the host's to fill in.
+    expect(catalog?.model).toEqual({ provider: "openai", id: "gpt-5.6-luna", name: expect.any(String), billing: "subscription", images: true, reasoning: true });
     expect(catalog?.models.map((model) => model.id)).toContain("gpt-6-astra");
     expect(catalog?.thinkingLevels["gpt-5.6-luna"]?.[0]).toBe("default (low)");
     expect(catalog?.thinkingLevels["gpt-6-astra"]).toEqual(["default (low)", "low", "medium", "high", "xhigh", "max", "ultra"]);
+  });
+
+  it("says the CLI is missing or signed out instead of listing nothing", async () => {
+    const missing = await harness({ found: false });
+    await expect(missing.provider.newThreadCatalog!()).resolves.toMatchObject({ models: [], status: "not-installed" });
+    const { provider, root } = await harness();
+    await mkdir(join(root, "home"), { recursive: true });
+    await writeFile(join(root, "home", "signed-out"), "");
+    await expect(provider.newThreadCatalog!()).resolves.toMatchObject({ models: [], status: "sign-in-required" });
   });
 
   it("starts a draft's thread on the model and effort it chose", async () => {
@@ -326,12 +336,13 @@ describe("Codex host half", () => {
   it("names the account's default model when config.toml names none or one the account lacks", () => {
     const models = [{ id: "a", name: "A", efforts: ["low"], defaultEffort: "low" }, { id: "b", name: "B", efforts: ["high"], isDefault: true }];
     expect(codexNewThreadCatalog(models, {})).toEqual({
-      models: [{ provider: "openai", id: "a", name: "A" }, { provider: "openai", id: "b", name: "B" }],
-      model: { provider: "openai", id: "b", name: "B" },
+      models: [{ provider: "openai", id: "a", name: "A", reasoning: true }, { provider: "openai", id: "b", name: "B", reasoning: true }],
+      model: { provider: "openai", id: "b", name: "B", reasoning: true },
       thinkingLevels: { a: ["default (low)", "low"], b: ["default", "high"] },
     });
     expect(codexNewThreadCatalog(models, { model: "gone" }).model?.id).toBe("b");
     expect(codexNewThreadCatalog([], {})).toEqual({ models: [], thinkingLevels: {} });
+    expect(codexNewThreadCatalog(models, {}, "api-key").models[0]).toMatchObject({ billing: "api-key" });
   });
 });
 

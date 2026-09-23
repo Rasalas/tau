@@ -49,6 +49,8 @@ export interface CodexStoredModel {
   efforts: string[];
   defaultEffort?: string;
   isDefault?: boolean;
+  /** It takes images; absent when `model/list` did not say. */
+  images?: boolean;
 }
 
 const USAGE_FIELDS = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "turns"] as const;
@@ -122,7 +124,14 @@ function storedModel(value: unknown): CodexStoredModel | undefined {
   if (!id) return undefined;
   const efforts = Array.isArray(item.efforts) ? item.efforts.filter((effort): effort is string => typeof effort === "string") : [];
   const defaultEffort = text(item.defaultEffort, MAX_ID_LENGTH);
-  return { id, name: text(item.name, MAX_TITLE_LENGTH) ?? id, efforts, ...(defaultEffort ? { defaultEffort } : {}), ...(item.isDefault === true ? { isDefault: true } : {}) };
+  return {
+    id,
+    name: text(item.name, MAX_TITLE_LENGTH) ?? id,
+    efforts,
+    ...(defaultEffort ? { defaultEffort } : {}),
+    ...(item.isDefault === true ? { isDefault: true } : {}),
+    ...(typeof item.images === "boolean" ? { images: item.images } : {}),
+  };
 }
 
 function clone(record: CodexSessionRecord): CodexSessionRecord {

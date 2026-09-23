@@ -117,6 +117,7 @@ export function storedModel(model: CodexModel): CodexStoredModel {
     efforts: model.supportedReasoningEfforts.map((effort) => effort.reasoningEffort),
     ...(model.defaultReasoningEffort ? { defaultEffort: model.defaultReasoningEffort } : {}),
     ...(model.isDefault ? { isDefault: true } : {}),
+    ...(model.inputModalities ? { images: model.inputModalities.includes("image") } : {}),
   };
 }
 
