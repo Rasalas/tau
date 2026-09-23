@@ -130,7 +130,11 @@ function installDelayedMeasurementHarness(options: {
     },
     flushFrames: async (count = 2) => {
       for (let frame = 0; frame < count; frame += 1) {
-        await act(async () => { for (const callback of [...pendingFrameCallbacks.values()]) callback(0); });
+        await act(async () => {
+          const due = [...pendingFrameCallbacks.entries()];
+          for (const [id] of due) pendingFrameCallbacks.delete(id);
+          for (const [, callback] of due) callback(0);
+        });
       }
     },
     restore() {
@@ -241,6 +245,47 @@ describe("virtual transcript", () => {
       await harness.flushFrames();
       expect(container.scrollTop).toBe(300);
       expect(container.querySelector(".virtual-transcript-row:last-child")?.getBoundingClientRect().top).toBe(200);
+    } finally {
+      view?.unmount();
+      harness.restore();
+    }
+  });
+
+  it("follows an activity's height after the turn's rows remount under persisted ids", async () => {
+    const harness = installDelayedMeasurementHarness({ rowHeight: (node) => node.querySelector(".activity-expanded") ? 500 : 300 });
+    const live: UiMessage[] = [
+      { id: "user-live", role: "user", text: "Request", timestamp: 1 },
+      { id: "answer-live", role: "assistant", text: "Answer", timestamp: 2 },
+    ];
+    const persisted: UiMessage[] = [
+      { id: "user-entry", sourceEntryId: "user-entry", role: "user", text: "Request", timestamp: 1 },
+      { id: "answer-entry", sourceEntryId: "answer-entry", role: "assistant", text: "Answer", timestamp: 2 },
+    ];
+    const answerTop = (container: HTMLElement) => {
+      const row = container.querySelector<HTMLElement>('.virtual-transcript-row[data-index="1"]')!;
+      return Number.parseFloat(row.style.transform.match(/translateY\(([^p]+)px\)/u)?.[1] ?? "NaN");
+    };
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      view = render(<Fixture messages={live} activity={<ToggleActivity />} activityAfterMessageId="user-live" />);
+      await harness.flushFrames();
+      // A resize of the live rows is waiting for its frame when the settle
+      // replaces them with rows under the persisted ids.
+      for (const row of view.container.querySelectorAll<HTMLElement>(".virtual-transcript-row")) harness.trigger(row, 300);
+      view.rerender(<Fixture messages={persisted} activity={<ToggleActivity />} activityAfterMessageId="user-entry" />);
+      await harness.flushFrames();
+      expect(answerTop(view.container)).toBe(300);
+
+      fireEvent.click(screen.getByRole("button", { name: "Open activity" }));
+      const owner = view.container.querySelector<HTMLElement>('.virtual-transcript-row[data-index="0"]')!;
+      harness.trigger(owner, 500);
+      await harness.flushFrames();
+      expect(answerTop(view.container)).toBe(500);
+
+      fireEvent.click(screen.getByRole("button", { name: "Close activity" }));
+      harness.trigger(owner, 300);
+      await harness.flushFrames();
+      expect(answerTop(view.container)).toBe(300);
     } finally {
       view?.unmount();
       harness.restore();

@@ -78,6 +78,12 @@ Now `tool-end` refers to the push that carried the output (`tool-end-delta`), an
 
 We chose to defer by size over deferring every output, because a short output costs less than a request and small results (a spawned thread's JSON, a file edit's message) are read by tool renderers. We chose a 4 KB live tail over the full 128 KB window because a running row shows five lines, and a tail keeps a flood of output from costing more than those lines.
 
+## Amendment, 2026-09-23: answer text once
+
+The answer then made up most of a long turn: a 151 KB answer arrived as deltas, again in `assistant-end`, and again in the settled detail's messages. Now `assistant-end` refers to the text its message streamed (`assistant-end-delta`), and a detail refers to the `assistant-end` that carried a message's text (`thread-detail-compact` with `texts`); `HostConnection` puts both back. The host sends whole texts again after a client starts from a snapshot, as it does for tool outputs.
+
+We chose to recover a reference the client cannot resolve by starting over from the bootstrap, over asking the host for the missing text, because the host only sends references a client can resolve; the fallback covers a defect, and a resync is the path that already repairs any state the push stream left wrong.
+
 ## Consequences
 
 - `src/main/index.ts` shrank from 430 to about 320 lines and holds no operation of its own: it supplies the platform (clipboard, dialogs, bundles, rebuild) and installs a transport.

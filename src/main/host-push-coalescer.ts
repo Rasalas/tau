@@ -1,6 +1,6 @@
 import type { HostEvent, UiTurnActivity } from "../shared/contracts.js";
 import type { HostPushEvent } from "../shared/host-transport.js";
-import { toolOutputDelta } from "../shared/tool-output-delta.js";
+import { replaceTail, toolOutputDelta } from "../shared/tool-output-delta.js";
 import { clientToolRun, liveToolOutput } from "./client-tool-output.js";
 
 /** How long streamed text and tool output wait for more of the same before they are pushed. */
@@ -27,7 +27,30 @@ interface SentOutput {
   output: string;
 }
 
+/** What a message streamed so far, and the push that last added to it. */
+interface StreamedText {
+  seq: number;
+  text: string;
+  thinking: string;
+}
+
+/** An ended message's text as clients have it from the push numbered `seq`. */
+interface EndedText {
+  seq: number;
+  text: string;
+  thinking?: string;
+}
+
+/** Ended messages a detail may refer to; older ones travel whole again. */
+export const REMEMBERED_ENDED_MESSAGES = 64;
+
+/** A shorter message travels whole: a reference would cost about as much. */
+const MIN_REFERRED_CHARS = 64;
+
+const textLength = (message: { text: string; thinking?: string }) => message.text.length + (message.thinking?.length ?? 0);
+
 type TextEvent = Extract<HostPushEvent, { type: "assistant-delta" | "assistant-thinking" }>;
+type AssistantEnd = Extract<HostEvent, { type: "assistant-end" }>;
 type ToolUpdate = Extract<HostPushEvent, { type: "tool-update" }>;
 type ToolEnd = Extract<HostEvent, { type: "tool-end" }>;
 type HostUpdateEvent = Extract<HostEvent, { type: "host-update" }>;
@@ -47,13 +70,17 @@ function coalesceKey(event: HostPushEvent): string | undefined {
  * between streams and everything else is kept. A running tool's output goes
  * out as its live tail, as a delta against the push that carried it before
  * (`tool-update-delta`), and whole again after `resendWholeOutputs`; its
- * `tool-end` refers to that push as well (`tool-end-delta`). A settled
+ * `tool-end` refers to that push as well (`tool-end-delta`). A message's
+ * `assistant-end` refers to the text it streamed (`assistant-end-delta`), and
+ * a detail to the `assistant-end` that carried a message's text. A settled
  * detail's `turnActivity` travels once, inside its history.
  */
 export class HostPushCoalescer {
   private pending = new Map<string, HostPushEvent>();
   private timer: unknown;
   private readonly sent = new Map<string, SentOutput>();
+  private readonly streamed = new Map<string, StreamedText>();
+  private readonly ended = new Map<string, EndedText>();
   private readonly windowMs: number;
   private readonly clock: CoalescerClock;
 
@@ -94,12 +121,11 @@ export class HostPushCoalescer {
     for (const event of pending.values()) this.forward(event);
   }
 
-  /**
-   * The next update of every running tool goes out whole. A client that
-   * starts from a snapshot never saw the pushes a delta would refer to.
-   */
+  /** Outputs and texts go out whole again: a client that starts from a snapshot never saw what a delta refers to. */
   resendWholeOutputs(): void {
     this.sent.clear();
+    this.streamed.clear();
+    this.ended.clear();
   }
 
   private forward(event: HostPushEvent): void {
@@ -111,15 +137,84 @@ export class HostPushCoalescer {
       this.sendToolEnd(event);
       return;
     }
-    if (event.type === "host-update" && event.update.type === "thread-detail") {
-      this.record(compactDetail(event) ?? event);
+    if (event.type === "assistant-end") {
+      this.sendAssistantEnd(event);
       return;
     }
-    this.record(event);
-    if (event.type === "agent-status" && !event.running) {
-      const prefix = toolKey(event.sessionId, "");
-      for (const key of this.sent.keys()) if (key.startsWith(prefix)) this.sent.delete(key);
+    if (event.type === "host-update" && event.update.type === "thread-detail") {
+      this.record(this.compactDetail(event) ?? event);
+      return;
     }
+    const seq = this.record(event);
+    if (event.type === "assistant-start") {
+      this.streamed.set(toolKey(event.sessionId, event.id), { seq, text: "", thinking: "" });
+    } else if (event.type === "assistant-delta" || event.type === "assistant-thinking") {
+      const streamed = this.streamed.get(toolKey(event.sessionId, event.id));
+      if (streamed) {
+        streamed.seq = seq;
+        streamed[event.type === "assistant-delta" ? "text" : "thinking"] += event.delta;
+      }
+    } else if (event.type === "assistant-anchor") {
+      // A detail names the message by its persisted entry from here on.
+      const ended = this.ended.get(toolKey(event.sessionId, event.id));
+      if (ended) this.remember(toolKey(event.sessionId, event.sourceEntryId), ended);
+    } else if (event.type === "agent-status") {
+      const prefix = toolKey(event.sessionId, "");
+      const forget = (map: Map<string, unknown>) => { for (const key of map.keys()) if (key.startsWith(prefix)) map.delete(key); };
+      if (!event.running) forget(this.sent);
+      // A new turn: the last one's messages travel whole from here on.
+      else { forget(this.streamed); forget(this.ended); }
+    }
+  }
+
+  private sendAssistantEnd(event: AssistantEnd): void {
+    const key = toolKey(event.sessionId, event.message.id);
+    const streamed = this.streamed.get(key);
+    this.streamed.delete(key);
+    const { text, thinking, ...message } = event.message;
+    const seq = streamed && textLength(event.message) >= MIN_REFERRED_CHARS
+      ? this.record({
+        type: "assistant-end-delta",
+        sessionId: event.sessionId,
+        message,
+        after: streamed.seq,
+        text: replaceTail(streamed.text, text),
+        ...(thinking === undefined ? {} : { thinking: replaceTail(streamed.thinking, thinking) }),
+      })
+      : this.record(event);
+    this.remember(key, { seq, text, ...(thinking === undefined ? {} : { thinking }) });
+  }
+
+  private remember(key: string, ended: EndedText): void {
+    this.ended.delete(key);
+    this.ended.set(key, ended);
+    if (this.ended.size > REMEMBERED_ENDED_MESSAGES) this.ended.delete(this.ended.keys().next().value!);
+  }
+
+  /** The detail without what repeats its last history entry or an ended message's text. */
+  private compactDetail(event: HostUpdateEvent): HostPushEvent | undefined {
+    if (event.update.type !== "thread-detail") return undefined;
+    const { turnActivity, ...rest } = event.update.detail;
+    const last = rest.turnActivityHistory?.at(-1);
+    const activityFromHistory = Boolean(turnActivity && last && sameActivity(turnActivity, last));
+    const texts: Record<string, number> = {};
+    let referred = false;
+    const messages = rest.messages.map((message) => {
+      const ended = this.ended.get(toolKey(rest.sessionId, message.id));
+      if (!ended || ended.text !== message.text || ended.thinking !== message.thinking || textLength(message) < MIN_REFERRED_CHARS) return message;
+      texts[message.id] = ended.seq;
+      referred = true;
+      const { thinking: _thinking, ...withoutThinking } = message;
+      return { ...withoutThinking, text: "" };
+    });
+    if (!activityFromHistory && !referred) return undefined;
+    const detail = { ...(activityFromHistory ? rest : event.update.detail), messages };
+    return {
+      type: "thread-detail-compact",
+      update: { ...event.update, detail },
+      ...(activityFromHistory ? { activityFromHistory: true as const } : {}),
+      ...(referred ? { texts } : {}),
+    };
   }
 
   private sendToolOutput(event: ToolUpdate): void {
@@ -154,13 +249,4 @@ export class HostPushCoalescer {
 function sameActivity(activity: UiTurnActivity, entry: UiTurnActivity): boolean {
   const fromEntry: UiTurnActivity = { tools: entry.tools, ...(entry.anchorMessageId === undefined ? {} : { anchorMessageId: entry.anchorMessageId }) };
   return JSON.stringify(activity) === JSON.stringify(fromEntry);
-}
-
-/** The detail without a `turnActivity` that only repeats its last history entry. */
-function compactDetail(event: HostUpdateEvent): HostPushEvent | undefined {
-  if (event.update.type !== "thread-detail") return undefined;
-  const { turnActivity, ...detail } = event.update.detail;
-  const last = detail.turnActivityHistory?.at(-1);
-  if (!turnActivity || !last || !sameActivity(turnActivity, last)) return undefined;
-  return { type: "thread-detail-compact", update: { ...event.update, detail } };
 }

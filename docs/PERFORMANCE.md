@@ -551,13 +551,15 @@ The expected state is the one a client should have: every tool as
 `src/main/client-tool-output.ts` shapes it (a live tail, a deferred output).
 It is Tau's counterpart of T3 Code's `TransferBudgetReport` gate.
 
-Two scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
+Three scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
 GPT-5.6 Luna turn recorded from a Tau host on 2026-09-23: thinking, a bash tool
 printing 200 lines that Pi reports every 100 ms, a two-sentence answer streamed
 per token, and the settle with its thread detail. **heavy-turn** is generated
 in the test in the spirit of T3's fixture: 1.2 KB of thinking, twenty tools with
 1 KB output each, one tool streaming 1.1 MB through the host's 128 KB tail
-window, and a 4 KB answer, at a model's pace.
+window, and a 4 KB answer, at a model's pace. **answer-turn** is all answer,
+like the comparison harness's replay: 150 KB of text in 200-character deltas
+every 16 ms, then the settle and its detail.
 
 Same fixtures, before (`4a7f515`) and after this change:
 
@@ -614,6 +616,32 @@ on the host socket, the same prompt in the same thread) one turn measured 124
 messages, 232,788 decoded and 233,284 wire bytes before, and 99 messages, 60,236
 decoded and 5,945 wire bytes after. Those counts include a few pushes unrelated
 to the turn (the instance's theme watcher), which the fixture leaves out.
+
+**Answer text once (D22).** `assistant-end` now refers to the text its
+message streamed (`assistant-end-delta`) and a detail to the `assistant-end`
+that carried a message's text (`thread-detail-compact` with `texts`)
+([host-protocol.md](host-protocol.md#answer-text-travels-once)). Same fixtures,
+before (`e15791a`) and after:
+
+| scenario | wire bytes | decoded bytes | messages |
+| --- | ---: | ---: | ---: |
+| recorded turn, before | 5,669 | 40,346 | 98 |
+| recorded turn, after | 5,701 | 40,258 | 98 |
+| heavy turn, before | 130,525 | 553,323 | 475 |
+| heavy turn, after | 130,093 | 543,992 | 475 |
+| answer turn, before | 122,594 | 482,221 | 196 |
+| answer turn, after | 47,251 | 178,856 | 196 |
+
+The recorded turn's answer is 92 characters and its thinking 41, so little
+changes there; its wire bytes moved by 32 within the deflate noise and its
+wire budget stays at 6,500, since 15 % over would raise it. The answer turn
+now costs about the answer once plus 19 % of framing, where it cost the
+answer three times. The other budgets are the after column plus about 15 %,
+messages as before. The test also checks that a client joining in the middle
+of the answer receives its end whole and ends with the same transcript. In
+the comparison harness the replayed turn went from 645.6 to 345.7 KiB
+(median of three runs each, 324 messages both); `replay.wire.receivedKiB` is
+now 398.
 
 ### Metadata commands without a snapshot
 
@@ -729,7 +757,7 @@ npm run benchmark:compare -- --seed             # first time: import the fixture
 npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (745 KiB and 360 messages today, about 15 % above the measurement after D17). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's median per-turn transfer to `scripts/compare/budgets.json` (398 KiB and 360 messages today, about 15 % above the measurement after D22). Lower the budget when the host transport gets leaner; never raise it. The check needs no T3: `--apps tau --check`.
 
 ### First results (2026-09-23)
 
