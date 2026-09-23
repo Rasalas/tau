@@ -62,6 +62,8 @@ export interface HostEventTargets {
   syncDesktopExtensions(only?: readonly string[]): void;
   /** A downloaded Tau waiting for a restart. */
   setUpdateReady(version: string): void;
+  /** A Pi extension retitled the window; the page title is what the OS shows for it. */
+  setWindowTitle?(title: string): void;
 }
 
 /** Events an extension may observe through the workbench event bus. */
@@ -108,6 +110,9 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       return;
     case "app-update":
       targets.setUpdateReady(event.version);
+      return;
+    case "window-title":
+      targets.setWindowTitle?.(event.title);
       return;
     case "user-message": {
       const clientMessageId = event.message.clientMessageId;

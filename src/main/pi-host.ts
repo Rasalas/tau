@@ -217,8 +217,8 @@ export class PiHost {
   private readonly turnsInFlight: TurnsInFlight;
 
   private readonly continueThreadsAfterRestart: () => boolean;
-  /** Set by the app shell so extensions can retitle the window. */
-  onWindowTitle?: (title: string) => void;
+  /** The last title a Pi extension gave the window, for a client that attaches later. */
+  private windowTitle?: string;
   private readonly toolOwners: Map<string, string>;
   /** Extensions stepping into thread opening, forking, activation and the index sweep. */
   private readonly threadLifecycle: HostThreadLifecycleSet;
@@ -250,7 +250,8 @@ export class PiHost {
       recordBackground: (name, startedAt) => this.recordBackgroundLifecycle(name, startedAt),
       publishActiveCatalog: () => this.publishActiveCatalog(),
       publishLabel: (labelCwd, label) => this.publishLabel(labelCwd, label),
-      setWindowTitle: (title) => this.onWindowTitle?.(title),
+      setWindowTitle: (title) => this.publishWindowTitle(title),
+      windowTitle: () => this.windowTitle,
       abortThread: (thread) => this.abortThread(thread),
       adoptThread: (thread) => this.adoptThread(thread),
       applyThreadTitle: (thread, title, source) => this.applyThreadTitle(thread, title, source),
@@ -450,7 +451,7 @@ export class PiHost {
             runtime.releaseEventBarrier((event, thread, sessionId, cwd, error) => {
               if (error) this.fail(error, sessionId);
               else this.handleSessionEvent(event, thread, sessionId, cwd);
-            }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
+            }, (event) => this.emit(event), (title) => this.publishWindowTitle(title));
             return this.actionResult(this.lifecycleUpdates(await this.snapshot()));
           });
         } catch (error) {
@@ -1312,7 +1313,7 @@ export class PiHost {
           thread.releaseEventBarrier((event, runtime, sessionId, eventCwd, error) => {
             if (error) this.fail(error, sessionId);
             else this.handleSessionEvent(event, runtime, sessionId, eventCwd);
-          }, (event) => this.emit(event), (title) => this.onWindowTitle?.(title));
+          }, (event) => this.emit(event), (title) => this.publishWindowTitle(title));
         }
         if (initialPrompt?.trim()) {
           const presentation = prepared?.skill ?? skillMessagePresentation(initialPrompt, thread.runtimeAdapter, this.projection.composerCommands(thread));
@@ -2202,6 +2203,12 @@ export class PiHost {
   private logReplacement(reason: string, startedAt: number): void {
     this.report.replacement(reason, startedAt);
   }
+  /** Every client titles its own window, so a host in another process reaches each of them. */
+  private publishWindowTitle(title: string): void {
+    this.windowTitle = title;
+    this.emit({ type: "window-title", title });
+  }
+
   private emitUpdate(update: HostUpdate): void {
     this.emit({ type: "host-update", update });
   }

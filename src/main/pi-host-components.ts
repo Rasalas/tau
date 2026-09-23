@@ -102,6 +102,7 @@ export interface PiHostDeps {
   publishActiveCatalog(): Promise<void>;
   publishLabel(cwd: string, label: string | undefined): void;
   setWindowTitle(title: string): void;
+  windowTitle(): string | undefined;
   abortThread(thread: ThreadRuntime): Promise<void>;
   adoptThread(thread: ThreadRuntime): Promise<void>;
   applyThreadTitle(thread: ThreadRuntime, title: string, source: "generated" | "renamed"): Promise<HostUpdate>;
@@ -211,7 +212,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   // leaves is published, so a panel never has to ask the host for the count.
   const clients = options.clients ?? new HostClientRegistry();
   clients.observe({
-    attached: () => emit({ type: "client-count", count: clients.count() }),
+    attached: () => {
+      emit({ type: "client-count", count: clients.count() });
+      const title = deps.windowTitle();
+      if (title !== undefined) emit({ type: "window-title", title });
+    },
     detached: () => emit({ type: "client-count", count: clients.count() }),
   });
   const toolOwners = new Map<string, string>();

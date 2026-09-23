@@ -545,6 +545,8 @@ export type GlobalHostEvent =
   | { type: "error"; message: string; sessionId?: undefined }
   /** How many clients are attached to this host, after one arrived or left. */
   | { type: "client-count"; count: number; sessionId?: undefined }
+  /** What a Pi extension titled the window with (`ctx.ui.setTitle`); each client applies it to its own. */
+  | { type: "window-title"; title: string; sessionId?: undefined }
   /** A new Tau finished downloading and installs on the next restart. */
   | { type: "app-update"; version: string; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
