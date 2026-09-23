@@ -54,7 +54,8 @@ describe("review request context", () => {
     await git(work, "push", "-u", "origin", "feature/pr");
     const context = await readReviewRequestContext(work, { detail: true });
     expect(context).toMatchObject({ upstream: "origin/feature/pr", ahead: 0 });
-    expect(context.commits).toEqual([{ subject: "feat: add the feature", body: "It explains itself." }]);
+    expect(context.commits).toEqual([{ subject: "feat: add the feature", body: "It explains itself.", sha: expect.stringMatching(/^[0-9a-f]{40}$/u), at: expect.any(Number), author: "Tau" }]);
+    expect(context.forkedAt).toBeLessThanOrEqual(context.commits![0]!.at!);
     expect(context.diffStat).toContain("feature.txt");
     expect(context.template).toBe("## Summary\n\n## Testing");
   });
