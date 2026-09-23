@@ -48,6 +48,8 @@ export interface AcpInitializeResult {
     /** Transports beyond stdio. */
     mcpCapabilities?: { http?: boolean; sse?: boolean } | null;
   } | null;
+  /** What an agent adds of its own (Grok names its models here, before any session). */
+  _meta?: Record<string, unknown> | null;
 }
 
 export type AcpContentBlock =
