@@ -113,6 +113,8 @@ Each tool output update crosses Electron IPC immediately. The renderer maps the 
 
 The host should coalesce output per tool. The renderer should apply at most one update per animation frame, retain a bounded tail for display, and provide explicit access to the complete artifact when one exists.
 
+Since 2026-09-23 the host coalesces per tool for 50 ms and sends what a tool added rather than its whole output; see [Host transfer budget](#host-transfer-budget).
+
 ### Resource discovery dominates runtime replacement
 
 Correct session replacement currently rebuilds cwd-bound resources. In full mode, that phase costs hundreds of milliseconds and can exceed one second at startup.
@@ -273,6 +275,7 @@ Initial local targets:
 - the two viewport scenarios over a 1000-turn transcript with 128 activities (`transcript-viewport-anchored-1000-turns`, `transcript-viewport-streaming-1000-turns`) mount at about 21 ms median and 27 ms p95 on the development machine; like their `transcript-1000-turns` sibling they carry their own mount budget (30 ms) instead of the 24 ms default, since 2026-09-05
 - no task above 50 ms during steady-state streaming
 - one tool-output commit per animation frame, with 1 MB cumulative output below 24 ms frame p95
+- a turn's traffic on the host socket within `hostTransfer` (recorded turn: 7,500 wire bytes, 64,000 decoded bytes, 110 messages)
 - unchanged sidebar rows do not rerender when another row changes
 - sidebar search remains responsive with 10,000 thread shells
 - transcript DOM size remains bounded with 1,000 loaded turns
@@ -438,6 +441,57 @@ small to be worth parallelizing against it.
 `npm run benchmark:git:check` measures a 1,202-file worktree, overlapping refreshes, timeout cancellation, and 20-project branch fan-out. The current report reduced the measured uncoordinated 18 subprocesses to 6, read no oversized untracked content, capped concurrency at 4, cancelled the slow command in 21.7 ms, and kept many-project branch p95 at 64.4 ms.
 
 Run the complete release fixture with `npm run performance:ci`. Generated JSON reports are uploaded by CI for comparison with failures.
+
+### Host transfer budget
+
+`src/workbench/host-transfer-budget.test.ts` plays a turn through the production
+`HostPushCoalescer`, `HostPushLog` and socket transport against a `ws` client
+that offers compression, the way a browser does, and counts what reaches that
+client: bytes on the wire (TCP payload after the upgrade), decoded frame bytes
+and WebSocket messages. Time is virtual, so the counts are the same on every
+machine; it runs in `npm test`. The same test checks that the client ends in the
+state the uncoalesced events produce, also after losing ten pushes mid-turn and
+replaying them, and that a client joining mid-tool receives the output whole.
+It is Tau's counterpart of T3 Code's `TransferBudgetReport` gate.
+
+Two scenarios. **recorded-turn** (`benchmarks/host-transfer-turn.json`) is one
+GPT-5.6 Luna turn recorded from a Tau host on 2026-09-23: thinking, a bash tool
+printing 200 lines that Pi reports every 100 ms, a two-sentence answer streamed
+per token, and the settle with its thread detail. **heavy-turn** is generated
+in the test in the spirit of T3's fixture: 1.2 KB of thinking, twenty tools with
+1 KB output each, one tool streaming 1.1 MB through the host's 128 KB tail
+window, and a 4 KB answer, at a model's pace.
+
+Same fixtures, before (`4a7f515`) and after this change:
+
+| scenario | wire bytes | decoded bytes | messages |
+| --- | ---: | ---: | ---: |
+| recorded turn, before | 231,608 | 231,136 | 118 |
+| recorded turn, after | 6,048 | 52,814 | 98 |
+| heavy turn, before | 13,208,165 | 13,204,069 | 1,137 |
+| heavy turn, after | 439,330 | 1,820,646 | 475 |
+
+The budgets in `scripts/performance-budgets.json` (`hostTransfer`) leave about
+20 % over the after column for bytes and about 12 % for messages. Before, a
+client that lost ten pushes in the middle of the heavy turn could not replay
+them (the buffer held the last 500 pushes) and had to resync; the byte-bounded
+buffer (8 MB) now replays the whole turn.
+
+What the savings come from: tool updates carry what the tool added
+(`tool-update-delta`), not the whole output each time (the recorded turn's 60
+tool updates went from 196 KB to 20 KB decoded, most of it the 83-character
+tool call id every delta repeats); text deltas are joined for
+50 ms; and `permessage-deflate` shrinks what is left about eightfold. What
+remains in the decoded bytes is mostly whole outputs the protocol still
+repeats: `tool-end` carries the final output, and the settled `thread-detail`
+carries each tool of the turn twice (`turnActivity` and
+`turnActivityHistory`): 318 KB of the heavy turn's 1.8 MB.
+
+In the real app (isolated instance, headless host process, a recording client
+on the host socket, the same prompt in the same thread) one turn measured 124
+messages, 232,788 decoded and 233,284 wire bytes before, and 99 messages, 60,236
+decoded and 5,945 wire bytes after. Those counts include a few pushes unrelated
+to the turn (the instance's theme watcher), which the fixture leaves out.
 
 ## Execution order
 

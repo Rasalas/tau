@@ -81,10 +81,41 @@ a transport only moves frames in and out of it.
 A connection opens with `hello { protocol, token?, lastSeq? }`. The reply names
 the host version, its capabilities (`jobs`, `replay`, `local-files`), the pushes
 the client missed, and `resync: true` when it cannot be repaired from the
-buffer. The host numbers every push and keeps the last 500; a client that sees a
+buffer. The host numbers every push and keeps the latest 8 MB of them
+(`HOST_PUSH_BUFFER_BYTES`, the newest push always); a client that sees a
 gap in `seq` re-hellos with its `lastSeq`, applies what comes back, and on a
 resync refetches the bootstrap. `HostConnection` in the renderer owns that and
 reports `connected`, `reconnecting` or `resyncing`.
+
+### Coalescing and tool output deltas
+
+Streamed events pass `HostPushCoalescer` (`src/main/host-push-coalescer.ts`)
+before they are numbered. For up to 50 ms it joins the `assistant-delta` and
+`assistant-thinking` text of one message and keeps only the latest
+`tool-update` of one tool; any other event pushes what waits first, so ordering
+against everything else holds, and a transport pushes what waits before it
+sends a response or a hello reply. A response therefore never overtakes an
+event its method caused.
+
+A running tool's output then travels as a change to the output the tool's
+previous push carried:
+`tool-update-delta { sessionId, id, after, keep, drop, text }` means "take the
+output of push `after`, keep its first `keep` characters, drop the `drop` after
+them, append `text`". Growth is `drop: 0`; the host's 128 KB tail window
+(`boundedToolOutput`) keeps its marker and drops the oldest part. The host
+sends the whole `tool-update` for a tool's first update, when the delta would
+not be smaller than half the output, and for the next update of every running
+tool after a client says hello without `lastSeq` or is told to resync. The
+event exists only on the wire: `HostConnection` rebuilds the output and hands
+its listeners the ordinary `tool-update`. A delta whose `after` push it never
+saw (it joined later, or resynced) is dropped; the whole output follows at the
+tool's next update, and `tool-end` always carries the final output.
+
+The socket negotiates `permessage-deflate` with context takeover, the `ws`
+default, so small frames compress against the ones before them. The budget
+test `src/workbench/host-transfer-budget.test.ts` measures bytes on the wire,
+decoded bytes and messages per turn against `hostTransfer` in
+`scripts/performance-budgets.json` ([PERFORMANCE.md](PERFORMANCE.md#host-transfer-budget)).
 
 Long operations are jobs, not long responses: `start-job { method, params }`
 answers with a `jobId`, progress arrives as `job-progress { jobId, message,

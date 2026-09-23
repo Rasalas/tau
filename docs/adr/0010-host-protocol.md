@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule. Amended 2026-09-22: TLS with a pinned certificate.
+Accepted, 2026-09-04. Amended 2026-09-05: workspace identity (step 6 of ticket 18), a client window, and a bind rule. Amended 2026-09-22: TLS with a pinned certificate. Amended 2026-09-23: a lean push stream.
 
 ## Context
 
@@ -22,7 +22,7 @@ Method names are the former channels without `tau:` (`send-prompt` is `prompt`, 
 
 Two transports exist. Electron IPC (`host-transport-electron.ts`) uses exactly two channels: `tau:request` and `tau:host-event`. A local WebSocket (`host-transport-socket.ts`, dependency `ws`) serves the same table on `TAU_HOST_LISTEN=host:port`. The renderer picks the socket with `?host=ws://…&token=…`, otherwise the preload bridge.
 
-Pushes are numbered by one `HostPushLog` per host and buffered (500). `hello` with `lastSeq` answers with the missed pushes, or with `resync: true` when the gap fell out of the buffer or the host restarted. `HostConnection` in the renderer owns that: it detects a gap in the sequence, re-hellos, applies what it gets, and on a resync refetches the bootstrap and republishes it as the updates the workbench already applies. Its state (`connected`, `reconnecting`, `resyncing`) is visible in the workbench.
+Pushes are numbered by one `HostPushLog` per host and buffered (the last 500; by bytes since the 2026-09-23 amendment). `hello` with `lastSeq` answers with the missed pushes, or with `resync: true` when the gap fell out of the buffer or the host restarted. `HostConnection` in the renderer owns that: it detects a gap in the sequence, re-hellos, applies what it gets, and on a resync refetches the bootstrap and republishes it as the updates the workbench already applies. Its state (`connected`, `reconnecting`, `resyncing`) is visible in the workbench.
 
 Long operations are host jobs: `start-job` answers with a `jobId`, progress and the result arrive as `job-progress`/`job-done` pushes, `cancel-job` stops waiting. `HostClient` keeps the promise shape by awaiting `job-done` internally. Which calls are jobs is data, not core knowledge: a host extension marks its own long commands with `registerCommand(name, handler, { long: true })` — those also skip the command timeout — and the client asks for the list with `job-methods`. Today that is the workbench rebuild and Workspace Kit's clone.
 
@@ -61,6 +61,14 @@ Because the token travels in clear text, a listener is now refused on anything b
 The socket may speak TLS (`TAU_HOST_TLS=1`, or `TAU_HOST_TLS_CERT` and `TAU_HOST_TLS_KEY`), and a TLS listener may bind any interface; the bind rule above now applies to plaintext only, and `TAU_HOST_INSECURE=1` prints a warning. The host's own certificate is self-signed and kept under its userData, so it has no CA to vouch for it. A client therefore pins the SHA-256 fingerprint of the certificate, the way SSH pins a host key: from `TAU_HOST_FINGERPRINT`, from its `known-hosts.json`, or after the user confirms the fingerprint on first use. A certificate a CA verifies needs no pin. A pinned host that presents another certificate is refused before the token leaves the client, and the window stays in a `refused` state instead of reconnecting.
 
 We chose pinning over running a Tau CA, which would need a second secret to protect and a way to distribute its root, and over an ACME certificate, which needs a public name. Tailscale and similar networks give a stable address; the fingerprint gives the identity. Details are in `docs/host-protocol.md` under TLS.
+
+## Amendment, 2026-09-23: a lean push stream
+
+A turn cost a socket client about as many bytes as its tool output times the number of updates: every `tool-update` carried the whole output (up to 128 KB), every token was its own push, and nothing was compressed. A recorded one-tool turn moved 232 KB in 118 frames; a turn with a 1.1 MB tool output moved 13 MB. The buffer of 500 pushes held seconds of streaming, so a short disconnect in a long turn ended in a resync.
+
+The host now coalesces streamed text and tool updates for up to 50 ms before it numbers them, and sends a running tool's output as a delta against the push that carried it before (`tool-update-delta`), whole again when a client starts from a snapshot. `HostConnection` rebuilds the output, so nothing above the connection sees the difference. The socket negotiates `permessage-deflate`. The push buffer is bounded by bytes (8 MB), not by count. Details are in `docs/host-protocol.md`; the transfer budget test gates the result.
+
+We chose deltas keyed by sequence over deltas keyed by length, because a length can repeat once the tail window keeps the output at its cap, while a sequence names exactly one push. We chose a whole output on a client's arrival over one every second, because steady streaming then carries no repeated output at all.
 
 ## Consequences
 
