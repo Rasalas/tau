@@ -1,4 +1,4 @@
-import { Menu, MenuItem, dialog } from "electron";
+import { dialog } from "electron";
 import { DEFAULT_UPDATE_CHANNEL, defaultUpdateChannel, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
 
 /**
@@ -11,10 +11,16 @@ export interface DesktopUpdater {
   allowPrerelease: boolean;
   allowDowngrade: boolean;
   setFeedURL(options: UpdateFeedOptions): void;
-  on(event: "update-available" | "update-not-available" | "update-downloaded", listener: (info: { version: string }) => void): unknown;
+  on(event: "update-available" | "update-not-available" | "update-downloaded", listener: (info: UpdateInfo) => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;
   checkForUpdates(): Promise<unknown>;
   quitAndInstall(): void;
+}
+
+/** What electron-updater reports about a release; `releaseNotes` is the release's body, or one per version. */
+export interface UpdateInfo {
+  version: string;
+  releaseNotes?: unknown;
 }
 
 /** The repository `publish:` in electron-builder.yml names; the build writes it to `app-update.yml`. */
@@ -66,11 +72,13 @@ export interface AppUpdatesOptions {
   enabled: boolean;
   log: UpdateLog;
   /** Announces a version waiting on disk, so the workbench can offer a restart. */
-  onDownloaded(version: string): void;
+  onDownloaded(version: string, info: UpdateInfo): void;
   /** Answers a check the user asked for; the default is a message box. */
   tell?(message: string): void;
   /** How long after start the first check waits, so it never races bootstrap. */
   startupDelayMs?: number;
+  /** How long between the checks after the first; a Tau left open for days still hears of a release. */
+  pollIntervalMs?: number;
   /** The version running now; a nightly one may go back to the older stable release. */
   currentVersion?: string;
   /** The feed the build names; without it only the feed in `app-update.yml` is used, whatever the channel. */
@@ -80,8 +88,10 @@ export interface AppUpdatesOptions {
 }
 
 export interface AppUpdates {
-  /** Schedules the one check an installed Tau makes on its own. */
-  checkOnStartup(): void;
+  /** Schedules the checks an installed Tau makes on its own: one soon after start, then one every poll interval. */
+  start(): void;
+  /** Ends the checks `start` scheduled. */
+  stop(): void;
   /** The check behind "Check for updates…"; every outcome is reported. */
   checkForUpdates(): Promise<void>;
   /** Quits and installs what was downloaded. False when nothing is waiting. */
@@ -93,6 +103,7 @@ export interface AppUpdates {
 }
 
 const DEFAULT_STARTUP_DELAY_MS = 8_000;
+const DEFAULT_POLL_INTERVAL_MS = 60 * 60_000;
 
 /** An update feed answers a failure with headers and a body; the reason is the first line. */
 function reason(error: unknown): string {
@@ -122,7 +133,7 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   updater.on("update-downloaded", (info) => {
     ready = info.version;
     log.info("update.downloaded", info.version);
-    onDownloaded(info.version);
+    onDownloaded(info.version, info);
   });
   updater.on("error", (error) => {
     handled = error;
@@ -153,27 +164,43 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     return channel;
   }
 
-  async function check(): Promise<void> {
-    try {
-      await applyChannel();
-      await updater.checkForUpdates();
-    } catch (error) {
-      // A failed check arrives twice, as the `error` event and as this
-      // rejection. Only the copy the listener never saw is worth a second line.
-      if (error === handled) return;
-      log.warn("update.check.failed", error);
-      if (asked) tell(`The update check failed: ${reason(error)}`);
-      asked = false;
-    }
+  let checking: Promise<void> | undefined;
+  function check(): Promise<void> {
+    checking ??= (async () => {
+      try {
+        await applyChannel();
+        await updater.checkForUpdates();
+      } catch (error) {
+        // A failed check arrives twice, as the `error` event and as this
+        // rejection. Only the copy the listener never saw is worth a second line.
+        if (error === handled) return;
+        log.warn("update.check.failed", error);
+        if (asked) tell(`The update check failed: ${reason(error)}`);
+        asked = false;
+      }
+    })().finally(() => { checking = undefined; });
+    return checking;
   }
 
+  let first: ReturnType<typeof setTimeout> | undefined;
+  let interval: ReturnType<typeof setInterval> | undefined;
+  /** A poll skips while a version waits on disk; the next one follows the channel as it is then. */
+  const poll = () => { if (!ready) void check(); };
+
   return {
-    checkOnStartup() {
+    start() {
       if (!enabled) {
         log.info("update.disabled", "Not an installed Tau.");
         return;
       }
-      setTimeout(() => void check(), options.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS);
+      if (interval) return;
+      first = setTimeout(poll, options.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS);
+      interval = setInterval(poll, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+    },
+    stop() {
+      clearTimeout(first);
+      clearInterval(interval);
+      interval = undefined;
     },
     async checkForUpdates() {
       if (!enabled) {
@@ -200,18 +227,4 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
       if ((await applyChannel()) !== before) await check();
     },
   };
-}
-
-/**
- * Adds "Check for updates…" to the menu Electron builds by default: beside
- * "About Tau" on macOS, at the end of Help everywhere else.
- */
-export function installUpdateMenuItem(run: () => void, platform: string = process.platform): void {
-  const menu = Menu.getApplicationMenu();
-  const submenu = (platform === "darwin" ? menu?.items[0] : menu?.items.at(-1))?.submenu;
-  if (!menu || !submenu) return;
-  const item = new MenuItem({ label: "Check for updates…", click: () => run() });
-  if (platform === "darwin") submenu.insert(1, item);
-  else submenu.append(item);
-  Menu.setApplicationMenu(menu);
 }
