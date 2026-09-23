@@ -18,6 +18,7 @@ import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
 import { Menu } from "./Menu";
+import { tooltipProps } from "./ui/Tooltip";
 import { modelKey } from "./model-picker-rail";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { usePreferences } from "../renderer-services-context";
@@ -735,7 +736,7 @@ export function Composer({
                 <button
                   className="composer-queue-grip"
                   type="button"
-                  title="Drag to reorder — ⌥↑ / ⌥↓ also moves it"
+                  {...tooltipProps("Drag to reorder — ⌥↑ / ⌥↓ also moves it")}
                   aria-label={`Reorder queued message ${index + 1} of ${queue.length}`}
                   onPointerDown={() => { queueDragArmRef.current = entry.id; }}
                   onPointerUp={() => { queueDragArmRef.current = undefined; }}
@@ -747,12 +748,12 @@ export function Composer({
                 >
                   <GripVertical size={13} />
                 </button>
-                <span title={label}>{label}</span>
+                <span {...tooltipProps(label, { when: "truncated" })}>{label}</span>
                 <button
                   className="composer-queue-steer"
                   type="button"
                   onClick={() => onSteerQueued(entry.id)}
-                  title={streaming ? "Send now, interrupting the current turn" : "Send now"}
+                  {...tooltipProps(streaming ? "Send now, interrupting the current turn" : "Send now")}
                 >
                   {streaming ? "Steer" : "Send"}
                 </button>
@@ -760,7 +761,7 @@ export function Composer({
                   className="composer-queue-drop"
                   type="button"
                   onClick={() => onCancelQueued(entry.id)}
-                  title="Drop this queued message"
+                  {...tooltipProps("Drop this queued message")}
                   aria-label="Drop this queued message"
                 >
                   <X size={13} />
@@ -982,7 +983,7 @@ export function Composer({
         <div className="composer-toolbar">
           <div className="composer-chips">
           {text.trimStart().startsWith("!") ? (
-            <span className="runtime-chip shell-mode-chip" title="Shell command mode">
+            <span className="runtime-chip shell-mode-chip" {...tooltipProps("Shell command mode")}>
               <Terminal size={12} className="chip-icon" />
               {text.trimStart().startsWith("!!") ? "Silent Shell" : "Shell"}
             </span>
@@ -990,10 +991,10 @@ export function Composer({
           <button
             className="runtime-chip"
             disabled={!modelPickerAvailable}
-            title={modelSelectionAvailable
+            {...tooltipProps(modelSelectionAvailable
               ? runtimeChoice ? "Select runtime and model" : "Select model"
               : draftOnOtherRuntime ? `Change runtime or start with ${runtimeLabel}'s default model.`
-                : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime."}
+                : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime.", { shortcut: registry?.keybindingLabel?.("runtime.model") })}
             aria-label={modelSelectionAvailable
               ? `${runtimeChoice ? "Select runtime and model" : "Select model"}: ${snapshot?.model?.name ?? "current model"}`
               : runtimeChoice ? `Select runtime and model: ${runtimeLabel}` : "Model selection unavailable"}
@@ -1014,10 +1015,10 @@ export function Composer({
             <button
               className="runtime-chip"
               disabled={!thinkingSelectionAvailable}
-              title={thinkingSelectionAvailable
+              {...tooltipProps(thinkingSelectionAvailable
                 ? "Reasoning"
                 : draftOnOtherRuntime ? `${runtimeLabel} sets reasoning once this thread exists.`
-                  : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable."}
+                  : runtimeOwnsModel ? "This runtime controls reasoning itself." : "Reasoning controls are unavailable.", { shortcut: thinkingSelectionAvailable ? registry?.keybindingLabel?.("runtime.cycle-thinking") : undefined })}
               aria-label={thinkingSelectionAvailable ? "Reasoning" : "Reasoning controls unavailable"}
               onClick={() => {
                 if (thinkingSelectionAvailable) setMenu(menu === "thinking" ? undefined : "thinking");
@@ -1093,7 +1094,7 @@ export function Composer({
             <ContextMeter usage={contextUsage} breakdown={contextBreakdown} onCompact={onCompactContext} />
           ) : null}
 
-          <button className="attach-button" type="button" title={supportsImageInput || inlineTakesFiles ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE} aria-label="Attach files" disabled={!supportsImageInput && !inlineTakesFiles} onClick={() => fileInputRef.current?.click()}>
+          <button className="attach-button" type="button" {...tooltipProps(supportsImageInput || inlineTakesFiles ? "Attach files" : IMAGE_INPUT_UNAVAILABLE_MESSAGE)} aria-label="Attach files" disabled={!supportsImageInput && !inlineTakesFiles} onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={17} />
           </button>
           <input
@@ -1115,7 +1116,7 @@ export function Composer({
             return (
               <button
                 className="prompt-submit-button"
-                title={submitLabel}
+                {...tooltipProps(submitLabel)}
                 aria-label={submitLabel}
                 disabled={held || (text.trim().length === 0 && (promptSubmit?.disabled ?? true))}
                 onClick={() => {
@@ -1129,11 +1130,11 @@ export function Composer({
             );
           })() : null}
           {streaming ? (
-            <button className="send-button stop" title="Stop the run" aria-label="Stop the run" onClick={onAbort}><i /></button>
+            <button className="send-button stop" {...tooltipProps("Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label="Stop the run" onClick={onAbort}><i /></button>
           ) : !answerable ? (
             <button
               className="send-button"
-              title="Send"
+              {...tooltipProps("Send")}
               aria-label="Send"
               aria-busy={activeScopeSnapshot.submissionPending}
               disabled={held || activeScopeSnapshot.submissionPending || (text.trim().length === 0 && attachments.length === 0 && !inlineHasContent)}

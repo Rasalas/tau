@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { errorMessage, useThreadStore, useWorkbenchShell, type MenuSection, type UiSession, type WorkbenchActions } from "tau";
+import { Dialog, errorMessage, useThreadStore, useWorkbenchShell, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
@@ -150,16 +150,34 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     await port.restore(threadId);
   };
 
+  let undoToast: ToastHandle | undefined;
+  /** The undo offer, as a toast on core's stack; inline at the foot of the rail where there is no stack. */
   function UndoNotice({ actions }: { actions: WorkbenchActions }) {
     useSyncExternalStore(undo.subscribe, undo.getVersion);
     const { registry } = useWorkbenchShell();
     const notice = undo.getNotice();
     store.actions = actions;
-    if (!notice) return null;
     const shortcut = registry.keybindingLabel("thread.undo");
+    const text = notice ? `${notice.action} ${notice.count} thread${notice.count === 1 ? "" : "s"}` : undefined;
+    const toast = actions.toast;
+    useEffect(() => {
+      if (!toast) return;
+      if (!text) { undoToast?.dismiss(); undoToast = undefined; return; }
+      // The undo's own window decides when it goes, so the toast has no clock of its own.
+      undoToast = toast({
+        id: "tau.thread-rail.undo",
+        type: "success",
+        title: text,
+        ...(shortcut ? { description: `${shortcut} to undo` } : {}),
+        timeoutMs: 0,
+        actions: [{ label: "Undo", run: () => { undo.undo(); } }],
+        onClose: () => { undoToast = undefined; },
+      });
+    }, [shortcut, text, toast]);
+    if (toast || !text) return null;
     return (
       <div className="thread-rail-undo" role="status">
-        {notice.action} {notice.count} thread{notice.count === 1 ? "" : "s"},{" "}
+        {text},{" "}
         <button type="button" onClick={() => { undo.undo(); }}>{shortcut ? `${shortcut} to undo` : "Undo"}</button>
       </div>
     );
@@ -219,10 +237,13 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       return [
         { items: [current?.pinned ? { id: "unpin", label: "Unpin thread" } : { id: "pin", label: "Pin thread" }] },
         {
-          heading: "SNOOZE",
           items: snoozed
             ? [{ id: "wake", label: "Wake thread" }, { id: "snooze:custom", label: "Snooze until…" }]
-            : [...snoozePresets(new Date(now())).map(({ id, label }) => ({ id, label })), { id: "snooze:custom", label: "Custom…" }],
+            : [{
+              id: "snooze",
+              label: "Snooze",
+              submenu: [{ items: [...snoozePresets(new Date(now())).map(({ id, label }) => ({ id, label })), { id: "snooze:custom", label: "Custom…" }] }],
+            }],
         },
         {
           items: [
@@ -283,42 +304,35 @@ export function SnoozeDialog({ session, now, onClose, onSnooze }: {
   const [amount, setAmount] = useState("1");
   const [unit, setUnit] = useState<Unit>("hours");
   const [date, setDate] = useState(() => localInput(snoozePresets(new Date(now()))[1]!.until));
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
   const until = mode === "duration" ? now() + Number(amount) * UNIT_MS[unit] : new Date(date).getTime();
   const valid = Number.isFinite(until) && until > now() && (mode === "date" || Number(amount) > 0);
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <section className="thread-rail-snooze" role="dialog" aria-modal="true" aria-label="Snooze thread" onMouseDown={(event) => event.stopPropagation()}>
-        <h2>Snooze “{session.title}”</h2>
-        <div className="segmented" role="group" aria-label="Snooze by">
-          <button type="button" className={mode === "duration" ? "active" : ""} aria-pressed={mode === "duration"} onClick={() => setMode("duration")}>For a while</button>
-          <button type="button" className={mode === "date" ? "active" : ""} aria-pressed={mode === "date"} onClick={() => setMode("date")}>Until a date</button>
-        </div>
-        <form onSubmit={(event) => { event.preventDefault(); if (valid) onSnooze(until); }}>
-          {mode === "duration" ? (
-            <div className="thread-rail-snooze-row">
-              <input aria-label="How long" type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} autoFocus />
-              <select aria-label="Unit" value={unit} onChange={(event) => setUnit(event.target.value as Unit)}>
-                <option value="minutes">minutes</option>
-                <option value="hours">hours</option>
-                <option value="days">days</option>
-              </select>
-            </div>
-          ) : (
-            <div className="thread-rail-snooze-row">
-              <input aria-label="Wake at" type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
-            </div>
-          )}
-          <footer>
-            <button type="button" className="text-button" onClick={onClose}>Cancel</button>
-            <button type="submit" className="primary" disabled={!valid}>Snooze</button>
-          </footer>
-        </form>
-      </section>
-    </div>
+    <Dialog className="thread-rail-snooze" label="Snooze thread" onClose={onClose}>
+      <h2>Snooze “{session.title}”</h2>
+      <div className="segmented" role="group" aria-label="Snooze by">
+        <button type="button" className={mode === "duration" ? "active" : ""} aria-pressed={mode === "duration"} onClick={() => setMode("duration")}>For a while</button>
+        <button type="button" className={mode === "date" ? "active" : ""} aria-pressed={mode === "date"} onClick={() => setMode("date")}>Until a date</button>
+      </div>
+      <form onSubmit={(event) => { event.preventDefault(); if (valid) onSnooze(until); }}>
+        {mode === "duration" ? (
+          <div className="thread-rail-snooze-row">
+            <input aria-label="How long" type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} autoFocus />
+            <select aria-label="Unit" value={unit} onChange={(event) => setUnit(event.target.value as Unit)}>
+              <option value="minutes">minutes</option>
+              <option value="hours">hours</option>
+              <option value="days">days</option>
+            </select>
+          </div>
+        ) : (
+          <div className="thread-rail-snooze-row">
+            <input aria-label="Wake at" type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+          </div>
+        )}
+        <footer>
+          <button type="button" className="text-button" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={!valid}>Snooze</button>
+        </footer>
+      </form>
+    </Dialog>
   );
 }

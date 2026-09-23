@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
 import { ChevronDown, Folder, X } from "lucide-react";
-import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolRun, UiThreadTree } from "../shared/contracts";
+import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { StageState } from "../workbench/stage";
@@ -11,7 +11,10 @@ import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { QueuedFollowUp } from "../workbench/follow-up-queue";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
-import { NoticeToast } from "./components/NoticeToast";
+import { ToastLayer } from "./components/ui/ToastLayer";
+import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
+import { ContextMenuLayer } from "./components/ui/ContextMenu";
+import type { ToastStore } from "../workbench/toast-store";
 import { PanelIcon } from "./components/PanelIcon";
 import { Region, StatusLine } from "./components/Regions";
 import { HostConnectionStatus } from "./host-connection-status";
@@ -176,8 +179,6 @@ export interface WorkbenchLayout {
   createThreadInProject(project: UiProject): void;
   settingsPage?: string;
   setSettingsPage(page?: string): void;
-  notice?: string;
-  noticeLevel: "info" | "warning" | "error";
   setNotice(message?: string, level?: "info" | "warning" | "error"): void;
   activeOverlayId?: string;
   closeOverlay(): void;
@@ -205,6 +206,7 @@ export interface WorkbenchThread {
   lastMessageId?: string;
   recoverThread(): Promise<unknown>;
   copyToolOutput(tool: UiToolRun): Promise<void>;
+  loadToolOutput(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
   runStartedAt?: number;
   activeDraftKey?: string;
   copyMessage(message: UiMessage): Promise<void>;
@@ -245,6 +247,8 @@ export interface WorkbenchComposer {
 export interface WorkbenchModel {
   /** The one store the transcript and the context meter subscribe to themselves. */
   view: ThreadViewStore;
+  /** The toast stack; notices reach it through `setNotice`. */
+  toasts: ToastStore;
   actions: WorkbenchActions;
   /** Both contexts without their tool runs, which the workbench adds from `view`. */
   context: Omit<WorkbenchContextValue, "tools">;
@@ -256,7 +260,7 @@ export interface WorkbenchModel {
 }
 
 export const Workbench = memo(function Workbench({ model }: { model: WorkbenchModel }) {
-  const { actions, layout, thread, composer, view } = model;
+  const { actions, layout, thread, composer, view, toasts } = model;
   const {
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
     openedPanels, openPanel, dockOpen, setDockOpen, dockWidth: restoredDockWidth, onDockWidthChange,
@@ -265,7 +269,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     loadThread, takeOverThread,
     documentState, documentSource, visibleStreaming, paletteOpen, closePalette, commands,
     projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
-    projects, removeProject, createThreadInProject, settingsPage, setSettingsPage, notice, noticeLevel,
+    projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay,
   } = layout;
   const {
@@ -462,12 +466,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     </LazyFeatureBoundary> : null}
   </>;
 
-  // The notice is a corner note in the shell's bottom-left, not an overlay: it
-  // lives inside the shell so it reads the rail's own geometry, and next to the
-  // overlays in the full-screen path, where there is no shell to sit in.
-  const noticeToast = notice
-    ? <NoticeToast level={noticeLevel} message={notice} onDismiss={() => setNotice(undefined)} />
-    : null;
+  // One of each for the whole window, over the shell, an overlay and Settings alike.
+  const floats = <>
+    <ToastLayer store={toasts} />
+    <TooltipLayer />
+    <ContextMenuLayer />
+  </>;
 
   const activeOverlay = registry.getOverlay(activeOverlayId);
   const providers = (content: React.ReactNode) => <WorkbenchProviders model={model} threadStore={threadStore}>{content}</WorkbenchProviders>;
@@ -484,7 +488,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       </Suspense>
     </LazyFeatureBoundary>
     {overlays}
-    {noticeToast}
+    {floats}
   </>);
 
   return providers(<>
@@ -530,7 +534,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 <h1 id="start-screen-title">What do you want to build?</h1>
                 <button type="button" className="conversation-start-project" aria-label={`Change project, current project ${startProjectName}`} onClick={openNewThreadPicker}>
                   <i><Folder size={17} /></i>
-                  <span><small>Current project</small><strong>{startProjectName}</strong><code title={startProjectPath}>{displayPath(startProjectPath)}</code></span>
+                  <span><small>Current project</small><strong>{startProjectName}</strong><code {...tooltipProps(startProjectPath, { variant: "code", side: "bottom" })}>{displayPath(startProjectPath)}</code></span>
                   <b>Change</b><ChevronDown size={15} />
                 </button>
               </> : null}
@@ -613,7 +617,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           aria-valuemax={MAX_DOCK_WIDTH}
           aria-valuenow={dockWidth}
           tabIndex={0}
-          title="Drag to resize. Double-click to reset."
+          {...tooltipProps("Drag to resize. Double-click to reset.", { side: "left" })}
           onPointerDown={startDockResize}
           onDoubleClick={() => setDockWidth(DEFAULT_DOCK_WIDTH)}
           onKeyDown={(event) => {
@@ -636,7 +640,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         <nav className="panel-rail">
           {panels.map((panel) => <button
             key={panel.id}
-            title={panel.label}
+            {...tooltipProps(panel.label, { side: "left" })}
             aria-label={panel.label}
             className={dockOpen && activePanel === panel.id ? "active" : ""}
             aria-pressed={dockOpen && activePanel === panel.id}
@@ -645,10 +649,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <span className="spacer" />
         </nav>
       </aside> : null}
-      {settingsPage ? null : noticeToast}
     </div>
     {overlays}
-    {settingsPage ? noticeToast : null}
+    {floats}
   </>);
 });
 
@@ -688,13 +691,13 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const {
     snapshot, conversationSnapshot, pendingNewThread, transcriptHistory, transcriptRef, loadTranscriptPage,
     applyTranscriptPage, transcriptScopeKey, transcriptScope, transcriptTurnStart,
-    visibleTranscriptTurnStart, lastMessageId, recoverThread, copyToolOutput,
+    visibleTranscriptTurnStart, lastMessageId, recoverThread, copyToolOutput, loadToolOutput,
     runStartedAt, activeDraftKey, copyMessage, forkMessage,
   } = thread;
   const detail = preferences.transcriptDetailFor(conversationSnapshot?.sessionId);
   const { conversationActivityTools, liveStatusLabel, transcriptActivities } = useConversationActivities({
     pendingNewThread, conversationSnapshot, running: Boolean(snapshot?.isStreaming), lastMessageId, prompts,
-    registry, viewStore: view, detail, actions, recoverThread, copyToolOutput,
+    registry, viewStore: view, detail, actions, recoverThread, copyToolOutput, loadToolOutput,
     abortSessionId: snapshot?.sessionId, abort,
   });
   const messages = useMemo(

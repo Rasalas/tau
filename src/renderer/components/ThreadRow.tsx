@@ -3,6 +3,7 @@ import { ArchiveRestore, Check, PlugZap } from "lucide-react";
 import type { UiSession } from "../../shared/contracts";
 import { ProviderIconStack } from "./ProviderIconStack";
 import { threadCostLabel, threadUsageDetail } from "../cost-format";
+import { tooltipProps } from "./ui/Tooltip";
 
 export type ThreadActivity = "idle" | "ready" | "working" | "tool" | "settled" | "waiting" | "stalled" | "interrupted";
 
@@ -55,7 +56,7 @@ function ThreadStatus({ activity, label, hint, startedAt }: { activity: ThreadAc
     return () => window.clearInterval(timer);
   }, [working]);
   return (
-    <span className={`thread-status-age status-${activity}`} {...(hint ? { title: hint } : {})}>
+    <span className={`thread-status-age status-${activity}`} {...tooltipProps(hint)}>
       {working ? <i /> : null}
       {activity === "interrupted" ? <PlugZap size={11} aria-hidden="true" /> : null}
       {label}
@@ -105,14 +106,14 @@ export const ThreadRow = memo(function ThreadRow({
       <article className={`thread-row compact ${active ? "active" : ""} activity-${activity}`}>
         <button className="thread-main" onClick={() => onSelect(session.path)}>
           <i className={`thread-project-icon ${projectIcon ? "has-image" : ""}`} style={iconStyle}>{projectMark}</i>
-          <span className="thread-title">{session.title}</span>
+          <span className="thread-title" {...tooltipProps(session.title, { when: "truncated", side: "right" })}>{session.title}</span>
           {childCount}
           {accessory}
           <time>{age}</time>
         </button>
         <button
           className="thread-settle"
-          title={settled ? "Return thread to the rail" : "Settle thread"}
+          {...tooltipProps(settled ? "Return thread to the rail" : "Settle thread")}
           aria-label={`${settled ? "Return" : "Settle"} ${session.title}`}
           onClick={() => onToggleSettled(session.id)}
         >
@@ -132,18 +133,18 @@ export const ThreadRow = memo(function ThreadRow({
             ? <ThreadStatus activity={activity} label={working ? "WORKING" : label} {...(activityHint ? { hint: activityHint } : {})} startedAt={startedAt ?? session.modifiedAt} />
             : <time>{age}</time>}
         </span>
-        <span className="thread-title">{session.title}</span>
+        <span className="thread-title" {...tooltipProps(session.title, { when: "truncated", side: "right" })}>{session.title}</span>
         <span className="thread-meta-line">
           {childCount}
           {session.projectLabel ? <span className="thread-branch">{session.projectLabel}</span> : null}
           {accessory}
-          {cost && session.usage ? <span className="thread-cost-meta" title={threadUsageDetail(session.usage)}>{cost}</span> : null}
+          {cost && session.usage ? <span className="thread-cost-meta" {...tooltipProps(threadUsageDetail(session.usage))}>{cost}</span> : null}
           <ProviderIconStack modelProvider={modelProvider ?? session.modelProvider} runtimeProvider={session.backendKind} />
         </span>
       </button>
       <button
         className="thread-settle"
-        title="Settle thread"
+        {...tooltipProps("Settle thread")}
         aria-label={`Settle ${session.title}`}
         onClick={() => onToggleSettled(session.id)}
       >

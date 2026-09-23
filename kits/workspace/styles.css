@@ -164,7 +164,6 @@
   background: var(--acid); color: var(--acid-ink);
   font: 500 11px var(--sans); box-shadow: var(--elevation-1);
 }
-.rail-menu-anchor { position: fixed; z-index: 61; width: 0; height: 0; }
 
 .sidebar-footer {
   flex: none; border-top: 1px solid var(--line);

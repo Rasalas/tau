@@ -120,6 +120,42 @@ describe("tool run output", () => {
     expect(view.container.querySelector("time.tool-run-stamp")).toBeTruthy();
   });
 
+  it("names a deferred output's size and loads it when the row opens, once", async () => {
+    const output = Array.from({ length: 400 }, (_, index) => `line ${index} ${"x".repeat(64)}`).join("\n");
+    let resolve!: (value: { toolCallId: string; output: string }) => void;
+    const load = vi.fn(() => new Promise<{ toolCallId: string; output: string }>((done) => { resolve = done; }));
+    const tool = command({ outputDeferred: true, outputLength: 28_000 });
+    const view = render(<ToolRun tool={tool} registry={registryWithBundledExtensions()} onLoadOutput={load} />);
+
+    expect(screen.getByText("27 KB")).toBeTruthy();
+    expect(load).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    const pending = view.container.querySelector(".tool-output-pending");
+    expect(pending?.textContent).toBe("Loading 27 KB output…");
+    await act(async () => resolve({ toolCallId: "bash", output }));
+    expect(view.container.querySelector(".tool-output-pending")).toBeNull();
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("line 399 ");
+
+    // Closed and opened again, or handed a new object for the same tool: no second load.
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    view.rerender(<ToolRun tool={{ ...tool }} registry={registryWithBundledExtensions()} onLoadOutput={load} />);
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("line 399 ");
+    expect(load).toHaveBeenCalledOnce();
+  });
+
+  it("says so when a deferred output cannot be loaded, and tries again on the next opening", async () => {
+    const load = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce({ toolCallId: "bash", output: "found it" });
+    const view = render(<ToolRun tool={command({ outputDeferred: true, outputLength: 20_000 })} registry={registryWithBundledExtensions()} onLoadOutput={load} />);
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    await act(async () => undefined);
+    expect(view.container.querySelector(".tool-output-pending")?.textContent).toBe("The output could not be loaded.");
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    fireEvent.click(screen.getByRole("button", { name: /verbose/u }));
+    await act(async () => undefined);
+    expect(view.container.querySelector(".tool-output")?.textContent).toContain("found it");
+  });
+
   it("keeps waiting and interrupted states distinct", () => {
     const registry = registryWithBundledExtensions();
     const { rerender } = render(<ToolRun

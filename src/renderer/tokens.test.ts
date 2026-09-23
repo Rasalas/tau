@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 const TOKENS = new URL("./tokens.css", import.meta.url);
 const STYLES = new URL("./styles.css", import.meta.url);
+/** Core stylesheets that load with their own chunk rather than with the first paint. */
+const LAZY_STYLES = [new URL("./components/ui/toasts.css", import.meta.url)];
 const KITS = fileURLToPath(new URL("../../kits", import.meta.url));
 
 /** A colour written out rather than named: what only `tokens.css` may contain. */
@@ -15,6 +17,8 @@ const RUNTIME_PROPERTIES = [
   "--project-hue",
   "--used",
   "--keep-clear-x",
+  "--menu-shift-x",
+  "--menu-shift-y",
   "--composer-inset",
   "--font-family-override",
   "--font-size-override",
@@ -75,7 +79,7 @@ function ratio(foreground: string, background: string): number {
 }
 
 async function stylesheets(): Promise<Array<{ name: string; css: string }>> {
-  const files = [STYLES];
+  const files = [STYLES, ...LAZY_STYLES];
   for await (const path of glob(`${KITS}/*/styles.css`)) files.push(new URL(`file://${path}`));
   return Promise.all(files.map(async (url) => ({ name: fileURLToPath(url), css: await readFile(url, "utf8") })));
 }

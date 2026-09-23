@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { HostPushEvent } from "../shared/host-transport.js";
 import { HostPushCoalescer, type CoalescerClock } from "./host-push-coalescer.js";
+import { HOST_PROTOCOL_VERSION } from "../shared/host-protocol.js";
+import { INLINE_TOOL_OUTPUT_CHARS, LIVE_TOOL_OUTPUT_MARKER, liveToolOutput } from "./client-tool-output.js";
 
 /** Timers that run only when the test says so. */
 function manualClock(): CoalescerClock & { fire(): void; pending(): number } {
@@ -92,5 +94,68 @@ describe("HostPushCoalescer", () => {
     coalescer.publish(log("tick"));
     expect(recorded).toEqual([update("first", "t1"), delta("a", "xy"), update("second", "t2"), log("tick")]);
     expect(clock.pending()).toBe(0);
+  });
+
+  it("ends a tool with a reference to the output it streamed", () => {
+    const { clock, recorded, coalescer } = setup();
+    const base = "z".repeat(100);
+    coalescer.publish(update(base));
+    clock.fire();
+    coalescer.publish({ type: "tool-end", sessionId: "s", tool: { ...tool, output: base } });
+    coalescer.publish(update(`${base}!`, "t2"));
+    clock.fire();
+    coalescer.publish({ type: "tool-end", sessionId: "s", tool: { ...tool, id: "t2", output: `${base}!\ndone` } });
+    expect(recorded.slice(1, 2)).toEqual([
+      { type: "tool-end-delta", sessionId: "s", tool, after: 1, length: 100, keep: 100, drop: 0, text: "" },
+    ]);
+    expect(recorded.at(-1)).toEqual({ type: "tool-end-delta", sessionId: "s", tool: { ...tool, id: "t2" }, after: 3, length: 106, keep: 101, drop: 0, text: "\ndone" });
+  });
+
+  it("ends a tool whole when it streamed nothing, and after a client started from a snapshot", () => {
+    const { clock, recorded, coalescer } = setup();
+    coalescer.publish({ type: "tool-end", sessionId: "s", tool: { ...tool, output: "quiet" } });
+    coalescer.publish(update("x".repeat(100), "t2"));
+    clock.fire();
+    coalescer.resendWholeOutputs();
+    coalescer.publish({ type: "tool-end", sessionId: "s", tool: { ...tool, id: "t2", output: "x".repeat(100) } });
+    expect(recorded.filter((event) => event.type === "tool-end")).toHaveLength(2);
+    expect(recorded.filter((event) => event.type === "tool-end-delta")).toEqual([]);
+  });
+
+  it("streams a long output's live tail and ends it without the output", () => {
+    const { clock, recorded, coalescer } = setup();
+    const long = Array.from({ length: 2_000 }, (_, index) => `line ${index}`).join("\n");
+    expect(long.length).toBeGreaterThan(INLINE_TOOL_OUTPUT_CHARS);
+    coalescer.publish(update(long));
+    clock.fire();
+    coalescer.publish(update(`${long}\nmore`));
+    clock.fire();
+    coalescer.publish({ type: "tool-end", sessionId: "s", tool: { ...tool, output: `${long}\nmore` } });
+    expect(recorded[0]).toEqual(update(liveToolOutput(long)));
+    expect((recorded[0] as { output: string }).output.startsWith(LIVE_TOOL_OUTPUT_MARKER)).toBe(true);
+    expect(recorded[1]).toMatchObject({ type: "tool-update-delta", after: 1, text: "\nmore" });
+    expect(recorded[2]).toEqual({ type: "tool-end", sessionId: "s", tool: { ...tool, outputDeferred: true, outputLength: long.length + 5 } });
+  });
+
+  it("sends a settled detail's turn activity once, inside its history", () => {
+    const { recorded, coalescer } = setup();
+    const tools = [{ ...tool, output: "ok" }];
+    const detail = (turnActivity: unknown) => ({
+      type: "host-update" as const,
+      update: {
+        version: HOST_PROTOCOL_VERSION,
+        type: "thread-detail" as const,
+        detail: {
+          threadId: "s", sessionId: "s", messages: [], isStreaming: false, activeTools: [], taskHistory: [],
+          turnActivity,
+          turnActivityHistory: [{ id: "a1", anchorMessageId: "m1", status: "completed" as const, tools }],
+        },
+      },
+    }) as HostPushEvent;
+    coalescer.publish(detail({ tools, anchorMessageId: "m1" }));
+    coalescer.publish(detail({ tools: [{ ...tool, status: "running" }], anchorMessageId: "m1" }));
+    expect(recorded[0]).toMatchObject({ type: "thread-detail-compact" });
+    expect((recorded[0] as { update: { detail: object } }).update.detail).not.toHaveProperty("turnActivity");
+    expect(recorded[1]).toEqual(detail({ tools: [{ ...tool, status: "running" }], anchorMessageId: "m1" }));
   });
 });

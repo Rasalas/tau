@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NewThreadClaimEvent, UiModel, UiSession, WorkbenchActions } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import threadRailExtension from "./desktop.js";
 import {
   META_EVENT,
@@ -99,8 +99,9 @@ describe("Thread Rail on the desktop", () => {
     const { organizer, calls, actions } = setup();
     await flush();
     organizer().sections([thread("a")]);
-    const items = organizer().menu(thread("a")).flatMap((section) => section.items.map((item) => item.id));
-    expect(items).toEqual(["pin", "snooze:1h", "snooze:tomorrow", "snooze:next-week", "snooze:custom", "settle", "move-up", "move-down", "archive", "delete"]);
+    const items = organizer().menu(thread("a")).flatMap((section) => section.items);
+    expect(items.map((item) => item.id)).toEqual(["pin", "snooze", "settle", "move-up", "move-down", "archive", "delete"]);
+    expect(items[1]!.submenu!.flatMap((section) => section.items.map((item) => item.id))).toEqual(["snooze:1h", "snooze:tomorrow", "snooze:next-week", "snooze:custom"]);
     organizer().runMenu(thread("a"), "pin", actions);
     expect(organizer().sections([thread("a")])[0]?.threads.map((entry) => entry.id)).toEqual(["a"]);
     expect(calls("patch")).toEqual([{ patches: { a: { pinned: true, pinOrder: 0 } } }]);
@@ -196,6 +197,26 @@ describe("Thread Rail on the desktop", () => {
     await registry.executeCommand("thread.undo", actions);
     expect(calls("patch").at(-1)).toEqual({ patches: { a: { archivedAt: null } } });
     expect(registry.getKeybindings().find((binding) => binding.commandId === "thread.undo")).toMatchObject({ keys: "mod+z", when: "!terminalFocus && !editableFocus" });
+  });
+
+  it("offers the undo as a toast on core's stack and takes it away when the window closes", async () => {
+    const { registry, organizer, actions } = setup();
+    const dismiss = vi.fn();
+    const shown: Array<{ title?: string; description?: string; actions?: Array<{ label: string; run(): void }> }> = [];
+    actions.toast = vi.fn((options) => { shown.push(options); return { id: "t", update: vi.fn(), dismiss }; });
+    await flush();
+    const Layer = organizer().Layer!;
+    render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={actions} /></ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+    organizer().sections([thread("a", 2), thread("b", 1)]);
+    await act(async () => { organizer().runMenu(thread("a"), "archive", actions); await flush(); });
+    expect(shown.at(-1)).toMatchObject({ title: "Archived 1 thread", description: expect.stringMatching(/Z to undo$/u), actions: [{ label: "Undo" }] });
+    expect(document.querySelector(".thread-rail-undo")).toBeNull();
+
+    act(() => { shown.at(-1)!.actions![0]!.run(); });
+    expect(dismiss).toHaveBeenCalled();
+    expect(organizer().sections([thread("a", 2), thread("b", 1)]).flatMap((section) => section.threads.map((entry) => entry.id))).toEqual(["a", "b"]);
   });
 
   it("opens a new thread in the project when the thread on screen is archived, and undo returns to it", async () => {

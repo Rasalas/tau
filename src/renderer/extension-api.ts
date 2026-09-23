@@ -48,6 +48,16 @@ export { formatCost } from "./cost-format";
 // paging state machine behind every changed-file list.
 export { VirtualList } from "./components/VirtualList";
 export { Menu } from "./components/Menu";
+// The UI primitives core draws with (API 1.11.0): tooltips through one layer,
+// right-click menus the OS draws where it can, dialogs and popovers that give
+// focus back, and the shapes of loading and of nothing to show.
+export { Tooltip, tooltipProps, type TooltipOptions } from "./components/ui/Tooltip";
+export { useContextMenu } from "./components/ui/ContextMenu";
+export { Dialog, Popover } from "./components/ui/Dialog";
+export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
+export { useFocusReturn, useFocusTrap } from "./components/ui/focus";
+export type { FloatingAlign, FloatingSide } from "./components/ui/floating";
+export type { ToastAction, ToastHandle, ToastOptions, ToastType } from "../workbench/toast-store";
 export { FileKindIcon } from "./components/FileKindIcon";
 export { ThreadRow } from "./components/ThreadRow";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";

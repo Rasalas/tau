@@ -8,6 +8,7 @@ import type {
 } from "../shared/contracts.js";
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
 import { decodeBadgeCount, decodeSystemNotification, type SystemNotification, type SystemNotificationOutcome } from "../shared/system-attention.js";
+import { decodeMenuPoint, decodeNativeMenu, type MenuPoint, type NativeMenuEntry } from "../shared/context-menu.js";
 import type { PiHost } from "./pi-host.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
@@ -62,6 +63,8 @@ export interface HostMethodPlatform {
   notify(notification: SystemNotification): Promise<SystemNotificationOutcome>;
   /** The count on the app's icon; 0 clears it. */
   setBadge(count: number): void;
+  /** A menu the OS draws at a point of the window; answers the chosen id. Absent where no window draws one. */
+  showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
 }
 
 /**
@@ -84,11 +87,18 @@ export interface ClientHostPlatform {
   installUpdate(): boolean;
   notify(notification: SystemNotification): Promise<SystemNotificationOutcome>;
   setBadge(count: number): void;
+  showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
 }
 
 function shareFile(platform: { shareFile?(path: string): Promise<UiSharedFile> }, path: string): Promise<UiSharedFile> {
   if (!platform.shareFile) throw Object.assign(new Error("This client serves no files to the page."), { code: HOST_ERROR.unsupported });
   return platform.shareFile(path);
+}
+
+async function contextMenu(platform: { showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined> }, params: readonly unknown[]): Promise<{ id?: string }> {
+  if (!platform.showContextMenu) throw Object.assign(new Error("This client draws no native menus."), { code: HOST_ERROR.unsupported });
+  const id = await platform.showContextMenu(decodeNativeMenu("context-menu", params[0]), decodeMenuPoint("context-menu", params[1]));
+  return id === undefined ? {} : { id };
 }
 
 /**
@@ -113,6 +123,7 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
     "install-update": async () => ({ installing: platform.installUpdate() }),
     "notify": async (params) => platform.notify(decodeSystemNotification("notify", params[0])),
     "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
+    "context-menu": async (params) => contextMenu(platform, params),
   };
 }
 
@@ -240,9 +251,14 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "copy-image": async (params) => platform.copyImage(decodeString("copy-image", "dataUrl", params[0])),
     "notify": async (params) => platform.notify(decodeSystemNotification("notify", params[0])),
     "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
+    "context-menu": async (params) => contextMenu(platform, params),
     "read-tool-output": async (params) => (await host()).readToolOutput(
       decodeString("read-tool-output", "sessionId", params[0]),
       decodeString("read-tool-output", "toolCallId", params[1]),
+    ),
+    "tool-output": async (params) => (await host()).toolOutput(
+      decodeString("tool-output", "sessionId", params[0]),
+      decodeString("tool-output", "toolCallId", params[1]),
     ),
     // Answers with the text rather than copying it: the clipboard belongs to
     // the client, which may be a different process than the host.

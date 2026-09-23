@@ -1,6 +1,6 @@
 import { ChevronRight, CircleAlert, CircleStop, Clock, Hammer } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import type { UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
+import type { UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../../shared/contracts";
 import {
   deriveWorkRows,
   formatLiveClock,
@@ -37,6 +37,7 @@ export interface WorkRowActions {
   onRecover?(): void;
   onStop?(): void;
   onCopyOutput?(tool: UiToolRun): Promise<void> | void;
+  onLoadOutput?(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
 }
 
 function ToolRunList({ tools, context }: { tools: readonly UiToolRun[]; context: WorkRowActions }) {
@@ -51,6 +52,7 @@ function ToolRunList({ tools, context }: { tools: readonly UiToolRun[]; context:
         stalled={tool.status === "running" && Boolean(context.stalled)}
         onStop={context.stalled ? context.onRecover : context.onStop}
         onCopyOutput={context.onCopyOutput}
+        onLoadOutput={context.onLoadOutput}
       />
     ))}
   </div>;
@@ -157,6 +159,7 @@ export const WorkGroup = memo(function WorkGroup({
   onRecover,
   onStop,
   onCopyOutput,
+  onLoadOutput,
 }: WorkGroupProps) {
   // Only claim interruption when the caller actually knows no run is in flight
   // and a call is still open; an unknown streaming state must not turn live
@@ -191,6 +194,7 @@ export const WorkGroup = memo(function WorkGroup({
     ...(onRecover ? { onRecover } : {}),
     ...(onStop ? { onStop } : {}),
     ...(onCopyOutput ? { onCopyOutput } : {}),
+    ...(onLoadOutput ? { onLoadOutput } : {}),
   };
   return <>{rows.map((row) => <WorkRowView key={row.id} row={row} context={context} />)}</>;
 });

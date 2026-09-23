@@ -101,15 +101,46 @@ A running tool's output then travels as a change to the output the tool's
 previous push carried:
 `tool-update-delta { sessionId, id, after, keep, drop, text }` means "take the
 output of push `after`, keep its first `keep` characters, drop the `drop` after
-them, append `text`". Growth is `drop: 0`; the host's 128 KB tail window
-(`boundedToolOutput`) keeps its marker and drops the oldest part. The host
-sends the whole `tool-update` for a tool's first update, when the delta would
-not be smaller than half the output, and for the next update of every running
-tool after a client says hello without `lastSeq` or is told to resync. The
-event exists only on the wire: `HostConnection` rebuilds the output and hands
-its listeners the ordinary `tool-update`. A delta whose `after` push it never
-saw (it joined later, or resynced) is dropped; the whole output follows at the
-tool's next update, and `tool-end` always carries the final output.
+them, append `text`". Growth is `drop: 0`; a sliding tail keeps its marker and
+drops the oldest part. The host sends the whole `tool-update` for a tool's
+first update, when the delta would not be smaller than half the output, and for
+the next update of every running tool after a client says hello without
+`lastSeq` or is told to resync. The event exists only on the wire:
+`HostConnection` rebuilds the output and hands its listeners the ordinary
+`tool-update`. A delta whose `after` push it never saw (it joined later, or
+resynced) is dropped; the whole output follows at the tool's next update.
+
+A client receives a running tool's output whole while it is at most 16 KB
+(`INLINE_TOOL_OUTPUT_CHARS`, `src/main/client-tool-output.ts`). Past that it
+receives the last 4 KB from a line start, behind the line
+`[Earlier output is not sent while the tool runs.]`: enough for the live tail a
+running row shows, and a delta against it stays small however fast the tool
+writes.
+
+A tool's end refers to the output the client already has:
+`tool-end-delta { sessionId, tool, after, length, keep, drop, text }` is the
+`tool-end` whose `tool` lacks `output`, which is the output of push `after`
+with the change applied (usually none). The host sends it when the tool
+streamed and its final output is at most 16 KB, and a whole `tool-end`
+otherwise. A client that never saw push `after` ends the tool with its output
+deferred (below), `length` characters long.
+
+A settled tool whose output is longer than 16 KB reaches clients without it,
+in every event, thread detail and transcript page: `outputDeferred: true` and
+`outputLength` (characters) take the place of `output`. The workbench shows the
+size on the row and asks for the output when the row opens:
+`tool-output [sessionId, toolCallId]` answers
+`{ toolCallId, output, outputTruncated?, fullOutputAvailable? }`, the output as
+the transcript would have carried it (the host's 128 KB tail of the result).
+It reads the thread's session file for Pi and the turn activity a streamed
+backend keeps; it answers `undefined` for a tool the host no longer has.
+`read-tool-output` still reads the complete result for "copy full output".
+
+A settled `thread-detail` repeats its turn's tools: `turnActivity` is the last
+entry of `turnActivityHistory`. The push leaves it out,
+`thread-detail-compact { update }`, and `HostConnection` puts it back from that
+entry. A detail whose `turnActivity` differs (a running tool's live output)
+travels as it is.
 
 The socket negotiates `permessage-deflate` with context takeover, the `ws`
 default, so small frames compress against the ones before them. The budget
@@ -217,14 +248,16 @@ host somebody else runs;
 `TAU_HOST_INPROCESS=1` restores the old in-process host for one release.
 
 The method table has two halves. `CLIENT_SIDE_METHODS`
-(`src/shared/host-transport.ts`) are the ten the client's own machine
-answers — `copy-text`, `copy-image`, `read-image-preview`,
+(`src/shared/host-transport.ts`) are the ones the client's own machine
+answers — `copy-text`, `copy-image`, `read-image-preview`, `share-file`,
 `desktop-extensions`, `rebuild-workbench`, `workbench-source`,
-`relaunch-workbench`, `install-update`, and `notify` and `set-badge`, the
-notification and the app icon's count the OS draws for the window — and they
+`relaunch-workbench`, `install-update`, `notify` and `set-badge`, the
+notification and the app icon's count the OS draws for the window, and
+`context-menu`, a right-click menu the OS draws at a point of the page
+(`Menu.popup`; the answer is `{ id }` of the chosen item, or `{}`) — and they
 travel over the window's Electron bridge (`createClientHostMethods`), which
 stays installed beside the socket. Everything else goes to the host, whose
-own table refuses the ten.
+own table refuses them.
 `createHostClient(connection, local)` in the renderer does the routing; a
 window without a local side (the browser client) has one connection and sends
 everything to the host. `copy-thread-markdown` answers with the text rather

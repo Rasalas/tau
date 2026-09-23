@@ -1,3 +1,4 @@
+import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu";
 import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
@@ -13,6 +14,7 @@ import type {
   UiPromptAttachment,
   UiSkillDraft,
   UiThreadTree,
+  UiToolOutputPreview,
   UiToolOutputReadResult,
   WorkbenchBuildResult,
   WorkbenchReloadMode,
@@ -69,6 +71,8 @@ export interface HostClient {
   // Reading transcript history and durable tool output.
   loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
   readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
+  /** A deferred tool's output (`outputDeferred`), as the transcript would have carried it. */
+  toolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputPreview | undefined>;
   copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   /** A `tau-ext:` URL for a workspace PDF, image, audio or video; the window's own process serves it. */
@@ -123,6 +127,8 @@ export interface HostClient {
   showNotification(notification: SystemNotification): Promise<SystemNotificationOutcome>;
   /** The count on the client's app icon; 0 clears it. */
   setBadge(count: number): Promise<void>;
+  /** A menu the client's OS draws at a point of the window; the chosen id, or undefined. Refused where none is drawn. */
+  showContextMenu(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
   /**
    * Whether the host announced a capability in its hello. `local-files` means
@@ -187,6 +193,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
 
     loadTranscript: (sessionId, cursor) => call<TranscriptPage>("transcript-page", [sessionId, cursor]),
     readToolOutput: (sessionId, toolCallId) => call<UiToolOutputReadResult | undefined>("read-tool-output", [sessionId, toolCallId]),
+    toolOutput: (sessionId, toolCallId) => call<UiToolOutputPreview | undefined>("tool-output", [sessionId, toolCallId]),
     // The host exports the text, the client's own clipboard takes it.
     copyThreadMarkdown: async (expectedSessionId) => {
       const markdown = await call<string | undefined>("copy-thread-markdown", [expectedSessionId]);
@@ -243,6 +250,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     copyImage: (dataUrl) => call<void>("copy-image", [dataUrl]),
     showNotification: (notification) => call<SystemNotificationOutcome>("notify", [notification]),
     setBadge: (count) => call<void>("set-badge", [count]),
+    showContextMenu: async (entries, point) => (await call<{ id?: string } | undefined>("context-menu", [entries, point]))?.id,
     onHostEvent: (listener) => connection.onEvent(listener),
     hasCapability: connection.hasCapability,
     getConnectionState: connection.getState,

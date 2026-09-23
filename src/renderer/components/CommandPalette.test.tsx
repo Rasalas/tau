@@ -79,3 +79,43 @@ describe("command palette sources", () => {
     expect(second.actions.openSettings).toHaveBeenCalledWith("usage");
   });
 });
+
+describe("command palette focus", () => {
+  function Toggle({ open, focusComposer }: { open: boolean; focusComposer(): void }) {
+    const actions = { notify: vi.fn(), focusComposer } as unknown as WorkbenchActions;
+    return <CommandPalette open={open} commands={[]} extensionCount={0} actions={actions} onClose={() => undefined} />;
+  }
+
+  it("gives focus back to what had it when it opened", () => {
+    const trigger = document.body.appendChild(document.createElement("textarea"));
+    trigger.focus();
+    const focusComposer = vi.fn();
+    const view = render(<Toggle open focusComposer={focusComposer} />);
+    act(() => { screen.getByRole("textbox", { name: "Command" }).focus(); });
+    view.rerender(<Toggle open={false} focusComposer={focusComposer} />);
+    expect(document.activeElement).toBe(trigger);
+    expect(focusComposer).not.toHaveBeenCalled();
+    trigger.remove();
+  });
+
+  it("gives it to the composer when nothing had it, as T3 Code does", () => {
+    const focusComposer = vi.fn();
+    const view = render(<Toggle open focusComposer={focusComposer} />);
+    act(() => { screen.getByRole("textbox", { name: "Command" }).focus(); });
+    view.rerender(<Toggle open={false} focusComposer={focusComposer} />);
+    expect(focusComposer).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Tab inside itself and closes on Escape from wherever focus is in it", () => {
+    const onClose = vi.fn();
+    const actions = { notify: vi.fn(), focusComposer: vi.fn() } as unknown as WorkbenchActions;
+    render(<CommandPalette open commands={[]} extensionCount={0} actions={actions} onClose={onClose} />);
+    const input = screen.getByRole("textbox", { name: "Command" });
+    act(() => { input.focus(); });
+    // jsdom lays out no rows, so the field is the only stop and Tab stays on it.
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Command palette" }).querySelector("footer")!, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

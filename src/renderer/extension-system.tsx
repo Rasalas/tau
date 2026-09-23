@@ -1,3 +1,4 @@
+import type { ToastHandle, ToastOptions } from "../workbench/toast-store";
 import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
 import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
 import { domKeybindingContext } from "./keybinding-context";
@@ -19,6 +20,7 @@ import type {
   UiPromptAttachment,
   UiPromptImageAttachment,
   UiSharedFile,
+  UiToolOutputPreview,
   UiToolRun,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -59,6 +61,12 @@ export interface WorkbenchActions {
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
   toggleSidebar?(): void;
   notify(message: string): void;
+  /**
+   * A toast on the window's stack: a type icon, a title and a line, actions,
+   * a copy button. It leaves after five seconds of being seen (`timeoutMs`,
+   * 0 for never); an `id` already shown is replaced. New in API 1.11.0.
+   */
+  toast?(options: ToastOptions): ToastHandle;
   /** Opens the list of project sources extensions registered. */
   openProjectSources(): void;
   /** Opens a project like the sidebar does, named by its workspace id; `inheritDraft` carries the unsent composer text into the thread that opens there. */
@@ -87,6 +95,8 @@ export interface WorkbenchActions {
   activeStageTab?(): StageTab | undefined;
   /** Runs a shell command the way Pi's `!` does; output goes to the thread when asked. */
   runShellAction(command: string, includeInContext: boolean): Promise<ShellActionResult>;
+  /** The output the host held back from a tool of the thread on screen (`outputDeferred`). */
+  toolOutput?(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
   /** Keeps the composer from submitting until the returned release is called. */
   holdComposer(): () => void;
   /** What the user has typed into the visible composer and not sent yet. */

@@ -4,6 +4,7 @@ import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { shortenPath } from "../path-display";
 import { Region } from "./Regions";
 import { WindowControlsInset } from "./WindowControlsInset";
+import { tooltipProps } from "./ui/Tooltip";
 
 function workspaceName(cwd?: string): string {
   return cwd?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "workspace";
@@ -42,13 +43,13 @@ export function TitleBar({
       <WindowControlsInset />
       {onOpenThreads ? <button
         className="chrome-ghost glyph"
-        title="Threads"
+        {...tooltipProps("Threads", { side: "bottom" })}
         aria-label="Threads"
         onClick={onOpenThreads}
       ><ListTree size={15} /></button> : null}
       <div className="title-identity">
         <strong>{workspaceName(cwd)}</strong>
-        <span title={cwd}>{parentPath(cwd)}</span>
+        <span {...tooltipProps(cwd, { side: "bottom", variant: "code" })}>{parentPath(cwd)}</span>
       </div>
       <div className="title-spacer" />
 
@@ -56,7 +57,7 @@ export function TitleBar({
 
       {hasDock ? <button
         className="chrome-ghost glyph"
-        title={dockOpen ? "Hide panel" : "Show panel"}
+        {...tooltipProps(dockOpen ? "Hide panel" : "Show panel", { side: "bottom", shortcut: registry.keybindingLabel?.("workbench.toggle-dock") })}
         aria-label={dockOpen ? "Hide panel" : "Show panel"}
         onClick={onToggleDock}
       >

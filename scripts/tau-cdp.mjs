@@ -17,7 +17,7 @@ const HELPERS = `
   const rect = (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; };
   const setValue = (el, v) => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const toasts = () => all('.toast').map((t) => ({ level: t.dataset.level ?? null, text: (t.querySelector('span')?.textContent ?? t.textContent ?? '').trim() }));
+  const toasts = () => all('.toast-item').map((t) => ({ level: t.dataset.type ?? null, text: (t.querySelector('.toast-body')?.textContent ?? '').trim() }));
 `;
 
 // Collects a compact description of the workbench; see docs/agents/testing-the-app.md
@@ -51,6 +51,9 @@ const KEY_TABLE = {
   ArrowDown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 },
   ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 },
   ArrowRight: { key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 },
+  Home: { key: "Home", code: "Home", windowsVirtualKeyCode: 36 },
+  End: { key: "End", code: "End", windowsVirtualKeyCode: 35 },
+  F6: { key: "F6", code: "F6", windowsVirtualKeyCode: 117 },
   " ": { key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " },
 };
 
@@ -246,9 +249,9 @@ async function evaluate(session, expression, { awaitPromise = true } = {}) {
   return response.result?.result?.value;
 }
 
-async function dispatchClick(session, x, y) {
+async function dispatchClick(session, x, y, button = "left") {
   for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
-    await session.send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+    await session.send("Input.dispatchMouseEvent", { type, x, y, button, clickCount: 1 });
   }
 }
 
@@ -271,6 +274,15 @@ async function runCommand(session, command, args) {
     if (!point) throw new Error(`click: expression did not resolve to an element: ${args[0]}`);
     await dispatchClick(session, point.x, point.y);
     return { clicked: args[0], at: point };
+  }
+  if (command === "hover" || command === "rightclick") {
+    if (args.length !== 1) throw new Error(`usage: ${command} <expr>`);
+    const point = await evaluate(session, `(() => { const el = (${args[0]}); return el ? rect(el) : null; })()`);
+    if (!point) throw new Error(`${command}: expression did not resolve to an element: ${args[0]}`);
+    // A hover is only the move; a right-click opens whatever context menu the page asks for.
+    if (command === "hover") await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+    else await dispatchClick(session, point.x, point.y, "right");
+    return { [command === "hover" ? "hovered" : "rightClicked"]: args[0], at: point };
   }
   if (command === "type") {
     if (args.length !== 2) throw new Error("usage: type <expr> <text>");
@@ -321,7 +333,7 @@ async function runCommand(session, command, args) {
   if (command === "toasts") {
     return evaluate(session, "toasts()");
   }
-  throw new Error(`unknown command ${JSON.stringify(command)} (known: eval, click, type, press, wait-for, screenshot, snapshot, toasts, pid, stop)`);
+  throw new Error(`unknown command ${JSON.stringify(command)} (known: eval, click, hover, rightclick, type, press, wait-for, screenshot, snapshot, toasts, pid, stop)`);
 }
 
 /**

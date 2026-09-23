@@ -11,7 +11,7 @@ import {
   type HostPush,
   type HostResponse,
 } from "../shared/host-transport";
-import { ToolOutputStream } from "./tool-output-stream";
+import { ToolOutputStream, isWireEvent } from "./tool-output-stream";
 
 /**
  * `reconnecting` means pushes are missing; `resyncing` means the state is being
@@ -189,7 +189,7 @@ export class HostConnection {
   private apply(push: HostPush): void {
     this.lastSeq = push.seq;
     const event = this.toolOutputs.receive(push);
-    if (!event || event.type === "tool-update-delta") return;
+    if (!event || isWireEvent(event)) return;
     if (!isHostJobEvent(event)) {
       for (const listener of this.eventListeners) listener(event);
       return;

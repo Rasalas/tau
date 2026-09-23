@@ -1,9 +1,10 @@
 import { Square } from "lucide-react";
 import { memo, useEffect, useState } from "react";
-import type { UiToolRun } from "../../shared/contracts";
+import type { UiToolOutputPreview, UiToolRun } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import type { ExtensionRegistry } from "../extension-system";
 import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
+import { formatBytes } from "../format-bytes";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
 function seconds(from: number, to: number): string {
@@ -19,6 +20,7 @@ export const ToolRun = memo(function ToolRun({
   stalled,
   onStop,
   onCopyOutput,
+  onLoadOutput,
 }: {
   tool: UiToolRun;
   registry: ExtensionRegistry;
@@ -32,6 +34,8 @@ export const ToolRun = memo(function ToolRun({
   onStop?(): void;
   /** Reads the unbounded result through the host when a preview is clipped. */
   onCopyOutput?(tool: UiToolRun): Promise<void> | void;
+  /** Loads the output the host held back (`outputDeferred`) when the row opens. */
+  onLoadOutput?(tool: UiToolRun): Promise<UiToolOutputPreview | undefined>;
 }) {
   const running = tool.status === "running" && !stalled;
   // A running tool shows its live tail without needing a click. Settled output
@@ -47,18 +51,30 @@ export const ToolRun = memo(function ToolRun({
     return () => window.clearInterval(timer);
   }, [running]);
   const view = registry.presentTool(tool);
+  const deferred = tool.outputDeferred === true && tool.output === undefined;
+  const loaded = useDeferredOutput(deferred && outputOpen ? tool : undefined, onLoadOutput);
+  const shown = deferred && typeof loaded === "object"
+    ? {
+      ...tool,
+      output: loaded.output,
+      ...(loaded.outputTruncated ? { outputTruncated: true } : {}),
+      ...(loaded.fullOutputAvailable ? { fullOutputAvailable: true } : {}),
+    }
+    : tool;
   const complete = detail === "everything";
   const bounded = complete
-    ? { text: tool.output ?? "", truncated: false }
-    : boundToolOutput(tool.output, running ? ACTIVE_TOOL_OUTPUT_LIMIT : SETTLED_TOOL_OUTPUT_LIMIT);
+    ? { text: shown.output ?? "", truncated: false }
+    : boundToolOutput(shown.output, running ? ACTIVE_TOOL_OUTPUT_LIMIT : SETTLED_TOOL_OUTPUT_LIMIT);
   const liveLines = running && !complete ? bounded.text.split("\n") : [];
   const liveOutputClipped = running && liveLines.length > 5;
   const visibleOutput = liveOutputClipped ? liveLines.slice(-5).join("\n") : bounded.text;
-  const outputNeedsFullRead = tool.fullOutputAvailable === true
-    || tool.outputTruncated === true
+  const outputNeedsFullRead = shown.fullOutputAvailable === true
+    || shown.outputTruncated === true
     || bounded.truncated
     || liveOutputClipped;
-  const showOutput = view.output !== "hidden" && Boolean(visibleOutput) && outputOpen;
+  const pending = deferred && typeof loaded !== "object";
+  const showOutput = view.output !== "hidden" && (Boolean(visibleOutput) || deferred) && outputOpen;
+  const size = deferred && tool.outputLength !== undefined ? formatBytes(tool.outputLength) : undefined;
   const [copying, setCopying] = useState(false);
   const copyFullOutput = async () => {
     if (copying) return;
@@ -66,7 +82,7 @@ export const ToolRun = memo(function ToolRun({
     try {
       // A preview is never a safe fallback: only the host seam can retrieve
       // the persisted result behind this deliberate action.
-      if (onCopyOutput) await onCopyOutput(tool);
+      if (onCopyOutput) await onCopyOutput(shown);
     } finally {
       setCopying(false);
     }
@@ -87,6 +103,7 @@ export const ToolRun = memo(function ToolRun({
         <span className="tool-run-glyph">{view.glyph}</span>
         <span className="tool-run-name">{view.title}</span>
         <span className="tool-run-detail" title={view.detail}>{view.detail}</span>
+        {size ? <span className="tool-run-size" title="Output size; it loads when the row opens">{size}</span> : null}
         {complete ? (
           <time className="tool-run-stamp" dateTime={new Date(tool.startedAt).toISOString()} title={fullTimestamp(tool.startedAt)}>
             {compactTimestamp(tool.startedAt)}
@@ -115,7 +132,12 @@ export const ToolRun = memo(function ToolRun({
           <Square size={10} strokeWidth={2.4} />
         </button>
       ) : null}
-      {showOutput ? (
+      {showOutput && pending ? (
+        // As tall as the output it stands for, which always fills the box, so nothing moves when it arrives.
+        <pre className="tool-output tool-output-pending" aria-busy={loaded === "loading"}>
+          {loaded === "failed" ? "The output could not be loaded." : `Loading ${size ?? "the"} output…`}
+        </pre>
+      ) : showOutput ? (
         <pre className="tool-output">
           {outputNeedsFullRead ? (
             <button type="button" className="tool-output-truncated" onClick={(event) => { event.stopPropagation(); void copyFullOutput(); }}>
@@ -128,3 +150,28 @@ export const ToolRun = memo(function ToolRun({
     </div>
   );
 });
+
+type DeferredOutput = UiToolOutputPreview | "loading" | "failed" | undefined;
+
+/**
+ * Loads a deferred tool's output the first time its row opens; `tool` is
+ * undefined while the row is closed. What loaded stays for the next opening.
+ */
+function useDeferredOutput(
+  tool: UiToolRun | undefined,
+  load: ((tool: UiToolRun) => Promise<UiToolOutputPreview | undefined>) | undefined,
+): DeferredOutput {
+  const [loaded, setLoaded] = useState<{ id: string; value: Exclude<DeferredOutput, undefined> }>();
+  const id = tool?.id;
+  const current = tool && !load ? "failed" : loaded?.id === id ? loaded?.value : undefined;
+  useEffect(() => {
+    if (!tool || !load || current === "loading" || typeof current === "object") return;
+    const settle = (value: Exclude<DeferredOutput, undefined>) =>
+      setLoaded((previous) => previous?.id === tool.id ? { id: tool.id, value } : previous);
+    setLoaded({ id: tool.id, value: "loading" });
+    load(tool).then((result) => settle(result ?? "failed"), () => settle("failed"));
+  // Once per opening of a tool; a new object for the same tool must not load it again.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, load]);
+  return current;
+}

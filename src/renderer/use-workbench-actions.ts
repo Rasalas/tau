@@ -5,6 +5,7 @@ import type { HostClient } from "../workbench/host-client";
 import type { Platform } from "../workbench/platform";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
+import type { ToastStore } from "../workbench/toast-store";
 import { allocateAttachmentId, type ComposerScopeStore, type DraftKey } from "../workbench/composer-scope-store";
 import { writeComposerDraft } from "../workbench/draft-store";
 import type { ThreadCommands } from "../workbench/thread-commands";
@@ -19,6 +20,8 @@ export interface UseWorkbenchActionsOptions {
   platform: Platform;
   threadStore: ThreadStore;
   viewStore: ThreadViewStore;
+  /** Absent in a slice rendered without a workbench session; `toast` is absent with it. */
+  toasts?: ToastStore;
   composerScopeStore: ComposerScopeStore;
   threadCommands: ThreadCommands;
   snapshot: HostSnapshot | undefined;
@@ -116,6 +119,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     toggleDock: () => { options.setDockOpen((open) => !open); },
     ...(toggleSidebar ? { toggleSidebar } : {}),
     notify: options.setNotice,
+    ...(options.toasts ? { toast: options.toasts.show } : {}),
     openProjectSources: options.openProjectSources,
     applyHostResult,
     closeActiveStageTab: stageTabs.closeActive,
@@ -167,6 +171,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     openFile: options.openFile,
     openThread,
     runShellAction: options.threadCommands.runShellAction,
+    toolOutput: options.threadCommands.loadToolOutput,
     holdComposer: () => {
       options.setComposerHolds((count) => count + 1);
       return () => options.setComposerHolds((count) => Math.max(0, count - 1));

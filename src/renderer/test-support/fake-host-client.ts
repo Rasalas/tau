@@ -44,6 +44,7 @@ function defaults(): HostClient {
 
     loadTranscript: async (sessionId) => ({ sessionId, messages: [], hasMore: false }),
     readToolOutput: async () => undefined,
+    toolOutput: async () => undefined,
     copyThreadMarkdown: async () => undefined,
     readImagePreview: async () => undefined,
     shareFile: async (path: string) => { throw new Error(`No file is shared in a test: ${path}`); },
@@ -85,6 +86,8 @@ function defaults(): HostClient {
     copyImage: async () => undefined,
     showNotification: async () => "dismissed",
     setBadge: async () => undefined,
+    // Refused like a client without native menus, so right-clicks fall back to the page's own menu.
+    showContextMenu: async () => { throw Object.assign(new Error("No native menus in tests."), { code: "unsupported" }); },
     onHostEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
