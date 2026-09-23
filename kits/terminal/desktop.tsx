@@ -13,7 +13,9 @@ import {
   TERMINAL_HOST_EXTENSION_ID,
   TERMINAL_PANEL,
   TERMINAL_PANEL_ORDER,
+  TERMINAL_PLACEMENT_SETTING,
   TERMINAL_STAGE_TAB,
+  terminalPlacement,
   type ComposerContextChips,
   type PreviewBrowserService,
 } from "./protocol.js";
@@ -74,7 +76,18 @@ export const terminalExtension: DesktopExtension = {
         return () => { if (terminalServices.preview === preview) delete terminalServices.preview; };
       }),
     ];
-    const panel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], Component: TerminalPanel });
+    // The setting picks dock or drawer; changing it registers the panel again in its new place.
+    const placementNow = () => terminalPlacement(plugin.preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));
+    let placement = placementNow();
+    const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, maximizable: true, Component: TerminalPanel });
+    let panel = registerPanel();
+    const stopPlacement = plugin.preferences.subscribe(() => {
+      const next = placementNow();
+      if (next === placement) return;
+      placement = next;
+      panel();
+      panel = registerPanel();
+    });
     // A terminal is the same shell wherever it is drawn: the pty lives in the
     // host, so moving one onto the stage never ends it.
     const stageTab = plugin.registerStageTab({
@@ -131,6 +144,7 @@ export const terminalExtension: DesktopExtension = {
       for (const dispose of disposers.reverse()) dispose();
       settings();
       stageTab();
+      stopPlacement();
       panel();
       for (const dispose of services) dispose();
       stopFont();

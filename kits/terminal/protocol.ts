@@ -106,6 +106,14 @@ export interface TerminalExitedEvent {
 
 export const TERMINAL_PANEL = "terminal";
 
+/** The kit setting that puts the terminal in the dock or in a drawer below the conversation. */
+export const TERMINAL_PLACEMENT_SETTING = "placement";
+export type TerminalPlacement = "dock" | "drawer";
+
+export function terminalPlacement(value: string | undefined): TerminalPlacement {
+  return value === "drawer" ? "drawer" : "dock";
+}
+
 /** The stage tab kind this kit registers; one tab per shell. */
 export const TERMINAL_STAGE_TAB = "terminal";
 

@@ -31,7 +31,7 @@ export const previewExtension: DesktopExtension = {
   name: "Preview",
   activate(plugin) {
     const disconnect = connectPreviewHost(plugin.host);
-    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, profiles: ["desktop"], Component: PreviewPanel });
+    plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, maximizable: true, profiles: ["desktop"], Component: PreviewPanel });
     plugin.registerRegion({ id: "preview.follower", placement: "composer-above", order: 60, profiles: ["desktop"], Component: PreviewFollower });
     plugin.host.onEvent(PREVIEW_STATE_EVENT, (payload) => { if (isPreviewState(payload)) previewStore.set(payload); });
     const open = async (url: string, app: Pick<WorkbenchActions, "openPanel">): Promise<string | undefined> => {
