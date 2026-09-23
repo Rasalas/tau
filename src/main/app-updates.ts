@@ -1,4 +1,5 @@
 import { Menu, MenuItem, dialog } from "electron";
+import { DEFAULT_UPDATE_CHANNEL, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
 
 /**
  * The part of electron-updater's `autoUpdater` Tau uses. Naming it here keeps
@@ -7,10 +8,47 @@ import { Menu, MenuItem, dialog } from "electron";
 export interface DesktopUpdater {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
+  allowPrerelease: boolean;
+  allowDowngrade: boolean;
+  setFeedURL(options: UpdateFeedOptions): void;
   on(event: "update-available" | "update-not-available" | "update-downloaded", listener: (info: { version: string }) => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;
   checkForUpdates(): Promise<unknown>;
   quitAndInstall(): void;
+}
+
+/** The repository `publish:` in electron-builder.yml names; the build writes it to `app-update.yml`. */
+export interface UpdateFeed {
+  owner: string;
+  repo: string;
+}
+
+export type UpdateFeedOptions =
+  | { provider: "github"; owner: string; repo: string }
+  | { provider: "generic"; url: string };
+
+/** The tag the release workflow moves to every nightly build. */
+export const NIGHTLY_TAG = "nightly";
+
+/**
+ * Where each channel reads its feed. Stable is the GitHub provider, which asks
+ * for the latest release and so never sees a prerelease. Nightly is one fixed
+ * tag that moves, which the GitHub provider cannot follow (it wants a semver
+ * tag per build), so it reads that tag's `latest*.yml` as a plain URL.
+ */
+export function feedFor(channel: UpdateChannel, feed: UpdateFeed): UpdateFeedOptions {
+  return channel === "nightly"
+    ? { provider: "generic", url: `https://github.com/${feed.owner}/${feed.repo}/releases/download/${NIGHTLY_TAG}` }
+    : { provider: "github", owner: feed.owner, repo: feed.repo };
+}
+
+/** The GitHub feed in an installed app's `app-update.yml`, or undefined for any other provider. */
+export function readUpdateFeed(text: string): UpdateFeed | undefined {
+  const value = (key: string) => new RegExp(`^${key}:\\s*['"]?([^'"\\s#]+)`, "mu").exec(text)?.[1];
+  if (value("provider") !== "github") return undefined;
+  const owner = value("owner");
+  const repo = value("repo");
+  return owner && repo ? { owner, repo } : undefined;
 }
 
 export interface UpdateLog {
@@ -33,6 +71,12 @@ export interface AppUpdatesOptions {
   tell?(message: string): void;
   /** How long after start the first check waits, so it never races bootstrap. */
   startupDelayMs?: number;
+  /** The version running now; a nightly one may go back to the older stable release. */
+  currentVersion?: string;
+  /** The feed the build names; without it only the feed in `app-update.yml` is used, whatever the channel. */
+  feed?: UpdateFeed;
+  /** `updates.channel` as the config holds it now; read before every check. */
+  channel?(): Promise<UpdateChannel>;
 }
 
 export interface AppUpdates {
@@ -44,6 +88,8 @@ export interface AppUpdates {
   install(): boolean;
   /** The version on disk, if a download finished. */
   downloaded(): string | undefined;
+  /** Re-reads the channel after a config change and checks at once when it moved. */
+  channelChanged(): Promise<void>;
 }
 
 const DEFAULT_STARTUP_DELAY_MS = 8_000;
@@ -90,8 +136,25 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true;
 
+  let applied: UpdateChannel | undefined;
+  async function applyChannel(): Promise<UpdateChannel> {
+    const wanted = await (options.channel?.() ?? Promise.resolve(DEFAULT_UPDATE_CHANNEL)).catch(() => DEFAULT_UPDATE_CHANNEL);
+    const channel = wanted === "nightly" && !options.feed ? DEFAULT_UPDATE_CHANNEL : wanted;
+    if (channel === applied) return channel;
+    if (wanted !== channel) log.warn("update.channel.unavailable", "No GitHub feed in this build; staying on stable.");
+    // The first stable check keeps the feed the build wrote; only a switch needs a new one.
+    if (options.feed && (applied !== undefined || channel !== "stable")) updater.setFeedURL(feedFor(channel, options.feed));
+    updater.allowPrerelease = channel === "nightly";
+    // Leaving nightly means going back to the last stable release, which is older.
+    updater.allowDowngrade = channel === "stable" && isNightlyVersion(options.currentVersion ?? "");
+    applied = channel;
+    log.info("update.channel", channel);
+    return channel;
+  }
+
   async function check(): Promise<void> {
     try {
+      await applyChannel();
       await updater.checkForUpdates();
     } catch (error) {
       // A failed check arrives twice, as the `error` event and as this
@@ -130,6 +193,11 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
       return true;
     },
     downloaded: () => ready,
+    async channelChanged() {
+      if (!enabled || applied === undefined || ready) return;
+      const before = applied;
+      if ((await applyChannel()) !== before) await check();
+    },
   };
 }
 

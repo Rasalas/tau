@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, session, shell } from "electron";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
@@ -40,7 +40,7 @@ import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import { createWindowAttention } from "./window-attention.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
-import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
+import { createAppUpdates, installUpdateMenuItem, readUpdateFeed, type AppUpdates } from "./app-updates.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 /** The packaged launcher sets this when it hands execution to a built checkout. */
@@ -219,6 +219,7 @@ function publish(event: HostEvent): void {
   // Drop a deactivated extension's bundle so tau-ext: returns 404 for it rather
   // than serving code the user switched off until the next full reload.
   if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId);
+  if (event.type === "config-changed") void updates?.channelChanged();
   broadcast(event);
 }
 
@@ -392,6 +393,7 @@ async function startHostProcess(): Promise<void> {
       // Drop a deactivated extension's bundle so tau-ext: returns 404 for it
       // rather than serving code the user switched off.
       if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId);
+      if (event.type === "config-changed") void updates?.channelChanged();
     },
     onCertificateRefused: (error) => remoteTrust?.refuse(error.presented),
   });
@@ -615,6 +617,10 @@ if (primaryInstance) app.whenReady().then(async () => {
     enabled: app.isPackaged,
     log: hostLog,
     onDownloaded: (version) => publish({ type: "app-update", version }),
+    currentVersion: app.getVersion(),
+    ...(app.isPackaged ? { feed: readUpdateFeedFile() } : {}),
+    // This machine's config file: the updater belongs to the machine, not to a remote host.
+    channel: async () => (await defaultHostConfigManager.read()).updates?.channel ?? "stable",
   });
   installUpdateMenuItem(() => void updates?.checkForUpdates());
   updates.checkOnStartup();
@@ -680,6 +686,14 @@ if (primaryInstance) app.on("before-quit", (event) => {
       app.quit();
     });
 });
+
+function readUpdateFeedFile() {
+  try {
+    return readUpdateFeed(readFileSync(join(process.resourcesPath, "app-update.yml"), "utf8"));
+  } catch {
+    return undefined;
+  }
+}
 
 /** The "keep the host running" preference; read from the file, not from the host that is stopping. */
 async function keepHostRunning(): Promise<boolean> {

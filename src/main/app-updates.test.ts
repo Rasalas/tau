@@ -6,7 +6,7 @@ vi.mock("electron", () => ({
   dialog: { showMessageBox: vi.fn() },
 }));
 
-const { createAppUpdates } = await import("./app-updates.js");
+const { createAppUpdates, readUpdateFeed } = await import("./app-updates.js");
 type Listener = (payload: never) => void;
 
 /** Stands in for electron-updater's `autoUpdater`, with its events under control. */
@@ -15,6 +15,9 @@ function fakeUpdater() {
   const updater = {
     autoDownload: false,
     autoInstallOnAppQuit: false,
+    allowPrerelease: false,
+    allowDowngrade: false,
+    setFeedURL: vi.fn(),
     checkForUpdates: vi.fn(async () => undefined as unknown),
     quitAndInstall: vi.fn(),
     on(event: string, listener: Listener) {
@@ -28,7 +31,7 @@ function fakeUpdater() {
   return { updater, emit };
 }
 
-function updates(overrides: { enabled?: boolean } = {}) {
+function updates(overrides: { enabled?: boolean; channel?: () => Promise<"stable" | "nightly">; currentVersion?: string; feed?: { owner: string; repo: string } | null } = {}) {
   const { updater, emit } = fakeUpdater();
   const told: string[] = [];
   const downloaded: string[] = [];
@@ -40,6 +43,9 @@ function updates(overrides: { enabled?: boolean } = {}) {
     onDownloaded: (version) => downloaded.push(version),
     tell: (message) => told.push(message),
     startupDelayMs: 0,
+    ...(overrides.feed === null ? {} : { feed: overrides.feed ?? { owner: "Rasalas", repo: "tau" } }),
+    ...(overrides.channel ? { channel: overrides.channel } : {}),
+    ...(overrides.currentVersion ? { currentVersion: overrides.currentVersion } : {}),
   });
   return { subject, updater, emit, told, downloaded, log };
 }
@@ -130,5 +136,77 @@ describe("app updates", () => {
     emit("update-downloaded", { version: "0.2.0" });
     expect(subject.install()).toBe(true);
     expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  describe("channels", () => {
+    const NIGHTLY_FEED = { provider: "generic", url: "https://github.com/Rasalas/tau/releases/download/nightly" };
+
+    it("keeps the build's own feed on stable and never takes a prerelease", async () => {
+      const { subject, updater } = updates();
+      await subject.checkForUpdates();
+      expect(updater.setFeedURL).not.toHaveBeenCalled();
+      expect(updater.allowPrerelease).toBe(false);
+      expect(updater.allowDowngrade).toBe(false);
+    });
+
+    it("reads the nightly tag as a plain feed and never goes back from there", async () => {
+      const { subject, updater } = updates({ channel: async () => "nightly", currentVersion: "0.4.0" });
+      await subject.checkForUpdates();
+      expect(updater.setFeedURL).toHaveBeenCalledWith(NIGHTLY_FEED);
+      expect(updater.allowPrerelease).toBe(true);
+      expect(updater.allowDowngrade).toBe(false);
+    });
+
+    it("lets a nightly build go back to the latest stable release", async () => {
+      const { subject, updater } = updates({ channel: async () => "stable", currentVersion: "0.4.1-nightly.20260922.17" });
+      await subject.checkForUpdates();
+      expect(updater.allowPrerelease).toBe(false);
+      expect(updater.allowDowngrade).toBe(true);
+    });
+
+    it("stays on stable when the build names no feed", async () => {
+      const { subject, updater, log } = updates({ channel: async () => "nightly", feed: null });
+      await subject.checkForUpdates();
+      expect(updater.setFeedURL).not.toHaveBeenCalled();
+      expect(updater.allowPrerelease).toBe(false);
+      expect(log.warn).toHaveBeenCalledWith("update.channel.unavailable", expect.any(String));
+    });
+
+    it("checks again at once when the channel moved, and only then", async () => {
+      let channel: "stable" | "nightly" = "stable";
+      const { subject, updater } = updates({ channel: async () => channel, currentVersion: "0.4.0" });
+      await subject.checkForUpdates();
+      await subject.channelChanged();
+      expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+
+      channel = "nightly";
+      await subject.channelChanged();
+      expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+      expect(updater.setFeedURL).toHaveBeenLastCalledWith(NIGHTLY_FEED);
+
+      channel = "stable";
+      await subject.channelChanged();
+      expect(updater.setFeedURL).toHaveBeenLastCalledWith({ provider: "github", owner: "Rasalas", repo: "tau" });
+      expect(updater.allowPrerelease).toBe(false);
+    });
+
+    it("waits for the first check before a config change counts", async () => {
+      const { subject, updater } = updates({ channel: async () => "nightly" });
+      await subject.channelChanged();
+      expect(updater.checkForUpdates).not.toHaveBeenCalled();
+    });
+
+    it("falls back to stable when the config cannot be read", async () => {
+      const { subject, updater } = updates({ channel: async () => { throw new Error("EACCES"); } });
+      await subject.checkForUpdates();
+      expect(updater.allowPrerelease).toBe(false);
+    });
+  });
+
+  it("reads the GitHub feed electron-builder writes into app-update.yml", () => {
+    expect(readUpdateFeed("owner: Rasalas\nrepo: tau\nprovider: github\nupdaterCacheDirName: tau-pi-desktop-prototype-updater\n"))
+      .toEqual({ owner: "Rasalas", repo: "tau" });
+    expect(readUpdateFeed("provider: generic\nurl: https://example.com/\n")).toBeUndefined();
+    expect(readUpdateFeed("provider: github\nowner: Rasalas\n")).toBeUndefined();
   });
 });
