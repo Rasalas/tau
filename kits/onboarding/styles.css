@@ -3,7 +3,8 @@
   position: fixed;
   inset: 0;
   display: grid;
-  place-items: center;
+  /* safe: a dialog taller than the window starts at the top instead of losing it above the fold. */
+  place-items: safe center;
   overflow: auto;
   padding: 24px;
   background: var(--shell);
@@ -166,7 +167,7 @@ fieldset:disabled .onboarding-row { cursor: default; opacity: .7; }
 .onboarding-return {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
   border: 1px solid var(--line-control); border-radius: var(--radius-pill); background: var(--raised);
-  color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer;
+  color: var(--ink-2); font: 500 12px var(--sans); white-space: nowrap; cursor: pointer;
 }
 .onboarding-return:hover { background: var(--raised-hover); color: var(--ink); }
 
