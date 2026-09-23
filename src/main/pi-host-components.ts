@@ -70,6 +70,9 @@ import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import { markTauHostRuntime } from "./tau-runtime-owner.js";
+import { QueuedMessages, type QueuedMessage } from "./queued-messages.js";
+import { LIMIT_CONTINUATION_PROMPT, ThreadLimits } from "./thread-limits.js";
+import { TurnSettlement } from "./turn-settlement.js";
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
 const MAX_LIVE_THREADS = 6;
@@ -135,6 +138,12 @@ export interface PiHostDeps {
   restoreThread(sessionId: string): Promise<void>;
   purgeThread(sessionId: string): Promise<void>;
   pendingHostExtensions(): readonly HostExtension[] | (() => Promise<readonly HostExtension[]>);
+  /** Sends a queued message as the prompt it stands for. */
+  deliverQueued(sessionId: string, message: QueuedMessage): Promise<void>;
+  /** An extension's message to a thread; a released runtime is reopened off screen first. */
+  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string): Promise<void>;
+  /** Continues a thread with a prompt the host writes, hidden where its runtime allows. */
+  continueThread(sessionId: string, text: string): Promise<void>;
 }
 
 /** What PiHost currently assigns in its constructor, as one construction pass. */
@@ -178,6 +187,11 @@ export interface PiHostComponents {
   readonly prewarm: RuntimePrewarm;
   readonly turns: TurnDelivery;
   readonly turnsInFlight: TurnsInFlight;
+  /** The composer's queue, kept by the host across windows and restarts. */
+  readonly queue: QueuedMessages;
+  /** Threads a provider limit stopped, and the resumes scheduled for their reset. */
+  readonly limits: ThreadLimits;
+  readonly settlement: TurnSettlement;
   /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
   readonly continueThreadsAfterRestart: () => boolean;
 }
@@ -350,6 +364,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     removeThread: (sessionId) => deps.removeThread(sessionId),
     restoreThread: (sessionId) => deps.restoreThread(sessionId),
     purgeThread: (sessionId) => deps.purgeThread(sessionId),
+    sendToThread: (sessionId, text, sendOptions) => deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from),
+    abortThread: async (sessionId) => {
+      const thread = deps.threadFor(sessionId);
+      if (thread && sessionId) await deps.abortThread(thread);
+    },
     trashedThreads: async () => { await trash.load(); return trash.list(); },
     clients,
     exclusive: (work) => lifecycle.run("extension.exclusive", work),
@@ -512,6 +531,27 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     ...(options.turnsInFlightPath ? { filePath: options.turnsInFlightPath } : {}),
     ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),
   });
+  const persistedLogger = options.logger ? { logger: { warn: (message: string, detail?: unknown) => options.logger!.warn(message, detail) } } : {};
+  const queue = new QueuedMessages({
+    busy: (sessionId) => deps.hostThread(sessionId)?.isIdle() === false,
+    waitForIdle: async (sessionId) => { await deps.threadFor(sessionId)?.backend.waitForIdle(); },
+    deliver: (sessionId, message) => deps.deliverQueued(sessionId, message),
+    publish: (sessionId, view) => index.setQueue(sessionId, view),
+    log: (label, detail) => deps.log(label, detail),
+  }, { ...(options.queuedMessagesPath ? { filePath: options.queuedMessagesPath } : {}), ...persistedLogger });
+  const limits = new ThreadLimits({
+    publish: (sessionId, limit) => index.setLimit(sessionId, limit),
+    resume: (sessionId) => deps.continueThread(sessionId, LIMIT_CONTINUATION_PROMPT),
+    log: (label, detail) => deps.log(label, detail),
+  }, { ...(options.threadLimitsPath ? { filePath: options.threadLimitsPath } : {}), ...persistedLogger });
+  const settlement = new TurnSettlement({
+    setTurnError: (sessionId, error) => index.setTurnError(sessionId, error),
+    setInterrupted: (sessionId, interrupted) => index.setInterrupted(sessionId, interrupted),
+    queue,
+    limits,
+  });
+  // A thread gone for good takes what waited for it along.
+  threadLifecycle.add({ threadDeleted: async (sessionId) => { queue.forget(sessionId); limits.forget(sessionId); } });
   const turns = new TurnDelivery({
     clientTurns,
     clientMessages,
@@ -565,6 +605,9 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     prewarm,
     turns,
     turnsInFlight,
+    queue,
+    limits,
+    settlement,
     continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
   };
 }

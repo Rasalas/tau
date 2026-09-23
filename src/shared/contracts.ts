@@ -251,6 +251,34 @@ export interface UiThreadUsage {
   turns: number;
 }
 
+/** A message waiting for its thread's turn to end, as the thread list shows it. */
+export interface UiQueuedMessage {
+  id: string;
+  text: string;
+  /** Images and files that travel with it. */
+  attachments: number;
+  /** The thread that sent it, when another thread's agent did. */
+  fromThreadId?: string;
+}
+
+/** A queued message in full, as `take-queued` hands it back to a composer. */
+export interface UiQueuedPrompt {
+  id: string;
+  text: string;
+  attachments: UiPromptAttachment[];
+  skillDraft?: UiSkillDraft;
+}
+
+/** A thread its provider stopped at a usage or rate limit. */
+export interface UiThreadLimit {
+  /** What the provider said. */
+  message: string;
+  /** When the limit resets (epoch ms), when the provider said so. */
+  resetsAt?: number;
+  /** When the host continues the thread by itself; absent until the user asks for it. */
+  resumeAt?: number;
+}
+
 export interface UiSession {
   id: string;
   path: string;
@@ -276,6 +304,12 @@ export interface UiSession {
   interrupted?: boolean;
   /** Why the thread's last turn failed; the host drops it at the next prompt. */
   turnError?: string;
+  /** The provider stopped the last turn at a usage or rate limit; the next prompt clears it. */
+  limit?: UiThreadLimit;
+  /** Messages waiting for this thread's turn to end, oldest first; the host keeps them across restarts. */
+  queued?: UiQueuedMessage[];
+  /** The queue waits for the user: a restart, a stop or a limit held it. */
+  queueHeld?: boolean;
   /** Why the thread's runtime could not start; the thread shows read-only until it does. */
   runtimeError?: string;
   /**

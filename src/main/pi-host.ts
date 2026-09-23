@@ -60,6 +60,9 @@ import type { WorkspaceWatch } from "./workspace-watch.js";
 import { findDanglingToolCalls } from "./dangling-tool-calls.js";
 import { reconcileInFlightTurns, type ReconcilableThread } from "./turn-reconciliation.js";
 import type { TurnsInFlight } from "./turns-in-flight.js";
+import type { QueuedMessage, QueuedMessages } from "./queued-messages.js";
+import type { ThreadLimits } from "./thread-limits.js";
+import type { TurnSettlement } from "./turn-settlement.js";
 import type { ThreadRuntimeRegistry } from "./thread-runtimes.js";
 import type {
   HostExtensionRegistry,
@@ -215,6 +218,10 @@ export class PiHost {
   private readonly turns: TurnDelivery;
 
   private readonly turnsInFlight: TurnsInFlight;
+  /** The composer's queue and the limit marks, kept by the host so both outlive a restart. */
+  readonly queue: QueuedMessages;
+  readonly limits: ThreadLimits;
+  private readonly settlement: TurnSettlement;
 
   private readonly continueThreadsAfterRestart: () => boolean;
   /** Set by the app shell so extensions can retitle the window. */
@@ -283,6 +290,12 @@ export class PiHost {
       restoreThread: (sessionId) => this.restoreThread(sessionId),
       purgeThread: (sessionId) => this.purgeThread(sessionId),
       pendingHostExtensions: () => this.pendingHostExtensions,
+      deliverQueued: (sessionId, message) => this.deliverQueued(sessionId, message),
+      sendToThread: (sessionId, text, delivery, from) => this.sendToThread(sessionId, text, delivery, from),
+      continueThread: async (sessionId, text) => {
+        const thread = await this.reopenThread(sessionId);
+        await this.prompt(text, [], thread.threadId, undefined, undefined, { hidden: thread.backend.capabilities.resume?.hiddenPrompt === true });
+      },
     });
     this.agentDir = components.agentDir;
     this.sessionsDirOverride = components.sessionsDirOverride;
@@ -323,6 +336,7 @@ export class PiHost {
     this.prompts = components.prompts;
     this.turns = components.turns;
     this.turnsInFlight = components.turnsInFlight;
+    ({ queue: this.queue, limits: this.limits, settlement: this.settlement } = components);
     this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
@@ -1158,8 +1172,7 @@ export class PiHost {
    */
   private async reconcileInterruptedTurns(): Promise<void> {
     const markers = await this.turnsInFlight.load();
-    if (markers.length === 0) return;
-    await reconcileInFlightTurns({
+    const { continued } = markers.length === 0 ? { continued: [] } : await reconcileInFlightTurns({
       markers: () => markers,
       forget: (sessionId) => this.turnsInFlight.clear(sessionId),
       continueAfterRestart: this.continueThreadsAfterRestart,
@@ -1183,6 +1196,9 @@ export class PiHost {
         } satisfies ReconcilableThread;
       },
     });
+    // A restored queue follows a continuation and waits for the user otherwise.
+    await this.queue.restore(continued);
+    await this.limits.restore();
   }
 
   /** Republishes one thread's transcript, when it is the one on screen. */
@@ -1199,6 +1215,25 @@ export class PiHost {
       : externalThreadPath(marker.backend, marker.sessionId);
     if (!path) return undefined;
     return this.runtimes.openForPath(path, "resume", true, marker.backend);
+  }
+
+  private async reopenThread(sessionId: string): Promise<ThreadRuntime> {
+    const thread = this.threads.get(sessionId)?.runtime
+      ?? await this.openMarkedThread({ sessionId, backend: this.index.byId(sessionId)?.backendKind ?? "pi" });
+    if (!thread) throw new Error("That thread no longer exists.");
+    return thread;
+  }
+
+  private async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string): Promise<void> {
+    const thread = await this.reopenThread(sessionId);
+    if (delivery === "queue") this.queue.add(thread.threadId, { text, attachments: [], ...(from ? { fromThreadId: from } : {}) });
+    else await (delivery === "steer" ? this.steer(text, [], thread.threadId) : this.prompt(text, [], thread.threadId));
+  }
+
+  /** A queued message is prepared when it leaves, against the thread as it is then. */
+  private async deliverQueued(sessionId: string, message: QueuedMessage): Promise<void> {
+    const prepared = message.skillDraft ? await this.preparePrompt(message.text, sessionId, message.skillDraft) : undefined;
+    await this.prompt(message.skillDraft ? message.text : message.text.trim(), message.attachments, sessionId, undefined, prepared);
   }
 
   async newSession(
@@ -1617,8 +1652,7 @@ export class PiHost {
       throw new Error("The active thread changed while the prompt was being prepared. Retry after the switch completes.");
     }
     // Whatever a restart left behind, this thread is moving again.
-    this.index.setInterrupted(thread.threadId, false);
-    this.index.setTurnError(thread.threadId, undefined);
+    this.settlement.started(thread.threadId);
     if (!thread.backend.capabilities.journal) {
       // The composer waits for admission, not for the whole turn: a streamed
       // runtime reports it as soon as the message is on its way, and this call
@@ -1813,6 +1847,7 @@ export class PiHost {
     this.extensionUi.cancelFor(thread.threadId);
     thread.adapterAbortGeneration += 1;
     for (const controller of thread.adapterAbortControllers) controller.abort();
+    this.queue.hold(thread.threadId);
     await thread.backend.abort();
   }
 
@@ -1954,6 +1989,7 @@ export class PiHost {
     // Before anything is torn down: the aborts below are this shutdown's, not
     // the user's, and a thread they stop is exactly one a restart must see.
     this.turnsInFlight.freeze();
+    this.queue.freeze(); this.limits.freeze();
     return this.lifecycle.run("dispose", async () => {
       this.clientTurns.clear();
       this.watch?.close();
@@ -2056,7 +2092,7 @@ export class PiHost {
       releaseTool: (id) => { this.toolOwners.delete(id); },
       pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
-      turnSettled: (owner, error) => this.index.setTurnError(owner, error),
+      turnSettled: (owner, error) => this.settlement.settled(owner, error),
     });
   }
 
@@ -2082,7 +2118,7 @@ export class PiHost {
       pushToolOutput: (id, output) => this.pushToolOutput(id, output),
       toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
       refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
-      turnSettled: (owner, error) => this.index.setTurnError(owner, error),
+      turnSettled: (owner, error, limit) => this.settlement.settled(owner, error, limit),
     });
   }
 

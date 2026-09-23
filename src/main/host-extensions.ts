@@ -209,6 +209,13 @@ export interface HostStartedThread {
   title?: string;
 }
 
+/** How `sessions.send` delivers a message. */
+export interface HostThreadSendOptions {
+  delivery?: "prompt" | "steer" | "queue";
+  /** The thread that sent the message; the queue shows where it came from. */
+  from?: string;
+}
+
 /** A deleted thread waiting in the trash. */
 export interface HostTrashedThread {
   sessionId: string;
@@ -250,6 +257,16 @@ export interface HostSessionServices {
   trash(): Promise<HostTrashedThread[]>;
   /** Removes a deleted thread for good now and runs `threadDeleted`. */
   purge(sessionId: string): Promise<void>;
+  /**
+   * Sends a message to a thread the way a composer does. `prompt` starts a
+   * turn, or joins a running one as a follow-up; `steer` joins the running
+   * turn now; `queue` waits in the thread's visible queue until its turn ends.
+   * A thread whose runtime was released is reopened off screen first; `from`
+   * names the thread that sent it. New in API 1.11.0.
+   */
+  send?(sessionId: string, text: string, options?: HostThreadSendOptions): Promise<void>;
+  /** Stops a thread's running turn, as the stop button does; what it had queued waits for the user. New in API 1.11.0. */
+  abort?(sessionId: string): Promise<void>;
   /** Serializes with the host's own thread lifecycle work (open, switch, fork). */
   exclusive<T>(work: () => Promise<T>): Promise<T>;
   /** Rescans persisted sessions and returns the index update. The sweep runs inside, so release any lease first. */

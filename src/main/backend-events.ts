@@ -18,8 +18,8 @@ export interface BackendEventServices {
   toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void;
   /** Republishes the thread's shell in the index: title, count, usage. */
   refreshShell(thread: ThreadRuntime, touch: boolean): Promise<void>;
-  /** How the turn ended: why it failed, or undefined. */
-  turnSettled(sessionId: string, error: string | undefined): void;
+  /** How the turn ended: why it failed, or undefined, and whether a provider limit stopped it. */
+  turnSettled(sessionId: string, error: string | undefined, limit?: { resetsAt?: number }): void;
 }
 
 /**
@@ -40,7 +40,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       services.log("agent.started", sessionId.slice(0, 8));
       break;
     case "turn-settled":
-      settleTurn(event.status, thread, services, event.error);
+      settleTurn(event.status, thread, services, event.error, event.limit);
       break;
     case "assistant-start":
       thread.currentAssistantId = event.id;
@@ -145,7 +145,7 @@ function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEve
   services.log("tool.ended", `${ended.name}:${ended.status}`);
 }
 
-function settleTurn(status: "completed" | "interrupted" | "error", thread: ThreadRuntime, services: BackendEventServices, failure?: string): void {
+function settleTurn(status: "completed" | "interrupted" | "error", thread: ThreadRuntime, services: BackendEventServices, failure?: string, limit?: { resetsAt?: number }): void {
   const sessionId = thread.threadId;
   // A tool still running when the turn ends never reports again; close its card.
   for (const tool of [...thread.tools.values()]) {
@@ -161,7 +161,9 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
     else entry.status = status;
   }
   services.clientTurns.settle(sessionId);
-  services.turnSettled(sessionId, status === "error" ? failure?.trim() || thread.turnError || "The turn failed." : undefined);
+  const reason = status === "error" ? failure?.trim() || thread.turnError || "The turn failed." : undefined;
+  if (reason !== undefined && limit) services.turnSettled(sessionId, reason, limit);
+  else services.turnSettled(sessionId, reason);
   thread.turnError = undefined;
   services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
   services.emit({ type: "agent-status", sessionId, running: false });
