@@ -73,7 +73,8 @@ function send(text = "hello") {
 }
 
 async function pick(name: string) {
-  fireEvent.click(screen.getByLabelText(/^Select model:/u));
+  // The chip toggles the picker; a picker already open is used as it is.
+  if (!screen.queryByRole("dialog", { name: "Select model" })) fireEvent.click(screen.getByLabelText(/^Select model:/u));
   const input = await screen.findByRole("textbox", { name: "Search models" });
   fireEvent.change(input, { target: { value: name } });
   fireEvent.keyDown(input, { key: "Enter" });

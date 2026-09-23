@@ -392,8 +392,8 @@ button > svg { pointer-events: none; }
   animation: start-screen-enter 220ms ease-out backwards;
 }
 .conversation-start-content > h1 {
-  margin: 0; color: var(--ink); font-size: clamp(25px, 3vw, 34px);
-  font-weight: 650; line-height: 1.15; letter-spacing: -.035em;
+  margin: 0; color: var(--ink); font-size: clamp(24px, 2.6vw, 30px);
+  font-weight: 500; line-height: 1.2; letter-spacing: -.02em;
 }
 .conversation-start-project {
   width: 100%; min-width: 0; margin: 22px 0 0; padding: 11px 13px;
@@ -1536,12 +1536,20 @@ body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-s
   background: var(--overlay); box-shadow: var(--elevation-3);
   overflow: hidden; color: var(--ink); animation: fade-up .14s ease;
 }
-.model-picker > footer {
+/* At the model chip, as in T3 Code: no scrim, a narrower card. */
+.model-picker.anchored { width: 420px; height: 380px; max-height: calc(100vh - 16px); padding: 0; border-radius: 12px; background: var(--overlay); box-shadow: var(--elevation-2); animation: none; }
+.model-picker.anchored .model-rail { width: 52px; }
+.model-picker.anchored .model-rail > button { width: 40px; height: 36px; }
+.model-picker.anchored .model-rail > button.active::before { left: -6px; }
+.model-picker.anchored .model-search { height: 44px; }
+.model-picker-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.model-picker-content > footer {
   flex: none; display: flex; align-items: center; gap: 14px; height: 36px;
   border-top: 1px solid var(--line); padding: 0 14px;
   font: 10px var(--mono); color: var(--faint);
 }
-.model-picker > footer .spacer { flex: 1; }
+.model-picker.anchored .model-picker-content > footer { height: 30px; }
+.model-picker-content > footer .spacer { flex: 1; }
 .model-picker-body { flex: 1; min-height: 0; display: flex; }
 .model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 

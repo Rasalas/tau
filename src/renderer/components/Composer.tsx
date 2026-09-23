@@ -429,6 +429,7 @@ export function Composer({
     });
   };
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const modelChipRef = useRef<HTMLButtonElement>(null);
   const preferences = usePreferences();
   const gates = registry?.getComposerGates?.() ?? NO_GATES;
   const gatesRef = useRef(gates);
@@ -470,7 +471,11 @@ export function Composer({
   const chooseModel = (model: UiModel) => {
     passGates(
       { action: "model", model, ...(snapshot?.backendKind ? { runtime: snapshot.backendKind } : {}), ...(snapshot ? { snapshot } : {}) },
-      () => applyModel(model),
+      () => {
+        applyModel(model);
+        // The popover hands focus back to its chip; with a model chosen, the prompt is next.
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      },
       () => setModelPickerOpen(true),
     );
   };
@@ -910,7 +915,10 @@ export function Composer({
             </span>
           ) : null}
           <button
-            className="runtime-chip"
+            ref={modelChipRef}
+            className="runtime-chip composer-model-chip"
+            aria-expanded={modelPickerOpen}
+            aria-haspopup="dialog"
             disabled={!modelPickerAvailable}
             {...tooltipProps(modelSelectionAvailable
               ? runtimeChoice ? "Select runtime and model" : "Select model"
@@ -919,7 +927,7 @@ export function Composer({
             aria-label={modelSelectionAvailable
               ? `${runtimeChoice ? "Select runtime and model" : "Select model"}: ${snapshot?.model?.name ?? "current model"}`
               : runtimeChoice ? `Select runtime and model: ${runtimeLabel}` : "Model selection unavailable"}
-            onClick={() => { if (modelPickerAvailable) setModelPickerOpen(true); }}
+            onClick={() => { if (modelPickerAvailable) setModelPickerOpen((open) => !open); }}
           >
             {snapshot?.model && !draftOnOtherRuntime
               ? <ProviderIconStack modelProvider={snapshot.model.provider} runtimeProvider={runtimeChoice?.kind ?? snapshot.backendKind} className="chip-icon" />
@@ -1080,6 +1088,7 @@ export function Composer({
             onNewThreadOnRuntime={onNewThreadOnRuntime}
             badges={registry?.getModelBadges?.()}
             multiSelect={gatedModelSet}
+            anchor={modelChipRef}
           />
         </Suspense>
       ) : null}
