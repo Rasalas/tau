@@ -15,6 +15,7 @@ export const STORAGE_KEYS = {
   /** Prefix; `dockStateKey` adds the workspace. */
   dock: "tau.dock.v1",
   dockWidth: "tau:dock-width",
+  sidebarOpen: "tau:sidebar-open",
   reviewSidebarWidth: "tau:review-sidebar-width",
   reviewSidebarOpen: "tau:review-sidebar-open",
 } as const;

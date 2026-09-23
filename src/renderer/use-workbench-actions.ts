@@ -29,6 +29,7 @@ export interface UseWorkbenchActionsOptions {
   composerRef: RefObject<HTMLTextAreaElement | null>;
   transcriptRef: RefObject<HTMLDivElement | null>;
   focusStage: () => void;
+  toggleSidebar?: () => void;
   openPanel: (id: string) => void;
   openPalette: () => void;
   setSettingsPage: (page?: string) => void;
@@ -70,7 +71,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   const {
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions,
+    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar,
   } = options;
 
   return useMemo<WorkbenchActions>(() => ({
@@ -113,6 +114,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     focusTranscript: () => { options.transcriptRef.current?.focus(); },
     focusStage,
     toggleDock: () => { options.setDockOpen((open) => !open); },
+    ...(toggleSidebar ? { toggleSidebar } : {}),
     notify: options.setNotice,
     openProjectSources: options.openProjectSources,
     applyHostResult,
@@ -250,6 +252,6 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   }), [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions,
+    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar,
   ]);
 }

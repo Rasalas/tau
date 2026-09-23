@@ -195,6 +195,7 @@ export default function App() {
   const openModelPicker = useCallback(() => composerControlRef.current?.openModelPicker(), []);
   const openInstructions = useCallback(() => workbenchControlRef.current?.openInstructions(), []);
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
+  const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
   /** The draft key as of now, for the async paths that must not read a rendered value. */
@@ -439,7 +440,7 @@ export default function App() {
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, preferences,
-    openModelPicker, openInstructions, focusStage,
+    openModelPicker, openInstructions, focusStage, toggleSidebar,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);

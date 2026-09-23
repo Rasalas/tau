@@ -103,6 +103,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "workbench.focus-composer", label: "Focus composer", group: "Workbench", run: (app) => app.focusComposer() });
     plugin.registerCommand({ id: "workbench.focus-transcript", label: "Focus transcript", group: "Workbench", run: (app) => app.focusTranscript() });
     plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", run: (app) => app.focusStage() });
+    plugin.registerCommand({ id: "workbench.toggle-sidebar", label: "Toggle sidebar", group: "Workbench", run: (app) => app.toggleSidebar?.() });
     plugin.registerCommand({ id: "workbench.toggle-dock", label: "Toggle dock", group: "Workbench", run: (app) => app.toggleDock() });
     plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", run: (app) => app.closeActiveStageTab?.() });
     plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", run: (app) => app.cycleStageTab?.(1) });
@@ -347,21 +348,25 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     // As in T3 Code; the open Settings screen answers the same chord by closing.
     plugin.registerKeybinding({ keys: "mod+,", commandId: "runtime.settings" });
-    plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
+    // In a terminal these chords are the terminal's (Terminal Kit binds them under `terminalFocus`).
+    plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus" });
+    plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "runtime.new-session", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort" });
     plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "runtime.transcript-detail" });
     plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
-    plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model" });
+    // Pi's chord, in the composer only: elsewhere Ctrl+P is `mod+p` off macOS, the file picker.
+    plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model", when: "composerFocus" });
     plugin.registerKeybinding({ keys: "shift+tab", commandId: "runtime.cycle-thinking" });
     plugin.registerKeybinding({ keys: "mod+shift+r", commandId: "runtime.rename-thread" });
     plugin.registerKeybinding({ keys: "ctrl+g", commandId: "runtime.open-prompt-editor" });
-    plugin.registerKeybinding({ keys: "mod+1", commandId: "workbench.focus-composer" });
-    plugin.registerKeybinding({ keys: "mod+2", commandId: "workbench.focus-transcript" });
-    plugin.registerKeybinding({ keys: "mod+3", commandId: "workbench.focus-stage" });
-    plugin.registerKeybinding({ keys: "mod+b", commandId: "workbench.toggle-dock" });
+    plugin.registerKeybinding({ keys: "mod+alt+shift+a", commandId: "runtime.theme" });
+    // ⌘1–⌘9 jump between threads as in T3 Code, so focus moves with ⌥ added.
+    plugin.registerKeybinding({ keys: "mod+alt+1", commandId: "workbench.focus-composer" });
+    plugin.registerKeybinding({ keys: "mod+alt+2", commandId: "workbench.focus-transcript" });
+    plugin.registerKeybinding({ keys: "mod+alt+3", commandId: "workbench.focus-stage" });
+    plugin.registerKeybinding({ keys: "mod+b", commandId: "workbench.toggle-sidebar" });
+    plugin.registerKeybinding({ keys: "mod+alt+b", commandId: "workbench.toggle-dock" });
     plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
-    plugin.registerKeybinding({ keys: "mod+shift+]", commandId: "workbench.next-stage-tab" });
-    plugin.registerKeybinding({ keys: "mod+shift+[", commandId: "workbench.prev-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab" });
     plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab" });
   },

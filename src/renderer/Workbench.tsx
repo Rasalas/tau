@@ -123,6 +123,8 @@ type Settings = PreferencesState;
 export interface WorkbenchControlHandle {
   openInstructions(): void;
   focusStage(): void;
+  /** Hides or shows the sidebar; on a compact client, the thread sheet. */
+  toggleSidebar(): void;
 }
 
 /** Window chrome, slots and the modals that belong to the shell. */
@@ -285,13 +287,23 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // One screen wide: the thread list is a sheet and the dock has nowhere to go.
   // The registry still holds those contributions; only this layout leaves them out.
   const compact = layoutProfile === "compact";
+  const compactRef = useRef(compact);
+  compactRef.current = compact;
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
   const stageRef = useRef<HTMLElement>(null);
   useImperativeHandle(layout.controlRef, () => ({
     openInstructions: () => setSystemPromptOpen(true),
     focusStage: () => stageRef.current?.focus(),
-  }), []);
+    toggleSidebar: () => {
+      if (compactRef.current) { setThreadSheetOpen((open) => !open); return; }
+      setSidebarOpen((open) => {
+        clientStorage.set(STORAGE_KEYS.sidebarOpen, String(!open));
+        return !open;
+      });
+    },
+  }), [clientStorage]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
   useEffect(() => { if (!compact) setThreadSheetOpen(false); }, [compact]);
@@ -353,6 +365,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const shellClassName = [
     "app-shell",
     sidebarContributions.length === 0 ? "no-sidebar" : "",
+    sidebarOpen ? "" : "sidebar-closed",
     panels.length === 0 ? "no-dock" : "",
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
@@ -491,7 +504,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onToggleDock={() => setDockOpen(!dockOpen)}
         {...(compact ? { onOpenThreads: () => setThreadSheetOpen(true) } : {})}
       />
-      {sidebarContributions.map((contribution) => <LazyFeatureBoundary
+      <div className="sidebar-slot">{sidebarContributions.map((contribution) => <LazyFeatureBoundary
         key={contribution.id}
         label="sidebar"
         extensionId={contribution.extensionId}
@@ -500,7 +513,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onNotify={actions.notify}
       >
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
-      </LazyFeatureBoundary>)}
+      </LazyFeatureBoundary>)}</div>
       <div className={centerClassName} ref={centerRef}>
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}

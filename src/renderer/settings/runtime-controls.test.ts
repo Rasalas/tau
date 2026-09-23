@@ -147,19 +147,23 @@ describe("runtime controls keybindings", () => {
       "runtime.cycle-thinking": ["shift+tab"],
       "runtime.instructions": ["mod+i"],
       "runtime.model": ["mod+shift+m"],
-      "runtime.new-session": ["mod+n"],
+      "runtime.new-session": ["mod+n", "mod+shift+o"],
       "runtime.rename-thread": ["mod+shift+r"],
       "runtime.settings": ["mod+,"],
+      "runtime.theme": ["mod+alt+shift+a"],
       "runtime.transcript-detail": ["mod+shift+t"],
       "workbench.close-stage-tab": ["mod+w"],
-      "workbench.focus-composer": ["mod+1"],
-      "workbench.focus-stage": ["mod+3"],
-      "workbench.focus-transcript": ["mod+2"],
-      "workbench.next-stage-tab": ["mod+shift+]", "ctrl+tab"],
-      "workbench.prev-stage-tab": ["mod+shift+[", "ctrl+shift+tab"],
-      "workbench.toggle-dock": ["mod+b"],
+      "workbench.focus-composer": ["mod+alt+1"],
+      "workbench.focus-stage": ["mod+alt+3"],
+      "workbench.focus-transcript": ["mod+alt+2"],
+      "workbench.next-stage-tab": ["ctrl+tab"],
+      "workbench.prev-stage-tab": ["ctrl+shift+tab"],
+      "workbench.toggle-dock": ["mod+alt+b"],
+      "workbench.toggle-sidebar": ["mod+b"],
       "runtime.open-prompt-editor": ["ctrl+g"],
     });
+    const scoped = Object.fromEntries(registry.getKeybindings().filter((binding) => binding.when).map((binding) => [binding.keys, binding.when]));
+    expect(scoped).toEqual({ "mod+n": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus" });
   });
 });
 
@@ -247,13 +251,10 @@ describe("runtime controls focus and dock commands", () => {
     commands.find((cmd) => cmd.id === "workbench.prev-stage-tab")?.run(actions);
     expect(cycleStageTab).toHaveBeenCalledWith(-1);
 
-    const bindings = registry.getKeybindings();
-    expect(bindings.find((b) => b.commandId === "workbench.focus-composer")?.keys).toBe("mod+1");
-    expect(bindings.find((b) => b.commandId === "workbench.focus-transcript")?.keys).toBe("mod+2");
-    expect(bindings.find((b) => b.commandId === "workbench.focus-stage")?.keys).toBe("mod+3");
-    expect(bindings.find((b) => b.commandId === "workbench.toggle-dock")?.keys).toBe("mod+b");
-    expect(bindings.find((b) => b.commandId === "workbench.close-stage-tab")?.keys).toBe("mod+w");
-    expect(bindings.find((b) => b.commandId === "workbench.next-stage-tab")?.keys).toBe("mod+shift+]");
-    expect(bindings.find((b) => b.commandId === "workbench.prev-stage-tab")?.keys).toBe("mod+shift+[");
+    const toggleSidebar = vi.fn();
+    commands.find((cmd) => cmd.id === "workbench.toggle-sidebar")?.run({ ...actions, toggleSidebar });
+    expect(toggleSidebar).toHaveBeenCalledOnce();
+    // Without the action (an older client) the command does nothing rather than throw.
+    expect(() => commands.find((cmd) => cmd.id === "workbench.toggle-sidebar")?.run(actions)).not.toThrow();
   });
 });

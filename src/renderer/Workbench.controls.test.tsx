@@ -87,8 +87,15 @@ describe("Workbench imperative controls", () => {
     await runPaletteCommand("Open controls fixture stage");
     const stage = await screen.findByRole("region", { name: "Stage" });
 
-    pressMod("3");
+    // ⌥ on macOS types ∞ for 3; the physical key still names the chord.
+    pressMod("∞", { altKey: true, code: "Digit3" });
     expect(document.activeElement).toBe(stage);
+
+    const shell = document.querySelector(".app-shell")!;
+    pressMod("b");
+    expect(shell.classList.contains("sidebar-closed")).toBe(true);
+    pressMod("b");
+    expect(shell.classList.contains("sidebar-closed")).toBe(false);
 
     await runPaletteCommand("Inspect active system prompt");
     const instructions = await screen.findByRole("dialog", { name: "Active Instructions and System Prompt" });

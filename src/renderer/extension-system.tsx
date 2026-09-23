@@ -56,6 +56,8 @@ export interface WorkbenchActions {
   focusTranscript(): void;
   focusStage(): void;
   toggleDock(): void;
+  /** Hides or shows the sidebar (the thread sheet on a compact client). */
+  toggleSidebar?(): void;
   notify(message: string): void;
   /** Opens the list of project sources extensions registered. */
   openProjectSources(): void;
