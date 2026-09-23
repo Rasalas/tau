@@ -16,7 +16,7 @@ import {
   type UiScriptRun,
 } from "./protocol.js";
 import { ScriptRuns, spawnScript, type ScriptSpawner, type UrlProbe } from "./runner.js";
-import { SetupTracker } from "./setup.js";
+import { GIT_STAGES, SetupTracker, type SetupGitStage } from "./setup.js";
 import { ProjectFileWatch, type WatchFn } from "./watch.js";
 
 export interface ProjectScriptsHostOptions {
@@ -144,7 +144,7 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
       context.registerCommand(WORKTREE_SETUP_STEP_COMMAND, (raw) => {
         const input = fields(raw);
         const id = setupIdOf(input);
-        if (id && (input.stage === "fetch" || input.stage === "checkout")) setups.step(id, input.stage, text(input.detail));
+        if (id && GIT_STAGES.includes(input.stage as SetupGitStage)) setups.step(id, input.stage as SetupGitStage, text(input.detail), input.failed === true);
       }, workspaceOnly);
       context.registerCommand(WORKTREE_SETUP_FAILED_COMMAND, (raw) => {
         const input = fields(raw);

@@ -17,6 +17,10 @@ export function outputTail(output: string): string[] {
     .map((line) => line.length > TAIL_LINE_LENGTH ? `${line.slice(0, TAIL_LINE_LENGTH - 1)}…` : line);
 }
 
+/** The steps Workspace Kit reports, in the order they run. */
+export const GIT_STAGES = ["fetch", "checkout", "submodules"] as const;
+export type SetupGitStage = typeof GIT_STAGES[number];
+
 export interface SetupTrackerOptions {
   emit(setup: UiWorktreeSetup): void;
   now?: () => number;
@@ -75,16 +79,24 @@ export class SetupTracker {
     return clone(setup);
   }
 
-  /** A Git step began; the one before it is done, or was never needed. */
-  step(id: string, stageId: "fetch" | "checkout", detail?: string): void {
+  /**
+   * A Git step began; the one before it is done, or was never needed. The
+   * submodule step only shows for a checkout that has submodules, and its
+   * failure does not fail the setup.
+   */
+  step(id: string, stageId: SetupGitStage, detail?: string, failed = false): void {
     this.update(id, (setup) => {
       const at = this.now();
-      const order = ["fetch", "checkout"];
-      const index = order.indexOf(stageId);
+      const index = GIT_STAGES.indexOf(stageId);
+      if (stageId === "submodules" && !setup.stages.some((entry) => entry.id === "submodules")) {
+        const after = setup.stages.findIndex((entry) => entry.id === "checkout");
+        setup.stages.splice(after + 1, 0, stage("submodules", "Initialize submodules"));
+      }
       setup.stages = setup.stages.map((entry) => {
-        const position = order.indexOf(entry.id);
+        const position = GIT_STAGES.indexOf(entry.id as SetupGitStage);
         if (position < 0) return entry;
         if (position < index) return settle(entry, entry.status === "running" ? "done" : entry.status === "pending" ? "skipped" : entry.status, at);
+        if (position === index && failed) return settle({ ...entry, ...(detail ? { detail } : {}) }, "failed", at);
         if (position === index) return { ...entry, status: "running", startedAt: at, ...(detail ? { detail } : {}) };
         return entry;
       });
@@ -96,7 +108,7 @@ export class SetupTracker {
     this.update(id, (setup) => {
       const at = this.now();
       setup.worktree = worktree;
-      setup.stages = setup.stages.map((entry) => entry.id === "fetch" || entry.id === "checkout"
+      setup.stages = setup.stages.map((entry) => GIT_STAGES.includes(entry.id as SetupGitStage)
         ? settle(entry, entry.status === "pending" ? (entry.id === "checkout" ? "done" : "skipped") : entry.status === "running" ? "done" : entry.status, at)
         : entry);
     });
