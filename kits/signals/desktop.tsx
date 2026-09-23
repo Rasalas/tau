@@ -40,7 +40,8 @@ export const observatoryExtension: DesktopExtension = {
   activate(plugin) {
     plugin.registerPanel({ id: SIGNALS_PANEL, label: "Signals", Icon: Activity, order: 30, profiles: ["desktop", "web"], Component: ObservatoryPanel });
     plugin.registerCommand({ id: "observatory.open", label: "Open signals panel", group: "Extensions", run: (app) => app.openPanel(SIGNALS_PANEL) });
-    plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "observatory.open" });
+    // `mod+shift+o` is a new thread, as in T3 Code.
+    plugin.registerKeybinding({ keys: "mod+alt+o", commandId: "observatory.open" });
     // A shell command is the one tool run whose own text says what happened.
     plugin.registerToolRenderer(
       "observatory.shell-renderer",

@@ -12,6 +12,16 @@ import {
 import { PreviewPanel } from "./panel.js";
 import { PREVIEW_PANEL, PreviewFollower, connectPreviewHost, isPreviewState, previewKit, previewStore, togglePreviewPanel } from "./store.js";
 
+/** T3 Code's `preview.focusUrl`: the panel's address field, its text selected. */
+function focusAddress(app: Pick<WorkbenchActions, "openPanel">): void {
+  app.openPanel(PREVIEW_PANEL);
+  requestAnimationFrame(() => {
+    const field = document.querySelector<HTMLInputElement>('.preview-panel input[aria-label="Preview address"]');
+    field?.focus();
+    field?.select();
+  });
+}
+
 /**
  * Preview Kit: a browser panel the host draws over, and the tools that let the
  * agent open, read and drive the page it just changed.
@@ -53,6 +63,8 @@ export const previewExtension: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+shift+b", commandId: "preview.open" });
     // T3 Code's chord for the same panel.
     plugin.registerKeybinding({ keys: "mod+shift+j", commandId: "preview.toggle" });
+    plugin.registerCommand({ id: "preview.focus-url", label: "Focus the preview address", group: "Extensions", run: (app) => focusAddress(app) });
+    plugin.registerKeybinding({ keys: "mod+l", commandId: "preview.focus-url", when: "previewFocus" });
     return disconnect;
   },
 };

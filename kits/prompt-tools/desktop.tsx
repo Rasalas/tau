@@ -192,7 +192,8 @@ const promptTools: DesktopExtension = {
       group: "Composer",
       run: async (actions) => { if (!(await controller.stash(actions))) actions.notify("There is nothing to stash."); },
     });
-    context.registerKeybinding({ keys: "mod+s", commandId: "prompt-tools.stash" });
+    // As in T3 Code: a terminal has nothing to stash, and Files Kit's editor saves on the same chord.
+    context.registerKeybinding({ keys: "mod+s", commandId: "prompt-tools.stash", when: "!terminalFocus" });
     context.registerCommand({
       id: "prompt-tools.stash-list",
       label: "Bring back a stashed prompt…",

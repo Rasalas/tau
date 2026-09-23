@@ -55,6 +55,9 @@ export const reviewExtension: DesktopExtension = {
         plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => store.openReview() }),
         plugin.registerSlashCommand({ name: "review", description: "Open the full Git review overlay", run: () => { store.openReview(); return undefined; } }),
         plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" }),
+        // T3 Code's diff toggle; in a terminal `mod+d` splits it.
+        plugin.registerCommand({ id: "review.toggle", label: "Toggle the review", group: "Project", run: () => { if (store.getSnapshot().review) store.closeReview(); else store.openReview(); } }),
+        plugin.registerKeybinding({ keys: "mod+d", commandId: "review.toggle", when: "!terminalFocus" }),
         registerCommitMessages(plugin, store),
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows)),
         store.registerThreadRowAccessory(createRequestBadge(rows)),

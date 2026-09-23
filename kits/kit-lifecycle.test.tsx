@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { CLIENT_PROFILES, createKitHarness, expectKitActivatesCleanly } from "../src/renderer/test-support/kit-harness.js";
+import { CLIENT_PROFILES, createKitHarness, expectKitActivatesCleanly, runtimeControls } from "../src/renderer/test-support/kit-harness.js";
 import agents from "./agents/desktop.js";
 import preview from "./preview/desktop.js";
 import packages from "./packages/desktop.js";
@@ -87,15 +87,46 @@ describe("client profiles", () => {
     }
   });
 
-  // Two kits claiming one chord means one of them silently never fires.
-  it("binds no default chord twice across the kits Tau ships", () => {
+  // Two bindings claiming one chord means one of them silently never fires.
+  // Core's own chords count, `mod` is Ctrl off macOS, and a `when` clause that
+  // cannot hold beside the other one's keeps two bindings apart.
+  for (const mac of [true, false]) {
+    it(`binds no default chord twice across core and the kits Tau ships (${mac ? "macOS" : "Linux and Windows"})`, () => {
+      const { registry } = createKitHarness(workspaceHostStub());
+      registry.activateCore(runtimeControls);
+      for (const extension of kits) registry.activate(extension);
+      expect(registry.getKeybindingConflicts(mac).map((conflict) => `${conflict.keys}: ${conflict.commandId} vs ${conflict.boundTo.commandId}`)).toEqual([]);
+      for (const extension of kits) registry.deactivate(extension.id);
+    });
+  }
+
+  it("gives a shared chord to the binding whose context the keyboard is in", () => {
     const { registry } = createKitHarness(workspaceHostStub());
+    registry.activateCore(runtimeControls);
     for (const extension of kits) registry.activate(extension);
-    // A binding that says it `replaces` the other command holds the chord on purpose.
-    const intended = (conflict: ReturnType<typeof registry.getKeybindingConflicts>[number]) => registry.getKeybindings()
-      .some((binding) => binding.commandId === conflict.boundTo.commandId && binding.replaces === conflict.commandId);
-    expect(registry.getKeybindingConflicts().filter((conflict) => !intended(conflict))
-      .map((conflict) => `${conflict.keys}: ${conflict.commandId} vs ${conflict.boundTo.commandId}`)).toEqual([]);
+    const mac = /mac/iu.test(navigator.platform);
+    const press = (key: string, contexts: string[], shift = false, code = "") => registry.matchKeybinding(
+      new KeyboardEvent("keydown", { key, code, metaKey: mac, ctrlKey: !mac, shiftKey: shift }),
+      (name) => contexts.includes(name),
+    )?.command.id;
+    expect(press("d", ["terminalFocus"])).toBe("terminal.split");
+    expect(press("d", [])).toBe("review.toggle");
+    expect(press("D", ["terminalFocus"], true)).toBe("terminal.splitDown");
+    expect(press("D", [], true)).toBe("review.open");
+    expect(press("n", ["terminalFocus"])).toBe("terminal.new");
+    expect(press("n", [])).toBe("runtime.new-session");
+    expect(press("w", ["terminalFocus"])).toBe("terminal.close");
+    expect(press("w", ["terminalFocus", "stageFocus"])).toBe("workbench.close-stage-tab");
+    expect(press("w", [])).toBe("workbench.close-stage-tab");
+    expect(press("s", ["editorFocus"])).toBe("files.save");
+    expect(press("s", [])).toBe("prompt-tools.stash");
+    expect(press("s", ["terminalFocus"])).toBeUndefined();
+    expect(press("1", [])).toBe("thread.jump-1");
+    expect(press("1", ["modelPickerOpen"])).toBeUndefined();
+    expect(press("j", ["terminalFocus"])).toBe("terminal.toggle");
+    expect(press("b", [])).toBe("workbench.toggle-sidebar");
+    // ⇧ turns ] into }; the physical key still names the chord.
+    expect(press("}", [], true, "BracketRight")).toBe("thread.next");
     for (const extension of kits) registry.deactivate(extension.id);
   });
 

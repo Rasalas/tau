@@ -166,6 +166,7 @@ describe("Thread Rail on the desktop", () => {
     expect(actions.switchSession).toHaveBeenLastCalledWith("/sessions/a.jsonl");
     await registry.executeCommand("thread.jump-3", actions);
     expect(actions.switchSession).toHaveBeenLastCalledWith("/sessions/c.jsonl");
-    expect(registry.getKeybindings().some((binding) => binding.commandId === "thread.jump-1" && binding.keys === "ctrl+1")).toBe(true);
+    expect(registry.getKeybindings().some((binding) => binding.commandId === "thread.jump-1" && binding.keys === "mod+1" && binding.when === "!modelPickerOpen")).toBe(true);
+    expect(registry.getKeybindings().filter((binding) => binding.commandId === "thread.next").map((binding) => binding.keys)).toEqual(["mod+shift+]", "mod+alt+arrowdown"]);
   });
 });

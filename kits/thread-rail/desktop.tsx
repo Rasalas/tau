@@ -330,10 +330,13 @@ export const threadRailExtension: DesktopExtension = {
       context.registerCommand({ id: "thread.prev", label: "Previous thread in the rail", group: "Thread", run: (app) => go(app, -1) }),
       context.registerKeybinding({ keys: "mod+shift+p", commandId: "thread.pin" }),
       context.registerKeybinding({ keys: "mod+shift+s", commandId: "thread.settle", replaces: "workspace.settle" }),
+      // T3 Code's chords, and the arrows Tau had before them.
+      context.registerKeybinding({ keys: "mod+shift+]", commandId: "thread.next" }),
+      context.registerKeybinding({ keys: "mod+shift+[", commandId: "thread.prev" }),
       context.registerKeybinding({ keys: "mod+alt+arrowdown", commandId: "thread.next" }),
       context.registerKeybinding({ keys: "mod+alt+arrowup", commandId: "thread.prev" }),
     ];
-    // ⌘1–⌘3 already focus the composer, transcript and stage, so the jumps use ⌃ (Ctrl elsewhere).
+    // As in T3 Code; the open model picker answers the same digits with its own jumps.
     for (let position = 1; position <= 9; position += 1) {
       const id = `thread.jump-${position}`;
       disposers.push(
@@ -343,7 +346,7 @@ export const threadRailExtension: DesktopExtension = {
           group: "Thread",
           run: (app) => { const thread = store.displayed[position - 1]; if (thread) void app.switchSession(thread.path); },
         }),
-        context.registerKeybinding({ keys: `ctrl+${position}`, commandId: id }),
+        context.registerKeybinding({ keys: `mod+${position}`, commandId: id, when: "!modelPickerOpen" }),
       );
     }
     return () => { for (const dispose of disposers.reverse()) dispose(); };

@@ -88,7 +88,7 @@ export function PreviewPanel({ active, extensionName, actions }: PanelProps) {
   };
   const cwd = actions?.activeThread?.()?.cwd;
 
-  return <section className="panel-body preview-panel">
+  return <section className="panel-body preview-panel" data-keybinding-context="preview">
     <header className="panel-header">
       <h2>Preview</h2>
       <small>{extensionName.toLowerCase()}</small>
