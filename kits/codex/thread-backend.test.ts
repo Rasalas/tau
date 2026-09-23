@@ -33,7 +33,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[] } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
@@ -44,7 +44,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
       cwd: input.cwd,
       env: { ...process.env, STUB_LOG: space.log, STUB_THREADS: space.threads, CODEX_HOME: join(space.dir, "home") },
       clientVersion: "test",
-      spawn: (spawn) => spawnRpcProcess({ ...spawn, args: [STUB, ...spawn.args] }),
+      spawn: (spawn) => spawnRpcProcess({ ...spawn, args: options.script ?? [STUB, ...spawn.args] }),
       onNotification: input.onNotification,
       onRequest: input.onRequest,
       onExit: input.onExit,
@@ -133,6 +133,17 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     // The next prompt spawns a new app-server and resumes the same Codex thread.
     await backend.prompt({ text: "Again.", delivery: "prompt" });
     expect(events.filter((event) => event.type === "turn-settled").at(-1)).toEqual({ type: "turn-settled", status: "completed" });
+  });
+
+  it("fails the turn with the reason when Codex dies before its handshake", async () => {
+    const space = await scratch();
+    const { backend, events } = await open(space, { script: ["-e", "process.stderr.write('stub: no login\\n'); process.exit(4)"] });
+    await expect(backend.prompt({ text: "Hello.", delivery: "prompt" })).rejects.toThrow("Codex exited with code 4.\nstub: no login");
+    expect(events.find((event) => event.type === "turn-settled")).toEqual({ type: "turn-settled", status: "error" });
+    expect(events.filter((event) => event.type === "notice")).toEqual([
+      { type: "notice", message: "Codex reported an error: Codex exited with code 4.\nstub: no login", level: "error" },
+    ]);
+    expect(backend.state().streaming).toBe(false);
   });
 
   it("resumes the same Codex thread in a new process after a restart", async () => {

@@ -399,7 +399,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     const level = this.options.permissionLevel?.() ?? "full";
     if (level === "ask" && !this.options.ask) throw new Error("Codex cannot ask for approvals on this host; choose read-only or full access.");
     await this.store.ensure(this.threadId, this.cwd);
-    const session: CodexSessionLike = await this.options.openSession({
+    // A process that dies during the handshake exits before `session` is assigned.
+    let session: CodexSessionLike | undefined;
+    session = await this.options.openSession({
       cwd: this.cwd,
       threadId: this.threadId,
       onNotification: (method, params) => this.onNotification(method, params),
@@ -490,8 +492,10 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     return dialog.resultFor(answers);
   }
 
-  private onExit(session: CodexSessionLike, error: Error | undefined): void {
-    if (this.live === session) this.live = undefined;
+  /** Only the live session's exit settles a turn; one that dies while opening fails the open instead. */
+  private onExit(session: CodexSessionLike | undefined, error: Error | undefined): void {
+    if (!session || this.live !== session) return;
+    this.live = undefined;
     const turn = this.turns[0];
     if (!error && !turn) return;
     if (error) this.report({ type: "notice", message: error.message, level: "error" });
