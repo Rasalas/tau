@@ -37,6 +37,8 @@ export interface TreeLimits {
 const NOISE_ACTIONS = new Set(["focus", "show_menu", "scroll_to_visible", "scroll_into_view", "blur"]);
 const SILENT_ROLES = new Set(["group", "unknown", "generic", "none"]);
 const TEXT_ROLES = new Set(["static_text", "text"]);
+/** Chromium reports `expanded: false` on every element; only these can really open. */
+const EXPANDABLE_ROLES = new Set(["combo_box", "pop_up_button", "menu_button", "menu_item", "tree_item", "disclosure_triangle", "row", "outline_row", "button"]);
 
 function safe<T>(read: () => T): T | undefined {
   try {
@@ -69,9 +71,10 @@ export function imageBounds(bounds: SnapShotBounds | null | undefined, window: S
   return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : undefined;
 }
 
-function stateOf(element: AccessibleElement): SnapShotElementState | undefined {
+function stateOf(element: AccessibleElement, role: string): SnapShotElementState | undefined {
   const checked = safe(() => element.checked);
-  const expanded = safe(() => element.expanded);
+  const reported = safe(() => element.expanded);
+  const expanded = reported === true || (reported === false && EXPANDABLE_ROLES.has(role)) ? reported : undefined;
   const state: SnapShotElementState = {
     ...(checked === "on" || checked === "off" || checked === "mixed" ? { checked } : {}),
     ...(safe(() => element.enabled) === false ? { disabled: true as const } : {}),
@@ -91,9 +94,10 @@ function nodeOf(element: AccessibleElement, window: SnapShotBounds, image: { wid
     .map((action) => boundedText(action, 100))
     .filter((action): action is string => action !== undefined && !NOISE_ACTIONS.has(action)))].slice(0, 16);
   const bounds = root ? { x: 0, y: 0, width: image.width, height: image.height } : imageBounds(safe(() => element.bounds), window, image);
-  const state = root ? undefined : stateOf(element);
+  const role = boundedText(safe(() => element.role), 100) ?? "unknown";
+  const state = root ? undefined : stateOf(element, role);
   return {
-    role: boundedText(safe(() => element.role), 100) ?? "unknown",
+    role,
     ...(name ? { name } : {}),
     ...(value && value !== name ? { value } : {}),
     ...(description && description !== name && description !== value ? { description } : {}),
@@ -113,6 +117,8 @@ const says = (node: SnapShotElement): boolean => Boolean(node.name || node.value
 export function compact(node: SnapShotElement, parentName?: string, root = true): SnapShotElement[] {
   const children = node.children.flatMap((child) => compact(child, node.name ?? parentName, false));
   if (!root && SILENT_ROLES.has(node.role) && !says(node)) return children;
+  // A list bullet or a separator glyph.
+  if (!root && SILENT_ROLES.has(node.role) && children.length === 0 && !node.name && /^\W?$/u.test(node.value ?? "") && !says({ ...node, value: undefined })) return [];
   if (!root && TEXT_ROLES.has(node.role) && children.length === 0 && !says({ ...node, name: undefined, value: undefined }) && (node.value ?? node.name) === parentName) return [];
   return [{ ...node, children }];
 }

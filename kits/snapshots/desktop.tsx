@@ -112,11 +112,7 @@ export function SnapShotDetail({ store, host, chipId }: { store: ShotStore; host
   return (
     <div className="snapshots-detail">
       {content ? <img className="snapshots-detail-image" src={content.url} alt={`SnapShot of ${snapshotLabel(meta)}`} /> : <div className="snapshots-detail-image placeholder" />}
-      <div className="snapshots-detail-meta">
-        <strong>{meta.app}</strong>
-        {meta.title ? <span>{meta.title}</span> : null}
-        <small>{new Date(meta.capturedAt).toLocaleString()} · {meta.width}×{meta.height}</small>
-      </div>
+      <small className="snapshots-detail-meta">{new Date(meta.capturedAt).toLocaleString()} · {meta.width}×{meta.height}</small>
       {meta.accessibility ? (
         <details className="snapshots-detail-tree">
           <summary>{meta.accessibility.nodes} elements the window reported{meta.accessibility.truncated ? " (cut short)" : ""}</summary>

@@ -33,12 +33,14 @@ const testWindow = () => element({
   kids: [{
     role: "group", name: "E18 test window", bounds: { x: 3840, y: 767, width: 1280, height: 672 },
     kids: [{ role: "group", kids: [{ role: "group", kids: [{
-      role: "web_area", name: "E18 test window", bounds: { x: 3840, y: 767, width: 1280, height: 672 },
+      role: "web_area", name: "E18 test window", expanded: false, bounds: { x: 3840, y: 767, width: 1280, height: 672 },
       kids: [
         { role: "heading", name: "E18 test window", bounds: { x: 3872, y: 819, width: 211, height: 37 }, kids: [{ role: "static_text", value: "E18 test window", bounds: { x: 3872, y: 819, width: 211, height: 37 } }] },
         { role: "text_field", value: "hello from E18", editable: true, focused: true, actions: ["press", "focus", "set_value"], bounds: { x: 3904, y: 907, width: 154, height: 22 } },
         { role: "button", name: "Press me", actions: ["press", "show_menu", "scroll_to_visible", "focus"], bounds: { x: 4061, y: 907, width: 73, height: 22 } },
         { role: "check_box", name: "Off-screen", checked: "on", enabled: false, bounds: { x: 9000, y: 9000, width: 10, height: 10 } },
+        { role: "list", expanded: false, kids: [{ role: "group", expanded: false, kids: [{ role: "unknown", value: "• ", expanded: false }, { role: "static_text", value: "First item", expanded: false }] }] },
+        { role: "combo_box", name: "Size", expanded: false },
       ],
     }] }] }],
   }],
@@ -53,13 +55,18 @@ describe("reading a window's accessibility tree", () => {
     // The unnamed wrapper groups gave way; the heading's repeated text went.
     const web = tree.root.children[0]!.children[0]!;
     expect(web.role).toBe("web_area");
-    const [heading, field, button, box] = web.children;
+    // Chromium's `expanded: false` on everything says nothing; a closed combo box does.
+    expect(web.state).toBeUndefined();
+    const [heading, field, button, box, list, combo] = web.children;
     expect(heading).toEqual({ role: "heading", name: "E18 test window", bounds: { x: 64, y: 168, width: 422, height: 74 }, children: [] });
     expect(field).toMatchObject({ role: "text_field", value: "hello from E18", state: { editable: true, focused: true }, actions: ["press", "set_value"] });
     expect(button).toMatchObject({ role: "button", name: "Press me", actions: ["press"], bounds: { x: 442, y: 344, width: 146, height: 44 } });
     // Outside the window: no bounds, but the element and its state stay.
     expect(box).toEqual({ role: "check_box", name: "Off-screen", state: { checked: "on", disabled: true }, children: [] });
-    expect(tree.nodes).toBe(7);
+    // The bullet went, its wrapper group gave way.
+    expect(list).toEqual({ role: "list", children: [{ role: "static_text", value: "First item", children: [] }] });
+    expect(combo).toEqual({ role: "combo_box", name: "Size", state: { expanded: false }, children: [] });
+    expect(tree.nodes).toBe(10);
   });
 
   it("stops at the node, character or time limit and says it was cut short", async () => {
@@ -126,6 +133,9 @@ describe("the outline the chip's popover shows", () => {
       "      text field “hello from E18”",
       "      button “Press me”",
       "      check box “Off-screen”",
+      "      list",
+      "        static text “First item”",
+      "      combo box “Size”",
     ]);
     expect(outline(tree.root, 2)).toHaveLength(2);
   });

@@ -7,10 +7,7 @@
   border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--sunken);
 }
 .snapshots-detail-image.placeholder { height: 120px; }
-.snapshots-detail-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.snapshots-detail-meta strong { color: var(--ink); font-weight: 500; }
-.snapshots-detail-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.snapshots-detail-meta small, .snapshots-detail-note { color: var(--muted); font-size: 11px; }
+.snapshots-detail-meta, .snapshots-detail-note { color: var(--muted); font-size: 11px; }
 .snapshots-detail-tree summary { cursor: pointer; color: var(--ink-2); }
 .snapshots-detail-tree pre {
   margin: 6px 0 0; max-height: 160px; overflow: auto; padding: 6px 8px;
