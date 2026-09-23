@@ -1,10 +1,11 @@
 import { HostCommandError } from "tau/host-extension";
-import { PROVIDERS, type PullRequestLabel, type PullRequestRef, type PullRequestViewedState, type ReviewRequest } from "./protocol.js";
+import { PROVIDERS, type PullRequestLabel, type PullRequestRef, type PullRequestViewedState } from "./protocol.js";
 import type { ChangedFileEntry, ProviderTools, SourceControlProvider } from "./provider.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
+import { GITHUB_BRANCH_FIELDS, parseGitHubBranchRequest } from "./branch-request-json.js";
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs, SERVICES } from "./request-cli.js";
 
 const DIFF_BUFFER = 16 * 1024 * 1024;
@@ -83,8 +84,11 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
     },
     status: () => cliAuthStatus(tools, kind, "github.com"),
 
-    // The branch's request comes from Workspace Kit, which reads it with `gh` too and bases the branch diff on it.
-    current: async (branch) => await tools.workspace("review-request", branch.workspace ? { workspace: branch.workspace } : { fresh: branch.fresh }) as ReviewRequest | undefined,
+    // `gh` finds the request of the branch the checkout has; none, no login or no CLI all answer undefined.
+    current: async ({ cwd, host }) => {
+      const output = await tools.cli(kind, { args: ["pr", "view", "--json", GITHUB_BRANCH_FIELDS] }, "Reading the branch's pull request", { cwd, ...(host ? { host } : {}) }).catch(() => undefined);
+      return output ? parseGitHubBranchRequest(output) : undefined;
+    },
     create: async ({ cwd }, input) => createdUrl(await tools.cli(kind, { args: createArgs(kind, input) }, "Creating the pull request", { cwd })),
     merge: async ({ cwd }, request, method) => { await tools.cli(kind, { args: mergeArgs(kind, request.number, method) }, `Merging PR #${request.number}`, { cwd }); },
     edit: async ({ cwd }, request, input) => { await tools.cli(kind, { args: editArgs(kind, request.number, input) }, `Editing PR #${request.number}`, { cwd }); },

@@ -1,11 +1,12 @@
 import { HostCommandError } from "tau/host-extension";
-import { PROVIDERS, type PullRequestRef, type ReviewRequest } from "./protocol.js";
+import { PROVIDERS, type PullRequestRef } from "./protocol.js";
 import { readPages, type ProviderTools, type SourceControlProvider } from "./provider.js";
 import { cliAuthStatus, missingCli, parseCandidates } from "./provider-github.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitLabChecks, parseGitLabDetail, parseGitLabDiffs, parseGitLabThreads } from "./pull-request-json.js";
 import { parseGitLabList } from "./pull-request-list-json.js";
+import { parseGitLabBranchRequest } from "./branch-request-json.js";
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs } from "./request-cli.js";
 
 const LIST_BUFFER = 32 * 1024 * 1024;
@@ -34,7 +35,10 @@ export function createGitLabProvider(tools: ProviderTools): SourceControlProvide
     },
     status: () => cliAuthStatus(tools, kind, "gitlab.com"),
 
-    current: async (branch) => await tools.workspace("review-request", branch.workspace ? { workspace: branch.workspace } : { fresh: branch.fresh }) as ReviewRequest | undefined,
+    current: async ({ cwd, host }) => {
+      const output = await tools.cli(kind, { args: ["mr", "view", "-F", "json"] }, "Reading the branch's merge request", { cwd, ...(host ? { host } : {}) }).catch(() => undefined);
+      return output ? parseGitLabBranchRequest(output) : undefined;
+    },
     create: async ({ cwd }, input) => createdUrl(await tools.cli(kind, { args: createArgs(kind, input) }, "Creating the merge request", { cwd })),
     merge: async ({ cwd }, request, method) => { await tools.cli(kind, { args: mergeArgs(kind, request.number, method) }, `Merging MR #${request.number}`, { cwd }); },
     edit: async ({ cwd }, request, input) => { await tools.cli(kind, { args: editArgs(kind, request.number, input) }, `Editing MR #${request.number}`, { cwd }); },

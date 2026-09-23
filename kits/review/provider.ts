@@ -44,8 +44,6 @@ export interface RepositoryTarget {
 export interface BranchTarget extends RepositoryTarget {
   cwd: string;
   branch: string;
-  /** A workspace named by a rail row rather than the one on screen. */
-  workspace?: string;
   fresh: boolean;
 }
 

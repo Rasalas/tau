@@ -1,6 +1,7 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import {
   THREAD_RAIL_EXTENSION_ID,
+  WORKSPACE_HOST_EXTENSION_ID,
   type MergeMethod,
   type ReviewRequest,
   type ReviewRequestContext,
@@ -13,8 +14,8 @@ import { withInstructions } from "./writing.js";
 import { SERVICES, type CliRunner } from "./request-cli.js";
 
 const AUTH_CACHE_MS = 60_000;
-/** A rail row's workspace keeps its provider this long; its remote rarely moves. */
-const WORKSPACE_KIND_MS = 10 * 60_000;
+/** A branch's request is asked again after this long; `fresh` asks at once. */
+const BRANCH_REQUEST_MS = 30_000;
 const MERGE_METHODS: readonly MergeMethod[] = ["squash", "merge", "rebase"];
 const METHOD_WORDS: Record<MergeMethod, string> = { squash: "squash", merge: "merge commit", rebase: "rebase" };
 
@@ -84,7 +85,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
   const now = options.now ?? Date.now;
   // Only a login is remembered, so signing in shows on the next look.
   const signedIn = new Map<string, number>();
-  const workspaceKinds = new Map<string, { at: number; kind: ReviewRequest["provider"]; revision: number }>();
+  const branchRequests = new Map<string, { at: number; revision: number; value: Promise<ReviewRequest | undefined> }>();
 
   const workspace = async <T>(command: string, input?: unknown): Promise<T> => await sources.tools.workspace(command, input) as T;
 
@@ -99,10 +100,28 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
   };
 
   /** Where the provider finds the repository; a CLI that reads the checkout's remote needs no more than the checkout. */
-  const targetOf = (provider: SourceControlProvider, git: ReviewRequestContext): (RepositoryTarget & { cwd: string }) | undefined => {
+  const targetOf = (provider: SourceControlProvider, git: Pick<ReviewRequestContext, "root" | "remote">): (RepositoryTarget & { cwd: string }) | undefined => {
     const found = git.remote ? provider.repository(git.remote.url) : undefined;
     if (found) return { ...found, cwd: git.root };
     return provider.kind === "github" || provider.kind === "gitlab" ? { host: "", repo: "", cwd: git.root } : undefined;
+  };
+
+  /**
+   * The request of a checkout's branch through the provider its remote
+   * belongs to, reused for half a minute per checkout and branch. Undefined
+   * for no request, and for anything that keeps the provider from answering.
+   */
+  const branchRequest = async (git: Pick<ReviewRequestContext, "root" | "branch" | "remote">, fresh: boolean): Promise<ReviewRequest | undefined> => {
+    if (!git.branch || !git.remote) return undefined;
+    const provider = sources.get(await sources.detect(git.remote.url));
+    const target = targetOf(provider, git);
+    if (!target || provider.missing()) return undefined;
+    const key = `${provider.kind}\0${git.root}\0${git.branch}`;
+    const held = branchRequests.get(key);
+    if (held && !fresh && held.revision === sources.revision() && now() - held.at < BRANCH_REQUEST_MS) return held.value;
+    const value = provider.current({ ...target, branch: git.branch, fresh }).catch(() => undefined);
+    branchRequests.set(key, { at: now(), revision: sources.revision(), value });
+    return value;
   };
 
   /** The first thing missing before a request can be opened, or undefined. */
@@ -127,9 +146,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const provider = sources.get(await sources.detect(git.remote?.url));
     const target = targetOf(provider, git);
     const missing = await problem(git, provider, target);
-    const request = git.branch && git.remote && target && !provider.missing()
-      ? await provider.current({ ...target, branch: git.branch, fresh }).catch(() => undefined)
-      : undefined;
+    const request = await branchRequest(git, fresh);
     const current: ReviewRequestStatus = {
       ...(git.branch ? { branch: git.branch } : {}),
       base: git.base,
@@ -158,25 +175,10 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     return request;
   };
 
-  /**
-   * A rail row's request. GitHub and GitLab come from Workspace Kit's detector
-   * as they always did; the other providers need the checkout's branch and remote.
-   */
+  /** A rail row's request: any thread's checkout, named by its workspace. */
   const rowRequest = async (named: string): Promise<ReviewRequest | undefined> => {
-    const known = workspaceKinds.get(named);
-    let git: ReviewRequestContext | undefined;
-    let kind = known && now() - known.at < WORKSPACE_KIND_MS && known.revision === sources.revision() ? known.kind : undefined;
-    if (!kind) {
-      git = await workspace<ReviewRequestContext>("review-request-context", { workspace: named }).catch(() => undefined);
-      kind = await sources.detect(git?.remote?.url);
-      workspaceKinds.set(named, { at: now(), kind, revision: sources.revision() });
-    }
-    const provider = sources.get(kind);
-    if (kind === "github" || kind === "gitlab") return provider.current({ host: "", repo: "", cwd: named, branch: "", workspace: named, fresh: false });
-    git ??= await workspace<ReviewRequestContext>("review-request-context", { workspace: named }).catch(() => undefined);
-    const target = git ? targetOf(provider, git) : undefined;
-    if (!git?.branch || !target || provider.missing()) return undefined;
-    return provider.current({ ...target, branch: git.branch, workspace: named, fresh: false }).catch(() => undefined);
+    const git = await workspace<ReviewRequestContext>("review-request-context", { workspace: named }).catch(() => undefined);
+    return git ? branchRequest(git, false) : undefined;
   };
 
   context.registerCommand("pr-status", async (input) => {
@@ -185,6 +187,16 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     if (named) return { request: await rowRequest(named) };
     return status(record(input).fresh === true);
   }, { callers: [THREAD_RAIL_EXTENSION_ID] }); // a merged or closed request settles a Thread Rail thread
+
+  // Workspace Kit bases a branch diff on the request and counts a merged one for its cleanup; it names the Git facts.
+  context.registerCommand("branch-request", async (input) => {
+    const fields = record(input);
+    const root = text(fields.root);
+    const branch = text(fields.branch);
+    const remote = text(fields.remote);
+    if (!root || !branch || !remote) return undefined;
+    return branchRequest({ root, branch, remote: { name: "origin", url: remote } }, fields.fresh === true);
+  }, { callers: [WORKSPACE_HOST_EXTENSION_ID] });
 
   context.registerCommand("pr-draft", async (input): Promise<ReviewRequestDraft> => {
     const fields = record(input);
