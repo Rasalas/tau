@@ -44,6 +44,8 @@ export interface AcpInitializeResult {
     auth?: { logout?: object | null } | null;
     sessionCapabilities?: { resume?: object | null; close?: object | null } | null;
     promptCapabilities?: { image?: boolean; audio?: boolean; embeddedContext?: boolean } | null;
+    /** Transports beyond stdio; agy_acp_server 1.1.1 offers both. */
+    mcpCapabilities?: { http?: boolean; sse?: boolean } | null;
   } | null;
 }
 
@@ -177,8 +179,13 @@ export class AntigravitySession {
   get sessionId(): string | undefined { return this.setup?.sessionId; }
   get signInLink(): AuthorizationLink | undefined { return this.link; }
 
+  /** ACP lets a client send an http or sse server only to an agent that says it takes that transport. */
   private mcpServers(): unknown[] {
-    return [...this.options.mcpServers ?? []];
+    const transports = this.initialized?.agentCapabilities?.mcpCapabilities;
+    return (this.options.mcpServers ?? []).filter((server) => {
+      const type = (server as { type?: unknown }).type;
+      return type === "http" ? transports?.http === true : type === "sse" ? transports?.sse === true : true;
+    });
   }
 
   async newSession(): Promise<AcpSessionSetup> {
