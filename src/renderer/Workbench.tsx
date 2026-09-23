@@ -12,7 +12,6 @@ import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus, TurnErrorLine } from "./components/ComposerHost";
-import { LimitNotice } from "./components/LimitNotice";
 import { useThreadShell } from "./use-thread-shell";
 import { QueuedMessages } from "./components/QueuedMessages";
 import { ToastLayer } from "./components/ui/ToastLayer";
@@ -83,6 +82,7 @@ function storedDockWidth(storage: ClientStorage): number {
   return Number.isFinite(width) && width > 0 ? clampDockWidth(width) : DEFAULT_DOCK_WIDTH;
 }
 const LazyCommandPalette = lazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
+const LazyLimitNotice = lazy(() => import("./components/LimitNotice").then(({ LimitNotice }) => ({ default: LimitNotice })));
 const LazyStage = lazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 const LazySettingsScreen = lazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
 // Modals a command opens; they stay out of the first paint.
@@ -781,7 +781,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     const status = liveStatusLabel !== undefined
       ? <LiveStatus label={liveStatusLabel} />
       : showRunClock ? <LiveStatus startedAt={runStartedAt} />
-      : limit && conversationSnapshot ? <LimitNotice sessionId={conversationSnapshot.sessionId} limit={limit} />
+      : limit && conversationSnapshot ? <Suspense fallback={null}><LazyLimitNotice sessionId={conversationSnapshot.sessionId} limit={limit} /></Suspense>
       : turnError ? <TurnErrorLine message={turnError} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
     return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;

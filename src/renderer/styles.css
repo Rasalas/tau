@@ -262,8 +262,7 @@ button > svg { pointer-events: none; }
   color: var(--working); font-weight: 500; font-variant-numeric: tabular-nums;
 }
 .thread-status-age.status-ready { color: var(--ready); }
-.thread-status-age.status-interrupted { color: var(--warn); }
-.thread-status-age.status-limited { color: var(--warn); }
+.thread-status-age.status-interrupted, .status-limited { color: var(--warn); }
 .thread-status-age.status-failed { color: var(--fail-ink); }
 .thread-status-age > i {
   width: 10px; height: 10px; flex: none; border: 1.5px solid var(--working);
@@ -986,19 +985,6 @@ button > svg { pointer-events: none; }
 .turn-error-line > svg { flex: none; margin-top: 3px; color: var(--fail); }
 .turn-error-line > span { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; user-select: text; }
 
-/* A provider limit stopped the thread: when it resets, and how to continue. */
-.limit-notice {
-  display: flex; align-items: flex-start; gap: 10px; margin-top: 8px; padding: 10px 12px;
-  border: 1px solid var(--line-control); border-radius: 12px; background: var(--warn-chip); color: var(--ink-2);
-}
-.limit-notice > svg { flex: none; margin-top: 3px; color: var(--warn); }
-.limit-notice-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.45; }
-.limit-notice-body > strong { font-weight: 600; color: var(--warn); }
-.limit-notice-body > small { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
-.limit-notice-body > small.limit-notice-problem { color: var(--fail-ink); white-space: normal; }
-.limit-notice-actions { display: flex; gap: 6px; flex: none; align-self: center; }
-.limit-notice-actions > .mini-button:disabled { opacity: .5; cursor: default; }
-
 /* Messages waiting for the run: dashed user bubbles at the end of the conversation. */
 .queued-messages { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .queued-message {
@@ -1483,7 +1469,6 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 
 /* Rail marker for a thread whose turn a restart cut short. */
 .thread-row.activity-interrupted { border-color: var(--warn-chip); }
-.thread-row.activity-limited { border-color: var(--warn-chip); }
 
 /* -------------------------------------------------------- tool approval */
 

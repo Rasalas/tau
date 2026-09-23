@@ -3,6 +3,8 @@ import { Hourglass } from "lucide-react";
 import type { UiThreadLimit } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
 import { errorMessage } from "../../workbench/error-message";
+// Loaded with the notice: a limit stop is rare, so its styles stay out of the first paint.
+import "./LimitNotice.css";
 
 /** "2 h 5 min", "12 min", "under a minute": a wait reads the same in every timezone. */
 export function formatWait(ms: number): string {

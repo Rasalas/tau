@@ -12,7 +12,6 @@
 .agent-count.status-running > i, .agent-count.status-waiting > i { background: var(--working); }
 .agent-count.status-completed > i { background: var(--ready); }
 .agent-count.status-failed > i { background: var(--fail); }
-.agent-count.status-cancelled > i { background: var(--muted); }
 .agent-total-cost { color: var(--muted-2); font: 500 10px var(--mono); }
 .agent-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px; }
 .agent-group-label {
@@ -34,10 +33,9 @@
 .agent-row-head > time { flex: none; font: 10px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint); }
 .agent-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--faint); font-style: normal; }
 .agent-dot.status-running, .agent-dot.status-waiting { background: var(--working); }
-.agent-dot.status-pending { background: transparent; border: 1px solid var(--faint); }
+.agent-dot.status-pending, .agent-dot.status-cancelled { background: transparent; border: 1px solid var(--faint); }
 .agent-dot.status-completed { background: var(--ready); }
 .agent-dot.status-failed { background: var(--fail); }
-.agent-dot.status-cancelled { background: transparent; border: 1px solid var(--muted); }
 .agent-row-activity {
   font-size: 11.5px; color: var(--muted-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
