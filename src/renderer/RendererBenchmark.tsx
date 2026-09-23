@@ -10,6 +10,7 @@ import type { TranscriptActivity } from "./components/transcript-activity";
 import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
+import AppToolStreamScenario from "./RendererBenchmarkApp";
 
 /**
  * Just enough of a live transcript index to drive the streaming scenario:
@@ -237,7 +238,7 @@ function makeLongUserMessage(bytes: number, revision: number): UiMessage {
 export default function RendererBenchmark() {
   const params = new URLSearchParams(window.location.search);
   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
-  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number; streamEnd?: boolean };
+  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number; streamEnd?: boolean; updates?: number; linesPerUpdate?: number };
   const targetBytes = scenarioConfig.bytes ?? 0;
   const fenced = scenario.includes("fenced");
   const fencedText = useMemo(() => fenced ? fencedDocument(targetBytes) : "", [fenced, targetBytes]);
@@ -256,6 +257,7 @@ export default function RendererBenchmark() {
   const profilerReportedMount = useRef(false);
   const profilerReportedUpdate = useRef(false);
   const frames = useRef<number[]>([]);
+  const finishRef = useRef<(() => void) | undefined>(undefined);
   const [benchmarkPulse, setBenchmarkPulse] = useState(0);
   const [longUserRevision, setLongUserRevision] = useState(0);
   const payloadBytes = useRef(0);
@@ -303,6 +305,15 @@ export default function RendererBenchmark() {
     updateStartedAt.current = performance.now();
     setStreamingTick(tick);
   }, []);
+
+  // Bootstrap and the first paint of the workbench are setup; the timed window
+  // is the stream alone.
+  const onAppStreamReady = useCallback(() => {
+    interactionStartedAt.current = performance.now();
+    frames.current = [];
+  }, []);
+  const onAppStreamUpdate = useCallback((duration: number) => { updateDurations.current.push(duration); }, []);
+  const onAppStreamFinished = useCallback(() => finishRef.current?.(), []);
 
   useLayoutEffect(() => {
     if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
@@ -483,6 +494,9 @@ export default function RendererBenchmark() {
           });
         });
       });
+    } else if (scenario === "app-tool-output-stream") {
+      // The scenario drives itself and calls back; see RendererBenchmarkApp.
+      finishRef.current = finish;
     } else if (scenario === "transcript-viewport-streaming-1000-turns") {
       let settleFrames = 0;
       const waitForStreaming = () => {
@@ -540,6 +554,14 @@ export default function RendererBenchmark() {
     />;
   } else if (scenario === "transcript-viewport-streaming-1000-turns") {
     content = <StreamingTranscriptScenario activities={transcriptActivities} onTick={onStreamingTick} />;
+  } else if (scenario === "app-tool-output-stream") {
+    content = <AppToolStreamScenario
+      updates={scenarioConfig.updates ?? 120}
+      linesPerUpdate={scenarioConfig.linesPerUpdate ?? 16}
+      onReady={onAppStreamReady}
+      onUpdate={onAppStreamUpdate}
+      onFinished={onAppStreamFinished}
+    />;
   } else if (scenario.endsWith("-10000")) {
     content = <VirtualList
       items={filteredListItems}

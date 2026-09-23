@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { UiToolRun } from "../shared/contracts";
 import type { UiChangedFile, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import { createMemoryStorage } from "./client-storage";
-import { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity, writeCachedTurnActivity } from "./turn-activity";
+import { changesSinceTurn, changesTouchedByTools, followTurnActivity, readCachedTurnActivity, writeCachedTurnActivity, type TurnActivitySource } from "./turn-activity";
 
 function file(path: string, added: number, removed: number): UiChangedFile {
   const parts = path.split("/");
@@ -80,5 +81,53 @@ describe("changesSinceTurn", () => {
     expect(changesSinceTurn(undefined, changes([file("old.ts", 20, 3)]))).toMatchObject({
       files: [], added: 0, removed: 0,
     });
+  });
+});
+
+describe("followTurnActivity", () => {
+  function source() {
+    const listeners = new Set<() => void>();
+    let snapshot: { sessionId: string } | undefined = { sessionId: "session" };
+    let view: ReturnType<TurnActivitySource["getToolView"]> = { tools: [], turnActivitySessionId: "session" };
+    const value: TurnActivitySource = {
+      getSnapshot: () => snapshot,
+      getToolView: () => view,
+      subscribeToSnapshot: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      subscribeToTools: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    };
+    return {
+      value,
+      listeners,
+      setView(next: typeof view) { view = next; listeners.forEach((listener) => listener()); },
+      setSnapshot(next: typeof snapshot) { snapshot = next; listeners.forEach((listener) => listener()); },
+    };
+  }
+  const bash = (output: string): UiToolRun => ({ id: "t", name: "bash", args: {}, status: "running", output, startedAt: 1 });
+
+  it("caches each new tool state of the visible thread's turn and stops when told", () => {
+    const storage = createMemoryStorage();
+    const set = vi.spyOn(storage, "set");
+    const fake = source();
+    const stop = followTurnActivity(fake.value, storage);
+
+    fake.setView({ tools: [bash("one")], toolAnchorId: "m1", turnActivitySessionId: "session" });
+    expect(readCachedTurnActivity(storage, "session")).toMatchObject({ anchorMessageId: "m1", tools: [{ output: "one" }] });
+    const writes = set.mock.calls.length;
+
+    // The same tool state reached through the other slice is not written again.
+    fake.setSnapshot({ sessionId: "session" });
+    expect(set.mock.calls.length).toBe(writes);
+
+    stop();
+    expect(fake.listeners.size).toBe(0);
+  });
+
+  it("leaves the cache alone while the turn belongs to another thread", () => {
+    const storage = createMemoryStorage();
+    const fake = source();
+    followTurnActivity(fake.value, storage);
+    fake.setView({ tools: [bash("elsewhere")], turnActivitySessionId: "other" });
+    expect(readCachedTurnActivity(storage, "session")?.tools ?? []).toEqual([]);
+    expect(readCachedTurnActivity(storage, "other")).toBeUndefined();
   });
 });

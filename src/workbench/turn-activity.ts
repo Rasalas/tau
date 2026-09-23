@@ -99,3 +99,31 @@ export function changesSinceTurn(
     removed: files.reduce((total, file) => total + file.removed, 0),
   };
 }
+
+/** What `followTurnActivity` reads of the thread view; `ThreadViewStore` is one. */
+export interface TurnActivitySource {
+  getSnapshot(): { sessionId: string } | undefined;
+  getToolView(): { tools: readonly UiToolRun[]; toolAnchorId?: string; turnActivitySessionId?: string };
+  subscribeToSnapshot(listener: () => void): () => void;
+  subscribeToTools(listener: () => void): () => void;
+}
+
+/**
+ * Writes the visible thread's live turn to the cache whenever it changes. It
+ * listens to the store, not a render, so tool output re-renders nothing here.
+ */
+export function followTurnActivity(source: TurnActivitySource, storage: ClientStorage): () => void {
+  let written: { sessionId?: string; tools?: readonly UiToolRun[]; anchorMessageId?: string } = {};
+  const write = () => {
+    const sessionId = source.getSnapshot()?.sessionId;
+    const { tools, toolAnchorId, turnActivitySessionId } = source.getToolView();
+    if (!sessionId || turnActivitySessionId !== sessionId) return;
+    if (written.sessionId === sessionId && written.tools === tools && written.anchorMessageId === toolAnchorId) return;
+    written = { sessionId, tools, anchorMessageId: toolAnchorId };
+    writeCachedTurnActivity(storage, { sessionId, tools: [...tools], anchorMessageId: toolAnchorId });
+  };
+  write();
+  const stopTools = source.subscribeToTools(write);
+  const stopSnapshot = source.subscribeToSnapshot(write);
+  return () => { stopTools(); stopSnapshot(); };
+}

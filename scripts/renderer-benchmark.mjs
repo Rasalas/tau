@@ -86,6 +86,7 @@ const harnessFiles = [
   "scripts/renderer-budget.mjs",
   "scripts/performance-budgets.json",
   "src/renderer/RendererBenchmark.tsx",
+  "src/renderer/RendererBenchmarkApp.tsx",
 ];
 const harnessFileSha256 = Object.fromEntries(harnessFiles.map((file) => [file, createHash("sha256").update(readFileSync(join(ROOT, file))).digest("hex")]));
 const harnessSourceSha256 = createHash("sha256")
