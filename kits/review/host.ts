@@ -45,7 +45,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
   return {
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
-    permissions: ["sessions", "process", "runtime:extend"],
+    permissions: ["sessions", "process", "network", "runtime:extend"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       // Review's desktop half reaches the Workspace read API through this

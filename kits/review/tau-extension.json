@@ -8,6 +8,7 @@
   "permissions": [
     "sessions",
     "process",
+    "network",
     "runtime:extend"
   ],
   "isolation": "in-process",

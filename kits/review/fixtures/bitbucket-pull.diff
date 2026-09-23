@@ -1,0 +1,292 @@
+diff --git a/.changes/next-release/minor-20200812195730.json b/.changes/next-release/minor-20200812195730.json
+new file mode 100644
+index 0000000..4ba2d41
+--- /dev/null
++++ b/.changes/next-release/minor-20200812195730.json
+@@ -0,0 +1,4 @@
++{
++  "type": "minor",
++  "description": "Add support for uploading multiple files."
++}
+diff --git a/README.md b/README.md
+index 3195114..d9f938e 100644
+--- a/README.md
++++ b/README.md
+@@ -25,7 +25,7 @@ Add the following snippet to the script section of your `bitbucket-pipelines.yml
+ | ---------------------        | ----------------------------------------------------------- |
+ | BITBUCKET_USERNAME (*)       | Bitbucket user that will be used to upload the file. |
+ | BITBUCKET_APP_PASSWORD (*)   | [Bitbucket app password][Bitbucket app password] of the user that will be used to upload the file. |
+-| FILENAME (*)                 | Name of the local file to upload. |
++| FILENAME (\*)                | Name of the local file to upload. Supports [glob patterns][glob patterns] "\*". e.g. \*.html. Limit max 10 files, if limit reached - build fails. |
+ | ACCOUNT                      | Name of the Bitbucket account in which the file will be uploaded to. If empty, it will be uploaded to the same account where the pipeline runs. Default: `${BITBUCKET_REPO_OWNER}`. |
+ | REPOSITORY                   | Name of the Bitbucket repository in which the file will be uploaded to. If empty, it will be uploaded to the same repository where the pipeline runs. Default: `${BITBUCKET_REPO_SLUG}`. |
+ | DEBUG                        | Flag to turn on extra debug information. Default: `false`. |
+@@ -41,7 +41,7 @@ To use this pipe, you need to generate an [app password][Bitbucket app password]
+ 
+ Basic example:
+ 
+-Deploy a file to Bitbucket Downloads for the current repository.
++Upload a file to Bitbucket Downloads for the current repository.
+ 
+ ```yaml
+ script:
+@@ -52,9 +52,22 @@ script:
+       FILENAME: 'package.json'
+ ```
+ 
++
++Upload multiple files by pattern:
++
++```yaml
++script:
++  - pipe: atlassian/bitbucket-upload-file:0.1.8
++    variables:
++      BITBUCKET_USERNAME: $BITBUCKET_USERNAME
++      BITBUCKET_APP_PASSWORD: $BITBUCKET_APP_PASSWORD
++      FILENAME: '*.html'
++```
++
++
+ Advanced example:
+ 
+-Deploy a file to Bitbucket Downloads for the other repository in the other account where user has access.
++Upload a file to Bitbucket Downloads for the other repository in the other account where user has access.
+ 
+ ```yaml
+ script:
+@@ -67,6 +80,20 @@ script:
+       REPOSITORY: 'awesome-repository-name'
+ ```
+ 
++
++Upload multiple `txt` files recursively with `**` pattern. Will match any files and zero or more directories, subdirectories and symbolic links to directories.
++
++Note! Using the `**` pattern in large directory trees may consume an inordinate amount of time.:
++```yaml
++script:
++  - pipe: atlassian/bitbucket-upload-file:0.1.8
++    variables:
++      BITBUCKET_USERNAME: $BITBUCKET_USERNAME
++      BITBUCKET_APP_PASSWORD: $BITBUCKET_APP_PASSWORD
++      FILENAME: '**/*.txt'
++```
++
++
+ ## Support
+ 
+ If you’d like help with this pipe, or you have an issue or feature request, [let us know on Community][community].
+@@ -85,4 +112,5 @@ Apache 2.0 licensed, see [LICENSE.txt](LICENSE.txt) file.
+ 
+ [community]: https://community.atlassian.com/t5/forums/postpage/board-id/bitbucket-pipelines-questions?add-tags=pipes,downloads,file
+ [variables-in-pipelines]: https://confluence.atlassian.com/bitbucket/variables-in-pipelines-794502608.html
+-[Bitbucket app password]: https://confluence.atlassian.com/bitbucket/app-passwords-828781300.html
+\ No newline at end of file
++[Bitbucket app password]: https://confluence.atlassian.com/bitbucket/app-passwords-828781300.html
++[glob patterns]: https://man7.org/linux/man-pages/man7/glob.7.html
+diff --git a/bitbucket-pipelines.yml b/bitbucket-pipelines.yml
+index eed10b8..a6e8f00 100644
+--- a/bitbucket-pipelines.yml
++++ b/bitbucket-pipelines.yml
+@@ -5,6 +5,7 @@ image:
+ release-dev: &release-dev
+   step:
+     name: Release dev version
++    trigger: manual
+     script:
+       - pip install semversioner==0.8.1
+       - VERSION=$(semversioner current-version).${BITBUCKET_BUILD_NUMBER}-dev
+diff --git a/pipe/pipe.py b/pipe/pipe.py
+index 0dfaa90..764bf10 100755
+--- a/pipe/pipe.py
++++ b/pipe/pipe.py
+@@ -1,5 +1,6 @@
+ import os
+ import json
++import glob
+ from pathlib import Path
+ 
+ import yaml
+@@ -8,6 +9,9 @@ from requests.auth import HTTPBasicAuth
+ 
+ from bitbucket_pipes_toolkit import Pipe, get_logger
+ 
++
++MAX_FILES_UPLOAD_LIMIT = 10
++
+ BITBUCKET_BASE_URL = "https://bitbucket.org"
+ BITBUCKET_API_BASE_URL = "https://api.bitbucket.org/2.0"
+ 
+@@ -32,28 +36,52 @@ class UploadFilePipe(Pipe):
+         logger.info('Executing the pipe...')
+         username = self.get_variable('BITBUCKET_USERNAME')
+         app_password = self.get_variable('BITBUCKET_APP_PASSWORD')
+-        filename = self.get_variable('FILENAME')
++        files = self.get_variable('FILENAME')
++
+         account = self.get_variable('ACCOUNT')
+         repository = self.get_variable('REPOSITORY')
+ 
+-        if not Path(filename).is_file():
+-            self.fail(f"File {filename} doesn't exist.")
+-
+         url = f"{BITBUCKET_API_BASE_URL}/repositories/{account}/{repository}/downloads"
+         auth = HTTPBasicAuth(username, app_password)
+ 
+-        with open(filename, 'rb') as f:
+-            logger.info(f"Start uploading file {filename}...")
+-            response = requests.post(url, auth=auth, files={'files': (filename, f)})
++        # https://meta.stackoverflow.com/questions/368287/canonical-for-why-are-wildcards-not-being-expanded-by-subprocess-call-run-popen
++        # wildcard preprocessing before run subprocess
++        if "*" in files:
++            files_list = []
++            for file in files.split(' '):
++                files_list.extend(glob.glob(file, recursive=True))
++        else:
++            files_list = files.split(' ')
++
++        # only uniq values
++        files_list = list(set(files_list))
++
++        if not files_list:
++            self.fail(f"Files by pattern {files} not found.")
++
++        if len(files_list) >= MAX_FILES_UPLOAD_LIMIT:
++            self.fail(f'Found {len(files_list)} files to upload. Supported max '
++                      f'number of files to upload {MAX_FILES_UPLOAD_LIMIT}.')
++
++        multiple_files = []
++        for filename in files_list:
++            if not Path(filename).is_file():
++                self.fail(f"File {filename} doesn't exist.")
++            multiple_files.append(('files', (filename, FileOnDemand(filename, 'rb'))))
++
++        file_names = [fname[1][0] for fname in multiple_files]
++        logger.info(f"Start uploading {len(file_names)} files"
++                    f" {file_names}...")
++        response = requests.post(url, auth=auth, files=multiple_files)
+ 
+         # Bitbucket API returns status code 201 'Created' after success upload
+         # https://developer.atlassian.com/bitbucket/api/2/reference/resource/repositories/%7Busername%7D/%7Brepo_slug%7D/downloads#post
+         if response.status_code == 201:
+             link = f"{BITBUCKET_BASE_URL}/{account}/{repository}/downloads"
+-            basename = os.path.basename(filename)
+-
+-            self.success(f"Successfully uploaded file {filename} to {link}")
+-            logger.info(f"You can download the file by clicking in this link: {link}/{basename}")
++            for filename in file_names:
++                basename = os.path.basename(filename)
++                logger.info(f"You can download the file by clicking in this link: {link}/{basename}")
++            self.success(f"Successfully uploaded files {file_names} to {link}")
+         elif response.status_code == 401:
+             # clarifying message for users
+             self.fail(
+@@ -67,11 +95,23 @@ class UploadFilePipe(Pipe):
+             message = data['error']['message'] if data and data.get('error') else response.text
+ 
+             self.fail(
+-                f"Failed to upload file {filename}. Status code: {response.status_code}. "
++                f"Failed to upload files {file_names}. "
++                f"Status code: {response.status_code}. "
+                 f"Message: {message}."
+             )
+ 
+ 
++class FileOnDemand:
++
++    def __init__(self, filename, mode):
++        self.filename = filename
++        self.mode = mode
++
++    def read(self):
++        with open(self.filename, self.mode) as f:
++            return f.read()
++
++
+ if __name__ == '__main__':
+     metadata = yaml.safe_load(open('/pipe.yml', 'r'))
+     pipe = UploadFilePipe(schema=schema, pipe_metadata=metadata, check_for_newer_version=True)
+diff --git a/test/test.py b/test/test.py
+index 1d4f414..1ad6528 100755
+--- a/test/test.py
++++ b/test/test.py
+@@ -17,15 +17,9 @@ def delete_file_from_downloads(account, token, repository, filename):
+     return requests.delete(url, auth=auth)
+ 
+ 
+-class UploadArtifactTestCase(PipeTestCase):
++class UploadFileSuccessTestCase(PipeTestCase):
+     filename = 'pipe.yml'
+ 
+-    def test_fail_no_params(self):
+-        result = self.run_container()
+-
+-        self.assertRegex(
+-            result, rf"✖ Validation errors")
+-
+     def test_upload_basic_success(self):
+         account = os.getenv('BITBUCKET_REPO_OWNER')
+         repository = os.getenv('BITBUCKET_REPO_SLUG', 'test-bitbucket-upload-artifact')
+@@ -48,8 +42,8 @@ class UploadArtifactTestCase(PipeTestCase):
+             repository,
+             self.filename,
+         )
+-        self.assertRegex(
+-            result, rf"✔ Successfully uploaded file {self.filename} to {BITBUCKET_BASE_URL}/{account}/{repository}/downloads")
++        self.assertIn("Successfully uploaded files", result)
++        self.assertIn(self.filename, result)
+ 
+     def test_upload_other_account_success(self):
+         account = 'bitbucketpipelines'
+@@ -75,8 +69,51 @@ class UploadArtifactTestCase(PipeTestCase):
+             repository,
+             self.filename,
+         )
++        self.assertIn("Successfully uploaded files", result)
++        self.assertIn(self.filename, result)
++
++    def test_upload_wildcard_multiple_files_success(self):
++        account = os.getenv('BITBUCKET_REPO_OWNER')
++        repository = os.getenv('BITBUCKET_REPO_SLUG', 'test-bitbucket-upload-artifact')
++
++        result = self.run_container(
++            environment={
++                # pipelines env variables
++                'BITBUCKET_REPO_OWNER': os.getenv('BITBUCKET_REPO_OWNER'),
++                'BITBUCKET_REPO_SLUG':  os.getenv('BITBUCKET_REPO_SLUG'),
++                # pipe variables
++                'BITBUCKET_USERNAME': os.getenv('BITBUCKET_USERNAME'),
++                'BITBUCKET_APP_PASSWORD': os.getenv('BITBUCKET_APP_PASSWORD'),
++                'FILENAME': '*NG.md',
++            }
++        )
++
++        delete_file_from_downloads(
++            os.getenv('BITBUCKET_USERNAME'),
++            os.getenv('BITBUCKET_APP_PASSWORD'),
++            repository,
++            'CONTRIBUTING.md',
++        )
++        delete_file_from_downloads(
++            os.getenv('BITBUCKET_USERNAME'),
++            os.getenv('BITBUCKET_APP_PASSWORD'),
++            repository,
++            'RELEASING.md',
++        )
++
++        self.assertIn("Successfully uploaded files", result)
++        self.assertIn('RELEASING.md', result)
++        self.assertIn('CONTRIBUTING.md', result)
++
++
++class UploadFileFailTestCase(PipeTestCase):
++    filename = 'pipe.yml'
++
++    def test_fail_no_params(self):
++        result = self.run_container()
++
+         self.assertRegex(
+-            result, rf"✔ Successfully uploaded file {self.filename} to {BITBUCKET_BASE_URL}/{account}/{repository}/downloads")
++            result, rf"✖ Validation errors")
+ 
+     def test_fail_if_file_not_exist(self):
+         filename = 'file-not-exist'

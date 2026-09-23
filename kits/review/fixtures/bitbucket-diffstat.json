@@ -1,0 +1,83 @@
+{
+ "values": [
+  {
+   "type": "diffstat",
+   "lines_added": 4,
+   "lines_removed": 0,
+   "status": "added",
+   "old": null,
+   "new": {
+    "path": ".changes/next-release/minor-20200812195730.json",
+    "type": "commit_file",
+    "escaped_path": ".changes/next-release/minor-20200812195730.json"
+   }
+  },
+  {
+   "type": "diffstat",
+   "lines_added": 32,
+   "lines_removed": 4,
+   "status": "modified",
+   "old": {
+    "path": "README.md",
+    "type": "commit_file",
+    "escaped_path": "README.md"
+   },
+   "new": {
+    "path": "README.md",
+    "type": "commit_file",
+    "escaped_path": "README.md"
+   }
+  },
+  {
+   "type": "diffstat",
+   "lines_added": 1,
+   "lines_removed": 0,
+   "status": "modified",
+   "old": {
+    "path": "bitbucket-pipelines.yml",
+    "type": "commit_file",
+    "escaped_path": "bitbucket-pipelines.yml"
+   },
+   "new": {
+    "path": "bitbucket-pipelines.yml",
+    "type": "commit_file",
+    "escaped_path": "bitbucket-pipelines.yml"
+   }
+  },
+  {
+   "type": "diffstat",
+   "lines_added": 52,
+   "lines_removed": 12,
+   "status": "modified",
+   "old": {
+    "path": "pipe/pipe.py",
+    "type": "commit_file",
+    "escaped_path": "pipe/pipe.py"
+   },
+   "new": {
+    "path": "pipe/pipe.py",
+    "type": "commit_file",
+    "escaped_path": "pipe/pipe.py"
+   }
+  },
+  {
+   "type": "diffstat",
+   "lines_added": 47,
+   "lines_removed": 10,
+   "status": "modified",
+   "old": {
+    "path": "test/test.py",
+    "type": "commit_file",
+    "escaped_path": "test/test.py"
+   },
+   "new": {
+    "path": "test/test.py",
+    "type": "commit_file",
+    "escaped_path": "test/test.py"
+   }
+  }
+ ],
+ "pagelen": 100,
+ "size": 5,
+ "page": 1
+}

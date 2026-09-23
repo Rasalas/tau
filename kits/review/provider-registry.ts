@@ -5,6 +5,7 @@ import { HostCommandError, type HostExtensionContext } from "tau/host-extension"
 import { providerInfo, REQUEST_SERVICES, WORKSPACE_HOST_EXTENSION_ID, type PullRequestRef, type RequestService } from "./protocol.js";
 import type { GitCredential, HttpAnswer, HttpFetch, ProviderTools, SourceControlProvider } from "./provider.js";
 import { createGitHubProvider } from "./provider-github.js";
+import { createBitbucketProvider } from "./provider-bitbucket.js";
 import { createForgejoProvider } from "./provider-forgejo.js";
 import { createGitLabProvider } from "./provider-gitlab.js";
 import { isRateLimited, RateLimitGate, retryAtFrom } from "./provider-rate-limit.js";
@@ -51,7 +52,7 @@ const FACTORIES: Record<RequestService, ProviderFactory> = {
   github: (tools) => createGitHubProvider(tools),
   gitlab: (tools) => createGitLabProvider(tools),
   forgejo: (tools) => createForgejoProvider(tools),
-  bitbucket: () => unavailable("bitbucket"),
+  bitbucket: (tools, env) => createBitbucketProvider(tools, env),
   "azure-devops": () => unavailable("azure-devops"),
 };
 
