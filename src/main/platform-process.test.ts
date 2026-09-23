@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,8 +97,9 @@ describe.runIf(process.platform === "win32")("on a real Windows machine", () => 
     await writeFile(join(dir, "print-args.cmd"), `@"${process.execPath}" "%~dp0\\print-args.cjs" %*\r\n`);
     const args = ["plain", "a b", "a&b|c", "100%", "%PATH%", "x^y", "(paren)", "C:\\dir with space\\", "!bang!", "<in>", ""];
     const invocation = commandInvocation(join(dir, "print-args.cmd"), args);
-    const output = execFileSync(invocation.command, invocation.args, { encoding: "utf8", windowsVerbatimArguments: invocation.windowsVerbatimArguments, windowsHide: true });
-    expect(JSON.parse(output)).toEqual(args);
+    const result = spawnSync(invocation.command, invocation.args, { encoding: "utf8", windowsVerbatimArguments: invocation.windowsVerbatimArguments, windowsHide: true });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(args);
   });
 
   it("ends cmd.exe and the program it started", async () => {
