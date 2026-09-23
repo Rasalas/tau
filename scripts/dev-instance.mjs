@@ -210,6 +210,9 @@ async function main() {
   // The Cursor CLI keeps config, chats and (with a home) its login in ~/.cursor; its kit points it here.
   const cursorHome = process.env.TAU_CURSOR_HOME ?? join(DEV_DIR, "cursor-home");
   mkdirSync(cursorHome, { recursive: true });
+  // The Grok CLI keeps config, login and sessions in ~/.grok; its kit points GROK_HOME here.
+  const grokHome = process.env.TAU_GROK_HOME ?? join(DEV_DIR, "grok-home");
+  mkdirSync(grokHome, { recursive: true });
   // Onboarding imports the agent CLIs' earlier sessions; an instance reads fixtures only, never the user's history.
   const importRoots = process.env.TAU_IMPORT_ROOTS ?? join(DEV_DIR, "import-roots");
 
@@ -257,6 +260,7 @@ async function main() {
     CODEX_HOME: codexHome,
     TAU_OPENCODE_HOME: openCodeHome,
     TAU_CURSOR_HOME: cursorHome,
+    TAU_GROK_HOME: grokHome,
     TAU_IMPORT_ROOTS: importRoots,
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
