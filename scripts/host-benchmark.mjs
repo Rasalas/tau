@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile as writeTextFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile as writeTextFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -30,6 +30,92 @@ function summarize(samples) {
 
 /** Cold starts per report; one start is a single sample, not a distribution. */
 const HOST_RUNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_RUNS ?? 3));
+/** User turns in the long metadata fixture; each adds a tool call, its result and an answer. */
+const LONG_THREAD_TURNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_LONG_TURNS ?? 5_000));
+const METADATA_SAMPLES = 20;
+
+/** One thread of `turns` user turns, each with a tool call, its result and an answer. */
+function writeThread(SessionManager, cwd, sessionDir, turns, provider, model) {
+  const manager = SessionManager.create(cwd, sessionDir);
+  const at = Date.now();
+  const assistant = (content, index) => ({
+    role: "assistant", content, api: "openai-completions", provider, model,
+    usage: { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 20, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "stop", timestamp: at + index,
+  });
+  for (let turn = 0; turn < turns; turn += 1) {
+    const index = turn * 4;
+    const callId = `call-${turn}`;
+    manager.appendMessage({ role: "user", content: [{ type: "text", text: `Question ${turn}: what does file ${turn} contain?` }], timestamp: at + index });
+    manager.appendMessage(assistant([{ type: "toolCall", id: callId, name: "bash", arguments: { command: `cat file-${turn}.txt` } }], index + 1));
+    manager.appendMessage({ role: "toolResult", toolCallId: callId, toolName: "bash", content: [{ type: "text", text: `line ${turn}\n`.repeat(8) }], isError: false, timestamp: at + index + 2 });
+    manager.appendMessage(assistant([{ type: "text", text: `File ${turn} holds eight lines that each name the turn.` }], index + 3));
+  }
+  return { path: manager.getSessionFile(), entries: manager.getEntries().length };
+}
+
+/**
+ * Model and thinking-level changes in a short and a long thread. Its own agent
+ * directory: a model change needs a provider with a key, and must not touch
+ * the settings of whoever runs the benchmark.
+ */
+async function measureMetadataCommands(PiHost, ProjectHistory, SessionManager) {
+  const agentDir = join(alternate, "metadata-agent");
+  const sessionDir = join(alternate, "metadata-sessions");
+  const provider = "tau-bench";
+  await mkdir(agentDir, { recursive: true });
+  await writeTextFile(join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      [provider]: {
+        baseUrl: "http://127.0.0.1:9/v1",
+        api: "openai-completions",
+        apiKey: "benchmark",
+        models: [{ id: "bench-a", reasoning: true }, { id: "bench-b", reasoning: true }],
+      },
+    },
+  }));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const threads = {
+    short: writeThread(SessionManager, alternate, sessionDir, 2, provider, "bench-a"),
+    long: writeThread(SessionManager, alternate, sessionDir, LONG_THREAD_TURNS, provider, "bench-a"),
+  };
+  const history = new ProjectHistory(join(alternate, "metadata-projects.json"));
+  await history.load();
+  const host = new PiHost(alternate, () => {}, history, mode === "safe", false);
+  const samples = [];
+  try {
+    await host.start();
+    for (const [length, thread] of Object.entries(threads)) {
+      await host.switchSession(thread.path);
+      // One untimed round first: the first change of a thread warms the model catalog.
+      for (let run = -1; run < METADATA_SAMPLES; run += 1) {
+        const modelStarted = performance.now();
+        await host.setModel(provider, run % 2 === 0 ? "bench-b" : "bench-a");
+        const modelMs = performance.now() - modelStarted;
+        const thinkingStarted = performance.now();
+        await host.setThinkingLevel(run % 2 === 0 ? "high" : "low");
+        const thinkingMs = performance.now() - thinkingStarted;
+        if (run < 0) continue;
+        samples.push({ scenario: `set-model-${length}`, entries: thread.entries, durationMs: modelMs });
+        samples.push({ scenario: `set-thinking-${length}`, entries: thread.entries, durationMs: thinkingMs });
+      }
+    }
+  } finally {
+    await host.dispose();
+    await history.flush();
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+  }
+  return {
+    entries: { short: threads.short.entries, long: threads.long.entries },
+    samples,
+    summaries: Object.fromEntries([...new Set(samples.map((sample) => sample.scenario))].map((scenario) => [
+      scenario,
+      summarize(samples.filter((sample) => sample.scenario === scenario).map((sample) => sample.durationMs)),
+    ])),
+  };
+}
 
 try {
   execFileSync("git", ["init", "-b", "main", alternate], { stdio: "ignore" });
@@ -76,8 +162,9 @@ try {
     phases = host.getLifecycleMeasurements();
     background = host.getBackgroundLifecycleMeasurements();
   }
+  const metadata = await measureMetadataCommands(PiHost, ProjectHistory, SessionManager);
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     mode,
     wallClock,
@@ -89,6 +176,7 @@ try {
     hostRuns: HOST_RUNS,
     phases,
     background,
+    metadata,
   };
   await writeFile(output, `${JSON.stringify(report, null, 2)}\n`);
   if (check) {

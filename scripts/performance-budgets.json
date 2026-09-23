@@ -33,6 +33,8 @@
   "rendererDomNodes": 5000,
   "hostBootstrapFullMs": 2500,
   "hostBootstrapSafeMs": 1000,
+  "metadataCommandP95Ms": 10,
+  "metadataLongThreadEntries": 10000,
   "gitSubprocesses": 6,
   "gitOverlapSubprocesses": 6,
   "gitMaxParallelSubprocesses": 4,

@@ -36,11 +36,34 @@ export function evaluateHostBudgets(report, budgets = {}) {
       .find((phase) => phase.name === "bind");
     if (criticalBind) failures.push(`full cold-switch still uses serial extension binding (${criticalBind.durationMs.toFixed(1)}ms)`);
   }
+  failures.push(...evaluateMetadataBudgets(report, budgets));
   const warm = report.summaries?.["warm-switch"];
   if (!warm || ![warm.median, warm.p95, warm.maximum].every(Number.isFinite)) {
     failures.push("warm-switch median, p95, and maximum were not reported by the host fixture");
   } else if (warm.p95 > warmSwitchP95Ms) {
     failures.push(`${report.mode} warm-switch p95 ${warm.p95.toFixed(1)}ms > ${warmSwitchP95Ms}ms (median ${warm.median.toFixed(1)}ms, p95 ${warm.p95.toFixed(1)}ms, max ${warm.maximum.toFixed(1)}ms)`);
+  }
+  return failures;
+}
+
+/**
+ * A model or thinking-level change in a thread of thousands of entries costs
+ * what it costs in a short one. Reports before schema 2 have no such case.
+ */
+function evaluateMetadataBudgets(report, budgets) {
+  if ((report.schemaVersion ?? 1) < 2) return [];
+  const metadata = report.metadata;
+  if (!metadata?.summaries) return ["metadata commands were not measured by the host fixture"];
+  const failures = [];
+  const minimumEntries = budgets.metadataLongThreadEntries ?? 10_000;
+  if (!((metadata.entries?.long ?? 0) >= minimumEntries)) {
+    failures.push(`metadata long thread has ${metadata.entries?.long ?? 0} entries < ${minimumEntries}`);
+  }
+  const limit = budgets.metadataCommandP95Ms ?? 10;
+  for (const scenario of ["set-model-short", "set-thinking-short", "set-model-long", "set-thinking-long"]) {
+    const summary = metadata.summaries[scenario];
+    if (!summary || !Number.isFinite(summary.p95)) failures.push(`${scenario} was not reported by the host fixture`);
+    else if (summary.p95 > limit) failures.push(`${scenario} p95 ${summary.p95.toFixed(1)}ms > ${limit}ms (median ${summary.median.toFixed(1)}ms)`);
   }
   return failures;
 }

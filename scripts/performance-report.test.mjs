@@ -108,6 +108,25 @@ describe("performance report checks", () => {
     ]);
   });
 
+  it("fails a metadata command whose latency grows with the thread", () => {
+    const lean = { median: 0.2, p95: 0.5, maximum: 0.6 };
+    const base = { schemaVersion: 2, mode: "safe", summaries: {
+      bootstrap: { median: 100, p95: 100, maximum: 100 },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [], background: [{ name: "project-label", durationMs: 10 }] };
+    const metadata = (long, entries = 20_000) => ({ entries: { short: 8, long: entries }, summaries: {
+      "set-model-short": lean, "set-thinking-short": lean, "set-model-long": long, "set-thinking-long": lean,
+    } });
+    expect(evaluateHostBudgets({ ...base, metadata: metadata(lean) })).toEqual([]);
+    expect(evaluateHostBudgets({ ...base, metadata: metadata({ median: 72, p95: 109, maximum: 120 }) })).toEqual([
+      "set-model-long p95 109.0ms > 10ms (median 72.0ms)",
+    ]);
+    expect(evaluateHostBudgets({ ...base, metadata: metadata(lean, 800) })).toEqual([
+      "metadata long thread has 800 entries < 10000",
+    ]);
+    expect(evaluateHostBudgets(base)).toEqual(["metadata commands were not measured by the host fixture"]);
+  });
+
   it("fails Git fan-out and missing measurements", () => {
     const failures = evaluateGitBudgets({
       baselineSubprocesses: 6, coordinatedSubprocesses: 7, overlappingRefreshSubprocesses: 7,
