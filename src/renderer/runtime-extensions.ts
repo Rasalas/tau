@@ -29,7 +29,8 @@ export const SHARED_MODULES: Partial<Record<SharedModuleSpecifier, object>> & Re
  */
 let iconModule: Promise<object> | undefined;
 export function loadSharedIcons(): Promise<object> {
-  iconModule ??= import("lucide-react").then((module) => {
+  iconModule ??= import("./shared-icons").then(({ sharedIconModule }) => {
+    const module = sharedIconModule();
     SHARED_MODULES["lucide-react"] = module;
     return module;
   });
