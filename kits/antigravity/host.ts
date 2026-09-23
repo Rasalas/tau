@@ -96,6 +96,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const provider: HostRuntimeBackendProvider = {
         kind: ANTIGRAVITY_BACKEND_KIND,
         label: "Antigravity",
+        order: 30,
         adapter,
         modelProvider: "google",
         listThreads: async () => (await store.list()).map(record),

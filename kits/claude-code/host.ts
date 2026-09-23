@@ -182,6 +182,8 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         return {
           kind: adapter.id,
           label: settings.label(id),
+          // Pi, the Agent SDK, Codex, Antigravity: the order docs/EXTENSIONS.md lists.
+          order: 10,
           adapter,
           modelProvider: "anthropic",
           listThreads: async () => (await store.list(undefined, id)).map(record),

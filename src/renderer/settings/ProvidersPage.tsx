@@ -1,7 +1,7 @@
 import type { SettingsPageContribution } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 
-/** One card per runtime backend a kit describes, in the order the kits gave. */
+/** One card per runtime backend a kit describes, in the host's runtime order. */
 export function ProvidersPage({ cards, cwd, onNotify }: { cards: readonly SettingsPageContribution[]; cwd?: string; onNotify(message: string): void }) {
   return (
     <div className="settings-page">

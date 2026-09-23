@@ -16,13 +16,14 @@ const commands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill", des
  * ships one. The host must reach an external runtime through this seam and
  * nothing else, so the tests below need no real backend kit.
  */
-function backendKit(adapter: AgentRuntimeAdapter, composerCommands: readonly UiComposerCommand[] = []): HostExtension {
+function backendKit(adapter: AgentRuntimeAdapter, composerCommands: readonly UiComposerCommand[] = [], order?: number): HostExtension {
   return {
     id: `test.${adapter.id}`,
     name: adapter.id,
     permissions: ["runtime:extend"],
     activate: (context) => context.services.registerRuntimeBackend({
       kind: adapter.id,
+      ...(order !== undefined ? { order } : {}),
       adapter,
       listThreads: async () => [],
       lookup: async () => undefined,
@@ -347,6 +348,16 @@ describe("PiHost skill delivery", () => {
       thinkingLevels: { "gpt-5.6-luna": ["default (low)", "low"] },
       runtimeCapabilities: { skillInvocationDialect: "codex", fileAttachments: true },
     });
+  });
+
+  it("lists runtimes Pi first, then by their order whatever order the kits activated in", async () => {
+    const kit = (id: string, order?: number) => backendKit({ id, capabilities: { skillInvocationDialect: "claude-code" }, transport: { sendPrompt: vi.fn(async () => ({})) } }, [], order);
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, {
+      hostExtensions: [kit("zeta"), kit("antigravity", 30), kit("codex", 20), kit("agent-sdk", 10), kit("alpha")],
+    });
+    const internals = host as unknown as { activateHostExtensions(): Promise<void>; runtimeBackends(): Array<{ kind: string }> };
+    await internals.activateHostExtensions();
+    expect(internals.runtimeBackends().map((backend) => backend.kind)).toEqual(["pi", "agent-sdk", "codex", "antigravity", "zeta", "alpha"]);
   });
 
   it("prepares a new thread's prompt for the backend the client names", async () => {
