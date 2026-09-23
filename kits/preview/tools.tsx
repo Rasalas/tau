@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Circle, Crosshair, MonitorSmartphone, PenLine, Send, Square, SquareDashed, StickyNote } from "lucide-react";
+import { ArrowUpRight, Circle, Cookie, Crosshair, MonitorSmartphone, PenLine, Send, Square, SquareDashed, StickyNote } from "lucide-react";
 import { Menu, tooltipProps, type MenuSection, type WorkbenchActions } from "tau";
 import { attachAnnotations, attachPickedElement, attachRecording } from "./attach.js";
 import type { PreviewAnnotationTool } from "./page-overlay.js";
 import { DEFAULT_PREVIEW_PROFILE, profileLabel, type PreviewAppearance, type PreviewProfiles, type PreviewState } from "./protocol.js";
 import { previewKit } from "./store.js";
 import { VIEWPORT_PRESETS } from "./viewport.js";
+import { cookieImportDialogs } from "./cookie-import-dialog.js";
 
 const NEW_PROFILE = "\u0000new";
 const RENAME_PROFILE = "\u0000rename";
@@ -243,6 +244,13 @@ export function PreviewTools({ state, actions, run }: {
     >{recording ? <Square size={11} /> : <Circle size={12} />}</button>
     {recording ? <RecordingClock since={state.recordingSince!} /> : null}
     <span className="spacer" />
+    <button
+      type="button"
+      className="icon-button compact"
+      aria-label="Import cookies from a browser"
+      title="Import sign-ins from another browser into a profile"
+      onClick={() => { void cookieImportDialogs.open({ profile: state.profile || "default" }); }}
+    ><Cookie size={13} /></button>
     {state.zoom !== 1 ? <button
       type="button"
       className="text-button preview-zoom"

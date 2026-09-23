@@ -238,6 +238,27 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
   return surface;
 }
 
+/** Where System Settings grants Full Disk Access, which Safari's cookie file needs. */
+const FULL_DISK_ACCESS_SETTINGS = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+
+/**
+ * Cookie import runs here, in the process that owns the preview's sessions and
+ * sits on the user's machine: decrypted values go into the session and never
+ * travel to the host.
+ */
+export async function handleCookieImport(command: string, input?: unknown): Promise<unknown> {
+  if (command === "open-access") {
+    if (process.platform === "darwin") await shell.openExternal(FULL_DISK_ACCESS_SETTINGS);
+    return undefined;
+  }
+  const { cookieImportEnvironment, runCookieImportCommand } = await import("./cookie-import.js");
+  const environment = cookieImportEnvironment((partition) => {
+    const { cookies } = session.fromPartition(partition);
+    return { set: (cookie) => cookies.set(cookie), flushStore: () => cookies.flushStore() };
+  });
+  return runCookieImportCommand(command, input, environment);
+}
+
 function readRect(value: unknown): PreviewRect | undefined {
   const rect = value && typeof value === "object" ? value as Record<string, unknown> : undefined;
   if (!rect) return undefined;
@@ -288,6 +309,17 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
 
   return {
     handle(command: string, input?: unknown): unknown {
+      // Before the view's own handling: an import names a partition without switching the view to it.
+      if (command === "cookie-import-start") {
+        // It may wait on the keychain longer than a client call lives; the result is reported back.
+        const job = fields(input).job;
+        void handleCookieImport("import", input).then(
+          (result) => context.invokeHost("cookie-import-settled", { job, result }),
+          (error: unknown) => context.invokeHost("cookie-import-settled", { job, error: error instanceof Error ? error.message : String(error) }),
+        ).catch(() => undefined);
+        return { started: true };
+      }
+      if (command.startsWith("cookie-")) return handleCookieImport(command.slice("cookie-".length), input);
       const options = fields(input);
       if (typeof options.workspaceRoot === "string") workspaceRoot = options.workspaceRoot;
       // Another profile needs a view in another session; the host reloads the page in it.

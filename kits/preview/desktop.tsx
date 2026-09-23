@@ -1,4 +1,5 @@
 import { Globe } from "lucide-react";
+import { cookieImportDialogs, createCookieImportLayer } from "./cookie-import-dialog.js";
 import { errorMessage, type DesktopExtension, type WorkbenchActions } from "tau";
 import { holdChipService } from "./attach.js";
 import { followLinkTarget } from "./link-target.js";
@@ -8,10 +9,12 @@ import { PreviewSettingsPage } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   PREVIEW_BROWSER_SERVICE,
+  PREVIEW_COOKIE_IMPORT_SERVICE,
   PREVIEW_HOST_EXTENSION_ID,
   PREVIEW_STATE_EVENT,
   type ComposerContextChips,
   type PreviewBrowserService,
+  type PreviewCookieImportService,
 } from "./protocol.js";
 import { PreviewPanel } from "./panel.js";
 import { COMPUTER_USE_SCREEN_SERVICE, type ComputerUseScreenService } from "./screen-protocol.js";
@@ -85,6 +88,12 @@ export const previewExtension: DesktopExtension = {
         void open(url, workbenchActions.get() ?? { openPanel: () => undefined });
       },
     );
+    // Nothing imports cookies without the user's click on Import in this dialog.
+    plugin.registerRegion({ id: "preview.cookie-import", placement: "title-bar", profiles: ["desktop"], Component: createCookieImportLayer(cookieImportDialogs, previewKit) });
+    plugin.provideService<PreviewCookieImportService>(PREVIEW_COOKIE_IMPORT_SERVICE, {
+      importSite: (request) => cookieImportDialogs.open({ site: request.site, ...(request.profile ? { profile: request.profile } : {}) }),
+    });
+    plugin.registerCommand({ id: "preview.import-cookies", label: "Import cookies from a browser", group: "Extensions", run: () => { void cookieImportDialogs.open(); } });
     // Picks, annotations and recordings go to the composer as Composer Context's chips.
     plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, holdChipService);
     // The Screen view draws the window Computer Use's agent drives, while that kit is on.
@@ -110,6 +119,7 @@ export const previewExtension: DesktopExtension = {
     plugin.registerCommand({ id: "preview.zoom-out", label: "Zoom the preview out", group: "Extensions", run: (app) => { void previewKit.zoom({ step: "out" }).catch(report(app)); } });
     plugin.registerCommand({ id: "preview.reset-zoom", label: "Reset the preview's zoom", group: "Extensions", run: (app) => { void previewKit.zoom({ step: "reset" }).catch(report(app)); } });
     return () => {
+      cookieImportDialogs.close();
       stopFollowing();
       stopDefaults();
       stopLinks();

@@ -17,7 +17,7 @@ export interface WorkspaceStoreView {
  * `thread-texts` from its own store, granted to this kit, so the palette finds
  * their threads by what was said in them while nobody has them open.
  */
-export const THREAD_TEXT_SOURCES = ["tau.codex", "tau.claude-code", "tau.antigravity", "tau.opencode"] as const;
+export const THREAD_TEXT_SOURCES = ["tau.codex", "tau.claude-code", "tau.antigravity", "tau.opencode", "tau.grok"] as const;
 
 /** Matches one content search returns at most, and per file. */
 export const CONTENT_LIMIT = 500;

@@ -49,7 +49,7 @@ async function activate(made = surface()) {
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
   const observers: HostTurnObserver[] = [];
   const cleared: string[] = [];
-  const registry = await activateHostKit(createPreviewHostExtension(async () => made.fake, async (partition) => { cleared.push(partition); }), {
+  const registry = await activateHostKit(createPreviewHostExtension(async () => made.fake, undefined, async (partition) => { cleared.push(partition); }), {
     stateDir,
     findCommand: () => undefined,
     noteSubprocess: () => undefined,
