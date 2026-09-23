@@ -213,9 +213,8 @@ export class HostConnection {
   }
 
   /**
-   * Repairs a gap: replay what the host still has, otherwise refetch
-   * everything. A push that referred to text this client lacks starts it over
-   * as a new client, which also makes the host send whole texts again.
+   * Repairs a gap: replay what the host still has, otherwise refetch everything. A text this
+   * client lacks starts it over as a new client, so the host sends whole texts again.
    */
   private async recover(): Promise<void> {
     if (this.recovering) return;

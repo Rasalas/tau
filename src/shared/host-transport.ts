@@ -89,11 +89,7 @@ export interface HostToolEndDeltaEvent extends ToolOutputDelta {
   length: number;
 }
 
-/**
- * An `assistant-end` whose `text` (and `thinking`, when the message has it) is
- * a change to what the message streamed up to the push numbered `after`,
- * usually none. That push is its `assistant-start` or its last delta.
- */
+/** An `assistant-end` whose `text` and `thinking` are changes to what the message streamed as of push `after`. */
 export interface HostAssistantEndDeltaEvent {
   type: "assistant-end-delta";
   sessionId: string;
@@ -105,10 +101,8 @@ export interface HostAssistantEndDeltaEvent {
 }
 
 /**
- * A `thread-detail` update that leaves out what the client already has. With
- * `activityFromHistory` its `turnActivity` is its last `turnActivityHistory`
- * entry; each message named in `texts` has an empty `text` and no `thinking`,
- * which are those of the `assistant-end` push numbered there.
+ * A `thread-detail` without what the client has: `turnActivity` is the last history entry
+ * (`activityFromHistory`); a message named in `texts` takes the text of that `assistant-end` push.
  */
 export interface HostCompactThreadDetailEvent {
   type: "thread-detail-compact";

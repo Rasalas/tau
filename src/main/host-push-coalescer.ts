@@ -121,11 +121,7 @@ export class HostPushCoalescer {
     for (const event of pending.values()) this.forward(event);
   }
 
-  /**
-   * The next update of every running tool, every message's end and every
-   * detail go out whole. A client that starts from a snapshot never saw the
-   * pushes a delta would refer to.
-   */
+  /** Outputs and texts go out whole again: a client that starts from a snapshot never saw what a delta refers to. */
   resendWholeOutputs(): void {
     this.sent.clear();
     this.streamed.clear();

@@ -20,11 +20,8 @@ interface EndedText {
 }
 
 /**
- * Puts a message's text back into the pushes that refer to it: an
- * `assistant-end-delta` to the text the message streamed, a compact detail to
- * the `assistant-end` that carried it. A reference this client cannot resolve
- * drops the push and sets `lost`; the connection then starts over from a
- * snapshot, which makes the host send whole texts again.
+ * Puts message texts back into `assistant-end-delta` and compact details. A reference it cannot
+ * resolve drops the push and sets `lost`, and the connection starts over from a snapshot.
  */
 export class MessageTextStream {
   private readonly streamed = new Map<string, StreamedText>();
