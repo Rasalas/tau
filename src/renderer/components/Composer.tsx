@@ -1102,6 +1102,7 @@ export function Composer({
             className="attachment-input"
             aria-label="Choose attachment files"
             type="file"
+            tabIndex={-1}
             disabled={!supportsImageInput && !inlineTakesFiles}
             accept={inlineTakesFiles ? undefined : IMAGE_ACCEPT}
             multiple
