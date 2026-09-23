@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { DesktopExtension, UiSession } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
@@ -10,14 +10,12 @@ import { workspaceExtension } from "./desktop.js";
 import { WORKSPACE_STORE_SERVICE, type ThreadRailOrganizer, type WorkspaceStoreApi } from "./protocol.js";
 import type { WorkspaceStore } from "./store.js";
 
-// Every draw of a rail row goes through core's ThreadRow; counting it counts row renders.
-const rowRenders = vi.hoisted(() => ({ count: 0 }));
-vi.mock("../../src/renderer/components/ThreadRow", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/renderer/components/ThreadRow")>();
-  const Real = actual.ThreadRow;
-  const Counted = (props: Parameters<typeof Real>[0]) => { rowRenders.count += 1; return <Real {...props} />; };
-  return { ...actual, ThreadRow: Counted };
-});
+// A row mark renders with its row, so counting the mark counts row renders.
+const rowRenders = { count: 0 };
+function CountingMark() {
+  rowRenders.count += 1;
+  return null;
+}
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
@@ -64,7 +62,8 @@ async function renderRail() {
     name: "Organizer",
     activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       workspace = store as WorkspaceStore;
-      return store.registerThreadRailOrganizer(rail);
+      const stops = [store.registerThreadRailOrganizer(rail), store.registerThreadRowAccessory(CountingMark)];
+      return () => stops.forEach((stop) => stop());
     }),
   };
   const sessions = shells(THREADS);
