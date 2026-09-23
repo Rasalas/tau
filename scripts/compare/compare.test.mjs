@@ -8,6 +8,8 @@ import { codexNotifications } from "./fake-codex.mjs";
 import { assertEnvUnder, forbiddenPaths, openForbiddenFiles, parseLsofNames } from "./isolation.mjs";
 import { descendants, parsePs, processRole } from "./processes.mjs";
 import { evaluateBudgets, markdownTable, parseArgs } from "./run.mjs";
+import { loadScreens, parseArgs as parseScreenArgs, shotName } from "./screens/run.mjs";
+import { MEASURE, TAB_ORDER } from "./screens/measure.mjs";
 import { rolloutLines, sessionPlan, writeCodexSessions } from "./sessions-fixture.mjs";
 import { aggregateRuns, frameStats, percentile } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
@@ -189,3 +191,30 @@ describe("stats and reporting", () => {
   });
 });
 
+describe("the screen comparison", () => {
+  it("names a capture by screen, state, app, tag and scheme", () => {
+    expect(shotName({ screen: "02-rail", app: "t3", scheme: "dark" })).toBe("02-rail-t3-dark.png");
+    expect(shotName({ screen: "03-row-menu", state: "menu", app: "tau", tag: "t3like", scheme: "light" })).toBe("03-row-menu-menu-tau-t3like-light.png");
+  });
+
+  it("parses flags, and keeps a Tau theme away from T3", () => {
+    expect(parseScreenArgs(["--apps", "tau", "--screens", "02,05", "--theme", "t3-like"])).toMatchObject({ apps: ["tau"], screens: ["02", "05"], theme: "t3-like", schemes: ["dark", "light"] });
+    expect(() => parseScreenArgs(["--theme", "t3-like"])).toThrow(/Tau only/u);
+    expect(() => parseScreenArgs(["--schemes", "sepia"])).toThrow(/unknown scheme/u);
+  });
+
+  it("has a script or a stated reason for every screen in both apps", async () => {
+    const screens = await loadScreens();
+    expect(screens.length).toBeGreaterThanOrEqual(12);
+    for (const screen of screens) {
+      expect(screen.id).toMatch(/^\d\d-[a-z-]+$/u);
+      expect(screen.title).toBeTruthy();
+      for (const id of ["tau", "t3"]) expect(typeof screen[id] === "function" || Boolean(screen.skip?.[id])).toBe(true);
+    }
+  });
+
+  it("ships page code that parses", () => {
+    expect(() => new Function(`return ${MEASURE}`)).not.toThrow();
+    expect(() => new Function(`return ${TAB_ORDER}`)).not.toThrow();
+  });
+});

@@ -49,7 +49,7 @@ export function parseArgs(argv) {
 }
 
 /** Launches one app, returns the page session and the moments that matter for start-up. */
-async function start(app, root, { onStage }) {
+export async function start(app, root, { onStage } = {}) {
   const port = await freePort();
   const spawnedAt = Date.now();
   const child = await app.launch(root, { port });
@@ -106,7 +106,7 @@ async function memory(session, pid) {
   return { ...treeMemory([pid]), rendererHeapMiB: heap ? round(heap.usedSize / 1024 / 1024) : null };
 }
 
-function checkIsolation(pid, label) {
+export function checkIsolation(pid, label) {
   const pids = descendants(processTable(), [pid]).map((row) => row.pid);
   const forbidden = openForbiddenFiles(pids);
   if (forbidden.length) throw new Error(`${label} opened files in the user's own data:\n${forbidden.join("\n")}`);
@@ -223,12 +223,13 @@ async function measureRun(app, root, options, turn) {
   }
 }
 
-async function seed(app, root, turnFile) {
+/** Imports the session fixture through the app's onboarding and saves the profile as the template. `plan` sizes the fixture. */
+export async function seed(app, root, turnFile, plan = {}) {
   rmSync(app.paths(root).run, { recursive: true, force: true });
   rmSync(app.paths(root).template, { recursive: true, force: true });
   const paths = app.prepare(root);
   writeFileSync(join(root, "turn.json"), turnFile);
-  const written = writeCodexSessions(paths.sessionsHome, { cwd: paths.workspace });
+  const written = writeCodexSessions(paths.sessionsHome, { cwd: paths.workspace, ...plan });
   const { child, session } = await start(app, root, {});
   try {
     await app.seed(session, { clickWhenReady, waitFor, evaluate, expectedThreads: written.length });

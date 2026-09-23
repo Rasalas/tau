@@ -759,6 +759,23 @@ The report is written to `reports/compare-<timestamp>.json` and holds every run,
 - **The turn is synthetic.** It is calibrated on the plan's shape, not recorded from a real Codex session. T3 ran with its default settings, including its server-side coalescing.
 - **Not measured yet:** tier B (a real Codex turn on the smallest model with a shadow `CODEX_HOME`), CPU at idle, the 2,000-thread rail, the 2 MB diff, and model switching.
 
+### Screen by screen
+
+`scripts/compare/screens/` reuses the harness above for a visual comparison (gap analysis §2.3, ticket D09): the same launch, isolation checks, onboarding import and stand-in `codex`, with roots of their own (`/tmp/compare-screens-tau`, `/tmp/compare-screens-t3`), so a screen pass never shares a profile with a benchmark run.
+
+- **The fixture** is 30 threads (the large one plus 29 small ones). The replayed turn is short and slow (250 ms per event, about 13 s) and, unlike the benchmark's, has a thinking summary; screen 12 replays a turn that fails.
+- **Each screen** is a script (`NN-name.mjs`) that brings both apps into the same state, one implementation per app, and calls `shot(state)`. That captures the page with `Page.captureScreenshot` at 1440×900, DPR 2, in dark and light (`Emulation.setEmulatedMedia`), and measures the elements the screen names: box, font family, size, weight, case, tracking, colours, icon size, running animations, and on request the Tab order with the focus ring.
+- **Native menus** (both apps' row menus) are not in the page; they are captured with `screencapture -l` of the menu window the app's own process owns, never the desktop.
+- **Themes:** `--theme t3-like` installs `examples/theme-t3-like` into Tau's isolated home first, to tell a difference of colour from one of layout.
+
+```
+npm run build
+npm run compare:screens -- --seed                       # first time: import the fixture in both apps
+npm run compare:screens -- [--screens 02,05] [--apps tau] [--theme t3-like --tag t3like]
+```
+
+Captures and `measurements.json` go to `.scratch/t3-parity-2/shots/` unless `--out` says otherwise; the findings are in `.scratch/t3-parity-2/ui-parity.md`.
+
 ## Execution order
 
 1. Add repeatable renderer, IPC, Git, and lifecycle fixtures for the observed failures.
