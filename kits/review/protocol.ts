@@ -458,6 +458,8 @@ export interface PullRequestListEntry {
   reviewRequested: boolean;
   /** Its layer in a stack, where the host keeps stacks. */
   stack?: PullRequestStackMembership;
+  /** The signed-in login on the row's own host, where a page mixes hosts. */
+  viewer?: string;
 }
 
 export interface PullRequestList {
@@ -470,6 +472,13 @@ export interface PullRequestList {
   /** The host had more than `limit` rows for this question. */
   truncated: boolean;
   limit: number;
+}
+
+/** The page across projects: one list per repository, with the projects that share it. */
+export interface PullRequestLists {
+  lists: Array<PullRequestList & { workspaces: string[] }>;
+  /** Projects whose repository could not be read, with the reason. */
+  failures: Array<{ workspace: string; message: string }>;
 }
 
 /**

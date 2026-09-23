@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionContext, HostMcpToolProvider, HostThreadLifecycle, RuntimeExtensionFactory } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
-import { REVIEW_HOST_EXTENSION_ID, THREAD_LINKS_EVENT, type PullRequestDetail, type PullRequestFiles, type PullRequestList, type PullRequestThread, type ThreadPullRequestLink } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, THREAD_LINKS_EVENT, type PullRequestDetail, type PullRequestFiles, type PullRequestList, type PullRequestLists, type PullRequestThread, type ThreadPullRequestLink } from "./protocol.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import type { CliRunOptions } from "./request-cli.js";
 
@@ -27,7 +27,7 @@ afterEach(async () => { if (stateRoot) await rm(stateRoot, { recursive: true, fo
  * Review Kit over a fake `gh`/`glab`, a Workspace Kit that answers the
  * project's remote, and the host seams the links register with, recorded.
  */
-async function harness(options: { remote?: string; viewer?: string; answer?(call: Call): string | Promise<string> | undefined } = {}) {
+async function harness(options: { remote?: string; remotes?: Record<string, string | null>; viewer?: string; answer?(call: Call): string | Promise<string> | undefined } = {}) {
   stateRoot = await mkdtemp(join(tmpdir(), "tau-pr-overview-"));
   const calls: Call[] = [];
   const events: PublishedKitEvent[] = [];
@@ -39,11 +39,11 @@ async function harness(options: { remote?: string; viewer?: string; answer?(call
     name: "Workspace Kit",
     permissions: [] as string[],
     activate(context: HostExtensionContext) {
-      context.registerCommand("review-request-context", (input) => ({
-        root: (input as { workspace?: string } | undefined)?.workspace ?? "/project",
-        base: "main",
-        remote: { name: "origin", url: options.remote ?? "git@github.com:acme/tau.git" },
-      }), { callers: [REVIEW_HOST_EXTENSION_ID] });
+      context.registerCommand("review-request-context", (input) => {
+        const root = (input as { workspace?: string } | undefined)?.workspace ?? "/project";
+        const url = options.remotes && root in options.remotes ? options.remotes[root] : options.remote ?? "git@github.com:acme/tau.git";
+        return { root, base: "main", ...(url ? { remote: { name: "origin", url } } : {}) };
+      }, { callers: [REVIEW_HOST_EXTENSION_ID] });
     },
   };
   const run = vi.fn(async (_command: string, args: string[], cwd: string, runOptions?: CliRunOptions) => {
@@ -126,6 +126,20 @@ describe("the Pull Requests page", () => {
     expect(list.truncated).toBe(true);
     expect(list.entries[0]).toMatchObject({ state: "open", reviewDecision: "review-required", reviewRequested: true });
     expect(list.entries[0]!.mergeable).toBeUndefined();
+  });
+
+  it("lists every project's repository once across projects and hosts, and names the ones it could not read", async () => {
+    const { invoke, calls } = await harness({
+      viewer: "niik",
+      remotes: { "/tau": "git@github.com:acme/tau.git", "/tau-worktree": "https://github.com/acme/tau.git", "/tools": "https://gitlab.com/acme/tools/tau.git", "/scratch": null },
+    });
+    const answer = await invoke<PullRequestLists>("pr-list-many", { workspaces: ["/tau", "/tau-worktree", "/tools", "/scratch", 7], state: "open", limit: 3 });
+    expect(answer.lists.map((list) => [list.host, list.repo, list.workspaces, list.viewer, list.entries.length])).toEqual([
+      ["github.com", "acme/tau", ["/tau", "/tau-worktree"], "niik", 3],
+      ["gitlab.com", "acme/tools/tau", ["/tools"], "niik", 3],
+    ]);
+    expect(answer.failures).toEqual([{ workspace: "/scratch", message: "This project has no remote, so it has no pull requests to list." }]);
+    expect(calls.filter((call) => call.args[0] === "pr" && call.args[1] === "list")).toHaveLength(1);
   });
 
   it("refuses a project without a remote it can read", async () => {
