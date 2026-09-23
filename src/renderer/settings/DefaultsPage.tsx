@@ -79,7 +79,7 @@ export function DefaultsPage({
   const pickerAnchor = useRef<HTMLButtonElement>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
-  const { newThreadRuntime: runtimePreference, sendShortcut } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  const { newThreadRuntime: runtimePreference, sendShortcut, composerCollapseOnScroll } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
 
   const detail = useSetting<TranscriptDetail>("transcriptDetail", {
@@ -202,6 +202,12 @@ export function DefaultsPage({
             <button className={!vimMode.value ? "active" : ""} aria-pressed={!vimMode.value} onClick={() => vimMode.set(false)}>Standard</button>
             <button className={vimMode.value ? "active" : ""} aria-pressed={vimMode.value} onClick={() => vimMode.set(true)}>Vim</button>
           </div>}
+        />
+        <SettingRow
+          id={settingAnchor("Fold the composer while scrolling")}
+          title="Fold the composer while scrolling"
+          description="Scrolling back through a thread folds an idle one-line composer to its text; typing, a click or scrolling to the end opens it again. This window's own choice."
+          control={<Switch label="Fold the composer while scrolling" checked={composerCollapseOnScroll} onChange={(value) => preferences.setComposerCollapseOnScroll(value)} />}
         />
         <SettingRow
           id={settingAnchor("Send with")}

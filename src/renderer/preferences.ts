@@ -37,6 +37,8 @@ export interface PreferencesState {
   vimMode?: boolean;
   /** Which chord sends from the composer; this client's own, like its keys. */
   sendShortcut: SendShortcut;
+  /** Fold the idle composer to its text line while the transcript is scrolled back; this client's own. */
+  composerCollapseOnScroll: boolean;
   /** Leave the host process running when the app quits; its threads keep going. */
   hostBackground?: boolean;
 }
@@ -57,6 +59,7 @@ const DEFAULTS: PreferencesState = {
   disabledExtensions: [],
   vimMode: false,
   sendShortcut: "enter",
+  composerCollapseOnScroll: true,
   hostBackground: false,
 };
 
@@ -116,6 +119,7 @@ function load(): PreferencesState {
       maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
       vimMode: typeof raw.vimMode === "boolean" ? raw.vimMode : false,
       sendShortcut: SEND_SHORTCUTS.includes(raw.sendShortcut as SendShortcut) ? raw.sendShortcut as SendShortcut : "enter",
+      composerCollapseOnScroll: raw.composerCollapseOnScroll !== false,
     };
   } catch {
     return DEFAULTS;
@@ -239,6 +243,10 @@ export class PreferencesStore {
 
   setVimMode(vimMode: boolean): void {
     this.update({ vimMode });
+  }
+
+  setComposerCollapseOnScroll(composerCollapseOnScroll: boolean): void {
+    this.update({ composerCollapseOnScroll });
   }
 
   setSendShortcut(sendShortcut: SendShortcut): void {

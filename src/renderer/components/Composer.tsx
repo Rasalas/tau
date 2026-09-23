@@ -57,6 +57,7 @@ import {
 import { ComposerInput } from "./ComposerInput";
 import { ComposerChipPopover } from "./ComposerChipPopover";
 import { useComposerChips } from "./useComposerChips";
+import { useComposerCollapse } from "./useComposerCollapse";
 import { findChipTokens, plainChipText } from "./composer-chips";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
@@ -103,6 +104,7 @@ interface OpenGate {
 /** Pi's out-of-the-box reasoning level; shown as the Default badge. */
 const DEFAULT_THINKING = "medium";
 const MAX_COMPOSER_HEIGHT = 220;
+const COLLAPSED_COMPOSER_HEIGHT = 46;
 
 /** Pi's level ids are identifiers; these are how they read in the menu. */
 const THINKING_LABELS: Record<string, string> = {
@@ -716,6 +718,13 @@ export function Composer({
     textareaRef,
   });
 
+  const zoneRef = useRef<HTMLElement>(null);
+  const collapse = useComposerCollapse({
+    enabled: prefSnapshot.composerCollapseOnScroll,
+    idle: !text.includes("\n") && !prompt && !trigger && !historySearch.isSearching && !modelPickerOpen && !openChip && menu === undefined && !openGate,
+    zoneRef,
+  });
+
   const vim = useComposerVim({
     enabled: isVimEnabled,
     text,
@@ -726,7 +735,7 @@ export function Composer({
   });
 
   return (
-    <footer className="composer-zone" data-keybinding-context="composer">
+    <footer ref={zoneRef} className={`composer-zone${collapse.collapsed ? " collapsed" : ""}`} data-keybinding-context="composer">
       <div className="composer-surface" data-composer-surface="true">
       {snapshot?.taskProgress ? <TaskProgress progress={snapshot.taskProgress} placement="dock" /> : null}
       {prompt ? (() => {
@@ -809,7 +818,7 @@ export function Composer({
         <ComposerInput
           textareaRef={textareaRef}
           value={text}
-          maxHeight={isExpanded ? 520 : MAX_COMPOSER_HEIGHT}
+          maxHeight={collapse.collapsed ? COLLAPSED_COMPOSER_HEIGHT : isExpanded ? 520 : MAX_COMPOSER_HEIGHT}
           skill={selectedSkill && text.slice(selectedSkill.start, selectedSkill.end) === selectedSkill.invocation ? selectedSkill : undefined}
           lookChip={chips.lookChip}
           onValueChange={(next, nextCaret) => {
