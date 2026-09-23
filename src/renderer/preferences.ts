@@ -2,7 +2,8 @@ import { getClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { isTranscriptDetail, type TranscriptDetail } from "../workbench/transcript-folding";
 import type { HostClient } from "../workbench/host-client";
-import type { TauConfig } from "../shared/contracts";
+import type { TauConfig, TauModelPreferences } from "../shared/contracts";
+import { readModelPreferenceRecord } from "../shared/model-preferences";
 import { DEFAULT_THEME, isThemePreference, registerUserThemes, applyTheme, type ThemePreference } from "./theme";
 import { SEND_SHORTCUTS, type SendShortcut } from "./components/composer-send-keys";
 
@@ -20,8 +21,12 @@ export interface PreferencesState {
   editorId?: string;
   settledThreadIds: readonly string[];
   pinnedThreadIds: readonly string[];
-  /** Favourite models, keyed `provider/id`. */
+  /** Favourite models, keyed as `offeringKey` does: `provider/id` for Pi, `<runtime>:provider/id` otherwise. */
   favouriteModels: readonly string[];
+  /** Models the picker hides and the order it lists them in, by runtime backend kind. */
+  modelPreferences: Readonly<Record<string, TauModelPreferences>>;
+  /** The models last chosen in a picker, newest first, keyed like favourites; this client's own. */
+  recentModels: readonly string[];
   /** The runtime backend a new thread is created on; unset means the host's default. */
   newThreadRuntime?: string;
   /** Keyed `extensionId.optionId`. */
@@ -52,6 +57,8 @@ const DEFAULTS: PreferencesState = {
   settledThreadIds: [],
   pinnedThreadIds: [],
   favouriteModels: [],
+  modelPreferences: {},
+  recentModels: [],
   extensionOptions: {},
   extensionValues: {},
   disabledExtensions: [],
@@ -59,6 +66,8 @@ const DEFAULTS: PreferencesState = {
   sendShortcut: "enter",
   hostBackground: false,
 };
+
+const RECENT_MODELS = 8;
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -105,6 +114,8 @@ function load(): PreferencesState {
       settledThreadIds: stringList(raw.settledThreadIds),
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
+      modelPreferences: readModelPreferenceRecord(raw.modelPreferences) ?? {},
+      recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
       extensionValues: values,
@@ -177,6 +188,7 @@ export class PreferencesStore {
     if (config.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = config.threads.continueAfterRestart;
     else if (previous?.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = DEFAULTS.continueThreadsAfterRestart;
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
+    if (config.modelPreferences || previous?.modelPreferences) patch.modelPreferences = record(this.state.modelPreferences, previous?.modelPreferences, config.modelPreferences);
     if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
     if (config.options || previous?.options) patch.extensionOptions = record(this.state.extensionOptions, previous?.options, config.options);
     if (config.values || previous?.values) patch.extensionValues = record(this.state.extensionValues, previous?.values, config.values);
@@ -294,6 +306,23 @@ export class PreferencesStore {
         ? favourites.filter((entry) => entry !== key)
         : [...favourites, key],
     });
+  }
+
+  /** One runtime's hidden models and order; only that runtime's entry travels to the host. */
+  setModelPreferences(runtime: string, preferences: TauModelPreferences): void {
+    this.update({ modelPreferences: { ...this.state.modelPreferences, [runtime]: preferences } }, true, { modelPreferences: { [runtime]: preferences } });
+  }
+
+  toggleHiddenModel(runtime: string, key: string): void {
+    const current = this.state.modelPreferences[runtime] ?? {};
+    const hidden = current.hidden ?? [];
+    this.setModelPreferences(runtime, { ...current, hidden: hidden.includes(key) ? hidden.filter((entry) => entry !== key) : [...hidden, key] });
+  }
+
+  /** A model a picker handed on; it leads the picker's "Recent" list. */
+  noteModelUsed(key: string): void {
+    const recent = [key, ...this.state.recentModels.filter((entry) => entry !== key)].slice(0, RECENT_MODELS);
+    this.update({ recentModels: recent }, false);
   }
 
   isSettled(threadId: string): boolean {

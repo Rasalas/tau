@@ -1,10 +1,11 @@
 /*
  * The model picker: a popover at its chip, as in T3 Code, with no scrim.
- * Loaded with the picker's chunk when it first opens; the chip keeps its
- * rules in styles.css.
+ * Runtimes on the left, a runtime's providers beside them when it has
+ * several, the models on the right. Loaded with the picker's chunk when it
+ * first opens; the chip keeps its rules in styles.css.
  */
 .model-picker.popover {
-  width: 420px; max-width: calc(100vw - 16px); height: 380px; max-height: calc(100vh - 16px);
+  width: 760px; max-width: calc(100vw - 16px); height: 460px; max-height: calc(100vh - 16px);
   display: flex; flex-direction: column; padding: 0; overflow: hidden;
   border-radius: 12px; background: var(--overlay); color: var(--ink);
 }
@@ -15,40 +16,116 @@
   font: 10px var(--mono); color: var(--faint);
 }
 .model-picker-content > footer .spacer { flex: 1; }
+.model-footer-link {
+  display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0;
+  background: transparent; color: var(--muted); font: inherit; cursor: pointer;
+}
+.model-footer-link:hover { color: var(--ink-2); }
 .model-picker-body { flex: 1; min-height: 0; display: flex; }
 .model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
-/* The rail: Pi's model providers, then every other runtime as one tab. */
+/* Left: Favourites, Recent, then every runtime with a dot for its state. */
 .model-rail {
-  width: 52px; flex: none; overflow: auto;
-  border-right: 1px solid var(--line); padding: 8px 0;
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  width: 150px; flex: none; overflow: auto;
+  border-right: 1px solid var(--line); padding: 6px;
+  display: flex; flex-direction: column; gap: 2px; background: var(--wash);
 }
-.model-rail > button {
-  position: relative; width: 40px; height: 36px; display: grid; place-items: center;
-  border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer;
+.model-rail-slot > hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px 6px; }
+.model-rail button {
+  position: relative; width: 100%; height: 32px; display: flex; align-items: center; gap: 8px;
+  border: 0; border-radius: 7px; padding: 0 8px; background: transparent;
+  color: var(--ink-3); font: 12.5px var(--sans); text-align: left; cursor: pointer;
 }
-.model-rail > button:hover { background: var(--hover-strong); color: var(--ink-2); }
-.model-rail > button.active { background: var(--raised); color: var(--acid-text); }
-.model-rail > button.elsewhere:not(.active) { opacity: .55; }
-.model-rail > button.active::before {
-  content: ""; position: absolute; left: -6px; top: 9px; bottom: 9px; width: 3px;
+.model-rail button:hover { background: var(--hover-strong); color: var(--ink-2); }
+.model-rail button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
+.model-rail button.active { background: var(--raised); color: var(--ink); font-weight: 600; }
+.model-rail button.active::before {
+  content: ""; position: absolute; left: -6px; top: 8px; bottom: 8px; width: 3px;
   border-radius: 0 2px 2px 0; background: var(--acid);
 }
-.model-rail .rail-icon { margin-left: 0; }
+.model-rail .rail-icon { margin-left: 0; flex: none; }
+.model-rail .rail-glyph { flex: none; color: var(--acid-text); }
+.model-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--fainter); }
+.runtime-dot-ready { background: var(--ready); }
+.runtime-dot-update { background: var(--info); }
+.runtime-dot-sign-in, .runtime-dot-unavailable { background: var(--warn); }
+.runtime-dot-loading { background: var(--faint); animation: model-dot-pulse 1.2s ease-in-out infinite; }
+.runtime-dot-not-installed, .runtime-dot-unlisted { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
+@keyframes model-dot-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .runtime-dot-loading { animation: none; } }
 
-.model-search { height: 44px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
+/* Middle: a runtime's providers, only when it has several. */
+.model-providers {
+  width: 168px; flex: none; overflow: auto;
+  border-right: 1px solid var(--line); padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.model-providers button {
+  display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px;
+  border: 0; border-radius: 7px; background: transparent;
+  color: var(--ink-3); font: 12.5px var(--sans); text-align: left; cursor: pointer;
+}
+.model-providers button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-providers button > small { font: 10.5px var(--mono); color: var(--faint); }
+.model-providers button:hover { background: var(--hover-strong); color: var(--ink-2); }
+.model-providers button:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
+.model-providers button.active { background: var(--raised); color: var(--ink); }
+.model-providers .provider-column-icon { margin-left: 0; flex: none; }
+
+.model-search { height: 46px; gap: 8px; padding: 0 10px 0 14px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
 .model-search:focus-within { border-bottom-color: var(--acid); }
 .model-search > svg { color: var(--faint); flex: none; }
+.model-tool { position: relative; flex: none; }
+.model-tool-button {
+  height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px;
+  border: 1px solid var(--line-control); border-radius: 7px; background: transparent;
+  color: var(--muted); font: 11px var(--sans); cursor: pointer;
+}
+.model-tool-button:hover, .model-tool-button[aria-expanded="true"] { background: var(--hover-strong); color: var(--ink); }
+.model-tool-button.on { color: var(--acid-text); border-color: var(--acid-line); }
+.model-menu {
+  position: absolute; right: 0; top: 32px; z-index: 2; min-width: 170px; padding: 4px;
+  display: flex; flex-direction: column; border: 1px solid var(--line-float); border-radius: 9px;
+  background: var(--overlay); box-shadow: 0 8px 24px var(--shadow-soft);
+}
+.model-menu > hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.model-menu-heading { padding: 6px 8px 2px; font: 10px var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+.model-menu > button {
+  display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 24px; position: relative;
+  border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font: 12px var(--sans); text-align: left; cursor: pointer;
+}
+.model-menu > button > small { margin-left: auto; color: var(--faint); font-size: 10.5px; }
+.model-menu > button:hover { background: var(--hover-strong); color: var(--ink); }
+.model-menu > button[aria-checked="true"]::before {
+  content: "✓"; position: absolute; left: 8px; color: var(--acid-text); font-size: 11px;
+}
 .model-search > .model-provider-add {
-  width: 30px; height: 30px; display: grid; place-items: center;
+  width: 28px; height: 28px; display: grid; place-items: center; flex: none;
   border: 1px dashed var(--line-control); border-radius: 7px;
   background: transparent; color: var(--muted); cursor: pointer;
 }
 .model-search > .model-provider-add:hover {
   background: var(--hover-strong); color: var(--ink); border-color: var(--line-float);
 }
-/* A runtime whose models are not on hand: what choosing it means, and the one action it takes. */
+
+/* The narrow popover: the provider column as a row of filters above the list. */
+.model-provider-filter {
+  flex: none; display: flex; gap: 4px; overflow-x: auto; padding: 6px 8px;
+  border-bottom: 1px solid var(--line); scrollbar-width: none;
+}
+.model-provider-filter > button {
+  flex: none; height: 24px; padding: 0 8px; border: 1px solid var(--line-control); border-radius: 12px;
+  background: transparent; color: var(--muted); font: 11.5px var(--sans); cursor: pointer; white-space: nowrap;
+}
+.model-provider-filter > button small { color: var(--faint); font: 10px var(--mono); }
+.model-provider-filter > button.active { color: var(--ink); background: var(--raised); border-color: var(--line-float); }
+.model-picker-content.narrow .model-rail { width: 52px; align-items: center; }
+.model-picker-content.narrow .model-rail button { width: 40px; justify-content: center; padding: 0; }
+.model-picker-content.narrow .model-rail-label { display: none; }
+.model-picker-content.narrow .runtime-dot { position: absolute; right: 3px; top: 4px; width: 6px; height: 6px; }
+
+/* A runtime whose models are not on hand: what choosing it means, and the actions it takes. */
 .model-runtime-pane {
   flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
   padding: 28px 24px; color: var(--ink-2);
@@ -56,45 +133,66 @@
 .model-runtime-pane > strong { font-size: 14px; color: var(--ink); }
 .model-runtime-pane > p { margin: 0; max-width: 420px; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
 .model-runtime-pane .runtime-pane-icon { margin-left: 0; }
-.model-runtime-pane > button {
-  height: 32px; padding: 0 12px; border: 1px solid var(--acid-line); border-radius: 8px;
-  background: var(--acid-bg); color: var(--acid-text); font: 600 12px var(--sans); cursor: pointer;
+.model-runtime-pane-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.model-runtime-pane-actions > button {
+  height: 32px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: 8px;
+  background: transparent; color: var(--ink-2); font: 600 12px var(--sans); cursor: pointer;
 }
-.model-runtime-pane > button:hover { background: var(--acid-chip); }
+.model-runtime-pane-actions > button.primary { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
+.model-runtime-pane-actions > button:hover { background: var(--hover-strong); }
+.model-runtime-pane-actions > button.primary:hover { background: var(--acid-chip); }
 
-.model-list { flex: 1; min-width: 0; overflow: auto; padding: 8px; }
+/* Right: the list, with the context and price columns a header names. */
+.model-columns {
+  flex: none; display: grid; grid-template-columns: 1fr 58px 104px 56px; gap: 8px;
+  padding: 6px 18px 4px 18px; font: 10px var(--mono); color: var(--faint);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.model-columns > span:nth-child(2), .model-columns > span:nth-child(3) { text-align: right; }
+.model-list { flex: 1; min-width: 0; overflow: auto; padding: 0 8px 8px; }
 .model-row {
-  display: flex; align-items: center; gap: 6px;
-  border-radius: 8px; padding-right: 8px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 58px 104px 56px; align-items: center; gap: 8px;
+  border-radius: 8px; padding: 0 2px 0 10px; height: 52px; cursor: pointer;
 }
+.model-picker-content.narrow .model-row { grid-template-columns: minmax(0, 1fr) 96px 56px; }
+.model-row.grouped { height: 42px; padding-left: 22px; }
 .model-row.selected { background: var(--raised); }
-.model-choose {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;
-  border: 0; background: transparent; color: inherit;
-  padding: 8px 10px; text-align: left; cursor: pointer;
-}
-.model-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.model-row.hidden-model .model-cell-main { opacity: .55; }
+.model-cell-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.model-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .model-line > strong {
-  font-size: 13.5px; font-weight: 500; color: var(--ink-2);
+  font-size: 13px; font-weight: 500; color: var(--ink-2); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .model-row.selected .model-line > strong { color: var(--ink); font-weight: 600; }
 .model-sub {
   display: flex; align-items: center; gap: 6px; min-width: 0;
-  font: 11.5px var(--sans); color: var(--faint);
+  font: 11px var(--sans); color: var(--faint); white-space: nowrap;
 }
-.model-sub .sub-icon { margin-left: 0; transform: scale(.78); transform-origin: left center; }
+.model-sub .sub-icon, .model-line .sub-icon { margin-left: 0; transform: scale(.78); transform-origin: left center; }
 .model-sub .sub-icon.stacked { margin-right: -2px; }
-.model-id { font: 10px var(--mono); opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-row > em {
-  flex: none; font: 10px var(--mono); font-style: normal; color: var(--acid-text);
-  border: 1px solid var(--acid-line); border-radius: 4px; padding: 2px 6px;
+.model-runtime { color: var(--muted); }
+.model-id { font: 10px var(--mono); opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.model-levels { display: inline-flex; align-items: center; gap: 2px; font: 10px var(--mono); color: var(--muted); }
+.model-context { font: 11px var(--mono); color: var(--muted); text-align: right; }
+.model-price { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font: 11px var(--mono); color: var(--ink-3); white-space: nowrap; }
+.model-price > b { font-weight: 500; }
+.model-price > small { font-size: 9.5px; color: var(--faint); }
+.model-price.muted { color: var(--faint); }
+.model-group {
+  height: 26px; display: flex; align-items: flex-end; gap: 8px; padding: 0 10px 3px;
+  font: 600 12px var(--sans); color: var(--ink-2);
+}
+.model-group > small { font: 10px var(--mono); color: var(--faint); font-weight: 400; }
+.model-line > em {
+  flex: none; font: 9.5px var(--mono); font-style: normal; color: var(--acid-text);
+  border: 1px solid var(--acid-line); border-radius: 4px; padding: 1px 5px;
 }
 /* A model a Shift-click added to a new thread's set. */
-.model-row > em.model-chosen { background: var(--acid-chip); }
+.model-line > em.model-chosen { background: var(--acid-chip); }
 .model-kbd {
-  flex: none; font: 10.5px var(--mono); color: var(--muted);
-  background: var(--inset); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px;
+  flex: none; font: 10px var(--mono); color: var(--muted);
+  background: var(--inset); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
 }
 .model-badge {
   flex: none; font: 500 9.5px var(--mono); letter-spacing: .02em; color: var(--muted);
@@ -102,17 +200,27 @@
 }
 .model-badge-new { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); font-weight: 700; }
 .model-badge-warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-chip); }
-.model-legacy .model-choose { padding-top: 10px; }
+.model-access-plan { color: var(--info-ink); border-color: color-mix(in srgb, var(--info) 40%, transparent); }
+.model-access-free, .model-access-local { color: var(--ready); border-color: color-mix(in srgb, var(--ready) 40%, transparent); }
+.model-legacy { grid-template-columns: minmax(0, 1fr) auto; height: 44px; }
 .model-chevron { flex: none; display: grid; place-items: center; color: var(--faint); padding: 0 6px; }
 .model-picker-note {
-  flex: none; margin: 0; padding: 8px 14px;
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; padding: 8px 14px;
   border-top: 1px solid var(--line); background: var(--inset);
   color: var(--muted); font-size: 11px; line-height: 1.5;
 }
-.model-star {
-  flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+.model-note-action {
+  border: 1px solid var(--line-control); border-radius: 6px; padding: 1px 8px;
+  background: transparent; color: var(--ink-2); font: 600 11px var(--sans); cursor: pointer;
+}
+.model-note-action:hover { background: var(--hover-strong); color: var(--ink); }
+.model-row-actions { display: flex; justify-content: flex-end; }
+.model-row-action {
+  flex: none; width: 24px; height: 24px; display: inline-grid; place-items: center;
   border: 0; border-radius: 6px;
   background: transparent; color: var(--fainter); cursor: pointer;
 }
-.model-star:hover { background: var(--chip-hover); color: var(--ink-2); }
+.model-row-action:hover { background: var(--chip-hover); color: var(--ink-2); }
+.model-hide { opacity: 0; }
+.model-row:hover .model-hide, .model-row.selected .model-hide, .model-row.hidden-model .model-hide { opacity: 1; }
 .model-star.on { color: var(--acid-text); }

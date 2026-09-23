@@ -61,7 +61,7 @@ describe("composer runtime choice", () => {
     expect(chip.querySelector(".provider-family-openai")).toBeTruthy();
     expect(chip.querySelector(".provider-family-pi")).toBeNull();
     fireEvent.click(chip);
-    fireEvent.click(await screen.findByRole("button", { name: "Claude Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Claude Code,/u }));
     fireEvent.click(screen.getByRole("button", { name: "New thread on Claude Code" }));
     expect(onNewThreadOnRuntime).toHaveBeenCalledWith("claude-code");
   });
@@ -70,7 +70,7 @@ describe("composer runtime choice", () => {
     const onSelect = vi.fn();
     const onSetModel = renderComposer({ kind: "claude-code", backends: piThread.runtimeBackends ?? [], onSelect }, piThread);
     fireEvent.click(screen.getByLabelText("Select runtime and model: Claude Code"));
-    fireEvent.click(await screen.findByRole("button", { name: "OpenAI (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pi, ready" }));
     fireEvent.click(screen.getByText("GPT-5.6 Luna"));
     expect(onSelect).toHaveBeenCalledWith("pi");
     expect(onSetModel).toHaveBeenCalledWith("openai-codex", "gpt-5.6-luna");
@@ -114,7 +114,7 @@ describe("composer runtime choice", () => {
     renderComposer({ kind: "acme", backends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme Agent" }], onSelect });
     expect(screen.queryByLabelText(/^Runtime:/u)).toBeNull();
     fireEvent.click(screen.getByLabelText("Select runtime and model: Acme Agent"));
-    fireEvent.click(await screen.findByRole("button", { name: "Pi" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Pi,/u }));
     fireEvent.click(screen.getByRole("button", { name: "Start this thread on Pi" }));
     expect(onSelect).toHaveBeenCalledWith("pi");
   });
