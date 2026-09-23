@@ -94,6 +94,8 @@
   --removed: light-dark(#b03a28, #f07a6a);           /* something taken away */
   --stop: light-dark(#c2282d, #e5484d);              /* the abort control */
   --stop-ink: #ffffff;                               /* the square on the stop button */
+  --qr-paper: #ffffff;                               /* a QR code's light modules: scanners want dark on light in either scheme */
+  --qr-ink: #000000;                                 /* its dark modules */
   --cyan: light-dark(#06706c, #6fd3cf);              /* numbers and types */
   --danger: light-dark(#a83f30, #d88c83);            /* destructive text */
   --danger-line: light-dark(#e2b4ab, #6f3838);       /* the edge of a destructive control */

@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, HostActionResult, NewThreadResult } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
-import { renderApp } from "../../src/renderer/test-support/render-app.js";
+import { plainChipText, renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import {
   createMemoryStorage,
@@ -615,10 +615,11 @@ describe("Workspace Kit in the workbench", () => {
     const image = new File([new Uint8Array([137, 80, 78, 71])], "draft.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [image] } });
     await screen.findByRole("button", { name: "Preview draft.png" });
-    fireEvent.change(composer, { target: { value: "submitted text" } });
+    // Typed after the image's chip, which the text keeps.
+    fireEvent.change(composer, { target: { value: `${composer.value}submitted text` } });
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(newSession).toHaveBeenCalledWith(
-      "submitted text",
+      "draft.png submitted text",
       [expect.objectContaining({ name: "draft.png" })],
       "/project",
       expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
@@ -630,7 +631,7 @@ describe("Workspace Kit in the workbench", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("prompt rejected"));
     // The notice is a toast now, drawn once the stack's chunk has loaded.
     expect(await screen.findByText("Error: prompt rejected")).toBeTruthy();
-    expect(composer.value).toBe("submitted text\n\nnewer draft");
+    expect(plainChipText(composer.value)).toBe("draft.png submitted text\n\nnewer draft");
     expect(screen.getByRole("button", { name: "Preview draft.png" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));

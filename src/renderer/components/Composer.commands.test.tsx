@@ -357,7 +357,8 @@ describe("Composer command menu", () => {
       expect(screen.getByRole("listbox", { name: "Files" })).toBeTruthy();
     });
 
-    expect(screen.getByRole("option", { name: /src\/utils\.ts/u })).toBeTruthy();
+    // The list opens before the workspace's files have come in.
+    expect(await screen.findByRole("option", { name: /src\/utils\.ts/u })).toBeTruthy();
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("@src/utils.ts ");
   });

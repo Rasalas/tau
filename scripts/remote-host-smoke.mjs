@@ -1,9 +1,13 @@
 // Drives a headless Tau host over the socket transport: hello, compression,
 // bootstrap, a prompt, a disconnect, and a reconnect that replays the pushes
 // missed in between — once in plaintext, once over TLS with a pinned certificate.
+// Each run then pairs a client through a link, revokes it while it is connected
+// and rotates the host token (ADR 0023).
 // Node 22 has WebSocket globally; the TLS run pins with `ws` and the host's
 // own pinning code, because a global WebSocket cannot pin a certificate.
 import { execFileSync, spawn } from "node:child_process";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { X509Certificate } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -45,6 +49,7 @@ function createClient(url, token, fingerprint) {
   const pending = new Map();
   const pushes = [];
   let counter = 0;
+  const closed = new Promise((resolve) => socket.addEventListener("close", (event) => resolve({ code: event.code, reason: String(event.reason) })));
   const opened = new Promise((resolve, reject) => {
     socket.addEventListener("open", () => resolve());
     socket.addEventListener("error", (event) => reject(event.error ?? new Error(`cannot connect to ${url}`)));
@@ -72,6 +77,7 @@ function createClient(url, token, fingerprint) {
   return {
     pushes,
     opened,
+    closed,
     extensions: () => socket.extensions,
     hello: (lastSeq) => {
       const id = `h${++counter}`;
@@ -107,7 +113,7 @@ if (!existsSync(HOST_ENTRY)) {
 const { pinnedTlsConnect, HostCertificateRefusedError } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-tls-trust.js")).href);
 
 /** Starts a headless host; `tls` adds TAU_HOST_TLS=1. Resolves once it prints its socket. */
-async function startHost({ workspace, userData, tokenHome, tls }) {
+async function startHost({ workspace, userData, tokenHome, tls, webClient }) {
   const host = spawn(process.execPath, [HOST_ENTRY], {
     cwd: ROOT,
     env: {
@@ -119,6 +125,7 @@ async function startHost({ workspace, userData, tokenHome, tls }) {
       TAU_USER_DATA: userData,
       TAU_HOST_LISTEN: "127.0.0.1:0",
       TAU_NO_EXTENSIONS: "1",
+      TAU_WEB_CLIENT: webClient,
       ...(tls ? { TAU_HOST_TLS: "1" } : {}),
       // HOME is a fresh temp dir already, so ~/.pi/agent/sessions never touches
       // the real store, but the override is pinned explicitly anyway: it is
@@ -245,16 +252,101 @@ async function exerciseTls(host, userData, token) {
   step("tls: no plaintext on the TLS port");
 }
 
+/** `POST /pair` as a browser sends it; over TLS the host's own certificate is the only CA. */
+function redeem(pageUrl, code, ca) {
+  const url = new URL("/pair", pageUrl);
+  const body = JSON.stringify({ code });
+  const send = url.protocol === "https:" ? httpsRequest : httpRequest;
+  return new Promise((resolve, reject) => {
+    const outgoing = send(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body), "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1" },
+      ...(ca ? { ca } : {}),
+    }, (response) => {
+      let text = "";
+      response.on("data", (chunk) => { text += String(chunk); });
+      response.on("end", () => resolve({ status: response.statusCode, body: text ? JSON.parse(text) : undefined }));
+    });
+    outgoing.on("error", reject);
+    outgoing.end(body);
+  });
+}
+
+/** Pairing, revocation of a live connection and rotation, as a client meets them. */
+async function exerciseAccess(host, tokenPath, userData, label) {
+  const ca = host.fingerprint ? readFileSync(join(userData, "tls", "host-cert.pem"), "utf8") : undefined;
+  const printed = host.output().match(/web client: (\S+)#pair=(\S+)/u);
+  if (!printed) fail(`the host printed no pairing link\n${host.output()}`);
+  const [, page, code] = printed;
+  const paired = await redeem(page, code, ca);
+  if (paired.status !== 200 || !/^tauc\.[0-9a-f]{24}\./u.test(paired.body?.token ?? "")) fail(`the startup link did not pair: ${paired.status} ${JSON.stringify(paired.body)}`);
+  const hostToken = readFileSync(tokenPath, "utf8").trim();
+  if (paired.body.token === hostToken) fail("pairing handed out the host token");
+  if ((await redeem(page, code, ca)).status !== 403) fail("a spent pairing code was redeemed twice");
+  step(`${label}: a pairing link gives a token of the client's own, once`);
+
+  const owner = createClient(host.url, hostToken, host.fingerprint);
+  await owner.opened;
+  await owner.hello();
+  const phone = createClient(host.url, paired.body.token, host.fingerprint);
+  await phone.opened;
+  await phone.hello();
+  const forbidden = await phone.request("connections-list").then(() => "answered", (error) => String(error.message));
+  if (!forbidden.startsWith("forbidden")) fail(`a paired client could list connections: ${forbidden}`);
+  const listed = await owner.request("connections-list");
+  const client = listed.clients.find((entry) => entry.connections === 1);
+  if (!client || client.device.os !== "iOS") fail(`the owner does not see the paired client: ${JSON.stringify(listed.clients)}`);
+  if (process.platform !== "win32" && (statSync(join(userData, "paired-clients.json")).mode & 0o777) !== 0o600) fail("paired-clients.json is not 0600");
+  if (readFileSync(join(userData, "paired-clients.json"), "utf8").includes(paired.body.token.split(".")[2])) fail("a client secret was written in clear");
+  step(`${label}: a paired client connects, may not manage access, is listed`, `${client.label}, ${client.lastAddress}`);
+
+  const created = await owner.request("connections-create-link", [{ label: "Smoke", lifetimeMs: 60_000 }]);
+  if (!created.urls[0]?.url.includes(`#pair=${created.code}`)) fail(`a created link carries no code: ${JSON.stringify(created.urls)}`);
+  await owner.request("connections-revoke-link", [created.link.id]);
+  if ((await redeem(page, created.code, ca)).status !== 403) fail("a revoked link was redeemed");
+  step(`${label}: a created link can be revoked before use`);
+
+  await owner.request("connections-revoke-client", [client.id]);
+  const ended = await phone.closed;
+  if (ended.code !== 4401 || ended.reason !== "revoked") fail(`revocation did not close the live connection: ${JSON.stringify(ended)}`);
+  const again = createClient(host.url, paired.body.token, host.fingerprint);
+  await again.opened;
+  if (await again.hello().then(() => "accepted", () => "refused") !== "refused") fail("a revoked token was accepted");
+  step(`${label}: revoking closes the live connection and refuses the token`);
+
+  const bystander = createClient(host.url, hostToken, host.fingerprint);
+  await bystander.opened;
+  await bystander.hello();
+  const { token: rotated } = await owner.request("connections-rotate-host-token");
+  const cut = await bystander.closed;
+  if (cut.code !== 4401 || cut.reason !== "token-rotated") fail(`rotation did not close the other host-token connection: ${JSON.stringify(cut)}`);
+  if (readFileSync(tokenPath, "utf8").trim() !== rotated) fail("the rotated token was not written to the token file");
+  if (process.platform !== "win32" && (statSync(tokenPath).mode & 0o777) !== 0o600) fail("the rotated token file is not 0600");
+  await owner.request("host-extensions");
+  const stale = createClient(host.url, hostToken, host.fingerprint);
+  await stale.opened;
+  if (await stale.hello().then(() => "accepted", () => "refused") !== "refused") fail("the old host token was accepted after rotation");
+  const fresh = createClient(host.url, rotated, host.fingerprint);
+  await fresh.opened;
+  await fresh.hello();
+  await fresh.close();
+  await owner.close();
+  step(`${label}: rotation closes the other host-token connections and keeps the caller`);
+}
+
 async function scenario({ tls }) {
   const label = tls ? "tls" : "plain";
   const workspace = await mkdtemp(join(tmpdir(), "tau-remote-smoke-"));
   const userData = mkdtempSync(join(tmpdir(), "tau-remote-userdata-"));
   const tokenHome = mkdtempSync(join(tmpdir(), "tau-remote-home-"));
+  // A page is all the host needs to serve `/pair`; the built client is not.
+  const webClient = mkdtempSync(join(tmpdir(), "tau-remote-web-"));
+  writeFileSync(join(webClient, "index.html"), "<!doctype html><title>Tau</title>");
   execFileSync("git", ["init", "-b", "main", workspace], { stdio: "ignore" });
   writeFileSync(join(workspace, "README.md"), "# remote host smoke\n");
   let host;
   try {
-    host = await startHost({ workspace, userData, tokenHome, tls });
+    host = await startHost({ workspace, userData, tokenHome, tls, webClient });
     const token = readFileSync(join(tokenHome, ".tau", "host-token"), "utf8").trim();
     step(`${label}: host started headless`, host.url);
     if (tls) await exerciseTls(host, userData, token);
@@ -263,7 +355,7 @@ async function scenario({ tls }) {
       // A pinned client survives a host restart: the certificate is kept, not remade.
       const first = host.fingerprint;
       await host.stop();
-      host = await startHost({ workspace, userData, tokenHome, tls });
+      host = await startHost({ workspace, userData, tokenHome, tls, webClient });
       if (host.fingerprint !== first) fail(`the fingerprint changed across a restart: ${first} -> ${host.fingerprint}`);
       const again = createClient(host.url, token, first);
       await again.opened;
@@ -271,6 +363,8 @@ async function scenario({ tls }) {
       await again.close();
       step("tls: a restarted host keeps its fingerprint");
     }
+    // Last: rotation replaces the token the steps above used.
+    await exerciseAccess(host, join(tokenHome, ".tau", "host-token"), userData, label);
   } finally {
     await host?.stop();
     // Windows keeps a file busy for a moment after the process that held it ends.
@@ -278,6 +372,7 @@ async function scenario({ tls }) {
     await rm(workspace, removal);
     await rm(userData, removal);
     await rm(tokenHome, removal);
+    await rm(webClient, removal);
   }
 }
 

@@ -39,6 +39,7 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
+import type { UiConnections, UiCreatedPairingLink } from "../shared/connections";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
 /**
@@ -171,6 +172,14 @@ export interface HostClient {
    */
   getVersions(): { host?: string; window?: string };
   onVersions(listener: () => void): () => void;
+
+  // Who else may connect to the host (Settings → Connections, ADR 0023). The owner's alone.
+  listConnections(): Promise<UiConnections>;
+  createPairingLink(input?: { label?: string; lifetimeMs?: number }): Promise<UiCreatedPairingLink>;
+  revokePairingLink(id: string): Promise<{ revoked: boolean }>;
+  revokeClient(id: string): Promise<{ revoked: boolean }>;
+  /** Closes every other connection on the old host token; this one carries on with the new one. */
+  rotateHostToken(): Promise<void>;
 }
 
 /**
@@ -299,6 +308,15 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       const offHost = connection.onHello(listener);
       const offWindow = local?.onHello(listener);
       return () => { offHost(); offWindow?.(); };
+    },
+
+    listConnections: () => call<UiConnections>("connections-list"),
+    createPairingLink: (input) => call<UiCreatedPairingLink>("connections-create-link", [input ?? {}]),
+    revokePairingLink: (id) => call<{ revoked: boolean }>("connections-revoke-link", [id]),
+    revokeClient: (id) => call<{ revoked: boolean }>("connections-revoke-client", [id]),
+    rotateHostToken: async () => {
+      const { token } = await call<{ token: string }>("connections-rotate-host-token");
+      connection.updateToken(token);
     },
   };
 }

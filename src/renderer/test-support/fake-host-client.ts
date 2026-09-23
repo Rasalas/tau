@@ -106,6 +106,11 @@ function defaults(): HostClient {
     onConnectionState: () => () => undefined,
     getVersions: () => ({}),
     onVersions: () => () => undefined,
+    listConnections: async () => ({ scheme: "ws", endpoints: [], webClient: false, tokenPath: "", links: [], clients: [], owners: [] }),
+    createPairingLink: async () => { throw Object.assign(new Error("No pairing in tests."), { code: "unsupported" }); },
+    revokePairingLink: async () => ({ revoked: false }),
+    revokeClient: async () => ({ revoked: false }),
+    rotateHostToken: async () => undefined,
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),

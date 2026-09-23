@@ -5,7 +5,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopExtension, UiFileDiff, UiWorkspaceChanges } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
-import { renderApp } from "../../src/renderer/test-support/render-app.js";
+import { plainChipText, renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { workspaceExtension } from "../workspace/desktop.js";
 import composerContext from "../composer-context/desktop.js";
@@ -163,12 +163,12 @@ describe("Review Kit in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send to composer" }));
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull());
-    const strip = await waitFor(() => {
-      const found = document.querySelector(".composer-context");
-      expect(found?.textContent).toContain("a.ts:1");
-      return found as HTMLElement;
-    });
-    expect(strip.querySelector("[title]")?.getAttribute("title")).toContain("Name it after what it checks.");
+    // The chip sits in the prompt's text; its popover shows the comment.
+    const composer = screen.getByPlaceholderText(/Direct the agent/u) as HTMLTextAreaElement;
+    await waitFor(() => expect(plainChipText(composer.value)).toContain("a.ts:1"));
+    fireEvent.click(screen.getByRole("button", { name: "Chip a.ts:1" }));
+    expect((await screen.findByRole("dialog", { name: "a.ts:1" })).textContent).toContain("Name it after what it checks.");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 
     fireEvent.click(await screen.findByRole("button", { name: "Open full review" }));
     expect(await screen.findByRole("button", { name: "0 comments" })).toBeTruthy();

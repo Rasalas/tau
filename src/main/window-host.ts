@@ -6,6 +6,7 @@ import type { HostPush } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
 import { HostProcessSupervisor, type RunningHost } from "./host-process-supervisor.js";
 import { HostUplink } from "./host-uplink.js";
+import { readHostToken } from "./host-token.js";
 import type { HostCertificateRefusedError } from "./host-tls-trust.js";
 import { WindowExtensionRegistry } from "./window-extensions.js";
 
@@ -44,6 +45,8 @@ export class WindowHost {
   private uplink: HostUplink | undefined;
   private url = "";
   private token = "";
+  /** The supervised host's token file; a rotation rewrites it (ADR 0023). */
+  private tokenPath: string | undefined;
   private fingerprint: string | undefined;
   private workspace: string;
   /** The halves of the kits that need this process; the host calls into them. */
@@ -83,6 +86,7 @@ export class WindowHost {
     const running = await supervisor.start();
     this.url = running.url;
     this.token = running.token;
+    this.tokenPath = running.tokenPath || undefined;
     this.connect();
     return running;
   }
@@ -145,6 +149,7 @@ export class WindowHost {
   }
 
   private connect(): void {
+    const tokenPath = this.tokenPath;
     this.uplink?.close();
     this.uplink = new HostUplink({
       url: this.url,
@@ -154,6 +159,12 @@ export class WindowHost {
       onPush: (push) => this.receive(push),
       ...(this.fingerprint ? { fingerprint: this.fingerprint } : {}),
       ...(this.options.onCertificateRefused ? { onCertificateRefused: this.options.onCertificateRefused } : {}),
+      // The next page load takes the token from here, so a window reopened after a rotation connects.
+      ...(tokenPath ? { refreshToken: () => {
+        const token = readHostToken(tokenPath);
+        if (token) this.token = token;
+        return token;
+      } } : {}),
     });
   }
 

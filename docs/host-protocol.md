@@ -186,27 +186,67 @@ command timeout), and the client asks with `job-methods`.
 Two transports implement this. Electron IPC uses two channels, `tau:request` and
 `tau:host-event`; `src/main/ipc-contract.test.ts` checks that the client and the
 method table name the same methods. The socket transport (`ws`) serves the same
-table on `TAU_HOST_LISTEN=host:port`, authenticated by the 32-byte token in
-`~/.tau/host-token` that every hello repeats; a wrong token, or a request before
-a hello, closes the connection. Without TLS the token is unencrypted on the
-wire, so a plaintext listener refuses a non-loopback address unless
-`TAU_HOST_INSECURE=1` says otherwise; with TLS (below) any interface is fine.
+table on `TAU_HOST_LISTEN=host:port`; every hello repeats a token, and a wrong
+one, or a request before a hello, closes the connection with 4401. Without TLS
+the token is unencrypted on the wire, so a plaintext listener refuses a
+non-loopback address unless `TAU_HOST_INSECURE=1` says otherwise; with TLS
+(below) any interface is fine.
 
-The token is the connection's whole trust boundary, and it is not scoped: a
-client that holds it may call every method in the table, including the ones that
-open a workspace. A client that still speaks paths rather than a `workspaceId`
-has that path accepted as given, so a token holder can point the host at any
-directory its process can read. Treat the token as "may use this host", not as
-"may read these threads": keep it on loopback, behind an SSH tunnel or behind
-TLS, and set `TAU_HOST_INSECURE=1` only for a network that is trusted for its
-own reasons.
+## Tokens and pairing
+
+Two kinds of token open a socket ([ADR 0023](adr/0023-client-tokens-and-pairing.md),
+`src/main/host-access.ts`):
+
+- **The host token**, 32 random bytes as hex in `TAU_HOST_TOKEN_FILE`
+  (default `~/.tau/host-token`, 0o600 in a 0o700 directory). It belongs to the
+  owner: the window beside the host reads the file, a window elsewhere gets it
+  as `TAU_HOST_TOKEN`. The host re-reads the file when it changes on disk.
+- **A client token**, `tauc.<24 hex id>.<43 base64url secret>`, one per paired
+  client. The host keeps the id, a label, the device its user agent named, when
+  and from where it paired and was last seen, and only the SHA-256 of the
+  secret, in `<userData>/paired-clients.json`.
+
+A client gets its token by redeeming a pairing link: `POST /pair { code }` on
+the web client's server answers `{ token }` (`cache-control: no-store`) or 403
+for an unknown, spent or expired code, and 429 with `retry-after` when a source
+tries too often. A code is 24 random bytes, lives 10 minutes by default (one
+minute to one day), is spent by the first attempt, and is kept only as a hash
+in memory. The link is `http(s)://host:port/#pair=<code>`.
+
+The request's principal says which: `{ kind: "workbench-client", connection,
+pairedClient? }`, assigned by the transport, carried into jobs. Methods that
+manage access refuse a paired client with `forbidden`:
+
+| Method | Params | Result |
+|---|---|---|
+| `connections-list` | – | `UiConnections`: endpoints, TLS fingerprint, token path, open links, paired clients, host-token connections (`src/shared/connections.ts`) |
+| `connections-create-link` | `{ label?, lifetimeMs? }` | `{ link, code, urls }`; the code is answered this once |
+| `connections-revoke-link` | `id` | `{ revoked }` |
+| `connections-revoke-client` | `id` | `{ revoked }`; its open connections close with 4401 `revoked` |
+| `connections-rotate-host-token` | – | `{ token }`; every other host-token connection closes with 4401 `token-rotated` |
+
+`host.shutdown` also refuses a paired client. A host without a socket answers
+the Connections methods with `unsupported`.
+
+The 4401 close carries a reason: `unauthorized` (a token nobody knows),
+`revoked`, `token-rotated`. The socket client hands it to `onUnauthorized` and
+stops reconnecting. A window's own process re-reads its supervised host's token
+file once after a 4401 and tries again, which is how it follows a rotation.
+
+A token is not scoped: a client that holds either kind may call every method a
+workbench uses, including the ones that open a workspace or a terminal. A client
+that still speaks paths rather than a `workspaceId` has that path accepted as
+given, so a token holder can point the host at any directory its process can
+read. Treat a token as "may use this host", not as "may read these threads":
+keep it on loopback, behind an SSH tunnel or behind TLS, and set
+`TAU_HOST_INSECURE=1` only for a network that is trusted for its own reasons.
 
 ## TLS
 
 A host can offer itself on a network without a tunnel. TLS changes the
 transport, not the protocol: the same frames, the same token in every hello,
-the same replay and resync. The web client's pairing code and the token file
-are handled exactly as without TLS.
+the same replay and resync. Pairing links and tokens are handled exactly as
+without TLS; a link then starts with `https://`.
 
 **Host side.** `TAU_HOST_TLS=1` makes the socket an HTTPS server (`wss:`),
 minimum TLS 1.2. On first start the host creates a self-signed ECDSA P-256
@@ -408,6 +448,7 @@ Current stores:
 | `<userData>/projects.json` | `src/main/project-history.ts` | 2 |
 | `<userData>/host-id` | `src/main/workspace-identity.ts` | plain text |
 | `<userData>/known-hosts.json` | `src/main/host-tls-trust.ts` | 1 |
+| `<userData>/paired-clients.json` | `src/main/host-access.ts` | 1 |
 | `<agentDir>/tau/claude-runtime-sessions.json` | `kits/claude-code/session-store.ts` | 1 |
 
 Two configuration files are not stores of this kind, because Pi owns one of

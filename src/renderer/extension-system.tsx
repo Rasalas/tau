@@ -5,6 +5,7 @@ import { domKeybindingContext } from "./keybinding-context";
 import type { ComponentType, ReactNode } from "react";
 import type { PanelIconComponent } from "./components/PanelIcon";
 import type { HostClient } from "../workbench/host-client";
+import type { HostConnectionState } from "../workbench/host-connection";
 import type { HostActionResult } from "../shared/host-protocol";
 import type {
   ExtensionInspection,
@@ -295,7 +296,9 @@ export type WorkbenchEvent =
   | Extract<HostEvent, { type: "tool-start" | "tool-end" | "agent-status" | "user-message" | "assistant-end" | "thread-index" | "notice" | "client-count" }>
   | { type: "active-thread-changed"; sessionId?: string }
   /** The host opened another project; `from` is absent for the first one this client saw. */
-  | { type: "workspace-changed"; from?: string; to: string };
+  | { type: "workspace-changed"; from?: string; to: string }
+  /** The window's link to the host changed state; `connected` after a drop means it is back. */
+  | { type: "host-connection"; state: HostConnectionState };
 
 export type WorkbenchEventType = WorkbenchEvent["type"];
 
@@ -367,6 +370,43 @@ export interface ComposerKeyEvent {
   selectionEnd: number;
 }
 
+/** Drawn in a chip's icon slot, about the size of one character of the prompt. */
+export type ComposerChipIcon = ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean }>;
+
+/** What an inline chip's popover draws: its details, and whatever the chip lets the user edit. */
+export interface ComposerChipDetailProps {
+  scope: string;
+  chipId: string;
+  /** Closes the popover and hands the keyboard back to the text. */
+  close(): void;
+}
+
+/** One chip an inline contribution holds, drawn by core inside the prompt's text. */
+export interface ComposerInlineChip {
+  id: string;
+  /** What the chip reads in the text; core keeps it to one line and unique within the draft. */
+  label: string;
+  icon?: ComposerChipIcon;
+  /** The whole of it (a path, a URL), shown in the chip's popover. */
+  title?: string;
+  /** `busy` while it is still being prepared (an upload), `failed` when it cannot be sent. */
+  state?: "busy" | "failed";
+  /** Drawn in the popover a click on the chip opens. */
+  Detail?: ComponentType<ComposerChipDetailProps>;
+}
+
+/**
+ * Chips placed in the text instead of a strip. Core puts a token for each new
+ * chip at the caret, removes the chip when the user deletes its token, draws
+ * the token as a chip, and sends it as its label; the payload still goes
+ * through `prepareSend`.
+ */
+export interface ComposerInlineChips {
+  /** The draft's chips in the order they were added; `subscribe` announces changes. */
+  list(scope: string): readonly ComposerInlineChip[];
+  remove(scope: string, id: string): void;
+}
+
 /** What an inline contribution adds to a prompt that is being sent. */
 export interface ComposerSendContribution {
   /** Text core puts before the user's (after it, for a skill). */
@@ -385,9 +425,11 @@ export interface ComposerInlineContribution extends ProfileScoped {
   triggers?: readonly ComposerTriggerContribution[];
   /** Answer `true` to keep pasted text out of the field. */
   pasteText?(text: string, context: ComposerInlineContext): boolean;
+  /** Chips drawn inside the text; `Component` then draws only what is not a chip (an error, say). */
+  chips?: ComposerInlineChips;
   /** Takes files from a drop, a paste or the attach button, and answers with the ones left for core's images. */
   takeFiles?(files: readonly File[], context: ComposerInlineContext): readonly File[];
-  /** Whether this draft holds something worth sending on its own; enables Send without text. */
+  /** Whether this draft holds something worth sending on its own; enables Send without text. Not asked of a contribution with `chips`: its chips are text. */
   hasContent?(scope: string): boolean;
   /** Called when what `hasContent` answers may have changed. */
   subscribe?(listener: () => void): () => void;

@@ -16,6 +16,7 @@ import { expandFileMentions } from "../file-mention-expander.js";
 import type { ComposerInlineContext, ComposerInlineContribution, DocumentSourceContribution } from "../extension-system";
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
+import { plainChipText } from "./composer-chip-token";
 
 /** `alternate` is a plain send with the modifier held, which an extension may claim for a new thread. */
 export type ComposerDelivery = "followUp" | "steer" | "alternate";
@@ -182,7 +183,7 @@ export function useComposerSubmission({
             fileAttachments: inlineContext?.fileAttachments ?? false,
             imageInput: inlineContext?.imageInput ?? false,
             ...(inlineContext?.snapshot ? { snapshot: inlineContext.snapshot } : {}),
-            text: handle.text,
+            text: plainChipText(handle.text),
           });
         } catch (error) {
           handle.settle({ accepted: false, message: errorMessage(error) });
@@ -204,8 +205,10 @@ export function useComposerSubmission({
         attachmentsToSend: UiPromptAttachment[];
       };
       try {
-        const submittedText = handle.text;
-        let skillDraft = selectedSkillDraft(submittedText, selectedSkill);
+        // Chips go as their labels; the skill's range is read on the text as the editor had it.
+        const submittedText = plainChipText(handle.text);
+        let skillDraft = selectedSkillDraft(handle.text, selectedSkill);
+        if (skillDraft) skillDraft = { ...skillDraft, visibleText: plainChipText(skillDraft.visibleText) };
         let promptToSend = submittedText;
         let attachmentsToSend = [...handle.attachments];
 
@@ -311,14 +314,14 @@ export function useComposerSubmission({
             fileAttachments: inlineContext?.fileAttachments ?? false,
             imageInput: inlineContext?.imageInput ?? false,
             ...(inlineContext?.snapshot ? { snapshot: inlineContext.snapshot } : {}),
-            text: captured.draft,
+            text: plainChipText(captured.draft, true),
           });
         } catch (error) {
           scopeStore.setAttachmentError(scope, errorMessage(error), scopeStore.getAttachmentGeneration(scope));
           return;
         }
       }
-      sink(withInlineContext(captured.draft, inline.context).text, [...images, ...inline.attachments]);
+      sink(withInlineContext(plainChipText(captured.draft, true), inline.context).text, [...images, ...inline.attachments]);
       settleInlineSend(inline.asked, scope, true);
       scopeStore.setAttachments(scope, scopeStore.getSnapshot(scope).attachments.filter((attachment) => !ids.has(attachment.id)));
       if (scopeStore.getSnapshot(scope).draft === captured.draft) scopeStore.setDraft(scope, "");

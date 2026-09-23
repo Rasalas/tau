@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import type { HostEvent } from "../shared/contracts.js";
-import { HOST_CAPABILITY, type HostPushEvent } from "../shared/host-transport.js";
+import { HOST_CAPABILITY, HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
@@ -12,7 +12,10 @@ import { HostJobRunner } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods } from "./host-methods.js";
-import { hostTokenPath, readOrCreateHostToken } from "./host-token.js";
+import { HostTokenFile, hostTokenPath } from "./host-token.js";
+import { HostAccess } from "./host-access.js";
+import type { HostListenInfo } from "./host-connections.js";
+import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
@@ -121,8 +124,12 @@ async function main(): Promise<void> {
       warmRuntimeCatalogs: true,
     });
   });
+  const tokenFile = new HostTokenFile(hostTokenPath());
+  const access = await HostAccess.open({ tokenFile, storePath: join(userData, "paired-clients.json"), logger: hostLog });
+  let listening: HostListenInfo | undefined;
   const methods = createHostMethods({
     clientCalls,
+    connections: () => ({ access, listen: () => listening }),
     ...started.methodDeps(),
     jobs,
     platform: {
@@ -162,27 +169,28 @@ async function main(): Promise<void> {
       clientCalls.dispose();
       compactor.dispose();
       await socket?.close();
+      await access.flush().catch((error: unknown) => hostLog.warn("host.access.flush-failed", error));
       await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
       process.exit(0);
     })();
   };
   // Not part of the client protocol: the supervisor that started this process
   // asks for a clean stop here before it reaches for a signal (ADR 0021).
-  methods["host.shutdown"] = async () => {
+  methods["host.shutdown"] = async (_params, context) => {
+    if (!isHostOwner(context.principal)) throw Object.assign(new Error("Only the host token may stop the host."), { code: HOST_ERROR.forbidden });
     hostLog.info("host.shutdown.requested");
     // Answer first, leave afterwards.
     setTimeout(shutdown, 50).unref();
     return { stopping: true };
   };
 
-  const token = readOrCreateHostToken();
   const { host: boundHost } = parseListen(listen);
   // TAU_HOST_TLS=1, or a certificate of the operator's own; the key stays under userData.
   const tls = resolveHostTls(process.env, { userData, bindHost: boundHost });
   // A built client turns this host into something a browser can open. Without
   // one the host is exactly what it was: a socket and nothing else.
   const web = existsSync(join(webRoot, "index.html"))
-    ? createWebClientServer({ dir: webRoot, token, ...(tls ? { tls } : {}) })
+    ? createWebClientServer({ dir: webRoot, pairing: access, ...(tls ? { tls } : {}) })
     : undefined;
   socket = await startSocketHostTransport({
     listen,
@@ -192,7 +200,7 @@ async function main(): Promise<void> {
     onSnapshotClient: () => pushes.resendWholeOutputs(),
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
-    token,
+    access,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     ...(tls ? { tls } : {}),
     ...(web ? { attachTo: web.server } : {}),
@@ -200,8 +208,9 @@ async function main(): Promise<void> {
     logger: hostLog,
   });
   // The smoke test reads this line to learn the port when it asked for 0.
+  listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint } : {}) };
   console.log(`tau-host listening on ${socket.scheme}://${boundHost}:${socket.port}`);
-  console.log(`token: ${hostTokenPath()} (copy it to the client machine, or pass it as TAU_HOST_TOKEN)`);
+  console.log(`token: ${tokenFile.path} (copy it to the client machine, or pass it as TAU_HOST_TOKEN)`);
   if (tls) {
     const origin = tls.source === "self-signed" ? `self-signed, ${tls.created ? "created now" : "kept"} in ${tls.certPath}` : `from ${tls.certPath}`;
     console.log(`tls: certificate ${origin}`);
@@ -213,7 +222,9 @@ async function main(): Promise<void> {
   if (web) {
     // The code lives in the fragment: no proxy, no access log and no Referer
     // ever carries it, and the page drops it before it renders anything.
-    console.log(`web client: ${tls ? "https" : "http"}://${boundHost}:${socket.port}/#pair=${web.issueCode()} (single use, 10 minutes)`);
+    // A token of the browser's own, not the host token (ADR 0023).
+    const { code } = access.createLink();
+    console.log(`web client: ${tls ? "https" : "http"}://${boundHost}:${socket.port}/#pair=${code} (single use, 10 minutes)`);
   } else {
     console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
   }

@@ -3,18 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createAuthRateLimiter, createWebClientServer, resolveAsset } from "./host-web-server.js";
+import { HostAccess } from "./host-access.js";
+import { HostTokenFile } from "./host-token.js";
 
 const root = mkdtempSync(join(tmpdir(), "tau-web-client-"));
 mkdirSync(join(root, "assets"), { recursive: true });
 writeFileSync(join(root, "index.html"), "<!doctype html><title>Tau</title>");
 writeFileSync(join(root, "assets", "main.js"), "export const ok = 1;\n");
 
-// The shared server keeps the default TTL: a 50 ms window expired under CI load
-// before the redeem request arrived. The TTL test below runs its own server.
-const web = createWebClientServer({ dir: root, token: "s3cret-token" });
+let clock = Date.now();
+let access: HostAccess;
+let web: ReturnType<typeof createWebClientServer>;
 let origin = "";
 
 beforeAll(async () => {
+  const tokenFile = new HostTokenFile(join(root, "state", "host-token"));
+  access = await HostAccess.open({ tokenFile, storePath: join(root, "state", "paired-clients.json"), now: () => clock });
+  web = createWebClientServer({ dir: root, pairing: access });
   await new Promise<void>((resolve) => web.server.listen(0, "127.0.0.1", () => resolve()));
   const address = web.server.address();
   origin = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
@@ -113,11 +118,15 @@ describe("the web client a listening host serves", () => {
     expect(resolveAsset("/srv/web", "/../../etc/passwd")).toBeUndefined();
   });
 
-  it("trades a pairing code for the token exactly once", async () => {
-    const code = web.issueCode();
+  it("trades a pairing code for a client token of its own, exactly once", async () => {
+    const { code } = access.createLink();
     const first = await pair(code);
     expect(first.status).toBe(200);
-    expect(await first.json()).toEqual({ token: "s3cret-token" });
+    expect(first.headers.get("cache-control")).toBe("no-store");
+    const { token } = await first.json() as { token: string };
+    expect(token).toMatch(/^tauc\.[0-9a-f]{24}\./u);
+    // Never the host token: that one stays with the owner.
+    expect(access.authenticate(token)).toEqual({ kind: "client", clientId: token.split(".")[1] });
     expect((await pair(code)).status).toBe(403);
   });
 
@@ -125,31 +134,15 @@ describe("the web client a listening host serves", () => {
     expect((await pair("not-a-code")).status).toBe(403);
   });
 
-  it("refuses a code once the TTL has elapsed", async () => {
-    // Use the `now` injection so the test is deterministic and has no real sleep.
-    let fakeNow = Date.now();
-    const timedWeb = createWebClientServer({ dir: root, token: "s3cret-token", codeTtlMs: 50, now: () => fakeNow });
-    await new Promise<void>((resolve) => timedWeb.server.listen(0, "127.0.0.1", () => resolve()));
-    const timedAddress = timedWeb.server.address();
-    const timedOrigin = `http://127.0.0.1:${typeof timedAddress === "object" && timedAddress ? timedAddress.port : 0}`;
-    const timedPair = (code: string) => fetch(`${timedOrigin}/pair`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code }),
-    });
-    try {
-      const code = timedWeb.issueCode();
-      // Advance the clock past the TTL before attempting to redeem.
-      fakeNow += 100;
-      expect((await timedPair(code)).status).toBe(403);
-    } finally {
-      await new Promise<void>((resolve) => timedWeb.server.close(() => resolve()));
-    }
+  it("refuses a code once its link has expired", async () => {
+    const { code } = access.createLink({ lifetimeMs: 60_000 });
+    clock += 60_000;
+    expect((await pair(code)).status).toBe(403);
   });
 
   it("bounds concurrent malformed pairing attempts and preserves throttled codes", async () => {
-    let fakeNow = 0;
-    const limited = createWebClientServer({ dir: root, token: "s3cret-token", now: () => fakeNow });
+    let limiterNow = 0;
+    const limited = createWebClientServer({ dir: root, pairing: access, now: () => limiterNow });
     await new Promise<void>((resolve) => limited.server.listen(0, "127.0.0.1", () => resolve()));
     const address = limited.server.address();
     const limitedOrigin = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
@@ -162,21 +155,21 @@ describe("the web client a listening host serves", () => {
       const attempts = await Promise.all(Array.from({ length: 30 }, (_, index) => post("{", `192.0.2.${index}`)));
       expect(attempts.filter((response) => response.status === 403)).toHaveLength(20);
       expect(attempts.filter((response) => response.status === 429)).toHaveLength(10);
-      const code = limited.issueCode();
+      const { code } = access.createLink();
       const refused = await post(JSON.stringify({ code }));
       expect(refused.status).toBe(429);
       expect(refused.headers.get("retry-after")).toBe("1");
       expect(await refused.json()).toEqual({ error: "too many pairing attempts" });
       expect((await fetch(`${limitedOrigin}/`)).status).toBe(200);
       expect((await fetch(`${limitedOrigin}/pair`)).status).toBe(405);
-      fakeNow = 1000;
+      limiterNow = 1000;
       const redeemed = await post(JSON.stringify({ code }));
       expect(redeemed.status).toBe(200);
-      expect(await redeemed.json()).toEqual({ token: "s3cret-token" });
+      expect((await redeemed.json() as { token: string }).token).toMatch(/^tauc\./u);
       const throttled = await post(JSON.stringify({ code }));
       expect(throttled.status).toBe(429);
       expect(throttled.headers.get("retry-after")).toBe("2");
-      fakeNow = 3000;
+      limiterNow = 3000;
       expect((await post(JSON.stringify({ code }))).status).toBe(403);
     } finally {
       await new Promise<void>((resolve) => limited.server.close(() => resolve()));
