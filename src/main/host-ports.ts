@@ -33,6 +33,7 @@ import type {
   HostAttachedRuntime,
   HostClientServices,
   HostExtensionServices,
+  HostMcpInstructionsProvider,
   HostMcpToolGate,
   HostMcpToolProvider,
   HostPlatform,
@@ -230,8 +231,10 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   let permissionLevelProvider: (() => RuntimePermissionLevel) | undefined;
   const mcpProviders = new Set<HostMcpToolProvider>();
   const mcpGates: HostMcpToolGate[] = [];
+  const mcpInstructions: HostMcpInstructionsProvider[] = [];
   const mcp = new McpEndpoint({
     providers: () => mcpProviders,
+    instructions: () => mcpInstructions,
     gates: () => mcpGates,
     confirm: (threadId, title, message, signal) => port.confirmInThread(threadId, title, message, signal),
     log: (label, detail) => port.log(label, detail),
@@ -364,6 +367,13 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         return () => {
           const index = mcpGates.indexOf(gate);
           if (index >= 0) mcpGates.splice(index, 1);
+        };
+      },
+      registerInstructions: (provider) => {
+        mcpInstructions.push(provider);
+        return () => {
+          const index = mcpInstructions.indexOf(provider);
+          if (index >= 0) mcpInstructions.splice(index, 1);
         };
       },
       connect: (thread, options) => port.safeMode ? Promise.resolve(undefined) : mcp.connect(thread, options),
