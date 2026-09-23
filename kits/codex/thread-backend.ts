@@ -1,5 +1,6 @@
 import {
   DEFAULT_THREAD_MODE as DEFAULT_MODE,
+  askElicitation,
   clientMessageFingerprint,
   knownSkillNames,
   prepareSkillPrompt,
@@ -26,7 +27,7 @@ import {
   type UiThreadUsage,
 } from "tau/host-extension";
 import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
-import { approvalDialog, policyForLevel, refusal } from "./approvals.js";
+import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
 import type { CodexConfiguredModel } from "./config.js";
@@ -551,6 +552,11 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async onRequest(method: string, raw: unknown): Promise<unknown> {
     const params = (raw ?? {}) as Record<string, unknown>;
+    const form = method === "mcpServer/elicitation/request" ? elicitationForm(params) : undefined;
+    if (form && form.fields.length > 0) {
+      if (!this.options.ask) return elicitationResult({ action: "decline" });
+      return elicitationResult(await askElicitation({ ...form, ask: this.options.ask, decorate: pageElicitation(form.source) }));
+    }
     const turn = this.turns[0];
     const dialog = approvalDialog(method, params, (itemId) => turn?.translator.changes.get(itemId) ?? []);
     if (!dialog) {

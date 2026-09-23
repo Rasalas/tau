@@ -2,7 +2,8 @@
 // and thread requests and replays turns recorded from codex-cli 0.154.0
 // (app-server-frames.json). A prompt containing `[scenario:<name>]` picks the
 // recording; `interrupt` stops at its approval and waits for `turn/interrupt`,
-// `crash` exits mid-turn.
+// `crash` exits mid-turn. `elicitation`, `permissions` and `question` are
+// written from the protocol's schema (codex-cli 0.156.1), not recorded.
 // STUB_LOG names a file every client message is appended to; STUB_THREADS a
 // file of thread ids that survive a restart.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";

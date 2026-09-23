@@ -137,6 +137,36 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect(events.find((event) => event.type === "tool-end")).toMatchObject({ tool: { name: "bash", status: "done", output: "tau-ok\n" } });
   });
 
+  it("asks an MCP server's form field by field, paged together, and sends Codex the values", async () => {
+    const space = await scratch();
+    const answers: ExtensionUiAnswer[] = [{ value: "Production" }, { value: "after lunch", typed: true }];
+    const { backend, asked, events } = await open(space, { answer: () => answers.shift() ?? { cancelled: true } });
+    await backend.prompt({ text: "Ship it [scenario:elicitation]", delivery: "prompt" });
+    expect(asked.map((prompt) => [prompt.kind, prompt.title])).toEqual([["select", "Environment"], ["input", "Note (optional)"]]);
+    expect(asked[0]!.message).toBe("Where should it go?");
+    expect(asked[1]!.extras?.["tau.questionnaire"]).toMatchObject({ index: 1, questions: [{ header: "deploy", question: "Environment" }, { question: "Note (optional)" }] });
+    expect((await sent(space)).find((message) => message.answered === "mcpServer/elicitation/request")?.result).toEqual({ action: "accept", content: { env: "prd", note: "after lunch" }, _meta: null });
+    expect(events.find((event) => event.type === "tool-end")).toMatchObject({ tool: { name: "mcp__deploy__release", status: "done", output: "released" } });
+  });
+
+  it("declines an MCP server's form when a required field is skipped", async () => {
+    const space = await scratch();
+    const { backend } = await open(space, { answer: () => ({ cancelled: true }) });
+    await backend.prompt({ text: "Ship it [scenario:elicitation]", delivery: "prompt" });
+    expect((await sent(space)).find((message) => message.answered === "mcpServer/elicitation/request")?.result).toEqual({ action: "decline", content: null, _meta: null });
+  });
+
+  it("shows a permission request as a card that names what it grants, and grants it for the session", async () => {
+    const space = await scratch();
+    const { backend, asked } = await open(space, { answer: () => ({ value: ALLOW_SESSION }) });
+    await backend.prompt({ text: "Fetch [scenario:permissions]", delivery: "prompt" });
+    expect(asked).toEqual([expect.objectContaining({ kind: "select", title: "Codex asks for more permissions", message: `Fetch the release notes\nNetwork access\nWrite: ${space.dir}/notes` })]);
+    expect((await sent(space)).find((message) => message.answered === "item/permissions/requestApproval")?.result).toEqual({
+      permissions: { network: { enabled: true }, fileSystem: { read: null, write: [`${space.dir}/notes`] } },
+      scope: "session",
+    });
+  });
+
   it("names the file an edit would write and passes an allowance for the session", async () => {
     const space = await scratch();
     const { backend, asked } = await open(space, { level: "ask", answer: () => ({ value: ALLOW_SESSION }) });
