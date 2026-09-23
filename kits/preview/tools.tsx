@@ -23,7 +23,8 @@ export const zoomLabel = (factor: number): string => `${Math.round(factor * 100)
 
 /** The page's viewport, zoom and appearance: T3 Code's device toolbar, as one menu. */
 function ViewOptions({ state, run }: { state: PreviewState; run(work: () => Promise<unknown>): void }) {
-  const [open, setOpen] = useState(false);
+  // The tool row clips what overflows it, so the menu opens over the whole window.
+  const [open, setOpen] = useState<{ x: number; y: number } | undefined>();
   const fixed = state.viewport.mode === "fixed" ? state.viewport : undefined;
   const sections: MenuSection[] = [
     {
@@ -49,7 +50,7 @@ function ViewOptions({ state, run }: { state: PreviewState; run(work: () => Prom
     },
   ];
   const choose = (id: string) => {
-    setOpen(false);
+    setOpen(undefined);
     const [kind, value = ""] = id.split(":");
     const preset = VIEWPORT_PRESETS.find((candidate) => candidate.id === value);
     if (kind === "viewport") run(() => previewKit.viewport(preset ? { mode: "fixed", width: preset.width, height: preset.height, preset: preset.id } : { mode: "fill" }));
@@ -57,18 +58,21 @@ function ViewOptions({ state, run }: { state: PreviewState; run(work: () => Prom
     else if (kind === "zoom") run(() => previewKit.zoom({ step: value as "in" | "out" | "reset" }));
   };
   const label = fixed ? `Viewport ${fixed.width}×${fixed.height}` : "Viewport, zoom and appearance";
-  return <span className="menu-anchor">
+  return <>
     <button
       type="button"
       className={fixed || state.appearance !== "system" ? "icon-button compact active" : "icon-button compact"}
       aria-label="Viewport, zoom and appearance"
       aria-haspopup="menu"
-      aria-expanded={open}
+      aria-expanded={Boolean(open)}
       {...tooltipProps(label)}
-      onClick={() => setOpen(!open)}
+      onClick={(event) => {
+        const box = event.currentTarget.getBoundingClientRect();
+        setOpen(open ? undefined : { x: box.left, y: box.bottom + 4 });
+      }}
     ><MonitorSmartphone size={13} /></button>
-    {open ? <Menu align="right" label="Viewport, zoom and appearance" sections={sections} onSelect={choose} onClose={() => setOpen(false)} /> : null}
-  </span>;
+    {open ? <Menu at={open} label="Viewport, zoom and appearance" sections={sections} onSelect={choose} onClose={() => setOpen(undefined)} /> : null}
+  </>;
 }
 
 /** `12 s`, `3:05`. */
