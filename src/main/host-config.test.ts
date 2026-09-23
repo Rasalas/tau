@@ -303,5 +303,25 @@ describe("HostConfigManager", () => {
       expect(layers.host.updates).toBeUndefined();
       expect((await manager.read()).updates).toBeUndefined();
     });
+
+    it("keeps the quit confirmations key by key and drops a mode it does not know", async () => {
+      await manager.update({ confirm: { quit: "double-press" } }, "global");
+      await manager.update({ confirm: { quitWhileRunning: false } }, "global");
+      expect((await manager.read()).confirm).toEqual({ quit: "double-press", quitWhileRunning: false });
+      await manager.update({ confirm: { quit: "never" as never } }, "global");
+      expect((await manager.read()).confirm?.quit).toBe("double-press");
+      await manager.clear(["confirm.quit"], "global");
+      expect((await manager.read()).confirm).toEqual({ quitWhileRunning: false });
+    });
+
+    it("keeps the picker's model preferences per runtime and level, and clears one runtime's", async () => {
+      await manager.update({ modelPreferences: { pi: { hidden: ["openai/o4-mini"] }, codex: { order: ["openai/gpt-5.6-luna"] } } }, "global");
+      await manager.update({ modelPreferences: { codex: { hidden: ["openai/gpt-5.6-sol"] } } }, "global");
+      await manager.update({ modelPreferences: { pi: { hidden: [] }, bad: { hidden: "x" } as never } }, "project", projectDir);
+      expect((await manager.read()).modelPreferences).toEqual({ pi: { hidden: ["openai/o4-mini"] }, codex: { hidden: ["openai/gpt-5.6-sol"] } });
+      expect((await manager.read(projectDir)).modelPreferences).toEqual({ pi: {}, codex: { hidden: ["openai/gpt-5.6-sol"] } });
+      const layers = await manager.clear(["modelPreferences.pi"], "project", projectDir);
+      expect(layers.project?.modelPreferences).toBeUndefined();
+    });
   });
 });

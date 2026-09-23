@@ -305,6 +305,7 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     // The runtime catalog store follows these itself.
     case "runtime-catalog":
     case "window-title":
+    case "window-shell":
     case "config-changed":
       return state;
     default: {

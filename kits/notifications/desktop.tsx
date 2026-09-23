@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { Bell, X } from "lucide-react";
+import { Bell, CircleAlert, CircleCheck, MessageCircleQuestionMark, ShieldQuestionMark, X, type LucideIcon } from "lucide-react";
 import type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -28,6 +28,7 @@ import {
   decodeAttentionItems,
   decodeDelivery,
   type AttentionItem,
+  type AttentionReason,
   type PresenceInput,
 } from "./protocol.js";
 import { playSound, unlockSound } from "./sounds.js";
@@ -191,6 +192,19 @@ function coordinate(context: DesktopExtensionContext) {
 
 type Coordinator = ReturnType<typeof coordinate>;
 
+/** The rail's status marks: done, failed, waiting for an answer, waiting for a permission. */
+const REASON_ICONS: Record<AttentionReason, LucideIcon> = {
+  completed: CircleCheck,
+  failed: CircleAlert,
+  question: MessageCircleQuestionMark,
+  approval: ShieldQuestionMark,
+};
+
+function ReasonIcon({ reason }: { reason: AttentionReason }) {
+  const Icon = REASON_ICONS[reason];
+  return <Icon size={13} aria-hidden="true" />;
+}
+
 function createToastRegion(coordinator: Coordinator) {
   return function NotificationToasts({ actions }: RegionProps) {
     useEffect(() => coordinator.bind(actions), [actions]);
@@ -200,7 +214,7 @@ function createToastRegion(coordinator: Coordinator) {
       <div className="notifications-toasts" role="status">
         {toasts.map((toast) => (
           <div className="notifications-toast" key={toast.id} data-reason={toast.item.reason}>
-            <Bell size={13} aria-hidden="true" />
+            <ReasonIcon reason={toast.item.reason} />
             <span className="notifications-toast-text"><strong>{toast.title}</strong><small>{toast.body}</small></span>
             <button type="button" className="text-button" onClick={() => { coordinator.open(toast.item); coordinator.toasts.dismiss(toast.id); }}>Open</button>
             <button type="button" className="icon-button" aria-label="Dismiss" onClick={() => coordinator.toasts.dismiss(toast.id)}><X size={12} /></button>

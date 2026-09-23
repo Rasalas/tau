@@ -76,6 +76,7 @@ import { LIMIT_CONTINUATION_PROMPT, ThreadLimits } from "./thread-limits.js";
 import { TurnSettlement } from "./turn-settlement.js";
 import { ModelPriceBook, piNewThreadCatalog } from "./model-price-book.js";
 import { createModelAuth } from "./model-auth.js";
+import { modelReleaseDate } from "./pi-model-runtime.js";
 import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
 
 /** Live Pi runtimes kept in memory; idle ones beyond this are released oldest first. */
@@ -645,7 +646,7 @@ function runtimeCatalogs(
   emit: Emit,
 ): RuntimeCatalogs {
   let book: Promise<ModelPriceBook | undefined> | undefined;
-  const priceBook = () => book ??= completions.catalogData().then((data) => new ModelPriceBook(data.known), () => {
+  const priceBook = () => book ??= completions.catalogData().then((data) => new ModelPriceBook(data.known, modelReleaseDate), () => {
     book = undefined;
     return undefined;
   });
@@ -656,7 +657,7 @@ function runtimeCatalogs(
     complete: true,
     load: async () => {
       const data = await completions.catalogData();
-      return piNewThreadCatalog({ ...data, book: await priceBook() ?? new ModelPriceBook(data.known) });
+      return piNewThreadCatalog({ ...data, book: await priceBook() ?? new ModelPriceBook(data.known, modelReleaseDate) });
     },
   };
   return new RuntimeCatalogs({

@@ -56,6 +56,7 @@ export { Tooltip, tooltipProps, type TooltipOptions } from "./components/ui/Tool
 export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
 export { useContextMenu } from "./components/ui/ContextMenu";
 export { Dialog, Popover } from "./components/ui/Dialog";
+export { ConfirmDialog } from "./components/ui/ConfirmDialog";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
 export { useFocusReturn, useFocusTrap } from "./components/ui/focus";
 export type { FloatingAlign, FloatingSide } from "./components/ui/floating";
@@ -134,6 +135,7 @@ export type {
   ProjectSourceProps,
   CommandContribution,
   CommandSurface,
+  CommandContext,
   PaletteItem,
   PaletteSearchContext,
   PaletteSourceContribution,

@@ -177,6 +177,8 @@ export interface UiModel {
   images?: boolean;
   /** It reasons before answering; its levels are the catalog's `thinkingLevels`. */
   reasoning?: boolean;
+  /** When the model came out, `YYYY-MM-DD` (or `YYYY-MM`), where models.dev knows it. */
+  releasedAt?: string;
 }
 
 /** A subscription login, an API key, a free offering, or a model on the user's own machine. */
@@ -626,6 +628,8 @@ export type GlobalHostEvent =
   | { type: "window-title"; title: string; sessionId?: undefined }
   /** A new Tau finished downloading and installs on the next restart. */
   | { type: "app-update"; version: string; sessionId?: undefined }
+  /** The window's own process to its page: the app menu, the quit shortcut, a quit waiting for an answer. */
+  | { type: "window-shell"; event: import("./window-shell.js").WindowShellEvent; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
 /** Events emitted by a runtime always carry the owning session explicitly. */
@@ -859,14 +863,25 @@ export interface TauUpdatesConfig {
   channel?: import("./app-version.js").UpdateChannel;
 }
 
+/** What the app asks before it quits; read by the window's process on this machine. */
+export interface TauConfirmConfig {
+  /** How ⌘Q quits: held, pressed twice, or at once. */
+  quit?: import("./window-shell.js").QuitConfirmation;
+  /** Ask before quitting while threads are working and the host would stop with the app. */
+  quitWhileRunning?: boolean;
+}
+
 export interface TauConfig {
   theme?: "system" | "dark" | "light" | string;
   extensions?: TauConfigExtensions;
   threads?: TauThreadsConfig;
   updates?: TauUpdatesConfig;
+  confirm?: TauConfirmConfig;
   transcriptDetail?: "focused" | "detailed" | "everything";
   showCosts?: boolean;
   favouriteModels?: string[];
+  /** What the model picker hides and in which order it lists models, by runtime backend kind. */
+  modelPreferences?: Record<string, TauModelPreferences>;
   disabledExtensions?: string[];
   prewarm?: boolean;
   /** Leave the host process running after the app quits, so its threads keep going. */
@@ -890,6 +905,13 @@ export interface TauConfig {
   quietStartup?: boolean;
   defaultProjectTrust?: "ask" | "always" | "never";
   vimMode?: boolean;
+}
+
+/** One runtime's model list as the user arranged it; models are keyed `provider/id`. */
+export interface TauModelPreferences {
+  hidden?: string[];
+  /** Listed first, in this order; the rest follow in the runtime's own order. */
+  order?: string[];
 }
 
 export interface CustomModelDefinition {

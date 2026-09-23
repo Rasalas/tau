@@ -1,13 +1,16 @@
+import type { UiRuntimeBackend } from "../../shared/contracts";
 import type { SettingsPageContribution } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
+import { RuntimeModels } from "./RuntimeModels";
+import { SettingsSection } from "./settings-layout";
 
 /** The element id of a card, for the page to scroll to when a card's own id opened Settings. */
 export function providerCardId(pageId: string): string {
   return `provider-card-${pageId}`;
 }
 
-/** One card per runtime backend a kit describes, in the host's runtime order. */
-export function ProvidersPage({ cards, cwd, onNotify }: { cards: readonly SettingsPageContribution[]; cwd?: string; onNotify(message: string): void }) {
+/** One card per runtime backend a kit describes, in the host's runtime order, then every runtime's models. */
+export function ProvidersPage({ cards, backends = [], cwd, onNotify }: { cards: readonly SettingsPageContribution[]; backends?: readonly UiRuntimeBackend[]; cwd?: string; onNotify(message: string): void }) {
   return (
     <div className="settings-page">
       <p className="lede">The programs that run threads and the providers Pi reaches: whether each is installed and current, who it is signed in as, and signing in or out.</p>
@@ -22,6 +25,11 @@ export function ProvidersPage({ cards, cwd, onNotify }: { cards: readonly Settin
           </div>
         </section>
       ))}
+      {backends.length ? (
+        <SettingsSection title="Models" id="runtime-models">
+          <RuntimeModels backends={backends} />
+        </SettingsSection>
+      ) : null}
     </div>
   );
 }

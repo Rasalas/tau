@@ -45,6 +45,8 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
       ["Send with", ["send", "enter", "submit", "shortcut"]],
       ["Model parameters", ["temperature", "max tokens", "sampling"]],
       ["Update track", ["update", "updates", "nightly", "stable", "channel", "prerelease", "beta"]],
+      ["Quit shortcut", ["quit", "cmd q", "hold", "press twice", "confirm", "confirmation"]],
+      ["Ask before quitting while threads work", ["quit", "confirm", "confirmation", "running", "ask"]],
     ],
   },
   {
@@ -68,6 +70,14 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     label: "Keybindings",
     keywords: ["shortcuts", "chords", "keys", "keymap", "keybindings.json"],
     rows: [],
+  },
+  {
+    page: "about",
+    label: "About",
+    keywords: ["version", "licenses", "licences", "open source", "third party", "notices", "release notes", "updates"],
+    rows: [
+      ["Open-source licenses", ["licenses", "licences", "third party", "notices", "credits"]],
+    ],
   },
   {
     page: "inspector",

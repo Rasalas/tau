@@ -2,7 +2,8 @@ import { getClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { isTranscriptDetail, type TranscriptDetail } from "../workbench/transcript-folding";
 import type { HostClient } from "../workbench/host-client";
-import type { TauConfig } from "../shared/contracts";
+import type { TauConfig, TauModelPreferences } from "../shared/contracts";
+import { readModelPreferenceRecord } from "../shared/model-preferences";
 import { DEFAULT_THEME, isThemePreference, registerUserThemes, applyTheme, type ThemePreference } from "./theme";
 import { SEND_SHORTCUTS, type SendShortcut } from "./components/composer-send-keys";
 
@@ -20,8 +21,12 @@ export interface PreferencesState {
   editorId?: string;
   settledThreadIds: readonly string[];
   pinnedThreadIds: readonly string[];
-  /** Favourite models, keyed `provider/id`. */
+  /** Favourite models, keyed as `offeringKey` does: `provider/id` for Pi, `<runtime>:provider/id` otherwise. */
   favouriteModels: readonly string[];
+  /** Models the picker hides and the order it lists them in, by runtime backend kind. */
+  modelPreferences: Readonly<Record<string, TauModelPreferences>>;
+  /** The models last chosen in a picker, newest first, keyed like favourites; this client's own. */
+  recentModels: readonly string[];
   /** The runtime backend a new thread is created on; unset means the host's default. */
   newThreadRuntime?: string;
   /** Keyed `extensionId.optionId`. */
@@ -39,6 +44,8 @@ export interface PreferencesState {
   sendShortcut: SendShortcut;
   /** Leave the host process running when the app quits; its threads keep going. */
   hostBackground?: boolean;
+  /** Ask before a quit stops threads that are working (`confirm.quitWhileRunning`). */
+  confirmQuitWhileRunning: boolean;
 }
 
 /** Preferences that are keys of the host's config under the same name. */
@@ -52,13 +59,18 @@ const DEFAULTS: PreferencesState = {
   settledThreadIds: [],
   pinnedThreadIds: [],
   favouriteModels: [],
+  modelPreferences: {},
+  recentModels: [],
   extensionOptions: {},
   extensionValues: {},
   disabledExtensions: [],
   vimMode: false,
   sendShortcut: "enter",
   hostBackground: false,
+  confirmQuitWhileRunning: true,
 };
+
+const RECENT_MODELS = 8;
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -105,6 +117,8 @@ function load(): PreferencesState {
       settledThreadIds: stringList(raw.settledThreadIds),
       pinnedThreadIds: stringList(raw.pinnedThreadIds),
       favouriteModels: stringList(raw.favouriteModels),
+      modelPreferences: readModelPreferenceRecord(raw.modelPreferences) ?? {},
+      recentModels: stringList(raw.recentModels).slice(0, RECENT_MODELS),
       newThreadRuntime: typeof raw.newThreadRuntime === "string" ? raw.newThreadRuntime : undefined,
       extensionOptions: options,
       extensionValues: values,
@@ -116,6 +130,7 @@ function load(): PreferencesState {
       maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
       vimMode: typeof raw.vimMode === "boolean" ? raw.vimMode : false,
       sendShortcut: SEND_SHORTCUTS.includes(raw.sendShortcut as SendShortcut) ? raw.sendShortcut as SendShortcut : "enter",
+      confirmQuitWhileRunning: raw.confirmQuitWhileRunning !== false,
     };
   } catch {
     return DEFAULTS;
@@ -176,7 +191,10 @@ export class PreferencesStore {
     }
     if (config.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = config.threads.continueAfterRestart;
     else if (previous?.threads?.continueAfterRestart !== undefined) patch.continueThreadsAfterRestart = DEFAULTS.continueThreadsAfterRestart;
+    if (config.confirm?.quitWhileRunning !== undefined) patch.confirmQuitWhileRunning = config.confirm.quitWhileRunning;
+    else if (previous?.confirm?.quitWhileRunning !== undefined) patch.confirmQuitWhileRunning = DEFAULTS.confirmQuitWhileRunning;
     if (config.favouriteModels) patch.favouriteModels = config.favouriteModels;
+    if (config.modelPreferences || previous?.modelPreferences) patch.modelPreferences = record(this.state.modelPreferences, previous?.modelPreferences, config.modelPreferences);
     if (config.disabledExtensions) patch.disabledExtensions = config.disabledExtensions;
     if (config.options || previous?.options) patch.extensionOptions = record(this.state.extensionOptions, previous?.options, config.options);
     if (config.values || previous?.values) patch.extensionValues = record(this.state.extensionValues, previous?.values, config.values);
@@ -219,6 +237,10 @@ export class PreferencesStore {
 
   setContinueThreadsAfterRestart(continueThreadsAfterRestart: boolean): void {
     this.update({ continueThreadsAfterRestart });
+  }
+
+  setConfirmQuitWhileRunning(confirmQuitWhileRunning: boolean): void {
+    this.update({ confirmQuitWhileRunning });
   }
 
   setTheme(theme: ThemePreference): void {
@@ -296,6 +318,23 @@ export class PreferencesStore {
     });
   }
 
+  /** One runtime's hidden models and order; only that runtime's entry travels to the host. */
+  setModelPreferences(runtime: string, preferences: TauModelPreferences): void {
+    this.update({ modelPreferences: { ...this.state.modelPreferences, [runtime]: preferences } }, true, { modelPreferences: { [runtime]: preferences } });
+  }
+
+  toggleHiddenModel(runtime: string, key: string): void {
+    const current = this.state.modelPreferences[runtime] ?? {};
+    const hidden = current.hidden ?? [];
+    this.setModelPreferences(runtime, { ...current, hidden: hidden.includes(key) ? hidden.filter((entry) => entry !== key) : [...hidden, key] });
+  }
+
+  /** A model a picker handed on; it leads the picker's "Recent" list. */
+  noteModelUsed(key: string): void {
+    const recent = [key, ...this.state.recentModels.filter((entry) => entry !== key)].slice(0, RECENT_MODELS);
+    this.update({ recentModels: recent }, false);
+  }
+
   isSettled(threadId: string): boolean {
     return this.state.settledThreadIds.includes(threadId);
   }
@@ -341,6 +380,7 @@ export class PreferencesStore {
       const hostPatch: Partial<TauConfig> = {};
       for (const key of SCALARS) if (patch[key] !== undefined) (hostPatch as Record<string, unknown>)[key] = patch[key];
       if (patch.continueThreadsAfterRestart !== undefined) hostPatch.threads = { continueAfterRestart: patch.continueThreadsAfterRestart };
+      if (patch.confirmQuitWhileRunning !== undefined) hostPatch.confirm = { quitWhileRunning: patch.confirmQuitWhileRunning };
       if (patch.favouriteModels) hostPatch.favouriteModels = [...patch.favouriteModels];
       if (patch.disabledExtensions) hostPatch.disabledExtensions = [...patch.disabledExtensions];
       if (patch.extensionOptions) hostPatch.options = { ...patch.extensionOptions };

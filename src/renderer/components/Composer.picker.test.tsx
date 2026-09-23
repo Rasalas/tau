@@ -54,7 +54,7 @@ async function openPicker(chip: HTMLElement) {
   chip.focus();
   fireEvent.click(chip);
   const picker = await screen.findByRole("dialog", { name: "Select model" });
-  const input = screen.getByRole("textbox", { name: "Search models" });
+  const input = screen.getByRole("combobox", { name: "Search models" });
   await waitFor(() => expect(document.activeElement).toBe(input));
   return { picker, input };
 }
@@ -106,7 +106,7 @@ describe("model picker at the model chip", () => {
     const onSelect = vi.fn();
     const { chip, onSetModel } = renderComposer({ runtimeChoice: { kind: "pi", backends: snapshot.runtimeBackends!, onSelect } });
     await openPicker(chip);
-    fireEvent.click(await screen.findByRole("button", { name: "Codex (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Codex, ready" }));
     fireEvent.click(screen.getByText("GPT-5.6 Luna", { selector: ".model-row:not(.current) strong" }));
     expect(onSelect).toHaveBeenCalledWith("codex");
     expect(onSetModel).toHaveBeenCalledWith("openai", "gpt-5.6-luna");
@@ -116,10 +116,11 @@ describe("model picker at the model chip", () => {
     const onNewThreadOnRuntime = vi.fn();
     const { chip, onSetModel } = renderComposer({ onNewThreadOnRuntime });
     await openPicker(chip);
-    fireEvent.click(await screen.findByRole("button", { name: "Codex (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Codex, ready" }));
     expect(screen.getByText("Choosing one starts a new thread on Codex; this one stays on Pi.")).toBeTruthy();
     fireEvent.click(screen.getByText("GPT-5.6 Luna", { selector: ".model-row:not(.current) strong" }));
-    expect(onNewThreadOnRuntime).toHaveBeenCalledWith("codex");
+    // The new thread starts on the model chosen for it.
+    expect(onNewThreadOnRuntime).toHaveBeenCalledWith("codex", expect.objectContaining({ provider: "openai", id: "gpt-5.6-luna" }));
     expect(onSetModel).not.toHaveBeenCalled();
   });
 

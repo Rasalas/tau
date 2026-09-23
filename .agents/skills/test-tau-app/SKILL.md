@@ -64,7 +64,7 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 
 - `snapshot` — a compact text outline of the workbench: headings, buttons with aria-labels, thread rows (marking the active one), toasts, composer state (`value`, `streaming`, `sendDisabled`, `sendBusy`), and active dock panels. Run this first on any turn, before clicking anything blind.
 - `eval <expr>` — runs an async JS expression in the renderer. In scope: `all(sel)`, `byText(sel, /re/)`, `rect(el)`, `setValue(el, v)`, `sleep(ms)`, `toasts()`.
-- `click <expr>` — resolves `expr` to an element and dispatches real `mouseMoved`/`mousePressed`/`mouseReleased` events at its center. A plain `el.click()` is ignored by React-controlled rows in the sidebar; this is why `click` exists instead of `eval`-ing `.click()`.
+- `click <expr>` — resolves `expr` to an element, scrolls it into view and dispatches real `mouseMoved`/`mousePressed`/`mouseReleased` events at its center. A plain `el.click()` is ignored by React-controlled rows in the sidebar; this is why `click` exists instead of `eval`-ing `.click()`.
 - `hover <expr>` — moves the mouse onto the element's center without pressing, so a tooltip opens after its delay.
 - `rightclick <expr>` — a right-click at the element's center. Where the page asks for the OS's menu, that menu is a native window CDP cannot drive; capture it with `screencapture -l <id>` of a window your instance's PID owns and stop the instance to close it.
 - `type <expr> <text>` — sets a textarea's value through its native setter and fires `input`, the way React's controlled composer expects.
@@ -74,6 +74,35 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 - `toasts` — the current toast list as JSON.
 - `pid` — the instance's own Electron PID, found by cross-checking the port's devtools endpoint against `ps`. Kill only this PID.
 - `stop` — stops the instance: SIGTERM, then SIGKILL if it is still alive after ~2s. Electron's main process does not reliably quit on SIGTERM alone (it installs no handler of its own) — use this instead of a bare `kill <pid>`, which can leave the process running indefinitely.
+
+## Recipe: from a fresh instance to a test reply
+
+A `--fresh` instance opens the welcome wizard, and it inherits the user's Pi default model from the copied `settings.json`, which may be an expensive one. Never send before the chip names a cheap model: GPT-5.6 Luna (or Codex's smallest with the shadow `CODEX_HOME`); never Sol, Fable or Opus.
+
+```
+# welcome wizard: agents → projects → conversations
+npm run cdp -- click "byText('button', /^Continue/)"
+npm run cdp -- click "byText('button', /^Do not add projects/)"
+npm run cdp -- click "byText('button', /^Do not import/)"
+
+# a new thread's draft, then the model
+npm run cdp -- press mod+n
+npm run cdp -- click "all('button').find(b => /^Select model/.test(b.getAttribute('aria-label') ?? ''))"
+npm run cdp -- click "all('[role=option]').find(o => /^GPT-5\.6 Luna, Pi\b/.test(o.getAttribute('aria-label') ?? ''))"
+npm run cdp -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select model/.test(t))"
+#   must print "Select model: GPT-5.6 Luna" — otherwise stop here
+
+# send, then wait for the assistant's message and the end of the stream
+npm run cdp -- type "document.querySelector('textarea')" "Reply with one word: ok"
+npm run cdp -- press Enter
+npm run cdp -- wait-for "document.querySelector('.message.assistant') && !document.querySelector('.send-button.stop')" 90000
+npm run cdp -- snapshot
+```
+
+- Picker rows are `role="option"` with an aria-label `<model>, <runtime or instance>, <billing>[, in use]`; the search field has the focus when the picker opens, so typing narrows it across all runtimes. Pick by aria-label, not by text: several runtimes can offer the same model.
+- Proof of the model: the thread's session file under `.tau-dev/pi-sessions/` has a `model_change` to `gpt-5.6-luna` before the user message, and the assistant message carries `"model":"gpt-5.6-luna"`. A `model_change` to the inherited default at the very start is normal.
+- Waiting for a word of the reply in the page's text is a trap: the prompt itself contains it.
+- In zsh, call `npm run cdp -- …` per step; a command kept in a variable (`C="npm run cdp --"; $C …`) is not split into words.
 
 ## Known traps
 

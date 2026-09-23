@@ -369,10 +369,23 @@ describe("decodeConfigPatch", () => {
       .toThrow("update-config: patch.threads.continueAfterRestart must be a boolean");
   });
 
+  it("takes the model picker's preferences per runtime, and rejects a malformed entry", () => {
+    expect(decodeConfigPatch(CH, "patch", { modelPreferences: { codex: { hidden: ["openai/o4-mini"], order: [] } } }))
+      .toEqual({ modelPreferences: { codex: { hidden: ["openai/o4-mini"] } } });
+    expect(() => decodeConfigPatch(CH, "patch", { modelPreferences: { codex: { hidden: [1] } } }))
+      .toThrow("update-config: patch.modelPreferences must map runtimes");
+  });
+
   it("takes the update channel, and only a known one", () => {
     expect(decodeConfigPatch(CH, "patch", { updates: { channel: "nightly" } })).toEqual({ updates: { channel: "nightly" } });
     expect(() => decodeConfigPatch(CH, "patch", { updates: { channel: "beta" } }))
       .toThrow('update-config: patch.updates.channel must be "stable" or "nightly"');
+  });
+
+  it("takes the quit confirmations, and only a known mode", () => {
+    expect(decodeConfigPatch(CH, "patch", { confirm: { quit: "hold", quitWhileRunning: false } })).toEqual({ confirm: { quit: "hold", quitWhileRunning: false } });
+    expect(() => decodeConfigPatch(CH, "patch", { confirm: { quit: "never" } }))
+      .toThrow('update-config: patch.confirm.quit must be "hold", "double-press" or "off"');
   });
 
   it("decodes the keys clear-config removes", () => {

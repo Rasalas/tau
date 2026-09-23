@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, Command, Cpu, Folder, Monitor, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Command, Cpu, Folder, Info, Monitor, Plus, Puzzle, Search, Server, Sliders, X } from "lucide-react";
 import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
@@ -13,6 +13,7 @@ import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { ConfigLayersStore, type SettingsProject } from "../../workbench/config-layers-store";
 import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "./settings-search";
 import { SettingsLevelsProvider, useSettingsLevels } from "./settings-layout";
+import { AboutPage } from "./AboutPage";
 import { DefaultsPage } from "./DefaultsPage";
 import { ExtensionPage, useAwaitingApproval } from "./ExtensionPage";
 import { InspectorPage } from "./InspectorPage";
@@ -93,6 +94,7 @@ const CORE_PAGE_LABELS: Record<string, string> = {
   providers: "Providers",
   keybindings: "Keybindings",
   inspector: "Inspector",
+  about: "About",
 };
 
 /**
@@ -150,7 +152,8 @@ export function SettingsScreen({
   const installer = pages.find((entry) => entry.id === "packages");
   const onProviders = providers.length > 0 && (page === "providers" || providers.some((card) => card.id === page));
   const pageLabel = onProviders ? "Providers" : CORE_PAGE_LABELS[page] ?? contributed?.label ?? active?.name ?? "Settings";
-  const pageScope = page === "defaults" ? "both" : contributed?.scope ?? "host";
+  // Providers lists each runtime's models, which a project may arrange its own way.
+  const pageScope = page === "defaults" || onProviders ? "both" : contributed?.scope ?? "host";
   const showScope = pageScope !== "host";
   // A page without project rows edits this machine; leaving one puts the scope back.
   useEffect(() => { if (!showScope) levels.edit("host"); }, [levels, showScope]);
@@ -308,6 +311,7 @@ export function SettingsScreen({
               {navButton("keybindings", "Keybindings", <Command size={15} />, () => { setKeybindingFilter((current) => ({ filter: "", seq: current.seq + 1 })); onSetPage("keybindings"); })}
               {pages.map((entry) => navButton(entry.id, entry.label, <PanelIcon Icon={entry.Icon} size={15} />))}
               {navButton("inspector", "Inspector", <Puzzle size={15} />)}
+              {navButton("about", "About", <Info size={15} />)}
               {navGroup("extensions", "Extensions", summaries.filter((summary) => !summary.core), (summary) => (
                 <button
                   key={summary.id}
@@ -363,11 +367,13 @@ export function SettingsScreen({
               ) : page === "pi" ? (
                 <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
               ) : onProviders ? (
-                <ProvidersPage cards={providers} cwd={snapshot?.cwd} onNotify={onNotify} />
+                <ProvidersPage cards={providers} backends={snapshot?.runtimeBackends} cwd={snapshot?.cwd} onNotify={onNotify} />
               ) : contributed ? (
                 <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} />
               ) : page === "inspector" ? (
                 <InspectorPage registry={registry} cwd={snapshot?.cwd} />
+              ) : page === "about" ? (
+                <AboutPage />
               ) : active ? (
                 <ExtensionPage summary={active} registry={registry} models={snapshot?.completionModels ?? snapshot?.models ?? []} cwd={snapshot?.cwd} onChanged={() => { setAnswered((count) => count + 1); onSetPage(active.id); }} onNotify={onNotify} />
               ) : (
