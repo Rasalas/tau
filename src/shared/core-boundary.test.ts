@@ -91,6 +91,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./user-themes.js",   "./workbench-build.js",
   "./workbench-reload-coordinator.js",   "./workbench-reloader.js",   "./workbench-source.js",
   "./window-attention.js",   "./window-context-menu.js",   "./window-extensions.js",   "./window-host.js",   "./workspace-identity.js",   "./workspace-watch.js",
+  // Runtime-neutral helpers backends share (API 1.12.0).
+  "./turn-activity-store.js",   "./elicitation-form.js",
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([
