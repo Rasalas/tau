@@ -263,7 +263,8 @@ export function serializeChips({ chips, files, attachments, fileAttachments }: S
         }
         case "text-excerpt": {
           const quoted = chip.payload.text.replace(/\s+$/u, "").split(/\r?\n/u).map((line) => line ? `> ${line}` : ">").join("\n");
-          blocks.push(`From ${chip.payload.source}:\n${quoted}`);
+          const comment = chip.payload.comment?.trim();
+          blocks.push(`From ${chip.payload.source}:\n${quoted}${comment ? `\n\nMy comment on this excerpt: ${comment}` : ""}`);
           break;
         }
         case "pull-request":

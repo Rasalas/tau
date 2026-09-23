@@ -20,8 +20,8 @@ export type ChipKind = "file" | "text-excerpt" | "pull-request" | "attachment";
 export interface ChipPayloads {
   /** A workspace-relative path; lines are 1-based and inclusive. */
   file: { path: string; startLine?: number; endLine?: number };
-  /** Where the text came from ("Terminal", "Review comment on src/a.ts:12") and the text itself. */
-  "text-excerpt": { source: string; text: string };
+  /** Where the text came from ("Terminal", "Review comment on src/a.ts:12"), the text itself, and the user's comment on it. */
+  "text-excerpt": { source: string; text: string; comment?: string };
   "pull-request": { number: number; title: string; url: string; branch?: string };
   /** A file on the host's disk; `path` is absent while it is still being stored. */
   attachment: { name: string; mimeType: string; size: number; path?: string };
