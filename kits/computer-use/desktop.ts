@@ -1,5 +1,6 @@
 import type { DesktopExtension, ToolPresentation } from "tau";
-import { COMPUTER_USE_EXTENSION_ID, COMPUTER_USE_TOOL_PREFIX } from "./protocol.js";
+import { COMPUTER_USE_EXTENSION_ID, COMPUTER_USE_SCREEN_SERVICE, COMPUTER_USE_TOOL_PREFIX, type ComputerUseScreenService } from "./protocol.js";
+import { createScreenService } from "./screen-client.js";
 
 const READ_OPERATIONS = new Set([
   "list_apps",
@@ -64,6 +65,13 @@ export const computerUsePresentationExtension: DesktopExtension = {
       (tool) => presentComputerUse(tool.name, tool.args),
       { profiles: ["desktop", "web", "compact"] },
     );
+    // The window each thread's agent drives; Preview Kit draws it.
+    const screen = createScreenService(plugin.host);
+    const withdraw = plugin.provideService<ComputerUseScreenService>(COMPUTER_USE_SCREEN_SERVICE, screen.service);
+    return () => {
+      withdraw();
+      screen.dispose();
+    };
   },
 };
 

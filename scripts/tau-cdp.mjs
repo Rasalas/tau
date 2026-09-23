@@ -153,6 +153,19 @@ export function resolvePort(port, { instancePath = INSTANCE_PATH, readFile = (pa
   return data.port;
 }
 
+/**
+ * A port from `.tau-dev/instance.json` may have been taken over by another worktree's instance after this one
+ * died; driving (or stopping) that one would act on someone else's test. The port must belong to a process
+ * started from this worktree.
+ */
+export function assertOwnInstance(psOutput, port, root) {
+  const needle = `--remote-debugging-port=${port}`;
+  const line = psOutput.split("\n").filter((entry) => entry.includes(needle)).sort((a, b) => a.length - b.length)[0];
+  if (!line) throw new Error(`no process on this machine is listening with ${needle} — this worktree's instance is gone; start one with npm run dev:instance`);
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  if (!line.includes(prefix)) throw new Error(`port ${port} from .tau-dev/instance.json belongs to another instance (${line.trim().slice(0, 160)}); this worktree's instance is gone — start one with npm run dev:instance`);
+}
+
 /** Picks the shortest `ps` line naming this port: Electron's helper processes inherit longer command lines. */
 export function pidFromPsOutput(psOutput, port) {
   const needle = `--remote-debugging-port=${port}`;
@@ -416,6 +429,7 @@ async function main() {
   let port;
   try {
     port = resolvePort(parsed.port, { instancePath: INSTANCE_PATH, readFile: (path) => readFileSync(path, "utf8") });
+    if (parsed.port === undefined) assertOwnInstance(execFileSync("ps", ["-eo", "pid=,command="], { encoding: "utf8" }), port, ROOT);
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

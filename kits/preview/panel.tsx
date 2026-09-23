@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
 import { errorMessage, reserveRegion, type PanelProps } from "tau";
 import { overlayWatch } from "./overlay-watch.js";
+import { activeThread, previewView, screenService, type PreviewView } from "./screen-store.js";
 import { isPreviewState, notePanelShown, previewKit, previewStore, usePreviewState } from "./store.js";
 import { PortSuggestions } from "./suggestions.js";
 import { PreviewTools } from "./tools.js";
+
+// Evaluated the first time someone looks at a driven window.
+const ScreenView = lazy(() => import("./screen-view.js"));
+
+const VIEWS: { id: PreviewView; label: string }[] = [{ id: "browser", label: "Browser" }, { id: "screen", label: "Screen" }];
 
 /**
  * The panel is deliberately empty below its toolbar: the page is a
@@ -14,6 +20,10 @@ import { PreviewTools } from "./tools.js";
 export function PreviewPanel({ active, placement, extensionName, actions }: PanelProps) {
   const surface = useRef<HTMLDivElement>(null);
   const state = usePreviewState();
+  const screen = screenService.use();
+  const chosen = previewView.use();
+  const view: PreviewView = screen ? chosen : "browser";
+  const threadId = activeThread.use() ?? actions?.activeThread?.()?.sessionId;
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [addressFocused, setAddressFocused] = useState(false);
@@ -50,6 +60,7 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
   }, [active]);
 
   // A move between dock and stage keeps the panel mounted, so `placement` re-reports the bounds.
+  // The Screen view hides the page: its rectangle is gone with the surface.
   useEffect(() => {
     if (!surface.current || !active) {
       report(false);
@@ -77,7 +88,7 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
       stopWatching();
       report(false);
     };
-  }, [active, placement, report]);
+  }, [active, placement, report, view]);
 
   const guard = (work: Promise<unknown>) => {
     void work.then(() => setError("")).catch((problem: unknown) => setError(errorMessage(problem)));
@@ -92,31 +103,43 @@ export function PreviewPanel({ active, placement, extensionName, actions }: Pane
   return <section className="panel-body preview-panel" data-keybinding-context="preview">
     <header className="panel-header">
       <h2>Preview</h2>
-      <small>{extensionName.toLowerCase()}</small>
+      {screen ? <div className="preview-views" role="tablist" aria-label="Preview shows">
+        {VIEWS.map((entry) => <button
+          key={entry.id}
+          role="tab"
+          aria-selected={view === entry.id}
+          className={view === entry.id ? "preview-view active" : "preview-view"}
+          onClick={() => previewView.set(entry.id)}
+        >{entry.label}</button>)}
+      </div> : <small>{extensionName.toLowerCase()}</small>}
       <span className="spacer" />
-      <button className="text-button" onClick={() => guard(previewKit.close())}>close</button>
+      {view === "browser" ? <button className="text-button" onClick={() => guard(previewKit.close())}>close</button> : null}
     </header>
-    <div className="preview-toolbar">
-      <button className="icon-button compact" aria-label="Back" disabled={!state.canGoBack} onClick={() => guard(previewKit.navigate({ action: "back" }))}><ArrowLeft size={13} /></button>
-      <button className="icon-button compact" aria-label="Forward" disabled={!state.canGoForward} onClick={() => guard(previewKit.navigate({ action: "forward" }))}><ArrowRight size={13} /></button>
-      <button className="icon-button compact" aria-label="Reload" onClick={() => guard(previewKit.navigate({ action: "reload" }))}><RotateCw size={13} /></button>
-      <form onSubmit={(event) => { event.preventDefault(); openUrl(draft); }}>
-        <input
-          aria-label="Preview address"
-          placeholder="localhost:3000"
-          spellCheck={false}
-          value={draft}
-          onChange={(event) => { editing.current = true; setDraft(event.target.value); }}
-          onFocus={() => setAddressFocused(true)}
-          onBlur={() => { editing.current = false; setAddressFocused(false); }}
-        />
-      </form>
-    </div>
-    {active && (addressFocused || !state.url) ? <PortSuggestions cwd={cwd} current={state.url} onOpen={openUrl} /> : null}
-    <PreviewTools state={state} actions={actions} run={(work) => guard(work())} />
-    <div className={error ? "preview-status error" : "preview-status"}>
-      {error || state.recordingNotice || (state.loading ? "loading…" : state.title || "nothing loaded")}
-    </div>
-    <div className="preview-surface" ref={surface} />
+    {view === "screen" && screen ? <Suspense fallback={<section className="screen-view" />}>
+      <ScreenView service={screen} threadId={threadId} />
+    </Suspense> : <>
+      <div className="preview-toolbar">
+        <button className="icon-button compact" aria-label="Back" disabled={!state.canGoBack} onClick={() => guard(previewKit.navigate({ action: "back" }))}><ArrowLeft size={13} /></button>
+        <button className="icon-button compact" aria-label="Forward" disabled={!state.canGoForward} onClick={() => guard(previewKit.navigate({ action: "forward" }))}><ArrowRight size={13} /></button>
+        <button className="icon-button compact" aria-label="Reload" onClick={() => guard(previewKit.navigate({ action: "reload" }))}><RotateCw size={13} /></button>
+        <form onSubmit={(event) => { event.preventDefault(); openUrl(draft); }}>
+          <input
+            aria-label="Preview address"
+            placeholder="localhost:3000"
+            spellCheck={false}
+            value={draft}
+            onChange={(event) => { editing.current = true; setDraft(event.target.value); }}
+            onFocus={() => setAddressFocused(true)}
+            onBlur={() => { editing.current = false; setAddressFocused(false); }}
+          />
+        </form>
+      </div>
+      {active && (addressFocused || !state.url) ? <PortSuggestions cwd={cwd} current={state.url} onOpen={openUrl} /> : null}
+      <PreviewTools state={state} actions={actions} run={(work) => guard(work())} />
+      <div className={error ? "preview-status error" : "preview-status"}>
+        {error || state.recordingNotice || (state.loading ? "loading…" : state.title || "nothing loaded")}
+      </div>
+      <div className="preview-surface" ref={surface} />
+    </>}
   </section>;
 }

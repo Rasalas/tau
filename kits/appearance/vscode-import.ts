@@ -74,6 +74,7 @@ const TEXT_KEYS: ReadonlyArray<readonly [token: string, keys: readonly string[],
   ["--fail", ["editorError.foreground", "errorForeground"], "--shell"],
   ["--cyan", ["terminal.ansiCyan", "symbolIcon.typeParameterForeground"], "--shell"],
   ["--info", ["terminal.ansiBlue", "editorInfo.foreground"], "--shell"],
+  ["--merged", ["terminal.ansiMagenta", "terminal.ansiBrightMagenta"], "--shell"],
   ["--diff-add-ink", ["gitDecoration.addedResourceForeground", "terminal.ansiGreen"], "--diff-add-bg"],
   ["--diff-del-ink", ["gitDecoration.deletedResourceForeground", "terminal.ansiRed"], "--diff-del-bg"],
 ];

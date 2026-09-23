@@ -15,8 +15,10 @@ export { errorMessage } from "../workbench/error-message";
 // over its panel publishes that rectangle, and core's own floats keep clear of it.
 export { reserveRegion, reservedRegion, type ReservedRegion } from "./reserved-region";
 export type { MenuItem, MenuSection } from "./components/Menu";
-export { ExtensionPromptFrame, OptionRow, PromptSubmitContext, usePromptSubmit } from "./components/ExtensionPrompt";
-export type { PromptSubmitAction } from "./components/ExtensionPrompt";
+// Components drawn after a user action are deferred: each loads in its own chunk (./deferred-surfaces).
+export { ExtensionPromptFrame, OptionRow } from "./deferred-surfaces";
+export { PromptSubmitContext, usePromptSubmit } from "./components/prompt-submit";
+export type { PromptSubmitAction } from "./components/prompt-submit";
 export {
   choiceOptions,
   freeTextOption,
@@ -27,11 +29,12 @@ export {
 } from "../shared/extension-prompt-options";
 export type { OptionParts, OptionPreview } from "../shared/extension-prompt-options";
 export { DiffView, ReviewMode } from "./extension-components";
-export { ChangesTree } from "./components/ChangesTree";
+export { ChangesTree } from "./deferred-surfaces";
 export { usePreferences } from "./renderer-services-context";
 // The rows a Settings page is built from, and one config key read across the levels.
-export { SettingRow, SettingsSection, useSetting } from "./settings/settings-layout";
-export type { SettingHandle, SettingOptions } from "./settings/settings-layout";
+export { SettingRow, SettingsSection } from "./deferred-surfaces";
+export { useSetting } from "./settings/setting-state";
+export type { SettingHandle, SettingOptions } from "./settings/setting-state";
 export type { ConfigLayerName, SettingScope } from "../shared/config-layers";
 // Read only: preferences sync them from the host, and emit when they do.
 export { listUserThemes as userThemes } from "./theme";
@@ -47,7 +50,7 @@ export { formatCost } from "./cost-format";
 // asset pipeline, which an esbuild-bundled package has no loader for) and the
 // paging state machine behind every changed-file list.
 export { VirtualList } from "./components/VirtualList";
-export { Menu } from "./components/Menu";
+export { Menu } from "./deferred-surfaces";
 // The UI primitives core draws with (API 1.11.0): tooltips through one layer,
 // right-click menus the OS draws where it can, dialogs and popovers that give
 // focus back, and the shapes of loading and of nothing to show.
@@ -55,8 +58,7 @@ export { Tooltip, tooltipProps, type TooltipOptions } from "./components/ui/Tool
 // Paths and branches cut in the middle, not at the end (API 1.11.0).
 export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
 export { useContextMenu } from "./components/ui/ContextMenu";
-export { Dialog, Popover } from "./components/ui/Dialog";
-export { ConfirmDialog } from "./components/ui/ConfirmDialog";
+export { ConfirmDialog, Dialog, Popover } from "./deferred-surfaces";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
 export { useFocusReturn, useFocusTrap } from "./components/ui/focus";
 export type { FloatingAlign, FloatingSide } from "./components/ui/floating";

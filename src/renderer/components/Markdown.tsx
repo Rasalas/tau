@@ -1,14 +1,10 @@
 import { Fragment, createContext, memo, useContext, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkParse from "remark-parse";
-import { unified } from "unified";
 import type { HLJSApi, LanguageFn } from "highlight.js";
 import { Check, Copy, WrapText } from "lucide-react";
 import { tooltipProps } from "./ui/Tooltip";
 import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
-import { remarkGfm } from "./remark-gfm-parse";
+import { parseMarkdown, renderMarkdown, type MarkdownComponents } from "./markdown-pipeline";
 type LanguageDefinition = LanguageFn;
 
 // The core arrives with the first grammar: nothing highlights before one is loaded anyway.
@@ -41,8 +37,6 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   sh: "shell", zsh: "shell", html: "xml", xhtml: "xml", yml: "yaml",
 };
 const languagePromises = new Map<string, Promise<void>>();
-/** The same block grammar used by the renderer, kept synchronous for layout decisions. */
-const markdownBlockParser = unified().use(remarkParse).use(remarkGfm).use(remarkBreaks);
 
 export function canonicalHighlightLanguage(language: string): string {
   return LANGUAGE_ALIASES[language] ?? language;
@@ -304,7 +298,7 @@ export function inlineCodeFile(text: string): string | undefined {
   return text.slice(text.lastIndexOf("/") + 1);
 }
 
-const COMPONENTS: Components = {
+const COMPONENTS: MarkdownComponents = {
   // `pre` owns fenced blocks; the nested `code` is read for its text and language
   // and never rendered, so the `code` override below only ever sees inline spans.
   pre({ children }) {
@@ -337,19 +331,15 @@ const COMPONENTS: Components = {
  * Renders agent and user text. Raw HTML is deliberately not enabled, so anything
  * HTML-shaped in a model response stays inert text.
  */
-const INLINE_COMPONENTS: Components = {
+const INLINE_COMPONENTS: MarkdownComponents = {
   ...COMPONENTS,
   p({ children }) {
     return <span className="md-inline-paragraph">{children}</span>;
   },
 };
 
-const MarkdownTree = memo(function MarkdownTree({ children, components = COMPONENTS }: { children: string; components?: Components }) {
-  return (
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
-      {children}
-    </ReactMarkdown>
-  );
+const MarkdownTree = memo(function MarkdownTree({ children, components = COMPONENTS }: { children: string; components?: MarkdownComponents }) {
+  return renderMarkdown(children, components);
 });
 
 const StreamingChunk = memo(function StreamingChunk({ children }: { children: string }) {
@@ -372,7 +362,7 @@ const StreamedBlock = memo(function StreamedBlock({ source, code, language, phas
   return <StreamedCodePhase.Provider value={phase}><MarkdownTree>{source}</MarkdownTree></StreamedCodePhase.Provider>;
 });
 
-const parseBlocks = (source: string) => markdownBlockParser.parse(source);
+const parseBlocks = parseMarkdown;
 
 /**
  * A message keeps this renderer once it has streamed, so the end of the stream
@@ -403,7 +393,7 @@ function StreamedMarkdown({ text, live }: { text: string; live: boolean }) {
 /** Block Markdown must keep its block DOM; only a simple inline instruction can sit beside a chip. */
 export function isInlineMarkdown(text: string): boolean {
   try {
-    const tree = markdownBlockParser.parse(text);
+    const tree = parseMarkdown(text);
     // A chip can share a line only with a single paragraph. This lets the
     // actual GFM AST classify tables (including one-column tables), lists,
     // fenced/indented code, block quotes, HTML blocks, and thematic breaks;

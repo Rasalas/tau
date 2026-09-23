@@ -884,6 +884,8 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
 | `Spinner`, `Skeleton`, `Empty` | `Spinner` with `size` `xs` (the 10 px ring of a status line), `sm`, `md`, `lg` and `tone` `working`, `accent` or `current`; `Skeleton` with `shape` `block`, `card` or `pill`, sized by its `className` or `style`; `Empty` with `size` `compact`, `default` or `hero`, an `icon`, a `title`, a `description` and actions as children. |
 
+`Menu`, `Dialog`, `Popover`, `ConfirmDialog`, `SettingRow`, `SettingsSection`, `ChangesTree`, `ExtensionPromptFrame` and `OptionRow` load with chunks of their own: the names and props are the same, and Tau preloads the chunks once the window is idle after start-up. One drawn before that shows nothing until its chunk arrives, a few milliseconds; the hooks (`useSetting`, `usePromptSubmit`, `useContextMenu`, `useFocusTrap`) are always there.
+
 A package that takes over a Pi dialog (`registerPromptRenderer`) gets the
 pieces core draws its own four with, so its dialog is not a look-alike:
 `ExtensionPromptFrame` and `OptionRow` (the frame and one choice row), the
@@ -1006,7 +1008,18 @@ opens a shell in a tab of its own, shows the Terminal panel, types the command
 with `; exit` after it and answers `{ id, exitCode? }` once the shell ended —
 the command's status, or no `exitCode` when the shell was closed first. The
 click that asked for it is the consent; the output stays in the panel to read.
-Thread Rail publishes
+Computer Use publishes
+`tau.computer-use/screen`: the window each thread's agent drives, from the
+driver's own screenshots and calls. `state(threadId)` and `load(threadId)`
+answer a `ScreenState` — the window (`pid`, `windowId`, app, title), the latest
+frame's size and number, the recent inputs with their place in that frame's
+pixels, and whether the driver can raise the window — and `subscribe` hears
+every change; `frame(threadId, seq?)` fetches the picture itself (base64; the
+host keeps the last three per thread), `bringToFront`, `icon`, `access` (the
+Screen Recording status, read without asking) and `openAccessSettings` do what
+they say, and `live(threadId, onFrame, ended?)` records that one window a few
+frames a second where the system already allows it. Preview Kit's Screen view
+draws it; the types are in `kits/computer-use/protocol.ts`. Thread Rail publishes
 `tau.thread-rail/siblings`: `siblingsOf(threadId)` answers the threads started
 together from one prompt on several models (the thread itself included, or
 `[]`), and the Agents panel lists them beside a thread's agents. `actions.attachFiles(files, { sessionId? })` (new in API 1.11.0) hands `File`s to the composer the way a drop on the thread does, with the same limits; named for a thread, they wait until that thread's composer is mounted — open it with `switchSession` first — and are dropped if it has not come in ten seconds. Workspace Kit's rail uses it for files dropped on a row. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
@@ -2420,6 +2433,7 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 | `--info` | a step in progress | `#3457d5` | `#4d7cff` |
 | `--info-deep` | a step already done, in a dense bar | `#2745ad` | `#426fe1` |
 | `--info-ink` | the same, as text | `#2b4bbf` | `#79acf0` |
+| `--merged` | a merged pull or merge request | `#7446c2` | `#b59cf2` |
 | `--done` | a step that finished | `#0d7f5f` | `#13c99a` |
 | `--stale` | how long ago something ran | `#8a5a3f` | `#c9a18b` |
 | `--folder` | a directory | `#6f6118` | `#a59d68` |

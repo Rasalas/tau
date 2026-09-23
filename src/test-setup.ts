@@ -15,6 +15,13 @@ beforeAll((suite) => {
   if ("filepath" in suite) process.env[TEST_FILE_VARIABLE] = encodeURIComponent(relative(process.cwd(), suite.filepath));
 });
 
+// The app loads deferred components (src/renderer/deferred-surfaces.ts) when idle;
+// a test file's are loaded before its tests run, so they draw synchronously there too.
+beforeAll(async () => {
+  const { preloadDeferred } = await import("./renderer/components/deferred");
+  await preloadDeferred();
+});
+
 // Integration-heavy renderer tests share the machine with Git and runtime
 // subprocess fixtures. Keep DOM polling tolerant of scheduler contention while
 // preserving each assertion's own failure output.

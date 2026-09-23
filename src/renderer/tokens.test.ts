@@ -44,7 +44,7 @@ const TEXT_SURFACES = ["shell", "stage", "chrome", "field", "overlay"];
 const AA_TEXT = ["ink", "ink-prose", "ink-2", "ink-3", "ink-code", "muted"];
 /** Accent and status tokens used as text or as an icon beside it. */
 const AA_ACCENT = [
-  "acid-text", "working", "ready", "removed", "cyan", "info-ink", "danger", "warn", "fail-ink",
+  "acid-text", "working", "ready", "removed", "cyan", "info-ink", "merged", "danger", "warn", "fail-ink",
   "syntax-fn", "diff-add-ink", "diff-del-ink", "diff-add-edge", "diff-del-edge",
 ];
 /** Marks, fills and small print: AA for large text and non-text contrast, 3:1. */

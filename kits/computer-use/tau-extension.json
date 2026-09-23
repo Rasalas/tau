@@ -3,12 +3,13 @@
   "name": "Computer Use",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.5.0"
+    "api": "^1.8.0"
   },
   "permissions": [
     "runtime:extend"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.ts",
+  "window": "./window.ts",
   "host": "./host.ts"
 }

@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Ellipsis } from "lucide-react";
-import { Popover } from "./ui/Dialog";
+import { Popover } from "../deferred-surfaces";
 import { focusableElements, openedByKeyboard } from "./ui/focus";
 import { fitFooterControls, type FooterBlockWidths, type FooterLayout } from "./composer-footer-layout";
 
