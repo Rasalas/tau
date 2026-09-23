@@ -22,6 +22,8 @@
     { "id": "workspace-files-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
     { "id": "picker-catalog-10000", "kind": "list", "items": 10000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
     { "id": "app-tool-output-stream", "kind": "app", "updates": 120, "linesPerUpdate": 16, "sanity": { "minDomNodes": 50, "maxDomNodes": 5000, "minCommits": 120, "minFrames": 3 } },
-    { "id": "long-user-message", "kind": "message", "bytes": 12000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } }
+    { "id": "long-user-message", "kind": "message", "bytes": 12000, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 1, "minFrames": 3 } },
+    { "id": "composer-typing", "kind": "composer", "bytes": 0, "chars": 120, "chips": 0, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 120, "minFrames": 3 } },
+    { "id": "composer-typing-long", "kind": "composer", "bytes": 20000, "chars": 120, "chips": 12, "sanity": { "minDomNodes": 20, "maxDomNodes": 5000, "minCommits": 120, "minFrames": 3 } }
   ]
 }
