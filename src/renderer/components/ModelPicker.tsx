@@ -263,7 +263,8 @@ export function ModelPicker({
     return item.listed ? `${item.backend.label} (${entries.length})` : item.backend.label;
   };
   const tabTitle = (item: RailEntry): string => {
-    if (item.kind === "runtime" && runtimeUpdate(item.backend)) return `${tabLabel(item).replace(/ \((\d+)\)$/u, "")} · update available`;
+    const note = item.kind === "runtime" ? runtimeUpdate(item.backend) : undefined;
+    if (note) return `${tabLabel(item).replace(/ \((\d+)\)$/u, "")} · ${note.tag}`;
     if (item.kind !== "runtime" || item.listed) return tabLabel(item).replace(/ \((\d+)\)$/u, " · $1");
     if (item.backend.kind === threadRuntime) return `${item.backend.label} · this thread's runtime`;
     return draft ? `${item.backend.label} · run this thread on it` : `${item.backend.label} · starts a new thread`;
@@ -383,7 +384,7 @@ export function ModelPicker({
         </div>
 
         {notes.map((note) => <p key={note} className="model-picker-note">{note}</p>)}
-        {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> Update with <code>{update.command}</code>.</> : null}</p> : null}
+        {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
 
         <footer>
           <span>↑↓ navigate</span>
