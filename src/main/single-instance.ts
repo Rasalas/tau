@@ -4,16 +4,22 @@ export interface AppIdentity {
   getPath(name: "appData"): string;
   setPath(name: "userData", path: string): void;
   setName(name: string): void;
+  setAppUserModelId?(id: string): void;
 }
+
+/** `appId` in electron-builder.yml; the installer's Start Menu shortcut carries it. */
+export const APP_USER_MODEL_ID = "dev.tbuck.tau";
 
 /**
  * Changes Tau's visible name without abandoning preferences stored under its
  * original package name. A separate `userData` gives a second, independent
  * instance (its own lock, window state and preferences) for verification runs.
+ * Windows shows a toast only for an app whose AppUserModelID matches a shortcut's.
  */
-export function configureAppIdentity(app: AppIdentity, userData?: string): void {
+export function configureAppIdentity(app: AppIdentity, userData?: string, platform: NodeJS.Platform = process.platform): void {
   app.setPath("userData", userData || join(app.getPath("appData"), "tau-pi-desktop-prototype"));
   app.setName("Tau");
+  if (platform === "win32") app.setAppUserModelId?.(APP_USER_MODEL_ID);
 }
 
 export interface SingleInstanceApp {

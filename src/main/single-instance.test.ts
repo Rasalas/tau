@@ -1,5 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
+import { APP_USER_MODEL_ID, configureAppIdentity, installSingleInstance } from "./single-instance.js";
 
 function fakeApp(lock: boolean) {
   const listeners = new Map<string, () => void>();
@@ -22,12 +23,23 @@ describe("single Electron instance", () => {
       setName: vi.fn((name: string) => { calls.push(`name:${name}`); }),
     };
 
-    configureAppIdentity(app);
+    configureAppIdentity(app, undefined, "darwin");
 
     expect(calls).toEqual([
       "userData:/Users/example/Library/Application Support/tau-pi-desktop-prototype",
       "name:Tau",
     ]);
+  });
+
+  it("gives Windows the AppUserModelID the installer's shortcut carries, so toasts show", async () => {
+    const setAppUserModelId = vi.fn();
+    const app = { getPath: () => "C:\\Users\\me\\AppData\\Roaming", setPath: vi.fn(), setName: vi.fn(), setAppUserModelId };
+    configureAppIdentity(app, undefined, "win32");
+    const builder = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
+    expect(builder).toContain(`appId: ${APP_USER_MODEL_ID}`);
+    expect(setAppUserModelId).toHaveBeenCalledWith(APP_USER_MODEL_ID);
+    configureAppIdentity(app, undefined, "darwin");
+    expect(setAppUserModelId).toHaveBeenCalledOnce();
   });
 
   it("quits a second process before it starts the workbench", () => {

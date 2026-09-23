@@ -37,7 +37,7 @@ import { trustRemoteHost, type RemoteHostTrust } from "./remote-host-trust.js";
 import { resolveHostTls } from "./host-tls.js";
 import { parseListen } from "./host-listen.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
-import { createWindowAttention } from "./window-attention.js";
+import { createWindowAttention, OVERLAY_BADGE_SIZE, overlayBadgeBitmap } from "./window-attention.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, installUpdateMenuItem, type AppUpdates } from "./app-updates.js";
@@ -202,6 +202,14 @@ const windowAttention = createWindowAttention({
     return true;
   },
   setBadgeCount: (count) => app.setBadgeCount(count),
+  ...(process.platform === "win32" ? {
+    setOverlayBadge: (count: number) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return false;
+      const icon = count > 0 ? nativeImage.createFromBitmap(overlayBadgeBitmap(), { width: OVERLAY_BADGE_SIZE, height: OVERLAY_BADGE_SIZE }) : null;
+      mainWindow.setOverlayIcon(icon, count > 0 ? `${count} unseen` : "");
+      return true;
+    },
+  } : {}),
   log: (label, detail) => hostLog.info(label, { ...detail as object, ...(app.dock ? { dock: app.dock.getBadge() } : {}) }),
 });
 /** Workspace files the page loads by URL; only a host on this machine has files here to serve. */
