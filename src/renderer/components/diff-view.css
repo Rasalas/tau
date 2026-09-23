@@ -1,0 +1,28 @@
+/* The diff rows DiffView draws; they load with its chunk, not with the first paint. */
+.diff-scroll { flex: 1; min-height: 0; overflow: auto; display: block; font: calc(12px * var(--code-font-scale, 1))/26px var(--code-font-family, var(--mono)); }
+.diff-stream { min-width: 0; }
+/* Rows are absolutely placed by the virtualizer and measured for wrapped text. */
+.diff-stream-row { overflow: clip; }
+.diff-hunk-header {
+  display: flex; align-items: center; gap: 8px; padding: 7px 18px;
+  background: var(--field); color: var(--muted);
+  border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
+}
+.diff-hunk-header:first-child { border-top: 0; }
+.diff-grid { display: grid; grid-template-columns: 52px 1fr; }
+.diff-grid.split { grid-template-columns: 52px 1fr 52px 1fr; }
+.diff-gutter { text-align: right; padding: 0 12px; border-right: 1px solid var(--line-soft); color: var(--fainter); user-select: none; }
+.diff-code { padding: 0 14px; color: var(--ink-3); white-space: pre-wrap; word-break: break-word; }
+.diff-stream.nowrap .diff-code { white-space: pre; word-break: normal; }
+.diff-code > i { font-style: normal; }
+.diff-code .diff-inline-change { margin: 0 -1px; padding: 1px 1px; border-radius: 2px; font-weight: 650; }
+.diff-code.diff-added .diff-inline-change { background: color-mix(in srgb, var(--diff-add-mark) 60%, transparent); color: var(--diff-add-mark-ink); box-shadow: 0 0 0 1px color-mix(in srgb, var(--diff-add-mark-line) 33%, transparent); }
+.diff-code.diff-removed .diff-inline-change { background: color-mix(in srgb, var(--diff-del-mark) 60%, transparent); color: var(--diff-del-mark-ink); box-shadow: 0 0 0 1px color-mix(in srgb, var(--diff-del-mark-line) 33%, transparent); }
+.diff-gutter.diff-added, .diff-code.diff-added { background: var(--diff-add-bg); }
+.diff-gutter.diff-added { box-shadow: inset 3px 0 var(--diff-add-edge); }
+.diff-code.diff-added { color: var(--diff-add-ink); }
+.diff-code.diff-added > i { color: var(--diff-add-edge); }
+.diff-gutter.diff-removed, .diff-code.diff-removed { background: var(--diff-del-bg); }
+.diff-gutter.diff-removed { box-shadow: inset 3px 0 var(--diff-del-edge); }
+.diff-code.diff-removed { color: var(--diff-del-ink); }
+.diff-code.diff-removed > i { color: var(--diff-del-edge); }

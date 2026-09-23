@@ -865,8 +865,8 @@ through the chip service above (source `Review comment on src/a.ts:12-14`, the
 comment and the lines it covers as a `diff` block), and four settings — split view, hidden whitespace, files that start
 collapsed, line wrapping — which the toolbar toggles write back. Its colour
 setting puts `data-diff-colors="blue-orange"` on `<html>`, and its stylesheet
-points the `--diff-add-*` and `--diff-del-*` tokens at the blue and orange set
-below.
+sets the `--diff-add-*` and `--diff-del-*` tokens below from `--info` and
+`--working`, so a theme's own blue and orange carry over.
 
 It also exports the renderer's shared state and presentation:
 
@@ -2024,8 +2024,6 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 | `--diff-del-mark-line` | the run's edge | `#c8695c` | `#b95b50` |
 | `--diff-add-edge` | an addition as a bar, a sign or a count | `#1c7440` | `#7ade9f` |
 | `--diff-del-edge` | a removal as a bar, a sign or a count | `#b03a28` | `#f07a6a` |
-| `--diff-blue-bg`, `--diff-blue-ink`, `--diff-blue-mark`, `--diff-blue-mark-ink`, `--diff-blue-mark-line`, `--diff-blue-edge` | the same roles for an addition in the blue and orange scheme | `#e4eefc` … `#1f5cc0` | `#16223a` … `#6ea8ff` |
-| `--diff-orange-bg`, `--diff-orange-ink`, `--diff-orange-mark`, `--diff-orange-mark-ink`, `--diff-orange-mark-line`, `--diff-orange-edge` | the same roles for a removal in that scheme | `#fdecdc` … `#a54d0c` | `#2e1d12` … `#f59a4a` |
 | `--syntax-fn` | highlight.js function and class names | `#5c6b13` | `#d9e88f` |
 
 **Project**

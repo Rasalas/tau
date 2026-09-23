@@ -14,6 +14,7 @@ import {
 import type { UiChangedFile, UiDiffLine, UiFileDiff } from "../../shared/workspace-kit-types";
 import { ChevronsUpDown, MessageSquarePlus } from "lucide-react";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
+import "./diff-view.css";
 
 interface IntralineParts { before: string; changed: string; after: string; }
 
