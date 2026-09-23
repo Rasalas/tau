@@ -6,6 +6,8 @@ import { holdChipService } from "./attach.js";
 import { EMPTY_PREVIEW_STATE, type PreviewBounds, type PreviewChipInput } from "./protocol.js";
 import { PreviewPanel } from "./panel.js";
 import { connectPreviewHost, previewStore } from "./store.js";
+import type { ComputerUseScreenService } from "./screen-protocol.js";
+import { holdScreenService, previewView } from "./screen-store.js";
 
 /** jsdom has no layout, so the panel's rectangle is the one this test dictates. */
 function domRect(box: { left: number; top: number; width: number; height: number }): DOMRect {
@@ -231,5 +233,51 @@ describe("PreviewPanel tools", () => {
     expect(calls).toContainEqual(["annotate-cancel", undefined]);
     act(() => previewStore.set({ ...EMPTY_PREVIEW_STATE, url: "http://localhost:8000/", recordingSince: Date.now() }));
     expect(screen.getByRole("button", { name: "Stop recording" })).toBeDefined();
+  });
+});
+
+describe("PreviewPanel's Screen view", () => {
+  const service = (): ComputerUseScreenService => ({
+    state: () => undefined,
+    load: async () => undefined,
+    subscribe: () => () => undefined,
+    frame: async () => null,
+    bringToFront: async () => undefined,
+    icon: async () => null,
+    access: async () => "unavailable",
+    openAccessSettings: async () => undefined,
+    live: () => () => undefined,
+  });
+
+  it("is offered only while Computer Use publishes its screen", async () => {
+    render(panel());
+    expect(screen.queryByRole("tab", { name: "Screen" })).toBeNull();
+
+    const release = holdScreenService(service());
+    await settle();
+    expect(screen.getByRole("tab", { name: "Screen" })).toBeDefined();
+    act(() => previewView.set("screen"));
+    act(() => release());
+    expect(screen.queryByRole("tab", { name: "Screen" })).toBeNull();
+    expect(previewView.get()).toBe("browser");
+  });
+
+  it("takes the page's rectangle away while it is in front, and gives it back", async () => {
+    const release = holdScreenService(service());
+    render(panel());
+    await settle();
+    expect(latest()?.visible).toBe(true);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Screen" }));
+    await settle();
+    expect(latest()?.visible).toBe(false);
+    expect(reservedRegion()).toBeUndefined();
+    expect(await screen.findByText("No window yet")).toBeDefined();
+    expect(screen.queryByLabelText("Preview address")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Browser" }));
+    await settle();
+    expect(latest()?.visible).toBe(true);
+    release();
   });
 });
