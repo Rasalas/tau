@@ -11,8 +11,8 @@ export const EVIDENCE_CHANGED_EVENT = "changed";
 /** Event with `{ paused: Record<threadId, reason> }` whenever a pause starts or ends. */
 export const EVIDENCE_PAUSED_EVENT = "paused";
 
-/** Host extensions that may pause and resume capture (the hand-over ticket's kit adds its id here). */
-export const EVIDENCE_PAUSE_CALLERS: readonly string[] = [];
+/** Host extensions that may pause and resume capture: Takeover Kit, while the user signs in. */
+export const EVIDENCE_PAUSE_CALLERS: readonly string[] = ["tau.takeover"];
 
 /** Where a frame came from: the Preview's page, or the window the agent drives. */
 export type EvidenceSource = "preview" | "screen";
