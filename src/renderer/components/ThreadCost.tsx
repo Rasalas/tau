@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useKeepClear } from "../reserved-region";
 import type { UiThreadUsage } from "../../shared/contracts";
 import { threadCostLabel, threadUsageDetail } from "../cost-format";
+import { tooltipProps } from "./ui/Tooltip";
 
 /**
  * What the open thread has cost, beside the context dial. It opens into the
@@ -24,7 +25,7 @@ export function ThreadCost({ usage }: { usage: UiThreadUsage }) {
     >
       <button
         className="thread-cost"
-        title={detail}
+        {...tooltipProps(detail)}
         aria-label={`Thread cost ${label}`}
         onClick={() => setOpen((value) => !value)}
       >

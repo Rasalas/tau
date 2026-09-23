@@ -5,6 +5,7 @@ import { searchSettings, settingsSearchEntries } from "../settings/settings-sear
 import { ThreadStoreContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
 import { VirtualList } from "./VirtualList";
+import { useFocusReturn, useFocusTrap } from "./ui/focus";
 
 /** Core's own source: the Settings pages and rows, found by the words Settings search uses. */
 const SETTINGS_SOURCE = { id: "core.settings", label: "Settings" };
@@ -61,10 +62,14 @@ export function CommandPalette({
   const [cursor, setCursor] = useState(0);
   const [found, setFound] = useState<{ needle: string; results: PaletteSourceResult[] }>({ needle: "", results: [] });
   const input = useRef<HTMLInputElement>(null);
+  const surface = useRef<HTMLElement>(null);
   const threads = useContext(ThreadStoreContext);
   // The workbench hands a new actions object on some renders; that is no reason to search again.
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+  // As in T3 Code: closing gives focus back to where it was, else to the composer.
+  useFocusReturn(open, surface, () => actionsRef.current.focusComposer?.());
+  useFocusTrap(surface, open);
 
   const needle = query.trim().toLowerCase();
 
@@ -146,6 +151,7 @@ export function CommandPalette({
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
       <section
+        ref={surface}
         className="command-palette"
         role="dialog"
         aria-modal="true"

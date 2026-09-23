@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useKeepClear } from "../reserved-region";
 import type { UiContextUsage } from "../../shared/contracts";
+import { tooltipProps } from "./ui/Tooltip";
 
 export interface ContextBreakdown {
   messages: number;
@@ -48,7 +49,7 @@ export function ContextMeter({
       <button
         className="context-dial"
         style={{ ["--used" as string]: `${percent}%` }}
-        title={`Context ${Math.round(percent)}%`}
+        {...tooltipProps(`Context ${Math.round(percent)}%`)}
         onClick={() => setOpen((value) => !value)}
         aria-label={`Context ${Math.round(percent)} percent used`}
       >

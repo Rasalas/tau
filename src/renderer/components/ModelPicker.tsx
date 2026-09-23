@@ -8,6 +8,7 @@ import { DEFAULT_RUNTIME } from "../runtime-marks";
 import { runtimeUpdate } from "../runtime-update";
 import { modelKey, pickerRail, railKeyForModel, runtimeEntryKey, type RailEntry } from "./model-picker-rail";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
+import { useFocusReturn, useFocusTrap } from "./ui/focus";
 import { VirtualList } from "./VirtualList";
 
 const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
@@ -96,6 +97,7 @@ export function ModelPicker({
   const [expandedLegacy, setExpandedLegacy] = useState<ReadonlySet<string>>(() => new Set());
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const surfaceRef = useRef<HTMLElement>(null);
   const draft = onSelectRuntime !== undefined;
   const threadRuntime = runtime ?? catalogRuntime ?? DEFAULT_RUNTIME;
   const chosen = useSyncExternalStore(
@@ -150,6 +152,8 @@ export function ModelPicker({
   useEffect(() => {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
+  useFocusReturn(true, surfaceRef);
+  useFocusTrap(surfaceRef);
 
   const needle = query.trim().toLowerCase();
 
@@ -269,6 +273,7 @@ export function ModelPicker({
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
       <section
+        ref={surfaceRef}
         className="model-picker"
         data-keybinding-context="modelPicker"
         role="dialog"
