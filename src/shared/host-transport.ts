@@ -1,5 +1,6 @@
 import type { HostEvent } from "./contracts.js";
 import { isHostUpdate } from "./host-protocol.js";
+import type { ToolOutputDelta } from "./tool-output-delta.js";
 
 /**
  * The client-to-host protocol. Electron IPC is one transport for it, a local
@@ -61,8 +62,20 @@ export type HostJobEvent =
   | { type: "job-progress"; jobId: string; message: string; fraction?: number }
   | { type: "job-done"; jobId: string; result?: unknown; error?: HostErrorInfo };
 
+/**
+ * A running tool's output as a change to the output the push numbered `after`
+ * carried. Only the transport speaks it: `HostConnection` turns it back into a
+ * `tool-update`, or drops it when it never saw that push.
+ */
+export interface HostToolOutputDeltaEvent extends ToolOutputDelta {
+  type: "tool-update-delta";
+  sessionId: string;
+  id: string;
+  after: number;
+}
+
 /** Everything a host pushes: workbench events and job progress share one sequence. */
-export type HostPushEvent = HostEvent | HostJobEvent;
+export type HostPushEvent = HostEvent | HostJobEvent | HostToolOutputDeltaEvent;
 
 export interface HostPush {
   seq: number;
@@ -184,6 +197,13 @@ export function isHostJobEvent(event: HostPushEvent): event is HostJobEvent {
   return event.type === "job-progress" || event.type === "job-done";
 }
 
+const count = (value: unknown): boolean => Number.isSafeInteger(value) && (value as number) >= 0;
+
+function isToolOutputDelta(item: Record<string, unknown>): boolean {
+  return typeof item.sessionId === "string" && nonEmptyString(item.id) && count(item.after)
+    && count(item.keep) && count(item.drop) && typeof item.text === "string";
+}
+
 function decodePushEvent(value: unknown): HostPushEvent | undefined {
   const item = record(value);
   if (!item || !nonEmptyString(item.type)) return undefined;
@@ -191,6 +211,7 @@ function decodePushEvent(value: unknown): HostPushEvent | undefined {
   if (item.type === "host-update" && !isHostUpdate(item.update)) return undefined;
   if ((item.type === "job-progress" || item.type === "job-done") && !nonEmptyString(item.jobId)) return undefined;
   if (item.type === "job-progress" && typeof item.message !== "string") return undefined;
+  if (item.type === "tool-update-delta" && !isToolOutputDelta(item)) return undefined;
   return item as unknown as HostPushEvent;
 }
 

@@ -179,6 +179,26 @@ describe("host connection", () => {
     await expect(early.runJob<string>("rebuild-workbench")).resolves.toBe("early");
   });
 
+  it("rebuilds a tool's output from deltas and drops one against a push it never saw", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const outputs: string[] = [];
+    connection.onEvent((event) => { if (event.type === "tool-update") outputs.push(event.output); });
+    const toolDelta = (after: number, text: string, keep: number, drop = 0): HostPushEvent =>
+      ({ type: "tool-update-delta", sessionId: "s1", id: "t1", after, keep, drop, text });
+    link.push(1, { type: "tool-update", sessionId: "s1", id: "t1", output: "[cut]\nline 1\n" });
+    link.push(2, toolDelta(1, "line 2\n", 13));
+    // The tail window slid: keep the marker, drop the oldest line.
+    link.push(3, toolDelta(2, "line 3\n", 6, 7));
+    // Based on a push this client never saw: nothing to rebuild from.
+    link.push(4, toolDelta(99, "line 4\n", 20));
+    link.push(5, toolDelta(3, "line 5\n", 20));
+    link.push(6, { type: "tool-update", sessionId: "s1", id: "t1", output: "[cut]\nline 5\n" });
+    expect(outputs).toEqual(["[cut]\nline 1\n", "[cut]\nline 1\nline 2\n", "[cut]\nline 2\nline 3\n", "[cut]\nline 5\n"]);
+    expect(connection.getState()).toBe("connected");
+  });
+
   it("learns which methods the host wants run as jobs", async () => {
     const link = harness();
     const connection = new HostConnection(link.transport);

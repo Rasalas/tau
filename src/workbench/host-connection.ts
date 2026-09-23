@@ -11,6 +11,7 @@ import {
   type HostPush,
   type HostResponse,
 } from "../shared/host-transport";
+import { ToolOutputStream } from "./tool-output-stream";
 
 /**
  * `reconnecting` means pushes are missing; `resyncing` means the state is being
@@ -66,6 +67,7 @@ export class HostConnection {
   private readonly jobs = new Map<string, PendingJob>();
   /** A job that finished before its `start-job` response arrived. */
   private readonly earlyJobResults = new Map<string, HostJobEvent>();
+  private readonly toolOutputs = new ToolOutputStream();
 
   constructor(private readonly transport: HostTransport) {
     transport.onPush((push) => this.receive(push));
@@ -186,22 +188,24 @@ export class HostConnection {
 
   private apply(push: HostPush): void {
     this.lastSeq = push.seq;
-    if (!isHostJobEvent(push.event)) {
-      for (const listener of this.eventListeners) listener(push.event);
+    const event = this.toolOutputs.receive(push);
+    if (!event || event.type === "tool-update-delta") return;
+    if (!isHostJobEvent(event)) {
+      for (const listener of this.eventListeners) listener(event);
       return;
     }
-    const job = this.jobs.get(push.event.jobId);
-    if (push.event.type === "job-progress") {
-      job?.onProgress?.(push.event.message, push.event.fraction);
+    const job = this.jobs.get(event.jobId);
+    if (event.type === "job-progress") {
+      job?.onProgress?.(event.message, event.fraction);
       return;
     }
     if (!job) {
-      this.earlyJobResults.set(push.event.jobId, push.event);
+      this.earlyJobResults.set(event.jobId, event);
       return;
     }
-    this.jobs.delete(push.event.jobId);
-    if (push.event.error) job.reject(new HostRequestError(push.event.error.message, push.event.error.code));
-    else job.resolve(push.event.result);
+    this.jobs.delete(event.jobId);
+    if (event.error) job.reject(new HostRequestError(event.error.message, event.error.code));
+    else job.resolve(event.result);
   }
 
   /** Repairs a gap: replay what the host still has, otherwise refetch everything. */
@@ -240,6 +244,7 @@ export class HostConnection {
     for (const push of reply.missed) if (push.seq > this.lastSeq) this.apply(push);
     if (reply.resync) {
       this.lastSeq = reply.nextSeq - 1;
+      this.toolOutputs.clear();
       await this.resync();
     }
     this.setState("connected");
