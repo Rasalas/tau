@@ -16,6 +16,7 @@ import {
   decodeSettings,
   decodeState,
   isSnoozed,
+  linkedRequestThreads,
   nextWake,
   pinPatch,
   requestCheckouts,
@@ -136,7 +137,23 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
                 // No Review Kit, no CLI, no remote: that checkout has no request to go by.
               }
             }
-            const patches = sweepPatches(threads, state, running, requests, clock());
+            // Every thread's linked requests too; one still open keeps its thread active.
+            const linked = new Map<string, SweepRequest[]>();
+            const asked = linkedRequestThreads(threads, state, running, clock());
+            if (asked.length > 0) {
+              try {
+                const answer = record(await context.invokeHostExtension(REVIEW_EXTENSION_ID, "thread-requests", { threadIds: asked }));
+                for (const [id, links] of Object.entries(answer)) {
+                  const known = (Array.isArray(links) ? links : []).map(record).flatMap((link): SweepRequest[] => typeof link.url === "string"
+                    ? [{ url: link.url, ...(link.state === "open" || link.state === "closed" || link.state === "merged" ? { state: link.state } : {}) }]
+                    : []);
+                  if (known.length > 0) linked.set(id, known);
+                }
+              } catch {
+                // An older Review Kit, or none: the branch's request is all there is to go by.
+              }
+            }
+            const patches = sweepPatches(threads, state, running, requests, clock(), linked);
             for (const [id, patch] of Object.entries(patches)) {
               if (patch.settledBy) services.log("thread-rail.settled", `${id.slice(0, 8)} · ${patch.settledBy}`);
             }

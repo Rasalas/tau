@@ -152,6 +152,27 @@ describe("linked pull requests", () => {
     expect(await invoke<ThreadPullRequestLink[]>("thread-links", { threadId: "t1" })).toHaveLength(1);
   });
 
+  it("names the threads that link a request and answers Thread Rail with each thread's states", async () => {
+    const { invoke } = await harness();
+    await invoke("link-pr", { threadId: "t1", reference: GITHUB_URL });
+    await invoke("link-pr", { threadId: "t2", reference: "https://GitHub.com/ACME/tau/pull/7" });
+    await invoke("link-pr", { threadId: "t2", reference: GITLAB_URL });
+    await expect(invoke("pr-linked-threads", { url: GITHUB_URL })).resolves.toEqual(["t1", "t2"]);
+    await expect(invoke("pr-linked-threads", { url: "https://github.com/acme/tau/pull/99" })).resolves.toEqual([]);
+    await expect(invoke("thread-requests", { threadIds: ["t1", "t2", "t3", 4] })).resolves.toEqual({
+      t1: [{ url: GITHUB_URL, state: "open" }],
+      t2: [{ url: "https://github.com/ACME/tau/pull/7", state: "open" }, { url: GITLAB_URL, state: "open" }],
+    });
+  });
+
+  it("keeps links to requests of every provider", async () => {
+    const { invoke } = await harness();
+    // No CLI answers for Codeberg here; the link is kept without a snapshot.
+    await invoke("link-pr", { threadId: "t1", reference: "https://codeberg.org/acme/tau/pulls/3" });
+    const stored = JSON.parse(await readFile(join(stateRoot!, REVIEW_HOST_EXTENSION_ID, "thread-pull-requests.json"), "utf8")) as { threads: Record<string, Array<{ service: string }>> };
+    expect(stored.threads.t1).toEqual([expect.objectContaining({ service: "forgejo" })]);
+  });
+
   it("keeps links across a restart and drops a deleted thread's", async () => {
     const first = await harness();
     await first.invoke("link-pr", { threadId: "t1", reference: GITHUB_URL });

@@ -34,6 +34,8 @@ interface Setup {
   sessions?: HostSessionSummary[];
   modified?: Record<string, number>;
   review?: (workspace: string) => unknown;
+  /** Review Kit's answer about the requests threads link. */
+  linked?: (threadIds: string[]) => unknown;
   now?: () => number;
 }
 
@@ -75,6 +77,7 @@ async function harness(setup: Setup = {}) {
       name: "Review Kit",
       activate(context: HostExtensionContext) {
         context.registerCommand("pr-status", (input) => setup.review!((input as { workspace: string }).workspace), { callers: [THREAD_RAIL_EXTENSION_ID] });
+        if (setup.linked) context.registerCommand("thread-requests", (input) => setup.linked!((input as { threadIds: string[] }).threadIds), { callers: [THREAD_RAIL_EXTENSION_ID] });
       },
     };
     await registry.activate(review);
@@ -129,6 +132,20 @@ describe("Thread Rail host", () => {
     expect(state.threads.merged).toMatchObject({ settledBy: "pr-merged", settledForRequest: "https://example.test//worktrees/merged" });
     expect(state.threads.shared).toBeUndefined();
     expect(state.threads.busy?.settledAt).toBeUndefined();
+  });
+
+  it("settles a thread once every request it links has ended, whatever its checkout", async () => {
+    const sessions = [session("done", "/project"), session("waiting", "/project"), session("plain", "/project")];
+    const linked = vi.fn(() => ({
+      done: [{ url: "https://example.test/pr/1", state: "merged" }, { url: "https://example.test/pr/2", state: "closed" }],
+      waiting: [{ url: "https://example.test/pr/3", state: "merged" }, { url: "https://example.test/pr/4" }],
+    }));
+    const { invoke } = await harness({ sessions, review: () => ({}), linked });
+    const state = await invoke("sweep");
+    expect(linked).toHaveBeenCalledWith(["done", "waiting", "plain"]);
+    expect(state.threads.done).toMatchObject({ settledBy: "pr-merged", settledForRequest: "https://example.test/pr/1 https://example.test/pr/2" });
+    expect(state.threads.waiting).toBeUndefined();
+    expect(state.threads.plain).toBeUndefined();
   });
 
   it("wakes a snooze that ran out on the next sweep", async () => {

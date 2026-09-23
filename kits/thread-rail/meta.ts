@@ -275,9 +275,27 @@ function eligible(thread: SweepThread, state: RailState, running: ReadonlySet<st
   return !(meta?.keptAt !== undefined && (activity === undefined || activity <= meta.keptAt));
 }
 
+/** The threads whose linked requests the sweep asks Review Kit about: every one a rule could settle. */
+export function linkedRequestThreads(threads: readonly SweepThread[], state: RailState, running: ReadonlySet<string>, now: number): string[] {
+  if (!state.settings.onMerged && !state.settings.onClosed) return [];
+  return threads.filter((thread) => eligible(thread, state, running, now)).map((thread) => thread.id);
+}
+
+/**
+ * Whether a thread's requests all ended, and how: its branch's request and
+ * every request it links. One still open, or one whose state is unknown,
+ * keeps the thread active.
+ */
+function requestsEnded(requests: readonly SweepRequest[], onMerged: boolean, onClosed: boolean): { reason: "pr-merged" | "pr-closed"; key: string } | undefined {
+  if (requests.length === 0 || requests.some((request) => request.state !== "merged" && request.state !== "closed")) return undefined;
+  const key = [...new Set(requests.map((request) => request.url))].sort().join(" ");
+  if (requests.some((request) => request.state === "merged")) return onMerged ? { reason: "pr-merged", key } : undefined;
+  return onClosed ? { reason: "pr-closed", key } : undefined;
+}
+
 /**
  * One pass of the rules: snoozes that ran out wake, and an idle thread settles
- * when its request merged or closed (as the settings ask) or when it has been
+ * when its requests merged or closed (as the settings ask) or when it has been
  * quiet longer than the settings allow. A running thread is never touched.
  */
 export function sweepPatches(
@@ -286,6 +304,7 @@ export function sweepPatches(
   running: ReadonlySet<string>,
   requests: ReadonlyMap<string, SweepRequest>,
   now: number,
+  linked: ReadonlyMap<string, readonly SweepRequest[]> = new Map(),
 ): Record<string, ThreadMetaPatch> {
   const patches: Record<string, ThreadMetaPatch> = {};
   for (const [id, meta] of Object.entries(state.threads)) {
@@ -296,13 +315,10 @@ export function sweepPatches(
   for (const thread of threads) {
     if (!eligible(thread, woken, running, now)) continue;
     const meta = woken.threads[thread.id];
-    const request = requests.get(thread.cwd);
-    const byRequest = request && request.url !== meta?.settledForRequest
-      ? request.state === "merged" && onMerged ? "pr-merged" as const
-        : request.state === "closed" && onClosed ? "pr-closed" as const : undefined
-      : undefined;
-    if (byRequest) {
-      patches[thread.id] = { ...patches[thread.id], ...settlePatch(now, byRequest), settledForRequest: request!.url };
+    const own = requests.get(thread.cwd);
+    const ended = requestsEnded([...(own ? [own] : []), ...linked.get(thread.id) ?? []], Boolean(onMerged), Boolean(onClosed));
+    if (ended && ended.key !== meta?.settledForRequest) {
+      patches[thread.id] = { ...patches[thread.id], ...settlePatch(now, ended.reason), settledForRequest: ended.key };
       continue;
     }
     const activity = lastActivity(thread, meta);

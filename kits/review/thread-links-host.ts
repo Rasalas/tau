@@ -1,14 +1,18 @@
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
-import { THREAD_LINKS_EVENT, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
+import { THREAD_LINKS_EVENT, THREAD_RAIL_EXTENSION_ID, type PullRequestRef, type ThreadPullRequestLink } from "./protocol.js";
 import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestReads } from "./pull-request-host.js";
 import { projectRepository } from "./pull-request-list-host.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { linkKey, ThreadLinkStore } from "./thread-links.js";
 
-/** A linked request's state is asked again at most this often; a merged one only on request. */
+/** An open linked request's state is asked again at most this often; a merged one only on request. */
 const REFRESH_MS = 5 * 60_000;
+/** A closed one is asked about now and then, so reopening it on the host is noticed. */
+const CLOSED_REFRESH_MS = 30 * 60_000;
+/** Linked requests read at once when Thread Rail asks about many threads. */
+const SETTLE_READS = 4;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -85,9 +89,14 @@ export function registerThreadLinks(
     return result;
   };
 
+  const stale = (entry: ThreadPullRequestLink) => {
+    if (entry.state === "merged") return false;
+    return Date.now() - (entry.refreshedAt ?? 0) > (entry.state === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
+  };
+
   const refresh = async (threadId: string, force: boolean) => {
     const links = await store.list(threadId);
-    const due = links.filter((entry) => force || ((entry.state !== "merged" && entry.state !== "closed") && Date.now() - (entry.refreshedAt ?? 0) > REFRESH_MS));
+    const due = links.filter((entry) => force || stale(entry));
     const results = await Promise.all(due.map(async (entry) => {
       const ref = parseRequestUrl(entry.url);
       const snapshot = ref ? await snapshotOf(ref, force) : undefined;
@@ -108,6 +117,35 @@ export function registerThreadLinks(
     if (mode === true || mode === "force") await refresh(threadId, mode === "force");
     return store.list(threadId);
   }, { long: true });
+
+  // The threads that link a request, for "linked from" in its view.
+  context.registerCommand("pr-linked-threads", async (input) => {
+    const ref = parseRequestUrl(text(record(input).url) ?? "");
+    if (!ref) throw new HostCommandError("Name the request by its URL.");
+    return store.threadsLinking(ref);
+  });
+
+  /**
+   * Thread Rail's question before it settles threads: each named thread's
+   * linked requests with their state, refreshed where stale. A link whose
+   * state is unknown stays unknown, which keeps its thread active.
+   */
+  context.registerCommand("thread-requests", async (input) => {
+    const ids = Array.isArray(record(input).threadIds) ? (record(input).threadIds as unknown[]).filter((id): id is string => typeof id === "string" && id.length > 0) : [];
+    const queue = [...new Set(ids)];
+    const answer: Record<string, Array<{ url: string; state?: ThreadPullRequestLink["state"] }>> = {};
+    const worker = async () => {
+      for (let threadId = queue.shift(); threadId !== undefined; threadId = queue.shift()) {
+        // oxlint-disable-next-line no-await-in-loop -- a few at a time: each may ask a host
+        await refresh(threadId, false).catch(() => undefined);
+        // oxlint-disable-next-line no-await-in-loop
+        const links = await store.list(threadId);
+        if (links.length > 0) answer[threadId] = links.map((entry) => ({ url: entry.url, ...(entry.state ? { state: entry.state } : {}) }));
+      }
+    };
+    await Promise.all(Array.from({ length: SETTLE_READS }, worker));
+    return answer;
+  }, { long: true, callers: [THREAD_RAIL_EXTENSION_ID] });
 
   context.registerCommand("link-pr", async (input) => {
     const threadId = threadOf(input);
