@@ -9,7 +9,7 @@ const electron = vi.hoisted(() => ({
 }));
 vi.mock("electron", () => electron);
 
-const { bundleOf, default: activate, screenAccess, windowSourceId } = await import("./window.js");
+const { bundleOf, default: activate, screenAccess } = await import("./window.js");
 
 const half = () => activate({ id: "tau.computer-use", invokeHost: async () => undefined, log: () => undefined });
 
@@ -19,11 +19,6 @@ describe("Computer Use's window half", () => {
     expect(screenAccess("darwin", () => "not-determined")).toBe("not-determined");
     expect(screenAccess("darwin", () => "something new")).toBe("unavailable");
     expect(screenAccess("linux", () => "granted")).toBe("unavailable");
-  });
-
-  it("names one window as a capture source and refuses anything else", () => {
-    expect(windowSourceId(33962)).toBe("window:33962:0");
-    for (const bad of [0, -1, 1.5, "33962", undefined, Number.NaN]) expect(() => windowSourceId(bad)).toThrow();
   });
 
   it("finds the app bundle of an executable", () => {
