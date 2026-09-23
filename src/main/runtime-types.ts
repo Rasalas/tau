@@ -105,8 +105,12 @@ export type RuntimeEventListener = (event: unknown, threadId: string) => void;
  */
 export type ThreadRuntimeEvent =
   | { type: "turn-started" }
-  /** `error` says why a turn with status "error" failed; the transcript and the rail show it. */
-  | { type: "turn-settled"; status: "completed" | "interrupted" | "error"; error?: string }
+  /**
+   * `error` says why a turn with status "error" failed; the transcript and the rail show it.
+   * `limit` marks that failure as a provider's usage or rate limit, with its reset (epoch ms)
+   * when known; without it the host reads the error text. New in API 1.11.0.
+   */
+  | { type: "turn-settled"; status: "completed" | "interrupted" | "error"; error?: string; limit?: { resetsAt?: number } }
   | { type: "assistant-start"; id: string; timestamp: number }
   | { type: "assistant-delta"; id: string; delta: string }
   | { type: "assistant-thinking"; id: string; delta: string }

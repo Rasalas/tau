@@ -145,6 +145,9 @@ export interface ExtensionServicesPort {
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;
   purgeThread(sessionId: string): Promise<void>;
+  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; from?: string }): Promise<void>;
+  /** Stops a thread's running turn; nothing happens to a thread without a runtime. */
+  abortThread(sessionId: string): Promise<void>;
   trashedThreads(): Promise<HostTrashedThread[]>;
   /** The clients attached to this host, for the seam's ungated `clients` member. */
   readonly clients: HostClientServices;
@@ -317,6 +320,11 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       restore: (sessionId) => port.restoreThread(sessionId),
       trash: () => port.trashedThreads(),
       purge: (sessionId) => port.purgeThread(sessionId),
+      send: (sessionId, text, sendOptions) => port.sendToThread(sessionId, text, {
+        delivery: sendOptions?.delivery ?? "prompt",
+        ...(sendOptions?.from ? { from: sendOptions.from } : {}),
+      }),
+      abort: (sessionId) => port.abortThread(sessionId),
       exclusive: (work) => port.exclusive(work),
       refreshIndex: async () => ({
         version: HOST_PROTOCOL_VERSION,

@@ -18,6 +18,7 @@ import { InspectorPage } from "./InspectorPage";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { ProvidersPage } from "./ProvidersPage";
 import { inRuntimeOrder } from "../runtime-order";
+import "./settings.css";
 
 function projectName(path?: string): string {
   return path?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "project";

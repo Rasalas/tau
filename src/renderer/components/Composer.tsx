@@ -31,7 +31,7 @@ import {
   createDraftKey,
 } from "../../workbench/composer-scope-store";
 import { errorMessage } from "../../workbench/error-message";
-import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
+import type { UiQueuedMessage } from "../../shared/contracts";
 import { readComposerDraft, readComposerDraftState, writeComposerDraft, writeComposerDraftState } from "../../workbench/draft-store";
 import { PromptHistory, loadStoredPromptHistory, saveStoredPromptHistory } from "../../workbench/prompt-history";
 import { handleComposerReadlineKey } from "./useComposerReadline";
@@ -154,7 +154,7 @@ export function Composer({
   value?: string;
   seed?: string;
   draftStorageKey?: string;
-  queue: readonly QueuedFollowUp[];
+  queue: readonly UiQueuedMessage[];
   contextUsage?: UiContextUsage;
   contextBreakdown: ContextBreakdown;
   /** What this thread has spent; absent when unknown or when costs are hidden. */

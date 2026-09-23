@@ -150,7 +150,7 @@ function harness(options: {
     newThread,
     turn,
     host,
-    enqueueFollowUp: (threadId, item) => { followUps.push({ threadId, text: item.text }); },
+    enqueueFollowUp: async (threadId, item) => { followUps.push({ threadId, text: item.text }); },
   };
   const submission = new SubmissionController(ports);
   return { submission, ports, client, view, threads, scopes, state, followUps, host, promptHooks, actions, hostSession };

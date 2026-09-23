@@ -51,6 +51,8 @@ import {
 } from "../workspace/agent-worktrees.js";
 import {
   AgentThreadBook,
+  decodeClientRequestId,
+  decodeSendRequest,
   decodeSpawnRequest,
   decodeThreadId,
   decodeTimeout,
@@ -65,6 +67,27 @@ const RESULT_LIMIT = 2_000;
 
 /** Panel rows only need a line; the tools get the full excerpt. */
 const PANEL_RESULT_LIMIT = 240;
+
+/** How much of each finished child's answer the message that wakes its parent carries. */
+const WAKE_RESULT_LIMIT = 1_500;
+
+/** Retry keys a thread's tools remember; the oldest goes first. */
+const MAX_REMEMBERED_REQUESTS = 500;
+
+/**
+ * The message a parent gets when children it was not waiting for finished,
+ * the way T3's orchestrator follows a delegated task up with its result.
+ */
+export function wakeMessage(children: ReadonlyArray<{ threadId: string; title: string; status: string; answer?: string; error?: string }>): string {
+  const head = children.length === 1
+    ? "A thread you started has finished."
+    : `${children.length} threads you started have finished.`;
+  const parts = children.map((child) => {
+    const detail = child.error ?? (child.answer ? truncate(child.answer, WAKE_RESULT_LIMIT) : "It gave no answer.");
+    return `— "${child.title}" (threadId ${child.threadId}): ${child.status}\n${detail}`;
+  });
+  return [`[Tau] ${head}`, ...parts, "Continue with this, or read more with tau_get_thread_status."].join("\n\n");
+}
 
 const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
@@ -234,6 +257,25 @@ export function createAgentsHostExtension(options: {
         return thread ? { streaming: thread.isStreaming(), idle: thread.isIdle() } : undefined;
       });
       const waiters = new Map<string, Set<() => void>>();
+      /** Turns a tool gave each child that have not ended yet; the parent hears once none are left. */
+      const expecting = new Map<string, number>();
+      const expect = (id: string) => { expecting.set(id, (expecting.get(id) ?? 0) + 1); };
+      /** Children that finished while nobody waited for them, by parent, until the parent hears. */
+      const unreported = new Map<string, Set<string>>();
+      /** Calls made with a `clientRequestId`, by thread and tool, so a retry repeats nothing. */
+      const requests = new Map<string, Promise<unknown>>();
+      const once = <T>(threadId: string, tool: string, clientRequestId: string | undefined, work: () => Promise<T>): Promise<T> => {
+        if (!clientRequestId) return work();
+        const key = `${threadId}\u0000${tool}\u0000${clientRequestId}`;
+        const known = requests.get(key);
+        if (known) return known as Promise<T>;
+        const running = work();
+        requests.set(key, running);
+        // A call that did nothing may be tried again under the same key.
+        running.catch(() => { requests.delete(key); });
+        if (requests.size > MAX_REMEMBERED_REQUESTS) requests.delete(requests.keys().next().value!);
+        return running;
+      };
       let publishing: NodeJS.Timeout | undefined;
       // Fifty agents produce bursts of turn events; the panel only needs the
       // state the burst settled on.
@@ -504,6 +546,8 @@ export function createAgentsHostExtension(options: {
           ? "shared"
           : requested ?? "worktree";
         wanted.set(id, mode);
+        // Only a tool's spawn wakes its parent; one the user started from the panel does not.
+        if (spawnedBy === "tau_spawn_thread") expect(id);
         book.add({
           id,
           parentThreadId: parent.sessionId,
@@ -557,6 +601,111 @@ export function createAgentsHostExtension(options: {
         return { detail, branch: workspace.branch };
       };
 
+      /** The parent read what this child did, so nothing wakes it for that any more. */
+      const reported = (parentThreadId: string, id: string) => {
+        const pending = unreported.get(parentThreadId);
+        if (pending?.delete(id) && pending.size === 0) unreported.delete(parentThreadId);
+      };
+
+      /**
+       * Tells a parent what finished while it was not waiting: one new message
+       * once it is idle, as T3's orchestrator follows a delegated task up with
+       * its result. A busy parent hears when its own turn ends.
+       */
+      const flushWakes = async (parentThreadId: string, afterTurn = false): Promise<void> => {
+        const parent = services.thread(parentThreadId);
+        if (afterTurn) await parent?.waitForIdle().catch(() => undefined);
+        if (parent && (parent.isStreaming() || !parent.isIdle())) return;
+        const ids = [...(unreported.get(parentThreadId) ?? [])];
+        unreported.delete(parentThreadId);
+        const send = services.sessions.send;
+        if (ids.length === 0 || !send) return;
+        const children = (await Promise.all(ids.map(async (id) => {
+          const link = book.linkFor(id);
+          if (!link) return [];
+          const answer = await lastAssistantMessage(link.threadId) ?? link.result;
+          return [{
+            threadId: link.threadId ?? link.id,
+            title: link.title,
+            status: link.status,
+            ...(answer ? { answer } : {}),
+            ...(link.error ? { error: link.error } : {}),
+          }];
+        }))).flat();
+        if (children.length === 0) return;
+        try {
+          await send(parentThreadId, wakeMessage(children));
+          services.log("agents.parent-woken", `${parentThreadId.slice(0, 8)} · ${children.length}`);
+        } catch (error) {
+          services.log("agents.wake-failed", `${parentThreadId.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      };
+
+      /** More work for a child: extends a queued one's first prompt, or reaches its thread in the mode asked for. */
+      const sendTo = async (parentThreadId: string, input: unknown) => {
+        const request = decodeSendRequest(input);
+        const link = requireChild(parentThreadId, request.threadId);
+        reported(parentThreadId, link.id);
+        if (!link.threadId) {
+          if (link.status === "cancelled") throw new Error(`${link.title} was cancelled before it started; spawn a new thread instead.`);
+          if (request.mode === "steer" || request.mode === "restart") {
+            throw new Error(`${link.title} has not started yet; send with mode "queue" or "auto", or cancel it.`);
+          }
+          // Its first prompt has not left yet, so the message rides along with it.
+          prompts.set(link.id, `${prompts.get(link.id) ?? link.title}\n\n${request.message}`);
+          return { threadId: link.id, delivered: "with its first prompt", status: link.status };
+        }
+        const send = services.sessions.send;
+        if (!send) throw new Error("This Tau cannot send to another thread; it needs extension API 1.11.0.");
+        const thread = services.thread(link.threadId);
+        const running = thread?.isStreaming() ?? false;
+        if (request.mode === "steer" && !running) throw new Error(`${link.title} is not running; send with mode "auto" or "queue".`);
+        let delivery: "prompt" | "steer" | "queue" = request.mode === "queue" ? "queue"
+          : request.mode === "steer" || (request.mode === "auto" && running) ? "steer"
+          : "prompt";
+        // Counted before a restart stops the running turn, so that turn's end wakes nobody.
+        if (delivery !== "steer") expect(link.id);
+        else if (!expecting.has(link.id)) expecting.set(link.id, 1);
+        if (request.mode === "restart" && running) {
+          if (!services.sessions.abort) throw new Error("This Tau cannot stop another thread's turn; it needs extension API 1.11.0.");
+          await services.sessions.abort(link.threadId);
+          await services.thread(link.threadId)?.waitForIdle().catch(() => undefined);
+        }
+        changed(link.id, book.noteSent(link.id, delivery === "prompt"));
+        try {
+          await send(link.threadId, request.message, { delivery, from: parentThreadId });
+        } catch (error) {
+          // A runtime that cannot steer still takes the message after its turn.
+          if (request.mode !== "auto" || delivery !== "steer") throw error;
+          delivery = "queue";
+          expect(link.id);
+          await send(link.threadId, request.message, { delivery, from: parentThreadId });
+        }
+        const delivered = request.mode === "restart" ? "restarted" : delivery === "prompt" ? "started" : delivery === "steer" ? "steered" : "queued";
+        return { threadId: link.threadId, delivered, status: book.linkFor(link.id)?.status ?? link.status };
+      };
+
+      /** Stops a child: a queued one never starts, a running one ends its turn. A finished one stays as it is. */
+      const cancelChild = async (parentThreadId: string, input: unknown) => {
+        const link = requireChild(parentThreadId, decodeThreadId(input));
+        const handle = link.threadId ?? link.id;
+        expecting.delete(link.id);
+        reported(parentThreadId, link.id);
+        if (link.status === "pending") {
+          prompts.delete(link.id);
+          definitions.delete(link.id);
+          wanted.delete(link.id);
+          changed(link.id, book.noteCancelled(link.id, Date.now()));
+          return { threadId: handle, status: "cancelled", cancelled: true };
+        }
+        if (!isBusyStatus(link.status) || !link.threadId) return { threadId: handle, status: link.status, cancelled: false };
+        if (!services.sessions.abort) throw new Error("This Tau cannot stop another thread's turn; it needs extension API 1.11.0.");
+        changed(link.id, book.noteCancelled(link.id, Date.now()));
+        await services.sessions.abort(link.threadId);
+        void pump(parentThreadId);
+        return { threadId: handle, status: book.linkFor(link.id)?.status ?? "cancelled", cancelled: true };
+      };
+
       /** Resolves when the agent's turn ended, it asked the user something, or it failed. */
       const waitFor = (id: string, timeoutMs: number, signal: AbortSignal | undefined): Promise<"settled" | "timeout"> => {
         const settled = () => {
@@ -600,7 +749,7 @@ export function createAgentsHostExtension(options: {
               "It appears in the Agents panel beside this conversation, has its own agent and its own transcript, and runs in the background.",
               "By default it gets its own Git worktree, branched from this thread's current state, so it can write without colliding with this checkout; take its work back with tau_apply_thread_changes.",
               `Returns immediately. Spawns beyond the running budget are queued with status "pending" and start as slots free; sub-agents may nest ${MAX_AGENT_DEPTH} levels deep.`,
-              "Read an answer with tau_wait_for_thread or tau_get_thread_status.",
+              "Read an answer with tau_wait_for_thread or tau_get_thread_status; when it finishes while you are not waiting for it, this thread gets its answer as a new message.",
               "Pass agent to start it from one of the project's agent definitions in .tau/agents/: its instructions, model, runtime, tools and workspace apply.",
             ].join(" "),
             promptSnippet: "tau_spawn_thread: delegate a task to a new background thread in this project",
@@ -613,11 +762,12 @@ export function createAgentsHostExtension(options: {
                 description: 'Where it works: "worktree" for its own checkout branched from this thread\'s state (the default in a Git repository), or "shared" to write in this very checkout — only safe for a thread that reads.',
               })),
               agent: Type.Optional(Type.String({ description: "Name of an agent definition in this project's .tau/agents/; a plain thread when left out." })),
+              clientRequestId: Type.Optional(Type.String({ description: "Your own id for this spawn; a retry with the same id returns the thread the first call started." })),
             }),
             // Over MCP there is no Pi context, and a model of another runtime is not one to inherit.
             execute: async (_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext | undefined) => {
               const inherited = ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-              return toolResult(await spawn(session, params, inherited));
+              return toolResult(await once(threadId, "spawn", decodeClientRequestId(params), () => spawn(session, params, inherited)));
             },
           },
           {
@@ -628,8 +778,10 @@ export function createAgentsHostExtension(options: {
               threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
             }),
             execute: async (_toolCallId, params) => {
-              const handle = decodeThreadId(params);
-              return toolResult(await statusOf(requireChild(threadId, handle).id));
+              const link = requireChild(threadId, decodeThreadId(params));
+              const status = await statusOf(link.id);
+              if (!isBusyStatus(status.status) && status.status !== "pending") reported(threadId, link.id);
+              return toolResult(status);
             },
           },
           {
@@ -650,8 +802,42 @@ export function createAgentsHostExtension(options: {
               const link = requireChild(threadId, handle);
               const timeoutMs = decodeTimeout(params);
               const outcome = await waitFor(link.id, timeoutMs, signal);
-              return toolResult({ ...await statusOf(link.id), ...(outcome === "timeout" ? { timedOut: true } : {}) });
+              const status = await statusOf(link.id);
+              if (!isBusyStatus(status.status) && status.status !== "pending") reported(threadId, link.id);
+              return toolResult({ ...status, ...(outcome === "timeout" ? { timedOut: true } : {}) });
             },
+          },
+          {
+            name: "tau_send_to_thread",
+            label: "Send to thread",
+            description: [
+              "Send a thread spawned from here another message: a follow-up task, a correction, or what it asked for.",
+              'mode "auto" (the default) starts it when it is idle and steers its running turn, queueing when it cannot steer;',
+              '"queue" waits for its running turn to end; "steer" joins the running turn now; "restart" stops the running turn and starts over with this message.',
+              "When the turn ends and you are not waiting for it, this thread gets its answer as a new message.",
+            ].join(" "),
+            parameters: Type.Object({
+              threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
+              message: Type.String({ description: "What the thread should do or know next." }),
+              mode: Type.Optional(Type.String({ description: '"auto", "queue", "steer" or "restart"; "auto" when left out.' })),
+              clientRequestId: Type.Optional(Type.String({ description: "Your own id for this message; a retry with the same id sends nothing twice." })),
+            }),
+            execute: async (_toolCallId, params) =>
+              toolResult(await once(threadId, "send", decodeClientRequestId(params), () => sendTo(threadId, params))),
+          },
+          {
+            name: "tau_cancel_thread",
+            label: "Cancel thread",
+            description: [
+              "Stop a thread spawned from here: a queued one never starts, a running one ends its turn.",
+              "Its transcript and worktree stay, and a message sent with tau_send_to_thread starts it again. Cancelling a finished thread changes nothing.",
+            ].join(" "),
+            parameters: Type.Object({
+              threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
+              clientRequestId: Type.Optional(Type.String({ description: "Your own id for this request; a retry with the same id returns the first result." })),
+            }),
+            execute: async (_toolCallId, params) =>
+              toolResult(await once(threadId, "cancel", decodeClientRequestId(params), () => cancelChild(threadId, params))),
           },
           {
             name: "tau_apply_thread_changes",
@@ -747,14 +933,27 @@ export function createAgentsHostExtension(options: {
           accepted: (sessionId) => { changed(sessionId, book.noteAccepted(sessionId)); },
           toolEnded: (sessionId, tool) => { changed(sessionId, book.noteTool(sessionId, tool.name)); },
           ended: async (sessionId, _turnId, outcome) => {
+            // A parent whose turn ended hears what finished meanwhile.
+            if (unreported.has(sessionId)) void flushWakes(sessionId, true);
             const link = book.linkFor(sessionId);
             if (!link) return;
+            // Read before the end is noted: noting it releases whoever waits.
+            const watched = (waiters.get(link.id)?.size ?? 0) > 0;
             changed(sessionId, book.noteEnded(sessionId, outcome, Date.now()));
             // The index now carries when the agent ran, so a restart can still
             // show its duration; that is only known once the turn is over.
             save();
             const answer = await lastAssistantMessage(link.threadId);
             if (answer) changed(sessionId, book.noteResult(sessionId, truncate(answer, PANEL_RESULT_LIMIT)));
+            // The last turn a tool gave it, or one that failed, and nobody waited: its parent hears.
+            const left = (expecting.get(link.id) ?? 0) - 1;
+            if (left > 0 && outcome !== "failed") expecting.set(link.id, left);
+            else if (expecting.delete(link.id) && !watched) {
+              const pending = unreported.get(link.parentThreadId) ?? new Set<string>();
+              pending.add(link.id);
+              unreported.set(link.parentThreadId, pending);
+              void flushWakes(link.parentThreadId);
+            }
             // A finished agent frees one of its parent's slots.
             void pump(link.parentThreadId);
           },
@@ -783,6 +982,8 @@ export function createAgentsHostExtension(options: {
                 services.log("agents.worktree-kept", `${workspace.branch} still holds work; it outlives its deleted thread`);
               }
             }
+            unreported.delete(sessionId);
+            if (link) { expecting.delete(link.id); reported(link.parentThreadId, link.id); }
             if (book.forget(sessionId)) { publish(); save(); }
           },
           beforeOpen: async (session) => {

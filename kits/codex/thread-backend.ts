@@ -26,7 +26,7 @@ import {
 } from "tau/host-extension";
 import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
 import { approvalDialog, policyForLevel, refusal } from "./approvals.js";
-import { CodexTurnTranslator, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
+import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage } from "./events.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
 import type { CodexConfiguredModel } from "./config.js";
 import type { CodexSessionStore, CodexStoredModel } from "./session-store.js";
@@ -162,6 +162,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private title?: string;
   private titleSource?: ThreadTitleSource;
   private usage: UiThreadUsage = emptyUsage();
+  /** The last `account/rateLimits/updated`, for when a usage limit stops a turn. */
+  private rateLimits: unknown;
   private context?: UiContextUsage;
   private chosenModel?: string;
   private chosenEffort?: string;
@@ -399,7 +401,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (outcome?.status === "failed") this.report({ type: "notice", message: `Codex stopped: ${outcome.error ?? "the turn failed."}`, level: "error" });
       this.usage = { ...this.usage, turns: this.usage.turns + 1 };
       await this.store.recordUsage(this.threadId, this.cwd, this.usage);
-      this.settle(turn, outcome?.status === "interrupted" ? "interrupted" : outcome?.status === "failed" ? "error" : "completed", outcome?.error);
+      const limit = outcome?.usageLimit ? codexLimitReset(this.rateLimits, this.now()) : undefined;
+      this.settle(turn, outcome?.status === "interrupted" ? "interrupted" : outcome?.status === "failed" ? "error" : "completed", outcome?.error,
+        outcome?.usageLimit ? { ...(limit ? { resetsAt: limit } : {}) } : undefined);
       return outcome?.texts.length ? { assistantText: outcome.texts.join("\n\n") } : {};
     } catch (error) {
       if (!turn.status) {
@@ -414,14 +418,14 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
   }
 
-  private settle(turn: Turn, status: NonNullable<Turn["status"]>, error?: string): void {
+  private settle(turn: Turn, status: NonNullable<Turn["status"]>, error?: string, limit?: { resetsAt?: number }): void {
     if (turn.status) return;
     turn.status = status;
     turn.complete();
     const index = this.turns.indexOf(turn);
     if (index >= 0) this.turns.splice(index, 1);
     this.report({ type: "usage" });
-    this.report({ type: "turn-settled", status, ...(status === "error" && error ? { error } : {}) });
+    this.report({ type: "turn-settled", status, ...(status === "error" && error ? { error } : {}), ...(status === "error" && limit ? { limit } : {}) });
     this.reportQueue();
     turn.finish();
   }
@@ -515,6 +519,10 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       this.usage = threadUsage(usage, this.usage.turns);
       this.context = contextUsage(usage) ?? this.context;
       this.report({ type: "usage" });
+      return;
+    }
+    if (method === "account/rateLimits/updated") {
+      this.rateLimits = params.rateLimits;
       return;
     }
     if (method === "error") {

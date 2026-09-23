@@ -33,7 +33,7 @@
 .agent-row-head > time { flex: none; font: 10px var(--mono); font-variant-numeric: tabular-nums; color: var(--faint); }
 .agent-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--faint); font-style: normal; }
 .agent-dot.status-running, .agent-dot.status-waiting { background: var(--working); }
-.agent-dot.status-pending { background: transparent; border: 1px solid var(--faint); }
+.agent-dot.status-pending, .agent-dot.status-cancelled { background: transparent; border: 1px solid var(--faint); }
 .agent-dot.status-completed { background: var(--ready); }
 .agent-dot.status-failed { background: var(--fail); }
 .agent-row-activity {

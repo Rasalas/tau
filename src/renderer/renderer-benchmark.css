@@ -1,0 +1,6 @@
+/* The renderer benchmark's own frame; loaded with its chunk, never by the workbench. */
+.renderer-benchmark { width: 100%; height: 100%; overflow: auto; padding: 24px; display: flex; flex-direction: column; }
+.renderer-benchmark .transcript-viewport { flex: none; height: 800px; }
+.benchmark-transcript { height: 800px; }
+.benchmark-large-list { height: 720px; overflow: auto; }
+.benchmark-list-row { height: 48px; padding: 12px; border-bottom: 1px solid var(--line); }

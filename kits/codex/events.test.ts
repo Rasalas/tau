@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadRuntimeEvent } from "tau/host-extension";
-import { CodexTurnTranslator, contextUsage, displayCommand, threadUsage, toolFor } from "./events.js";
+import { CodexTurnTranslator, codexLimitReset, contextUsage, displayCommand, threadUsage, toolFor } from "./events.js";
 import frames from "./fixtures/app-server-frames.json" with { type: "json" };
 
 type Frame = { method: string; id?: number; params: Record<string, unknown> };
@@ -124,5 +124,25 @@ describe("displayCommand", () => {
     expect(displayCommand("/bin/zsh -lc 'ls -la'")).toBe("ls -la");
     expect(displayCommand("bash -lc 'echo '\\''hi'\\'''")).toBe("echo 'hi'");
     expect(displayCommand("git status")).toBe("git status");
+  });
+});
+
+describe("a usage limit", () => {
+  it("marks the turn Codex failed with usageLimitExceeded, whatever its sentence says", () => {
+    const translator = new CodexTurnTranslator(() => 1);
+    translator.push("turn/completed", { turn: { id: "tu", status: "failed", error: { message: "Your workspace is out of credits.", codexErrorInfo: "usageLimitExceeded" } } });
+    expect(translator.outcome).toMatchObject({ status: "failed", error: "Your workspace is out of credits.", usageLimit: true });
+    const other = new CodexTurnTranslator(() => 1);
+    other.push("turn/completed", { turn: { id: "tu", status: "failed", error: { message: "stream disconnected" } } });
+    expect(other.outcome?.usageLimit).toBeUndefined();
+  });
+
+  it("reads the reset of the exhausted window from the last rate-limit snapshot", () => {
+    const now = 1_000_000_000_000;
+    const seconds = (minutes: number) => now / 1000 + minutes * 60;
+    expect(codexLimitReset({ primary: { usedPercent: 40, resetsAt: seconds(30) }, secondary: { usedPercent: 100, resetsAt: seconds(600) } }, now)).toBe(seconds(600) * 1000);
+    expect(codexLimitReset({ primary: { usedPercent: 90, resetsAt: seconds(30) }, secondary: { usedPercent: 50, resetsAt: seconds(600) } }, now)).toBe(seconds(30) * 1000);
+    expect(codexLimitReset({ primary: { usedPercent: 100, resetsAt: seconds(-5) } }, now)).toBeUndefined();
+    expect(codexLimitReset(undefined, now)).toBeUndefined();
   });
 });

@@ -6,7 +6,15 @@ import { describe, expect, it } from "vitest";
 const TOKENS = new URL("./tokens.css", import.meta.url);
 const STYLES = new URL("./styles.css", import.meta.url);
 /** Core stylesheets that load with their own chunk rather than with the first paint. */
-const LAZY_STYLES = [new URL("./components/ui/toasts.css", import.meta.url), new URL("./components/diff-view.css", import.meta.url)];
+const LAZY_STYLES = [
+  "./components/ui/toasts.css",
+  "./settings/settings.css",
+  "./components/model-picker.css",
+  "./components/command-palette.css",
+  "./components/reload-conflict.css",
+  "./renderer-benchmark.css",
+  "./components/diff-view.css",
+].map((path) => new URL(path, import.meta.url));
 const KITS = fileURLToPath(new URL("../../kits", import.meta.url));
 
 /** A colour written out rather than named: what only `tokens.css` may contain. */

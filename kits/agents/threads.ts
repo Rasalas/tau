@@ -1,10 +1,12 @@
 import {
+  AGENT_SEND_MODES,
   DEFAULT_MAX_RUNNING_AGENTS,
   DEFAULT_WAIT_MS,
   MAX_AGENT_DEPTH,
   MAX_RUNNING_AGENTS_CAP,
   MAX_WAIT_MS,
   isBusyStatus,
+  type AgentSendMode,
   type AgentThreadLink,
   type AgentWorkspace,
   type AgentWorkspaceMode,
@@ -39,6 +41,8 @@ export interface AgentThreadFacts {
   lastOutcome?: "completed" | "failed";
   pendingToolPrompt?: string;
   error?: string;
+  /** Its parent cancelled it; new work sent to it clears this. */
+  cancelled?: boolean;
   /** Absent before the agent starts, and once the host released its runtime. */
   live?: ThreadLiveness;
 }
@@ -79,6 +83,27 @@ export function decodeSpawnRequest(input: unknown): SpawnRequest {
   };
 }
 
+/** What `tau_send_to_thread` reads from a call. */
+export interface SendRequest {
+  threadId: string;
+  message: string;
+  mode: AgentSendMode;
+}
+
+export function decodeSendRequest(input: unknown): SendRequest {
+  const fields = record(input);
+  if (typeof fields.message !== "string" || !fields.message.trim()) throw new Error("message is required: say what the thread should do next.");
+  if (fields.message.length > 64_000) throw new Error("message must be 64000 characters or fewer.");
+  const mode = optionalText(fields.mode, "mode", 16) ?? "auto";
+  if (!AGENT_SEND_MODES.includes(mode as AgentSendMode)) throw new Error(`mode must be one of ${AGENT_SEND_MODES.map((entry) => `"${entry}"`).join(", ")}.`);
+  return { threadId: decodeThreadId(input), message: fields.message.trim(), mode: mode as AgentSendMode };
+}
+
+/** A caller's retry key: the same key within one thread returns the same work instead of doing it twice. */
+export function decodeClientRequestId(input: unknown): string | undefined {
+  return optionalText(record(input).clientRequestId, "clientRequestId", 200);
+}
+
 export function decodeThreadId(input: unknown): string {
   const value = record(input).threadId;
   if (typeof value !== "string" || !value.trim()) throw new Error("threadId is required.");
@@ -113,6 +138,7 @@ export function readMaxRunningAgents(value: unknown): number {
 
 export function deriveStatus(facts: AgentThreadFacts): AgentThreadStatus {
   if (facts.error) return "failed";
+  if (facts.cancelled && !facts.live?.streaming) return "cancelled";
   if (facts.queued) return "pending";
   if (facts.live?.streaming) return "running";
   if (facts.pendingToolPrompt) return "waiting";
@@ -266,6 +292,27 @@ export class AgentThreadBook {
       found.facts.turns += 1;
       found.facts.lastOutcome = outcome;
       found.link = { ...found.link, endedAt: at };
+    });
+  }
+
+  /** Its parent cancelled it: a queued one never starts, a running one was stopped. */
+  noteCancelled(idOrThreadId: string, at: number): boolean {
+    return this.update(idOrThreadId, (found) => {
+      found.facts.cancelled = true;
+      found.facts.queued = false;
+      found.facts.spawning = false;
+      found.link = { ...found.link, endedAt: found.link.endedAt ?? at };
+    });
+  }
+
+  /** Its parent sent it more work; one that starts a turn runs from here until that turn ends. */
+  noteSent(idOrThreadId: string, starting: boolean): boolean {
+    return this.update(idOrThreadId, (found) => {
+      found.facts.cancelled = false;
+      if (!starting) return;
+      found.facts.spawning = true;
+      delete found.facts.lastOutcome;
+      found.link = { ...found.link, endedAt: undefined };
     });
   }
 

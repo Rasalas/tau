@@ -152,6 +152,11 @@ function decodePromptArgs(method: string, params: readonly unknown[]) {
   };
 }
 
+function decodeIndex(channel: string, field: string, value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) throw new Error(`${channel}: ${field} must be an integer.`);
+  return value;
+}
+
 /**
  * Every renderer-callable operation of the host, by protocol method name. The
  * table is the contract: a transport only moves frames in and out of it.
@@ -201,6 +206,35 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "follow-up": async (params) => {
       const args = decodePromptArgs("follow-up", params);
       return (await host()).followUp(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
+    },
+    "queue-message": async (params) => {
+      const sessionId = decodeString("queue-message", "sessionId", params[0]);
+      const skillDraft = decodeUiSkillDraft("queue-message", "skillDraft", params[3]);
+      const queued = (await host()).queue.add(sessionId, {
+        text: decodeText("queue-message", "text", params[1]),
+        attachments: decodeUiPromptAttachments("queue-message", "attachments", params[2]) ?? [],
+        ...(skillDraft ? { skillDraft } : {}),
+      });
+      return { id: queued.id };
+    },
+    "take-queued": async (params) => (await host()).queue.take(
+      decodeString("take-queued", "sessionId", params[0]),
+      decodeOptionalString("take-queued", "id", params[1]),
+    ).map(({ id, text, attachments, skillDraft }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}) })),
+    "move-queued": async (params) => (await host()).queue.move(
+      decodeString("move-queued", "sessionId", params[0]),
+      decodeString("move-queued", "id", params[1]),
+      decodeIndex("move-queued", "toIndex", params[2]),
+    ),
+    // A thread a provider limit stopped: continue it now, when the limit resets, or not by itself after all.
+    "resume-limited": async (params) => {
+      const sessionId = decodeString("resume-limited", "sessionId", params[0]);
+      const when = decodeString("resume-limited", "when", params[1]);
+      const limits = (await host()).limits;
+      if (when === "now") return limits.resumeNow(sessionId);
+      if (when === "reset") return void limits.resumeAtReset(sessionId);
+      if (when === "cancel") return limits.cancelResume(sessionId);
+      throw new Error('resume-limited: "when" must be "now", "reset" or "cancel".');
     },
     // Stopping must not queue behind host readiness: a thread stuck on a question
     // is exactly what the user is trying to get out of.

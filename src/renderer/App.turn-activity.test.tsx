@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UiToolRun } from "../shared/contracts";
+import type { UiQueuedPrompt, UiSession, UiToolRun } from "../shared/contracts";
 import { setHostClient } from "./host-client-context";
 import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
@@ -14,6 +14,33 @@ afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefine
 
 function tool(id: string): UiToolRun {
   return { id, name: "read", args: { path: `${id}.ts` }, status: "done", startedAt: 1, endedAt: 2 };
+}
+
+/** The host's queue as the workbench sees it: calls change it, and each change arrives as the thread's shell. */
+function hostQueue(client: FakeHostClient) {
+  const items: UiQueuedPrompt[] = [];
+  let next = 0;
+  const shell: UiSession = { id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 0 };
+  const publish = (options: { held?: boolean } = {}) => act(() => client.emit({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "session", shell: {
+    ...shell,
+    ...(items.length > 0 ? { queued: items.map(({ id, text, attachments }) => ({ id, text, attachments: attachments.length })) } : {}),
+    ...(options.held ? { queueHeld: true } : {}),
+  } } } }));
+  client.queueMessage = vi.fn(async (_sessionId: string, text: string, attachments: UiQueuedPrompt["attachments"]) => {
+    next += 1;
+    items.push({ id: `queued-${next}`, text, attachments });
+    publish();
+    return { id: `queued-${next}` };
+  });
+  client.takeQueued = vi.fn(async (_sessionId: string, id?: string) => {
+    const taken = items.filter((item) => id === undefined || item.id === id);
+    for (const item of taken) items.splice(items.indexOf(item), 1);
+    publish();
+    return taken;
+  });
+  /** What the host does when the run ends: the head leaves as a prompt. */
+  const deliverHead = () => { items.shift(); publish(); };
+  return { items, publish, deliverHead };
 }
 
 describe("last-turn activity", () => {
@@ -293,13 +320,12 @@ describe("last-turn activity", () => {
     expect(screen.queryByText("Completed")).toBeNull();
   });
 
-  it("holds an Enter follow-up in the workbench queue and sends it once the run settles", async () => {
+  it("parks an Enter follow-up in the host's queue and draws what the host keeps", async () => {
     const followUp = vi.fn(async () => undefined);
-    const steer = vi.fn(async () => undefined);
     const sendPrompt = vi.fn(async () => undefined);
     client.followUp = followUp;
-    client.steer = steer;
     client.sendPrompt = sendPrompt;
+    const queue = hostQueue(client);
     const view = renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
@@ -309,57 +335,35 @@ describe("last-turn activity", () => {
     fireEvent.keyDown(composer, { key: "Enter" });
 
     await waitFor(() => expect(screen.getByRole("listitem").textContent).toContain("after this turn"));
+    expect(client.queueMessage).toHaveBeenCalledWith("session", "after this turn", [], undefined);
     expect(composer.value).toBe("");
-    // The runtime never holds the follow-up; it waits as a dashed bubble, not as a message.
+    // Neither the runtime nor the window sends it; the host does when the run ends.
     expect(followUp).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(view.container.querySelector(".transcript .queued-message")?.textContent).toContain("after this turn");
     expect(view.container.querySelector(".transcript .message.user")).toBeNull();
 
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
-    await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith(
-      "after this turn",
-      [],
-      "session",
-      expect.objectContaining({ clientTurnId: expect.any(String), clientMessageId: expect.any(String) }),
-      undefined,
-    ));
-    expect(steer).not.toHaveBeenCalled();
+    queue.deliverHead();
     await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
-  it("sends only the head of the queue when the run settles and keeps the rest waiting", async () => {
-    const sendPrompt = vi.fn(async (..._args: unknown[]) => undefined);
-    client.followUp = vi.fn(async () => undefined);
-    client.sendPrompt = sendPrompt;
+  it("shows a queue the host restored as held", async () => {
+    const queue = hostQueue(client);
     renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
-    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
-
-    const composer = screen.getByPlaceholderText(/Queue after this turn/u);
-    fireEvent.change(composer, { target: { value: "first" } });
-    fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
-    fireEvent.change(composer, { target: { value: "second" } });
-    fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
-
-    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
-    await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(1));
-    expect(sendPrompt.mock.calls[0]?.[0]).toBe("first");
-    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
-    await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("p")?.textContent)).toEqual(["second"]));
-    expect(sendPrompt).toHaveBeenCalledTimes(1);
-
-    act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
-    await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(2));
-    expect(sendPrompt.mock.calls[1]?.[0]).toBe("second");
+    act(() => client.emit({ type: "user-message", sessionId: "session", message: { id: "u1", role: "user", text: "earlier work", timestamp: 1 } }));
+    queue.items.push({ id: "restored", text: "from before the restart", attachments: [] });
+    queue.publish({ held: true });
+    await waitFor(() => expect(screen.getByRole("listitem").textContent).toContain("Held"));
   });
 
   it("steers the head of the queue with Cmd+Enter on an empty field or its Send now button", async () => {
     const steer = vi.fn(async () => undefined);
     client.followUp = vi.fn(async () => undefined);
     client.steer = steer;
+    hostQueue(client);
     renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
@@ -386,6 +390,7 @@ describe("last-turn activity", () => {
     const sendPrompt = vi.fn(async (..._args: unknown[]) => undefined);
     client.followUp = vi.fn(async () => undefined);
     client.sendPrompt = sendPrompt;
+    hostQueue(client);
     renderApp(client);
     await screen.findByRole("heading", { name: "What do you want to build?" });
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
@@ -614,6 +619,52 @@ describe("a failed turn", () => {
 
     act(() => client.emit({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "session", shell } } }));
     await waitFor(() => expect(document.querySelector(".turn-error-line")).toBeNull());
+  });
+});
+
+describe("a thread a provider limit stopped", () => {
+  it("says when the limit resets and continues on request", async () => {
+    const resetsAt = Date.now() + 90 * 60_000;
+    const resumeLimited = vi.fn(async () => undefined);
+    const client = createFakeHostClient({
+      platform: "darwin",
+      resumeLimited,
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: {
+          projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
+          sessions: [{ id: "session", path: "/session.jsonl", title: "Thread", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 2, limit: { message: "You have hit your usage limit.", resetsAt } }],
+        },
+        detail: {
+          sessionId: "session",
+          messages: [{ id: "u1", role: "user" as const, text: "Keep going.", timestamp: 1 }],
+          isStreaming: false,
+          activeTools: [],
+        },
+        catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub({
+        listEditors: async () => [],
+        getChanges: async () => ({ files: [], added: 0, removed: 0 }),
+        getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
+        getFileTree: async () => [],
+      }),
+    });
+    setHostClient(client);
+    renderApp(client);
+
+    const notice = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(".transcript .limit-notice");
+      expect(found?.textContent).toContain("Usage limit reached");
+      return found!;
+    });
+    expect(notice.textContent).toContain("in 1 h 30 min");
+    expect(document.querySelector(".turn-error-line")).toBeNull();
+    fireEvent.click(within(notice).getByRole("button", { name: "Resume at reset" }));
+    await waitFor(() => expect(resumeLimited).toHaveBeenCalledWith("session", "reset"));
+    fireEvent.click(within(notice).getByRole("button", { name: "Resume now" }));
+    await waitFor(() => expect(resumeLimited).toHaveBeenCalledWith("session", "now"));
   });
 });
 

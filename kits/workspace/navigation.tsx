@@ -375,6 +375,15 @@ function ProjectScope({ actions }: SidebarContributionProps) {
   );
 }
 
+/** The rail's tooltip for a thread a provider limit stopped. */
+export function limitHint(limit: UiSession["limit"], now = Date.now()): string {
+  if (!limit) return "A provider limit stopped this thread.";
+  const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (limit.resumeAt !== undefined) return `A usage limit stopped this thread; it continues by itself at ${time(limit.resumeAt)}.`;
+  if (limit.resetsAt !== undefined && limit.resetsAt > now) return `A usage limit stopped this thread; it resets at ${time(limit.resetsAt)}.`;
+  return "A usage limit stopped this thread. Open it to continue.";
+}
+
 function sessionAge(timestamp: number): string {
   const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
   if (minutes < 1) return "now";
@@ -631,6 +640,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     // Run state follows the thread, not the tab you happen to be reading.
     if (activityState.runningThreadIds.includes(sessionId)) {
       return { activity: "working", label: "Working" };
+    }
+    // A provider limit stopped the thread; it continues now, at the reset, or with the next message.
+    if (activityState.limitedThreadIds.includes(sessionId)) {
+      return { activity: "limited", label: "Limited", hint: limitHint(threadStore.getThread(sessionId)?.limit) };
     }
     // The last turn failed or its message was refused; the next run clears it.
     if (activityState.failedThreadIds.includes(sessionId)) {

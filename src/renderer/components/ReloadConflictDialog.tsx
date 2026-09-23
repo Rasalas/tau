@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { CircleStop, Clock3, RefreshCw } from "lucide-react";
+import "./reload-conflict.css";
 
 export function ReloadConflictDialog({
   runningThreads,

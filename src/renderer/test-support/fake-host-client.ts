@@ -40,6 +40,10 @@ function defaults(): HostClient {
     steer: async () => undefined,
     followUp: async () => undefined,
     abort: async () => undefined,
+    queueMessage: async () => ({ id: "queued-1" }),
+    takeQueued: async () => [],
+    moveQueued: async () => undefined,
+    resumeLimited: async () => undefined,
     runShellAction: async () => ({ output: "", cancelled: false, truncated: false }),
 
     loadTranscript: async (sessionId) => ({ sessionId, messages: [], hasMore: false }),

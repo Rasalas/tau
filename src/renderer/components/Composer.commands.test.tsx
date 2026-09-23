@@ -5,12 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { Composer, type ComposerControlHandle } from "./Composer";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
-import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
+import type { UiQueuedMessage } from "../../shared/contracts";
 import { ExtensionRegistry } from "../extension-system";
 import { WorkbenchShellContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
 
-const queued = (id: string, text: string): QueuedFollowUp => ({ id, text, attachments: [] });
+const queued = (id: string, text: string): UiQueuedMessage => ({ id, text, attachments: 0 });
 
 const composerCommands = [
   { name: "skill:tdd", description: "Build features test-first", source: "skill" as const, skillCommand: "/skill:tdd" },
@@ -38,7 +38,7 @@ function renderComposer(
   onSubmit = vi.fn(async () => ({ accepted: true as const })),
   streaming = false,
   snapshotOverride: HostSnapshot = snapshot,
-  queueHandlers: { queue?: QueuedFollowUp[]; onSteerQueued?: (id: string) => void; onCancelQueued?: (id: string) => void } = {},
+  queueHandlers: { queue?: UiQueuedMessage[]; onSteerQueued?: (id: string) => void; onCancelQueued?: (id: string) => void } = {},
   handlers: { onRunShellAction?: (command: string) => Promise<unknown>; onOpenPromptEditor?: () => void; onNotify?: (msg: string) => void } = {},
   controlRef?: React.RefObject<ComposerControlHandle | null>,
 ) {

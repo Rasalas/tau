@@ -1,14 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
+import type { UiQueuedMessage } from "../../shared/contracts";
 import { QueuedMessages } from "./QueuedMessages";
 
 afterEach(cleanup);
 
-const queued = (id: string, text: string, files = 0): QueuedFollowUp => ({
-  id, text, attachments: Array.from({ length: files }, (_, index) => ({ kind: "image" as const, name: `${index}.png`, mimeType: "image/png", data: "", size: 0 })),
-});
+const queued = (id: string, text: string, files = 0): UiQueuedMessage => ({ id, text, attachments: files });
 
 describe("QueuedMessages", () => {
   it("draws nothing without a queue", () => {
@@ -37,5 +35,10 @@ describe("QueuedMessages", () => {
     fireEvent.dragOver(rows[0]!, { dataTransfer: { dropEffect: "" } });
     fireEvent.drop(rows[0]!, { dataTransfer: {} });
     expect(onReorder).toHaveBeenLastCalledWith("second", 0);
+  });
+
+  it("says when a restored or stopped queue waits for the user", () => {
+    render(<QueuedMessages queue={[queued("first", "after the restart")]} streaming={false} held onSteer={vi.fn()} onReturn={vi.fn()} onReorder={vi.fn()} />);
+    expect(screen.getByRole("listitem").textContent).toContain("Held");
   });
 });

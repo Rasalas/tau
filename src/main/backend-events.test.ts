@@ -140,6 +140,11 @@ describe("handleBackendRuntimeEvent", () => {
     handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
     handleBackendRuntimeEvent({ type: "turn-settled", status: "error" }, thread, services);
     expect(services.turnSettled).toHaveBeenLastCalledWith("thread-1", "The turn failed.");
+
+    // A limit the runtime names travels with the failure; the host marks the thread limited.
+    handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
+    handleBackendRuntimeEvent({ type: "turn-settled", status: "error", error: "out of credits", limit: { resetsAt: 5 } }, thread, services);
+    expect(services.turnSettled).toHaveBeenLastCalledWith("thread-1", "out of credits", { resetsAt: 5 });
   });
 
   it("forwards notices, queue state, and keeps the snapshot detail off a thread that streams again", async () => {

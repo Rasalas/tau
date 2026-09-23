@@ -12,6 +12,7 @@ import type {
   UiImagePreview,
   UiSharedFile,
   UiPromptAttachment,
+  UiQueuedPrompt,
   UiSkillDraft,
   UiThreadTree,
   UiToolOutputPreview,
@@ -67,6 +68,13 @@ export interface HostClient {
   steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   abort(sessionId?: string): Promise<void>;
+  /** Parks a message in the thread's host-kept queue; it leaves when the thread's turn ends. */
+  queueMessage(sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft): Promise<{ id: string }>;
+  /** Takes queued messages back out, in full: one by id, or all of them. */
+  takeQueued(sessionId: string, id?: string): Promise<UiQueuedPrompt[]>;
+  moveQueued(sessionId: string, id: string, toIndex: number): Promise<void>;
+  /** Continues a thread a provider limit stopped: now, at the reset, or cancels the scheduled resume. */
+  resumeLimited(sessionId: string, when: "now" | "reset" | "cancel"): Promise<void>;
   runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
 
   // Reading transcript history and durable tool output.
@@ -193,6 +201,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     followUp: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
       call<void>("follow-up", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     abort: (sessionId) => call<void>("abort", [sessionId]),
+    queueMessage: (sessionId, text, attachments, skillDraft) => call<{ id: string }>("queue-message", [sessionId, text, attachments, skillDraft]),
+    takeQueued: (sessionId, id) => call<UiQueuedPrompt[]>("take-queued", [sessionId, id]),
+    moveQueued: (sessionId, id, toIndex) => call<void>("move-queued", [sessionId, id, toIndex]),
+    resumeLimited: (sessionId, when) => call<void>("resume-limited", [sessionId, when]),
     runShellAction: (command, includeInContext, expectedCwd) =>
       call<ShellActionResult>("run-shell-action", [command, includeInContext, expectedCwd]),
 

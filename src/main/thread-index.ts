@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import type { HostEvent, ThreadIndexSnapshot, UiSession, UiThreadUsage } from "../shared/contracts.js";
+import type { HostEvent, ThreadIndexSnapshot, UiQueuedMessage, UiSession, UiThreadLimit, UiThreadUsage } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, type HostUpdate } from "../shared/host-protocol.js";
 import type { HostLogger } from "./host-log.js";
 import {
@@ -79,6 +79,10 @@ export class ThreadIndex {
   private readonly turnErrors = new Map<string, string>();
   /** Why a thread's runtime could not start, until it does. */
   private readonly runtimeErrors = new Map<string, string>();
+  /** Threads a provider limit stopped, until they run again. */
+  private readonly limits = new Map<string, UiThreadLimit>();
+  /** The host's queue of each thread that has one. */
+  private readonly queues = new Map<string, { messages: UiQueuedMessage[]; held: boolean }>();
   private scan?: Promise<{ previous: readonly UiSession[]; next: UiSession[] }>;
   private scannedOnce = false;
   private recoveryTimer?: ReturnType<typeof setInterval>;
@@ -382,7 +386,17 @@ export class ThreadIndex {
     this.setMark(this.runtimeErrors, sessionId, reason);
   }
 
-  private setMark(marks: Map<string, string>, sessionId: string, value: string | undefined): void {
+  /** A provider limit stopped the thread, or it runs again (undefined). */
+  setLimit(sessionId: string, limit: UiThreadLimit | undefined): void {
+    this.setMark(this.limits, sessionId, limit);
+  }
+
+  /** What waits in the thread's queue, or nothing (undefined). */
+  setQueue(sessionId: string, queue: { messages: UiQueuedMessage[]; held: boolean } | undefined): void {
+    this.setMark(this.queues, sessionId, queue);
+  }
+
+  private setMark<T>(marks: Map<string, T>, sessionId: string, value: T | undefined): void {
     if (value === marks.get(sessionId)) return;
     if (value === undefined) marks.delete(sessionId); else marks.set(sessionId, value);
     const shell = this.byId(sessionId);
@@ -399,6 +413,8 @@ export class ThreadIndex {
       ...(this.interrupted.has(session.id) ? { interrupted: true } : {}),
       ...(this.turnErrors.has(session.id) ? { turnError: this.turnErrors.get(session.id) } : {}),
       ...(this.runtimeErrors.has(session.id) ? { runtimeError: this.runtimeErrors.get(session.id) } : {}),
+      ...(this.limits.has(session.id) ? { limit: this.limits.get(session.id) } : {}),
+      ...(this.queues.has(session.id) ? { queued: this.queues.get(session.id)!.messages, ...(this.queues.get(session.id)!.held ? { queueHeld: true } : {}) } : {}),
     };
   }
 

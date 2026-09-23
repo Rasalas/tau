@@ -1,16 +1,19 @@
 import { useRef, useState } from "react";
 import { ArrowUp, Clock, GripVertical, X } from "lucide-react";
-import type { QueuedFollowUp } from "../../workbench/follow-up-queue";
+import type { UiQueuedMessage } from "../../shared/contracts";
 import { tooltipProps } from "./ui/Tooltip";
 
 /**
  * Messages sent during a run wait at the end of the conversation as dashed
  * bubbles, as in T3 Code: the arrow sends one now, the X puts it back into
- * the composer. The grip (or ⌥↑/⌥↓ on it) reorders them.
+ * the composer. The grip (or ⌥↑/⌥↓ on it) reorders them. The host keeps
+ * the queue, so it survives a restart; a restored one is held for the user.
  */
-export function QueuedMessages({ queue, streaming, steerShortcut, onSteer, onReturn, onReorder }: {
-  queue: readonly QueuedFollowUp[];
+export function QueuedMessages({ queue, streaming, held = false, steerShortcut, onSteer, onReturn, onReorder }: {
+  queue: readonly UiQueuedMessage[];
   streaming: boolean;
+  /** A restart, a stop or a limit held the queue: nothing leaves until the user sends. */
+  held?: boolean;
   /** The label of `thread.steerQueuedMessage`, for the oldest one. */
   steerShortcut?: string;
   onSteer(id: string): void;
@@ -24,10 +27,12 @@ export function QueuedMessages({ queue, streaming, steerShortcut, onSteer, onRet
   return (
     <ol className="queued-messages" aria-label="Queued messages">
       {queue.map((entry, index) => {
-        const files = entry.attachments.length;
-        const status = index === 0
-          ? streaming ? "Sends when the turn ends" : "Sends next"
-          : "Sends after the messages above it";
+        const files = entry.attachments;
+        const status = held
+          ? "Held: sends after your next message, or send it now"
+          : index === 0
+            ? streaming ? "Sends when the turn ends" : "Sends next"
+            : "Sends after the messages above it";
         const send = streaming ? "Send now, into the running turn" : "Send now";
         return (
           <li
@@ -66,7 +71,7 @@ export function QueuedMessages({ queue, streaming, steerShortcut, onSteer, onRet
                   onReorder(entry.id, event.key === "ArrowUp" ? index - 1 : index + 1);
                 }}
               ><GripVertical size={13} /></button>
-              <span className="queued-message-status" {...tooltipProps(status)}><Clock size={12} />Queued</span>
+              <span className="queued-message-status" {...tooltipProps(status)}><Clock size={12} />{held ? "Held" : "Queued"}{entry.fromThreadId ? " · from another thread" : ""}</span>
               <span className="spacer" />
               <button type="button" aria-label="Send now" {...tooltipProps(send, index === 0 && steerShortcut ? { shortcut: steerShortcut } : undefined)} onClick={() => onSteer(entry.id)}>
                 <ArrowUp size={14} />

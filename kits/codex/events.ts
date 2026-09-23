@@ -16,6 +16,25 @@ export interface CodexTurnOutcome {
   status: "completed" | "interrupted" | "failed";
   error?: string;
   texts: string[];
+  /** Codex said a usage limit stopped the turn (`codexErrorInfo: "usageLimitExceeded"`). */
+  usageLimit?: boolean;
+}
+
+/**
+ * When the limit that stopped a turn resets, from the last
+ * `account/rateLimits/updated`: the latest exhausted window still ahead, or
+ * the soonest reset ahead when none reads exhausted. Epoch ms.
+ */
+export function codexLimitReset(rateLimits: unknown, now: number): number | undefined {
+  const snapshot = (rateLimits ?? {}) as Record<string, unknown>;
+  const windows = [snapshot.primary, snapshot.secondary]
+    .map((window) => (window ?? {}) as { usedPercent?: unknown; resetsAt?: unknown })
+    .flatMap((window) => typeof window.resetsAt === "number" && window.resetsAt * 1000 > now
+      ? [{ at: window.resetsAt * 1000, exhausted: typeof window.usedPercent === "number" && window.usedPercent >= 100 }]
+      : []);
+  const exhausted = windows.filter((window) => window.exhausted).map((window) => window.at);
+  if (exhausted.length > 0) return Math.max(...exhausted);
+  return windows.length > 0 ? Math.min(...windows.map((window) => window.at)) : undefined;
 }
 
 const MAX_TOOL_OUTPUT_BYTES = 128 * 1024;
@@ -168,7 +187,7 @@ export class CodexTurnTranslator {
       case "item/reasoning/summaryPartAdded": return this.segment?.thinking ? this.text(undefined, "\n\n", "thinking") : [];
       case "item/commandExecution/outputDelta":
       case "item/fileChange/outputDelta": return this.toolOutput(String(params.itemId ?? ""), String(params.delta ?? ""));
-      case "turn/completed": return this.finish(params.turn as { status?: string; error?: { message?: string } | null });
+      case "turn/completed": return this.finish(params.turn as { status?: string; error?: { message?: string; codexErrorInfo?: unknown } | null });
       default: return [];
     }
   }
@@ -274,7 +293,7 @@ export class CodexTurnTranslator {
     return [...start, { type: "assistant-end", message }];
   }
 
-  private finish(turn: { status?: string; error?: { message?: string } | null } | undefined): ThreadRuntimeEvent[] {
+  private finish(turn: { status?: string; error?: { message?: string; codexErrorInfo?: unknown } | null } | undefined): ThreadRuntimeEvent[] {
     if (this.outcome) return [];
     const events = this.closeSegment();
     const status = turn?.status === "interrupted" ? "interrupted" : turn?.status === "failed" ? "failed" : "completed";
@@ -284,7 +303,8 @@ export class CodexTurnTranslator {
       events.push({ type: "tool-end", tool: { ...tool, status: "error", output, endedAt: this.now() } });
     }
     const error = turn?.error?.message?.trim();
-    this.outcome = { status, texts: [...this.texts], ...(error ? { error } : {}) };
+    const usageLimit = status === "failed" && turn?.error?.codexErrorInfo === "usageLimitExceeded";
+    this.outcome = { status, texts: [...this.texts], ...(error ? { error } : {}), ...(usageLimit ? { usageLimit } : {}) };
     return events;
   }
 }

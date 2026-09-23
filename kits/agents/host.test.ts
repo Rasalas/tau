@@ -57,6 +57,10 @@ function harness() {
   const lifecycles: HostThreadLifecycle[] = [];
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
   const mcpProviders: HostMcpToolProvider[] = [];
+  /** What `sessions.send` and `sessions.abort` were asked to do, in order. */
+  const sent: Array<{ sessionId: string; text: string; delivery: string; from?: string }> = [];
+  const aborted: string[] = [];
+  let steerRefused = false;
   /** Threads of a runtime without a journal, as a Codex parent is. */
   const noJournal = new Set<string>();
   let nextThread = 0;
@@ -77,7 +81,8 @@ function harness() {
       backendKind: "pi",
       sessionFile: `/sessions/${threadId}.jsonl`,
       isStreaming: () => found.streaming,
-      isIdle: () => found.idle,
+      isIdle: () => found.idle && !found.streaming,
+      waitForIdle: async () => undefined,
       transcript: async () => found.messages,
       entries: () => found.entries,
       appendEntry: (customType: string, data: unknown) => {
@@ -142,6 +147,18 @@ function harness() {
           });
         }
         return { sessionId, cwd: startOptions.cwd, ...(startOptions.title ? { title: startOptions.title } : {}) };
+      },
+      send: async (sessionId, text, sendOptions) => {
+        const delivery = sendOptions?.delivery ?? "prompt";
+        if (steerRefused && delivery === "steer") throw new Error("This runtime cannot steer.");
+        sent.push({ sessionId, text, delivery, ...(sendOptions?.from ? { from: sendOptions.from } : {}) });
+        const thread = threads.get(sessionId);
+        if (thread && delivery === "prompt") thread.streaming = true;
+      },
+      abort: async (sessionId) => {
+        aborted.push(sessionId);
+        const thread = threads.get(sessionId);
+        if (thread) thread.streaming = false;
       },
       exclusive: (work) => work(),
       remove: async () => undefined, restore: async () => undefined, trash: async () => [], purge: async () => undefined,
@@ -225,7 +242,7 @@ function harness() {
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { activate, services, threads, started, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  return { activate, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -328,6 +345,8 @@ describe("Agents Kit", () => {
       "tau_spawn_thread",
       "tau_get_thread_status",
       "tau_wait_for_thread",
+      "tau_send_to_thread",
+      "tau_cancel_thread",
       "tau_apply_thread_changes",
       "tau_list_threads",
     ]);
@@ -1058,5 +1077,188 @@ describe("Agents Kit definitions", () => {
     } finally {
       await cleanup();
     }
+  });
+});
+
+/** A settings file that lets a thread run `count` children at a time. */
+async function settingsWith(count: number): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "tau-agents-settings-"));
+  const path = join(dir, "agents.json");
+  await writeFile(path, JSON.stringify({ maxRunningAgents: count }), "utf8");
+  return path;
+}
+
+describe("Agents Kit orchestration", () => {
+  /** A child that answered and whose turn the host reported over. */
+  const finish = async (bench: Awaited<ReturnType<typeof activated>>, threadId: string, answer: string) => {
+    const child = bench.threads.get(threadId)!;
+    child.streaming = false;
+    child.messages.push({ id: `${threadId}-answer`, role: "assistant", text: answer, timestamp: 2 });
+    await bench.notify("ended", threadId, "completed");
+  };
+
+  it("sends a child more work in each mode", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "Start" }));
+    await bench.notify("accepted", child);
+
+    // Running: auto steers, queue waits for the turn, steer joins it.
+    expect(await parent.call("tau_send_to_thread", { threadId: child, message: "also this" })).toMatchObject({ delivered: "steered" });
+    expect(await parent.call("tau_send_to_thread", { threadId: child, message: "after that", mode: "queue" })).toMatchObject({ delivered: "queued" });
+    expect(await parent.call("tau_send_to_thread", { threadId: child, message: "now", mode: "steer" })).toMatchObject({ delivered: "steered" });
+    // Restart stops the running turn first.
+    expect(await parent.call("tau_send_to_thread", { threadId: child, message: "start over", mode: "restart" })).toMatchObject({ delivered: "restarted", status: "running" });
+    expect(bench.aborted).toEqual([child]);
+
+    // Idle: auto starts a turn, and steering has nothing to join.
+    await finish(bench, child, "done");
+    expect(await parent.call("tau_send_to_thread", { threadId: child, message: "next task" })).toMatchObject({ delivered: "started", status: "running" });
+    bench.threads.get(child)!.streaming = false;
+    await expect(parent.call("tau_send_to_thread", { threadId: child, message: "x", mode: "steer" })).rejects.toThrow("is not running");
+    await expect(parent.call("tau_send_to_thread", { threadId: child, message: "x", mode: "later" })).rejects.toThrow("mode must be one of");
+
+    const toChild = bench.sent.filter((entry) => entry.sessionId === child);
+    expect(toChild.map((entry) => [entry.delivery, entry.text])).toEqual([
+      ["steer", "also this"], ["queue", "after that"], ["steer", "now"], ["prompt", "start over"], ["prompt", "next task"],
+    ]);
+    expect(toChild.every((entry) => entry.from === "parent")).toBe(true);
+    // The queued turn is still to come, so the parent has not been woken yet.
+    expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toEqual([]);
+  });
+
+  it("queues when a running child's runtime cannot steer", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "Start" }));
+    bench.refuseSteer();
+    expect(await parent.call("tau_send_to_thread", { threadId: child, message: "more" })).toMatchObject({ delivered: "queued" });
+    await expect(parent.call("tau_send_to_thread", { threadId: child, message: "more", mode: "steer" })).rejects.toThrow("cannot steer");
+  });
+
+  it("adds a message for a queued child to its first prompt", async () => {
+    const bench = await activated({ settingsPath: await settingsWith(1) });
+    const parent = bench.runtime("parent");
+    await parent.call("tau_spawn_thread", { prompt: "First" });
+    const queued = handleOf(await parent.call("tau_spawn_thread", { prompt: "Second" }));
+    expect(await parent.call("tau_send_to_thread", { threadId: queued, message: "and mind the tests" })).toMatchObject({ delivered: "with its first prompt", status: "pending" });
+    await expect(parent.call("tau_send_to_thread", { threadId: queued, message: "x", mode: "steer" })).rejects.toThrow("has not started yet");
+    await finish(bench, "child-1", "one");
+    await vi.waitFor(() => expect(bench.started[1]?.prompt).toBe("Second\n\nand mind the tests"));
+  });
+
+  it("does the work of a retried call once", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const first = await parent.call("tau_spawn_thread", { prompt: "Once", clientRequestId: "req-1" });
+    const again = await parent.call("tau_spawn_thread", { prompt: "Once", clientRequestId: "req-1" });
+    expect(again).toEqual(first);
+    expect(bench.started).toHaveLength(1);
+    // Another thread's key is its own.
+    bench.open("other-parent");
+    await bench.runtime("other-parent").call("tau_spawn_thread", { prompt: "Once", clientRequestId: "req-1" });
+    expect(bench.started).toHaveLength(2);
+
+    const child = handleOf(first);
+    await parent.call("tau_send_to_thread", { threadId: child, message: "more", mode: "queue", clientRequestId: "send-1" });
+    await parent.call("tau_send_to_thread", { threadId: child, message: "more", mode: "queue", clientRequestId: "send-1" });
+    expect(bench.sent).toHaveLength(1);
+    // A call that failed did nothing, so its key may be tried again.
+    await expect(parent.call("tau_send_to_thread", { threadId: child, message: "x", mode: "nope", clientRequestId: "send-2" })).rejects.toThrow();
+    await parent.call("tau_send_to_thread", { threadId: child, message: "x", mode: "queue", clientRequestId: "send-2" });
+    expect(bench.sent).toHaveLength(2);
+  });
+
+  it("cancels a queued child before it starts and stops a running one", async () => {
+    const bench = await activated({ settingsPath: await settingsWith(1) });
+    const parent = bench.runtime("parent");
+    const running = handleOf(await parent.call("tau_spawn_thread", { prompt: "First" }));
+    const queued = handleOf(await parent.call("tau_spawn_thread", { prompt: "Second" }));
+
+    expect(await parent.call("tau_cancel_thread", { threadId: queued })).toEqual({ threadId: queued, status: "cancelled", cancelled: true });
+    expect(await parent.call("tau_cancel_thread", { threadId: running })).toMatchObject({ threadId: running, status: "cancelled", cancelled: true });
+    expect(bench.aborted).toEqual([running]);
+    await bench.notify("ended", running, "completed");
+    await settle();
+    // The freed slot does not start the cancelled one, and nothing wakes the parent.
+    expect(bench.started).toHaveLength(1);
+    expect(bench.sent).toEqual([]);
+    expect((await bench.state()).links.map((link) => link.status)).toEqual(["cancelled", "cancelled"]);
+    // A finished or cancelled thread stays as it is.
+    expect(await parent.call("tau_cancel_thread", { threadId: running })).toMatchObject({ cancelled: false, status: "cancelled" });
+    // New work starts it again.
+    expect(await parent.call("tau_send_to_thread", { threadId: running, message: "go on" })).toMatchObject({ delivered: "started", status: "running" });
+  });
+
+  it("wakes an idle parent with the answer of a child it was not waiting for", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "Find the bug", title: "Bug hunt" }));
+    await finish(bench, child, "It is in parse.ts line 12.");
+    await vi.waitFor(() => expect(bench.sent).toHaveLength(1));
+    expect(bench.sent[0]).toMatchObject({ sessionId: "parent", delivery: "prompt" });
+    expect(bench.sent[0]!.text).toContain(`"Bug hunt" (threadId ${child}): completed`);
+    expect(bench.sent[0]!.text).toContain("It is in parse.ts line 12.");
+
+    // A turn the user started in the child is not the parent's business.
+    bench.threads.get(child)!.streaming = true;
+    await finish(bench, child, "chatting with the user");
+    await settle();
+    expect(bench.sent).toHaveLength(1);
+  });
+
+  it("wakes the parent after the last turn it gave the child, or at once when one fails", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "One" }));
+    await parent.call("tau_send_to_thread", { threadId: child, message: "Then two", mode: "queue" });
+    await finish(bench, child, "one");
+    await settle();
+    expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toEqual([]);
+    await finish(bench, child, "two");
+    await vi.waitFor(() => expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(1));
+    expect(bench.sent.at(-1)!.text).toContain("two");
+    // The wake started a turn of the parent; it is over by the time the next child fails.
+    bench.threads.get("parent")!.streaming = false;
+
+    await parent.call("tau_send_to_thread", { threadId: child, message: "Three" });
+    await parent.call("tau_send_to_thread", { threadId: child, message: "Four", mode: "queue" });
+    bench.threads.get(child)!.streaming = false;
+    await bench.notify("ended", child, "failed");
+    await vi.waitFor(() => expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(2));
+  });
+
+  it("wakes nobody when the parent waited for the child, and waits for a busy parent's turn to end", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const waited = handleOf(await parent.call("tau_spawn_thread", { prompt: "One" }));
+    const waiting = parent.call("tau_wait_for_thread", { threadId: waited });
+    await finish(bench, waited, "one");
+    expect(await waiting).toMatchObject({ status: "completed", lastAssistantMessage: "one" });
+    await settle();
+    expect(bench.sent).toEqual([]);
+
+    const later = handleOf(await parent.call("tau_spawn_thread", { prompt: "Two" }));
+    bench.threads.get("parent")!.streaming = true;
+    await finish(bench, later, "two");
+    await settle();
+    expect(bench.sent).toEqual([]);
+    bench.threads.get("parent")!.streaming = false;
+    await bench.notify("ended", "parent", "completed");
+    await vi.waitFor(() => expect(bench.sent.map((entry) => entry.sessionId)).toEqual(["parent"]));
+    expect(bench.sent[0]!.text).toContain("two");
+  });
+
+  it("does not wake a parent that already read the answer", async () => {
+    const bench = await activated();
+    const parent = bench.runtime("parent");
+    const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "One" }));
+    bench.threads.get("parent")!.streaming = true;
+    await finish(bench, child, "one");
+    expect(await parent.call("tau_get_thread_status", { threadId: child })).toMatchObject({ status: "completed" });
+    bench.threads.get("parent")!.streaming = false;
+    await bench.notify("ended", "parent", "completed");
+    await settle();
+    expect(bench.sent).toEqual([]);
   });
 });

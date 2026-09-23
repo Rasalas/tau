@@ -107,7 +107,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(screen.getByRole("button", { name: "+ show 21 more" })).toBeTruthy();
   });
 
-  it("marks a thread whose last turn failed as Failed, with the reason on the badge", async () => {
+  it("marks a failed thread Failed and a limited one Limited, with the reason on the badge", async () => {
     const shell = (id: string) => ({ id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 2 });
     // A labelled section is drawn without the virtual list, which jsdom cannot measure.
     const organizing: DesktopExtension = {
@@ -129,7 +129,11 @@ describe("Workspace Kit in the workbench", () => {
         version: 1,
         threadIndex: {
           projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }],
-          sessions: [{ ...shell("broken"), turnError: "stream disconnected" }, shell("fine")],
+          sessions: [
+            { ...shell("broken"), turnError: "stream disconnected" },
+            shell("fine"),
+            { ...shell("limited"), limit: { message: "usage limit", resetsAt: Date.now() + 60 * 60_000, resumeAt: Date.now() + 61 * 60_000 } },
+          ],
         },
         detail: { sessionId: "fine", messages: [], isStreaming: false, activeTools: [] },
         catalog: { sessionId: "fine", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
@@ -144,6 +148,10 @@ describe("Workspace Kit in the workbench", () => {
     expect(badge?.textContent).toBe("Failed");
     expect(badge?.getAttribute("data-tooltip")).toBe("stream disconnected");
     expect(screen.getByText("Thread fine").closest(".thread-row")?.querySelector(".status-failed")).toBeNull();
+    // A provider limit is its own state, and the badge says when the thread goes on.
+    const limited = screen.getByText("Thread limited").closest(".thread-row")?.querySelector(".thread-status-age.status-limited");
+    expect(limited?.textContent).toBe("Limited");
+    expect(limited?.getAttribute("data-tooltip")).toContain("continues by itself at");
   });
 
   it("opens settled history by default and reveals it in batches of twenty-five", async () => {

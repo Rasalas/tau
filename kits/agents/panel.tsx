@@ -99,6 +99,7 @@ function PanelHeader({ model, extensionName }: { model: AgentsPanelModel; extens
     ["pending", model.pending],
     ["completed", model.completed],
     ["failed", model.failed],
+    ["cancelled", model.cancelled],
   ];
   return (
     <header className="panel-header">

@@ -251,3 +251,30 @@ An extension's `pinTranscriptEntries` provider is therefore also called with a
 thread the host has only a file for: it answers `sessionId`, `cwd`,
 `sessionFile`, `parentThreadId`, `sessionName()`, `entries()` and `transcript()`,
 and throws from the members that need a runtime.
+
+## Amendment, 2026-09-23: the parent steers its children and hears back
+
+T3 Code's orchestrator lets a parent send a delegated thread more work, stop it,
+retry a call safely and get the result without polling. Agents Kit does the same
+on two host seams (`services.sessions.send` and `services.sessions.abort`, API
+1.11.0):
+
+- `tau_send_to_thread` sends a child a message in one of four modes. `auto`
+  starts an idle child, steers a running one and queues where its runtime
+  cannot steer; `queue` puts the message into the child's visible queue, which
+  the host keeps; `steer` joins the running turn; `restart` stops it and starts
+  over. A child still waiting for a slot takes the message with its first prompt.
+- `tau_cancel_thread` stops a child: a queued one never starts, a running one
+  ends its turn and reads `cancelled` until it is sent work again. A finished
+  one is left as it is.
+- `clientRequestId` on spawn, send and cancel is a retry key per calling thread
+  and tool: the same key returns the first call's result instead of doing the
+  work twice, and a call that failed may be tried again. The keys live as long
+  as the host process.
+- A child that finishes a turn a tool gave it (spawn or send), while no
+  `tau_wait_for_thread` waits for it, wakes its parent: once the parent is idle
+  it gets one message naming every child that finished meanwhile, with the
+  start of each answer. A parent that already read the answer with
+  `tau_get_thread_status` is not woken for it, and a turn the user started in a
+  child is not reported. This is T3's completion follow-up, automatic rather
+  than a notice the user confirms; a child started from the panel wakes nobody.

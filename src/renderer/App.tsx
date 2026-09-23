@@ -16,7 +16,6 @@ import { draftKey, writeNewThreadDraft } from "../workbench/draft-store";
 import { errorMessage } from "../workbench/error-message";
 import { ExtensionRegistry, hostExtensionBridge, type WorkbenchActions } from "./extension-system";
 import { runtimeControls } from "./settings/runtime-controls";
-import { FollowUpQueueStore } from "../workbench/follow-up-queue";
 import { useHostClient } from "./host-client-context";
 import { useClientStorage } from "./client-storage-context";
 import { applyHostEvent, type HostEventTargets } from "../workbench/host-events";
@@ -223,7 +222,6 @@ export default function App() {
   const visibleTranscriptTurnStart = transcriptTurnStart?.scopeKey === transcriptScopeKey
     ? transcriptTurnStart
     : undefined;
-  const [followUpQueue] = useState(() => new FollowUpQueueStore());
   // Renderer prompt contributions adapt to the already-constructed session.
   // Host updates and delivery no longer call back through this controller.
   const [submission] = useState<SubmissionController>(() => {
@@ -250,7 +248,10 @@ export default function App() {
       },
       turn: turnScope,
       host: workbenchSession,
-      enqueueFollowUp: (threadId, item) => followUpQueue.enqueue(threadId, item),
+      enqueueFollowUp: async (threadId, item) => {
+        if (!clientRef.current) throw new Error("Queued messages require the host.");
+        await clientRef.current.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
+      },
     };
     return new SubmissionController(ports);
   });
@@ -259,17 +260,18 @@ export default function App() {
     [submission],
   );
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
-  // Follow-ups typed during a run wait in the workbench, not in the runtime.
+  // Follow-ups typed during a run wait in the host's queue, not in the runtime.
+  const currentActions = useCallback(() => actionsRef.current, []);
   const { queue, cancelQueued, steerQueued, reorderQueue, takeQueued } = useFollowUpQueue({
     client,
-    store: followUpQueue,
+    threads: threadStore,
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
     isRunning: isVisibleThreadRunning,
-    runningThreadIds: threadActivity.runningThreadIds,
     submit: submitPrompt,
     setNotice,
+    actions: currentActions,
   });
-  const returnQueued = useCallback((id?: string) => returnToComposer(actionsRef.current, takeQueued(id)), [takeQueued]);
+  const returnQueued = useCallback((id?: string) => { void takeQueued(id).then((items) => returnToComposer(actionsRef.current, items)); }, [takeQueued]);
   const queueRef = useRef(queue);
   queueRef.current = queue;
   const steerQueuedMessage = useCallback(() => {

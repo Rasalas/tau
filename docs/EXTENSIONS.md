@@ -1103,7 +1103,10 @@ level (`permissionLevel()`), and three routes back into the workbench.
 only when it is over uses this). `onEvent(event)` is for a runtime that
 streams: it reports `ThreadRuntimeEvent`s in Tau's vocabulary — turn started
 and settled (a turn settled as `error` may say why in `error`, since API
-1.11.0; without it core takes the turn's first error notice), assistant start,
+1.11.0; without it core takes the turn's first error notice; `limit: {
+resetsAt? }`, also new in API 1.11.0, marks that failure as a provider's usage
+or rate limit, and core then shows the thread as Limited rather than Failed —
+without it core recognises the common limit messages itself), assistant start,
 delta, thinking and end, tool start, update and end, the queue, notices, and
 `usage` when its `catalogView().usage` changed —
 and core turns them into the same workbench events a Pi thread produces, keeps
@@ -1266,6 +1269,20 @@ written into a Pi thread's session file; a thread of another backend has no
 such file, so the host keeps its link in the index for as long as it runs and
 the extension that asked for it is the durable record. Agents Kit starts a
 thread whose agent definition names a runtime this way.
+
+`services.sessions.send(sessionId, text, { delivery, from })` (new in API
+1.11.0, `sessions`, in-process only; absent on an older host) sends a message
+to any thread the way a composer does. `delivery: "prompt"` (the default)
+starts a turn, or joins a running one as a follow-up; `"steer"` joins the
+running turn now and rejects where the runtime cannot steer; `"queue"` puts it
+into the thread's visible queue, which the host keeps and sends when the
+thread's turn ends. `from` names the thread that sent it, so the queue can say
+where a message came from. A thread whose runtime the host released is
+reopened off screen first. `services.sessions.abort(sessionId)` stops a
+thread's running turn, as the stop button does; what the thread had queued
+then waits for the user. Agents Kit's `tau_send_to_thread` and
+`tau_cancel_thread` are built on these two, and so is the message that wakes a
+parent when a child it was not waiting for finished.
 
 ### Tau's tools for every runtime: `services.mcp`
 
