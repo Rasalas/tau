@@ -56,13 +56,16 @@ describe("composer chip tokens", () => {
     const previous = `fix ${A} now`;
     const end = 4 + A.length;
     // Backspace right after the token removes its closing mark.
-    expect(repairChipTokens(previous, previous.slice(0, end - 1) + previous.slice(end))).toEqual({ text: "fix  now", caret: 4 });
+    expect(repairChipTokens(previous, previous.slice(0, end - 1) + previous.slice(end))).toEqual({ text: "fix now", caret: 4 });
     // A word deletion from the middle of the label to after it.
-    expect(repairChipTokens(previous, `fix \u2063\u2007\u2007a now`)?.text).toBe("fix  now");
+    expect(repairChipTokens(previous, `fix \u2063\u2007\u2007a now`)?.text).toBe("fix now");
     // Typing next to a token, or deleting it whole, leaves it be.
     expect(repairChipTokens(previous, `fix ${A}! now`)).toBeUndefined();
     expect(repairChipTokens(previous, "fix  now")).toBeUndefined();
     expect(repairChipTokens("plain", "plan")).toBeUndefined();
+    // Two chips share their first characters; deleting the first whole is not a cut into the second.
+    const two = `${chipToken("a.ts")} ${chipToken("b.ts")} `;
+    expect(repairChipTokens(two, `${chipToken("b.ts")} `)).toBeUndefined();
   });
 
   it("splits the text into what the mirror draws", () => {

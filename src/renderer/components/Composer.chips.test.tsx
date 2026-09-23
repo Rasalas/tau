@@ -12,6 +12,7 @@ import { TestProviders } from "../test-support/test-providers";
 import { createMemoryStorage, type ClientStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { writeComposerDraft } from "../../workbench/draft-store";
+import { PreferencesStore } from "../preferences";
 import { chipToken, findChipTokens, plainChipText } from "./composer-chips";
 
 const SCOPE = "session:session";
@@ -49,12 +50,12 @@ function chipKit() {
 
 type Submit = (text?: string, attachments?: UiPromptAttachment[]) => Promise<SubmissionResult>;
 
-function renderWith(contribution: ComposerInlineContribution, storage: ClientStorage = createMemoryStorage()) {
+function renderWith(contribution: ComposerInlineContribution, storage: ClientStorage = createMemoryStorage(), preferences?: PreferencesStore) {
   const onSubmit = vi.fn<Submit>(async () => ({ accepted: true }));
   const registry = new ExtensionRegistry();
   registry.activate({ id: "test.kit", name: "Test Kit", activate(context) { context.registerComposerInline({ ...contribution, profiles: ["desktop"] }); } });
   const view = render(
-    <TestProviders>
+    <TestProviders preferences={preferences}>
       <ClientStorageProvider storage={storage}>
         <WorkbenchShellContext.Provider value={{ registry, snapshot }}>
           <Composer
@@ -168,7 +169,23 @@ describe("chips in the composer's text", () => {
     const [token] = findChipTokens(textarea.value);
     // A word deletion that stopped inside the label.
     fireEvent.change(textarea, { target: { value: textarea.value.slice(0, token!.start + 3) + textarea.value.slice(token!.end) } });
-    await waitFor(() => expect(textarea.value).toBe(" "));
+    await waitFor(() => expect(textarea.value).toBe(""));
+  });
+
+  it("takes a whole chip when a Vim edit cuts into it", async () => {
+    const kit = chipKit();
+    const preferences = new PreferencesStore();
+    preferences.setVimMode(true);
+    const { textarea } = renderWith(kit.contribution, createMemoryStorage(), preferences);
+    act(() => { kit.add("a.ts"); });
+    await waitFor(() => expect(findChipTokens(textarea.value)).toHaveLength(1));
+    fireEvent.change(textarea, { target: { value: `see ${textarea.value}end` } });
+    textarea.focus();
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    textarea.setSelectionRange(4, 4);
+    // `x` on the chip's first mark.
+    fireEvent.keyDown(textarea, { key: "x" });
+    await waitFor(() => expect(textarea.value).toBe("see end"));
   });
 
   it("drops the token of a chip its kit removed", async () => {

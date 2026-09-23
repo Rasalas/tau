@@ -87,26 +87,30 @@ export function tokenAround(tokens: readonly ChipToken[], position: number): Chi
 export function repairChipTokens(previous: string, next: string): { text: string; caret: number } | undefined {
   const tokens = findChipTokens(previous);
   if (tokens.length === 0) return undefined;
-  let prefix = 0;
   const limit = Math.min(previous.length, next.length);
-  while (prefix < limit && previous[prefix] === next[prefix]) prefix += 1;
-  let suffix = 0;
-  while (suffix < limit - prefix && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix += 1;
-  const changedEnd = previous.length - suffix;
-  let cutStart = prefix;
-  let cutEnd = changedEnd;
-  let damaged = false;
-  for (const token of tokens) {
-    // A pure insertion has `changedEnd === prefix`; it damages a token only strictly inside it.
-    if (!(token.start < changedEnd && prefix < token.end)) continue;
-    if (token.start >= prefix && token.end <= changedEnd) continue;
-    damaged = true;
-    cutStart = Math.min(cutStart, token.start);
-    cutEnd = Math.max(cutEnd, token.end);
-  }
-  if (!damaged) return undefined;
-  const inserted = next.slice(prefix, next.length - suffix).replaceAll(CHIP_MARK, "");
-  const tail = previous.slice(cutEnd);
+  let common = 0;
+  while (common < limit && previous[common] === next[common]) common += 1;
+  // Where an edit sits is ambiguous when tokens share characters (deleting the
+  // first of two chips): an alignment that leaves every token whole wins.
+  const aligned = (prefix: number) => {
+    let suffix = 0;
+    while (suffix < limit - prefix && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix += 1;
+    const changedEnd = previous.length - suffix;
+    const inserted = next.slice(prefix, next.length - suffix);
+    const cut = tokens.filter((token) => token.start < changedEnd && prefix < token.end && !(token.start >= prefix && token.end <= changedEnd));
+    const whole = cut.length === 0 && inserted.split(CHIP_MARK).length - 1 === findChipTokens(inserted).length * 2;
+    return { prefix, suffix, changedEnd, inserted, cut, whole };
+  };
+  const raw = aligned(common);
+  if (raw.cut.length === 0) return undefined;
+  const snapped = tokenAround(tokens, common)?.start;
+  if (snapped !== undefined && aligned(snapped).whole) return undefined;
+  const cutStart = Math.min(raw.prefix, ...raw.cut.map((token) => token.start));
+  const cutEnd = Math.max(raw.changedEnd, ...raw.cut.map((token) => token.end));
+  const inserted = raw.inserted.replaceAll(CHIP_MARK, "");
+  let tail = previous.slice(cutEnd);
+  // The space the chip was inserted with goes with it, as `removeChipToken` does.
+  if (!inserted && tail.startsWith(" ") && (cutStart === 0 || /\s/u.test(previous[cutStart - 1]!))) tail = tail.slice(1);
   return { text: previous.slice(0, cutStart) + inserted + tail, caret: cutStart + inserted.length };
 }
 

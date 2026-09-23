@@ -57,7 +57,7 @@ import {
 import { ComposerInput } from "./ComposerInput";
 import { useComposerChips } from "./useComposerChips";
 import { useComposerCollapse } from "./useComposerCollapse";
-import { findChipTokens, plainChipText } from "./composer-chips";
+import { findChipTokens, plainChipText, repairChipTokens } from "./composer-chips";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
@@ -355,7 +355,9 @@ export function Composer({
       }
     }
   }, [snapshot?.sessionId, snapshot?.messages, recordPrompt]);
-  const updateDraft = useCallback((next: string) => {
+  const updateDraft = useCallback((edited: string) => {
+    // A Vim or Readline edit that cut into a chip takes the whole chip.
+    const next = repairChipTokens(scopeStore.getSnapshot(attachmentScope).draft, edited)?.text ?? edited;
     scopeStore.setDraft(attachmentScope, next);
     writeComposerDraft(clientStorage, draftStorageKey, next);
     onChange?.(next);
