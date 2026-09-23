@@ -129,6 +129,20 @@ describe("ModelPicker", () => {
     expect(screen.getByText("$0.1/$0.4")).toBeTruthy();
   });
 
+  it("shows and sorts by the user's own price in place of the catalog's", () => {
+    const list: UiModel[] = [
+      { provider: "openai", id: "o4-mini", name: "o4-mini", billing: "api-key", price: { input: 1.1, output: 4.4 } },
+      { provider: "openai", id: "gpt-4.1-nano", name: "GPT-4.1 nano", billing: "api-key", price: { input: 0.1, output: 0.4 } },
+    ];
+    const preferences = new PreferencesStore();
+    preferences.applyConfig({ modelPrices: { "openai/o4-mini": { input: 0.01, output: 0.02 } } });
+    renderPicker({ list, preferences });
+    fireEvent.click(screen.getByRole("button", { name: "Sort: Relevance" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Price/u }));
+    expect(optionNames()).toEqual(["o4-mini, Pi, API", "GPT-4.1 nano, Pi, API"]);
+    expect(screen.getByText("$0.01/$0.02").closest(".model-price")?.getAttribute("title")).toContain("(your price)");
+  });
+
   it("filters by billing and hides a model until the hidden ones are shown", () => {
     const preferences = new PreferencesStore();
     renderPicker({ preferences });

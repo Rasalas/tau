@@ -56,8 +56,8 @@ export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
   stream(input: RuntimePromptInput, onMessage: (message: SDKMessage) => void, hooks?: ClaudeTurnHooks): Promise<RuntimePromptResult>;
   /** A live session for a thread, started; the backend feeds it turns and closes it. */
   openSession(input: ClaudeSessionInput): ClaudeSdkSession;
-  /** What the CLI says about its login and models; cached for a few minutes. */
-  probe(options?: { fresh?: boolean }): Promise<ClaudeProbe>;
+  /** What the CLI says about its login and models; cached for a few minutes. `usage` also reads the plan's windows, afresh. */
+  probe(options?: { fresh?: boolean; usage?: boolean }): Promise<ClaudeProbe>;
   /** Shared app-data store used to resume this adapter after eviction/restart. */
   readonly sessionStore?: ClaudeRuntimeSessionStore;
 }
@@ -291,10 +291,10 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   const PROBE_TTL_MS = 5 * 60_000;
   let probeCache: { at: number; result: Promise<ClaudeProbe> } | undefined;
 
-  function probe(probeOptions: { fresh?: boolean } = {}): Promise<ClaudeProbe> {
+  function probe(probeOptions: { fresh?: boolean; usage?: boolean } = {}): Promise<ClaudeProbe> {
     const now = Date.now();
-    if (!probeOptions.fresh && probeCache && now - probeCache.at < PROBE_TTL_MS) return probeCache.result;
-    const result = probeClaude({ query, executable: options.resolveCommand?.(commandName()) ?? commandName(), cwd: homedir(), env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
+    if (!probeOptions.fresh && !probeOptions.usage && probeCache && now - probeCache.at < PROBE_TTL_MS) return probeCache.result;
+    const result = probeClaude({ query, executable: options.resolveCommand?.(commandName()) ?? commandName(), cwd: homedir(), env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP }, ...(probeOptions.usage ? { usage: true } : {}) });
     probeCache = { at: now, result };
     // A failed probe is not remembered; the next caller tries again.
     result.catch(() => { if (probeCache?.result === result) probeCache = undefined; });

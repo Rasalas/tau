@@ -42,6 +42,8 @@ export interface PiThreadBackendOptions {
   mapMessages(messages: readonly unknown[]): UiMessage[];
   /** The interaction modes runtime extensions give Pi threads (`RuntimeExtensionOptions.modes`). */
   modes?(): readonly string[];
+  /** Prices the thread's tallies; without it the total is Pi's own prices, all billed. */
+  priceUsage?(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
 }
 
 interface SessionTreeEntry {
@@ -79,6 +81,8 @@ function treeNodeOf(entry: SessionTreeEntry, label: string | undefined): Omit<Ui
 
 import { modelAttribution } from "./model-attribution.js";
 import { modelLogin, type ProviderLoginSource } from "./model-login.js";
+import { sessionTalliesFromEntries } from "./session-usage.js";
+import type { UsageTally } from "./usage-pricing.js";
 
 function modelOf(model: { provider: string; id: string; name?: string } | undefined, runtime?: ProviderLoginSource): UiModel | undefined {
   if (!model) return undefined;
@@ -200,6 +204,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       // Both walk the whole session; a catalog that does not show them must not pay for them.
       get contextUsage() { return backend.contextUsage(); },
       get usage() { return backend.threadUsage(); },
+      get usageTallies() { return backend.usageTallies(); },
     };
   }
 
@@ -454,20 +459,29 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     return true;
   }
 
-  /** What the thread has cost so far, straight from Pi's own session totals. */
-  private threadUsage(): UiThreadUsage | undefined {
-    const stats = this.session.getSessionStats();
-    if (stats.assistantMessages === 0 && stats.tokens.total === 0) return undefined;
-    return {
-      inputTokens: stats.tokens.input,
-      outputTokens: stats.tokens.output,
-      cacheReadTokens: stats.tokens.cacheRead,
-      cacheWriteTokens: stats.tokens.cacheWrite,
-      totalTokens: stats.tokens.total,
-      costUsd: stats.cost,
-      turns: stats.assistantMessages,
-    };
+  /** What the thread has used so far, per provider and model, from Pi's own session entries. */
+  private usageTallies(): UsageTally[] {
+    return sessionTalliesFromEntries(this.session.sessionManager.getEntries());
   }
+
+  /** What the thread has cost so far, as the host prices it. */
+  private threadUsage(): UiThreadUsage | undefined {
+    const tallies = this.usageTallies();
+    if (tallies.length === 0) return undefined;
+    if (this.options.priceUsage) return this.options.priceUsage(tallies);
+    const usage: UiThreadUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, turns: 0 };
+    for (const tally of tallies) {
+      usage.inputTokens += tally.inputTokens;
+      usage.outputTokens += tally.outputTokens;
+      usage.cacheReadTokens += tally.cacheReadTokens;
+      usage.cacheWriteTokens += tally.cacheWriteTokens;
+      usage.totalTokens += tally.totalTokens;
+      usage.costUsd += tally.costUsd;
+      usage.turns += tally.turns;
+    }
+    return usage;
+  }
+
 
   private contextUsage(): UiContextUsage | undefined {
     const usage = this.session.getContextUsage();

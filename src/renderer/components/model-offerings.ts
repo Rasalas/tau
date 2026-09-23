@@ -21,6 +21,8 @@ export interface Offering {
   isNew: boolean;
   /** Where the runtime lists it: its own catalog order, or the user's. */
   position: number;
+  /** `model.price` is the user's own (`modelPrices`), not the catalog's. */
+  customPrice?: boolean;
 }
 
 export type OfferingSort = "relevance" | "price" | "context" | "newest";

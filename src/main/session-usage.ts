@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import type { UiThreadUsage } from "../shared/contracts.js";
+import { emptyTally, readUsageTally, type UsageTally } from "./usage-pricing.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
 /** Identity of a session file's contents, cheap enough to take on every scan. */
@@ -10,7 +11,8 @@ export interface SessionFileStamp {
   mtimeMs: number;
 }
 
-const CACHE_VERSION = 1;
+// 2: tallies per provider and model instead of one priced total.
+const CACHE_VERSION = 2;
 const SAVE_DELAY_MS = 2_000;
 /**
  * Session files read per scan. The index lists them newest first, so a cold
@@ -18,10 +20,6 @@ const SAVE_DELAY_MS = 2_000;
  * next pass instead of reading a whole history at once.
  */
 const REFILLS_PER_PASS = 16;
-
-export function emptyThreadUsage(): UiThreadUsage {
-  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, turns: 0 };
-}
 
 function number(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -33,7 +31,7 @@ function usageOf(value: unknown): Record<string, unknown> | undefined {
   return usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined;
 }
 
-function add(total: UiThreadUsage, usage: Record<string, unknown>): void {
+function add(total: UsageTally, usage: Record<string, unknown>): void {
   const cost = usage.cost && typeof usage.cost === "object" ? usage.cost as Record<string, unknown> : undefined;
   total.inputTokens += number(usage.input);
   total.outputTokens += number(usage.output);
@@ -44,32 +42,43 @@ function add(total: UiThreadUsage, usage: Record<string, unknown>): void {
 }
 
 /**
- * Sums what a session's entries were billed for. Mirrors Pi's own
- * `getSessionStats`: assistant and tool-result messages carry usage, and so do
- * the summary entries a compaction leaves behind. `turns` counts the assistant
- * messages that were billed, which is what the tokens are summed over.
+ * What a session's entries were billed for, one tally per provider and model.
+ * Mirrors Pi's own `getSessionStats`: assistant and tool-result messages carry
+ * usage, and so do the summary entries a compaction leaves behind, which count
+ * for the model that ran last. `turns` counts the billed assistant messages.
  */
-export function sessionUsageFromEntries(entries: Iterable<unknown>): UiThreadUsage {
-  const total = emptyThreadUsage();
+export function sessionTalliesFromEntries(entries: Iterable<unknown>): UsageTally[] {
+  const tallies = new Map<string, UsageTally>();
+  let last: { provider?: string; model?: string } = {};
+  const tallyFor = (model: { provider?: string; model?: string }): UsageTally => {
+    const key = `${model.provider ?? ""}\u0000${model.model ?? ""}`;
+    let tally = tallies.get(key);
+    if (!tally) tallies.set(key, tally = { ...(model.provider ? { provider: model.provider } : {}), ...(model.model ? { model: model.model } : {}), ...emptyTally() });
+    return tally;
+  };
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
     const typed = entry as { type?: unknown; message?: unknown };
     if (typed.type === "branch_summary" || typed.type === "compaction") {
       const usage = usageOf(entry);
-      if (usage) add(total, usage);
+      if (usage) add(tallyFor(last), usage);
       continue;
     }
     if (typed.type !== "message") continue;
     const message = typed.message;
     if (!message || typeof message !== "object") continue;
-    const role = (message as { role?: unknown }).role;
+    const { role, provider, model } = message as { role?: unknown; provider?: unknown; model?: unknown };
     if (role !== "assistant" && role !== "toolResult") continue;
+    if (role === "assistant" && (typeof provider === "string" || typeof model === "string")) {
+      last = { ...(typeof provider === "string" && provider ? { provider } : {}), ...(typeof model === "string" && model ? { model } : {}) };
+    }
     const usage = usageOf(message);
     if (!usage) continue;
-    add(total, usage);
-    if (role === "assistant") total.turns += 1;
+    const tally = tallyFor(last);
+    add(tally, usage);
+    if (role === "assistant") tally.turns += 1;
   }
-  return total;
+  return [...tallies.values()].filter((tally) => tally.turns > 0 || tally.totalTokens > 0 || tally.costUsd > 0);
 }
 
 /** A thread nobody has paid for yet shows nothing rather than a zero. */
@@ -89,7 +98,7 @@ export function hasThreadUsage(usage: UiThreadUsage | undefined): usage is UiThr
 export async function readSessionUsage(
   path: string,
   options?: { logger?: PersistedJsonLogger },
-): Promise<{ usage: UiThreadUsage; skipped: number } | undefined> {
+): Promise<{ tallies: UsageTally[]; skipped: number } | undefined> {
   const entries: unknown[] = [];
   let skipped = 0;
   try {
@@ -107,7 +116,7 @@ export async function readSessionUsage(
     }
     return undefined;
   }
-  return { usage: sessionUsageFromEntries(entries), skipped };
+  return { tallies: sessionTalliesFromEntries(entries), skipped };
 }
 
 export async function readSessionFileStamp(path: string): Promise<SessionFileStamp | undefined> {
@@ -121,29 +130,19 @@ export async function readSessionFileStamp(path: string): Promise<SessionFileSta
 
 interface CacheEntry extends SessionFileStamp {
   path: string;
-  usage: UiThreadUsage;
+  tallies: UsageTally[];
 }
 
 function decodeEntry(value: unknown): CacheEntry | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Record<string, unknown>;
-  const usage = candidate.usage;
   if (typeof candidate.path !== "string" || typeof candidate.size !== "number" || typeof candidate.mtimeMs !== "number") return undefined;
-  if (!usage || typeof usage !== "object") return undefined;
-  const decoded = usage as Record<string, unknown>;
+  if (!Array.isArray(candidate.tallies)) return undefined;
   return {
     path: candidate.path,
     size: candidate.size,
     mtimeMs: candidate.mtimeMs,
-    usage: {
-      inputTokens: number(decoded.inputTokens),
-      outputTokens: number(decoded.outputTokens),
-      cacheReadTokens: number(decoded.cacheReadTokens),
-      cacheWriteTokens: number(decoded.cacheWriteTokens),
-      totalTokens: number(decoded.totalTokens),
-      costUsd: number(decoded.costUsd),
-      turns: number(decoded.turns),
-    },
+    tallies: candidate.tallies.flatMap((item) => readUsageTally(item) ?? []),
   };
 }
 
@@ -151,7 +150,7 @@ export interface SessionUsageIndexOptions {
   /** Where the cache is persisted; without one it lives only for this process. */
   path?: string;
   /** A queued read finished. The index scan republishes the thread's shell. */
-  onResolved?(sessionPath: string, usage: UiThreadUsage): void;
+  onResolved?(sessionPath: string, tallies: readonly UsageTally[]): void;
   /** Session files read at once when the cache misses. */
   concurrency?: number;
   /** Session files read per scan; what does not fit waits for the next one. */
@@ -197,22 +196,27 @@ export class SessionUsageIndex {
    * stale value is still returned, so a growing thread shows its last cost
    * instead of blinking away until the refill lands.
    */
-  lookup(sessionPath: string, stamp: SessionFileStamp | undefined): UiThreadUsage | undefined {
+  lookup(sessionPath: string, stamp: SessionFileStamp | undefined): readonly UsageTally[] | undefined {
     const entry = this.entries.get(sessionPath);
-    if (!stamp) return entry?.usage;
-    if (entry && entry.size === stamp.size && entry.mtimeMs === stamp.mtimeMs) return entry.usage;
+    if (!stamp) return entry?.tallies;
+    if (entry && entry.size === stamp.size && entry.mtimeMs === stamp.mtimeMs) return entry.tallies;
     this.enqueue(sessionPath, stamp);
-    return entry?.usage;
+    return entry?.tallies;
   }
 
-  /** A live runtime's own number. It supersedes the cache and cancels a queued read. */
-  record(sessionPath: string, stamp: SessionFileStamp | undefined, usage: UiThreadUsage): void {
+  /** A live runtime's own count. It supersedes the cache and cancels a queued read. */
+  record(sessionPath: string, stamp: SessionFileStamp | undefined, tallies: readonly UsageTally[]): void {
     this.queue.delete(sessionPath);
     if (!stamp) return;
     const entry = this.entries.get(sessionPath);
-    if (entry && entry.size === stamp.size && entry.mtimeMs === stamp.mtimeMs && entry.usage.costUsd === usage.costUsd) return;
-    this.entries.set(sessionPath, { path: sessionPath, ...stamp, usage });
+    if (entry && entry.size === stamp.size && entry.mtimeMs === stamp.mtimeMs && JSON.stringify(entry.tallies) === JSON.stringify(tallies)) return;
+    this.entries.set(sessionPath, { path: sessionPath, ...stamp, tallies: tallies.map((tally) => ({ ...tally })) });
     this.markDirty();
+  }
+
+  /** Every cached session's tallies, for pricing them again. */
+  cached(): ReadonlyMap<string, readonly UsageTally[]> {
+    return new Map([...this.entries].map(([path, entry]) => [path, entry.tallies]));
   }
 
   /** Forgets sessions the last scan no longer listed, so the cache tracks the index. */
@@ -275,9 +279,9 @@ export class SessionUsageIndex {
       if (result.skipped > 0) {
         this.options.logger?.warn("session-usage.skipped-lines", `${sessionPath}: ${result.skipped} unparseable line(s) skipped`);
       }
-      this.entries.set(sessionPath, { path: sessionPath, ...stamp, usage: result.usage });
+      this.entries.set(sessionPath, { path: sessionPath, ...stamp, tallies: result.tallies });
       this.markDirty();
-      this.options.onResolved?.(sessionPath, result.usage);
+      this.options.onResolved?.(sessionPath, result.tallies);
     }
   }
 

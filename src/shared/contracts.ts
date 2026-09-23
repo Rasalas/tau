@@ -275,8 +275,23 @@ export interface UiThreadUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  /** Money billed per token. What a subscription paid for is never in here; see `subscription`. */
   costUsd: number;
   turns: number;
+  /** The share a subscription paid for; its tokens and turns are counted above as well. New in API 1.12.0. */
+  subscription?: UiSubscriptionUsage;
+}
+
+/** Usage a subscription covered: nobody was charged per token for it. */
+export interface UiSubscriptionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  turns: number;
+  /** What the same tokens would have cost over the provider's API; 0 when no price is known. */
+  apiValueUsd: number;
 }
 
 /** A message waiting for its thread's turn to end, as the thread list shows it. */
@@ -882,6 +897,12 @@ export interface TauConfig {
   favouriteModels?: string[];
   /** What the model picker hides and in which order it lists models, by runtime backend kind. */
   modelPreferences?: Record<string, TauModelPreferences>;
+  /**
+   * The user's own prices, keyed `provider/id` or a bare model id for every
+   * provider. They replace the runtime's and Pi's prices in costs, in the
+   * value of subscription usage and in the model picker. New in API 1.12.0.
+   */
+  modelPrices?: Record<string, UiModelPrice>;
   disabledExtensions?: string[];
   prewarm?: boolean;
   /** Leave the host process running after the app quits, so its threads keep going. */

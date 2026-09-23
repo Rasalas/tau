@@ -180,7 +180,8 @@ export class WorkbenchStore {
     if (update.type === "thread-shell") {
       const shell = update.update.shell;
       threads.applyThreadShell(update.update.sessionId, shell, update.update.removed);
-      if (shell) view.setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, projectLabel: shell.projectLabel } : current);
+      // The shell's total is the thread's own, priced anew when prices change.
+      if (shell) view.setSnapshot((current) => current && current.sessionId === shell.id ? { ...current, sessionTitle: shell.title, projectLabel: shell.projectLabel, usage: shell.usage ?? current.usage } : current);
       return undefined;
     }
     if (update.type === "thread-detail") {

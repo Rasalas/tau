@@ -1,7 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation, type UiThreadUsage } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, parseSkillEnvelope, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -45,6 +45,8 @@ export interface ClaudeRuntimeSessionRecord {
   titleSource?: ClaudeTitleSource;
   /** Tokens and cost of every turn so far, so the index shows them after a restart. */
   usage?: UiThreadUsage;
+  /** Each turn's tokens per model, dated; threads from before turns were kept have only `usage`. */
+  usageTurns?: UsageTurn[];
   /** The model and effort the user chose for this thread; the CLI's defaults otherwise. */
   model?: string;
   effort?: string;
@@ -266,6 +268,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(title ? { title } : {}),
     ...(titleSource ? { titleSource } : {}),
     ...(storedUsage(item.usage) ? { usage: storedUsage(item.usage) } : {}),
+    ...(readUsageTurns(item.usageTurns) ? { usageTurns: readUsageTurns(item.usageTurns) } : {}),
     ...(boundedString(item.model, MAX_ID_LENGTH) ? { model: boundedString(item.model, MAX_ID_LENGTH) } : {}),
     ...(boundedString(item.effort, 16) ? { effort: boundedString(item.effort, 16) } : {}),
     ...(boundedString(item.mode, 16) ? { mode: boundedString(item.mode, 16) } : {}),
@@ -287,6 +290,7 @@ function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRe
     ...record,
     messages: record.messages.map(cloneMessage),
     ...(record.usage ? { usage: { ...record.usage } } : {}),
+    ...(record.usageTurns ? { usageTurns: record.usageTurns.map((turn) => ({ ...turn })) } : {}),
     ...(record.tools ? { tools: [...record.tools] } : {}),
   };
 }
@@ -507,11 +511,12 @@ export class ClaudeRuntimeSessionStore {
   }
 
   /** Replaces the thread's running total; the backend sums turns itself. */
-  async recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage): Promise<void> {
+  async recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turns: readonly UsageTurn[] = []): Promise<void> {
     await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     record.usage = { ...usage };
+    for (const turn of turns) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
     record.updatedAt = this.now();
     await this.persist();
   }

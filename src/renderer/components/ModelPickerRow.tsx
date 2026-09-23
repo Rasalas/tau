@@ -24,10 +24,10 @@ export function wears(badge: ModelBadgeContribution, model: UiModel, runtime: Th
 }
 
 /** A plan shows it is included and what the same model costs over its API; an API key what it costs. */
-function PriceCell({ model }: { model: UiModel }) {
+function PriceCell({ model, custom }: { model: UiModel; custom?: boolean }) {
   const subscription = (model.billing ?? (model.login === "subscription" ? "subscription" : undefined)) === "subscription";
   const price = model.price;
-  const title = price ? `Input $${price.input} · output $${price.output} per million tokens${price.cacheRead !== undefined ? ` · cached input $${price.cacheRead}` : ""}${subscription ? ", over the API" : ""}` : undefined;
+  const title = price ? `Input $${price.input} · output $${price.output} per million tokens${price.cacheRead !== undefined ? ` · cached input $${price.cacheRead}` : ""}${subscription ? ", over the API" : ""}${custom ? " (your price)" : ""}` : undefined;
   if (subscription) {
     return <span className="model-price" title={title ?? "Included in the plan"}><b>incl.</b>{price ? <small>API ≈ {formatPrice(price)}</small> : null}</span>;
   }
@@ -109,7 +109,7 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
         )}
       </div>
       {narrow ? null : <span className="model-context">{model.contextWindow ? formatTokens(model.contextWindow) : "—"}</span>}
-      <PriceCell model={model} />
+      <PriceCell model={model} {...(offering.customPrice ? { custom: true } : {})} />
       <span className="model-row-actions">
         <button
           className="model-row-action model-hide"

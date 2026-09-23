@@ -1087,9 +1087,26 @@ command, input)`, and only for a command the target registered with
 runtime backend that keeps its own per-thread totals answers a `usage` command
 granted to `tau.usage` with `{ threads: [{ threadId, cwd, model?, updatedAt, usage? }] }`,
 `usage` being a `UiThreadUsage`, read from the kit's own store and never from the
-provider. Claude Code, Antigravity and Codex answer it; a backend that adds it also adds
-its row to `BACKEND_USAGE_SOURCES` in `kits/usage/protocol.ts`, and one that does
-not answer is listed as not available.
+provider. Since API 1.12.0 a thread also names its `turns`: one `UsageTurn` per turn
+(`at`, `provider?`, `model?`, `billing?`, the token counts, the runtime's own
+`costUsd` and the `turns` it sums), so the Usage page dates every turn on its own
+and keeps a plan's turns apart from billed ones; a thread from before its kit kept
+turns has only `usage` and is dated by its last activity. Claude Code, Antigravity and
+Codex answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
+in `kits/usage/protocol.ts`, and one that does not answer is listed as not available.
+
+A kit whose runtime's login reports quota windows answers `usage-limits`, granted to
+`tau.usage`, with `{ accounts: [{ id, runtime, label, plan?, checkedAt, windows:
+[{ id, kind, label, usedPercent, resetsAt?, windowMinutes? }], unavailable? }] }`
+(`resetsAt` in epoch ms, `unavailable.reason` one of `unsupported`, `failed`,
+`signed-out`). The input may say `{ refresh: true }`. The command may read the account,
+never change it. Codex reads `account/rateLimits/read` through a short-lived
+app-server and merges `account/rateLimits/updated` from its turns; the Agent SDK
+runtime reads the SDK's usage call through its probe and merges each turn's
+`rate_limit_event`; Pi Limits (`kits/pi-limits/`) keeps what Pi's subscription
+providers send in their response headers. Both backends read at most every five
+minutes unless asked to refresh. A kit that adds limits adds its row to
+`LIMIT_SOURCES` in `kits/usage/protocol.ts`.
 
 Onboarding (`kits/onboarding/`) asks the backend kits the same way, for the
 conversations their CLIs ran outside Tau. A backend that can import them
@@ -1417,6 +1434,35 @@ its login; both answer `not-installed` without their CLI, and
 `sign-in-required` without an account: Codex from `account/read`, the Agent
 SDK runtime from its CLI's `auth status --json` (the probe lists models even
 signed out, so it is not asked then).
+
+#### What a thread cost (new in API 1.12.0)
+
+`UiThreadUsage.costUsd` is money billed per token and nothing else. What a
+subscription covered is `subscription`: its tokens and turns (also counted in
+the fields above) and `apiValueUsd`, what the same tokens would have cost over
+the provider's API. A client never adds the two; the composer shows
+`$0.12 + plan`, and its popover a "Spent" and a "Subscription … would have
+cost ≈ $X via the API" part.
+
+Core prices every thread the same way, from `UsageTally` entries — tokens of
+one `provider` and `model`, with the `billing` the runtime knew and its own
+`costUsd`. The user's price (`modelPrices` in Tau's config) wins; then the
+runtime's own price; then, for a subscription or an API key, the provider's
+API price from Pi's model data. A Pi tally names no billing; core asks Pi
+whether the provider is reached through a subscription login. A runtime
+backend keeps its turns as tallies and asks `context.priceUsage(tallies)` on
+the `open` context for its `catalogView().usage`, on every read, since prices
+can change under a thread; Codex, the Agent SDK runtime and Antigravity do.
+A host half that sums usage of its own asks `services.priceUsage(tallies)`
+(async, also on a worker) and gets one `PricedUsage` per tally: `billing`,
+`costUsd`, `apiValueUsd` and the price's `source` (`custom`, `runtime`,
+`api`, `none`). `mergeTallies`, `appendUsageTurn`, `legacyUsageTurn`,
+`readUsageTurns` and `unpricedUsage` on `tau/host-extension` are the helpers
+the backend kits share. `modelPrices` maps `provider/id`, or a bare model id
+for every provider, to `{ input, output, cacheRead?, cacheWrite? }` in USD
+per million tokens (a missing cache rate is the input rate); it is a record
+of the config levels, so `modelPrices.<key>` names one entry. The model
+picker shows and sorts by it too.
 
 #### Versions a backend works with (new in API 1.11.0)
 

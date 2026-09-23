@@ -140,6 +140,14 @@ export class CodexAppServer {
     return result.account ?? undefined;
   }
 
+  /**
+   * The account's quota windows, read without changing anything on the
+   * account: no reset-credit detail, no experiment flags.
+   */
+  async rateLimits(): Promise<unknown> {
+    return this.connection.request("account/rateLimits/read", { excludeResetCreditDetails: true }, { timeoutMs: this.timeouts.requestMs });
+  }
+
   /** Starts a login; the CLI keeps the credential in its home and runs any callback listener itself. */
   loginStart(request: CodexLoginRequest): Promise<CodexLoginStart> {
     return this.connection.request("account/login/start", request, { timeoutMs: this.timeouts.requestMs });

@@ -71,7 +71,8 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.modelProvider === right.modelProvider &&
     left.queueHeld === right.queueHeld &&
     sameJson(left.limit, right.limit) &&
-    sameJson(left.queued, right.queued);
+    sameJson(left.queued, right.queued) &&
+    sameJson(left.usage, right.usage);
 }
 
 /** Small host-owned records; each publication is a fresh object. */

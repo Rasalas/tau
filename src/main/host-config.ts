@@ -7,6 +7,7 @@ import type { TauConfig } from "../shared/contracts.js";
 import { isUpdateChannel, type UpdateChannel } from "../shared/app-version.js";
 import { isQuitConfirmation } from "../shared/window-shell.js";
 import { readModelPreferenceRecord } from "../shared/model-preferences.js";
+import { readModelPrices } from "../shared/model-prices.js";
 import { PI_OWNED_CONFIG_KEYS, isPiOwnedSetting, withoutPiOwned, withoutSetting, type ConfigLayers } from "../shared/config-layers.js";
 
 export interface HostConfigPaths {
@@ -289,7 +290,7 @@ export class HostConfigManager {
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
       "temperature", "maxTokens", "vimMode", "hostBackground", "threads", "updates", "confirm",
-      "modelPreferences",
+      "modelPreferences", "modelPrices",
     ]);
     const result: Partial<TauConfig> = {};
     for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
@@ -318,6 +319,11 @@ export class HostConfigManager {
         case "modelPreferences": {
           const preferences = readModelPreferenceRecord(val);
           if (preferences) result.modelPreferences = preferences;
+          break;
+        }
+        case "modelPrices": {
+          const prices = readModelPrices(val);
+          if (prices) result.modelPrices = prices;
           break;
         }
         case "values": case "keybindings":
@@ -367,6 +373,9 @@ export class HostConfigManager {
     }
     if (base.modelPreferences || override.modelPreferences) {
       result.modelPreferences = { ...(base.modelPreferences ?? {}), ...(override.modelPreferences ?? {}) };
+    }
+    if (base.modelPrices || override.modelPrices) {
+      result.modelPrices = { ...(base.modelPrices ?? {}), ...(override.modelPrices ?? {}) };
     }
     if (base.threads || override.threads) {
       result.threads = { ...(base.threads ?? {}), ...(override.threads ?? {}) };

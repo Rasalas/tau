@@ -38,6 +38,7 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
     cwd: () => "/repo",
     activeSessionFile: () => undefined,
     adapterFor: () => PI_AGENT_RUNTIME_ADAPTER,
+    priceUsage: () => undefined,
     requireBackend: (kind) => {
       const provider = backends[kind];
       if (!provider) throw new Error(`Runtime backend "${kind}" is not installed`);

@@ -248,6 +248,21 @@ describe("Codex host half", () => {
     await expect(stranger.read!({})).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.codex/thread-texts.");
   });
 
+  it("reads the account's quota windows for the Usage kit without changing the account, and keeps them a while", async () => {
+    const { registry } = await harness();
+    let read: (() => Promise<unknown>) | undefined;
+    await registry.activate({ id: "tau.usage", name: "Usage", activate(activation) { read = () => activation.invokeHostExtension("tau.codex", "usage-limits"); } });
+    const answer = await read!() as { accounts: Array<Record<string, unknown>> };
+    expect(answer.accounts).toEqual([expect.objectContaining({
+      runtime: "codex",
+      label: "Codex",
+      plan: "pro",
+      windows: [expect.objectContaining({ id: "primary", usedPercent: 34 }), expect.objectContaining({ id: "secondary", usedPercent: 12.5 })],
+    })]);
+    const again = await read!() as { accounts: Array<{ checkedAt: number }> };
+    expect(again.accounts[0]?.checkedAt).toBe(answer.accounts[0]?.checkedAt);
+  });
+
   it("registers a backend per instance that runs its own home, variables and arguments, and keeps each thread on its instance", async () => {
     const { registry, backend, backends, events, launches, root } = await harness();
     const home = join(root, "work-home");

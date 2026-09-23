@@ -104,6 +104,11 @@ describe("AntigravityThreadRuntimeBackend", () => {
     await again.backend.prompt({ text: "more", delivery: "prompt" });
     expect(again.sessions[0]!.calls).toEqual(["resume:acp-1", "mode:yolo", "prompt:more"]);
     expect(again.backend.catalogView().usage?.turns).toBe(2);
+    // Each turn is kept on its own, dated, with the model it ran on.
+    expect((await store.get("thread"))?.usageTurns).toEqual([
+      expect.objectContaining({ provider: "google", model: "gemini-3.8-flash-high", inputTokens: 5, outputTokens: 2, turns: 1, at: expect.any(Number) }),
+      expect.objectContaining({ provider: "google", turns: 1, at: expect.any(Number) }),
+    ]);
   });
 
   it("starts afresh when the agent no longer knows the stored session, and applies the chosen model", async () => {
