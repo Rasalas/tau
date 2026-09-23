@@ -57,6 +57,32 @@ describe("the fake Codex app-server", () => {
   });
 });
 
+describe("thinking in the replayed turn", () => {
+  it("is off by default, so the benchmark's turn is unchanged", () => {
+    expect(buildTurn().events.some((event) => event.kind === "thinking")).toBe(false);
+  });
+
+  it("becomes one reasoning item that closes before the answer starts", () => {
+    const turn = buildTurn({ answerBytes: 500, codeBlocks: 0, bigOutputBytes: 100, smallCommands: 0, thinkingChars: 600 });
+    const notifications = codexNotifications(turn, { threadId: "thread", turnId: "turn" });
+    const methods = notifications.map((entry) => `${entry.method}:${entry.params.item?.type ?? ""}`);
+    const completed = methods.indexOf("item/completed:reasoning");
+    expect(methods.indexOf("item/started:reasoning")).toBeLessThan(completed);
+    expect(completed).toBeLessThan(methods.indexOf("item/started:agentMessage"));
+    const summary = notifications.filter((entry) => entry.method === "item/reasoning/summaryTextDelta").map((entry) => entry.params.delta).join("");
+    expect(summary).toHaveLength(600);
+    expect(notifications[completed].params.item.summary).toEqual([summary]);
+  });
+});
+
+describe("a failing turn", () => {
+  it("reports the error and completes the turn as failed", () => {
+    const notifications = codexNotifications(buildTurn({ failWith: "stream disconnected" }), { threadId: "thread", turnId: "turn" });
+    expect(notifications.find((entry) => entry.method === "error").params).toMatchObject({ error: { message: "stream disconnected" }, willRetry: false });
+    expect(notifications.at(-1).params.turn).toMatchObject({ status: "failed", error: { message: "stream disconnected" } });
+  });
+});
+
 describe("the session fixture", () => {
   it("is read by Tau's own Codex importer, the large thread capped at its 200 messages", () => {
     const [large, small] = sessionPlan();
@@ -162,3 +188,4 @@ describe("stats and reporting", () => {
     expect(table).toContain("| first paint (ms) | 10 / 12 | – |");
   });
 });
+

@@ -17,7 +17,7 @@ const { Schema } = await import(join(clone, "packages/effect-codex-app-server/no
 
 const dir = mkdtempSync(join(tmpdir(), "fake-codex-check-"));
 const turnFile = join(dir, "turn.json");
-writeFileSync(turnFile, JSON.stringify(buildTurn({ answerBytes: 2_000, codeBlocks: 2, bigOutputBytes: 20_000, smallCommands: 1, intervalMs: 1 })));
+writeFileSync(turnFile, JSON.stringify(buildTurn({ answerBytes: 2_000, codeBlocks: 2, bigOutputBytes: 20_000, smallCommands: 1, intervalMs: 1, thinkingChars: 300 })));
 const child = spawn(process.execPath, [fileURLToPath(new URL("./fake-codex.mjs", import.meta.url)), "app-server"], {
   env: { ...process.env, COMPARE_TURN_FILE: turnFile, CODEX_HOME: dir },
   stdio: ["pipe", "pipe", "inherit"],

@@ -66,10 +66,18 @@ export function codexNotifications(turn, { threadId, turnId, cwd = "/tmp" }) {
     out.push({ at, method: "item/completed", params: { threadId, turnId, completedAtMs: 0, item: { type: "agentMessage", id: text.id, text: text.parts.join("") } } });
     text = undefined;
   };
+  let reasoning;
+  let failure = null;
+  const closeReasoning = (at) => {
+    if (!reasoning) return;
+    out.push({ at, method: "item/completed", params: { threadId, turnId, completedAtMs: 0, item: { type: "reasoning", id: reasoning.id, summary: [reasoning.parts.join("")], content: [] } } });
+    reasoning = undefined;
+  };
   out.push({ at: 0, method: "turn/started", params: { threadId, turn: { id: turnId, items: [], status: "inProgress", error: null } } });
   let messageCount = 0;
   for (const event of turn.events) {
     if (event.kind === "text") {
+      closeReasoning(event.at);
       if (!text) {
         text = { id: `msg-${++messageCount}`, parts: [] };
         out.push({ at: event.at, method: "item/started", params: { threadId, turnId, startedAtMs: 0, item: { type: "agentMessage", id: text.id, text: "" } } });
@@ -79,6 +87,22 @@ export function codexNotifications(turn, { threadId, turnId, cwd = "/tmp" }) {
       continue;
     }
     closeText(event.at);
+    if (event.kind === "thinking") {
+      if (!reasoning || reasoning.id !== event.id) {
+        closeReasoning(event.at);
+        reasoning = { id: event.id, parts: [] };
+        out.push({ at: event.at, method: "item/started", params: { threadId, turnId, startedAtMs: 0, item: { type: "reasoning", id: event.id, summary: [], content: [] } } });
+      }
+      reasoning.parts.push(event.delta);
+      out.push({ at: event.at, method: "item/reasoning/summaryTextDelta", params: { threadId, turnId, itemId: event.id, delta: event.delta, summaryIndex: 0 } });
+      continue;
+    }
+    closeReasoning(event.at);
+    if (event.kind === "error") {
+      failure = { message: event.message, codexErrorInfo: null, additionalDetails: null };
+      out.push({ at: event.at, method: "error", params: { threadId, turnId, error: failure, willRetry: false } });
+      continue;
+    }
     if (event.kind === "tool-start") {
       const item = { type: "commandExecution", id: event.id, command: event.command, cwd, commandActions: [], status: "inProgress", aggregatedOutput: null, processId: null };
       tools.set(event.id, { item, output: [] });
@@ -93,7 +117,8 @@ export function codexNotifications(turn, { threadId, turnId, cwd = "/tmp" }) {
     }
   }
   closeText(turn.durationMs);
-  out.push({ at: turn.durationMs, method: "turn/completed", params: { threadId, turn: { id: turnId, items: [], status: "completed", error: null } } });
+  closeReasoning(turn.durationMs);
+  out.push({ at: turn.durationMs, method: "turn/completed", params: { threadId, turn: { id: turnId, items: [], status: failure ? "failed" : "completed", error: failure } } });
   return out;
 }
 
