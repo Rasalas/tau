@@ -78,6 +78,8 @@ TAU_CURSOR_COMMAND=$PWD/kits/cursor/fixtures/fake-cursor-agent.mjs FAKE_CURSOR_L
 
 Onboarding lists and imports the conversations the agent CLIs kept in their own homes. `dev-instance.mjs` sets `TAU_IMPORT_ROOTS=<worktree>/.tau-dev/import-roots` (a caller's own value is kept), and with it set the backend kits read only `<root>/<backend kind>/…` — laid out like the CLI's own home — and never the user's. Put small synthetic sessions there to test the wizard; an instance with an empty folder finds nothing to import.
 
+Preview's cookie import reads the same variable: with it set, it looks for browsers only under `<root>/browsers`, laid out like a home folder, and takes Chromium keys from `<root>/browsers/keychain.json` instead of the keychain. `writeFixtureHome` in `kits/preview/cookie-fixtures.ts` writes Chrome (two profiles), Firefox and Safari stores with a test secret; run it with `node --experimental-strip-types` from a small script. Never point it at, copy or read a real browser profile, and never trigger the real keychain from a test instance.
+
 ### A stub `gh` or `glab`
 
 Anything that writes to a pull request is tested against a stub, never a real remote. Put an executable named `gh` (or `glab`) in a folder under `.tau-dev/`, have it answer from `kits/review/fixtures/` and append every call with its stdin to a log, then start the instance with that folder first on `PATH` and an empty `ZDOTDIR`:

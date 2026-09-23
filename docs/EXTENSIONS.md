@@ -1002,7 +1002,13 @@ matter. The shipped kits publish, among others, Workspace Kit's store as
 `tau.workspace/store`, and Preview Kit's `tau.preview/browser`, whose
 `open(url, actions)` brings the Preview panel forward and navigates — Project
 Scripts opens a script's `previewUrl` through it, and falls back to
-`actions.openExternal` when Preview Kit is off. Terminal Kit publishes
+`actions.openExternal` when Preview Kit is off. Preview Kit also publishes
+`tau.preview/cookie-import` (new in API 1.12.0): `importSite({ site, profile? })`
+opens its cookie import dialog with that site filtered to and ticked and that
+Preview profile as the target, and answers the import's result, or `undefined`
+when the user closed the dialog. The user still picks the browser and clicks
+Import; that click is the consent, and no agent tool can import cookies
+([browser-cookie-import.md](browser-cookie-import.md)). Terminal Kit publishes
 `tau.terminal/run` (new in API 1.11.0): `run({ command, label? }, actions?)`
 opens a shell in a tab of its own, shows the Terminal panel, types the command
 with `; exit` after it and answers `{ id, exitCode? }` once the shell ended —
