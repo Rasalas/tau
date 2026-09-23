@@ -15,6 +15,7 @@ export type * from "./pi-kit-extensions.js";
 export type * from "../shared/contracts.js";
 export { HostAuthorizationError, HostCommandError, type HostAuthorizationDetails } from "./host-extension-errors.js";
 export { buildTitleConversation, cleanThreadTitle, textFromContent, type TitleMessage } from "./host-text.js";
+export { isSmallModel, smallCompletionModel, type CompletionModelRef } from "./small-completion-model.js";
 export { prepareSkillPrompt, skillInvocationCommand, type PreparedSkillPrompt, type SkillRuntimeAdapter } from "./skill-invocation.js";
 export {
   readPersistedJson,
