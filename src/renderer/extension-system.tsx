@@ -38,7 +38,15 @@ import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type Pro
  * extensions own panels, sidebar modules, project sources, commands and tool presentation.
  */
 export interface WorkbenchActions {
+  /** Shows a panel wherever it sits: the dock, the drawer, or its stage tab when maximized. */
   openPanel(id: string): void;
+  /** Hides a panel that is showing: closes the dock or drawer it is in, or its stage tab (API 1.11.0). */
+  closePanel?(id: string): void;
+  /**
+   * Moves the panel in front into a stage tab beside the chat, or a maximized
+   * one back to where it came from (`rightPanel.toggleMaximized`, API 1.11.0).
+   */
+  togglePanelMaximized?(): void;
   openCommandPalette(): void;
   openSettings(page?: string): void;
   /** A new thread's draft, through the project picker; with `workspace`, in that project directly, and nothing when the window does not know it yet. */
@@ -442,14 +450,29 @@ export interface ModelBadgeContribution extends ProfileScoped {
 
 export interface PanelProps {
   active: boolean;
+  /** Where the panel is drawn now (API 1.11.0); a maximized panel is on the stage. */
+  placement?: PanelPlacement;
   /** Name of the extension that contributed this panel, for the panel header. */
   extensionName: string;
   actions: WorkbenchActions;
 }
 
+/** `stage` is where a maximized panel is drawn; a contribution asks for `dock` or `drawer`. */
+export type PanelPlacement = "dock" | "drawer" | "stage";
+
 export interface PanelContribution extends ProfileScoped {
   id: string;
   label: string;
+  /**
+   * `drawer` draws the panel below the conversation and the stage, full width,
+   * instead of in the dock; one drawer panel shows at a time (API 1.11.0).
+   */
+  placement?: "dock" | "drawer";
+  /**
+   * The panel can be maximized into a stage tab (API 1.11.0). Core moves the
+   * mounted panel, so its state goes with it, and it is never drawn twice.
+   */
+  maximizable?: boolean;
   /** The rail glyph; `lucide-react` is shared, so pass one of its icons. Missing draws core's fallback. */
   Icon?: PanelIconComponent;
   order?: number;

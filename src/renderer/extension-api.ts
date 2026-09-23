@@ -111,6 +111,7 @@ export type {
   WorkbenchEvents,
   WorkbenchActions,
   PanelContribution,
+  PanelPlacement,
   PanelProps,
   StageTabContribution,
   StageTabHandle,
@@ -150,7 +151,7 @@ export type {
 } from "./workbench-context";
 export type { ThreadStore, ThreadStoreSnapshot, ThreadActivitySnapshot } from "../workbench/thread-store";
 /** The shape of a stage tab, as `actions.stageTabs()` hands it over. */
-export type { StageExtensionTab, StageFileTab, StageState, StageTab, StageThreadTab, StageView } from "../workbench/stage";
+export type { StageExtensionTab, StageFileTab, StagePanelTab, StageState, StageTab, StageThreadTab, StageView } from "../workbench/stage";
 export type { PreferencesStore } from "./preferences";
 /** What `context.attention` offers: a system notification and the app icon's badge. */
 export type { PlatformAttention, SystemNotification, SystemNotificationOutcome } from "../workbench/platform";

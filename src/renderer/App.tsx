@@ -35,6 +35,7 @@ import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { activeTab as activeStageTab, openFileTab, openThreadTab, stageTabPath, type StageView } from "../workbench/stage";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
+import { usePanelLayout } from "./use-panel-layout";
 import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
 import { followTurnActivity } from "../workbench/turn-activity";
 import { returnToComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
@@ -161,11 +162,11 @@ export default function App() {
   const activeWorkspaceId = pendingNewThread?.workspaceId ?? snapshot?.workspaceId;
   const knownThreadIds = useSyncExternalStore(threadStore.subscribeToIds, threadStore.getThreadIds);
   const panels = registry.getPanels();
-  const panelIds = useMemo(() => panels.map((panel) => panel.id), [panels]);
+  const panelIds = useMemo(() => panels.filter((panel) => panel.placement !== "drawer").map((panel) => panel.id), [panels]);
   // The stage and the dock belong to the workspace, and outlive the window.
   const {
     stage, setStage, dockOpen, setDockOpen, activePanel, setActivePanel,
-    openedPanels, dockWidth, setDockWidth, resetStage,
+    openedPanels, dockWidth, setDockWidth, drawer, setDrawer, resetStage,
   } = useWorkbenchLayoutState({
     storage: clientStorage,
     // A host that mints workspace ids names the workspace that way; one that
@@ -410,10 +411,13 @@ export default function App() {
     onRestart: () => { void client?.installUpdate(); }, onUpdateDismissed: () => setUpdateReady(undefined),
   });
 
-  const openPanel = useCallback((id: string) => {
-    setActivePanel(id);
-    setDockOpen(true);
-  }, [setActivePanel, setDockOpen]);
+  // Dock, drawer or stage tab: where each panel shows, and the moves between them.
+  const panelLayout = usePanelLayout({
+    panels, stage, setStage, stageTabs, dockOpen, setDockOpen, activePanel, setActivePanel, drawer, setDrawer,
+    showStage: () => setChatFocused(false),
+    focusedPanel: () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]")?.dataset.panelId,
+  });
+  const openPanel = panelLayout.openPanel;
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
   const openThread = useCallback((sessionId: string, options?: { pin?: boolean }) => { setStage((current) => openThreadTab(current, sessionId, options)); setChatFocused(false); }, []);
   useEffect(() => {
@@ -460,7 +464,7 @@ export default function App() {
   const actions = useWorkbenchActions({
     client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
     snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
-    composerRef, transcriptRef, openPanel, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
+    composerRef, transcriptRef, openPanel, closePanel: panelLayout.closePanel, togglePanelMaximized: panelLayout.toggleMaximized, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
     switchSession, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
     duplicateThread, setComposerSeed, setDockOpen, setNotice, openProjectSources,
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay,
@@ -568,7 +572,7 @@ export default function App() {
   const layout = useMemo<WorkbenchLayout>(() => ({
     controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions, panels, activePanel,
-    openedPanels: openedPanelIds, openPanel, dockOpen, setDockOpen, dockWidth, onDockWidthChange: setDockWidth,
+    openedPanels: openedPanelIds, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockWidth, onDockWidthChange: setDockWidth,
     centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, visibleStreaming, paletteOpen, closePalette,
@@ -578,7 +582,7 @@ export default function App() {
   }), [
     activePanel, activeOverlayId, activateStage, centerCompact, chatFocused, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
-    documentSource, documentState, dockOpen, dockWidth, setDockOpen, setDockWidth, newThreadOpen,
+    documentSource, documentState, dockOpen, dockWidth, drawer, panelLayout, setDockOpen, setDockWidth, newThreadOpen,
     openNewThreadPicker, openPanel, openedPanelIds,
     threadCommands, paletteOpen, panels, pinStage, projectSourcesOpen, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage,

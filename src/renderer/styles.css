@@ -49,18 +49,19 @@ button > svg { pointer-events: none; }
 /* ---------------------------------------------------------------- shell */
 
 .app-shell {
-  --sidebar-width: 282px;
+  --sidebar-width: 256px;
   --dock-width: 320px;
   width: 100vw; height: 100vh;
   display: grid;
-  grid-template: 46px minmax(0, 1fr) / var(--sidebar-width) minmax(480px, 1fr) calc(var(--dock-width) + 46px);
+  grid-template: 52px minmax(0, 1fr) / var(--sidebar-width) minmax(480px, 1fr) calc(var(--dock-width) + 46px);
   background: var(--shell);
   color: var(--ink);
 }
-/* Conversation and stage share the centre cell; the split mirrors CENTER_SPLIT_MIN_WIDTH in App.tsx. */
+/* The centre cell: conversation and stage, and a drawer panel below both. */
+.workbench-main { grid-area: 2 / 2 / 3 / 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* The split mirrors CENTER_SPLIT_MIN_WIDTH in Workbench.tsx. */
 .workbench-center {
-  grid-area: 2 / 2 / 3 / 3;
-  display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0;
+  flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0;
 }
 .workbench-center.stage-open { grid-template-columns: minmax(480px, 1fr) minmax(360px, 1.25fr); }
 /* Too narrow for both: the chat becomes the first tab of the stage. */
@@ -70,7 +71,6 @@ button > svg { pointer-events: none; }
 .workbench-center.stage-open.compact.chat-focused .stage { flex: none; }
 .workbench-center.stage-open.compact:not(.chat-focused) .conversation-column { display: none; }
 .app-shell.dock-closed { --dock-width: 0px; }
-.app-shell.no-sidebar, .app-shell.sidebar-closed { --sidebar-width: 0px; }
 /* The sidebar stays mounted while hidden, so its scroll and folds survive a toggle. */
 .sidebar-slot { display: contents; }
 .app-shell.sidebar-closed .sidebar-slot { display: none; }
@@ -97,20 +97,24 @@ button > svg { pointer-events: none; }
   grid-area: 1 / 1 / 2 / 4;
   -webkit-app-region: drag;
   display: flex; align-items: center; gap: 12px;
-  height: 46px; padding: 0 14px;
+  height: 52px; padding: 0 14px;
   border-bottom: 1px solid var(--line);
   background: var(--chrome);
   z-index: 20;
 }
-.title-bar button, .title-bar .menu-anchor { -webkit-app-region: no-drag; }
+.title-bar button, .title-bar .menu-anchor, .title-bar form { -webkit-app-region: no-drag; }
+/* Over the sidebar, so the breadcrumb starts where the conversation does. */
+.title-lead { flex: none; display: flex; align-items: center; width: calc(var(--sidebar-width) - 2px); min-width: min-content; }
+.title-breadcrumb { display: flex; align-items: center; gap: 10px; min-width: 0; font: 500 14px var(--sans); }
+.title-bar .title-project { flex: 0 1 auto; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: inherit; }
+.title-separator { color: var(--faint); }
+.title-draft { color: var(--ink); white-space: nowrap; }
 /* Room for the native macOS traffic lights, which are painted over this bar and
    ignore page zoom: the preload sets --page-zoom so the room stays in screen points. */
 .window-controls-inset { width: calc(76px / var(--page-zoom, 1)); flex: none; }
 .title-identity { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .title-identity > strong { font-weight: 700; font-size: 13px; }
 .title-identity > span { font: 11px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.title-identity > i { font: 10px var(--mono); color: var(--fainter); font-style: normal; }
-.title-identity > em { font: 11px var(--mono); color: var(--muted); font-style: normal; }
 .title-spacer { flex: 1; }
 
 .chrome-button {
@@ -447,10 +451,6 @@ button > svg { pointer-events: none; }
 @media (max-height: 620px) {
   .conversation-start-screen { align-items: flex-start; padding-top: 54px; }
 }
-.conversation-header {
-  flex: none; display: flex; align-items: center; gap: 12px;
-  height: 52px; padding: 0 var(--space-7); border-bottom: 1px solid var(--line);
-}
 .thread-runtime-banner {
   flex: none; display: flex; align-items: flex-start; gap: 10px; margin: 12px var(--space-7) 0; padding: 10px 12px;
   border: 1px solid var(--danger-line); border-radius: 10px; background: var(--danger-bg); color: var(--fail-ink);
@@ -464,7 +464,7 @@ button > svg { pointer-events: none; }
   min-width: 0; max-width: min(560px, 48vw); display: flex; align-items: center; gap: 6px;
   padding: 5px 7px; margin-left: -7px; border: 0; border-radius: 7px;
   background: transparent; color: var(--ink); cursor: pointer;
-  font: 700 15px var(--sans); letter-spacing: -.01em; text-align: left;
+  font: 600 14px var(--sans); text-align: left;
 }
 .thread-title-trigger:hover, .thread-title-trigger[aria-expanded="true"] { background: var(--raised); }
 .thread-title-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1253,21 +1253,26 @@ button > svg { pointer-events: none; }
   display: flex; min-height: 0;
   border-left: 1px solid var(--line); background: var(--rail);
 }
-.dock-resizer {
-  position: absolute; z-index: 20; inset: 0 auto 0 -4px; width: 8px;
-  cursor: col-resize; outline: none;
-}
-.dock-resizer::after {
-  content: ""; position: absolute; inset: 0 auto 0 3px; width: 1px;
-  background: transparent; transition: background .12s ease;
-}
-.dock-resizer:hover::after,
-.dock-resizer:focus-visible::after,
-body.dock-resizing .dock-resizer::after { background: var(--line-float); }
-body.dock-resizing, body.dock-resizing * { cursor: col-resize !important; user-select: none !important; }
-.panel-stage { width: var(--dock-width); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.resize-handle { position: absolute; z-index: 20; outline: none; }
+.resize-handle[aria-orientation="vertical"] { top: 0; bottom: 0; width: 8px; cursor: col-resize; }
+.resize-handle[aria-orientation="horizontal"] { left: 0; right: 0; height: 8px; cursor: row-resize; }
+.resize-handle::after { content: ""; position: absolute; inset: 0 auto 0 3px; width: 1px; background: transparent; transition: background .12s ease; }
+.resize-handle[aria-orientation="horizontal"]::after { inset: 3px 0 auto; width: auto; height: 1px; }
+.resize-handle:hover::after, .resize-handle:focus-visible::after { background: var(--line-float); }
+body.resizing-col, body.resizing-col * { cursor: col-resize !important; user-select: none !important; }
+body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-select: none !important; }
+.dock-resizer { left: -4px; }
+.sidebar-resizer { position: relative; grid-area: 2 / 1 / 3 / 2; justify-self: end; margin-right: -4px; }
+.drawer-resizer { top: -4px; }
+.panel-stage { position: relative; width: var(--dock-width); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+/* A panel's host moves between dock, drawer and stage; neither it nor its slot takes a box. */
+.panel-host, .panel-slot { display: contents; }
+.workbench-drawer { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); background: var(--rail); }
+.panel-maximize { position: absolute; z-index: 5; top: 12px; right: 12px; }
+.panel-stage .panel-header, .workbench-drawer .panel-header { padding-right: 48px; }
+
 .app-shell.dock-closed .panel-stage { display: none; }
-.panel { display: none; flex: 1; min-height: 0; }
+.panel { display: none; flex: 1; min-width: 0; min-height: 0; }
 .panel.active { display: flex; }
 .panel-rail {
   width: 46px; flex: none; display: flex; flex-direction: column; align-items: center;
@@ -2146,12 +2151,12 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-stage > header > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); font-weight: 400; }
 .review-stage > header .text-button { display: inline-flex; align-items: center; gap: 4px; }
 .review-toolbar > .text-button { white-space: nowrap; }
-.review-shell .icon-button, .instrument-dock .icon-button {
+.review-shell .icon-button, .panel-host .icon-button, .panel-maximize {
   width: 28px; height: 28px; display: grid; place-items: center; flex: none; padding: 0;
   border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;
 }
-.review-shell .icon-button:hover:not(:disabled), .instrument-dock .icon-button:hover:not(:disabled) { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
-.review-shell .icon-button.compact, .instrument-dock .icon-button.compact { width: 24px; height: 24px; }
+.review-shell .icon-button:hover:not(:disabled), .panel-host .icon-button:hover:not(:disabled), .panel-maximize:hover { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
+.review-shell .icon-button.compact, .panel-host .icon-button.compact { width: 24px; height: 24px; }
 .review-toolbar { padding: 0 8px !important; gap: 6px !important; }
 .review-sidebar-toggle { width: 30px; height: 28px; flex: none; }
 .review-sidebar-toggle.active { background: var(--raised); color: var(--ink); }
@@ -2584,7 +2589,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 }
 
 @media (max-width: 1240px) {
-  .app-shell { --sidebar-width: 240px; --dock-width: 260px; }
+  .app-shell { --dock-width: 260px; }
 }
 @media (max-width: 1040px) {
   .app-shell { grid-template-columns: var(--sidebar-width) minmax(320px, 1fr) 46px; --dock-width: 0px; }

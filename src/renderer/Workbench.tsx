@@ -1,4 +1,5 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties, type RefObject } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Folder, X } from "lucide-react";
 import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiProject, UiToolOutputPreview, UiToolRun, UiThreadTree } from "../shared/contracts";
 import type { UiEditor, UiFileContent, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
@@ -30,7 +31,15 @@ import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundar
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
-import type { ExtensionRegistry, PanelProps, WorkbenchActions } from "./extension-system";
+import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
+import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
+import { ResizeHandle } from "./components/ResizeHandle";
+import type { PanelLayout } from "./use-panel-layout";
+import { panelTabId } from "../workbench/stage";
+import {
+  DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
+  drawerMaxHeight, shownDrawerHeight, shownSidebarWidth, sidebarMaxWidth, storedDrawerHeight, storedSidebarWidth,
+} from "../workbench/layout-sizes";
 import { useClientStorage } from "./client-storage-context";
 import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
@@ -84,43 +93,19 @@ const LazyProjectPicker = lazy(() => import("./components/ProjectPicker").then((
 
 /** One frozen empty list for both contribution kinds the compact layout leaves out. */
 const EMPTY_CONTRIBUTIONS: never[] = [];
+const EMPTY_STAGED: ReadonlySet<string> = new Set();
 
 const loadFileUnavailable = async (path: string): Promise<UiFileContent> => ({ path, name: path.split("/").at(-1) ?? path, size: 0, kind: "text", text: "File contents require a document source." });
 const loadDiffUnavailable = async (path: string): Promise<UiFileDiff> => ({ path, added: 0, removed: 0, hunks: [], note: "Diffs require a document source." });
 
-export const MountedPanel = memo(function MountedPanel({
-  Component,
-  active,
-  label,
-  extensionId,
-  extensionName,
-  registry,
-  actions,
-  onNotify,
-}: {
-  Component: ComponentType<PanelProps>;
-  active: boolean;
-  label: string;
-  extensionId?: string;
-  extensionName: string;
-  registry?: ExtensionRegistry;
-  actions: WorkbenchActions;
-  onNotify?(message: string): void;
-}) {
-  return <div className={active ? "panel active" : "panel"}>
-    <LazyFeatureBoundary
-      label={label.toLowerCase()}
-      extensionId={extensionId}
-      extensionName={extensionName}
-      registry={registry}
-      onNotify={onNotify}
-    >
-      <Suspense fallback={<LazyFeatureFallback label={label.toLowerCase()} />}>
-        <Component active={active} extensionName={extensionName} actions={actions} />
-      </Suspense>
-    </LazyFeatureBoundary>
-  </div>;
-});
+export { MountedPanel };
+
+const subscribeToViewport = (onChange: () => void) => {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+};
+const viewportWidth = () => window.innerWidth;
+const viewportHeight = () => window.innerHeight;
 
 type DropController = ReturnType<typeof useThreadDropController>;
 type Settings = PreferencesState;
@@ -147,6 +132,10 @@ export interface WorkbenchLayout {
   activePanel: string;
   openedPanels: ReadonlySet<string>;
   openPanel(id: string): void;
+  /** Which panels are on the stage, and the moves between dock, drawer and stage. */
+  panelLayout?: PanelLayout;
+  /** The drawer panel showing below the conversation. */
+  drawer?: string;
   dockOpen: boolean;
   setDockOpen(open: boolean): void;
   /** The width this workspace was last left at; the default otherwise. */
@@ -270,7 +259,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const { actions, layout, thread, composer, view, toasts } = model;
   const {
     registry, threadStore, settings, layoutProfile, workspaceCwd, sidebarContributions: allSidebarContributions, panels: allPanels, activePanel,
-    openedPanels, openPanel, dockOpen, setDockOpen, dockWidth: restoredDockWidth, onDockWidthChange,
+    openedPanels, openPanel, panelLayout, drawer, dockOpen, setDockOpen, dockWidth: restoredDockWidth, onDockWidthChange,
     centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
@@ -291,12 +280,24 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const preferences = usePreferences();
   const hostCapabilities = useHostCapabilities();
   const platform = usePlatform();
+  // Sidebar width and drawer height belong to this client, not to a workspace.
+  const windowWidth = useSyncExternalStore(subscribeToViewport, viewportWidth);
+  const windowHeight = useSyncExternalStore(subscribeToViewport, viewportHeight);
+  const [sidebarWidth, setSidebarWidthState] = useState(() => storedSidebarWidth(clientStorage.get(STORAGE_KEYS.sidebarWidth)));
+  const setSidebarWidth = (width: number) => {
+    setSidebarWidthState(width);
+    clientStorage.set(STORAGE_KEYS.sidebarWidth, String(width));
+  };
+  const [drawerHeight, setDrawerHeightState] = useState(() => storedDrawerHeight(clientStorage.get(STORAGE_KEYS.drawerHeight)));
+  const setDrawerHeight = (height: number) => {
+    setDrawerHeightState(height);
+    clientStorage.set(STORAGE_KEYS.drawerHeight, String(height));
+  };
   const [dockWidth, setDockWidthState] = useState(() => storedDockWidth(clientStorage));
   // The workspace's own width arrives with its restored dock state.
   useEffect(() => {
     if (restoredDockWidth !== undefined) setDockWidthState(clampDockWidth(restoredDockWidth));
   }, [restoredDockWidth]);
-  const dockResizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   // One screen wide: the thread list is a sheet and the dock has nowhere to go.
   // The registry still holds those contributions; only this layout leaves them out.
   const compact = layoutProfile === "compact";
@@ -319,6 +320,15 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   }), [clientStorage]);
   const sidebarContributions = compact ? EMPTY_CONTRIBUTIONS : allSidebarContributions;
   const panels = compact ? EMPTY_CONTRIBUTIONS : allPanels;
+  const dockPanels = useMemo(() => panels.filter((panel) => panel.placement !== "drawer"), [panels]);
+  const drawerPanels = useMemo(() => panels.filter((panel) => panel.placement === "drawer"), [panels]);
+  const staged = panelLayout?.staged ?? EMPTY_STAGED;
+  const drawerPanel = drawerPanels.find((panel) => panel.id === drawer && !staged.has(panel.id));
+  const hostFor = usePanelHosts();
+  const activeDockPanel = dockPanels.find((panel) => panel.id === activePanel);
+  const maximizeShortcut = registry.keybindingLabel?.("rightPanel.toggleMaximized");
+  const sidebarShown = sidebarOpen && sidebarContributions.length > 0;
+  const shownSidebar = sidebarShown ? shownSidebarWidth(sidebarWidth, windowWidth) : 0;
   useEffect(() => { if (!compact) setThreadSheetOpen(false); }, [compact]);
   // The sheet is `aria-modal`, so core's own Escape binding stands down for it;
   // closing it is this listener's job.
@@ -340,26 +350,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     onDockWidthChange(bounded);
   };
 
-  const startDockResize = (event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    dockResizeCleanupRef.current?.();
-    const startX = event.clientX;
-    const startWidth = dockWidth;
-    const onMove = (moveEvent: PointerEvent) => setDockWidth(startWidth - (moveEvent.clientX - startX));
-    const onUp = () => dockResizeCleanupRef.current?.();
-    const cleanup = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.classList.remove("dock-resizing");
-      dockResizeCleanupRef.current = undefined;
-    };
-    dockResizeCleanupRef.current = cleanup;
-    document.body.classList.add("dock-resizing");
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  };
-
-  useEffect(() => () => dockResizeCleanupRef.current?.(), []);
 
   useEffect(() => {
     const element = centerRef.current;
@@ -379,7 +369,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     "app-shell",
     sidebarContributions.length === 0 ? "no-sidebar" : "",
     sidebarOpen ? "" : "sidebar-closed",
-    panels.length === 0 ? "no-dock" : "",
+    dockPanels.length === 0 ? "no-dock" : "",
     dockOpen ? "" : "dock-closed",
   ].filter(Boolean).join(" ");
 
@@ -500,14 +490,41 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
-    <div className={shellClassName} inert={Boolean(settingsPage)} style={{ "--dock-width": panels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px` } as CSSProperties}>
+    <div className={shellClassName} inert={Boolean(settingsPage)} style={{ "--dock-width": dockPanels.length === 0 || !dockOpen ? "0px" : `${dockWidth}px`, "--sidebar-width": `${shownSidebar}px` } as CSSProperties}>
       <TitleBar
         cwd={workspaceCwd}
         dockOpen={dockOpen}
-        hasDock={panels.length > 0}
+        hasDock={dockPanels.length > 0}
         registry={registry}
         snapshot={snapshot}
         actions={actions}
+        thread={showStartScreen ? <span className="title-draft">New thread</span> : <>
+          <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
+          <ThreadTitleMenu
+            title={conversationSnapshot?.sessionTitle || "Untitled thread"}
+            label={snapshot?.projectLabel}
+            pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
+            settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
+            onNewThread={openNewThreadPicker}
+            onOpenTree={() => openThreadTree("navigate")}
+            onOpenInstructions={() => setSystemPromptOpen(true)}
+            onDuplicate={() => void duplicateThread()}
+            onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
+            onToggleSettled={settleActiveThread}
+            onRename={renameThread}
+            commands={titleCommands}
+            onCommand={(id) => { void titleCommands.find((command) => command.id === id)?.run(actions); }}
+            onMarkUnread={() => { if (snapshot?.sessionId) threadStore.markUnread(snapshot.sessionId); }}
+            onCopy={(kind) => void copyThreadValue(kind)}
+            canCopyPath={hostCapabilities.localFiles}
+          />
+        </>}
+        drawers={drawerPanels.map((panel) => ({
+          id: panel.id,
+          label: panel.label,
+          open: drawer === panel.id,
+          onToggle: () => (drawer === panel.id ? actions.closePanel?.(panel.id) : openPanel(panel.id)),
+        }))}
         onToggleDock={() => setDockOpen(!dockOpen)}
         {...(compact ? { onOpenThreads: () => setThreadSheetOpen(true) } : {})}
       />
@@ -521,6 +538,18 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       >
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
       </LazyFeatureBoundary>)}</div>
+      {sidebarShown && !compact ? <ResizeHandle
+        className="sidebar-resizer"
+        label="Resize sidebar"
+        orientation="vertical"
+        grows="right"
+        value={shownSidebar}
+        min={SIDEBAR_MIN_WIDTH}
+        max={sidebarMaxWidth(windowWidth)}
+        defaultValue={SIDEBAR_DEFAULT_WIDTH}
+        onChange={setSidebarWidth}
+      /> : null}
+      <div className="workbench-main">
       <div className={centerClassName} ref={centerRef}>
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}`}
@@ -557,28 +586,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           <div className="conversation-thread">
             {!showStartScreen ? <>
               <Region registry={registry} placement="transcript-header" snapshot={snapshot} actions={actions} />
-              <header className="conversation-header">
-                <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
-                <ThreadTitleMenu
-                  title={conversationSnapshot?.sessionTitle || "Untitled thread"}
-                  label={snapshot?.projectLabel}
-                  pinned={Boolean(snapshot?.sessionId && settings.pinnedThreadIds.includes(snapshot.sessionId))}
-                  settled={Boolean(snapshot?.sessionId && settings.settledThreadIds.includes(snapshot.sessionId))}
-                  onNewThread={openNewThreadPicker}
-                  onOpenTree={() => openThreadTree("navigate")}
-                  onOpenInstructions={() => setSystemPromptOpen(true)}
-                  onDuplicate={() => void duplicateThread()}
-                  onTogglePin={() => { if (snapshot?.sessionId) preferences.togglePinned(snapshot.sessionId); }}
-                  onToggleSettled={settleActiveThread}
-                  onRename={renameThread}
-                  commands={titleCommands}
-                  onCommand={(id) => { void titleCommands.find((command) => command.id === id)?.run(actions); }}
-                  onMarkUnread={() => { if (snapshot?.sessionId) threadStore.markUnread(snapshot.sessionId); }}
-                  onCopy={(kind) => void copyThreadValue(kind)}
-                  canCopyPath={hostCapabilities.localFiles}
-                />
-                <span className="title-spacer" />
-              </header>
               {snapshot?.sessionId ? <ThreadRuntimeBanner
                 sessionId={snapshot.sessionId}
                 onRetry={(path) => void actions.switchSession(path)}
@@ -615,55 +622,93 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               onChangeView={setStageFileView}
               onOpenInEditor={(path) => platform.files?.openInEditor(path)}
               onTakeOverThread={takeOverThread}
+              renderPanel={(panelId) => {
+                const panel = panels.find((entry) => entry.id === panelId);
+                if (!panel) return null;
+                return <>
+                  <PanelSlot host={hostFor(panel.id)} />
+                  <PanelMaximizeButton label={panel.label} maximized shortcut={maximizeShortcut} onToggle={() => panelLayout?.restore(panel.id)} />
+                </>;
+              }}
             />
           </Suspense>
         </LazyFeatureBoundary> : null}
       </div>
-      {panels.length > 0 ? <aside className="instrument-dock">
-        {dockOpen ? <div
+      {drawerPanel ? <section className="workbench-drawer" aria-label={drawerPanel.label} style={{ height: shownDrawerHeight(drawerHeight, windowHeight) }}>
+        <ResizeHandle
+          className="drawer-resizer"
+          label={`Resize ${drawerPanel.label} drawer`}
+          orientation="horizontal"
+          grows="up"
+          value={shownDrawerHeight(drawerHeight, windowHeight)}
+          min={DRAWER_MIN_HEIGHT}
+          max={drawerMaxHeight(windowHeight)}
+          defaultValue={DRAWER_DEFAULT_HEIGHT}
+          onChange={setDrawerHeight}
+        />
+        <PanelSlot host={hostFor(drawerPanel.id)} />
+        {drawerPanel.maximizable ? <PanelMaximizeButton label={drawerPanel.label} maximized={false} shortcut={maximizeShortcut} onToggle={() => panelLayout?.maximize(drawerPanel.id)} /> : null}
+      </section> : null}
+      </div>
+      {dockPanels.length > 0 ? <aside className="instrument-dock">
+        {dockOpen ? <ResizeHandle
           className="dock-resizer"
-          role="separator"
-          aria-label="Resize right sidebar"
-          aria-orientation="vertical"
-          aria-valuemin={MIN_DOCK_WIDTH}
-          aria-valuemax={MAX_DOCK_WIDTH}
-          aria-valuenow={dockWidth}
-          tabIndex={0}
-          {...tooltipProps("Drag to resize. Double-click to reset.", { side: "left" })}
-          onPointerDown={startDockResize}
-          onDoubleClick={() => setDockWidth(DEFAULT_DOCK_WIDTH)}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home") return;
-            event.preventDefault();
-            setDockWidth(event.key === "Home" ? DEFAULT_DOCK_WIDTH : dockWidth + (event.key === "ArrowLeft" ? 16 : -16));
-          }}
+          label="Resize right sidebar"
+          orientation="vertical"
+          grows="left"
+          value={dockWidth}
+          min={MIN_DOCK_WIDTH}
+          max={MAX_DOCK_WIDTH}
+          defaultValue={DEFAULT_DOCK_WIDTH}
+          onChange={setDockWidth}
         /> : null}
-        {dockOpen ? <div className="panel-stage">{panels.map((panel) => openedPanels.has(panel.id) ? <MountedPanel
-          key={panel.id}
-          Component={panel.Component}
-          active={activePanel === panel.id}
-          label={panel.label}
-          extensionId={panel.extensionId}
-          extensionName={panel.extensionName}
-          registry={registry}
-          actions={actions}
-          onNotify={actions.notify}
-        /> : null)}</div> : null}
+        {dockOpen ? <div className="panel-stage">
+          {dockPanels.map((panel) => openedPanels.has(panel.id) && !staged.has(panel.id) ? <PanelSlot key={panel.id} host={hostFor(panel.id)} /> : null)}
+          {staged.has(activePanel) ? <div className="panel-on-stage" role="status">
+            <p>{activeDockPanel?.label ?? "This panel"} is open as a tab.</p>
+            <button type="button" className="chrome-button" onClick={() => openPanel(activePanel)}>Show tab</button>
+            <button type="button" className="chrome-button" onClick={() => panelLayout?.restore(activePanel)}>Move back here</button>
+          </div> : activeDockPanel?.maximizable && panelLayout ? <PanelMaximizeButton label={activeDockPanel.label} maximized={false} shortcut={maximizeShortcut} onToggle={() => panelLayout.maximize(activeDockPanel.id)} /> : null}
+        </div> : null}
         <nav className="panel-rail">
-          {panels.map((panel) => <button
-            key={panel.id}
-            {...tooltipProps(panel.label, { side: "left" })}
-            aria-label={panel.label}
-            className={dockOpen && activePanel === panel.id ? "active" : ""}
-            aria-pressed={dockOpen && activePanel === panel.id}
-            onClick={() => dockOpen && activePanel === panel.id ? setDockOpen(false) : openPanel(panel.id)}
-          ><PanelIcon Icon={panel.Icon} /></button>)}
+          {dockPanels.map((panel) => {
+            const onStage = staged.has(panel.id);
+            const shown = dockOpen && activePanel === panel.id && !onStage;
+            return <button
+              key={panel.id}
+              {...tooltipProps(onStage ? `${panel.label} (open as a tab)` : panel.label, { side: "left" })}
+              aria-label={panel.label}
+              className={[shown ? "active" : "", onStage ? "on-stage" : ""].filter(Boolean).join(" ")}
+              aria-pressed={shown}
+              onClick={() => shown ? setDockOpen(false) : openPanel(panel.id)}
+            ><PanelIcon Icon={panel.Icon} /></button>;
+          })}
           <span className="spacer" />
         </nav>
       </aside> : null}
     </div>
     {overlays}
     {floats}
+    {panels.map((panel) => {
+      const onStage = staged.has(panel.id);
+      const inDrawer = panel.placement === "drawer";
+      if (!(onStage || (inDrawer ? drawer === panel.id : dockOpen && openedPanels.has(panel.id)))) return null;
+      const placement = onStage ? "stage" : inDrawer ? "drawer" : "dock";
+      const active = onStage
+        ? stage.activeId === panelTabId(panel.id) && !(centerCompact && chatFocused)
+        : inDrawer || (dockOpen && activePanel === panel.id);
+      return createPortal(<MountedPanel
+        Component={panel.Component}
+        active={active}
+        placement={placement}
+        label={panel.label}
+        extensionId={panel.extensionId}
+        extensionName={panel.extensionName}
+        registry={registry}
+        actions={actions}
+        onNotify={actions.notify}
+      />, hostFor(panel.id), panel.id);
+    })}
   </>);
 });
 
