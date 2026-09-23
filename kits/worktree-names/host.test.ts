@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HostThread } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
-import { branchNameFromSuggestion, buildNamingPrompt, createWorktreeNamesHostExtension } from "./host.js";
+import { branchNameFromSuggestion, buildNamingPrompt, createWorktreeNamesHostExtension, isSmallModel, smallNamingModel } from "./host.js";
 import { WORKTREE_NAMES_HOST_EXTENSION_ID } from "./protocol.js";
 
 describe("branch names from model answers", () => {
@@ -25,9 +25,40 @@ describe("branch names from model answers", () => {
   });
 });
 
+describe("the model that names a branch", () => {
+  const catalog = [
+    { provider: "openai-codex", id: "gpt-5.6-sol", name: "Sol" },
+    { provider: "openai-codex", id: "gpt-5.6-luna", name: "Luna" },
+    { provider: "anthropic", id: "claude-opus-4-1", name: "Opus" },
+    { provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" },
+  ];
+  const services = { completionModels: async () => catalog };
+
+  it("keeps a small draft model, swaps a large one for a small one of its provider, else takes any small one", async () => {
+    await expect(smallNamingModel(services, { provider: "anthropic", id: "claude-haiku-4-5" })).resolves.toEqual({ provider: "anthropic", id: "claude-haiku-4-5" });
+    await expect(smallNamingModel(services, { provider: "openai-codex", id: "gpt-5.6-sol" })).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
+    await expect(smallNamingModel(services, { provider: "google", id: "gemini-2.5-pro" })).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
+    await expect(smallNamingModel(services, undefined)).resolves.toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
+  });
+
+  it("leaves the default to the host when nothing small is reachable", async () => {
+    await expect(smallNamingModel({ completionModels: async () => [catalog[0]!] }, { provider: "openai-codex", id: "gpt-5.6-sol" })).resolves.toBeUndefined();
+    await expect(smallNamingModel({}, undefined)).resolves.toBeUndefined();
+  });
+
+  it("knows the small tiers by their ids", () => {
+    for (const id of ["claude-haiku-4-5-20251001", "gpt-5-mini", "gpt-4.1-nano", "gemini-2.5-flash", "gemini-2.0-flash-lite", "gpt-5.6-luna", "deepseek-flash", "mistral-small-latest"]) {
+      expect(isSmallModel(id), id).toBe(true);
+    }
+    for (const id of ["claude-opus-4-1", "claude-sonnet-4-5", "gpt-5.6-sol", "gpt-5.6-terra", "gemini-2.5-pro", "minimax-m2", "o3"]) {
+      expect(isSmallModel(id), id).toBe(false);
+    }
+  });
+});
+
 describe("Worktree Names host extension", () => {
-  const registryWith = (thread: HostThread | undefined, complete = vi.fn(async () => "x"), owner: "tau" | "pi" = "tau") =>
-    activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread, complete });
+  const registryWith = (thread: HostThread | undefined, complete = vi.fn(async () => "x"), owner: "tau" | "pi" = "tau", models: Array<{ provider: string; id: string; name: string }> = []) =>
+    activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread, complete, completionModels: async () => models });
 
   const anyThread = (backendKind = "pi") => ({ backendKind }) as unknown as HostThread;
 
@@ -49,6 +80,16 @@ describe("Worktree Names host extension", () => {
     await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { description: "Add Gemini notes" }))
       .resolves.toEqual({ branch: "add-gemini-notes" });
     expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toBeUndefined();
+  });
+
+  it("never names a branch on the draft's large model", async () => {
+    const complete = vi.fn(async () => "fix-queue");
+    const registry = await registryWith(anyThread(), complete, "tau", [
+      { provider: "openai-codex", id: "gpt-5.6-sol", name: "Sol" },
+      { provider: "openai-codex", id: "gpt-5.6-luna", name: "Luna" },
+    ]);
+    await registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { prefer: { provider: "openai-codex", id: "gpt-5.6-sol" }, description: "Fix the queue" });
+    expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
   });
 
   it("refuses without a task or a thread", async () => {

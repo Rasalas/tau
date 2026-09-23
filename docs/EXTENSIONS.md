@@ -1019,7 +1019,9 @@ about which model should name it, and a thread whose runtime cannot complete
 would otherwise go unnamed. It needs the `sessions` permission. The models it accepts are the snapshot's
 `completionModels`, which a `kind: "model"` option offers the user; they are the
 same list whatever runtime owns the visible thread, while `models` stays that
-thread's own.
+thread's own. A host half reads the same list with `completionModels()` (new in
+API 1.11.0, `sessions`, in-process only; absent on an older host); Worktree
+Names picks a small model from it when the user chose none.
 
 A registered backend's `label` is what the workbench calls it where a new
 thread's runtime is chosen (the composer's runtime chip, Settings → Defaults);
