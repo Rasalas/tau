@@ -46,8 +46,16 @@ describe("Settings → Providers", () => {
     expect(within(cards[0]!).getByText("early body")).toBeTruthy();
   });
 
-  it("opens Providers for a card's own id, so an old link to the page still lands", () => {
-    renderScreen("late.card");
-    expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
+  it("opens Providers for a card's own id, so an old link to the page still lands, scrolled to that card", () => {
+    const scrolled: string[] = [];
+    // jsdom has no scrolling of its own.
+    HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) { scrolled.push(this.id); };
+    try {
+      renderScreen("late.card");
+      expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
+      expect(scrolled).toEqual(["provider-card-late.card"]);
+    } finally {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
   });
 });

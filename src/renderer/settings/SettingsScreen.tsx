@@ -16,7 +16,7 @@ import { DefaultsPage } from "./DefaultsPage";
 import { ExtensionPage, useAwaitingApproval } from "./ExtensionPage";
 import { InspectorPage } from "./InspectorPage";
 import { KeybindingsPage } from "./KeybindingsPage";
-import { ProvidersPage } from "./ProvidersPage";
+import { ProvidersPage, providerCardId } from "./ProvidersPage";
 import { inRuntimeOrder } from "../runtime-order";
 import "./settings.css";
 
@@ -193,7 +193,12 @@ export function SettingsScreen({
   }, [page, target]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { scrollRef.current?.scrollTo?.({ top: 0 }); }, [page]);
+  // A card's own id opens Providers at that card; every other page starts at the top.
+  useEffect(() => {
+    const card = onProviders && page !== "providers" ? document.getElementById(providerCardId(page)) : null;
+    if (card?.scrollIntoView) card.scrollIntoView({ block: "start" });
+    else scrollRef.current?.scrollTo?.({ top: 0 });
+  }, [onProviders, page]);
 
   useEffect(() => {
     const mac = isMacPlatform();
