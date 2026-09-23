@@ -57,15 +57,32 @@ describe("ChangedFiles", () => {
     expect(view.getByText(/4 files omitted/)).toBeTruthy();
   });
 
-  it("keeps a verified no-change checkpoint actionable for restore", () => {
-    const onRestore = vi.fn();
+  it("draws nothing for a turn that changed no files, even one that could be rewound", () => {
     const view = render(<ChangedFiles
       changes={{ files: [], fileCount: 0, added: 0, removed: 0 }}
+      label="Turn changes"
       onOpenDiff={vi.fn()}
-      onRestore={onRestore}
+      onRestore={vi.fn()}
     />);
+
+    expect(view.container.innerHTML).toBe("");
+  });
+
+  it("offers Rewind on a card with changes", () => {
+    const onRestore = vi.fn();
+    const view = render(<ChangedFiles changes={changes} onOpenDiff={vi.fn()} onRestore={onRestore} />);
 
     fireEvent.click(view.getByText("Rewind"));
     expect(onRestore).toHaveBeenCalledOnce();
+  });
+
+  it("leaves no empty preview row when there are no files to preview", () => {
+    const view = render(<ChangedFiles
+      changes={{ files: [], fileCount: 0, added: 0, removed: 0, completeness: "partial" }}
+      onOpenDiff={vi.fn()}
+    />);
+
+    expect(view.container.querySelector(".transcript-card")).not.toBeNull();
+    expect(view.container.querySelector(".changed-files-preview")).toBeNull();
   });
 });

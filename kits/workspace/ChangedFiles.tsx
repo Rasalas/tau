@@ -21,9 +21,11 @@ export function ChangedFiles({
   const { files: loadedFiles, fileCount, hasMore, loading, error: loadError, loadNextPage } = usePagedWorkspaceFiles(changes, loadFiles);
 
   const isPartial = changes.completeness === "partial";
-  if (fileCount === 0 && !isPartial && !onRestore) return null;
+  // Nothing changed is nothing to show, not a card that says "0 changed files".
+  if (fileCount === 0 && !isPartial) return null;
   const previewFiles = loadedFiles.slice(0, 3);
   const remainingFiles = Math.max(0, fileCount - previewFiles.length);
+  const hasPreview = previewFiles.length > 0 || remainingFiles > 0;
 
   return (
     <section className="transcript-card">
@@ -66,7 +68,7 @@ export function ChangedFiles({
         {changes.incompleteReason ?? "Snapshot coverage is partial; some workspace changes may be omitted."}
         {changes.omittedFileCount ? ` (${changes.omittedFileCount} file${changes.omittedFileCount === 1 ? "" : "s"} omitted)` : ""}
       </p> : null}
-      {!open ? (
+      {!open && hasPreview ? (
         <button className="changed-files-preview" type="button" onClick={() => setOpen(true)}>
           <span className="changed-files-preview-pills">
             {previewFiles.map((file) => (

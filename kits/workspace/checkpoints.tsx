@@ -89,6 +89,15 @@ export class CheckpointStore {
   }
 }
 
+/**
+ * A turn that changed no files draws no card. Its checkpoint stays listed, so
+ * later turns still count it and the host keeps it; only a partial capture,
+ * which may have missed changes, is shown without known files.
+ */
+export function checkpointHasCard(checkpoint: UiTurnCheckpoint): boolean {
+  return checkpoint.completeness === "partial" || (checkpoint.fileCount ?? checkpoint.files.length) > 0;
+}
+
 function mergeCheckpoints(persisted: readonly UiTurnCheckpoint[] | undefined, live: Map<string, UiTurnCheckpoint>): UiTurnCheckpoint[] {
   const byId = new Map<string, UiTurnCheckpoint>();
   for (const checkpoint of persisted ?? []) byId.set(checkpoint.id, checkpoint);
@@ -109,6 +118,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
     const listed = state.sessionId === sessionId;
     const restoreSupported = listed && state.restoreSupported;
     const checkpoints = useMemo(() => mergeCheckpoints(listed ? state.persisted : undefined, state.live), [listed, state.persisted, state.live]);
+    const carded = useMemo(() => checkpoints.filter(checkpointHasCard), [checkpoints]);
 
     // The host lists the thread's checkpoints once per thread; live events add
     // to them. A thread reset (the active-thread event) empties the list, so it
@@ -147,7 +157,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
     useEffect(() => {
       if (!sessionId || !restoreSupported || streaming || !hostAvailable()) { store.update({ restorable: new Set() }); return; }
       let cancelled = false;
-      void Promise.all(checkpoints.map(async (checkpoint) => {
+      void Promise.all(carded.map(async (checkpoint) => {
         if (checkpoint.completeness === "partial") return undefined;
         try { return await workspaceStore.host.canRestoreCheckpoint(sessionId, checkpoint.id) ? checkpoint.id : undefined; }
         catch { return undefined; }
@@ -155,7 +165,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
         if (!cancelled) store.update({ restorable: new Set(ids.filter((id): id is string => Boolean(id))) });
       });
       return () => { cancelled = true; };
-    }, [sessionId, restoreSupported, checkpoints, streaming, state.verifyGeneration]);
+    }, [sessionId, restoreSupported, carded, streaming, state.verifyGeneration]);
 
     const requestRestore = useCallback(async (checkpoint: UiTurnCheckpoint) => {
       if (checkpoint.completeness === "partial") { actions.notify("This checkpoint is incomplete and cannot be restored safely. Use Fork instead."); return; }
@@ -207,10 +217,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
     // Rows: one card per checkpoint whose anchor the transcript can place.
     useEffect(() => {
       if (!sessionId) return;
-      const visible = checkpoints.filter((checkpoint) => checkpoint.completeness === "partial"
-        || (checkpoint.fileCount ?? checkpoint.files.length) > 0
-        || restoreSupported);
-      const list: TranscriptRow[] = visible.map((checkpoint) => ({
+      const list: TranscriptRow[] = carded.map((checkpoint) => ({
         id: checkpoint.id,
         afterMessageId: checkpoint.anchorMessageId,
         content: (
@@ -225,7 +232,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
         ),
       }));
       rows.setRows(sessionId, list);
-    }, [actions, checkpoints, requestRestore, restoreSupported, sessionId, state.restorable, streaming]);
+    }, [actions, carded, requestRestore, restoreSupported, sessionId, state.restorable, streaming]);
 
     void snapshot;
     if (!state.restore) return null;
