@@ -131,6 +131,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             onMessage: thread.onMessage,
             onEvent: thread.onEvent,
             ask: thread.ask,
+            ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
             onSignIn: (link, signInThreadId) => context.emit(ANTIGRAVITY_SIGN_IN_EVENT, { threadId: signInThreadId, url: link.authorizationUrl } satisfies AntigravitySignInEvent),
           });
           await backend.start(resume ? "resume" : "create");
@@ -226,6 +227,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             updatedAt: entry.updatedAt,
             ...(model ? { model } : {}),
             ...(entry.usage ? { usage: { ...entry.usage } } : {}),
+            ...(entry.usageTurns ? { turns: entry.usageTurns } : {}),
           };
         }),
       }), { callers: [USAGE_KIT_ID] });
