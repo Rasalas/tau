@@ -44,6 +44,43 @@ export interface FlowState {
   busy?: "projects" | "import";
   progress?: { done: number; total: number };
   error?: string;
+  /** What runs in a terminal while the wizard stands aside for it. */
+  terminal?: string;
+  /** The agent row whose sign-in or command is open, so it is open again when the wizard comes back. */
+  expanded?: string;
+}
+
+/** Clones of one repository, or one folder: what the projects step lists as a row or a group. */
+export interface ProjectGroup {
+  key: string;
+  /** The remote's `owner/name`, else the folder's name. */
+  label: string;
+  projects: ProjectCandidate[];
+  sources: ProjectCandidate["sources"];
+  threadCount: number;
+  lastActiveAt: number;
+}
+
+/**
+ * T3 Code's grouping: clones of one remote share a group, a repository
+ * without one is a group of its own, newest activity first; folders that are
+ * not repositories come apart, to be folded away.
+ */
+export function groupProjects(candidates: readonly ProjectCandidate[]): { repositories: ProjectGroup[]; other: ProjectCandidate[] } {
+  const groups = new Map<string, ProjectGroup>();
+  const other: ProjectCandidate[] = [];
+  for (const project of candidates) {
+    if (!project.git) { other.push(project); continue; }
+    const key = project.remote ? `remote:${project.remote.key}` : `path:${project.path}`;
+    const group = groups.get(key) ?? { key, label: project.remote?.label ?? project.name, projects: [], sources: [], threadCount: 0, lastActiveAt: 0 };
+    group.projects.push(project);
+    group.threadCount += project.threadCount;
+    group.lastActiveAt = Math.max(group.lastActiveAt, project.lastActiveAt);
+    for (const source of project.sources) if (!group.sources.includes(source)) group.sources.push(source);
+    groups.set(key, group);
+  }
+  const repositories = [...groups.values()].sort((left, right) => right.lastActiveAt - left.lastActiveAt || left.label.localeCompare(right.label));
+  return { repositories, other };
 }
 
 /** T3 Code's default: repositories active in the last 30 days with at least three conversations. */
@@ -245,6 +282,21 @@ export class WelcomeFlow {
       (discovery) => this.set({ discovery: discovery as Discovery }),
       (error) => this.set({ discoverError: message(error) }),
     );
+  }
+
+  expand(row: string | undefined): void {
+    this.set({ expanded: row });
+  }
+
+  /** Asks for gh and glab again, after an install or a sign-in in a terminal. */
+  checkTools(): void {
+    this.set({ tools: undefined });
+    this.askTools();
+  }
+
+  /** Marks the wizard as standing aside for a terminal; `undefined` when it is back. */
+  setTerminal(label: string | undefined): void {
+    this.set({ terminal: label });
   }
 
   goTo(step: FlowState["step"]): void {

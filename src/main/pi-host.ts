@@ -2172,6 +2172,8 @@ export class PiHost {
   runtimeCatalogs(revalidate = false, known?: Record<string, number>): Promise<UiRuntimeCatalog[]> { return this.catalogs.list(revalidate, known); }
   /** The user edited `modelPrices`; totals already published are worked out again. */
   modelPricesChanged(): void { this.pricing.reloadPrices(); }
+  /** `extensions.watch` changed: follow Tau's files again, or stop. */
+  async watchingChanged(): Promise<void> { await this.watch?.retarget(); }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {
     return loadModelsConfig(this.agentDir);

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NewThreadClaimEvent, UiModel, UiSession, WorkbenchActions } from "tau";
 import { createKitHarness, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import threadRailExtension from "./desktop.js";
 import {
   META_EVENT,
@@ -501,7 +502,8 @@ describe("Thread Rail on the desktop", () => {
       const { registry, preferences } = setup({ confirmations: true });
       await flush();
       const page = registry.getSettingsPages().find((entry) => entry.id === "thread-rail.settings")!;
-      const { getByRole } = render(<page.Component cwd="/project" onNotify={() => undefined} />);
+      const { getByRole } = render(<TestProviders preferences={preferences}><page.Component cwd="/project" onNotify={() => undefined} /></TestProviders>);
+      expect(getByRole("heading", { level: 2, name: "Ask first" })).toBeTruthy();
       const archive = getByRole("switch", { name: "Before archiving a thread" });
       expect(archive.getAttribute("aria-checked")).toBe("false");
       expect(getByRole("switch", { name: "Before deleting a thread" }).getAttribute("aria-checked")).toBe("true");

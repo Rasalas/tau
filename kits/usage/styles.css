@@ -18,9 +18,8 @@
 .usage-tile-value { margin-top: 4px; font: 600 18px var(--mono); color: var(--ink); }
 .usage-tile-detail { margin-top: 2px; font: 10px var(--mono); color: var(--muted-2); line-height: 1.5; }
 
-.usage-table-head { display: flex; align-items: center; gap: 10px; }
-.usage-table-head .segmented { flex: 1; max-width: 340px; letter-spacing: 0; }
-.usage-table-head .segmented > button { padding: 5px 0; font-size: 11px; }
+.usage-grouping { width: 340px; letter-spacing: 0; }
+.usage-grouping > button { padding: 5px 0; font-size: 11px; }
 /* Fixed layout: the name column takes what the numbers leave, and a long path ellipsizes inside it. */
 .usage-table { table-layout: fixed; }
 .usage-table th.usage-number { width: 66px; }

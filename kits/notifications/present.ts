@@ -3,7 +3,7 @@ import type { AttentionItem, AttentionReason } from "./protocol.js";
 export type NotificationMode = "off" | "notification" | "sound" | "both";
 export type SoundName = "chime" | "ping";
 
-/** One client's own choices; another machine attached to the same host keeps its own. */
+/** The user's choices, kept in the host's config (`values` and `options` of this kit) like any setting. */
 export interface NotificationSettings {
   mode: NotificationMode;
   sound: SoundName;

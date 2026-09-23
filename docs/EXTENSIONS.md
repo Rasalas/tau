@@ -2130,9 +2130,12 @@ The panels of a reloaded package remount, so whatever state they held is gone.
 That is the price of swapping a module in place, and it is why only the package
 you edited is swapped.
 
-**Turning it off.** `extensions.watch: false` in `~/.tau/config.json` (or
+**Turning it off.** Settings → Defaults → "Reload files when they change", or
+`extensions.watch: false` in `~/.tau/config.json` (or
 `<project>/.tau/config.json`), or `TAU_NO_WATCH=1` in the environment, stops
-the host from watching anything; `/reload` then applies changes as before.
+the host from watching anything; `/reload` then applies changes as before. The
+switch applies at once; a hand edit of the file can turn watching off, but only
+the switch (or a restart) turns it back on, since nothing watches the file then.
 Safe mode (`TAU_NO_EXTENSIONS=1`) watches nothing either — it exists so that no
 extension loads at all.
 
@@ -2608,6 +2611,7 @@ their pixels until a visual pass moves them.
 | `--code-font-family`, `--code-font-scale` | code blocks, tool output, the file view and diffs | `--mono`, `1` |
 | `data-density` | Appearance Kit's stylesheet, into `--density` | normal |
 | `data-timestamps` | message and tool timestamps: `12h`, `24h` or `locale` | 24-hour |
+| `--panel-motion` | how long the sidebar and the dock take to open or close, and the drawer to open; never while a divider is dragged or the system asks for reduced motion | `0ms` |
 
 `--project-hue` is not a token: the thread row sets it per project, and
 `--project-tint` and `--project-ink` say how deep that hue reads. The same goes

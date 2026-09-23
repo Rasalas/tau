@@ -304,6 +304,14 @@ describe("HostConfigManager", () => {
       expect((await manager.read()).updates).toBeUndefined();
     });
 
+    it("writes extensions.watch to the host level and clears it back to the default", async () => {
+      await manager.update({ extensions: { watch: false } }, "global");
+      expect(JSON.parse(await readFile(globalPath, "utf8")).extensions).toEqual({ watch: false });
+      expect((await manager.read()).extensions?.watch).toBe(false);
+      await manager.clear(["extensions.watch"], "global");
+      expect((await manager.read()).extensions).toBeUndefined();
+    });
+
     it("keeps the quit confirmations key by key and drops a mode it does not know", async () => {
       await manager.update({ confirm: { quit: "double-press" } }, "global");
       await manager.update({ confirm: { quitWhileRunning: false } }, "global");

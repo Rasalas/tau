@@ -27,6 +27,8 @@ export interface WorkspaceWatchOptions {
   refreshPackages(ids: readonly string[]): Promise<void>;
   /** Everything else that moved; kits and clients decide what to re-read. */
   configChanged(change: { kind: ConfigChangeKind; paths: readonly string[] }): void;
+  /** `extensions.watch`, asked at every retarget; off, nothing is watched. */
+  enabled?(): boolean;
   log?(label: string, detail?: string): void;
   debounceMs?: number;
   /** Test seam: builds the watcher this wiring drives. */
@@ -60,8 +62,12 @@ export class WorkspaceWatch {
     this.watcher = options.createWatcher?.(watcherOptions) ?? new ConfigWatcher(watcherOptions);
   }
 
-  /** Attaches the watches for the open workspace; also called after a project switch. */
+  /** Attaches the watches for the open workspace; also called after a project switch and when `extensions.watch` changes. */
   async retarget(): Promise<void> {
+    if (this.options.enabled?.() === false) {
+      this.watcher.setTargets([]);
+      return;
+    }
     const cwd = this.options.cwd();
     const home = this.options.home ?? homedir();
     const folders = await listInstalledSources(cwd, home).catch(() => []);

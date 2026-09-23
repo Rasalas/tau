@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { DesktopExtension } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import terminal from "./desktop.js";
 import { terminalFont } from "./store.js";
 import {
@@ -26,6 +28,21 @@ describe("terminal placement", () => {
     expect(placed()).toEqual([["dock", true]]);
     registry.deactivate(terminal.id);
     expect(placed()).toEqual([]);
+  });
+});
+
+describe("Settings → Terminal", () => {
+  it("is a row with the level the placement comes from, and moves the panel", () => {
+    const { registry, preferences } = createKitHarness();
+    registry.activate(terminal);
+    const page = registry.getSettingsPages().find((entry) => entry.id === "terminal.settings")!;
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    expect(screen.getByRole("heading", { level: 3, name: "Show the terminal in" })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("group", { name: "Show the terminal in" })).getByRole("button", { name: "Drawer" }));
+    expect(preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING)).toBe("drawer");
+    expect(registry.getPanels().find((panel) => panel.id === TERMINAL_PANEL)?.placement).toBe("drawer");
+    cleanup();
+    registry.deactivate(terminal.id);
   });
 });
 

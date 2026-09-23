@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { Bell, CircleAlert, CircleCheck, MessageCircleQuestionMark, ShieldQuestionMark, X, type LucideIcon } from "lucide-react";
+import { SettingRow, SettingsSection, useSetting } from "tau";
 import type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -225,22 +226,29 @@ function createToastRegion(coordinator: Coordinator) {
   };
 }
 
+const MODE_LABELS = Object.fromEntries(MODES.map((mode) => [mode.value, mode.label])) as Record<NotificationSettings["mode"], string>;
+const SOUND_LABELS = Object.fromEntries(SOUNDS.map((sound) => [sound.value, sound.label])) as Record<NotificationSettings["sound"], string>;
+const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
+
 function createSettingsPage(context: DesktopExtensionContext) {
   return function NotificationSettingsPage({ onNotify }: SettingsPageProps) {
     const preferences = context.preferences;
     useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-    const settings = readSettings(preferences);
     const attention = context.attention;
-    const toggle = (option: "toasts" | "when-focused", on: boolean, label: string, hint: string) => (
-      <div className="settings-field-row">
-        <span className="settings-field-label"><strong>{label}</strong><small>{hint}</small></span>
-        <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "on" : ""}`} onClick={() => preferences.setOption(ID, option, !on)}><i /></button>
-      </div>
-    );
-    const choose = (mode: NotificationSettings["mode"]) => {
-      preferences.setValue(ID, "mode", mode);
-      if (mode === "sound" || mode === "both") unlockSound();
-      if (mode === "notification" || mode === "both") void attention?.requestPermission?.();
+    const mode = useSetting<NotificationSettings["mode"]>(`values.${ID}.mode`, {
+      defaultValue: DEFAULT_SETTINGS.mode, read: (raw) => (typeof raw === "string" && raw in MODE_LABELS ? raw as NotificationSettings["mode"] : undefined),
+      format: (value) => MODE_LABELS[value], offline: (value) => preferences.setValue(ID, "mode", value),
+    });
+    const sound = useSetting<NotificationSettings["sound"]>(`values.${ID}.sound`, {
+      defaultValue: DEFAULT_SETTINGS.sound, read: (raw) => (typeof raw === "string" && raw in SOUND_LABELS ? raw as NotificationSettings["sound"] : undefined),
+      format: (value) => SOUND_LABELS[value], offline: (value) => preferences.setValue(ID, "sound", value),
+    });
+    const toasts = useSetting<boolean>(`options.${ID}.toasts`, { defaultValue: DEFAULT_SETTINGS.toasts, read: readBoolean, offline: (value) => preferences.setOption(ID, "toasts", value) });
+    const whenFocused = useSetting<boolean>(`options.${ID}.when-focused`, { defaultValue: DEFAULT_SETTINGS.whenFocused, read: readBoolean, offline: (value) => preferences.setOption(ID, "when-focused", value) });
+    const choose = (next: NotificationSettings["mode"]) => {
+      mode.set(next);
+      if (next === "sound" || next === "both") unlockSound();
+      if (next === "notification" || next === "both") void attention?.requestPermission?.();
     };
     const test = () => {
       if (!attention) { onNotify("This client cannot show system notifications."); return; }
@@ -253,30 +261,51 @@ function createSettingsPage(context: DesktopExtensionContext) {
         <h3>Notifications</h3>
         <p className="lede">
           When a thread finishes, fails or asks you something and you are not looking at it. One window hears of it — the
-          one you used last — and the app icon counts the threads you have not opened since. These choices belong to this window.
+          one you used last — and the app icon counts the threads you have not opened since.
         </p>
-        <div className="settings-label">When a thread needs you</div>
-        <div className="segmented" role="group" aria-label="When a thread needs you">
-          {MODES.map((mode) => (
-            <button key={mode.value} type="button" className={settings.mode === mode.value ? "active" : ""} aria-pressed={settings.mode === mode.value} onClick={() => choose(mode.value)}>{mode.label}</button>
-          ))}
-        </div>
-        <div className="settings-label">Sound</div>
-        <div className="notifications-sound-row">
-          <div className="segmented" role="group" aria-label="Sound">
-            {SOUNDS.map((sound) => (
-              <button key={sound.value} type="button" className={settings.sound === sound.value ? "active" : ""} aria-pressed={settings.sound === sound.value} onClick={() => { preferences.setValue(ID, "sound", sound.value); playSound(sound.value); }}>{sound.label}</button>
-            ))}
-          </div>
-          <button type="button" className="text-button" onClick={() => playSound(settings.sound)}>Play</button>
-        </div>
-        <div className="settings-label">While Tau is in front</div>
-        {toggle("toasts", settings.toasts, "Show a toast instead", "When another thread is on screen, a toast in the window replaces the notification")}
-        {toggle("when-focused", settings.whenFocused, "Also for the thread on screen", "Notify and play the sound while you are looking at it")}
-        <div className="notifications-actions">
-          <button type="button" className="text-button" onClick={test}>Send a test notification</button>
-        </div>
-        {attention ? null : <p className="settings-note">This client cannot show system notifications; sounds, toasts and nothing else.</p>}
+        <SettingsSection title="When a thread needs you" headerAction={<button type="button" className="text-button" onClick={test}>Send a test notification</button>}>
+          <SettingRow
+            id="setting-notifications-mode"
+            title="Tell me with"
+            description={attention ? "A system notification, a sound, both, or nothing." : "This client cannot show system notifications; sounds, toasts and nothing else."}
+            setting={mode}
+            control={<div className="segmented" role="group" aria-label="When a thread needs you">
+              {MODES.map((entry) => (
+                <button key={entry.value} type="button" className={mode.value === entry.value ? "active" : ""} aria-pressed={mode.value === entry.value} onClick={() => choose(entry.value)}>{entry.label}</button>
+              ))}
+            </div>}
+          />
+          <SettingRow
+            id="setting-notifications-sound"
+            title="Sound"
+            description="What plays when the mode includes a sound."
+            setting={sound}
+            control={<>
+              <div className="segmented" role="group" aria-label="Sound">
+                {SOUNDS.map((entry) => (
+                  <button key={entry.value} type="button" className={sound.value === entry.value ? "active" : ""} aria-pressed={sound.value === entry.value} onClick={() => { sound.set(entry.value); playSound(entry.value); }}>{entry.label}</button>
+                ))}
+              </div>
+              <button type="button" className="text-button" onClick={() => playSound(sound.value)}>Play</button>
+            </>}
+          />
+        </SettingsSection>
+        <SettingsSection title="While Tau is in front">
+          <SettingRow
+            id="setting-notifications-toasts"
+            title="Show a toast instead"
+            description="When another thread is on screen, a toast in the window replaces the notification."
+            setting={toasts}
+            control={<button type="button" role="switch" aria-checked={toasts.value} aria-label="Show a toast instead" className={`switch ${toasts.value ? "on" : ""}`} onClick={() => toasts.set(!toasts.value)}><i /></button>}
+          />
+          <SettingRow
+            id="setting-notifications-when-focused"
+            title="Also for the thread on screen"
+            description="Notify and play the sound while you are looking at it."
+            setting={whenFocused}
+            control={<button type="button" role="switch" aria-checked={whenFocused.value} aria-label="Also for the thread on screen" className={`switch ${whenFocused.value ? "on" : ""}`} onClick={() => whenFocused.set(!whenFocused.value)}><i /></button>}
+          />
+        </SettingsSection>
       </div>
     );
   };

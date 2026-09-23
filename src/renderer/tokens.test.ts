@@ -36,6 +36,8 @@ const RUNTIME_PROPERTIES = [
   "--code-font-family",
   "--code-font-scale",
   "--page-zoom",
+  // How long a panel takes to open or close (Appearance Kit); unset, it does at once.
+  "--panel-motion",
 ];
 
 /** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */

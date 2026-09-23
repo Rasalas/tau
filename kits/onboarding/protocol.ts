@@ -57,6 +57,8 @@ export interface ProjectCandidate {
   threadCount: number;
   lastActiveAt: number;
   git: boolean;
+  /** The origin remote, as clones of one repository share it: `github.com/owner/name` and `owner/name`. */
+  remote?: { key: string; label: string };
 }
 
 export interface Discovery {
