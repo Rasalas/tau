@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TauConfig } from "../shared/contracts.js";
 import { isUpdateChannel, type UpdateChannel } from "../shared/app-version.js";
+import { readModelPreferenceRecord } from "../shared/model-preferences.js";
 import { PI_OWNED_CONFIG_KEYS, isPiOwnedSetting, withoutPiOwned, withoutSetting, type ConfigLayers } from "../shared/config-layers.js";
 
 export interface HostConfigPaths {
@@ -287,6 +288,7 @@ export class HostConfigManager {
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
       "temperature", "maxTokens", "vimMode", "hostBackground", "threads", "updates",
+      "modelPreferences",
     ]);
     const result: Partial<TauConfig> = {};
     for (const [key, val] of Object.entries(patch) as [keyof TauConfig, unknown][]) {
@@ -312,6 +314,11 @@ export class HostConfigManager {
         case "options":
           if (val && typeof val === "object" && !Array.isArray(val)) result.options = val as Record<string, boolean>;
           break;
+        case "modelPreferences": {
+          const preferences = readModelPreferenceRecord(val);
+          if (preferences) result.modelPreferences = preferences;
+          break;
+        }
         case "values": case "keybindings":
           if (val && typeof val === "object" && !Array.isArray(val)) result[key] = val as never;
           break;
@@ -346,6 +353,9 @@ export class HostConfigManager {
     }
     if (base.keybindings || override.keybindings) {
       result.keybindings = { ...(base.keybindings ?? {}), ...(override.keybindings ?? {}) };
+    }
+    if (base.modelPreferences || override.modelPreferences) {
+      result.modelPreferences = { ...(base.modelPreferences ?? {}), ...(override.modelPreferences ?? {}) };
     }
     if (base.threads || override.threads) {
       result.threads = { ...(base.threads ?? {}), ...(override.threads ?? {}) };

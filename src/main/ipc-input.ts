@@ -15,6 +15,7 @@ import type {
 import { createNewThreadRequestId } from "../shared/contracts.js";
 import { isHostTranscriptCursor, type HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import { isUpdateChannel } from "../shared/app-version.js";
+import { readModelPreferenceRecord } from "../shared/model-preferences.js";
 import { MAX_ATTACHMENTS } from "../shared/prompt-attachment-limits.js";
 
 /**
@@ -358,6 +359,14 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
     const vals = record(channel, `${field}.values`, item.values);
     if (Object.values(vals).some((v) => typeof v !== "string")) fail(channel, `${field}.values`, "must be a Record<string, string>");
     result.values = vals as Record<string, string>;
+  }
+  if (item.modelPreferences !== undefined) {
+    const entries = record(channel, `${field}.modelPreferences`, item.modelPreferences);
+    const preferences = readModelPreferenceRecord(entries);
+    if (!preferences || Object.keys(preferences).length !== Object.keys(entries).length) {
+      fail(channel, `${field}.modelPreferences`, "must map runtimes to { hidden?: string[]; order?: string[] }");
+    }
+    result.modelPreferences = preferences;
   }
   if (item.keybindings !== undefined) {
     const kb = record(channel, `${field}.keybindings`, item.keybindings);
