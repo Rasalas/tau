@@ -284,6 +284,8 @@ export interface UiSession {
   path: string;
   title: string;
   modifiedAt: number;
+  /** When the thread began, where the runtime's store says (API 1.11.0); absent otherwise. */
+  createdAt?: number;
   /** @deprecated Display only; address the project with `workspaceId`. */
   projectPath: string;
   /** Opaque identity of the thread's project on its host. */

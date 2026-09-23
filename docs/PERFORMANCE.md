@@ -895,6 +895,23 @@ The large-thread run measures it: from the tail it wheels up 60 notches of 240 p
 
 Before, the reader reached the first loaded row after 35 notches and had to click; the two-page thread moved by the history line's 50 px plus the estimate error. In the isolated instance, 120 and 150 wheel notches up a 2,000-turn thread (at 60 ms and 16 ms apart) loaded six pages on the way; in no frame did two visible rows move by different amounts, and every frame moved the content by whole notches. The initial bundle stays at 778 KB (−46 B, +148 B gzip). The renderer benchmark's transcript scenarios, run back to back with the parent commit, stay within their budgets (mount p95 20–24 ms before and after; an update's p95 up from 0.9–1.3 ms to 1.3–1.9 ms).
 
+### Rail render cost with a thousand threads
+
+The complete rail (D10: selection, grouping, file drops, hover details, diff stats, project icons) was built against `kits/workspace/rail-render.test.tsx`: the real `App` with Workspace Kit, 1,000 threads in 12 projects and an organizer that lays out four labelled runs of 25 rows, so jsdom draws 100 rows without the virtual list. It counts row renders per change through a row mark (`registerThreadRowAccessory`, which renders with its row) and times the `act()` around it, medians of 15 rounds, base and current navigation run with the same harness back to back (development machine, load from other work, so the milliseconds are noisy and only the paired comparison counts):
+
+| change | base rows / ms | current rows / ms |
+| --- | ---: | ---: |
+| mount to the first rows (one run) | 100 / 228–248 | 100 / 190–206 |
+| a thread starts running | 1 / 1.42–1.47 | 1 / 1.47–1.54 |
+| it stops | 1 / 1.24–1.27 | 1 / 1.34 |
+| the organizer's version moves, same sections | 0 / 0.91–0.98 | 0 / 0.86–0.87 |
+| an unrelated setting changes | **100 / 9.65–10.04** | **0 / 2.30–2.82** |
+| a row is mod-clicked into the selection | – | 0 / 3.10 |
+| another thread's turn stat arrives | – | 1 / 0.71 |
+
+The one real waste was the rows' subscription to the whole preferences snapshot for `showCosts`: every setting change redrew every row. Rows now select the one value they read (costs, the project's icon, the thread's stat), the rail memoizes the searched and sorted list and the organizer's sections on their inputs and looks a row's state up in sets instead of arrays, and selection, cursor and drop state live on the row's wrapper, not on the memoized row. Because the sections are memoized, Thread Rail's store now bumps its version when the next snooze runs out, which the rail used to catch only on its next unrelated render. The test holds the row counts: one row for a thread's run state, none for an organizer bump with the same sections, a setting, or a selection, one for a stat.
+
+
 ## T3 Code comparison
 
 `scripts/compare/` runs Tau and T3 Code side by side on the same machine, with the same data and the same agent turn (tier A of the benchmark plan in `.scratch/t3-parity-2/gap-analysis.md` §3.4). No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer.

@@ -130,8 +130,10 @@ export function railSections(threads: readonly UiSession[], state: RailState, no
   const meta = (thread: UiSession): ThreadMeta => state.threads[thread.id] ?? {};
   const rank = (value: number | undefined) => value ?? Number.NEGATIVE_INFINITY;
   const byRecency = (left: UiSession, right: UiSession) => right.modifiedAt - left.modifiedAt;
-  sections.pinned.sort((left, right) => rank(meta(left).pinOrder) - rank(meta(right).pinOrder) || byRecency(left, right));
-  sections.active.sort((left, right) => rank(meta(left).order) - rank(meta(right).order) || byRecency(left, right));
+  // Unranked threads keep the order the rail handed in: its chosen sort (sorting is stable).
+  // Two unranked threads give NaN (-Infinity minus itself), which `|| 0` reads as a tie.
+  sections.pinned.sort((left, right) => rank(meta(left).pinOrder) - rank(meta(right).pinOrder) || 0);
+  sections.active.sort((left, right) => rank(meta(left).order) - rank(meta(right).order) || 0);
   sections.active = withSiblingsTogether(sections.active, state);
   sections.snoozed.sort((left, right) => (meta(left).snoozedUntil ?? 0) - (meta(right).snoozedUntil ?? 0));
   sections.settled.sort((left, right) => (meta(right).settledAt ?? 0) - (meta(left).settledAt ?? 0) || byRecency(left, right));

@@ -52,6 +52,8 @@ export { Menu } from "./components/Menu";
 // right-click menus the OS draws where it can, dialogs and popovers that give
 // focus back, and the shapes of loading and of nothing to show.
 export { Tooltip, tooltipProps, type TooltipOptions } from "./components/ui/Tooltip";
+// Paths and branches cut in the middle, not at the end (API 1.11.0).
+export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
 export { useContextMenu } from "./components/ui/ContextMenu";
 export { Dialog, Popover } from "./components/ui/Dialog";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";

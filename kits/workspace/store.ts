@@ -9,6 +9,8 @@ import {
   type FileNode,
   type HostActionResult,
   type PreferencesStore,
+  type UiProject,
+  type UiSession,
   type UiEditor,
   type UiTerminal,
   type UiFileDiff,
@@ -33,10 +35,12 @@ import {
   type ThreadRailOrganizer,
   type ThreadRowAccessoryProps,
   type ThreadWorktreeRequest,
+  type TurnStat,
   type WorkspaceStoreApi,
   type WorktreeNamer,
   type WorktreeSubmodules,
 } from "./protocol.js";
+import { recordTurnStat } from "./turn-stats.js";
 
 export const WORKSPACE_KIT_ID = WORKSPACE_HOST_EXTENSION_ID;
 export const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
@@ -60,6 +64,7 @@ const INITIAL: WorkspaceKitState = {
   changesSections: [],
   threadRowAccessories: [],
   defaultBranches: {},
+  turnStats: {},
 };
 
 /** The user's global answer for where a new thread runs. */
@@ -614,6 +619,38 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void {
     this.update({ threadRowAccessories: [...this.state.threadRowAccessories, accessory] });
     return () => this.update({ threadRowAccessories: this.state.threadRowAccessories.filter((entry) => entry !== accessory) });
+  }
+
+  setRailProjectFilter(projectName: string | undefined): void {
+    if (this.state.railProjectFilter !== projectName) this.update({ railProjectFilter: projectName });
+  }
+
+  /** The project a thread runs in, as the index lists it; a thread outside every project gets one of its own. */
+  openProjectSettings(thread: Pick<UiSession, "projectPath" | "projectName" | "workspaceId">): void {
+    const project = this.projectsOf?.().find((entry) => entry.path === thread.projectPath || (thread.workspaceId !== undefined && entry.workspaceId === thread.workspaceId))
+      ?? this.projectsOf?.().find((entry) => entry.name === thread.projectName)
+      ?? { path: thread.projectPath, name: thread.projectName, lastOpenedAt: 0, ...(thread.workspaceId ? { workspaceId: thread.workspaceId } : {}) };
+    this.update({ projectSettings: project });
+  }
+
+  closeProjectSettings(): void { this.update({ projectSettings: undefined }); }
+
+  /** The index's projects, lent by the rail once it is drawn. */
+  projectsOf?: () => readonly UiProject[];
+
+  /** Once per client; later turns arrive as checkpoint announcements. */
+  async loadTurnStats(): Promise<void> {
+    if (!hostAvailable()) return;
+    try {
+      const stats = await this.host.getTurnStats();
+      this.update({ turnStats: { ...stats, ...this.state.turnStats } });
+    } catch { /* an older host keeps no stats; the rows show none */ }
+  }
+
+  /** A turn ended: one that changed files replaces the thread's stat, one that changed none leaves it. */
+  recordTurnStat(sessionId: string, stat: TurnStat): void {
+    const turnStats = recordTurnStat(this.state.turnStats, sessionId, stat);
+    if (turnStats[sessionId] === stat) this.update({ turnStats });
   }
 
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {

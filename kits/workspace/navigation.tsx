@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
@@ -18,6 +18,11 @@ import {
 } from "tau";
 import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type ThreadRailRowAction, type ThreadRailSection, type UiDirectoryListing } from "./protocol.js";
 import { useRailDrag } from "./rail-drag.js";
+import { threadDetails } from "./rail-details.js";
+import { groupThreads, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
+import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSelection } from "./rail-selection.js";
+import { projectIconKey, readProjectIcon, writeProjectIcon } from "./project-icons.js";
+import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
 import { useWorkspaceStore } from "./store-context.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
@@ -25,12 +30,13 @@ export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
 const ROW_STRIDE = 78;
 const THREAD_PAGE_SIZE = 25;
 
-type NavigationRow =
+export type NavigationRow =
   | { kind: "group"; id: string; label: string; count: number }
+  | { kind: "more"; id: string; key: string; remaining: number }
   | { kind: "thread"; id: string; session: UiSession };
 
-function ShowMoreThreadRow({ remaining, onClick }: { remaining: number; onClick(): void }) {
-  const count = Math.min(THREAD_PAGE_SIZE, remaining);
+function ShowMoreThreadRow({ remaining, all = false, onClick }: { remaining: number; all?: boolean; onClick(): void }) {
+  const count = all ? remaining : Math.min(THREAD_PAGE_SIZE, remaining);
   return (
     <article className="thread-row compact thread-pagination-row">
       <button className="thread-main" onClick={onClick}>+ show {count} more</button>
@@ -67,6 +73,20 @@ export function visibleThreads(
 export function isDefaultBranch(label: string | undefined, defaultBranch?: string): boolean {
   if (defaultBranch !== undefined) return label === defaultBranch;
   return label === "main" || label === "master";
+}
+
+/** The main list as the rail draws it: flat, or in groups that show `preview` threads until opened. */
+export function navigationRowsFor(threads: readonly UiSession[], order: RailOrder, projects: readonly UiProject[], openGroups: ReadonlySet<string>): NavigationRow[] {
+  if (order.grouping === "none") return threads.map((session) => ({ kind: "thread" as const, id: session.id, session }));
+  const projectOf = (session: UiSession) => findProjectForSession(projects, session);
+  return groupThreads(threads, order.grouping, order.projectSort, projectOf).flatMap((group): NavigationRow[] => {
+    const shown = openGroups.has(group.key) ? group.threads : group.threads.slice(0, order.preview);
+    return [
+      { kind: "group", id: `group:${group.key}`, label: group.label, count: group.threads.length },
+      ...shown.map((session) => ({ kind: "thread" as const, id: session.id, session })),
+      ...(shown.length < group.threads.length ? [{ kind: "more" as const, id: `more:${group.key}`, key: group.key, remaining: group.threads.length - shown.length }] : []),
+    ];
+  });
 }
 
 export function navigationRowKey(rows: readonly NavigationRow[], index: number): string | number {
@@ -258,10 +278,13 @@ export function ProjectSwitcherPopover({
   projects,
   onClose,
   onSelect,
+  iconOf,
 }: {
   activePath?: string;
   open: boolean;
   projects: readonly UiProject[];
+  /** A project's chosen icon, when it has one. */
+  iconOf?(project: UiProject): string | undefined;
   onClose(): void;
   onSelect(project: UiProject): void;
 }) {
@@ -316,9 +339,10 @@ export function ProjectSwitcherPopover({
           onMouseMove={() => setSelected(index)}
           onClick={() => onSelect(project)}
         >
-          <i className={project.icon ? "has-image" : ""}>
-            {project.icon ? <img src={project.icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}
-          </i>
+          {(() => {
+            const icon = iconOf?.(project) ?? project.icon;
+            return <i className={icon ? "has-image" : ""}>{icon ? <img src={icon} alt="" aria-hidden="true" /> : projectInitial(project.name)}</i>;
+          })()}
           <span>{project.name}</span>
           {project.path === currentPath ? <small>current</small> : null}
           <Settings size={14} aria-hidden="true" />
@@ -331,7 +355,11 @@ export function ProjectSwitcherPopover({
 function ProjectScope({ actions }: SidebarContributionProps) {
   const { snapshot } = useWorkbenchShell();
   const threadStore = useThreadStore();
+  const workspace = useWorkspaceStore();
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
+  const filter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
+  const preferences = usePreferences();
+  useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [searchOpen, setSearchOpen] = useState(false);
 
   const activeThread = snapshot?.sessionId ? threadStore.getThread(snapshot.sessionId) : undefined;
@@ -352,9 +380,14 @@ function ProjectScope({ actions }: SidebarContributionProps) {
       <div className="project-scope-row">
         <button className="project-scope" onClick={() => setSearchOpen(true)}>
           <i className="all-projects-icon"><Folder size={15} /></i>
-          <span>All projects</span>
+          <span>{filter ?? "All projects"}</span>
           <b><ChevronDown size={14} /></b>
         </button>
+        {filter ? (
+          <button className="sidebar-action" {...tooltipProps("Show all projects", { side: "bottom" })} aria-label="Show all projects" onClick={() => workspace.setRailProjectFilter(undefined)}>
+            <X size={15} />
+          </button>
+        ) : null}
         <button
           className="sidebar-action"
           {...tooltipProps("Add project", { side: "bottom" })}
@@ -370,6 +403,7 @@ function ProjectScope({ actions }: SidebarContributionProps) {
         projects={projects}
         onClose={() => setSearchOpen(false)}
         onSelect={(project) => { setSearchOpen(false); void actions.openWorkspace(project.path); }}
+        iconOf={(project) => readProjectIcon(preferences, project)?.image}
       />
     </>
   );
@@ -394,6 +428,15 @@ function sessionAge(timestamp: number): string {
   return days < 7
     ? `${days}d`
     : new Date(timestamp).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+const noValue = () => undefined;
+
+/** A project's chosen icon; the raw value is what the row subscribes to, so another project's change leaves it alone. */
+function useProjectIcon(project: UiProject | undefined): string | undefined {
+  const preferences = usePreferences();
+  const raw = useSyncExternalStore(preferences.subscribe, project ? () => preferences.value(WORKSPACE_EXTENSION_ID, projectIconKey(project)) : noValue);
+  return useMemo(() => project && raw ? readProjectIcon(preferences, project)?.image : undefined, [preferences, project, raw]) ?? project?.icon;
 }
 
 const ConnectedThreadRow = memo(function ConnectedThreadRow({
@@ -432,14 +475,23 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
     useCallback(() => store.getThread(id), [id, store]),
   );
   const projects = useSyncExternalStore(store.subscribeToProjects, store.getProjects);
-  const showCosts = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot).showCosts;
+  const showCosts = useSyncExternalStore(preferences.subscribe, () => preferences.getSnapshot().showCosts);
   const workspace = useWorkspaceStore();
   const accessories = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowAccessories);
+  const stat = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().turnStats[id]);
   const project = session ? session.workspaceId ?? session.projectPath : undefined;
   const defaultBranch = useSyncExternalStore(workspace.subscribe, () => project ? workspace.getSnapshot().defaultBranches[project] : undefined);
+  const owner = useMemo(() => session ? findProjectForSession(projects, session) : undefined, [projects, session]);
+  const icon = useProjectIcon(owner);
   useEffect(() => { if (project) workspace.loadDefaultBranch(project); }, [project, workspace]);
   if (!session) return null;
   const offered = activity === "settled" ? [] : rowActions?.(session) ?? [];
+  const age = sessionAge(session.modifiedAt);
+  const showStatus = activity !== "idle" && activity !== "settled";
+  const diff = stat && !compact && activity !== "settled"
+    ? <span key="diff" className="thread-diff-stat" aria-label={`Last turn: ${stat.added} lines added, ${stat.removed} removed`}><b>+{stat.added}</b> <i>−{stat.removed}</i></span>
+    : null;
+  const marks = accessories.map((Accessory, index) => <Accessory key={index} session={session} />);
   return (
     <ThreadRow
       session={session}
@@ -447,14 +499,15 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       actions={offered.length > 0
         ? offered.map((action) => <RailRowAction key={action.id} action={action} onPick={(itemId) => onRowAction(session, itemId)} />)
         : undefined}
-      accessory={accessories.length > 0 ? accessories.map((Accessory, index) => <Accessory key={index} session={session} />) : undefined}
+      accessory={diff || marks.length > 0 ? <>{diff}{marks}</> : undefined}
       showCost={showCosts}
-      projectIcon={findProjectForSession(projects, session)?.icon}
+      projectIcon={icon}
       active={active}
-      age={sessionAge(session.modifiedAt)}
+      age={age}
       activity={activity}
       activityLabel={activityLabel}
       activityHint={activityHint}
+      details={threadDetails({ session, age, ...(showStatus && activityLabel ? { status: activityLabel } : {}), ...(activityHint ? { hint: activityHint } : {}), ...(stat ? { stat } : {}) })}
       compact={compact}
       workingChildren={workingChildren}
       modelProvider={modelProvider}
@@ -552,6 +605,10 @@ export function defaultRailSections(
 
 const noSubscription = () => () => undefined;
 const noVersion = () => 0;
+const hasFiles = (transfer: DataTransfer | null) => Boolean(transfer && Array.from(transfer.types).includes("Files"));
+const rowIdOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>("[data-rail-thread]")?.dataset.railThread : undefined;
+
+type ActivitySets = Record<"running" | "waiting" | "limited" | "failed" | "interrupted" | "unread", ReadonlySet<string>>;
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
   const { snapshot, registry } = useWorkbenchShell();
@@ -560,7 +617,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const threadStore = useThreadStore();
   const workspace = useWorkspaceStore();
   const organizer = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRailOrganizer);
-  useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
+  const organizerVersion = useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
+  const projectFilter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
+  const projectSettings = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().projectSettings);
+  const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const [threadQuery, setThreadQuery] = useState("");
   const navigationSnapshot = useSyncExternalStore(
     threadQuery ? threadStore.subscribe : threadStore.subscribeToIds,
@@ -573,16 +633,27 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const [threadLimit, setThreadLimit] = useState(THREAD_PAGE_SIZE);
   const [shelfOpen, setShelfOpen] = useState<Readonly<Record<string, boolean>>>({});
   const [shelfLimits, setShelfLimits] = useState<Readonly<Record<string, number>>>({});
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [navigationIndex, setNavigationIndex] = useState(0);
+  const [selection, setSelection] = useState<RailSelection>(NO_SELECTION);
+  const [fileDrop, setFileDrop] = useState<string>();
   const openContextMenu = useContextMenu();
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLElement>(null);
 
   const option = (id: string, fallback: boolean) =>
     settings.extensionOptions[`${WORKSPACE_EXTENSION_ID}.${id}`] ?? fallback;
-  const groupByProject = option("group-by-project", false);
   const showSettledShelf = option("show-settled", true);
   const compactRows = option("compact-rows", false);
+  const order = useMemo(() => readRailOrder(preferences), [preferences, settings]);
+
+  // As in T3 Code, a new scope starts without a selection.
+  useEffect(() => { setSelection(NO_SELECTION); }, [projectFilter]);
+
+  useEffect(() => {
+    workspace.projectsOf = threadStore.getProjects;
+    return () => { if (workspace.projectsOf === threadStore.getProjects) workspace.projectsOf = undefined; };
+  }, [threadStore, workspace]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -598,59 +669,65 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Sets, so a row's state is one lookup however many threads are running.
+  const activity = useMemo<ActivitySets>(() => ({
+    running: new Set(activityState.runningThreadIds),
+    waiting: new Set(activityState.waitingThreadIds),
+    limited: new Set(activityState.limitedThreadIds),
+    failed: new Set(activityState.failedThreadIds),
+    interrupted: new Set(activityState.interruptedThreadIds),
+    unread: new Set(activityState.unreadThreadIds),
+  }), [activityState]);
+  const liveKey = `${activityState.runningThreadIds.join()}|${activityState.waitingThreadIds.join()}`;
+
   const needle = threadQuery.trim().toLocaleLowerCase();
-  const live = (id: string) => activityState.runningThreadIds.includes(id) || activityState.waitingThreadIds.includes(id);
-  const matching = visibleThreads(threads, lineage.parents, live)
-    .filter(
-      (session) =>
-        !needle ||
-        `${session.projectName} ${session.title} ${session.projectLabel ?? ""}`.toLocaleLowerCase().includes(needle),
-    )
-    .sort((left, right) => right.modifiedAt - left.modifiedAt);
-  const sections = organizer
-    ? organizer.sections(matching)
-    : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf);
+  const matching = useMemo(() => sortThreads(
+    visibleThreads(threads, lineage.parents, (id) => activity.running.has(id) || activity.waiting.has(id))
+      .filter((session) =>
+        (!projectFilter || session.projectName === projectFilter) &&
+        (!needle || `${session.projectName} ${session.title} ${session.projectLabel ?? ""}`.toLocaleLowerCase().includes(needle))),
+    order.threadSort,
+  // `liveKey` stands for the two sets the filter reads.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  ), [threads, lineage.parents, liveKey, projectFilter, needle, order.threadSort]);
+  const sections = useMemo(
+    () => organizer
+      ? organizer.sections(matching)
+      : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf),
+    // The organizer's version says when the same threads would land elsewhere.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [matching, organizer, organizerVersion, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf],
+  );
   const mainIndex = Math.max(0, sections.findIndex((section) => !section.label));
   const main = sections[mainIndex] ?? { id: "active", threads: [] };
-  const visibleActive = main.threads.slice(0, threadLimit);
+  const grouped = order.grouping !== "none";
+  const visibleActive = grouped ? main.threads : main.threads.slice(0, threadLimit);
   const { drag, onPointerDown } = useRailDrag(organizer, sections);
 
-  const navigationRows: NavigationRow[] = groupByProject
-    ? [...visibleActive.reduce((groups, session) => {
-        const group = groups.get(session.projectName);
-        if (group) group.push(session);
-        else groups.set(session.projectName, [session]);
-        return groups;
-      }, new Map<string, UiSession[]>())].flatMap(([project, sessions]) => [
-        { kind: "group" as const, id: `group:${project}`, label: project, count: sessions.length },
-        ...sessions.map((session) => ({ kind: "thread" as const, id: session.id, session })),
-      ])
-    : visibleActive.map((session) => ({ kind: "thread" as const, id: session.id, session }));
+  const navigationRows = useMemo(() => navigationRowsFor(visibleActive, order, projects, openGroups), [openGroups, order, projects, visibleActive]);
   const rowVirtualizer = useVirtualizer({
     count: navigationRows.length,
     getScrollElement: () => listRef.current,
-    estimateSize: (index) => navigationRows[index]?.kind === "group" ? 28 : ROW_STRIDE,
+    estimateSize: (index) => navigationRows[index]?.kind === "thread" ? ROW_STRIDE : navigationRows[index]?.kind === "more" ? 34 : 28,
     getItemKey: (index) => navigationRowKey(navigationRows, index),
     overscan: 6,
   });
 
   const activityFor = (sessionId: string): { activity: ThreadActivity; label?: string; hint?: string } => {
     // A stalled question outranks every other state: nothing moves until it is answered.
-    if (activityState.waitingThreadIds.includes(sessionId)) return { activity: "waiting", label: "Needs you" };
+    if (activity.waiting.has(sessionId)) return { activity: "waiting", label: "Needs you" };
     // Run state follows the thread, not the tab you happen to be reading.
-    if (activityState.runningThreadIds.includes(sessionId)) {
-      return { activity: "working", label: "Working" };
-    }
+    if (activity.running.has(sessionId)) return { activity: "working", label: "Working" };
     // A provider limit stopped the thread; it continues now, at the reset, or with the next message.
-    if (activityState.limitedThreadIds.includes(sessionId)) {
+    if (activity.limited.has(sessionId)) {
       return { activity: "limited", label: "Limited", hint: limitHint(threadStore.getThread(sessionId)?.limit) };
     }
     // The last turn failed or its message was refused; the next run clears it.
-    if (activityState.failedThreadIds.includes(sessionId)) {
+    if (activity.failed.has(sessionId)) {
       return { activity: "failed", label: "Failed", hint: threadStore.getThread(sessionId)?.turnError ?? "The last message did not reach the agent." };
     }
     // A turn the host never finished because it restarted. The next prompt clears it.
-    if (activityState.interruptedThreadIds.includes(sessionId)) {
+    if (activity.interrupted.has(sessionId)) {
       return { activity: "interrupted", label: "Interrupted", hint: "A restart cut this thread's turn short. Send a message to pick it back up." };
     }
     // A tool still marked running while nothing is in flight is a dead turn, not work.
@@ -658,7 +735,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       return { activity: "stalled", label: "Interrupted" };
     }
     // Ready means "finished while you were elsewhere"; opening the thread clears it.
-    if (activityState.unreadThreadIds.includes(sessionId)) return { activity: "ready", label: "Ready" };
+    if (activity.unread.has(sessionId)) return { activity: "ready", label: "Ready" };
     return { activity: "idle", label: "Idle" };
   };
 
@@ -670,15 +747,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const rowActions = useMemo(() => organizer?.rowActions ? (session: UiSession) => organizer.rowActions!(session) : undefined, [organizer]);
   const runRowAction = useCallback((session: UiSession, itemId: string) => organizer?.runMenu(session, itemId, actions), [actions, organizer]);
 
-  const renderRow = (session: UiSession, activity: ThreadActivity, label?: string, hint?: string, compact = false) => (
+  const renderRow = (session: UiSession, status: ThreadActivity, label?: string, hint?: string, compact = false) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
       active={session.id === activityState.activeThreadId}
-      activity={activity}
+      activity={status}
       activityLabel={label}
       activityHint={hint}
-      compact={(compact || compactRows) && activity !== "settled"}
+      compact={(compact || compactRows) && status !== "settled"}
       workingChildren={lineage.workingChildren[session.id] ?? 0}
       modelProvider={session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={activityState.runningStartedAt[session.id]}
@@ -689,7 +766,22 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     />
   );
 
-  /** A row's wrapper carries what the drag and the menu read; the classes show where a drop lands. */
+  const shelfRows = (section: ThreadRailSection) => {
+    const open = !section.shelf || (shelfOpen[section.id] ?? !section.collapsed);
+    const limit = shelfLimits[section.id] ?? THREAD_PAGE_SIZE;
+    return open ? section.threads.slice(0, limit) : [];
+  };
+
+  /** Every row on screen, top to bottom: what the arrow keys walk and a shift-click spans. */
+  const orderIds = [
+    ...sections.slice(0, mainIndex).flatMap(shelfRows).map((session) => session.id),
+    ...navigationRows.flatMap((row) => row.kind === "thread" ? [row.id] : []),
+    ...sections.slice(mainIndex + 1).flatMap(shelfRows).map((session) => session.id),
+  ];
+  const cursorId = orderIds.length ? orderIds[navigationIndex % orderIds.length] : undefined;
+  const selected = selectedInOrder(selection, orderIds);
+
+  /** A row's wrapper carries what the drag, the menu and the selection read; its classes show where a drop lands. */
   const rowClass = (sectionId: string, id: string, last: boolean): string => {
     const classes = ["rail-row"];
     if (drag?.threadId === id) classes.push("dragging");
@@ -697,14 +789,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       if (drag.drop.beforeThreadId === id) classes.push("drop-before");
       else if (last && !drag.drop.beforeThreadId) classes.push("drop-after");
     }
+    if (selection.ids.has(id)) classes.push("selected");
+    if (fileDrop === id) classes.push("file-drop");
     return classes.join(" ");
   };
-
-  const shelfRows = (section: ThreadRailSection) => {
-    const open = !section.shelf || (shelfOpen[section.id] ?? !section.collapsed);
-    const limit = shelfLimits[section.id] ?? THREAD_PAGE_SIZE;
-    return open ? section.threads.slice(0, limit) : [];
-  };
+  const rowData = (sectionId: string, id: string) => ({
+    "data-rail-thread": id,
+    "data-rail-section": sectionId,
+    ...(id === cursorId ? { "data-cursor": "" } : {}),
+  });
 
   const renderSection = (section: ThreadRailSection): ReactNode => {
     // An empty section shows its heading only while a thread could be dropped on it.
@@ -729,7 +822,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         {rows.map((session, index) => {
           const status = section.settled ? { activity: "settled" as const } : activityFor(session.id);
           return (
-            <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} data-rail-thread={session.id} data-rail-section={section.id}>
+            <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} {...rowData(section.id, session.id)}>
               {renderRow(session, status.activity, status.label, status.hint, Boolean(section.shelf))}
             </div>
           );
@@ -745,6 +838,35 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   };
 
   const findSession = (id: string) => sections.flatMap((section) => section.threads).find((session) => session.id === id);
+  const clearSelection = () => setSelection((current) => current.ids.size ? { ids: new Set(), ...(current.anchor ? { anchor: current.anchor } : {}) } : current);
+
+  const openMenu = (event: ReactMouseEvent) => {
+    if (!organizer) return;
+    const id = rowIdOf(event.target) ?? (event.target === event.currentTarget ? cursorId : undefined);
+    if (selected.length > 1 && organizer.bulkMenu && (!id || selection.ids.has(id))) {
+      const sessions = selected.flatMap((selectedId) => findSession(selectedId) ?? []);
+      void openContextMenu(event, organizer.bulkMenu(sessions)).then((choice) => {
+        if (!choice) return;
+        organizer.runBulkMenu?.(sessions, choice, actions);
+        setSelection(NO_SELECTION);
+      });
+      return;
+    }
+    const session = id ? findSession(id) : undefined;
+    if (!session) return;
+    if (!selection.ids.has(session.id)) clearSelection();
+    // The OS draws it where it can; the page draws its own elsewhere.
+    void openContextMenu(event, organizer.menu(session)).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
+  };
+
+  /** Files dropped on a row open its thread and wait at its composer. */
+  const dropFiles = (id: string, files: File[]) => {
+    const session = findSession(id);
+    if (!session || files.length === 0) return;
+    void actions.switchSession(session.path).then((opened) => {
+      if (opened) actions.attachFiles?.(files, { sessionId: session.id });
+    });
+  };
 
   return (
     <aside className="session-rail">
@@ -781,27 +903,50 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         aria-label="Threads"
         tabIndex={0}
         onPointerDown={onPointerDown}
-        onContextMenu={(event) => {
-          if (!organizer) return;
-          const id = (event.target as Element).closest<HTMLElement>("[data-rail-thread]")?.dataset.railThread;
-          const session = id ? findSession(id) : undefined;
-          if (!session) return;
-          // The OS draws it where it can; the page draws its own elsewhere.
-          void openContextMenu(event, organizer.menu(session)).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
+        onClickCapture={(event) => {
+          const target = event.target as Element;
+          const id = rowIdOf(target);
+          if (!id || target.closest(".thread-row-actions")) return;
+          // As in T3 Code: mod-click picks rows, shift-click picks the run from the last one.
+          if (event.metaKey || event.ctrlKey || event.shiftKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            setSelection((current) => event.shiftKey ? selectRange(current, id, orderIds, activityState.activeThreadId) : toggleSelected(current, id));
+            return;
+          }
+          setSelection((current) => current.ids.size === 0 && current.anchor === id ? current : { ids: new Set(), anchor: id });
+        }}
+        onContextMenu={openMenu}
+        onDragOver={(event) => {
+          if (!actions.attachFiles || !hasFiles(event.dataTransfer)) return;
+          const id = rowIdOf(event.target);
+          if (!id) { setFileDrop(undefined); return; }
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setFileDrop(id);
+        }}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDrop(undefined); }}
+        onDrop={(event) => {
+          const id = rowIdOf(event.target);
+          setFileDrop(undefined);
+          if (!id || !actions.attachFiles || !hasFiles(event.dataTransfer)) return;
+          event.preventDefault();
+          dropFiles(id, Array.from(event.dataTransfer.files));
         }}
         onKeyDown={(event) => {
           // A row's own buttons and their popovers keep their keys.
           const target = event.target as Element;
           if (!event.currentTarget.contains(target) || target.closest(".thread-row-actions")) return;
-          const choices = [
-            ...sections.slice(0, mainIndex).flatMap(shelfRows),
-            ...navigationRows.flatMap((row) => row.kind === "thread" ? [row.session] : []),
-            ...sections.slice(mainIndex + 1).flatMap(shelfRows),
-          ];
-          if (!choices.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
+          if (event.key === "Escape" && selection.ids.size) { event.preventDefault(); event.stopPropagation(); clearSelection(); return; }
+          if (!orderIds.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
           event.preventDefault();
-          if (event.key === "Enter") { void actions.switchSession(choices[navigationIndex % choices.length].path); return; }
-          setNavigationIndex((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + choices.length) % choices.length);
+          const current = navigationIndex % orderIds.length;
+          if (event.key === "Enter") { void actions.switchSession(findSession(orderIds[current]!)?.path ?? ""); return; }
+          const next = (current + (event.key === "ArrowDown" ? 1 : -1) + orderIds.length) % orderIds.length;
+          setNavigationIndex(next);
+          // Shift and an arrow grow the selection from where it began; a plain arrow moves where it begins.
+          if (event.shiftKey) setSelection((selectionNow) => selectRange(selectionNow.anchor ? selectionNow : { ...selectionNow, anchor: orderIds[current]! }, orderIds[next]!, orderIds));
+          else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
         }}
       >
         {sections.slice(0, mainIndex).map(renderSection)}
@@ -819,11 +964,13 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                 ref={rowVirtualizer.measureElement}
                 data-index={item.index}
                 className={threadRow ? rowClass(main.id, row.id, item.index === navigationRows.length - 1) : undefined}
-                {...(threadRow ? { "data-rail-thread": row.id, "data-rail-section": main.id } : {})}
+                {...(threadRow ? rowData(main.id, row.id) : {})}
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === "group" ? (
                   <div className="thread-group-label">{row.label} · {row.count}<i /></div>
+                ) : row.kind === "more" ? (
+                  <ShowMoreThreadRow remaining={row.remaining} all onClick={() => setOpenGroups((current) => new Set([...current, row.key]))} />
                 ) : (() => {
                   const status = activityFor(row.session.id);
                   return renderRow(row.session, status.activity, status.label, status.hint);
@@ -841,7 +988,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         ) : null}
 
         {matching.length === 0 ? (
-          <p className="sidebar-empty">{threadQuery ? "No threads found" : "No recent threads"}</p>
+          <p className="sidebar-empty">{threadQuery ? "No threads found" : projectFilter ? `No threads in ${projectFilter}` : "No recent threads"}</p>
         ) : null}
 
         {sections.slice(mainIndex + 1).map(renderSection)}
@@ -849,7 +996,24 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
 
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}
       {organizer?.Layer ? <organizer.Layer actions={actions} /> : null}
+      {projectSettings ? (
+        <ProjectSettingsDialog
+          key={projectSettings.path}
+          project={projectSettings}
+          current={readProjectIcon(preferences, projectSettings)}
+          {...(projectSettings.icon ? { automatic: projectSettings.icon } : {})}
+          onSave={(choice) => { writeProjectIcon(preferences, projectSettings, choice); workspace.closeProjectSettings(); }}
+          onClose={() => workspace.closeProjectSettings()}
+          onError={(message) => actions.notify(message)}
+        />
+      ) : null}
 
+      {selected.length > 0 ? (
+        <div className="rail-selection-bar" role="status">
+          <span>{selected.length} selected{selected.length > 1 && organizer?.bulkMenu ? " · right-click for actions" : ""}</span>
+          <button type="button" onClick={clearSelection}>Clear</button>
+        </div>
+      ) : null}
       <div className="sidebar-footer">
         <button {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
           <Settings size={15} />

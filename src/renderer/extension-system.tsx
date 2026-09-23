@@ -171,6 +171,8 @@ export interface WorkbenchActions {
   copyChat?(): Promise<void>;
   /** Renames the active thread / session. */
   renameThread?(title: string): Promise<boolean>;
+  /** Files to the composer as a drop would (API 1.11.0); with `sessionId` they wait up to 10 s for that thread. */
+  attachFiles?(files: readonly File[], options?: { sessionId?: string }): void;
   /** Cycles to the next or previous model. */
   cycleModel?(direction?: 1 | -1): Promise<boolean>;
   /** Cycles to the next thinking level. */

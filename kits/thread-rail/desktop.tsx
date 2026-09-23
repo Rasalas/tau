@@ -21,12 +21,14 @@ import {
   META_EVENT,
   SIBLINGS_SERVICE,
   THREAD_RAIL_EXTENSION_ID,
+  THREAD_TITLES_SERVICE,
   TRASH_EVENT,
   WORKSPACE_STORE_SERVICE,
   type TrashedThread,
   type RailSettings,
   type RailState,
   type ThreadMetaPatch,
+  type ThreadTitlesSlice,
   type WorkspaceStoreSlice,
 } from "./protocol.js";
 import { FanOutSelection, RailStore, modelKey, parseModelKey } from "./store.js";
@@ -270,6 +272,7 @@ export const threadRailExtension: DesktopExtension = {
     const store = new RailStore();
     const selection = new FanOutSelection();
     let workspace: WorkspaceStoreSlice | undefined;
+    let titles: ThreadTitlesSlice | undefined;
     const send = (patches: Record<string, ThreadMetaPatch | null>) => {
       store.apply(patches);
       context.host.invoke("patch", { patches }).then((state) => store.set(state)).catch(() => {
@@ -286,6 +289,8 @@ export const threadRailExtension: DesktopExtension = {
       remove: async (threadId) => { await context.host.invoke("remove", { threadId }); },
       restore: async (threadId) => { await context.host.invoke("restore", { threadId }); },
       running: (threadId) => store.running.has(threadId),
+      workspace: () => workspace,
+      titles: () => titles,
     });
     const load = (state: unknown, preferences: PreferencesStore) => {
       const { pinnedThreadIds, settledThreadIds } = preferences.getSnapshot();
@@ -339,6 +344,7 @@ export const threadRailExtension: DesktopExtension = {
       stopTrash,
       stopRunning,
       () => undo.dispose(),
+      () => store.dispose(),
       stopBridge,
       context.provideService(SIBLINGS_SERVICE, { siblingsOf: store.siblingsOf, subscribe: store.subscribe }),
       context.useService<WorkspaceStoreSlice>(WORKSPACE_STORE_SERVICE, (value) => {
@@ -348,6 +354,10 @@ export const threadRailExtension: DesktopExtension = {
           for (const stop of stops) stop();
           if (workspace === value) workspace = undefined;
         };
+      }),
+      context.useService<ThreadTitlesSlice>(THREAD_TITLES_SERVICE, (value) => {
+        titles = value;
+        return () => { if (titles === value) titles = undefined; };
       }),
       context.registerModelSelection(selection),
       context.registerRegion({ id: "thread-rail.settled-note", placement: "composer-above", order: 90, profiles: ["desktop", "web"], Component: createSettledNote(store, organizer.toggleSettledById) }),

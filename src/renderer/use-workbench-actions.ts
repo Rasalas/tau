@@ -74,6 +74,7 @@ export interface UseWorkbenchActionsOptions {
   preferences?: PreferencesStore;
   openInstructions: () => void;
   executeCommand?: (id: string) => Promise<void> | void;
+  attachFiles?: WorkbenchActions["attachFiles"];
 }
 
 export function useWorkbenchActions(options: UseWorkbenchActionsOptions): WorkbenchActions {
@@ -252,6 +253,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     executeCommand: options.executeCommand,
     copyChat: () => options.threadCommands.copyThreadValue("chat"),
     renameThread: options.threadCommands.renameThread,
+    ...(options.attachFiles ? { attachFiles: options.attachFiles } : {}),
     cycleModel: async (direction: 1 | -1 = 1) => {
       const snap = options.viewStore.getSnapshot();
       const allModels = snap?.models ?? [];
@@ -295,6 +297,6 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   }), [
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
     reloadWorkbench, settleActiveThread, snapshot, switchSession, openThreadTree, duplicateThread,
-    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar,
+    stageTabs, cycleStageTab, openModelPicker, focusStage, openInstructions, toggleSidebar, options.attachFiles,
   ]);
 }

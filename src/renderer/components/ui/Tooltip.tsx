@@ -14,8 +14,11 @@ export interface TooltipOptions {
   shortcut?: string | undefined;
   /** `truncated`: only when the trigger's own text is cut off, for a title that may fit. */
   when?: "always" | "truncated" | undefined;
-  /** `code` sets the text in the monospace face and lets it break anywhere, for paths and commands. */
-  variant?: "default" | "code" | undefined;
+  /**
+   * `code` sets the text in the monospace face and lets it break anywhere, for paths and commands;
+   * `lines` keeps the text's line breaks, for a few lines of details.
+   */
+  variant?: "default" | "code" | "lines" | undefined;
 }
 
 /** The attributes the tooltip layer reads; spread them on any element. */
@@ -26,7 +29,7 @@ export function tooltipProps(content: string | undefined, options: TooltipOption
     ...(options.side ? { "data-tooltip-side": options.side } : {}),
     ...(options.shortcut ? { "data-tooltip-shortcut": options.shortcut } : {}),
     ...(options.when === "truncated" ? { "data-tooltip-when": "truncated" } : {}),
-    ...(options.variant === "code" ? { "data-tooltip-variant": "code" } : {}),
+    ...(options.variant && options.variant !== "default" ? { "data-tooltip-variant": options.variant } : {}),
   };
 }
 
@@ -41,9 +44,11 @@ interface Shown {
   shortcut?: string;
   side: FloatingSide;
   code: boolean;
+  lines: boolean;
 }
 
 const TOOLTIP_ID = "tau-tooltip";
+const LINES = { whiteSpace: "pre-line" } as const;
 
 function read(target: HTMLElement): Shown | undefined {
   const text = target.dataset.tooltip;
@@ -56,6 +61,7 @@ function read(target: HTMLElement): Shown | undefined {
     ...(target.dataset.tooltipShortcut ? { shortcut: target.dataset.tooltipShortcut } : {}),
     side: side ?? "top",
     code: target.dataset.tooltipVariant === "code",
+    lines: target.dataset.tooltipVariant === "lines",
   };
 }
 
@@ -162,7 +168,7 @@ export function TooltipLayer() {
   if (!shown) return null;
   return createPortal(
     <div ref={popup} id={TOOLTIP_ID} role="tooltip" className={`tooltip${shown.code ? " code" : ""}`}>
-      <span>{shown.text}</span>
+      <span style={shown.lines ? LINES : undefined}>{shown.text}</span>
       {shown.shortcut ? <kbd>{shown.shortcut}</kbd> : null}
     </div>,
     document.body,

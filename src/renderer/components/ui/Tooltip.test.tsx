@@ -87,4 +87,18 @@ describe("TooltipLayer", () => {
     wait(TOOLTIP_DELAY_MS);
     expect(screen.getByRole("tooltip").textContent).toBe("A very long thread title");
   });
+
+  it("keeps the line breaks of a details tooltip", () => {
+    render(<>
+      <TooltipLayer />
+      <button type="button" {...tooltipProps("Fix the rail\nworkspace · main", { variant: "lines", side: "right" })}>Row</button>
+    </>);
+    const row = screen.getByRole("button", { name: "Row" });
+    expect(row.dataset.tooltipVariant).toBe("lines");
+    fireEvent.pointerOver(row);
+    wait(TOOLTIP_DELAY_MS);
+    const text = screen.getByRole("tooltip").firstElementChild as HTMLElement;
+    expect(text.textContent).toBe("Fix the rail\nworkspace · main");
+    expect(text.style.whiteSpace).toBe("pre-line");
+  });
 });

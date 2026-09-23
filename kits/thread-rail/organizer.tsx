@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Clock } from "lucide-react";
-import { Dialog, errorMessage, useThreadStore, useWorkbenchShell, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
+import { Dialog, errorMessage, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
@@ -17,7 +17,7 @@ import {
   unsettlePatch,
   type RailDrop,
 } from "./meta.js";
-import type { RailOrganizer, RailSections, ThreadMetaPatch } from "./protocol.js";
+import type { RailOrganizer, RailSections, ThreadMetaPatch, ThreadTitlesSlice, WorkspaceStoreSlice } from "./protocol.js";
 import type { RailStore } from "./store.js";
 import type { ThreadUndo, UndoAction, UndoKind } from "./undo.js";
 
@@ -32,6 +32,10 @@ export interface RailOrganizerPort {
   remove(threadId: string): Promise<void>;
   restore(threadId: string): Promise<void>;
   running(threadId: string): boolean;
+  /** Workspace Kit's store, for the rail's project filter and project settings. */
+  workspace?(): WorkspaceStoreSlice | undefined;
+  /** Thread Titles, while it is on; the row offers "Regenerate title" only then. */
+  titles?(): ThreadTitlesSlice | undefined;
 }
 
 const EMPTY: RailSections = { pinned: [], active: [], snoozed: [], settled: [], archived: [] };
@@ -50,10 +54,11 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   snooze(threadId: string, until: number): void;
   archive(session: UiSession, actions: WorkbenchActions | undefined): Promise<void>;
   unarchive(threadId: string): void;
-  remove(session: UiSession, actions: WorkbenchActions | undefined): Promise<void>;
+  remove(session: UiSession, actions: WorkbenchActions | undefined, leaving?: ReadonlySet<string>): Promise<void>;
   restore(threadId: string): Promise<void>;
 } {
   const { send, undo } = port;
+  type Change = { threadId: string; patch: ThreadMetaPatch; kind?: UndoKind; action?: UndoAction };
   let last: RailSections = EMPTY;
   const meta = (threadId: string) => store.getState().threads[threadId];
 
@@ -62,6 +67,18 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     const inverse = Object.fromEntries(Object.entries(patches).map(([id, patch]) => [id, inversePatch(meta(id), patch)]));
     send(patches);
     if (record) undo.record(record.kind, record.threadId, record.action, async () => send(inverse));
+  };
+
+  /** Several threads in one write to the host; each still gets its own undo, and the notice counts them. */
+  const changeMany = (changes: readonly Change[]) => {
+    if (changes.length === 0) return;
+    const inverses = changes.map(({ threadId, patch }) => [threadId, inversePatch(meta(threadId), patch)] as const);
+    send(Object.fromEntries(changes.map(({ threadId, patch }) => [threadId, patch])));
+    changes.forEach(({ threadId, kind, action }, index) => {
+      if (!kind || !action) return;
+      const inverse = inverses[index]![1];
+      undo.record(kind, threadId, action, async () => send({ [threadId]: inverse }));
+    });
   };
 
   const togglePin = (threadId: string) => {
@@ -78,6 +95,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     }
   };
   const snooze = (threadId: string, until: number) => change({ [threadId]: snoozePatch(until) }, { threadId, kind: "snooze", action: "Snoozed" });
+  const snoozeMany = (threadIds: readonly string[], until: number) =>
+    changeMany(threadIds.map((threadId) => ({ threadId, patch: snoozePatch(until), kind: "snooze" as const, action: "Snoozed" as const })));
   const wake = (threadId: string) => {
     undo.invalidate("snooze", threadId);
     change({ [threadId]: WAKE_PATCH });
@@ -104,6 +123,23 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
 
   const notify = (actions: WorkbenchActions | undefined, message: string) => { actions?.notify(message); };
 
+  const snoozeSubmenu = (): MenuSection[] => [
+    { items: snoozePresets(new Date(now())).map(({ id, label, when }) => ({ id, label, hint: when })) },
+    { items: [{ id: "snooze:custom", label: "Custom…" }] },
+  ];
+
+  /** Titles are made from a thread's live runtime, so one elsewhere is opened first. */
+  const regenerateTitle = async (session: UiSession, actions: WorkbenchActions) => {
+    const titles = port.titles?.();
+    if (!titles) return;
+    if (!onScreen(actions, session.id) && !await actions.switchSession(session.path)) return;
+    try {
+      await titles.regenerate(actions);
+    } catch (error) {
+      notify(actions, errorMessage(error));
+    }
+  };
+
   /** As in T3 Code: a running thread cannot be archived, and archiving the thread on screen opens a new one in its project. */
   const archive = async (session: UiSession, actions: WorkbenchActions | undefined) => {
     if (port.running(session.id)) { notify(actions, "Cannot archive a running thread."); return; }
@@ -127,11 +163,12 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
 
   /** Into the host's trash; the notice, `mod+z` and Settings → Archived bring it back. */
-  const remove = async (session: UiSession, actions: WorkbenchActions | undefined) => {
+  /** `leaving`: threads going in the same batch, which the reader is never moved to. */
+  const remove = async (session: UiSession, actions: WorkbenchActions | undefined, leaving: ReadonlySet<string> = new Set()) => {
     if (port.running(session.id)) { notify(actions, "Stop the thread before deleting it."); return; }
     const shown = onScreen(actions, session.id);
     if (shown) {
-      const next = fallbackThread(store.displayed, session);
+      const next = fallbackThread(store.displayed.filter((thread) => !leaving.has(thread.id) || thread.id === session.id), session);
       if (!next) { notify(actions, "Open another thread before deleting this one."); return; }
       await actions?.switchSession(next.path);
     }
@@ -188,17 +225,33 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     useSyncExternalStore(store.subscribe, store.getVersion);
     // Commands and the Archived page find a thread by id through the index this client holds.
     store.threadStore = useThreadStore();
-    const session = store.snoozeDialogFor;
+    const sessions = store.snoozeDialogFor;
+    const renaming = store.renameDialogFor;
     return (
       <>
         <UndoNotice actions={actions} />
-        {session ? (
+        {sessions && sessions.length > 0 ? (
           <SnoozeDialog
-            key={session.id}
-            session={session}
+            key={sessions.map((session) => session.id).join()}
+            sessions={sessions}
             now={now}
             onClose={() => store.openSnooze(undefined)}
-            onSnooze={(until) => { snooze(session.id, until); store.openSnooze(undefined); }}
+            onSnooze={(until) => { snoozeMany(sessions.map((session) => session.id), until); store.openSnooze(undefined); }}
+          />
+        ) : null}
+        {renaming ? (
+          <RenameDialog
+            key={renaming.id}
+            session={renaming}
+            onClose={() => store.openRename(undefined)}
+            onRename={async (title) => {
+              // The host renames the thread on screen; one elsewhere is opened first.
+              if (!onScreen(actions, renaming.id) && !await actions.switchSession(renaming.path)) return false;
+              if (!actions.renameThread) { actions.notify("This version of Tau cannot rename threads from the rail."); return false; }
+              const renamed = await actions.renameThread(title);
+              if (renamed) store.openRename(undefined);
+              return renamed;
+            }}
           />
         ) : null}
       </>
@@ -231,32 +284,53 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     menu(session) {
       const current = meta(session.id);
       const section = sectionOf(current, now());
-      if (section === "settled") {
-        return [{ items: [{ id: "unsettle", label: "Un-settle thread" }, { id: "pin", label: "Pin thread" }] }, lifecycleSection(session)];
-      }
+      const settled = section === "settled";
       const snoozed = section === "snoozed";
+      const workspace = port.workspace?.();
+      const branch = session.projectLabel;
+      const filtered = workspace?.getSnapshot().railProjectFilter === session.projectName;
+      const snoozeItems: MenuItem[] = settled ? [] : snoozed
+        ? [{ id: "wake", label: "Wake thread" }, { id: "snooze:custom", label: "Snooze until…" }]
+        : [{ id: "snooze", label: "Snooze", submenu: snoozeSubmenu() }];
+      // T3 Code's order: start, keep, then name and find, then copy and the project, then the lifecycle.
       return [
-        { items: [current?.pinned ? { id: "unpin", label: "Unpin thread" } : { id: "pin", label: "Pin thread" }] },
         {
-          items: snoozed
-            ? [{ id: "wake", label: "Wake thread" }, { id: "snooze:custom", label: "Snooze until…" }]
-            : [{
-              id: "snooze",
-              label: "Snooze",
-              submenu: [{ items: [...snoozePresets(new Date(now())).map(({ id, label, when }) => ({ id, label, hint: when })), { id: "snooze:custom", label: "Custom…" }] }],
-            }],
+          items: [
+            ...(branch ? [{ id: "new-on-branch", label: `New thread on ${branch}` }] : []),
+            current?.pinned ? { id: "unpin", label: "Unpin thread" } : { id: "pin", label: "Pin thread" },
+            settled ? { id: "unsettle", label: "Un-settle thread" } : { id: "settle", label: "Settle thread" },
+            ...snoozeItems,
+          ],
         },
         {
           items: [
-            { id: "settle", label: "Settle thread" },
-            ...(snoozed ? [] : [{ id: "move-up", label: "Move up" }, { id: "move-down", label: "Move down" }]),
+            { id: "rename", label: "Rename thread" },
+            ...(port.titles?.() ? [{ id: "regenerate-title", label: "Regenerate title" }] : []),
+            { id: "mark-unread", label: "Mark unread" },
+            ...(workspace?.setRailProjectFilter ? [{ id: "filter-project", label: filtered ? "Show all projects" : `Filter by ${session.projectName}` }] : []),
           ],
         },
+        {
+          items: [
+            {
+              id: "copy",
+              label: "Copy",
+              submenu: [{ items: [{ id: "copy-path", label: "Path" }, ...(branch ? [{ id: "copy-branch", label: "Branch" }] : []), { id: "copy-thread-id", label: "Thread ID" }] }],
+            },
+            ...(workspace?.openProjectSettings ? [{ id: "project-settings", label: "Project settings…" }] : []),
+          ],
+        },
+        ...(settled || snoozed ? [] : [{ items: [{ id: "move-up", label: "Move up" }, { id: "move-down", label: "Move down" }] }]),
         lifecycleSection(session),
       ];
     },
     runMenu(session, itemId, actions) {
       store.actions = actions;
+      const workspace = port.workspace?.();
+      const copy = (value: string | undefined, what: string) => {
+        if (!value) return;
+        actions.copyText(value).then(() => actions.notify(`${what} copied.`), (error: unknown) => actions.notify(errorMessage(error)));
+      };
       if (itemId === "pin" || itemId === "unpin") togglePin(session.id);
       else if (itemId === "settle" || itemId === "unsettle") toggleSettledById(session.id);
       else if (itemId === "wake") wake(session.id);
@@ -265,9 +339,67 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       else if (itemId === "move-down") step(session.id, 1);
       else if (itemId === "archive") void archive(session, actions);
       else if (itemId === "delete") void remove(session, actions);
+      else if (itemId === "new-on-branch") actions.newSession({ workspace: session.workspaceId ?? session.projectPath });
+      else if (itemId === "rename") store.openRename(session);
+      else if (itemId === "regenerate-title") void regenerateTitle(session, actions);
+      else if (itemId === "mark-unread") store.threadStore?.markUnread(session.id);
+      else if (itemId === "filter-project") workspace?.setRailProjectFilter?.(workspace.getSnapshot().railProjectFilter === session.projectName ? undefined : session.projectName);
+      else if (itemId === "copy-path") copy(session.projectDisplayPath ?? session.projectPath, "Path");
+      else if (itemId === "copy-branch") copy(session.projectLabel, "Branch");
+      else if (itemId === "copy-thread-id") copy(session.id, "Thread ID");
+      else if (itemId === "project-settings") workspace?.openProjectSettings?.(session);
       else {
         const preset = snoozePresets(new Date(now())).find((entry) => entry.id === itemId);
         if (preset) snooze(session.id, preset.until);
+      }
+    },
+    // T3 Code's selection menu: what fits every selected thread, with how many it touches.
+    bulkMenu(sessions) {
+      const count = sessions.length;
+      const pinned = sessions.filter((session) => meta(session.id)?.pinned).length;
+      const snoozable = sessions.every((session) => ["pinned", "active"].includes(sectionOf(meta(session.id), now())));
+      const idle = sessions.filter((session) => !port.running(session.id)).length;
+      return [
+        {
+          items: [
+            ...(pinned > 0 ? [{ id: "unpin", label: `Unpin (${pinned})` }] : []),
+            { id: "settle", label: `Settle (${count})` },
+            ...(snoozable ? [{ id: "snooze", label: `Snooze (${count})`, submenu: snoozeSubmenu() }] : []),
+            { id: "mark-unread", label: `Mark unread (${count})` },
+          ],
+        },
+        {
+          items: [
+            { id: "archive", label: `Archive (${idle})`, disabled: idle === 0, ...(idle < count ? { description: "Running threads stay." } : {}) },
+            { id: "delete", label: `Delete (${idle})`, destructive: true, disabled: idle === 0 },
+          ],
+        },
+      ];
+    },
+    runBulkMenu(sessions, itemId, actions) {
+      store.actions = actions;
+      const at = now();
+      if (itemId === "unpin") {
+        changeMany(sessions.filter((session) => meta(session.id)?.pinned).map((session) => ({ threadId: session.id, patch: pinPatch(store.getState(), session.id, false, at), kind: "pin" as const, action: "Unpinned" as const })));
+      } else if (itemId === "settle") {
+        changeMany(sessions.filter((session) => meta(session.id)?.settledAt === undefined).map((session) => ({ threadId: session.id, patch: settlePatch(at, "user"), kind: "settle" as const, action: "Settled" as const })));
+      } else if (itemId === "snooze:custom") {
+        store.openSnooze(sessions);
+      } else if (itemId === "mark-unread") {
+        for (const session of sessions) store.threadStore?.markUnread(session.id);
+      } else if (itemId === "archive" || itemId === "delete") {
+        // One after another: each may move the reader off the thread on screen.
+        const leaving = new Set(sessions.map((session) => session.id));
+        void (async () => {
+          for (const session of sessions) {
+            if (port.running(session.id)) continue;
+            // oxlint-disable-next-line no-await-in-loop
+            await (itemId === "archive" ? archive(session, actions) : remove(session, actions, leaving));
+          }
+        })();
+      } else {
+        const preset = snoozePresets(new Date(at)).find((entry) => entry.id === itemId);
+        if (preset) snoozeMany(sessions.map((session) => session.id), preset.until);
       }
     },
     toggleSettled: (session) => toggleSettledById(session.id),
@@ -309,8 +441,8 @@ function localInput(epoch: number): string {
 }
 
 /** A duration starts when the user confirms; a date is read in local time. */
-export function SnoozeDialog({ session, now, onClose, onSnooze }: {
-  session: UiSession;
+export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
+  sessions: readonly UiSession[];
   now: () => number;
   onClose(): void;
   onSnooze(until: number): void;
@@ -323,7 +455,7 @@ export function SnoozeDialog({ session, now, onClose, onSnooze }: {
   const valid = Number.isFinite(until) && until > now() && (mode === "date" || Number(amount) > 0);
   return (
     <Dialog className="thread-rail-snooze" label="Snooze thread" onClose={onClose}>
-      <h2>Snooze “{session.title}”</h2>
+      <h2>{sessions.length === 1 ? <>Snooze “{sessions[0]!.title}”</> : `Snooze ${sessions.length} threads`}</h2>
       <div className="segmented" role="group" aria-label="Snooze by">
         <button type="button" className={mode === "duration" ? "active" : ""} aria-pressed={mode === "duration"} onClick={() => setMode("duration")}>For a while</button>
         <button type="button" className={mode === "date" ? "active" : ""} aria-pressed={mode === "date"} onClick={() => setMode("date")}>Until a date</button>
@@ -346,6 +478,38 @@ export function SnoozeDialog({ session, now, onClose, onSnooze }: {
         <footer>
           <button type="button" className="text-button" onClick={onClose}>Cancel</button>
           <button type="submit" className="primary" disabled={!valid}>Snooze</button>
+        </footer>
+      </form>
+    </Dialog>
+  );
+}
+
+/** The row menu's Rename: the title as it is, selected, saved with Enter. */
+export function RenameDialog({ session, onClose, onRename }: {
+  session: UiSession;
+  onClose(): void;
+  onRename(title: string): Promise<boolean>;
+}) {
+  const [title, setTitle] = useState(session.title);
+  const [saving, setSaving] = useState(false);
+  const next = title.trim();
+  return (
+    <Dialog className="thread-rail-snooze thread-rail-rename" label="Rename thread" onClose={onClose}>
+      <h2>Rename thread</h2>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!next || saving || next === session.title) { if (next === session.title) onClose(); return; }
+          setSaving(true);
+          void onRename(next).finally(() => setSaving(false));
+        }}
+      >
+        <div className="thread-rail-snooze-row">
+          <input aria-label="Thread title" maxLength={120} value={title} disabled={saving} autoFocus onFocus={(event) => event.currentTarget.select()} onChange={(event) => setTitle(event.target.value)} />
+        </div>
+        <footer>
+          <button type="button" className="text-button" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={!next || saving}>Rename</button>
         </footer>
       </form>
     </Dialog>

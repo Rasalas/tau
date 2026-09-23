@@ -519,6 +519,8 @@ export async function mapSessions(
       path: session.path,
       title: cleanThreadTitle(safeSessionTitle(session.name) || firstSentence(visibleTitleText(session.firstMessage))),
       modifiedAt: session.modified.getTime(),
+      // Test doubles and older callers pass a record without it.
+      ...(session.created instanceof Date ? { createdAt: session.created.getTime() } : {}),
       projectPath,
       projectName: resolveProjectName(projectPath),
       projectLabel: labels.get(projectPath),
@@ -595,6 +597,7 @@ export function reconcileActiveThreadShell(
     path: input.path,
     title: input.explicitTitle || (!touch ? existing?.title : undefined) || input.derivedTitle,
     modifiedAt: touch ? input.now : existing?.modifiedAt ?? input.now,
+    createdAt: existing?.createdAt ?? input.now,
     projectPath: input.projectPath,
     projectName: input.projectName,
     projectLabel: input.projectLabel,

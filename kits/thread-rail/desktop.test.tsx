@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NewThreadClaimEvent, UiModel, UiSession, WorkbenchActions } from "tau";
 import { createKitHarness, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
@@ -54,8 +54,11 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState> } = {})
   const { registry, preferences } = createKitHarness(invoke);
   let organizer: RailOrganizer | undefined;
   const worktrees: Array<{ force?: boolean; branchSuffix?: string }> = [];
+  let railProjectFilter: string | undefined;
   const workspace: WorkspaceStoreSlice = {
-    getSnapshot: () => ({ draftPending: true, workspace: { isRepo: options.isRepo ?? true } }),
+    getSnapshot: () => ({ draftPending: true, workspace: { isRepo: options.isRepo ?? true }, ...(railProjectFilter ? { railProjectFilter } : {}) }),
+    setRailProjectFilter: vi.fn((name: string | undefined) => { railProjectFilter = name; }),
+    openProjectSettings: vi.fn(),
     subscribe: () => () => undefined,
     registerThreadRailOrganizer: (value) => { organizer = value; return () => { organizer = undefined; }; },
     registerThreadRowAccessory: () => () => undefined,
@@ -72,10 +75,13 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState> } = {})
     newSession: vi.fn(),
     openSettings: vi.fn(),
     activeThread: vi.fn(() => ({ sessionId: "b", draftPending: false })),
+    copyText: vi.fn(async () => undefined),
+    renameThread: vi.fn(async () => true),
+    executeCommand: vi.fn(async () => undefined),
   } as unknown as WorkbenchActions;
   const push = (payload: RailState) => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: THREAD_RAIL_EXTENSION_ID, name: META_EVENT, payload });
   const calls = (command: string) => invoke.mock.calls.filter((call) => call[1] === command).map((call) => call[2]);
-  return { registry, preferences, invoke, actions, push, calls, worktrees, organizer: () => organizer!, current: () => state };
+  return { registry, preferences, invoke, actions, push, calls, worktrees, workspace, organizer: () => organizer!, current: () => state };
 }
 
 const claim = (overrides: Partial<NewThreadClaimEvent> = {}): NewThreadClaimEvent => ({
@@ -100,8 +106,8 @@ describe("Thread Rail on the desktop", () => {
     await flush();
     organizer().sections([thread("a")]);
     const items = organizer().menu(thread("a")).flatMap((section) => section.items);
-    expect(items.map((item) => item.id)).toEqual(["pin", "snooze", "settle", "move-up", "move-down", "archive", "delete"]);
-    const presets = items[1]!.submenu!.flatMap((section) => section.items.map((item) => item.id));
+    expect(items.map((item) => item.id)).toEqual(["pin", "settle", "snooze", "rename", "mark-unread", "filter-project", "copy", "project-settings", "move-up", "move-down", "archive", "delete"]);
+    const presets = items[2]!.submenu!.flatMap((section) => section.items.map((item) => item.id));
     expect(presets.slice(0, 2)).toEqual(["snooze:1h", "snooze:3h"]);
     expect(presets).toContain("snooze:tomorrow");
     expect(presets.at(-1)).toBe("snooze:custom");
@@ -300,5 +306,132 @@ describe("Thread Rail on the desktop", () => {
 
     const title = registry.getCommandsFor("thread-title").map((command) => [command.id, command.destructive ?? false]);
     expect(title).toEqual(expect.arrayContaining([["thread.archive", false], ["thread.delete", true]]));
+  });
+
+  it("builds T3 Code's full row menu: a new thread on the branch, names, filter, copy and the project", async () => {
+    const { organizer, registry } = setup();
+    await flush();
+    const branched = { ...thread("a"), projectLabel: "feature/rail" };
+    registry.activate({ id: "tau.thread-titles", name: "Titles", activate: (context) => context.provideService("tau.thread-titles/titles", { regenerate: async () => undefined }) });
+    const Layer = organizer().Layer!;
+    render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={{ toast: vi.fn(() => ({ id: "t", update: vi.fn(), dismiss: vi.fn() })) } as never} /></ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+    organizer().sections([branched]);
+    const sections = organizer().menu(branched);
+    expect(sections.map((section) => section.items.map((item) => item.label))).toEqual([
+      ["New thread on feature/rail", "Pin thread", "Settle thread", "Snooze"],
+      ["Rename thread", "Regenerate title", "Mark unread", "Filter by project"],
+      ["Copy", "Project settings…"],
+      ["Move up", "Move down"],
+      ["Archive thread", "Delete"],
+    ]);
+    expect(sections[2]!.items[0]!.submenu![0]!.items.map((item) => item.label)).toEqual(["Path", "Branch", "Thread ID"]);
+    // Without a branch there is nothing to start on or copy.
+    const plain = organizer().menu(thread("a"));
+    expect(plain[0]!.items[0]!.id).toBe("pin");
+    expect(plain[2]!.items[0]!.submenu![0]!.items.map((item) => item.id)).toEqual(["copy-path", "copy-thread-id"]);
+  });
+
+  it("runs the row menu's new items against the workbench, Workspace Kit and Thread Titles", async () => {
+    const { organizer, actions, workspace, registry } = setup();
+    const regenerate = vi.fn(async () => undefined);
+    registry.activate({ id: "tau.thread-titles", name: "Titles", activate: (context) => context.provideService("tau.thread-titles/titles", { regenerate }) });
+    await flush();
+    const branched = { ...thread("a"), projectLabel: "feature/rail", workspaceId: "ws-a" };
+    organizer().runMenu(branched, "new-on-branch", actions);
+    expect(actions.newSession).toHaveBeenCalledWith({ workspace: "ws-a" });
+    organizer().runMenu(branched, "copy-branch", actions);
+    organizer().runMenu(branched, "copy-thread-id", actions);
+    organizer().runMenu(branched, "copy-path", actions);
+    await flush();
+    expect(vi.mocked(actions.copyText).mock.calls.map((call) => call[0])).toEqual(["feature/rail", "a", "/project"]);
+    expect(actions.notify).toHaveBeenCalledWith("Branch copied.");
+    organizer().runMenu(branched, "filter-project", actions);
+    expect(workspace.setRailProjectFilter).toHaveBeenLastCalledWith("project");
+    expect(organizer().menu(branched)[1]!.items.find((item) => item.id === "filter-project")?.label).toBe("Show all projects");
+    organizer().runMenu(branched, "filter-project", actions);
+    expect(workspace.setRailProjectFilter).toHaveBeenLastCalledWith(undefined);
+    organizer().runMenu(branched, "project-settings", actions);
+    expect(workspace.openProjectSettings).toHaveBeenCalledWith(branched);
+    // Titles are made for the thread on screen, so another one is opened first.
+    organizer().runMenu(branched, "regenerate-title", actions);
+    await flush();
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/a.jsonl");
+    expect(regenerate).toHaveBeenCalledWith(actions);
+  });
+
+  it("renames a thread from the row menu, opening it first", async () => {
+    const { organizer, registry, actions } = setup();
+    await flush();
+    const Layer = organizer().Layer!;
+    const threads = new ThreadStore();
+    const view = render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={threads}><Layer actions={actions} /></ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+    act(() => organizer().runMenu(thread("a"), "rename", actions));
+    const input = view.getByRole("textbox", { name: "Thread title" }) as HTMLInputElement;
+    expect(input.value).toBe("a");
+    fireEvent.change(input, { target: { value: "Better name" } });
+    await act(async () => { fireEvent.submit(input.closest("form")!); await flush(); });
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/a.jsonl");
+    expect(actions.renameThread).toHaveBeenCalledWith("Better name");
+    expect(view.queryByRole("textbox", { name: "Thread title" })).toBeNull();
+  });
+
+  it("marks a thread unread through the client's index", async () => {
+    const { organizer, registry, actions } = setup();
+    await flush();
+    const threads = new ThreadStore();
+    const markUnread = vi.spyOn(threads, "markUnread");
+    const Layer = organizer().Layer!;
+    render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+      <ThreadStoreContext.Provider value={threads}><Layer actions={actions} /></ThreadStoreContext.Provider>
+    </WorkbenchShellContext.Provider>);
+    organizer().runMenu(thread("a"), "mark-unread", actions);
+    expect(markUnread).toHaveBeenCalledWith("a");
+  });
+
+  it("gives a selection one menu, counts what each item touches and writes the host once", async () => {
+    const { organizer, actions, push, calls, registry } = setup();
+    await flush();
+    push({ threads: { p: { pinned: true, pinOrder: 0 } }, settings: { onMerged: true, onClosed: false } });
+    const selected = [thread("p"), thread("a"), thread("c")];
+    organizer().sections(selected);
+    const labels = organizer().bulkMenu!(selected).map((section) => section.items.map((item) => item.label));
+    expect(labels).toEqual([["Unpin (1)", "Settle (3)", "Snooze (3)", "Mark unread (3)"], ["Archive (3)", "Delete (3)"]]);
+    const before = calls("patch").length;
+    organizer().runBulkMenu!(selected, "settle", actions);
+    expect(calls("patch").length).toBe(before + 1);
+    expect(Object.keys((calls("patch").at(-1) as { patches: object }).patches).sort()).toEqual(["a", "c", "p"]);
+    expect(organizer().sections(selected).find((section) => section.id === "settled")?.threads.map((entry) => entry.id).sort()).toEqual(["a", "c", "p"]);
+    // Undo takes the whole batch back.
+    await registry.executeCommand("thread.undo", actions);
+    await flush();
+    expect(organizer().sections(selected).find((section) => section.id === "settled")?.threads).toEqual([]);
+  });
+
+  it("snoozes a selection with a preset, and leaves snooze out when a thread cannot take it", async () => {
+    const { organizer, actions, push, calls } = setup();
+    await flush();
+    const selected = [thread("a"), thread("b")];
+    organizer().sections(selected);
+    organizer().runBulkMenu!(selected, "snooze:1h", actions);
+    const patches = (calls("patch").at(-1) as { patches: Record<string, { snoozedUntil: number }> }).patches;
+    expect(patches.a!.snoozedUntil).toBe(patches.b!.snoozedUntil);
+    push({ threads: { d: { settledAt: 1, settledBy: "user" } }, settings: { onMerged: true, onClosed: false } });
+    expect(organizer().bulkMenu!([thread("a"), thread("d")])[0]!.items.map((item) => item.id)).not.toContain("snooze");
+  });
+
+  it("never moves the reader to a thread deleted in the same batch", async () => {
+    const { organizer, actions } = setup();
+    await flush();
+    // "b" is on screen; "a" and "b" go together, so the reader lands on "c".
+    const threads = [thread("b", 3), thread("a", 2), thread("c", 1)];
+    organizer().sections(threads);
+    organizer().runBulkMenu!([thread("a", 2), thread("b", 3)], "delete", actions);
+    await flush();
+    await flush();
+    expect(vi.mocked(actions.switchSession).mock.calls.map((call) => call[0])).toEqual(["/sessions/c.jsonl"]);
   });
 });
