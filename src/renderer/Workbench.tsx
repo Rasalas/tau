@@ -11,6 +11,7 @@ import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { QueuedFollowUp } from "../workbench/follow-up-queue";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
+import { QueuedMessages } from "./components/QueuedMessages";
 import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";
@@ -211,6 +212,8 @@ export interface WorkbenchThread {
   activeDraftKey?: string;
   copyMessage(message: UiMessage): Promise<void>;
   forkMessage(message: UiMessage): Promise<void>;
+  /** Rewinds the conversation to before a prompt and puts the prompt back into the composer. */
+  editMessage(message: UiMessage): Promise<void>;
   titleCommands: ReturnType<ExtensionRegistry["getCommandsFor"]>;
   openThreadTree(mode?: ThreadTreeMode): void;
   duplicateThread(): Promise<boolean>;
@@ -238,6 +241,8 @@ export interface WorkbenchComposer {
   cancelQueued(id: string): void;
   steerQueued(id: string): void;
   reorderQueue(id: string, toIndex: number): void;
+  /** Takes a queued message back into the composer. */
+  returnQueued(id: string): void;
   setModel(provider: string, id: string): Promise<void>;
   setThinking(level: string): Promise<void>;
   answerUiPrompt(id: string, answer: import("../shared/contracts").ExtensionUiAnswer): void;
@@ -572,7 +577,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 />
                 <span className="title-spacer" />
               </header>
-              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} />
+              <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} />
               <Region registry={registry} placement="transcript-footer" snapshot={snapshot} actions={actions} />
             </> : null}
           </div>
@@ -676,10 +681,11 @@ function WorkbenchProviders({ model, threadStore, children }: { model: Workbench
  * The transcript follows the store on its own. A streamed delta or a flush of
  * tool output re-renders this subtree and leaves the rest of the workbench untouched.
  */
-function ConversationTranscript({ view, thread, registry, actions, prompts, abort }: {
+function ConversationTranscript({ view, thread, registry, actions, prompts, abort, composer }: {
   view: ThreadViewStore;
   thread: WorkbenchThread;
   registry: ExtensionRegistry;
+  composer: WorkbenchComposer;
   actions: WorkbenchActions;
   prompts: readonly ExtensionUiPrompt[];
   abort(sessionId?: string): void;
@@ -692,7 +698,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
     snapshot, conversationSnapshot, pendingNewThread, transcriptHistory, transcriptRef, loadTranscriptPage,
     applyTranscriptPage, transcriptScopeKey, transcriptScope, transcriptTurnStart,
     visibleTranscriptTurnStart, lastMessageId, recoverThread, copyToolOutput, loadToolOutput,
-    runStartedAt, activeDraftKey, copyMessage, forkMessage,
+    runStartedAt, activeDraftKey, copyMessage, forkMessage, editMessage,
   } = thread;
   const detail = preferences.transcriptDetailFor(conversationSnapshot?.sessionId);
   const { conversationActivityTools, liveStatusLabel, transcriptActivities } = useConversationActivities({
@@ -708,10 +714,18 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   // would re-render every visible message and restart the tail follow.
   const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
   const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
+  const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const showRunClock = Boolean(conversationSnapshot?.isStreaming) && conversationActivityTools.length === 0;
-  const liveStatus = useMemo(() => liveStatusLabel !== undefined
-    ? <LiveStatus label={liveStatusLabel} />
-    : showRunClock ? <LiveStatus startedAt={runStartedAt} /> : undefined, [liveStatusLabel, runStartedAt, showRunClock]);
+  const { queue, steerQueued, returnQueued, reorderQueue } = composer;
+  const running = Boolean(conversationSnapshot?.isStreaming);
+  const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
+  const liveStatus = useMemo(() => {
+    const status = liveStatusLabel !== undefined
+      ? <LiveStatus label={liveStatusLabel} />
+      : showRunClock ? <LiveStatus startedAt={runStartedAt} /> : undefined;
+    if (pendingNewThread || queue.length === 0) return status;
+    return <>{status}<QueuedMessages queue={queue} streaming={running} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
+  }, [liveStatusLabel, pendingNewThread, queue, reorderQueue, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     scrollRef={transcriptRef}
@@ -734,6 +748,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       liveStatus={liveStatus}
       onCopyMessage={onCopyMessage}
       onForkMessage={onForkMessage}
+      onEditMessage={onEditMessage}
     />
   </TranscriptHistoryBoundary>;
 }
@@ -762,7 +777,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     : undefined;
   const {
     scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
-    cancelQueued, steerQueued, reorderQueue, setModel, setThinking, answerUiPrompt, compactContext,
+    cancelQueued, steerQueued, setModel, setThinking, answerUiPrompt, compactContext,
   } = composer;
   const contextBreakdown = useMemo(
     () => contextBreakdownFor(snapshot?.contextUsage, transcript.tokenEstimate, toolKiloTokens * 1000),
@@ -784,7 +799,6 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onAbort={() => abort(snapshot?.sessionId)}
     onCancelQueued={cancelQueued}
     onSteerQueued={steerQueued}
-    onReorderQueue={reorderQueue}
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}

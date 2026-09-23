@@ -46,7 +46,6 @@ function renderComposer(threadUsage?: UiThreadUsage, contextUsage?: UiContextUsa
       onAbort={() => {}}
       onCancelQueued={() => {}}
       onSteerQueued={() => {}}
-      onReorderQueue={() => {}}
       onSetModel={() => {}}
       onSetThinking={() => {}}
       onCompactContext={() => {}}

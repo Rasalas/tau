@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import type { ClientTurnIdentity, UiPromptAttachment, UiSkillDraft } from "../shared/contracts";
+import type { ClientTurnIdentity, UiPromptAttachment, UiPromptImageAttachment, UiSkillDraft } from "../shared/contracts";
+import type { WorkbenchActions } from "./extension-system";
 import { createClientMessageId } from "../workbench/app-state";
 import type { SubmitResult } from "./components/Composer";
 import { errorMessage } from "../workbench/error-message";
@@ -16,6 +17,18 @@ export type SubmitPrompt = (
 ) => Promise<SubmitResult>;
 
 const EMPTY: readonly QueuedFollowUp[] = [];
+
+/** Puts messages that were not sent back into the composer, below its draft; images come back as images. */
+export function returnToComposer(actions: WorkbenchActions | undefined, items: readonly QueuedFollowUp[]): void {
+  if (!actions || items.length === 0) return;
+  const texts = items.map((item) => item.text.trim()).filter(Boolean);
+  if (texts.length > 0) actions.setComposerDraft?.([actions.composerDraft().trimEnd(), ...texts].filter(Boolean).join("\n\n"));
+  const images = items.flatMap((item) => item.attachments.filter((attachment): attachment is UiPromptImageAttachment => attachment.kind === "image"));
+  if (images.length > 0) actions.setComposerImages?.([...(actions.composerImages?.() ?? []), ...images]);
+  if (items.some((item) => item.attachments.some((attachment) => attachment.kind === "file"))) {
+    actions.notify("The queued message's files did not come back; attach them again.");
+  }
+}
 let backgroundTurnSequence = 0;
 
 /** A thread that is not on screen gets its queued prompt without optimistic transcript state. */
@@ -119,5 +132,13 @@ export function useFollowUpQueue({ client, store, sessionId, isRunning, runningT
     }
   }, [isRunning, sessionId, setNotice, store, submit]);
 
-  return { queue, cancelQueued, reorderQueue, steerQueued };
+  // Takes messages out without sending them: one by id, or the whole queue of the thread on screen.
+  const takeQueued = useCallback((id?: string): QueuedFollowUp[] => {
+    if (!sessionId) return [];
+    if (id === undefined) return store.drain(sessionId);
+    const item = store.remove(sessionId, id);
+    return item ? [item] : [];
+  }, [sessionId, store]);
+
+  return { queue, cancelQueued, reorderQueue, steerQueued, takeQueued };
 }

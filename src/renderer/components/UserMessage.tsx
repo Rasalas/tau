@@ -12,6 +12,7 @@ interface UserMessageProps {
   message: UiMessage;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
+  onEdit?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
 }
@@ -34,6 +35,7 @@ export function UserMessage({
   message,
   onCopy,
   onFork,
+  onEdit,
   onToggleExpanded,
   expanded: controlledExpanded,
 }: UserMessageProps) {
@@ -103,6 +105,7 @@ export function UserMessage({
             message={message}
             onCopy={() => onCopy(copyableMessage(message))}
             onFork={message.sourceEntryId && onFork ? () => onFork(message) : undefined}
+            onEdit={message.sourceEntryId && onEdit ? () => onEdit(message) : undefined}
           /> : null}
         </div>
       </article>

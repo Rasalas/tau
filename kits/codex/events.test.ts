@@ -16,6 +16,28 @@ function replay(name: keyof typeof frames.scenarios): { events: ThreadRuntimeEve
   return { events, translator };
 }
 
+describe("a proposed plan", () => {
+  it("streams as a reply of its own inside proposed_plan tags, with the finished item's text", () => {
+    let clock = 0;
+    const translator = new CodexTurnTranslator(() => ++clock);
+    const events = [
+      ...translator.push("item/agentMessage/delta", { itemId: "m1", delta: "Looked around." }),
+      ...translator.push("item/started", { item: { type: "plan", id: "p1", text: "" } }),
+      ...translator.push("item/plan/delta", { itemId: "p1", delta: "# Plan\n- one" }),
+      ...translator.push("item/completed", { item: { type: "plan", id: "p1", text: "# Plan\n- one\n- two\n" } }),
+    ];
+    const ends = events.filter((event) => event.type === "assistant-end") as Array<Extract<ThreadRuntimeEvent, { type: "assistant-end" }>>;
+    expect(ends.map((event) => event.message.text)).toEqual(["Looked around.", "<proposed_plan>\n# Plan\n- one\n- two\n</proposed_plan>"]);
+  });
+
+  it("stands alone when Codex reports only the finished item", () => {
+    const translator = new CodexTurnTranslator(() => 1);
+    const events = translator.push("item/completed", { item: { type: "plan", id: "p1", text: "# Plan" } });
+    expect(events.map((event) => event.type)).toEqual(["assistant-start", "assistant-delta", "assistant-end"]);
+    expect(events.at(-1)).toMatchObject({ message: { text: "<proposed_plan>\n# Plan\n</proposed_plan>" } });
+  });
+});
+
 describe("CodexTurnTranslator against recorded frames", () => {
   it("streams a plain answer as one assistant message", () => {
     const { events, translator } = replay("plain");

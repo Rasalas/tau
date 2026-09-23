@@ -1,5 +1,8 @@
 import { Bot, ChevronRight, EyeOff } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useContext, useState } from "react";
+import { WorkbenchShellContext } from "../workbench-context";
+import { LazyFeatureBoundary } from "./LazyFeature";
+import { splitMessageBlocks } from "./message-blocks";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { MessageActions } from "./MessageActions";
@@ -52,12 +55,28 @@ function ActivityDisclosure({ activity }: { activity: AsyncActivity }) {
   );
 }
 
+/** A reply whose tagged blocks an extension draws itself; the rest stays Markdown. */
+function AssistantText({ message, streaming }: { message: UiMessage; streaming: boolean }) {
+  const registry = useContext(WorkbenchShellContext)?.registry;
+  const blocks = registry?.getMessageBlocks() ?? [];
+  const parts = splitMessageBlocks(message.text, blocks.map((block) => block.tag));
+  if (parts.length === 1 && parts[0]!.kind === "text") return <Markdown streaming={streaming}>{message.text}</Markdown>;
+  return <>{parts.map((part, index) => {
+    if (part.kind === "text") return <Markdown key={index} streaming={streaming && index === parts.length - 1}>{part.text}</Markdown>;
+    const block = blocks.find((entry) => entry.tag === part.tag)!;
+    return <LazyFeatureBoundary key={index} label={block.id} extensionId={block.extensionId} extensionName={block.extensionName} registry={registry}>
+      <block.Component body={part.body} complete={part.complete} message={message} streaming={streaming} />
+    </LazyFeatureBoundary>;
+  })}</>;
+}
+
 export const Message = memo(function Message({
   message,
   streaming = false,
   detail = "focused",
   onCopy,
   onFork,
+  onEdit,
   onToggleExpanded,
   expanded,
 }: {
@@ -67,6 +86,8 @@ export const Message = memo(function Message({
   detail?: TranscriptDetail;
   onCopy?: (message: UiMessage) => void;
   onFork?: (message: UiMessage) => void;
+  /** Rewinds to before a prompt of the user's and puts it back into the composer. */
+  onEdit?: (message: UiMessage) => void;
   onToggleExpanded?: (messageId: string, expanded: boolean) => void;
   expanded?: boolean;
 }) {
@@ -78,7 +99,7 @@ export const Message = memo(function Message({
   if (message.role === "notice") return <div className="notice-message">{message.text}</div>;
 
   if (message.role === "user") {
-    return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
+    return <UserMessage message={message} onCopy={onCopy} onFork={onFork} onEdit={onEdit} onToggleExpanded={onToggleExpanded} expanded={expanded} />;
   }
 
   const thinking = detail !== "focused" && message.thinking?.trim() ? message.thinking : undefined;
@@ -96,7 +117,7 @@ export const Message = memo(function Message({
         {thinking ? <ThinkingDisclosure thinking={thinking} streaming={streaming && !message.text} /> : null}
         {message.text ? (
           <div className="message-text">
-            <Markdown streaming={streaming}>{message.text}</Markdown>
+            {message.text.includes("<") ? <AssistantText message={message} streaming={streaming} /> : <Markdown streaming={streaming}>{message.text}</Markdown>}
           </div>
         ) : null}
         {detail === "everything" && message.text ? (

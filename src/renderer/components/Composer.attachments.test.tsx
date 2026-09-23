@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
+import { MAX_ATTACHMENTS } from "../../shared/prompt-attachment-limits";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
 import { Composer, type SubmitResult } from "./Composer";
@@ -33,7 +34,6 @@ function renderComposer(
         onAbort={() => {}}
         onCancelQueued={() => {}}
         onSteerQueued={() => {}}
-        onReorderQueue={() => {}}
         onSetModel={() => {}}
         onSetThinking={() => {}}
         onCompactContext={() => {}}
@@ -154,35 +154,25 @@ describe("Composer attachments", () => {
   it("enforces the shared total image-size limit before reading a drop", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     renderComposer(vi.fn(), attachmentRef);
-    attachmentRef.current?.addFiles([
-      sizedImageFile("one.png", 8 * 1024 * 1024),
-      sizedImageFile("two.png", 8 * 1024 * 1024),
-      sizedImageFile("three.png", 8 * 1024 * 1024),
-      sizedImageFile("four.png", 1),
-    ]);
+    // Nine images of 9 MB pass 80 MB with the ninth.
+    attachmentRef.current?.addFiles(Array.from({ length: 9 }, (_, index) => sizedImageFile(`img${index}.png`, 9 * 1024 * 1024)));
 
-    expect(await screen.findAllByRole("button", { name: /Preview (one|two|three)\.png/u })).toHaveLength(3);
-    expect((await screen.findByRole("alert")).textContent).toMatch(/24 MB/u);
-    expect(screen.queryByRole("button", { name: "Preview four.png" })).toBeNull();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview img\d\.png/u })).toHaveLength(8));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/80 MB/u);
+    expect(screen.queryByRole("button", { name: "Preview img8.png" })).toBeNull();
   });
 
   it("serializes concurrent drops so the total limit cannot be bypassed", async () => {
     const attachmentRef = createRef<ComposerAttachmentHandle>();
     renderComposer(vi.fn(), attachmentRef);
-    const first = attachmentRef.current!.addFiles([
-      sizedImageFile("one.png", 8 * 1024 * 1024),
-      sizedImageFile("two.png", 8 * 1024 * 1024),
-    ]);
-    const second = attachmentRef.current!.addFiles([
-      sizedImageFile("three.png", 8 * 1024 * 1024),
-      sizedImageFile("four.png", 8 * 1024 * 1024),
-    ]);
+    const first = attachmentRef.current!.addFiles(Array.from({ length: 5 }, (_, index) => sizedImageFile(`img${index}.png`, 9 * 1024 * 1024)));
+    const second = attachmentRef.current!.addFiles(Array.from({ length: 5 }, (_, index) => sizedImageFile(`img${index + 5}.png`, 9 * 1024 * 1024)));
 
     await Promise.all([first, second]);
 
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview (one|two|three)\.png/u })).toHaveLength(3));
-    expect(screen.queryByRole("button", { name: "Preview four.png" })).toBeNull();
-    expect(screen.getByRole("alert").textContent).toMatch(/24 MB/u);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview img\d\.png/u })).toHaveLength(8));
+    expect(screen.queryByRole("button", { name: "Preview img8.png" })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toMatch(/80 MB/u);
   });
 
   it("keeps attachments when submission is rejected", async () => {
@@ -317,12 +307,7 @@ describe("Composer attachments", () => {
     let resolve!: (result: SubmitResult) => void;
     const onSubmit = vi.fn(() => new Promise<SubmitResult>((done) => { resolve = done; }));
     renderComposer(onSubmit, attachmentRef);
-    await attachmentRef.current?.addFiles([
-      new File([new Uint8Array([1])], "one.png", { type: "image/png" }),
-      new File([new Uint8Array([1])], "two.png", { type: "image/png" }),
-      new File([new Uint8Array([1])], "three.png", { type: "image/png" }),
-      new File([new Uint8Array([1])], "four.png", { type: "image/png" }),
-    ]);
+    await attachmentRef.current?.addFiles(Array.from({ length: MAX_ATTACHMENTS }, (_, index) => new File([new Uint8Array([1])], `sent${index}.png`, { type: "image/png" })));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     await attachmentRef.current?.addFiles([
@@ -330,7 +315,7 @@ describe("Composer attachments", () => {
       new File([new Uint8Array([1])], "six.png", { type: "image/png" }),
     ]);
     resolve({ accepted: false, message: "Prompt rejected." });
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview/u })).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Preview/u })).toHaveLength(MAX_ATTACHMENTS));
     expect(screen.queryByRole("button", { name: "Preview five.png" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Preview six.png" })).toBeNull();
   });

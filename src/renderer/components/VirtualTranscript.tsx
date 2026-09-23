@@ -32,6 +32,7 @@ export interface VirtualTranscriptProps {
   lookupRevision?: number;
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
+  onEditMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
 }
 
@@ -110,6 +111,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   lookupRevision,
   onCopyMessage,
   onForkMessage,
+  onEditMessage,
   onFocusComposer,
 }: VirtualTranscriptProps) {
   const pendingActivities = useMemo<TranscriptActivity[]>(() => [
@@ -466,6 +468,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
           detail={detail}
           onCopy={onCopyMessage}
           onFork={onForkMessage}
+          onEdit={onEditMessage}
           onToggleExpanded={onMessageToggleExpanded}
           expanded={expandedMessageIds.has(message.id)}
         />

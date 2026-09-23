@@ -94,7 +94,7 @@ describe("useWorkbenchActions", () => {
 
     // The last thread ran on Codex; a Pi draft does not inherit its model.
     const pi = renderHook(() => useWorkbenchActions(createMockOptions({ snapshot: codexThread, pendingNewThread: draft, newThreadDeliveryPending: true }))).result.current;
-    expect(pi.activeThread()).toEqual({ cwd: "/path/to/project", workspaceId: "ws-2", backendKind: "pi", draftPending: true });
+    expect(pi.activeThread()).toEqual({ cwd: "/path/to/project", workspaceId: "ws-2", backendKind: "pi", draftPending: true, mode: "default", modes: [] });
 
     const chosen = { ...draft, model: { provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" } };
     const picked = renderHook(() => useWorkbenchActions(createMockOptions({ snapshot: codexThread, pendingNewThread: chosen, newThreadDeliveryPending: true }))).result.current;

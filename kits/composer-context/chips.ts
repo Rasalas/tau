@@ -179,6 +179,10 @@ export function decodeChips(value: unknown): ChipEntry[] {
 
 export interface FileCandidate { name: string; type: string; size: number }
 
+export function isVideo(mimeType: string | undefined): boolean {
+  return mimeType?.startsWith("video/") === true;
+}
+
 /**
  * Which dropped files the kit takes and which it leaves to core: every file
  * that is not an image, and images too when the model cannot see them.
@@ -266,7 +270,7 @@ export function serializeChips({ chips, files, attachments, fileAttachments }: S
           blocks.push(`Pull request [#${chip.payload.number}](${chip.payload.url}): ${chip.payload.title}`);
           break;
         case "attachment": {
-          if (fileAttachments || !chip.payload.path) break;
+          if ((fileAttachments && !isVideo(chip.payload.mimeType)) || !chip.payload.path) break;
           const described = attachments?.get(chip.id);
           const { name, mimeType, size, path } = chip.payload;
           if (described?.text !== undefined && size <= EMBED_TEXT_BYTES) {

@@ -1,0 +1,16 @@
+{
+  "id": "tau.plan",
+  "name": "Plan Kit",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.10.0"
+  },
+  "permissions": [
+    "runtime:extend",
+    "sessions"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}

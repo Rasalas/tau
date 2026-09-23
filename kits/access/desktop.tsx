@@ -21,7 +21,7 @@ function createControl(preferences: PreferencesStore) {
     const label = ACCESS_LEVELS.find((entry) => entry.id === level)?.label ?? level;
     return (
       <span className="menu-anchor composer-runtime-menu-anchor">
-        <button className="runtime-chip" onClick={() => setOpen((current) => !current)}>
+        <button className="runtime-chip" data-composer-shortcut="composer.mode" onClick={() => setOpen((current) => !current)}>
           {level === "full" ? <LockOpen size={13} /> : <Lock size={13} />}
           {label}
           <ChevronDown size={12} className="chev" />
@@ -73,6 +73,13 @@ export const accessKitExtension: DesktopExtension = {
   name: "Access Kit",
   activate(plugin) {
     plugin.registerComposerControl({ id: "access.level", order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences) });
+    // T3 Code's `composer.mode` opens the access menu, its runtime mode.
+    plugin.registerCommand({ id: "composer.mode", label: "Choose the access level", group: "Composer", run: (app) => {
+      const control = document.querySelector<HTMLElement>('[data-composer-shortcut="composer.mode"]');
+      if (control) control.click();
+      else app.notify("The composer shows no access control here.");
+    } });
+    plugin.registerKeybinding({ keys: "mod+shift+a", commandId: "composer.mode", when: "!terminalFocus" });
     for (const entry of ACCESS_LEVELS) {
       plugin.registerCommand({
         id: `access.${entry.id}`,

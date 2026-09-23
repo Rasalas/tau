@@ -119,6 +119,8 @@ export type {
   NewThreadPromptGate,
   PromptHookContribution,
   MessageActionContribution,
+  MessageBlockContribution,
+  MessageBlockProps,
   PromptRendererContribution,
   PromptRendererProps,
   PromptSubmittedEvent,
