@@ -1,9 +1,11 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import type { ExtensionRegistry } from "../extension-system";
+import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
+import { WorkbenchShellContext } from "../workbench-context";
+import type { SelectedSkill } from "./ComposerAutocomplete";
 import { CHIP_MARK, CHIP_SLOT, mirrorSegments, removeChipToken, repairChipTokens, tokenAround, type ChipToken, type MirrorSegment } from "./composer-chips";
 import { ComposerChipPopover } from "./ComposerChipPopover";
 import { useComposerChips, type UseComposerChipsOptions } from "./useComposerChips";
 import { useComposerCollapse } from "./useComposerCollapse";
+import { composerFold } from "./composer-fold";
 
 /** How a chip token draws: resolved to what holds it, or `undefined` for a token nothing holds any more. */
 export interface ChipLook {
@@ -21,15 +23,16 @@ export interface ChipLayerApi {
 
 export interface ComposerChipLayerProps extends UseComposerChipsOptions {
   apiRef: RefObject<ChipLayerApi | undefined>;
-  /** The selected skill's range, drawn as a chip while the text still names it. */
-  skill?: { start: number; end: number };
-  registry?: ExtensionRegistry;
+  /** Drawn as a chip while the text still names it. */
+  selectedSkill?: SelectedSkill;
   onNotify?(message: string): void;
   onPreview(imageId: number): void;
-  collapseEnabled: boolean;
-  /** Nothing in the composer asks to stay open; see `useComposerCollapse`. */
-  collapseIdle: boolean;
 }
+
+/** Something in the composer asks to stay open: a question, a menu, a search, a gate, the model picker. */
+const BUSY = ".composer-frame.stacked, .composer-command-menu, .composer-history-search, .composer-gate, [aria-expanded=\"true\"]";
+
+const NO_INLINES: readonly never[] = [];
 
 /**
  * Chips inside the composer's text, loaded in its own chunk after the
@@ -42,8 +45,14 @@ export interface ComposerChipLayerProps extends UseComposerChipsOptions {
  * while the transcript is scrolled back.
  */
 export default function ComposerChipLayer(props: ComposerChipLayerProps) {
-  const { textareaRef, text, skill, apiRef, setCaret, registry, onNotify, onPreview, scope, collapseEnabled, collapseIdle } = props;
-  const chips = useComposerChips(props);
+  const { textareaRef, selectedSkill, apiRef, setCaret, onNotify, onPreview, scope, scopeStore } = props;
+  // The composer re-renders on any of these, and so does its layer.
+  const registry = useContext(WorkbenchShellContext)?.registry;
+  const inlines = registry?.getComposerInlines() ?? NO_INLINES;
+  const { attachments, draft: text, submissionPending: paused } = scopeStore.getSnapshot(scope);
+  const collapseEnabled = useSyncExternalStore(composerFold.subscribe, composerFold.get);
+  const skill = selectedSkill && text.slice(selectedSkill.start, selectedSkill.end) === selectedSkill.invocation ? selectedSkill : undefined;
+  const chips = useComposerChips({ ...props, text, inlines, attachments, paused });
   const mirrorRef = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState(false);
   const composingRef = useRef(false);
@@ -70,7 +79,9 @@ export default function ComposerChipLayer(props: ComposerChipLayerProps) {
     const field = textareaRef.current;
     const mirror = mirrorRef.current;
     if (!field || !mirror) return;
-    // The field's client box leaves out a scrollbar, which moves where its lines wrap.
+    // Over the field in the frame; its client box leaves out a scrollbar, which moves where its lines wrap.
+    mirror.style.left = `${field.offsetLeft}px`;
+    mirror.style.top = `${field.offsetTop}px`;
     mirror.style.width = `${field.clientWidth}px`;
     mirror.style.height = `${field.clientHeight}px`;
     mirror.scrollTop = field.scrollTop;
@@ -174,7 +185,8 @@ export default function ComposerChipLayer(props: ComposerChipLayerProps) {
   };
 
   const zoneRef = useMemo(() => ({ get current() { return textareaRef.current?.closest<HTMLElement>(".composer-zone") ?? null; } }), [textareaRef]);
-  const { collapsed } = useComposerCollapse({ enabled: collapseEnabled, idle: collapseIdle && !openChip, zoneRef });
+  const idle = () => !latest.current.text.includes("\n") && !zoneRef.current?.querySelector(BUSY);
+  const { collapsed } = useComposerCollapse({ enabled: collapseEnabled && !openChip, idle, zoneRef });
   useLayoutEffect(() => { zoneRef.current?.classList.toggle("collapsed", collapsed); }, [collapsed, zoneRef]);
 
   const openFromList = (label: string) => {

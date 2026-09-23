@@ -23,7 +23,7 @@ describe("folding the composer while scrolling", () => {
 
   function Harness({ enabled = true, idle = true }: { enabled?: boolean; idle?: boolean }) {
     const zoneRef = useRef<HTMLElement>(null);
-    const { collapsed } = useComposerCollapse({ enabled, idle, zoneRef });
+    const { collapsed } = useComposerCollapse({ enabled, idle: () => idle, zoneRef });
     return <>
       <div className="transcript" data-testid="transcript"><p>history</p></div>
       <footer ref={zoneRef} data-testid="zone" data-collapsed={collapsed ? "yes" : "no"}><textarea /></footer>

@@ -57,7 +57,7 @@ import {
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
 import type { ChipLayerApi } from "./ComposerChipLayer";
-import { plainChipText, withoutChipTokens } from "./composer-chip-token";
+import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
 import { takePasteAsText } from "../paste-as-text";
@@ -350,7 +350,6 @@ export function Composer({
       scopeStore.setDraft(attachmentScope, seed);
     }
   }, [attachmentScope, scopeStore, seed, value]);
-  const readDraft = useCallback(() => value ?? scopeStore.getSnapshot(attachmentScope).draft, [attachmentScope, scopeStore, value]);
   const promptHistoryRef = useRef<PromptHistory>(null!);
   if (!promptHistoryRef.current) {
     promptHistoryRef.current = new PromptHistory({
@@ -624,7 +623,7 @@ export function Composer({
     if (held) return;
     // An answer's chips go along as its files; its text is the user's own words.
     const intent = classifyComposerInput({
-      text: answerable ? withoutChipTokens(text) : plainChipText(text),
+      text: plainChipText(text, Boolean(answerable)),
       answerable: Boolean(answerable),
       answerFiles: answerHasFiles,
       promptActionAvailable: Boolean(promptSubmit && !promptSubmit.disabled),
@@ -831,7 +830,6 @@ export function Composer({
             <small>↵ accept · esc cancel · ctrl+r cycle</small>
           </div>
         ) : null}
-        <div className="composer-input">
         <textarea
           ref={textareaRef}
           rows={1}
@@ -951,27 +949,17 @@ export function Composer({
           <ComposerChipLayer
             apiRef={chipLayer}
             scope={attachmentScope}
-            text={text}
-            readText={readDraft}
             draftStorageKey={draftStorageKey}
-            clientStorage={clientStorage}
-            inlines={inlines}
-            attachments={attachments}
             scopeStore={scopeStore}
             textareaRef={textareaRef}
             insertAt={chipInsertAt}
-            paused={activeScopeSnapshot.submissionPending}
             updateDraft={updateDraft}
             setCaret={setCaret}
-            skill={selectedSkill && text.slice(selectedSkill.start, selectedSkill.end) === selectedSkill.invocation ? selectedSkill : undefined}
-            registry={registry}
+            selectedSkill={selectedSkill}
             onNotify={onNotify}
             onPreview={setPreviewId}
-            collapseEnabled={prefSnapshot.composerCollapseOnScroll}
-            collapseIdle={!text.includes("\n") && !prompt && !trigger && !historySearch.isSearching && !modelPickerOpen && menu === undefined && !openGate}
           />
         </Suspense>
-        </div>
 
         <div className="composer-toolbar">
           <ComposerFooterControls
@@ -1099,7 +1087,7 @@ export function Composer({
           />
 
           {answerable && prompt ? (() => {
-            const typedAnswer = Boolean(withoutChipTokens(text).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
+            const typedAnswer = Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled));
             const submitLabel = typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer";
             return (
               <button

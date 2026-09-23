@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type RefObject } from "react";
-import type { ClientStorage } from "../../workbench/client-storage";
+import { useClientStorage } from "../client-storage-context";
 import type { ComposerScope, ComposerScopeStore, PendingAttachment } from "../../workbench/composer-scope-store";
 import { readComposerDraftState, writeComposerDraftState } from "../../workbench/draft-store";
 import type { ComposerChipDetailProps, ComposerInlineContribution } from "../extension-system";
@@ -31,19 +31,11 @@ interface Candidate { key: string; base: string; entry: Omit<ComposerChipEntry, 
 
 export interface UseComposerChipsOptions {
   scope: ComposerScope;
-  text: string;
-  /** The draft as the store holds it now, which an effect of the same commit may have changed. */
-  readText(): string;
   draftStorageKey?: string;
-  clientStorage: ClientStorage;
-  inlines: readonly Inline[];
-  attachments: readonly PendingAttachment[];
   scopeStore: ComposerScopeStore;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   /** Where a menu that just closed left the caret; read once, the field's own caret otherwise. */
   insertAt: RefObject<number | undefined>;
-  /** A prompt is on its way: its chips are hidden by their holders, not gone, so no token is taken out. */
-  paused: boolean;
   updateDraft(next: string): void;
   setCaret(caret: number): void;
 }
@@ -54,7 +46,16 @@ export interface UseComposerChipsOptions {
  * token, and a token the user deleted leaves its chip until the prompt is
  * sent (so an undo brings it back); the send drops those.
  */
-export function useComposerChips({ scope, text, readText, draftStorageKey, clientStorage, inlines, attachments, scopeStore, textareaRef, insertAt, paused, updateDraft, setCaret }: UseComposerChipsOptions) {
+export function useComposerChips({ scope, text, draftStorageKey, inlines, attachments, scopeStore, textareaRef, insertAt, paused, updateDraft, setCaret }: UseComposerChipsOptions & {
+  text: string;
+  inlines: readonly Inline[];
+  attachments: readonly PendingAttachment[];
+  /** A prompt is on its way: its chips are hidden by their holders, not gone, so no token is taken out. */
+  paused: boolean;
+}) {
+  const clientStorage = useClientStorage();
+  // The draft as the store holds it now, which an effect of the same commit may have changed.
+  const readText = useCallback(() => scopeStore.getSnapshot(scope).draft, [scope, scopeStore]);
   const chipInlines = useMemo(() => inlines.filter((inline) => inline.chips), [inlines]);
   const subscribe = useCallback((listener: () => void) => {
     const unsubscribers = chipInlines.map((inline) => inline.subscribe?.(listener));

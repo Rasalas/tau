@@ -1120,7 +1120,6 @@ button > svg { pointer-events: none; }
 }
 .composer-frame textarea::placeholder { color: var(--faint); }
 /* Chips in the text: the textarea's own glyphs turn transparent and the mirror behind it draws them with the same metrics. */
-.composer-input { position: relative; }
 .composer-frame textarea.mirrored { position: relative; z-index: 1; color: transparent; caret-color: var(--ink); }
 .composer-mirror {
   position: absolute; left: 0; top: 0; overflow: hidden; pointer-events: none; box-sizing: border-box;

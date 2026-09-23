@@ -28,14 +28,13 @@ const LINE_PX = 16;
  */
 export function useComposerCollapse({ enabled, idle, zoneRef }: {
   enabled: boolean;
-  /** Nothing in the composer asks to stay open: one line, no open question, menu or popover. */
-  idle: boolean;
+  /** Nothing in the composer asks to stay open: one line, no open question, menu or popover; asked as the wheel turns. */
+  idle(): boolean;
   zoneRef: RefObject<HTMLElement | null>;
 }): { collapsed: boolean } {
   const [collapsed, setCollapsed] = useState(false);
   const idleRef = useRef(idle);
   idleRef.current = idle;
-  const active = enabled && idle;
   useEffect(() => { if (!enabled) setCollapsed(false); }, [enabled]);
 
   useEffect(() => {
@@ -50,7 +49,7 @@ export function useComposerCollapse({ enabled, idle, zoneRef }: {
         setCollapsed(false);
         return;
       }
-      if (scrollGestureStep(gesture, delta, event.timeStamp) && idleRef.current && scroller.scrollTop > 0) setCollapsed(true);
+      if (scrollGestureStep(gesture, delta, event.timeStamp) && idleRef.current() && scroller.scrollTop > 0) setCollapsed(true);
     };
     document.addEventListener("wheel", onWheel, { capture: true, passive: true });
     return () => document.removeEventListener("wheel", onWheel, true);
@@ -66,5 +65,5 @@ export function useComposerCollapse({ enabled, idle, zoneRef }: {
     return () => { for (const type of events) zone.removeEventListener(type, open); };
   }, [zoneRef]);
 
-  return { collapsed: collapsed && active };
+  return { collapsed: collapsed && enabled };
 }

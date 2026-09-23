@@ -1,6 +1,24 @@
-import { CHIP_MARK, CHIP_SLOT, findChipTokens, type ChipToken } from "./composer-chip-token";
+import { CHIP_MARK } from "./composer-chip-token";
 
-export { CHIP_MARK, CHIP_SLOT, findChipTokens, plainChipText, withoutChipTokens, type ChipToken } from "./composer-chip-token";
+export { CHIP_MARK, plainChipText } from "./composer-chip-token";
+
+export const CHIP_SLOT = "\u2007\u2007";
+const TOKEN = /\u2063\u2007\u2007([^\u2063\n]*)\u2063/gu;
+
+export interface ChipToken {
+  start: number;
+  end: number;
+  label: string;
+}
+
+export function findChipTokens(text: string): ChipToken[] {
+  if (!text.includes(CHIP_MARK)) return [];
+  const tokens: ChipToken[] = [];
+  for (const match of text.matchAll(TOKEN)) {
+    tokens.push({ start: match.index, end: match.index + match[0].length, label: match[1]! });
+  }
+  return tokens;
+}
 
 const OPEN = `${CHIP_MARK}${CHIP_SLOT}`;
 const MAX_LABEL = 48;

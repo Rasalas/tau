@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  withoutChipTokens,
   chipLabelText,
   chipToken,
   findChipTokens,
@@ -24,7 +23,7 @@ describe("composer chip tokens", () => {
     expect(text.slice(tokens[0]!.start, tokens[0]!.end)).toBe(A);
     expect(plainChipText(text)).toBe("look at a.ts and Terminal · 3 lines please");
     expect(plainChipText("no chips")).toBe("no chips");
-    expect(withoutChipTokens(text)).toBe("look at and please");
+    expect(plainChipText(text, true)).toBe("look at and please");
   });
 
   it("keeps labels to one line and unique", () => {
