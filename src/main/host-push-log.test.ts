@@ -23,11 +23,22 @@ describe("host push log", () => {
   });
 
   it("asks for a resync when the gap fell out of the buffer", () => {
-    const log = new HostPushLog(2);
+    const size = Buffer.byteLength(JSON.stringify({ seq: 1, event: event("a") }));
+    const log = new HostPushLog(size * 2);
     for (const label of ["a", "b", "c", "d"]) log.record(event(label));
-    // Only 3 and 4 are still buffered; a client at 1 cannot be repaired.
+    // Only 3 and 4 fit the byte budget; a client at 1 cannot be repaired.
     expect(log.since(2).missed.map((push) => push.seq)).toEqual([3, 4]);
     expect(log.since(1).resync).toBe(true);
+  });
+
+  it("bounds the buffer by bytes, keeping the newest push even when it alone is over", () => {
+    const log = new HostPushLog(1_000);
+    for (let index = 0; index < 50; index += 1) log.record(event(`small-${index}`));
+    expect(log.since(0).resync).toBe(true);
+    expect(log.since(40).missed.map((push) => push.seq)).toEqual([41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
+    log.record(event("x".repeat(5_000)));
+    expect(log.since(50).missed.map((push) => push.seq)).toEqual([51]);
+    expect(log.since(49).resync).toBe(true);
   });
 
   it("asks for a resync when the client is ahead of the host", () => {

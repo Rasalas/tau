@@ -11,8 +11,8 @@ export const HOST_TRANSPORT_VERSION = 1;
 /** Largest frame a socket transport accepts; prompt attachments are the big ones. */
 export const HOST_TRANSPORT_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 
-/** How many pushes a host keeps for a reconnecting client. */
-export const HOST_PUSH_BUFFER_SIZE = 500;
+/** How many bytes of pushes a host keeps for a reconnecting client. */
+export const HOST_PUSH_BUFFER_BYTES = 8 * 1024 * 1024;
 
 /**
  * Methods the machine a client runs on answers for itself: its clipboard, the
