@@ -285,7 +285,6 @@ export class TranscriptHistoryController {
       ...(turnActivityHistoryComplete !== undefined ? { turnActivityHistoryComplete } : {}),
     }, pageBundle, cursorBoundaries, transcriptWindow) : undefined;
     if (detail) this.cache.setDetail(detail);
-    this.pageState.markAnchorMeasured(messages);
 
     let snapshot: HostSnapshot | undefined;
     const cachedSnapshot = this.cache.getSnapshot();

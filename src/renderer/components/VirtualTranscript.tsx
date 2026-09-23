@@ -1,7 +1,6 @@
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject, type SyntheticEvent } from "react";
 import type { UiMessage } from "../../shared/contracts";
-import type { TranscriptScrollAnchor } from "../../workbench/transcript-history";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { Message } from "./Message";
 import {
@@ -11,6 +10,7 @@ import {
 } from "./transcript-activity";
 import { RowViewportKeeper } from "./transcript-scroll-controller";
 import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
+import { usePrependAnchor, type PrependAnchorVirtualizer } from "./usePrependAnchor";
 import { LazyFeatureBoundary } from "./LazyFeature";
 
 export interface VirtualTranscriptProps {
@@ -30,8 +30,6 @@ export interface VirtualTranscriptProps {
   revision?: number;
   /** Invalidates the user-message lookup when an existing record's metadata changes. */
   lookupRevision?: number;
-  /** Anchor used while a history page is measured after prepending. */
-  anchorRef?: { current: TranscriptScrollAnchor | undefined };
   onCopyMessage?: (message: UiMessage) => void;
   onForkMessage?: (message: UiMessage) => void;
   onFocusComposer?: () => void;
@@ -110,7 +108,6 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   detail,
   messageScopeKey,
   lookupRevision,
-  anchorRef,
   onCopyMessage,
   onForkMessage,
   onFocusComposer,
@@ -153,14 +150,16 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     [activeTurnStartId, messageIndex],
   );
 
-  const measureThrough = anchorRef?.current?.measureThrough;
+  const virtualizerRef = useRef<PrependAnchorVirtualizer | undefined>(undefined);
+  const pinnedRows = usePrependAnchor(virtualizerRef, scrollRef, messageIndex.positions, firstId);
   const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
-    const indexes = new Set(defaultRangeExtractor(range));
-    if (measureThrough !== undefined) {
-      for (let index = 0; index < Math.min(measureThrough, messages.length); index += 1) indexes.add(index);
-    }
-    return [...indexes].sort((left, right) => left - right);
-  }, [anchorRef, measureThrough, messages.length]);
+    const indexes = defaultRangeExtractor(range);
+    const pinned = pinnedRows();
+    if (!pinned) return indexes;
+    const merged = new Set(indexes);
+    for (let index = pinned[0]; index <= pinned[1]; index += 1) merged.add(index);
+    return [...merged].sort((left, right) => left - right);
+  }, [pinnedRows]);
   const [expandedState, setExpandedState] = useState<{ sessionKey: string; ids: ReadonlySet<string> }>(() => ({ sessionKey, ids: new Set() }));
   const expandedMessageIds = expandedState.sessionKey === sessionKey ? expandedState.ids : EMPTY_MESSAGE_IDS;
   // The transcript index already owns this mapping. Reusing it avoids a second
@@ -207,6 +206,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
   }, [virtualizer]);
   const measureRow = useRowMeasurement(virtualizer);
+  useLayoutEffect(() => { virtualizerRef.current = virtualizer; }, [virtualizer]);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const activityLayout = useRef<ActivityLayoutSnapshot>({

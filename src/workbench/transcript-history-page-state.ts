@@ -216,13 +216,6 @@ export class TranscriptHistoryPageState {
     this.preserveScrollRef.current = true;
   }
 
-  markAnchorMeasured(messages: readonly UiMessage[]): void {
-    const anchor = this.anchorRef.current;
-    if (!anchor || anchor.measureThrough !== undefined) return;
-    const anchorIndex = messages.findIndex((message) => message.id === anchor.messageId);
-    if (anchorIndex >= 0) this.anchorRef.current = { ...anchor, measureThrough: anchorIndex + 1 };
-  }
-
   leaseForThreadState(preserveAnchor: boolean): {
     anchor?: TranscriptScrollAnchor;
     preserveScroll?: boolean;
