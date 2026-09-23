@@ -176,8 +176,13 @@ export interface PreviewBrowserService {
   open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
 }
 
-/** Workspace Kit's store (`kits/workspace/protocol.ts`); only the row mark this kit draws. */
+/** Workspace Kit's store (`kits/workspace/protocol.ts`); the row mark this kit draws, and its "Open in". */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
-export interface WorkspaceRowMarks {
+export interface WorkspaceStoreMirror {
   registerThreadRowAccessory(accessory: (props: { session: { id: string } }) => unknown): () => void;
+  /** The project the store follows; `openInEditor` paths are relative to it. */
+  getSnapshot?(): { cwd?: string };
+  subscribe?(listener: () => void): () => void;
+  activeEditor?(): { id: string; name: string } | undefined;
+  openInEditor?(relPath?: string): Promise<void>;
 }

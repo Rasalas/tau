@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from "react";
 import { getClientStorage, HostUnavailableError, type HostExtensionClient, type PreferencesStore, type WorkbenchActions } from "tau";
-import { createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, type TerminalFontDefaults, type UiTerminalSession } from "./protocol.js";
+import {
+  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, type TerminalFontDefaults, type UiTerminalSession, type WorkspaceStoreMirror,
+} from "./protocol.js";
 import { EMPTY_LAYOUT, focusPane, paneIds, parseLayout, reconcileLayout, type TerminalLayout } from "./layout.js";
 import type { ComposerContextChips, PreviewBrowserService } from "./protocol.js";
 import { FONT_FAMILY_SETTING, FONT_SIZE_SETTING, resolveTerminalFont, type ResolvedTerminalFont, type TerminalFontSettings } from "./font.js";
@@ -117,7 +119,7 @@ export class TerminalStore {
   }
 
   private reconciled(layout: TerminalLayout, sessions: readonly UiTerminalSession[]): TerminalLayout {
-    const placed = new Set([...layout.groups.flatMap((group) => paneIds(group.root)), ...layout.onStage]);
+    const placed = new Set([...layout.groups, ...layout.stage].flatMap((group) => paneIds(group.root)));
     const held = this.holds > 0 ? new Set(sessions.map((session) => session.id).filter((id) => !placed.has(id))) : new Set<string>();
     return reconcileLayout(layout, sessions.map((session) => session.id), held);
   }
@@ -180,6 +182,7 @@ export function useTerminalKit(): TerminalKitState {
 export const terminalServices: {
   chips?: ComposerContextChips;
   preview?: PreviewBrowserService;
+  workspace?: WorkspaceStoreMirror;
   actions?: WorkbenchActions;
 } = {};
 

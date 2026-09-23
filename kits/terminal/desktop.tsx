@@ -4,8 +4,8 @@ import { TerminalPanel } from "./panel.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
 import { connectTerminalFont, connectTerminalHost, terminalKit, terminalServices, terminalStore } from "./store.js";
 import { TerminalSettingsPage } from "./settings.js";
-import { focusedPane, paneIds } from "./layout.js";
-import { closeTerminals, focusNextPane, openTerminal, runInTerminal, toggleTerminal } from "./controller.js";
+import { paneIds } from "./layout.js";
+import { closeTerminals, focusNextPane, keyboardShell, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   PREVIEW_BROWSER_SERVICE,
@@ -21,7 +21,7 @@ import {
   type ComposerContextChips,
   type PreviewBrowserService,
   WORKSPACE_STORE_SERVICE,
-  type WorkspaceRowMarks,
+  type WorkspaceStoreMirror,
 } from "./protocol.js";
 import { TerminalRowStatus, watchForegrounds } from "./row-status.js";
 
@@ -34,22 +34,28 @@ function withActions(run: (actions: WorkbenchActions) => unknown) {
 }
 
 /**
- * T3 Code's chords. Those that act on a pane hold only in a panel terminal:
- * on the stage one shell fills the tab, and `mod+w` closes the tab instead.
- * `mod+j` is bound twice so a shell never takes it, whatever `mod` is here.
+ * T3 Code's chords. Splitting and moving between panes work in the panel and
+ * in a stage tab alike; on the stage `mod+w` closes the tab, which hands its
+ * shells back to the panel. `mod+j` is bound twice so a shell never takes it,
+ * whatever `mod` is here.
  */
 export const TERMINAL_KEYBINDINGS: ReadonlyArray<{ keys: string; commandId: string; when?: string }> = [
   { keys: "mod+j", commandId: TERMINAL_COMMANDS.toggle },
   { keys: "mod+j", commandId: TERMINAL_COMMANDS.toggle, when: "terminalFocus" },
   { keys: "mod+n", commandId: TERMINAL_COMMANDS.new, when: "terminalFocus" },
-  { keys: "mod+d", commandId: TERMINAL_COMMANDS.split, when: "terminalFocus && !stageFocus" },
-  { keys: "mod+shift+d", commandId: TERMINAL_COMMANDS.splitDown, when: "terminalFocus && !stageFocus" },
+  { keys: "mod+d", commandId: TERMINAL_COMMANDS.split, when: "terminalFocus" },
+  { keys: "mod+shift+d", commandId: TERMINAL_COMMANDS.splitDown, when: "terminalFocus" },
   { keys: "mod+w", commandId: TERMINAL_COMMANDS.close, when: "terminalFocus && !stageFocus" },
-  { keys: "mod+]", commandId: TERMINAL_COMMANDS.focusNext, when: "terminalFocus && !stageFocus" },
-  { keys: "mod+[", commandId: TERMINAL_COMMANDS.focusPrevious, when: "terminalFocus && !stageFocus" },
+  { keys: "mod+]", commandId: TERMINAL_COMMANDS.focusNext, when: "terminalFocus" },
+  { keys: "mod+[", commandId: TERMINAL_COMMANDS.focusPrevious, when: "terminalFocus" },
 ];
 
 function focusPane(app: WorkbenchActions, step: 1 | -1): void {
+  const typing = keyboardShell();
+  if (typing && onStage(typing)) {
+    focusNextPane(step, typing);
+    return;
+  }
   const layout = terminalStore.getSnapshot().layout;
   const group = layout.groups.find((entry) => entry.id === layout.active);
   app.openPanel(TERMINAL_PANEL);
@@ -57,9 +63,11 @@ function focusPane(app: WorkbenchActions, step: 1 | -1): void {
   else if (group) terminalStore.requestFocus(group.focused);
 }
 
-/** The shell a command without a pane of its own acts on: the panel's focused one. */
-function focusedShell(): string | undefined {
-  return focusedPane(terminalStore.getSnapshot().layout);
+/** A split beside the shell with the keyboard; the panel comes forward unless that shell is on the stage. */
+function split(app: WorkbenchActions, direction: "right" | "down") {
+  const target = targetShell();
+  if (!target || !onStage(target)) app.openPanel(TERMINAL_PANEL);
+  return openTerminal(app, { direction, ...(target ? { target } : {}) });
 }
 
 export const terminalExtension: DesktopExtension = {
@@ -81,7 +89,14 @@ export const terminalExtension: DesktopExtension = {
         terminalServices.preview = preview;
         return () => { if (terminalServices.preview === preview) delete terminalServices.preview; };
       }),
-      plugin.useService<WorkspaceRowMarks>(WORKSPACE_STORE_SERVICE, (workspace) => workspace.registerThreadRowAccessory(TerminalRowStatus)),
+      plugin.useService<WorkspaceStoreMirror>(WORKSPACE_STORE_SERVICE, (workspace) => {
+        terminalServices.workspace = workspace;
+        const unmark = workspace.registerThreadRowAccessory(TerminalRowStatus);
+        return () => {
+          unmark();
+          if (terminalServices.workspace === workspace) delete terminalServices.workspace;
+        };
+      }),
       plugin.provideService<TerminalRunService>(TERMINAL_RUN_SERVICE, { run: (request, actions) => runInTerminal(actions ?? terminalServices.actions, request) }),
     ];
     // The setting picks dock or drawer; changing it registers the panel again in its new place.
@@ -127,20 +142,20 @@ export const terminalExtension: DesktopExtension = {
         id: TERMINAL_COMMANDS.split,
         label: "Split terminal right",
         group: "Terminal",
-        run: withActions((app) => { app.openPanel(TERMINAL_PANEL); return openTerminal(app, { direction: "right" }); }),
+        run: withActions((app) => split(app, "right")),
       }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.splitDown,
         label: "Split terminal down",
         group: "Terminal",
-        run: withActions((app) => { app.openPanel(TERMINAL_PANEL); return openTerminal(app, { direction: "down" }); }),
+        run: withActions((app) => split(app, "down")),
       }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.close,
         label: "Close terminal",
         group: "Terminal",
         run: withActions(async () => {
-          const id = focusedShell();
+          const id = targetShell();
           if (id) await closeTerminals([id]);
         }),
       }),
