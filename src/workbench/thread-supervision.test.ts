@@ -9,7 +9,7 @@ function thread(id: string, modifiedAt: number, title = id): UiSession {
 
 const idle: ThreadActivitySnapshot = {
   activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [],
-  runningThreadIds: [], failedThreadIds: [], interruptedThreadIds: [], runningStartedAt: {},
+  runningThreadIds: [], failedThreadIds: [], interruptedThreadIds: [], limitedThreadIds: [], runningStartedAt: {},
 };
 
 describe("thread supervision", () => {

@@ -12,6 +12,8 @@ export interface ThreadActivitySnapshot {
   failedThreadIds: readonly string[];
   /** Threads a restart cut a turn short in, as the index reports them. */
   interruptedThreadIds: readonly string[];
+  /** Threads a provider's usage or rate limit stopped, as the index reports them. */
+  limitedThreadIds: readonly string[];
   /** Local start times for live sidebar timers, keyed by Tau thread id. */
   runningStartedAt: Readonly<Record<string, number>>;
 }
@@ -33,6 +35,8 @@ export interface ThreadStoreSnapshot {
   failedThreadIds: readonly string[];
   /** Threads a restart cut a turn short in, as the index reports them. */
   interruptedThreadIds: readonly string[];
+  /** Threads a provider's usage or rate limit stopped, as the index reports them. */
+  limitedThreadIds: readonly string[];
   /** Local start times for live sidebar timers, keyed by Tau thread id. */
   runningStartedAt: Readonly<Record<string, number>>;
 }
@@ -47,6 +51,7 @@ const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
   runningThreadIds: [],
   failedThreadIds: [],
   interruptedThreadIds: [],
+  limitedThreadIds: [],
   runningStartedAt: {},
 };
 
@@ -63,7 +68,15 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     left.interrupted === right.interrupted &&
     left.turnError === right.turnError &&
     left.runtimeError === right.runtimeError &&
-    left.modelProvider === right.modelProvider;
+    left.modelProvider === right.modelProvider &&
+    left.queueHeld === right.queueHeld &&
+    sameJson(left.limit, right.limit) &&
+    sameJson(left.queued, right.queued);
+}
+
+/** Small host-owned records; each publication is a fresh object. */
+function sameJson(left: unknown, right: unknown): boolean {
+  return left === right || JSON.stringify(left) === JSON.stringify(right);
 }
 
 function preserveObservedModelProvider(incoming: UiSession, existing: UiSession | undefined): UiSession {
@@ -114,7 +127,7 @@ export class ThreadStore {
   private activityListeners = new Set<() => void>();
   private activitySnapshot: ThreadActivitySnapshot = {
     activeThreadId: "", isStreaming: false, unreadThreadIds: [], waitingThreadIds: [],
-    runningThreadIds: [], failedThreadIds: [], interruptedThreadIds: [], runningStartedAt: {},
+    runningThreadIds: [], failedThreadIds: [], interruptedThreadIds: [], limitedThreadIds: [], runningStartedAt: {},
   };
   private shellListeners = new Map<string, Set<() => void>>();
   private runningTools = new Map<string, string>();
@@ -268,14 +281,18 @@ export class ThreadStore {
       this.snapshot.interruptedThreadIds,
       candidate.threads.flatMap((thread) => thread.interrupted ? [thread.id] : []),
     );
+    const limitedThreadIds = sameIds(
+      this.snapshot.limitedThreadIds,
+      candidate.threads.flatMap((thread) => thread.limit ? [thread.id] : []),
+    );
     const failedThreadIds = sameIds(this.snapshot.failedThreadIds, [
       ...this.refusedThreadIds,
       ...candidate.threads.flatMap((thread) => thread.turnError && !this.refusedThreadIds.includes(thread.id) ? [thread.id] : []),
     ]);
     const next = candidate.isStreaming === isStreaming && candidate.interruptedThreadIds === interruptedThreadIds
-      && candidate.failedThreadIds === failedThreadIds
+      && candidate.failedThreadIds === failedThreadIds && candidate.limitedThreadIds === limitedThreadIds
       ? candidate
-      : { ...candidate, isStreaming, interruptedThreadIds, failedThreadIds };
+      : { ...candidate, isStreaming, interruptedThreadIds, failedThreadIds, limitedThreadIds };
     if (
       next.projects === this.snapshot.projects &&
       next.threads === this.snapshot.threads &&
@@ -287,6 +304,7 @@ export class ThreadStore {
       next.runningThreadIds === this.snapshot.runningThreadIds &&
       next.failedThreadIds === this.snapshot.failedThreadIds &&
       next.interruptedThreadIds === this.snapshot.interruptedThreadIds &&
+      next.limitedThreadIds === this.snapshot.limitedThreadIds &&
       next.runningStartedAt === this.snapshot.runningStartedAt
     ) return;
     const previous = this.snapshot;
@@ -301,6 +319,7 @@ export class ThreadStore {
       next.runningThreadIds !== previous.runningThreadIds ||
       next.failedThreadIds !== previous.failedThreadIds ||
       next.interruptedThreadIds !== previous.interruptedThreadIds ||
+      next.limitedThreadIds !== previous.limitedThreadIds ||
       next.runningStartedAt !== previous.runningStartedAt
     ) {
       this.activitySnapshot = {
@@ -312,6 +331,7 @@ export class ThreadStore {
         runningThreadIds: next.runningThreadIds,
         failedThreadIds: next.failedThreadIds,
         interruptedThreadIds: next.interruptedThreadIds,
+        limitedThreadIds: next.limitedThreadIds,
         runningStartedAt: next.runningStartedAt,
       };
       this.activityListeners.forEach((listener) => listener());

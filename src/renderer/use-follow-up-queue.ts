@@ -1,13 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import type { ClientTurnIdentity, UiPromptAttachment, UiPromptImageAttachment, UiSkillDraft } from "../shared/contracts";
+import { useCallback, useSyncExternalStore } from "react";
+import type { UiPromptAttachment, UiPromptImageAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft } from "../shared/contracts";
 import type { WorkbenchActions } from "./extension-system";
-import { createClientMessageId } from "../workbench/app-state";
 import type { SubmitResult } from "./components/Composer";
 import { errorMessage } from "../workbench/error-message";
-import { FollowUpQueueStore, type QueuedFollowUp } from "../workbench/follow-up-queue";
 import type { HostClient } from "../workbench/host-client";
-import type { PreferencesStore } from "./preferences";
-import { usePreferences } from "./renderer-services-context";
+import type { ThreadStore } from "../workbench/thread-store";
 
 export type SubmitPrompt = (
   value: string,
@@ -16,10 +13,10 @@ export type SubmitPrompt = (
   skillDraft?: UiSkillDraft,
 ) => Promise<SubmitResult>;
 
-const EMPTY: readonly QueuedFollowUp[] = [];
+const EMPTY: readonly UiQueuedMessage[] = [];
 
 /** Puts messages that were not sent back into the composer, below its draft; images come back as images. */
-export function returnToComposer(actions: WorkbenchActions | undefined, items: readonly QueuedFollowUp[]): void {
+export function returnToComposer(actions: WorkbenchActions | undefined, items: readonly UiQueuedPrompt[]): void {
   if (!actions || items.length === 0) return;
   const texts = items.map((item) => item.text.trim()).filter(Boolean);
   if (texts.length > 0) actions.setComposerDraft?.([actions.composerDraft().trimEnd(), ...texts].filter(Boolean).join("\n\n"));
@@ -29,116 +26,54 @@ export function returnToComposer(actions: WorkbenchActions | undefined, items: r
     actions.notify("The queued message's files did not come back; attach them again.");
   }
 }
-let backgroundTurnSequence = 0;
-
-/** A thread that is not on screen gets its queued prompt without optimistic transcript state. */
-async function deliverInBackground(client: HostClient | undefined, sessionId: string, item: QueuedFollowUp, preferences: PreferencesStore): Promise<SubmitResult> {
-  try {
-    if (!client) throw new Error("Queued messages require the Electron host.");
-    const text = item.skillDraft ? item.text : item.text.trim();
-    const prepared = await client.preparePrompt(text, sessionId, item.skillDraft);
-    const clientTurn: ClientTurnIdentity = {
-      clientTurnId: `queued-turn-${Date.now()}-${backgroundTurnSequence++}`,
-      clientMessageId: createClientMessageId(),
-    };
-    await client.sendPrompt(text, item.attachments, sessionId, clientTurn, prepared);
-    preferences.unsettle(sessionId);
-    return { accepted: true };
-  } catch (error) {
-    return { accepted: false, message: errorMessage(error) };
-  }
-}
 
 /**
- * Follow-ups typed during a run wait per thread until that thread settles,
- * then leave one at a time as ordinary prompts. The visible thread submits
- * through the composer path; other threads are delivered directly.
+ * The thread's queue as the composer sees it. The host keeps the queue and
+ * sends its head when the thread settles (it outlives the window and a
+ * restart); this reads it from the thread's shell and edits it through the host.
  */
-export function useFollowUpQueue({ client, store, sessionId, isRunning, runningThreadIds, submit, setNotice }: {
+export function useFollowUpQueue({ client, threads, sessionId, isRunning, submit, setNotice, actions }: {
   client: HostClient | undefined;
-  /** The queue itself; the workbench owns it so a submission can enqueue into it. */
-  store: FollowUpQueueStore;
+  /** Where the host's thread shells, and with them each queue, arrive. */
+  threads: ThreadStore;
   /** The thread on screen, or undefined while a new-thread draft is open. */
   sessionId: string | undefined;
   /** Reads the one run-state selector; a steer only steers a thread that is working. */
   isRunning(): boolean;
-  runningThreadIds: readonly string[];
   /** Sends through the visible composer's path; stable, so this effect never chases a render. */
   submit: SubmitPrompt;
   setNotice(message: string | undefined, level: "error"): void;
+  /** Where a message that could not be sent goes back to. */
+  actions(): WorkbenchActions | undefined;
 }) {
-  const preferences = usePreferences();
-  const version = useSyncExternalStore(store.subscribe, store.getVersion);
-  // The version is the change signal; the list is derived from it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const queue = useMemo(() => (sessionId ? store.list(sessionId) : EMPTY), [sessionId, store, version]);
+  const shell = useSyncExternalStore(
+    useCallback((listener: () => void) => threads.subscribeToThread(sessionId ?? "", listener), [sessionId, threads]),
+    useCallback(() => (sessionId ? threads.getThread(sessionId) : undefined), [sessionId, threads]),
+  );
+  const queue = sessionId ? shell?.queued ?? EMPTY : EMPTY;
+  const held = Boolean(sessionId && shell?.queueHeld);
 
-  // Threads whose next prompt has left the queue but whose run the host has
-  // not yet reported. Without this, two queued prompts could leave at once.
-  const flushingRef = useRef(new Set<string>());
-  useEffect(() => {
-    for (const threadId of store.sessionIds()) {
-      if (runningThreadIds.includes(threadId)) {
-        flushingRef.current.delete(threadId);
-        store.resume(threadId);
-        continue;
-      }
-      if (flushingRef.current.has(threadId) || store.isPaused(threadId)) continue;
-      const next = store.shift(threadId);
-      if (!next) continue;
-      flushingRef.current.add(threadId);
-      const delivery = threadId === sessionId
-        ? submit(next.text, next.attachments, undefined, next.skillDraft)
-        : deliverInBackground(client, threadId, next, preferences);
-      void delivery
-        .then((result) => {
-          if (result.accepted) {
-            // Release even if the host never reports a run for this prompt.
-            window.setTimeout(() => flushingRef.current.delete(threadId), 5000);
-            return;
-          }
-          // Failed delivery: restore item and pause the thread
-          flushingRef.current.delete(threadId);
-          store.unshift(threadId, next);
-          store.pause(threadId);
-          setNotice(result.message, "error");
-        })
-        .catch(() => {
-          // Delivery threw instead of returning rejected result
-          flushingRef.current.delete(threadId);
-          store.unshift(threadId, next);
-          store.pause(threadId);
-        });
-    }
-  }, [client, preferences, runningThreadIds, sessionId, setNotice, store, submit, version]);
-
-  const cancelQueued = useCallback((id: string) => {
-    if (sessionId) store.remove(sessionId, id);
-  }, [sessionId, store]);
+  const report = useCallback((error: unknown) => setNotice(errorMessage(error), "error"), [setNotice]);
+  // Takes messages out without sending them: one by id, or the whole queue of the thread on screen.
+  const takeQueued = useCallback(async (id?: string): Promise<UiQueuedPrompt[]> => {
+    if (!sessionId || !client) return [];
+    return client.takeQueued(sessionId, id).catch((error: unknown) => { report(error); return []; });
+  }, [client, report, sessionId]);
+  const cancelQueued = useCallback((id: string) => { void takeQueued(id); }, [takeQueued]);
   const reorderQueue = useCallback((id: string, toIndex: number) => {
-    if (sessionId) store.move(sessionId, id, toIndex);
-  }, [sessionId, store]);
+    if (sessionId && client) void client.moveQueued(sessionId, id, toIndex).catch(report);
+  }, [client, report, sessionId]);
   // Sends one queued message ahead of the queue: as a steer while the thread
-  // runs, as a plain prompt otherwise.
+  // runs, as a plain prompt otherwise. One that does not go out comes back to the composer.
   const steerQueued = useCallback(async (id: string) => {
-    if (!sessionId) return;
-    const item = store.remove(sessionId, id);
+    const [item] = await takeQueued(id);
     if (!item) return;
     const result = await submit(item.text, item.attachments, isRunning() ? "steer" : undefined, item.skillDraft);
     if (!result.accepted) {
-      store.unshift(sessionId, item);
-      store.pause(sessionId);
+      returnToComposer(actions(), [item]);
       setNotice(result.message, "error");
     }
-  }, [isRunning, sessionId, setNotice, store, submit]);
+  }, [actions, isRunning, setNotice, submit, takeQueued]);
 
-  // Takes messages out without sending them: one by id, or the whole queue of the thread on screen.
-  const takeQueued = useCallback((id?: string): QueuedFollowUp[] => {
-    if (!sessionId) return [];
-    if (id === undefined) return store.drain(sessionId);
-    const item = store.remove(sessionId, id);
-    return item ? [item] : [];
-  }, [sessionId, store]);
-
-  return { queue, cancelQueued, reorderQueue, steerQueued, takeQueued };
+  return { queue, held, cancelQueued, reorderQueue, steerQueued, takeQueued };
 }

@@ -27,7 +27,7 @@ const RANK: Record<ThreadSupervisionStatus, number> = { waiting: 0, running: 1, 
 export function threadSupervisionStatus(id: string, activity: ThreadActivitySnapshot): ThreadSupervisionStatus {
   if (activity.waitingThreadIds.includes(id)) return "waiting";
   if (activity.runningThreadIds.includes(id)) return "running";
-  if (activity.failedThreadIds.includes(id)) return "failed";
+  if (activity.failedThreadIds.includes(id) || activity.limitedThreadIds.includes(id)) return "failed";
   return "done";
 }
 

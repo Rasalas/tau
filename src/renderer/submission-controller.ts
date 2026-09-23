@@ -81,7 +81,8 @@ export interface SubmissionControllerPorts {
   newThread: NewThreadPort;
   turn: TranscriptTurnPort;
   host: HostUpdatePort;
-  enqueueFollowUp(threadId: string, item: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): void;
+  /** Parks the message in the host's queue for the thread; rejects when the host refused it. */
+  enqueueFollowUp(threadId: string, item: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<void>;
 }
 
 /**
@@ -234,7 +235,11 @@ export class SubmissionController {
     // Enter during a run parks the message above the composer. It is prepared
     // and sent as a plain prompt once the thread settles, or steered on demand.
     if (shouldQueueSubmission({ isPendingNewThread: Boolean(pendingNewThread), hasSnapshot: Boolean(snapshot), visibleStreaming, delivery })) {
-      this.ports.enqueueFollowUp(snapshot!.sessionId, formatQueuedFollowUp(input.text, attachments, skillDraft));
+      try {
+        await this.ports.enqueueFollowUp(snapshot!.sessionId, formatQueuedFollowUp(input.text, attachments, skillDraft));
+      } catch (error) {
+        return { accepted: false, message: errorMessage(error) };
+      }
       return { accepted: true };
     }
     let prepared: PreparedPrompt | undefined;

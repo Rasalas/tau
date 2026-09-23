@@ -8,9 +8,10 @@ import type { StageTabController } from "./stage-tab-controller";
 import type { ComposerAttachmentHandle, ComposerControlHandle, SubmitResult } from "./components/Composer";
 import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "../workbench/composer-scope-store";
-import type { QueuedFollowUp } from "../workbench/follow-up-queue";
+import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus, TurnErrorLine } from "./components/ComposerHost";
+import { LimitNotice } from "./components/LimitNotice";
 import { useThreadShell } from "./use-thread-shell";
 import { QueuedMessages } from "./components/QueuedMessages";
 import { ToastLayer } from "./components/ui/ToastLayer";
@@ -235,7 +236,7 @@ export interface WorkbenchComposer {
   seed?: string;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   attachmentRef: RefObject<ComposerAttachmentHandle | null>;
-  queue: readonly QueuedFollowUp[];
+  queue: readonly UiQueuedMessage[];
   holds: number;
   prompts: ExtensionUiPrompt[];
   submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer" | "alternate", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
@@ -726,16 +727,20 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
   const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
-  const shellTurnError = useThreadShell(conversationSnapshot?.sessionId ?? "")?.turnError;
-  const turnError = pendingNewThread || running ? undefined : shellTurnError;
+  const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
+  const turnError = pendingNewThread || running ? undefined : shell?.turnError;
+  // A provider limit replaces the failure line: it says when, and offers to continue.
+  const limit = pendingNewThread || running ? undefined : shell?.limit;
+  const queueHeld = shell?.queueHeld === true;
   const liveStatus = useMemo(() => {
     const status = liveStatusLabel !== undefined
       ? <LiveStatus label={liveStatusLabel} />
       : showRunClock ? <LiveStatus startedAt={runStartedAt} />
+      : limit && conversationSnapshot ? <LimitNotice sessionId={conversationSnapshot.sessionId} limit={limit} />
       : turnError ? <TurnErrorLine message={turnError} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
-    return <>{status}<QueuedMessages queue={queue} streaming={running} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [liveStatusLabel, pendingNewThread, queue, reorderQueue, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
+    return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
+  }, [conversationSnapshot, limit, liveStatusLabel, pendingNewThread, queue, queueHeld, reorderQueue, returnQueued, runStartedAt, running, showRunClock, steerQueued, steerShortcut, turnError]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     scrollRef={transcriptRef}
