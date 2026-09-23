@@ -1,7 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation, type UiThreadUsage } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, parseSkillEnvelope, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiSkillInvocation, type UiThreadUsage } from "tau/host-extension";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -28,6 +28,8 @@ export interface ClaudeRuntimeSessionRecord {
   backendKind: "claude-code";
   /** Stable Tau thread key; never use the provider's session id here. */
   tauThreadId: string;
+  /** The instance the thread runs on; absent for the default one. */
+  instance?: string;
   claudeSessionId: string;
   cwd: string;
   started: boolean;
@@ -241,9 +243,11 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
   const titleSource = item.titleSource === "derived" || item.titleSource === "generated" || item.titleSource === "renamed"
     ? item.titleSource
     : undefined;
+  const instance = instanceOf(item.instance);
   return {
     backendKind: "claude-code",
     tauThreadId,
+    ...(instance ? { instance } : {}),
     claudeSessionId,
     cwd,
     started: item.started === true,
@@ -282,6 +286,17 @@ function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRe
     ...(record.usage ? { usage: { ...record.usage } } : {}),
     ...(record.tools ? { tools: [...record.tools] } : {}),
   };
+}
+
+const INSTANCE_ID = /^[a-z][a-z0-9_-]{0,47}$/u;
+
+/** A named instance, or undefined for the default one. */
+function instanceOf(value: unknown): string | undefined {
+  return typeof value === "string" && value !== DEFAULT_INSTANCE_ID && INSTANCE_ID.test(value) ? value : undefined;
+}
+
+function sameInstance(record: ClaudeRuntimeSessionRecord, instance: string | undefined): boolean {
+  return (record.instance ?? DEFAULT_INSTANCE_ID) === (instance ?? DEFAULT_INSTANCE_ID);
 }
 
 function storedTools(value: unknown): string[] | undefined {
@@ -373,23 +388,27 @@ export class ClaudeRuntimeSessionStore {
     return record ? cloneRecord(record) : undefined;
   }
 
-  /** Returns the durable adapter sessions for startup/index recovery. */
-  async list(cwd?: string): Promise<ClaudeRuntimeSessionRecord[]> {
+  /** Returns the durable adapter sessions for startup/index recovery, of one instance when named (`default` included). */
+  async list(cwd?: string, instance?: string): Promise<ClaudeRuntimeSessionRecord[]> {
     await this.load();
     return [...this.records.values()]
-      .filter((record) => cwd === undefined || record.cwd === cwd)
+      .filter((record) => (cwd === undefined || record.cwd === cwd) && (instance === undefined || sameInstance(record, instance)))
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .map(cloneRecord);
   }
 
-  async ensure(tauThreadId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
+  /** The thread's record, created on the given instance when it has none. */
+  async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<ClaudeRuntimeSessionRecord> {
     await this.load();
     const existing = this.records.get(tauThreadId);
-    if (existing && existing.cwd === cwd) return cloneRecord(existing);
-    if (existing) throw new Error("Claude runtime session belongs to another workspace.");
+    if (existing && existing.cwd !== cwd) throw new Error("Claude runtime session belongs to another workspace.");
+    if (existing && instance !== undefined && !sameInstance(existing, instance)) throw new Error("This thread runs on another instance.");
+    if (existing) return cloneRecord(existing);
+    const owner = instanceOf(instance);
     const record: ClaudeRuntimeSessionRecord = {
       backendKind: "claude-code",
       tauThreadId,
+      ...(owner ? { instance: owner } : {}),
       claudeSessionId: randomUUID(),
       cwd,
       started: false,

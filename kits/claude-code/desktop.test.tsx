@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot } from "tau";
+import type { HostSnapshot, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { ClaudeCodeProviderCard, claudeCodeExtension } from "./desktop.js";
+import { ClaudeCodeProviderCard, ClaudeInstances, claudeCodeExtension, createVersionBanner } from "./desktop.js";
 
 afterEach(cleanup);
 
@@ -67,5 +67,35 @@ describe("Claude Code desktop extension", () => {
     expect(screen.getByText(/claude.ai\/code, or set its path below/u)).toBeTruthy();
     // The probe's rejection lands one turn after the status; wait for it rather than assume it.
     expect(await screen.findByText(/was not found on the PATH/u)).toBeTruthy();
+  });
+
+  it("draws a card per instance and asks each for its own status", async () => {
+    const report = { instances: [{ id: "default", kind: "claude-code", label: "Claude Code", threads: 0 }, { id: "second", kind: "claude-code@second", label: "Claude Code · Second", home: "~/.claude-second", threads: 1 }] };
+    const { registry } = createKitHarness(async (_extension, command) => command === "instances" ? report : undefined);
+    registry.activate(claudeCodeExtension);
+    await waitFor(() => expect(registry.getSettingsPages().map((page) => page.runtime)).toEqual(["claude-code", "claude-code@second"]));
+
+    const instances = new ClaudeInstances();
+    instances.set(report);
+    const invoke = vi.fn(async (command: string) => command === "status"
+      ? { kind: "claude-code@second", instance: "second", command: "claude", path: "/usr/local/bin/claude" }
+      : { version: "2.1.4" });
+    render(<ClaudeCodeProviderCard onNotify={vi.fn()} host={host(invoke)} instance="second" instances={instances} />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("status", { instance: "second" }));
+    expect(invoke).toHaveBeenCalledWith("probe", { fresh: false, instance: "second" });
+    expect(await screen.findByText("home ~/.claude-second")).toBeTruthy();
+    expect(screen.getByText("CLAUDE_CONFIG_DIR=~/.claude-second claude")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
+  });
+
+  it("warns above the composer of a thread whose CLI is broken, and copies the command", async () => {
+    const Banner = createVersionBanner(() => ({ invoke: async () => { throw new Error("no terminal"); }, onEvent: () => () => undefined }));
+    const actions = { activeThread: () => undefined, openPanel: vi.fn(), notify: vi.fn(), copyText: vi.fn(async () => undefined) } as unknown as WorkbenchActions;
+    const snapshot = { backendKind: "claude-code", runtimeBackends: [{ kind: "claude-code", label: "Claude Code", version: { tool: "claude", installed: "2.1.280", updateCommand: "claude update", compatibility: { status: "broken", message: "It drops tool results." } } }] } as unknown as HostSnapshot;
+    render(<Banner snapshot={snapshot} actions={actions} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("It drops tool results.");
+    fireEvent.click(screen.getByRole("button", { name: /Update in a terminal/u }));
+    await waitFor(() => expect(actions.copyText).toHaveBeenCalledWith("claude update"));
+    expect(actions.notify).toHaveBeenCalledWith("No terminal is available; the command is on the clipboard.");
   });
 });

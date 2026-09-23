@@ -48,7 +48,8 @@ export function runtimePermissionPolicy(level: RuntimePermissionLevel): RuntimeP
 }
 
 export interface ClaudeCodeAgentRuntimeAdapter extends SkillRuntimeAdapter {
-  readonly id: "claude-code";
+  /** `claude-code`, or `claude-code@<instance>` for another instance. */
+  readonly id: string;
   readonly capabilities: { readonly skillInvocationDialect: "claude-code"; readonly ownsModelSelection: false; readonly interactiveApprovals: true };
   readonly transport: RuntimeTransport;
   /** One turn with every SDK frame reported as it arrives; resolves when the turn's result is in. */
@@ -92,6 +93,12 @@ export interface ClaudeCodeRuntimeOptions {
   storePath: string;
   /** Environment for the CLI; the host's own by default. */
   env?: NodeJS.ProcessEnv;
+  /** The backend kind the adapter serves; `claude-code` by default. */
+  id?: string;
+  /** The store every instance shares; one of its own at `storePath` otherwise. */
+  sessionStore?: ClaudeRuntimeSessionStore;
+  /** The instance's own options for every launch, as the SDK takes them. */
+  extraArgs?: Record<string, string | null>;
 }
 
 export interface ClaudeQueryPlan {
@@ -109,6 +116,7 @@ export interface ClaudeQueryPlan {
   effort?: EffortLevel;
   mcpServer?: HostMcpConnection;
   tools?: readonly string[];
+  extraArgs?: Record<string, string | null>;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -140,7 +148,34 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     ...(plan.stderr ? { stderr: plan.stderr } : {}),
     ...(plan.mcpServer ? tauMcpOptions(plan.mcpServer) : {}),
     ...(plan.tools ? claudeToolOptions(plan.tools) : {}),
+    ...(plan.extraArgs && Object.keys(plan.extraArgs).length ? { extraArgs: { ...plan.extraArgs } } : {}),
   };
+}
+
+/**
+ * An instance's launch arguments as the SDK's `extraArgs`: long options only,
+ * `--flag`, `--key value` or `--key=value`. Anything else is a problem the
+ * Providers card reports rather than an argument silently dropped.
+ */
+export function sdkExtraArgs(args: readonly string[]): { extraArgs: Record<string, string | null>; problem?: string } {
+  const extraArgs: Record<string, string | null> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (!/^--[A-Za-z0-9][A-Za-z0-9-]*(?:=.*)?$/u.test(arg)) return { extraArgs, problem: `“${arg}” is not a long option; the Agent SDK passes only --name or --name value.` };
+    const equals = arg.indexOf("=");
+    if (equals > 0) {
+      extraArgs[arg.slice(2, equals)] = arg.slice(equals + 1);
+      continue;
+    }
+    const next = args[index + 1];
+    if (next !== undefined && !next.startsWith("--")) {
+      extraArgs[arg.slice(2)] = next;
+      index += 1;
+    } else {
+      extraArgs[arg.slice(2)] = null;
+    }
+  }
+  return { extraArgs };
 }
 
 /** Pi's names for the tools Claude has under its own. */
@@ -247,7 +282,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   const commandName = (): string => (typeof options.command === "function" ? options.command() : options.command) ?? process.env.TAU_CLAUDE_CODE_COMMAND ?? "claude";
   const query = options.query ?? sdkQuery;
   const env = options.env ?? process.env;
-  const sessionStore = new ClaudeRuntimeSessionStore({ filePath: options.storePath });
+  const sessionStore = options.sessionStore ?? new ClaudeRuntimeSessionStore({ filePath: options.storePath });
   const running = new Map<string, Set<RunningTurn>>();
   const requestQueues = new Map<string, Promise<void>>();
   const abortGenerations = new Map<string, number>();
@@ -280,6 +315,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       policy,
       abortController: controller,
       env,
+      ...(options.extraArgs ? { extraArgs: options.extraArgs } : {}),
       stderr: (chunk) => { stderr = `${stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },
       ...(hooks ? { hooks } : {}),
     };
@@ -392,6 +428,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       // The session owns the controller it actually aborts with.
       abortController: new AbortController(),
       env,
+      ...(options.extraArgs ? { extraArgs: options.extraArgs } : {}),
       ...(input.onStderr ? { stderr: input.onStderr } : {}),
       ...(input.hooks ? { hooks: input.hooks } : {}),
       ...(input.model ? { model: input.model } : {}),
@@ -405,7 +442,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   }
 
   return {
-    id: "claude-code",
+    id: options.id ?? "claude-code",
     capabilities,
     sessionStore,
     stream: (input, onMessage, hooks) => deliver(input, onMessage, hooks),
