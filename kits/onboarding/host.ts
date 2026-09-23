@@ -29,7 +29,12 @@ type Run = (command: string, args: readonly string[]) => Promise<{ ok: boolean; 
 const run: Run = (command, args) => new Promise((resolve) => {
   // `claude` and `codex` from npm are `.cmd` shims on Windows.
   const invocation = commandInvocation(command, args);
-  execFile(invocation.command, invocation.args, { timeout: PROBE_TIMEOUT_MS, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments }, (error, stdout) => resolve({ ok: !error, stdout: String(stdout) }));
+  try {
+    execFile(invocation.command, invocation.args, { timeout: PROBE_TIMEOUT_MS, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments }, (error, stdout) => resolve({ ok: !error, stdout: String(stdout) }));
+  } catch {
+    // A file that is no program (ENOEXEC) throws before any callback.
+    resolve({ ok: false, stdout: "" });
+  }
 });
 
 /** The vendors' own installers and login commands, as T3 Code offers them. */
@@ -94,6 +99,8 @@ export async function projectCandidates(sessions: readonly ImportableSession[], 
   }));
   return candidates.flat().sort((left, right) => right.lastActiveAt - left.lastActiveAt);
 }
+
+export { run as runProbe };
 
 export interface OnboardingHostOptions {
   platform?: string;

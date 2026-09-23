@@ -181,7 +181,7 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
   // An install or a login may ask things, so it runs where the user can answer; an update is only shown.
   const inTerminal = aside && row.command && !inPlace && (row.state === "install" || row.state === "signIn") ? row.command : undefined;
   const act = () => {
-    if (inTerminal) void aside!({ command: inTerminal, label: `${label} ${row.label}` }, recheck).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+    if (inTerminal) void aside!({ command: inTerminal, label: label === "Sign in" ? `Sign in to ${row.label}` : `${label} ${row.label}` }, recheck).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
     else if (row.command || inPlace) flow.expand(open ? undefined : row.id);
     else actions.openSettings(row.settings);
   };
@@ -269,6 +269,7 @@ function AgentsStep({ state, flow, actions, aside }: { state: FlowState; flow: W
   return (
     <StepShell title="Your agents" description="Agents available on this computer. Install or sign in to the ones you want to use; Settings → Providers has them later too.">
       <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(aside ? { aside } : {})} recheck={() => flow.recheckAgent(row.id)} />)}</div>
+      {state.error ? <p className="onboarding-error" role="alert">Could not check the tools. {state.error}</p> : null}
       <section className="onboarding-optional" aria-labelledby="onboarding-pr-tools">
         <h3 id="onboarding-pr-tools" className="onboarding-subtitle">Tools for pull requests <span className="onboarding-badge">Optional</span></h3>
         <p className="onboarding-note">Tau uses them to open pull and merge requests and show their checks. Your agents work without them.</p>

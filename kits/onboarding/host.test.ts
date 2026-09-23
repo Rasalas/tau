@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtension } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
-import createOnboardingHostExtension, { toolCommands } from "./host.js";
+import createOnboardingHostExtension, { runProbe, toolCommands } from "./host.js";
 import type { Discovery, ImportResult, ToolsReport, WelcomeState } from "./protocol.js";
 
 const directories: string[] = [];
@@ -76,6 +76,14 @@ describe("Onboarding host half", () => {
     expect(report.tools.find((tool) => tool.id === "gh")).toEqual({ id: "gh", path: "/opt/homebrew/bin/gh", version: "2.81.0", signedIn: false, install: "brew install gh", login: "gh auth login" });
     expect(report.tools.find((tool) => tool.id === "codex")).toEqual({ id: "codex", install: "curl -fsSL https://chatgpt.com/codex/install.sh | sh", login: "codex login" });
     expect(toolCommands("win32")["claude-code"].install).toBe("irm https://claude.ai/install.ps1 | iex");
+  });
+
+  it("answers for a CLI that is no program instead of throwing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-onboarding-probe-"));
+    directories.push(root);
+    const broken = join(root, "glab");
+    await writeFile(broken, "echo no shebang\n", { mode: 0o755 });
+    await expect(runProbe(broken, ["--version"])).resolves.toEqual({ ok: false, stdout: "" });
   });
 
   it("gathers the backends' sessions into folders that still exist, newest first", async () => {
