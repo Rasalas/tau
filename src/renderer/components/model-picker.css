@@ -1,0 +1,118 @@
+/*
+ * The model picker: a popover at its chip, as in T3 Code, with no scrim.
+ * Loaded with the picker's chunk when it first opens; the chip keeps its
+ * rules in styles.css.
+ */
+.model-picker.popover {
+  width: 420px; max-width: calc(100vw - 16px); height: 380px; max-height: calc(100vh - 16px);
+  display: flex; flex-direction: column; padding: 0; overflow: hidden;
+  border-radius: 12px; background: var(--overlay); color: var(--ink);
+}
+.model-picker-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.model-picker-content > footer {
+  flex: none; display: flex; align-items: center; gap: 14px; height: 30px;
+  border-top: 1px solid var(--line); padding: 0 14px;
+  font: 10px var(--mono); color: var(--faint);
+}
+.model-picker-content > footer .spacer { flex: 1; }
+.model-picker-body { flex: 1; min-height: 0; display: flex; }
+.model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* The rail: Pi's model providers, then every other runtime as one tab. */
+.model-rail {
+  width: 52px; flex: none; overflow: auto;
+  border-right: 1px solid var(--line); padding: 8px 0;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.model-rail > button {
+  position: relative; width: 40px; height: 36px; display: grid; place-items: center;
+  border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer;
+}
+.model-rail > button:hover { background: var(--hover-strong); color: var(--ink-2); }
+.model-rail > button.active { background: var(--raised); color: var(--acid-text); }
+.model-rail > button.elsewhere:not(.active) { opacity: .55; }
+.model-rail > button.active::before {
+  content: ""; position: absolute; left: -6px; top: 9px; bottom: 9px; width: 3px;
+  border-radius: 0 2px 2px 0; background: var(--acid);
+}
+.model-rail .rail-icon { margin-left: 0; }
+
+.model-search { height: 44px; border-bottom: 2px solid var(--line); transition: border-color .12s ease; }
+.model-search:focus-within { border-bottom-color: var(--acid); }
+.model-search > svg { color: var(--faint); flex: none; }
+.model-search > .model-provider-add {
+  width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px dashed var(--line-control); border-radius: 7px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.model-search > .model-provider-add:hover {
+  background: var(--hover-strong); color: var(--ink); border-color: var(--line-float);
+}
+/* A runtime whose models are not on hand: what choosing it means, and the one action it takes. */
+.model-runtime-pane {
+  flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  padding: 28px 24px; color: var(--ink-2);
+}
+.model-runtime-pane > strong { font-size: 14px; color: var(--ink); }
+.model-runtime-pane > p { margin: 0; max-width: 420px; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.model-runtime-pane .runtime-pane-icon { margin-left: 0; }
+.model-runtime-pane > button {
+  height: 32px; padding: 0 12px; border: 1px solid var(--acid-line); border-radius: 8px;
+  background: var(--acid-bg); color: var(--acid-text); font: 600 12px var(--sans); cursor: pointer;
+}
+.model-runtime-pane > button:hover { background: var(--acid-chip); }
+
+.model-list { flex: 1; min-width: 0; overflow: auto; padding: 8px; }
+.model-row {
+  display: flex; align-items: center; gap: 6px;
+  border-radius: 8px; padding-right: 8px;
+}
+.model-row.selected { background: var(--raised); }
+.model-choose {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  border: 0; background: transparent; color: inherit;
+  padding: 8px 10px; text-align: left; cursor: pointer;
+}
+.model-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.model-line > strong {
+  font-size: 13.5px; font-weight: 500; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.model-row.selected .model-line > strong { color: var(--ink); font-weight: 600; }
+.model-sub {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font: 11.5px var(--sans); color: var(--faint);
+}
+.model-sub .sub-icon { margin-left: 0; transform: scale(.78); transform-origin: left center; }
+.model-sub .sub-icon.stacked { margin-right: -2px; }
+.model-id { font: 10px var(--mono); opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-row > em {
+  flex: none; font: 10px var(--mono); font-style: normal; color: var(--acid-text);
+  border: 1px solid var(--acid-line); border-radius: 4px; padding: 2px 6px;
+}
+/* A model a Shift-click added to a new thread's set. */
+.model-row > em.model-chosen { background: var(--acid-chip); }
+.model-kbd {
+  flex: none; font: 10.5px var(--mono); color: var(--muted);
+  background: var(--inset); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px;
+}
+.model-badge {
+  flex: none; font: 500 9.5px var(--mono); letter-spacing: .02em; color: var(--muted);
+  border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 5px;
+}
+.model-badge-new { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); font-weight: 700; }
+.model-badge-warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-chip); }
+.model-legacy .model-choose { padding-top: 10px; }
+.model-chevron { flex: none; display: grid; place-items: center; color: var(--faint); padding: 0 6px; }
+.model-picker-note {
+  flex: none; margin: 0; padding: 8px 14px;
+  border-top: 1px solid var(--line); background: var(--inset);
+  color: var(--muted); font-size: 11px; line-height: 1.5;
+}
+.model-star {
+  flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+  border: 0; border-radius: 6px;
+  background: transparent; color: var(--fainter); cursor: pointer;
+}
+.model-star:hover { background: var(--chip-hover); color: var(--ink-2); }
+.model-star.on { color: var(--acid-text); }

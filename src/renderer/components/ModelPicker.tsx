@@ -11,6 +11,7 @@ import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
 import { useFocusTrap } from "./ui/focus";
 import { VirtualList } from "./VirtualList";
+import "./model-picker.css";
 
 const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
 
