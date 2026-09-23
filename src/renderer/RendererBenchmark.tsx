@@ -11,6 +11,7 @@ import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
 import AppToolStreamScenario from "./RendererBenchmarkApp";
+import "./renderer-benchmark.css";
 
 /**
  * Just enough of a live transcript index to drive the streaming scenario:
