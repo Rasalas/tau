@@ -451,6 +451,8 @@ export interface HostThread {
   readonly parentThreadId?: string;
   /** Tokens and money the thread has used so far; absent when the runtime has no total. */
   readonly usage?: UiThreadUsage;
+  /** The model the thread runs on, as its runtime names it; absent before it has one. New in API 1.11.0. */
+  readonly model?: { provider: string; id: string };
   isStreaming(): boolean;
   /** Nothing running, queued or asked: the thread can be replaced safely. */
   isIdle(): boolean;
