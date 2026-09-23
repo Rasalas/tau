@@ -23,6 +23,7 @@ async function kits(cwd: string) {
     cwd: () => cwd,
     knownWorkspacePath: async (path) => path,
     workspaceRef: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
+    admitWorkspace: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
     describeProjects: () => () => undefined,
     noteSubprocess: () => undefined,
     findCommand: () => undefined,

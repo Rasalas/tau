@@ -290,6 +290,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "openWorkspace": return services.openWorkspace(String(args[0]));
       case "knownWorkspacePath": return services.knownWorkspacePath(String(args[0]));
       case "workspaceRef": return services.workspaceRef(String(args[0]));
+      case "admitWorkspace": return services.admitWorkspace(String(args[0]));
       case "projectName": return services.projectName(String(args[0]));
       case "rememberProjectName": return services.rememberProjectName(String(args[0]), String(args[1]));
       case "pickDirectory": return services.pickDirectory(args[0] as DirectoryPickerOptions | undefined);

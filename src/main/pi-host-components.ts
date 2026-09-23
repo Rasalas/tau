@@ -60,6 +60,7 @@ import { TurnsInFlight } from "./turns-in-flight.js";
 import { ThreadTrash } from "./thread-trash.js";
 import { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
+import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { ProjectHistory } from "./project-history.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
 import { assertRuntimeAdapter, PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
@@ -124,6 +125,7 @@ export interface PiHostDeps {
   refreshActiveThreadShell(): Promise<void>;
   setWorkspace(path: string): Promise<HostActionResult>;
   knownWorkspacePath(path: string): Promise<string>;
+  admitWorkspace(path: string): WorkspaceRef;
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
   removeThread(sessionId: string): Promise<void>;
@@ -313,6 +315,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     openWorkspace: (path) => deps.setWorkspace(path),
     knownWorkspacePath: (path) => deps.knownWorkspacePath(path),
     workspaceRef: (path) => workspaces.ref(path),
+    admitWorkspace: (path) => deps.admitWorkspace(path),
     projectName: (cwd) => projects.loadName(cwd),
     rememberProjectName: (cwd, name) => { projects.rememberName(cwd, name); },
     runtimeOwner: () => deps.ownedByPi(deps.getActive()) ? "pi" : "tau",

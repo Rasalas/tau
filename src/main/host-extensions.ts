@@ -471,6 +471,12 @@ export interface HostExtensionServices {
   knownWorkspacePath(path: string): Promise<string>;
   /** Identity a client may keep for a workspace the extension found on this host. */
   workspaceRef(path: string): WorkspaceRef;
+  /**
+   * The same identity, for a folder the extension made on this host for a thread
+   * about to start there (a worktree): `knownWorkspacePath` accepts it from now on,
+   * before any thread runs in it.
+   */
+  admitWorkspace(path: string): WorkspaceRef;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): void;
   /** Native folder picker of the host platform; resolves undefined when cancelled. */

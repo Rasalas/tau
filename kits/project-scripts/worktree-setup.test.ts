@@ -36,6 +36,7 @@ async function workspaceKit(repo: string, withProjectScripts: boolean) {
     cwd: () => repo,
     knownWorkspacePath: async (path) => path,
     workspaceRef: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
+    admitWorkspace: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
     projectName: async () => "repo",
     rememberProjectName: () => undefined,
     noteSubprocess: () => undefined,

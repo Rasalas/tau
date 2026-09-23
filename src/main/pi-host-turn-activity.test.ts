@@ -51,6 +51,28 @@ describe("workspace metadata scope", () => {
     await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/known/../known" })).resolves.toBe("/known");
     await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/not-a-project" })).rejects.toThrow("known Tau project");
   });
+
+  it("accepts a folder an extension admitted, by id, before any thread runs there", async () => {
+    const history = { list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }], isHidden: () => false };
+    const worktrees = {
+      id: "test.worktrees",
+      name: "Worktrees",
+      permissions: ["workspace:read" as const, "workspace:write" as const],
+      activate: (context: HostExtensionContext) => {
+        context.registerCommand("create", () => context.services.admitWorkspace("/worktrees/known-feature"));
+        context.registerCommand("found", () => context.services.workspaceRef("/elsewhere"));
+        context.registerCommand("canonical", (input) => context.services.knownWorkspacePath((input as { workspace: string }).workspace));
+      },
+    };
+    const host = new PiHost("/known", () => undefined, history as never, false, false, { hostExtensions: [worktrees] });
+    await activateHostExtensions(host);
+    // A folder the extension only found gets an identity, not admission.
+    const found = await host.invokeHostExtension("test.worktrees", "found", {}) as { workspaceId: string };
+    await expect(host.invokeHostExtension("test.worktrees", "canonical", { workspace: found.workspaceId })).rejects.toThrow("known Tau project");
+    const created = await host.invokeHostExtension("test.worktrees", "create", {}) as { workspaceId: string; displayPath: string };
+    expect(created.displayPath).toBe("/worktrees/known-feature");
+    await expect(host.invokeHostExtension("test.worktrees", "canonical", { workspace: created.workspaceId })).resolves.toBe("/worktrees/known-feature");
+  });
 });
 
 function piPromptThread(session: {

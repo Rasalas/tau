@@ -123,6 +123,7 @@ export interface WorkerHostServices {
   knownWorkspacePath(path: string): Promise<string>;
   /** The identity the host publishes for a folder it can open; plain data, safe to cross the port. */
   workspaceRef(path: string): Promise<WorkspaceRef>;
+  admitWorkspace(path: string): Promise<WorkspaceRef>;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): Promise<void>;
   pickDirectory(options?: DirectoryPickerOptions): Promise<string | undefined>;

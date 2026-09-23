@@ -43,6 +43,7 @@ async function harness(options: { piSessions?: Array<{ sessionId: string; path: 
     findCommand: (name: string) => name === "gh" ? "/opt/homebrew/bin/gh" : undefined,
     noteSubprocess: () => undefined,
     workspaceRef: (path: string) => ({ workspaceId: `ws:${path}`, displayPath: path }),
+    admitWorkspace: (path: string) => ({ workspaceId: `ws:${path}`, displayPath: path }),
     sessions: { list: async () => options.piSessions ?? [] } as never,
   } as never, (event) => events.push(event));
   const claude = backendKit("tau.claude-code", [

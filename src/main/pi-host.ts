@@ -105,6 +105,7 @@ import { PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalTh
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
+import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import { skillMessagePresentation } from "./skill-invocation.js";
@@ -174,6 +175,8 @@ export class PiHost {
   private readonly watch?: WorkspaceWatch;
   /** Mints and resolves the ids clients name workspaces by. */
   private readonly workspaces: WorkspaceIdentity;
+  /** Folders a host extension made for a thread that does not exist yet (a worktree). */
+  private readonly admittedWorkspaces = new Set<string>();
   private readonly report: HostReport;
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
   private readonly threads: ThreadRuntimeRegistry<ThreadRuntime>;
@@ -268,6 +271,7 @@ export class PiHost {
       refreshActiveThreadShell: () => this.refreshActiveThreadIndex(false),
       setWorkspace: (path) => this.setWorkspace(path),
       knownWorkspacePath: (path) => this.knownWorkspacePath(path),
+      admitWorkspace: (path) => this.admitWorkspace(path),
       prepareThread: (session, manager, prepareOptions) => this.prepareThread(session, manager, prepareOptions),
       startThread: (startOptions) => this.startThread(startOptions),
       removeThread: (sessionId) => this.removeThread(sessionId),
@@ -1897,7 +1901,13 @@ export class PiHost {
       ...this.projectHistory.list().map((project) => project.path),
       ...this.index.list().map((session) => session.projectPath),
       ...this.threads.list().map((thread) => thread.cwd),
+      ...this.admittedWorkspaces,
     ]));
+  }
+
+  private admitWorkspace(path: string): WorkspaceRef {
+    this.admittedWorkspaces.add(path);
+    return this.workspaces.ref(path);
   }
 
   async dispose(): Promise<void> {

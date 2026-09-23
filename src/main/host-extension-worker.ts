@@ -185,6 +185,7 @@ const services: WorkerHostServices = {
   openWorkspace: (path) => rpc("openWorkspace", path) as ReturnType<WorkerHostServices["openWorkspace"]>,
   knownWorkspacePath: (path) => rpc("knownWorkspacePath", path) as Promise<string>,
   workspaceRef: (path) => rpc("workspaceRef", path) as Promise<WorkspaceRef>,
+  admitWorkspace: (path) => rpc("admitWorkspace", path) as Promise<WorkspaceRef>,
   projectName: (cwd) => rpc("projectName", cwd) as Promise<string>,
   rememberProjectName: async (cwd, name) => { await rpc("rememberProjectName", cwd, name); },
   pickDirectory: (options) => rpc("pickDirectory", options) as Promise<string | undefined>,

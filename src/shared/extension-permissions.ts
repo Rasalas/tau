@@ -71,6 +71,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   projectName: "workspace:read",
   describeProjects: "workspace:read",
   knownWorkspacePath: "workspace:read",
+  admitWorkspace: "workspace:write",
   rememberProjectName: "workspace:write",
   openWorkspace: "workspace:switch",
   pickDirectory: "workspace:switch",

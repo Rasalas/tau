@@ -397,7 +397,8 @@ export function createWorkspaceHostExtension(): HostExtension {
           services.log("git.worktree.added", destination);
           await worktrees.storage.remember(destination, project, branch).catch(noteFailure("git.worktree.record-failed"));
           await runWorktreeSetup(project, destination, setupId);
-          return services.workspaceRef(destination);
+          // The draft moves here before its thread exists, and asks about it at once.
+          return services.admitWorkspace(destination);
         } catch (error) {
           git.invalidate(project, ["branch", "status", "workspace"]);
           if (setupId) await setupCall("worktree-setup-failed", { setupId, error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);

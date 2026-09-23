@@ -122,6 +122,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
     knownWorkspacePath: async (path) => path,
     workspaceRef: (path) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
+    admitWorkspace: (path) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
     projectName: async () => "project",
     rememberProjectName: () => undefined,
     pickDirectory: async () => undefined,

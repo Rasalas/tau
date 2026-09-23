@@ -116,6 +116,7 @@ export interface ExtensionServicesPort {
   openWorkspace(path: string): Promise<HostActionResult>;
   knownWorkspacePath(path: string): Promise<string>;
   workspaceRef(path: string): WorkspaceRef;
+  admitWorkspace(path: string): WorkspaceRef;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): void;
   /** Whether Tau or an attached Pi terminal owns the visible runtime. */
@@ -252,6 +253,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     openWorkspace: (path) => port.openWorkspace(path),
     knownWorkspacePath: (path) => port.knownWorkspacePath(path),
     workspaceRef: (path) => port.workspaceRef(path),
+    admitWorkspace: (path) => port.admitWorkspace(path),
     projectName: (cwd) => port.projectName(cwd),
     rememberProjectName: (cwd, name) => port.rememberProjectName(cwd, name),
     pickDirectory: (options) => port.platform.pickDirectory
