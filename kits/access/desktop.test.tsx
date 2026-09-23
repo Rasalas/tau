@@ -40,7 +40,7 @@ describe("Access Kit desktop extension", () => {
     fireEvent.click(screen.getByRole("button", { name: /full access/u }));
     const ask = screen.getByRole("menuitem", { name: /ask before edits/u });
     expect(ask).toHaveProperty("disabled", true);
-    expect(ask.getAttribute("title")).toContain("cannot stop for an approval");
+    expect(ask.getAttribute("data-tooltip")).toContain("cannot stop for an approval");
     fireEvent.click(screen.getAllByRole("menuitem", { name: /read-only/u })[0]!);
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("read-only");
   });

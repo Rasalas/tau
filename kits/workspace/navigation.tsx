@@ -2,8 +2,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, ChevronDown, ChevronRight, Folder, FolderPlus, Search, Settings, SquarePen, X } from "lucide-react";
 import {
-  Menu,
   ThreadRow,
+  tooltipProps,
+  useContextMenu,
   usePreferences,
   useThreadStore,
   useWorkbenchShell,
@@ -321,7 +322,7 @@ function ProjectScope({ actions }: SidebarContributionProps) {
         </button>
         <button
           className="sidebar-action"
-          title="Add project"
+          {...tooltipProps("Add project", { side: "bottom" })}
           aria-label="Add project"
           onClick={() => { setSearchOpen(false); actions.openProjectSources(); }}
         >
@@ -448,7 +449,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const [shelfOpen, setShelfOpen] = useState<Readonly<Record<string, boolean>>>({});
   const [shelfLimits, setShelfLimits] = useState<Readonly<Record<string, number>>>({});
   const [navigationIndex, setNavigationIndex] = useState(0);
-  const [menu, setMenu] = useState<{ session: UiSession; x: number; y: number }>();
+  const openContextMenu = useContextMenu();
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLElement>(null);
 
@@ -625,7 +626,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           </label>
           <button
             className="sidebar-action"
-            title="New thread (⌘N)"
+            {...tooltipProps("New thread", { side: "bottom", shortcut: registry.keybindingLabel("runtime.new-session") })}
             aria-label="New thread"
             onClick={() => actions.newSession()}
           >
@@ -646,8 +647,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           const id = (event.target as Element).closest<HTMLElement>("[data-rail-thread]")?.dataset.railThread;
           const session = id ? findSession(id) : undefined;
           if (!session) return;
-          event.preventDefault();
-          setMenu({ session, x: event.clientX, y: event.clientY });
+          // The OS draws it where it can; the page draws its own elsewhere.
+          void openContextMenu(event, organizer.menu(session)).then((choice) => { if (choice) organizer.runMenu(session, choice, actions); });
         }}
         onKeyDown={(event) => {
           const choices = [
@@ -705,21 +706,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       </nav>
 
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}
-      {menu && organizer ? (
-        <div className="rail-menu-anchor" style={{ left: menu.x, top: menu.y }}>
-          <Menu
-            placement={menu.y > window.innerHeight - 320 ? "above" : "below"}
-            align="left"
-            sections={organizer.menu(menu.session)}
-            onSelect={(id) => organizer.runMenu(menu.session, id, actions)}
-            onClose={() => setMenu(undefined)}
-          />
-        </div>
-      ) : null}
       {organizer?.Layer ? <organizer.Layer actions={actions} /> : null}
 
       <div className="sidebar-footer">
-        <button title="Settings" aria-label="Settings" onClick={() => actions.openSettings()}>
+        <button {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
           <Settings size={15} />
         </button>
       </div>
