@@ -286,6 +286,7 @@ export const threadRailExtension: DesktopExtension = {
       remove: async (threadId) => { await context.host.invoke("remove", { threadId }); },
       restore: async (threadId) => { await context.host.invoke("restore", { threadId }); },
       running: (threadId) => store.running.has(threadId),
+      workspace: () => workspace,
     });
     const load = (state: unknown, preferences: PreferencesStore) => {
       const { pinnedThreadIds, settledThreadIds } = preferences.getSnapshot();
@@ -339,6 +340,7 @@ export const threadRailExtension: DesktopExtension = {
       stopTrash,
       stopRunning,
       () => undo.dispose(),
+      () => store.dispose(),
       stopBridge,
       context.provideService(SIBLINGS_SERVICE, { siblingsOf: store.siblingsOf, subscribe: store.subscribe }),
       context.useService<WorkspaceStoreSlice>(WORKSPACE_STORE_SERVICE, (value) => {

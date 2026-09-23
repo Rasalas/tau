@@ -15,9 +15,14 @@ export class RailStore implements ThreadSiblingsService {
   displayed: readonly UiSession[] = [];
   /** Set once the host answered, so nothing is mirrored from an empty guess. */
   loaded = false;
-  snoozeDialogFor?: UiSession;
+  /** The threads the snooze dialog is open for: one from a row, several from a selection. */
+  snoozeDialogFor?: readonly UiSession[];
+  /** The thread the rename dialog is open for. */
+  renameDialogFor?: UiSession;
+  /** Commands the workbench has, as the rail last saw them. */
+  registry?: { getCommand(id: string): unknown };
   /** The client's thread index, once the rail has drawn: how a command finds a thread by id. */
-  threadStore?: { getSnapshot(): { threads: readonly UiSession[] } };
+  threadStore?: { getSnapshot(): { threads: readonly UiSession[] }; markUnread(threadId: string): void };
   /** The workbench's actions as the rail last saw them, for a page that has none of its own. */
   actions?: WorkbenchActions;
   /** Threads with a turn in flight, from the host's `agent-status` events. */
@@ -50,9 +55,19 @@ export class RailStore implements ThreadSiblingsService {
     this.changed();
   }
 
-  openSnooze(session: UiSession | undefined): void {
-    this.snoozeDialogFor = session;
+  openSnooze(sessions: UiSession | readonly UiSession[] | undefined): void {
+    this.snoozeDialogFor = sessions === undefined ? undefined : Array.isArray(sessions) ? sessions : [sessions as UiSession];
     this.changed();
+  }
+
+  openRename(session: UiSession | undefined): void {
+    this.renameDialogFor = session;
+    this.changed();
+  }
+
+  dispose(): void {
+    clearTimeout(this.wakeTimer);
+    this.wakeTimer = undefined;
   }
 
   siblingsOf = (threadId: string): readonly string[] => {
@@ -61,9 +76,28 @@ export class RailStore implements ThreadSiblingsService {
     return Object.entries(this.state.threads).filter(([, meta]) => meta.siblingGroupId === group).map(([id]) => id);
   };
 
+  private wakeTimer?: ReturnType<typeof setTimeout>;
+
   private changed(): void {
     this.version += 1;
     for (const listener of this.listeners) listener();
+    this.scheduleWake();
+  }
+
+  /** The rail memoizes its sections, so a snooze running out has to say so itself. */
+  private scheduleWake(): void {
+    clearTimeout(this.wakeTimer);
+    this.wakeTimer = undefined;
+    const now = Date.now();
+    let next = Number.POSITIVE_INFINITY;
+    for (const meta of Object.values(this.state.threads)) {
+      if (meta.snoozedUntil !== undefined && meta.snoozedUntil > now) next = Math.min(next, meta.snoozedUntil);
+    }
+    if (!Number.isFinite(next)) return;
+    // A timer longer than a day is split: setTimeout overflows past 24.8 days.
+    const timer = setTimeout(() => this.changed(), Math.min(next - now + 50, 86_400_000));
+    (timer as { unref?(): void }).unref?.();
+    this.wakeTimer = timer;
   }
 }
 

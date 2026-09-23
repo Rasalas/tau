@@ -115,11 +115,16 @@ export interface RailOrganizer {
   dropLabel(threadId: string, drop: RailDropTarget): string | undefined;
   drop(threadId: string, drop: RailDropTarget): void;
   Layer?: ComponentType<{ actions: WorkbenchActions }>;
+  bulkMenu?(sessions: readonly UiSession[]): MenuSection[];
+  runBulkMenu?(sessions: readonly UiSession[], itemId: string, actions: WorkbenchActions): void;
 }
 
 /** The slice of Workspace Kit's store (`tau.workspace/store`) this kit uses. */
 export interface WorkspaceStoreSlice {
-  getSnapshot(): { draftPending: boolean; workspace?: { isRepo: boolean } };
+  getSnapshot(): { draftPending: boolean; workspace?: { isRepo: boolean }; railProjectFilter?: string };
+  /** Absent in a Workspace Kit before API 1.11.0; the row menu leaves the item out then. */
+  setRailProjectFilter?(projectName: string | undefined): void;
+  openProjectSettings?(thread: Pick<UiSession, "projectPath" | "projectName" | "workspaceId">): void;
   subscribe(listener: () => void): () => void;
   registerThreadRailOrganizer(organizer: RailOrganizer): () => void;
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
