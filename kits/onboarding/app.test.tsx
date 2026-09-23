@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import onboarding from "./desktop.js";
-import { agentRows, age } from "./wizard.js";
+import { agentRows, age, toolRows } from "./wizard.js";
 import { FLOW_STORAGE_KEY, WelcomeFlow, defaultProjects, defaultSessions, importSummary } from "./flow.js";
 import type { Discovery, ToolsReport } from "./protocol.js";
 
@@ -50,7 +50,10 @@ function host() {
     "tau.onboarding/import-sessions": (input) => ({ imported: (input as { paths: string[] }).paths.length, skipped: 0, failed: 0 }),
     "tau.claude-code/status": () => ({ path: "/bin/claude" }),
     "tau.claude-code/probe": () => ({ version: "2.1.0", account: "Claude Max" }),
-    "tau.codex/status": () => ({ command: "codex", message: "not found" }),
+    "tau.codex/status": (input) => (input as { instance?: string } | undefined)?.instance === "work"
+      ? { path: "/bin/codex", version: "0.154.0", signedIn: false }
+      : { command: "codex", message: "not found" },
+    "tau.antigravity/status": () => ({ installed: false, message: "not installed" }),
   };
   const invokeHostExtension = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
     calls.push([extensionId, command, input]);
@@ -65,15 +68,32 @@ describe("Onboarding in the workbench", () => {
   it("opens on a first start and walks through agents, projects and conversations", async () => {
     const { calls, invokeHostExtension } = host();
     const openProject = vi.fn(async () => ({ version: 1 as const, updates: [] }));
-    const client = createFakeHostClient({ invokeHostExtension, openProject });
+    const base = createFakeHostClient();
+    const bootstrap = async () => {
+      const snapshot = await base.bootstrap();
+      return { ...snapshot, catalog: { ...snapshot.catalog, runtimeBackends: [
+        { kind: "pi", label: "Pi" }, { kind: "claude-code", label: "Claude Code" }, { kind: "codex", label: "Codex" },
+        { kind: "codex@work", label: "Codex (work)" }, { kind: "antigravity", label: "Antigravity" },
+      ] } };
+    };
+    const client = createFakeHostClient({ invokeHostExtension, openProject, bootstrap });
     renderApp(client, { extensions: [onboarding] });
 
-    // Agents: the runtimes first, their state from their own kits.
+    // Agents: every registered runtime, its state from its own kit; the review CLIs are a group of their own.
     await screen.findByRole("heading", { name: "Your agents" });
     await screen.findByText("2.1.0 · Claude Max");
-    expect(screen.getByText("Not installed · pull requests need it")).toBeTruthy();
-    const codex = (await screen.findByText("Codex")).closest(".onboarding-card") as HTMLElement;
-    fireEvent.click(within(codex).getByRole("button", { name: "Install" }));
+    const card = (label: string) => screen.getByText(label, { selector: "strong" }).closest(".onboarding-card") as HTMLElement;
+    await screen.findByText("0.154.0 · Not signed in");
+    expect(calls).toContainEqual(["tau.codex", "status", { instance: "work" }]);
+    // Each program is asked once per opening; a probe may start it.
+    expect(calls.filter(([id, command]) => id === "tau.claude-code" && command === "probe")).toHaveLength(1);
+    expect(within(card("Codex (work)")).getByRole("button", { name: "Open Settings" })).toBeTruthy();
+    expect(within(card("Antigravity")).getByRole("button", { name: "Open Settings" })).toBeTruthy();
+    const reviewTools = screen.getByRole("region", { name: /Tools for pull requests/ });
+    expect(within(reviewTools).getByText("GitHub CLI")).toBeTruthy();
+    expect(within(reviewTools).getByText("Not installed")).toBeTruthy();
+    expect(screen.getAllByText(/GitHub CLI|GitLab CLI/).every((element) => reviewTools.contains(element))).toBe(true);
+    fireEvent.click(within(card("Codex")).getByRole("button", { name: "Install" }));
     expect(screen.getByText("curl codex")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
@@ -123,14 +143,29 @@ describe("Onboarding's choices", () => {
   });
 
   it("says what each agent needs before it can be used", () => {
-    const rows = agentRows({ step: 0, added: [], tools, agents: { "claude-code": { path: "/bin/claude", version: "2.1.0" }, codex: { error: "Host extension tau.codex is not installed." } } }, 0);
-    expect(rows.map((row) => `${row.id}:${row.state}:${row.command ?? ""}`)).toEqual([
-      "pi:signIn:",
+    const state = {
+      step: 0 as const,
+      added: [],
+      tools,
+      agents: {
+        "claude-code": { installed: true, version: "2.1.0", signedIn: false },
+        codex: { error: "Host extension tau.codex did not answer." },
+        "claude-code@work": { installed: true, signedIn: false },
+        antigravity: { installed: true },
+      },
+    };
+    const backends = ["pi", "claude-code", "codex", "claude-code@work", "antigravity", "later"].map((kind) => ({ kind, label: kind }));
+    const line = (row: { id: string; state: string; command?: string; settings?: string }) => `${row.id}:${row.state}:${row.command ?? `settings=${row.settings ?? ""}`}`;
+    expect(agentRows(state, 0, backends).map(line)).toEqual([
+      "pi:signIn:settings=pi",
       "claude-code:signIn:claude auth login",
-      "codex:off:",
-      "gh:ready:",
-      "glab:install:brew install glab",
+      "codex:settings:settings=providers",
+      // An instance signs in on its own card, not with the default home's command.
+      "claude-code@work:signIn:settings=providers",
+      "antigravity:settings:settings=providers",
+      "later:checking:settings=",
     ]);
+    expect(toolRows(state).map(line)).toEqual(["gh:ready:settings=", "glab:install:brew install glab"]);
   });
 
   it("picks up after a project switch reloaded the page under it", async () => {

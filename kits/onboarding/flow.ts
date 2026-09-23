@@ -14,22 +14,24 @@ const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 /** The wizard's place while it is open; a project switch may reload the page under it. */
 export const FLOW_STORAGE_KEY = "tau.onboarding.flow.v1";
 
-/** What a backend kit's `status` (and the Agent SDK runtime's `probe`) told us about its CLI. */
+/** What a backend kit's `status` (and, where that lacks the login, its `probe`) told us about its program. */
 export interface AgentStatus {
-  path?: string;
+  installed?: boolean;
   version?: string;
   account?: string;
+  /** Absent when the kit does not say. */
   signedIn?: boolean;
-  /** The CLI is older than its kit speaks to. */
-  update?: string;
-  /** The kit is off or did not answer. */
+  /** The program is older than its kit speaks to; `command` updates it. */
+  update?: { command?: string };
+  /** The kit did not answer. */
   error?: string;
 }
 
 export interface FlowState {
   step: 0 | 1 | 2;
   tools?: ToolsReport;
-  agents: { "claude-code"?: AgentStatus; codex?: AgentStatus };
+  /** By runtime backend kind. */
+  agents: Readonly<Record<string, AgentStatus>>;
   discovery?: Discovery;
   discoverError?: string;
   /** `undefined` until the user changes it: the default applies. */
@@ -69,25 +71,59 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Asks one backend kit about its CLI; its absence is a state, not an error. */
-async function agentStatus(host: (id: string) => HostExtensionClient, source: "claude-code" | "codex"): Promise<AgentStatus> {
-  const client = host(`tau.${source}`);
+/** The kit that registered a backend kind, and the instance it names: `codex@work` → `tau.codex`, `work`. */
+export function backendKit(kind: string): { extensionId: string; instance?: string } {
+  const at = kind.indexOf("@");
+  return at < 0 ? { extensionId: `tau.${kind}` } : { extensionId: `tau.${kind.slice(0, at)}`, instance: kind.slice(at + 1) };
+}
+
+interface StatusAnswer {
+  path?: string;
+  installed?: boolean;
+  version?: string;
+  signedIn?: boolean;
+  account?: string | { kind?: string; email?: string; plan?: string };
+  message?: string;
+  unsupported?: boolean;
+  updateCommand?: string;
+  compatibility?: { status?: string; installCommand?: string };
+}
+
+function accountLabel(account: StatusAnswer["account"]): string | undefined {
+  if (!account || typeof account === "string") return account || undefined;
+  return account.email ?? account.plan ?? (account.kind === "apiKey" ? "API key" : "signed in");
+}
+
+/** Asks a backend's kit about its program; the fields the backend kits share are read, the rest ignored. */
+async function agentStatus(host: (id: string) => HostExtensionClient, kind: string): Promise<AgentStatus> {
+  const { extensionId, instance } = backendKit(kind);
+  const client = host(extensionId);
+  const input = instance ? { instance } : undefined;
   try {
-    if (source === "codex") {
-      const status = await client.invoke("status") as { path?: string; version?: string; signedIn?: boolean; account?: { kind: string; email?: string; plan?: string }; unsupported?: boolean; updateCommand?: string; message?: string };
-      const account = status.account ? status.account.email ?? status.account.plan ?? (status.account.kind === "apiKey" ? "API key" : "signed in") : undefined;
-      return {
-        ...(status.path ? { path: status.path } : {}),
-        ...(status.version ? { version: status.version } : {}),
-        ...(account ? { account } : {}),
-        signedIn: status.signedIn === true,
-        ...(status.unsupported ? { update: status.updateCommand ?? "codex update" } : {}),
-      };
+    const status = (await client.invoke("status", input) ?? {}) as StatusAnswer;
+    if (!status.path && status.installed !== true) return { installed: false };
+    let version = status.version;
+    let account = accountLabel(status.account);
+    // A kit that tried and failed to learn the login says why in `message`.
+    let signedIn = status.signedIn ?? (status.message ? false : undefined);
+    if (signedIn === undefined) {
+      // The Agent SDK runtime learns the login only by asking the program.
+      const probe = await client.invoke("probe", input).catch(() => undefined) as { version?: string; account?: string } | undefined;
+      if (probe) {
+        version ??= probe.version;
+        account ??= probe.account;
+        signedIn = Boolean(probe.account);
+      }
     }
-    const status = await client.invoke("status") as { path?: string };
-    if (!status.path) return {};
-    const probe = await client.invoke("probe").catch(() => undefined) as { version?: string; account?: string } | undefined;
-    return { path: status.path, ...(probe?.version ? { version: probe.version } : {}), ...(probe?.account ? { account: probe.account } : {}), signedIn: Boolean(probe?.account) };
+    const broken = status.compatibility?.status === "broken";
+    const updateCommand = broken ? status.compatibility?.installCommand ?? status.updateCommand : status.updateCommand;
+    return {
+      installed: true,
+      ...(version ? { version } : {}),
+      ...(account ? { account } : {}),
+      ...(signedIn !== undefined ? { signedIn } : {}),
+      ...(status.unsupported || broken ? { update: updateCommand ? { command: updateCommand } : {} } : {}),
+    };
   } catch (error) {
     return { error: message(error) };
   }
@@ -102,6 +138,10 @@ export class WelcomeFlow {
   private readonly listeners = new Set<() => void>();
   private started = false;
   private progressBase = 0;
+  /** The backend kinds the agents step lists; asked again on `checkAgents`. */
+  private kinds: readonly string[] = [];
+  private readonly asked = new Set<string>();
+  private generation = 0;
 
   constructor(
     private readonly host: HostExtensionClient,
@@ -149,15 +189,42 @@ export class WelcomeFlow {
     if (restart) this.state = { step: 0, agents: {}, added: [] };
     if (this.started && !restart) return;
     this.started = true;
-    this.checkAgents();
+    // The agents step may have asked its backends already, in the same render.
+    if (restart) this.checkAgents();
+    else {
+      this.askTools();
+      this.askAgents(this.kinds);
+    }
     this.discover();
   }
 
+  /** Asks anew: the tools, and every backend the step listed so far. */
   checkAgents(): void {
+    this.generation += 1;
+    this.asked.clear();
     this.set({ tools: undefined, agents: {} });
-    void this.host.invoke("tools").then((tools) => this.set({ tools: tools as ToolsReport }), (error) => this.set({ error: message(error) }));
-    for (const source of ["claude-code", "codex"] as const) {
-      void agentStatus(this.hostExtension, source).then((status) => this.set({ agents: { ...this.state.agents, [source]: status } }));
+    this.askTools();
+    this.askAgents(this.kinds);
+  }
+
+  private askTools(): void {
+    const generation = this.generation;
+    void this.host.invoke("tools").then(
+      (tools) => { if (generation === this.generation) this.set({ tools: tools as ToolsReport }); },
+      (error) => { if (generation === this.generation) this.set({ error: message(error) }); },
+    );
+  }
+
+  /** Asks the backends not asked yet; runtimes that register later join the list. */
+  askAgents(kinds: readonly string[]): void {
+    this.kinds = kinds;
+    const generation = this.generation;
+    for (const kind of kinds) {
+      if (this.asked.has(kind)) continue;
+      this.asked.add(kind);
+      void agentStatus(this.hostExtension, kind).then((status) => {
+        if (generation === this.generation) this.set({ agents: { ...this.state.agents, [kind]: status } });
+      });
     }
   }
 
@@ -227,6 +294,8 @@ export class WelcomeFlow {
   /** Remembers that setup ran, so it opens by itself no more; `/welcome` starts it afresh. */
   finish(): Promise<unknown> {
     this.started = false;
+    this.generation += 1;
+    this.asked.clear();
     this.storage()?.remove(FLOW_STORAGE_KEY);
     this.state = { step: 0, agents: {}, added: [] };
     return this.host.invoke("complete").catch(() => undefined);
