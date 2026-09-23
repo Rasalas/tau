@@ -197,4 +197,38 @@ describe("NewThreadController", () => {
     expect(controller.isCurrent(pending, createDraftKey("other"), requestId)).toBe(false);
     expect(controller.isCurrent({ ...pending, projectPath: "/nowhere" }, scope, requestId)).toBe(false);
   });
+
+  it("keeps model, level and mode per runtime while a draft switches back and forth", async () => {
+    const storage = createMemoryStorage();
+    const controller = new NewThreadController(storage);
+    controller.begin(createNewThreadDraft(project()));
+    await controller.setModel("openai", "gpt-5.6-luna", undefined, () => "GPT-5.6 Luna", "pi");
+    await controller.setThinking("low", undefined, "pi");
+    await controller.setMode("plan", async () => undefined);
+
+    controller.switchRuntime("pi", "codex");
+    // Codex was never chosen for: no model of Pi's, the mode carried along.
+    expect(controller.current()).toMatchObject({ mode: "plan" });
+    expect(controller.current()?.model).toBeUndefined();
+    await controller.setModel("openai", "gpt-5.6-sol", undefined, () => "GPT-5.6 Sol", "codex");
+    await controller.setMode("default", async () => undefined);
+
+    controller.switchRuntime("codex", "pi");
+    expect(controller.current()).toMatchObject({ model: { id: "gpt-5.6-luna" }, thinkingLevel: "low", mode: "plan" });
+    expect(controller.current()?.selectionRuntime).toBeUndefined();
+    controller.switchRuntime("pi", "codex");
+    expect(controller.current()).toMatchObject({ model: { id: "gpt-5.6-sol" }, selectionRuntime: "codex", mode: "default" });
+    // A reload finds both.
+    expect(new NewThreadController(storage).current()?.runtimeSelections?.pi).toEqual({ model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }, thinkingLevel: "low", mode: "plan" });
+  });
+
+  it("starts the next draft on a model another runtime's thread chose for it", () => {
+    const controller = new NewThreadController(createMemoryStorage());
+    controller.carryToNextDraft("codex", { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna", billing: "subscription" });
+    controller.begin(createNewThreadDraft(project()));
+    expect(controller.current()).toMatchObject({ model: { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }, selectionRuntime: "codex" });
+    expect(controller.current()?.model).not.toHaveProperty("billing");
+    controller.begin(createNewThreadDraft(project()));
+    expect(controller.current()?.model).toBeUndefined();
+  });
 });

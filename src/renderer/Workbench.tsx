@@ -237,6 +237,10 @@ export interface WorkbenchComposer {
   returnQueued(id: string): void;
   setModel(provider: string, id: string): Promise<void>;
   setThinking(level: string): Promise<void>;
+  /** Binds the draft to another runtime; it keeps what it chose for each. */
+  selectRuntime?(kind: string): void;
+  /** The next draft starts on this runtime's model. */
+  carryModel?(runtime: string, model: import("../shared/contracts").UiModel): void;
   answerUiPrompt(id: string, answer: import("../shared/contracts").ExtensionUiAnswer): void;
   compactContext(): Promise<void>;
 }
@@ -834,7 +838,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   // The runtime is a property of the thread; it is chosen before the thread exists and never after.
   const runtimeBackends = snapshot?.runtimeBackends ?? [];
   const runtimeChoice = pendingNewThread && runtimeBackends.length > 1
-    ? { kind: effectiveNewThreadRuntime(newThreadRuntime, snapshot), backends: runtimeBackends, onSelect: (kind: string) => preferences.setNewThreadRuntime(kind) }
+    ? { kind: effectiveNewThreadRuntime(newThreadRuntime, snapshot), backends: runtimeBackends, onSelect: (kind: string) => (composer.selectRuntime ? composer.selectRuntime(kind) : preferences.setNewThreadRuntime(kind)) }
     : undefined;
   const {
     scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
@@ -863,7 +867,12 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}
-    onNewThreadOnRuntime={actions ? (kind) => { preferences.setNewThreadRuntime(kind); actions.newSession(); } : undefined}
+    onNewThreadOnRuntime={actions ? (kind, model) => {
+      if (model) composer.carryModel?.(kind, model);
+      preferences.setNewThreadRuntime(kind);
+      // The new thread stays in this thread's project.
+      actions.newSession(snapshot?.workspaceId ? { workspace: snapshot.workspaceId } : undefined);
+    } : undefined}
     newThread={pendingNewThread}
     prompt={prompts[0]}
     promptsPending={Math.max(0, prompts.length - 1)}

@@ -461,6 +461,11 @@ export default function App() {
     (level: string) => newThreadController.setThinking(level, threadCommands.setThinking, draftRuntime()),
     [draftRuntime, newThreadController, threadCommands],
   );
+  // A draft keeps what it chose per runtime, so switching back and forth loses nothing.
+  const selectDraftRuntime = useCallback((kind: string) => {
+    newThreadController.switchRuntime(draftRuntime(), kind);
+    preferences.setNewThreadRuntime(kind);
+  }, [draftRuntime, newThreadController, preferences]);
   const setComposerMode = useCallback(async (mode: string) => {
     let accepted = true;
     await newThreadController.setMode(mode, async (next) => { accepted = await threadCommands.setMode(next); });
@@ -618,10 +623,12 @@ export default function App() {
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
     submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue, returnQueued,
     setModel: setComposerModel, setThinking: setComposerThinking,
+    selectRuntime: selectDraftRuntime, carryModel: newThreadController.carryToNextDraft,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
     conversationPrompts, queue, reorderQueue, returnQueued, setComposerModel, setComposerThinking, steerQueued, submitPrompt,
+    selectDraftRuntime, newThreadController,
   ]);
 
   const workbenchModel = useMemo<WorkbenchModel>(() => ({
