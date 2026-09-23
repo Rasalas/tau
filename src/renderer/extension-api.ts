@@ -47,7 +47,7 @@ export { formatCost } from "./cost-format";
 // asset pipeline, which an esbuild-bundled package has no loader for) and the
 // paging state machine behind every changed-file list.
 export { VirtualList } from "./components/VirtualList";
-export { Menu } from "./components/Menu";
+export { Menu } from "./deferred-surfaces";
 // The UI primitives core draws with (API 1.11.0): tooltips through one layer,
 // right-click menus the OS draws where it can, dialogs and popovers that give
 // focus back, and the shapes of loading and of nothing to show.

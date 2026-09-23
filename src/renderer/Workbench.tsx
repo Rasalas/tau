@@ -13,7 +13,7 @@ import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./components/LazyFeature";
 import { ComposerHost, LiveStatus, TurnErrorLine } from "./components/ComposerHost";
 import { useThreadShell } from "./use-thread-shell";
-import { QueuedMessages } from "./components/QueuedMessages";
+import { QueuedMessages } from "./deferred-surfaces";
 import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";

@@ -2,7 +2,8 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { MenuPoint, NativeMenuEntry } from "../../../shared/context-menu";
 import type { Platform } from "../../../workbench/platform";
 import { usePlatform } from "../../platform-context";
-import { Menu, type MenuSection } from "../Menu";
+import type { MenuSection } from "../Menu";
+import { Menu } from "../../deferred-surfaces";
 
 /** The sections a `Menu` draws, as the entries an OS menu takes. */
 export function nativeMenuEntries(sections: readonly MenuSection[]): NativeMenuEntry[] {

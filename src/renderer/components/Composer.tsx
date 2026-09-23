@@ -17,7 +17,7 @@ import type {
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { ThreadCost } from "./ThreadCost";
-import { Menu } from "./Menu";
+import { Menu } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { modelKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
