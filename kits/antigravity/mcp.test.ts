@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { geminiConfigDirectory, mcpServersFromSettings, readMcpServers, toAcpMcpServer } from "./mcp.js";
+import { geminiConfigDirectory, mcpServersFromSettings, readMcpServers, toAcpMcpServer, withTauServer } from "./mcp.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -32,5 +32,17 @@ describe("the user's MCP servers", () => {
     await writeFile(join(directory, "settings.json"), JSON.stringify({ mcpServers: { pencil: { command: "/opt/pencil" } } }));
     expect(await readMcpServers(directory)).toEqual([{ name: "pencil", command: "/opt/pencil", args: [], env: [] }]);
     expect(geminiConfigDirectory("/home/x")).toBe("/home/x/.gemini");
+  });
+});
+
+describe("Tau's own server", () => {
+  it("joins the user's servers as HTTP with the thread's credential, and takes the name from a user server", () => {
+    const tau = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
+    const pencil = { name: "pencil", command: "/opt/pencil", args: [], env: [] };
+    expect(withTauServer([pencil, { name: "tau", command: "/their/tau", args: [], env: [] }], tau)).toEqual([
+      pencil,
+      { type: "http", name: "tau", url: "http://127.0.0.1:4100/mcp", headers: [{ name: "Authorization", value: "Bearer secret" }] },
+    ]);
+    expect(withTauServer([pencil], undefined)).toEqual([pencil]);
   });
 });
