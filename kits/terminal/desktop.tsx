@@ -26,6 +26,30 @@ function withActions(run: (actions: WorkbenchActions) => unknown) {
   };
 }
 
+/**
+ * T3 Code's chords. Those that act on a pane hold only in a panel terminal:
+ * on the stage one shell fills the tab, and `mod+w` closes the tab instead.
+ * `mod+j` is bound twice so a shell never takes it, whatever `mod` is here.
+ */
+export const TERMINAL_KEYBINDINGS: ReadonlyArray<{ keys: string; commandId: string; when?: string }> = [
+  { keys: "mod+j", commandId: TERMINAL_COMMANDS.toggle },
+  { keys: "mod+j", commandId: TERMINAL_COMMANDS.toggle, when: "terminalFocus" },
+  { keys: "mod+n", commandId: TERMINAL_COMMANDS.new, when: "terminalFocus" },
+  { keys: "mod+d", commandId: TERMINAL_COMMANDS.split, when: "terminalFocus && !stageFocus" },
+  { keys: "mod+shift+d", commandId: TERMINAL_COMMANDS.splitDown, when: "terminalFocus && !stageFocus" },
+  { keys: "mod+w", commandId: TERMINAL_COMMANDS.close, when: "terminalFocus && !stageFocus" },
+  { keys: "mod+]", commandId: TERMINAL_COMMANDS.focusNext, when: "terminalFocus && !stageFocus" },
+  { keys: "mod+[", commandId: TERMINAL_COMMANDS.focusPrevious, when: "terminalFocus && !stageFocus" },
+];
+
+function focusPane(app: WorkbenchActions, step: 1 | -1): void {
+  const layout = terminalStore.getSnapshot().layout;
+  const group = layout.groups.find((entry) => entry.id === layout.active);
+  app.openPanel(TERMINAL_PANEL);
+  if (group && paneIds(group.root).length > 1) focusNextPane(step);
+  else if (group) terminalStore.requestFocus(group.focused);
+}
+
 /** The shell a command without a pane of its own acts on: the panel's focused one. */
 function focusedShell(): string | undefined {
   return focusedPane(terminalStore.getSnapshot().layout);
@@ -99,21 +123,9 @@ export const terminalExtension: DesktopExtension = {
           if (id) await closeTerminals([id]);
         }),
       }),
-      plugin.registerCommand({
-        id: TERMINAL_COMMANDS.focusNext,
-        label: "Focus next terminal",
-        group: "Terminal",
-        run: withActions((app) => {
-          const layout = terminalStore.getSnapshot().layout;
-          const group = layout.groups.find((entry) => entry.id === layout.active);
-          app.openPanel(TERMINAL_PANEL);
-          if (group && paneIds(group.root).length > 1) focusNextPane(1);
-          else if (group) terminalStore.requestFocus(group.focused);
-        }),
-      }),
-      // The embedded terminal is mod+j, as in T3 Code; the chords that act on a
-      // focused shell (split, new, close) are the terminal's own, see keys.ts.
-      plugin.registerKeybinding({ keys: "mod+j", commandId: TERMINAL_COMMANDS.toggle }),
+      plugin.registerCommand({ id: TERMINAL_COMMANDS.focusNext, label: "Focus next terminal", group: "Terminal", run: withActions((app) => focusPane(app, 1)) }),
+      plugin.registerCommand({ id: TERMINAL_COMMANDS.focusPrevious, label: "Focus previous terminal", group: "Terminal", run: withActions((app) => focusPane(app, -1)) }),
+      ...TERMINAL_KEYBINDINGS.map((binding) => plugin.registerKeybinding(binding)),
     ];
     return () => {
       for (const dispose of disposers.reverse()) dispose();

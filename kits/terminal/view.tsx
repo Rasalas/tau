@@ -5,7 +5,7 @@ import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalE
 import { unseenOutput } from "./output.js";
 import { terminalFontStack, type ResolvedTerminalFont } from "./font.js";
 import { classifyTerminalLink, findTerminalLinks, positionIn, wrappedLineAt } from "./links.js";
-import { terminalKeyOutcome, type TerminalChordAction } from "./keys.js";
+import { terminalKeyOutcome } from "./keys.js";
 import { focusPane } from "./layout.js";
 import { addExcerptToPrompt, openTerminalLink } from "./controller.js";
 import { TERMINAL_DATA_EVENT, type TerminalDataEvent, type UiTerminalSession } from "./protocol.js";
@@ -60,11 +60,10 @@ const activatesLink = (event: MouseEvent) => MAC ? event.metaKey : event.ctrlKey
 
 export interface TerminalViewProps {
   session: UiTerminalSession;
-  /** In the panel the terminal answers split and close chords; on the stage the tab owns them. */
+  /** Where the view is drawn; only a panel view moves the panel's focused pane. */
   place: "panel" | "stage";
   /** Draws the focus ring; only meaningful beside other panes. */
   focused?: boolean;
-  onChord?(action: TerminalChordAction): void;
 }
 
 /**
@@ -74,15 +73,13 @@ export interface TerminalViewProps {
  * A view takes the keyboard only when asked to (`requestFocus`), so a pane
  * that remounts never steals it.
  */
-export function TerminalView({ session, place, focused = false, onChord }: TerminalViewProps) {
+export function TerminalView({ session, place, focused = false }: TerminalViewProps) {
   const { id, exitCode } = session;
   const surface = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const running = useRef(exitCode === undefined);
   const initialSize = useRef({ cols: session.cols, rows: session.rows });
   const refitRef = useRef<() => void>(() => undefined);
-  const chordRef = useRef(onChord);
-  chordRef.current = onChord;
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const [error, setError] = useState("");
@@ -135,16 +132,7 @@ export function TerminalView({ session, place, focused = false, onChord }: Termi
       const addon = new fit.FitAddon();
       instance.loadAddon(addon);
       instance.open(element);
-      instance.attachCustomKeyEventHandler((event) => {
-        const outcome = terminalKeyOutcome(event, MAC, place);
-        if (outcome === undefined) return true;
-        if (outcome !== "pass") {
-          event.preventDefault();
-          event.stopPropagation();
-          if (outcome !== "ignore") chordRef.current?.(outcome);
-        }
-        return false;
-      });
+      instance.attachCustomKeyEventHandler((event) => terminalKeyOutcome(event, MAC) !== "pass");
       const links = instance.registerLinkProvider({
         provideLinks: (row, callback) => {
           const line = wrappedLineAt(row, (index) => instance.buffer.active.getLine(index));
@@ -242,6 +230,6 @@ export function TerminalView({ session, place, focused = false, onChord }: Termi
       onMouseDown={(event) => event.preventDefault()}
       onClick={addSelection}
     >Add to prompt</button> : null}
-    <div className="terminal-view" ref={surface} data-terminal-id={id} />
+    <div className="terminal-view" ref={surface} data-terminal-id={id} data-keybinding-context="terminal" />
   </div>;
 }

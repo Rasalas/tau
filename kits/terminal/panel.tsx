@@ -4,8 +4,7 @@ import { errorMessage, type PanelProps, type WorkbenchActions } from "tau";
 import { TerminalView } from "./view.js";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { focusedPane, paneIds, type PaneNode, type TerminalGroup } from "./layout.js";
-import type { TerminalChordAction } from "./keys.js";
-import { closeTerminals, focusNextPane, groupPanes, moveTerminalToStage, openTerminal, restartTerminal, syncStageTabs } from "./controller.js";
+import { closeTerminals, groupPanes, moveTerminalToStage, openTerminal, restartTerminal, syncStageTabs } from "./controller.js";
 import type { UiTerminalSession } from "./protocol.js";
 
 /** Where a terminal sits relative to the thread on screen; the panel marks the ones that are not here. */
@@ -23,17 +22,6 @@ const PLACE_LABEL: Record<TerminalPlace, string> = {
 };
 
 type Run = (work: () => Promise<unknown> | unknown) => void;
-
-/** What a focused terminal's own chords do in the panel. */
-function chordHandler(actions: WorkbenchActions, id: string, run: Run) {
-  return (action: TerminalChordAction) => {
-    if (action === "split-right") run(() => openTerminal(actions, { target: id, direction: "right" }));
-    else if (action === "split-down") run(() => openTerminal(actions, { target: id, direction: "down" }));
-    else if (action === "new") run(() => openTerminal(actions));
-    else if (action === "close") run(() => closeTerminals([id]));
-    else focusNextPane(action === "focus-next" ? 1 : -1);
-  };
-}
 
 function Pane({ session, group, split, actions, run, activeSessionId }: {
   session: UiTerminalSession;
@@ -64,7 +52,7 @@ function Pane({ session, group, split, actions, run, activeSessionId }: {
         <button type="button" className="text-button" aria-label={`Close ${session.label}`} title="Close this shell (⌘W)" onClick={() => run(() => closeTerminals([session.id]))}>×</button>
       </span>
     </header>
-    <TerminalView session={session} place="panel" focused={split && group.focused === session.id} onChord={chordHandler(actions, session.id, run)} />
+    <TerminalView session={session} place="panel" focused={split && group.focused === session.id}  />
   </section>;
 }
 

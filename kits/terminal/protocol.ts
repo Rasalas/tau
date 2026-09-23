@@ -120,6 +120,7 @@ export const TERMINAL_COMMANDS = {
   splitDown: "terminal.splitDown",
   close: "terminal.close",
   focusNext: "terminal.focusNext",
+  focusPrevious: "terminal.focusPrevious",
 } as const;
 
 // Mirrors of other kits' contracts. They are named here, not imported: a kit
