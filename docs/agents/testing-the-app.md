@@ -66,6 +66,19 @@ git -C .tau-dev/workspace remote add origin git@github.com:acme/demo.git
 
 The host reads PATH from a login shell; with the user's real `ZDOTDIR` that shell puts Homebrew's real `gh` in front of the stub. A stub must read stdin only when the call passes `--input -` or `--body-file -`: the kit leaves stdin open otherwise, and a stub that waits for it never answers. The remote only names the repository; nothing is pushed to it.
 
+### A runtime update without a real update
+
+The update toast of a runtime backend runs the program's update command in a
+Terminal Kit shell. Never let an instance run the real `brew upgrade` or
+`npm install -g`: point `TAU_RUNTIME_UPDATE_COMMAND` at a script under
+`.tau-dev/` (`{"codex":"<abs path>/fake-update.sh"}`) and `TAU_CODEX_COMMAND`
+at a fake `codex` that answers `--version` from a file the script bumps. A
+newer `latest` comes from seeding the kit's registry cache before the start,
+`.tau-dev/userdata/kit-state/tau.codex/latest-version.json`
+(`{"version":1,"packages":{"@openai/codex":{"version":"<newer>","checkedAt":<now ms>}}}`),
+and `TAU_VERSION_POLICY='{"codex":{"ranges":[]}}'` keeps the policy banner out
+of the way.
+
 ## Keeping an instance alive across turns
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.

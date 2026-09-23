@@ -895,7 +895,13 @@ matter. The shipped kits publish, among others, Workspace Kit's store as
 `tau.workspace/store`, and Preview Kit's `tau.preview/browser`, whose
 `open(url, actions)` brings the Preview panel forward and navigates — Project
 Scripts opens a script's `previewUrl` through it, and falls back to
-`actions.openExternal` when Preview Kit is off. Thread Rail publishes
+`actions.openExternal` when Preview Kit is off. Terminal Kit publishes
+`tau.terminal/run` (new in API 1.11.0): `run({ command, label? }, actions?)`
+opens a shell in a tab of its own, shows the Terminal panel, types the command
+with `; exit` after it and answers `{ id, exitCode? }` once the shell ended —
+the command's status, or no `exitCode` when the shell was closed first. The
+click that asked for it is the consent; the output stays in the panel to read.
+Thread Rail publishes
 `tau.thread-rail/siblings`: `siblingsOf(threadId)` answers the threads started
 together from one prompt on several models (the thread itself included, or
 `[]`), and the Agents panel lists them beside a thread's agents. `actions.attachFiles(files, { sessionId? })` (new in API 1.11.0) hands `File`s to the composer the way a drop on the thread does, with the same limits; named for a thread, they wait until that thread's composer is mounted — open it with `switchSession` first — and are dropped if it has not come in ten seconds. Workspace Kit's rail uses it for files dropped on a row. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
@@ -1222,12 +1228,38 @@ the bundled one otherwise. `packageInstallCommand(realPath, packageName,
 version)` names the npm, pnpm or bun command that installs exactly that
 release; Homebrew cannot pin one, so it answers `undefined` and the update
 command stands. The picker's runtime tab and Settings → Defaults put an unsafe
-or broken version before an available update. Tau never runs either command:
+or broken version before an available update. Tau never runs either command on its own:
 the shipped kits draw `RuntimeVersionBanner` above the composer of the thread
 and on the card, and its button types the command into a new Terminal Kit
 shell without pressing Enter (without Terminal Kit it is copied). A backend
 should refuse to open a thread on a `broken` version; Codex's policy calls
 every release older than its protocol broken.
+
+A newer release is offered as a toast, after T3 Code's provider update
+notification (new in API 1.11.0). `loadRuntimeUpdateToasts()` on `tau` loads
+a chunk of its own with `createRuntimeUpdateToasts({ run, canRun?, recheck,
+settingsPage })`; a kit calls `sync(backends, actions)` with its backends
+whenever the catalog changes (`updateAvailable` on `tau` decides cheaply
+whether to load the chunk at all). Each backend kind gets one toast per
+`latest` — "Update available: Codex v0.156.1" with Settings and Update — and
+none while the policy calls the installed version unsafe or broken, since the
+banner speaks then. Settings opens `settingsPage(backend)`, which lands on the
+Providers page scrolled to that card. Update runs `updateCommand` through
+`run` — the shipped kits use Terminal Kit's `tau.terminal/run`, so the user
+watches brew or npm work — then, on exit status 0, asks `recheck` and says
+whether the version moved; a failed command, a closed shell or an unchanged
+version is a toast of its own. Nothing runs without the click. The close
+button remembers that release in the client's storage
+(`tau.runtime-updates.dismissed.v1`), so the next release is offered again.
+Without a runner (`canRun()` false) only Settings is offered, and `refresh()`
+redraws an offer on screen once a terminal arrives. Codex and the Agent SDK
+runtime answer `recheck` with a host command of that name: it re-registers
+the instance's backend, so core asks the version again and every client's
+catalog follows, and returns the fresh `RuntimeToolVersion`.
+`runtimeUpdateCommand(kind, command)` on `tau/host-extension` returns the
+command `TAU_RUNTIME_UPDATE_COMMAND` names for that kind (JSON keyed by backend
+kind), so a test instance can put a harmless script in place of the real
+update.
 
 #### Instances of one program (new in API 1.11.0)
 
