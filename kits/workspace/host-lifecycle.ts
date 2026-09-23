@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { realpath, rm, stat, utimes } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
@@ -184,12 +184,34 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     };
   };
 
-  const sessionCheckpoints = (session: HostSessionSummary): WorkspaceKitLiveCheckpointSession | undefined => {
+  /**
+   * Claims of session files as last read, keyed by path and stamped with the
+   * file's mtime and size: every activation scans all sessions, and a file
+   * that has not changed says the same as before.
+   */
+  const persistedClaims = new Map<string, { stamp: string; claim: WorkspaceKitLiveCheckpointSession }>();
+  const fileStamp = (path: string): string | undefined => {
     try {
-      return claimOf(session.sessionId, session.cwd, services.sessions.open(session.path).entries());
+      const info = statSync(path);
+      return `${info.mtimeMs}:${info.size}`;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const sessionCheckpoints = (session: HostSessionSummary): WorkspaceKitLiveCheckpointSession | undefined => {
+    const stamp = fileStamp(session.path);
+    const cached = stamp === undefined ? undefined : persistedClaims.get(session.path);
+    if (cached && cached.stamp === stamp && cached.claim.sessionId === session.sessionId) return cached.claim;
+    try {
+      const claim = claimOf(session.sessionId, session.cwd, services.sessions.open(session.path).entries());
+      if (stamp === undefined) persistedClaims.delete(session.path);
+      else persistedClaims.set(session.path, { stamp, claim });
+      return claim;
     } catch {
       // A session can disappear between listing and opening; its refs are
       // intentionally eligible for the same sweep.
+      persistedClaims.delete(session.path);
       return undefined;
     }
   };
@@ -205,10 +227,11 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     const sessions = await services.sessions.list();
     const byId = new Map(sessions.map((session) => [session.sessionId, session] as const));
     const currentWorkspace = await realpath(workspaceCwd).catch(() => resolve(workspaceCwd));
+    const listed = new Set(sessions.map((session) => session.path));
+    for (const path of persistedClaims.keys()) if (!listed.has(path)) persistedClaims.delete(path);
     for (const session of sessions) {
-      let file: HostSessionFile;
-      try { file = services.sessions.open(session.path); } catch { continue; }
-      const all = turnRestoreTransactionsFromEntries(file.entries(), session.sessionId);
+      const all = sessionCheckpoints(session)?.restoreTransactions ?? [];
+      if (all.length === 0) continue;
       const pending = all.filter((transaction) => transaction.state !== "committed" && transaction.state !== "recovered");
       const committed = all.filter((transaction) => transaction.state === "committed" && transaction.kind === "checkpoint-restore");
       for (const transaction of committed) {
@@ -233,6 +256,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         // during startup would be a data-loss bug in its own right.
         const transactionWorkspace = await realpath(transaction.cwd).catch(() => resolve(transaction.cwd));
         if (transactionWorkspace !== currentWorkspace) continue;
+        let file: HostSessionFile;
+        try { file = services.sessions.open(session.path); } catch { break; }
         await recoverRestoreTransaction(transaction, file, byId);
       }
     }

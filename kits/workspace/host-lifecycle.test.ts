@@ -195,6 +195,21 @@ describe("Workspace Kit checkpoint lifecycle", () => {
     expect(list).toHaveBeenCalledOnce();
   });
 
+  it("reads a session file for restore recovery again only after it changed", async () => {
+    const dir = await workspace();
+    const path = join(dir, "session.jsonl");
+    await writeFile(path, "{}\n");
+    const summary = { sessionId: "session", path, cwd: "/project" };
+    const open = vi.fn(() => sessionFile({ path }));
+    const kit = createWorkspaceKitLifecycle(services({ sessions: { list: async () => [summary], open, prepare: async () => { throw new Error("none"); }, start: async () => { throw new Error("none"); }, remove: async () => undefined, restore: async () => undefined, trash: async () => [], purge: async () => undefined, exclusive: (work) => work(), refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }) } }), { emit: () => undefined });
+    await kit.lifecycle.beforeActivate!(thread({ cwd: "/project-b", backendKind: "claude-code" }));
+    await kit.lifecycle.beforeActivate!(thread({ cwd: "/project-c", backendKind: "claude-code" }));
+    expect(open).toHaveBeenCalledOnce();
+    await writeFile(path, "{}\n{}\n");
+    await kit.lifecycle.beforeActivate!(thread({ cwd: "/project-d", backendKind: "claude-code" }));
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
   it("cleans orphan refs before a session's runtime opens", async () => {
     const upkeep = maintenance();
     const kit = createWorkspaceKitLifecycle(services(), { emit: () => undefined, maintenance: upkeep });
