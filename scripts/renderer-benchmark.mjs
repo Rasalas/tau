@@ -104,6 +104,11 @@ requireSha(harnessCommit, "harness commit", 40);
 requireSha(harnessPatchSha256, "harness patch SHA-256", 64);
 const harnessBundleSha256 = createHash("sha256").update(`${harnessSourceSha256}\0${harnessPatchSha256}\0${harnessFiles.join("\0")}`).digest("hex");
 
+// A comma-separated subset for before/after comparisons; a partial report never passes --check.
+const onlyScenarios = process.env.TAU_RENDERER_SCENARIOS?.split(",").map((id) => id.trim()).filter(Boolean);
+const selectedScenarios = onlyScenarios ? fixture.scenarios.filter((scenario) => onlyScenarios.includes(scenario.id)) : fixture.scenarios;
+if (onlyScenarios && selectedScenarios.length !== onlyScenarios.length) throw new Error(`unknown renderer scenario in TAU_RENDERER_SCENARIOS: ${onlyScenarios.join(", ")}`);
+
 if (!skipBuild) run("npm", ["run", "build"]);
 
 function sampleScenario(scenario) {
@@ -154,6 +159,9 @@ function sampleScenario(scenario) {
     if (scenario.id === "long-user-message" && (!result.longMessageInteraction || !["expand", "prop-update"].includes(result.longMessageInteraction.mode) || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
       throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
     }
+    if (scenario.streamEnd && !["commitMs", "paintMs", "settleMs"].every((metric) => Number.isFinite(result.streamEnd?.[metric]) && result.streamEnd[metric] > 0)) {
+      throw new Error(`renderer fixture did not measure the stream end for ${scenario.id}`);
+    }
     if (archivePath) {
       const archiveRecord = {
         event: "sample",
@@ -181,6 +189,10 @@ function sampleScenario(scenario) {
   const mountDurations = samples.flatMap((sample) => sample.mountDurationsMs);
   const updateDurations = samples.flatMap((sample) => sample.updateDurationsMs);
   const heaps = samples.map((sample) => sample.heapBytes ?? 0);
+  const streamEnd = (metric) => {
+    const values = samples.map((sample) => sample.streamEnd[metric]);
+    return { median: percentile(values, 0.5), p95: percentile(values, 0.95), maximum: Math.max(0, ...values) };
+  };
   if (samples.length === 0 || frames.length === 0 || mountDurations.length === 0 || updateDurations.length === 0) {
     throw new Error(`renderer fixture produced no accepted measurements for ${scenario.id}`);
   }
@@ -202,6 +214,7 @@ function sampleScenario(scenario) {
     commits: Math.max(...samples.map((sample) => sample.commits)),
     domNodes: Math.max(...samples.map((sample) => sample.domNodes)),
     heapBytes: { median: percentile(heaps, 0.5), p95: percentile(heaps, 0.95), maximum: Math.max(0, ...heaps) },
+    ...(scenario.streamEnd ? { streamEndCommitMs: streamEnd("commitMs"), streamEndPaintMs: streamEnd("paintMs"), streamEndSettleMs: streamEnd("settleMs") } : {}),
     ...(scenario.id === "diff-2mb" ? { payloadBytes: Math.min(...samples.map((sample) => sample.payloadBytes)) } : {}),
     ...(scenario.id === "long-user-message" ? { longMessageInteraction: samples.map((sample) => sample.longMessageInteraction?.mode), interactionModes: [...new Set(samples.map((sample) => sample.longMessageInteraction?.mode))] } : {}),
     rawSamples: samples.map((sample) => ({
@@ -215,6 +228,7 @@ function sampleScenario(scenario) {
       heapBytes: sample.heapBytes,
       payloadBytes: sample.payloadBytes,
       longMessageInteraction: sample.longMessageInteraction,
+      streamEnd: sample.streamEnd,
     })),
   };
 }
@@ -243,7 +257,7 @@ const report = {
   machine: machineClass(),
   startConditions: fixture.startConditions,
   aggregation: { warmupRuns: fixture.startConditions.warmupRuns, sampleRuns: fixture.startConditions.sampleRuns, percentile: "linear-interpolation", rawSamples: true },
-  scenarios: fixture.scenarios.map(sampleScenario),
+  scenarios: selectedScenarios.map(sampleScenario),
 };
 report.execution.gpu = {
   mode: "default",
@@ -253,7 +267,7 @@ report.execution.gpu = {
 report.execution.electronVersion = report.scenarios[0]?.environment.electronVersion ?? "unknown";
 for (const scenario of report.scenarios) delete scenario.environment;
 for (const scenario of report.scenarios) {
-  for (const metric of ["frameIntervalsMs", "longTasksMs", "startupLongTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes"]) {
+  for (const metric of ["frameIntervalsMs", "longTasksMs", "startupLongTasksMs", "mountDurationsMs", "updateDurationsMs", "heapBytes", "streamEndCommitMs", "streamEndPaintMs", "streamEndSettleMs"]) {
     const distribution = scenario[metric];
     if (distribution && distribution.p95 > distribution.maximum) throw new Error(`${scenario.id} ${metric} p95 exceeds maximum`);
   }

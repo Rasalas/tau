@@ -81,6 +81,8 @@ Cost grows with the response. The 138 KB code-stream fixture missed every 16 ms 
 
 The streaming path should render a cheap mutable tail while a response is active. Settled blocks can be parsed once, cached by content and language, then moved into the normal Markdown tree.
 
+Addressed on 2026-09-23; see "Streaming Markdown by blocks" below.
+
 ### Transcript scrolling restarts on every update
 
 Every message or tool update reads transcript `scrollHeight` and starts a new smooth scroll. This combines a layout read with a repeatedly restarted animation.
@@ -266,6 +268,7 @@ Initial local targets:
 - local host switch confirmed within 150 ms at p95
 - one transcript commit per animation frame while streaming
 - 150 KB plain-text and fenced-code streams below 24 ms frame p95 after initial block parsing
+- the end of a 150 KB fenced stream commits in under 16 ms at p95 (`rendererStreamEndCommitMs`, scenario `markdown-fenced-stream-150kb`, since 2026-09-23)
 - renderer mount work below 24 ms mount p95, with the transcript setup exception documented below
 - host benchmark sampling since 2026-09-05: each report starts the host three times (`TAU_HOST_BENCH_RUNS`); only the first start of a process is cold (later hosts reuse the SDK resource cache: 2.0 s versus 60 ms on the development machine), so the bootstrap budget compares that cold sample, with median, p95 and maximum kept in the report; switch scenarios keep their p95 over all samples, now interpolated like the renderer benchmark. The full-mode cold budget is 2500 ms (`hostBootstrapFullMs`): with extension binding off the critical path the whole cold start is SDK resource loading, 1.1 to 2.0 s locally and 2.0 s on the GitHub runner
 - CI split on 2026-09-05: CI gates lint, typecheck, and tests; the GitHub performance workflow gates build, Git, and host budgets. The renderer and start budgets run under software rendering on the shared runner and are advisory there (published as artifacts, never blocking). `npm run performance:ci` on a development machine remains the complete gate. Before this split the workflow had never passed on GitHub
@@ -314,6 +317,67 @@ Record the fixture, machine class, build mode, median, p95, and maximum with eac
 - file diffs stream only the requested hunk window from Git, discard skipped hunks, and stop the subprocess at page, byte, or line ceilings
 - review diffs render one virtualized row window across every changed file, with syntax highlighting computed per rendered row
 - pull requests run the build, Git, host, renderer, and startup budgets in `.github/workflows/performance.yml`; CI runs lint, typecheck, and the full test suite separately
+
+### Streaming Markdown by blocks
+
+Until 2026-09-23 a streaming message above 512 characters was split at every
+blank line, each piece rendered as its own Markdown document, and the last piece
+shown as raw text. Fences are not blank-line-safe: a code block with blank lines
+broke into as many fragments as it had paragraphs, with the fence markers
+visible. In the isolated instance a GPT-5.6 Luna answer with two code blocks and
+a table showed up to 21 code blocks during the stream before collapsing to 2.
+When the stream ended, the whole message was parsed again and every code block
+highlighted synchronously, in one commit.
+
+`src/renderer/components/markdown-blocks.ts` now lets the parser decide the
+block boundaries. A top-level block settles once the parser has started a sibling
+after it on a complete line; CommonMark never reopens a closed block, so the
+rest of the stream cannot change it. Only the text after the last settled block
+is parsed again, and an open unindented fence is extended by scanning the new
+lines for its closing fence, without the parser. Link and footnote definitions
+are document-wide, so a message containing one renders as one document; so does
+text with a CR or BOM.
+
+A message that streamed keeps its block tree when the stream ends, so the end
+re-renders only its open blocks. The blocks are joined by the newline the
+one-document render places between top-level elements, which keeps the DOM
+byte-identical to a message that never streamed (`Markdown.render.test.tsx`
+checks this over nested, tilde and list fences, an unterminated fence, tables,
+footnotes, reference links and HTML-shaped text; the reload of a streamed
+answer in the isolated instance produced the same `innerHTML`). A top-level code
+block renders its `CodeBlock` directly. While it grows it highlights in
+line-aligned pieces of about 2 KB, each on its own (plain past 16 KB, which
+bounds its DOM). Once its content is final, the full highlight runs from an
+idle-time queue instead of inside the commit that completed it. The syntax
+cache is bounded at 16 MiB instead of 96 entries.
+
+The `markdown-code-stream-150kb` scenario never closes its one fence, so fence
+parsing, highlighting and the final reparse never ran. `markdown-fenced-stream-150kb`
+streams about twenty sections of prose, a TypeScript fence with blank lines, a
+table and a `~~~` fence inside a list, then flips `streaming` off and records
+the end commit, the first painted frame after it and the time until deferred
+highlighting is done. Measured back to back on the development machine (load
+average 11 to 25 from other work), nine samples each, `median / p95 / max` in
+milliseconds:
+
+| scenario | metric | before | after |
+| --- | --- | ---: | ---: |
+| fenced stream (150 KB) | stream-end commit | 50.3 / 54.4 / 54.9 | 2.2 / 3.0 / 3.3 |
+| fenced stream (150 KB) | stream end to painted frame | 72.0 / 78.2 / 78.5 | 33.4 / 35.2 / 35.3 |
+| fenced stream (150 KB) | frame | 16.7 / 18.5 / 51.7 | 16.7 / 18.3 / 18.7 |
+| fenced stream (150 KB) | update | 3.6 / 8.5 / 54.9 | 3.7 / 8.7 / 14.5 |
+| fenced stream (150 KB) | long tasks | 3 of 52 ms | none |
+| code stream (150 KB) | update | 2.2 / 3.9 / 9.0 | 3.5 / 5.1 / 12.5 |
+| code stream (150 KB) | DOM nodes | 40 | 1,133 |
+| plain stream (150 KB) | update | 3.2 / 6.6 / 11.9 | 3.7 / 6.1 / 10.9 |
+
+The painted-frame time is two frames by construction (the harness waits for the
+second animation frame), so 33 ms is its floor. The code stream now highlights
+its first 16 KB while it grows, which is where its extra DOM nodes and the
+1.3 ms of median update come from. The initial script grew from 746,980 to
+752,310 bytes (229,112 to 230,896 gzip). The 16 ms `rendererStreamEndCommitMs`
+budget and `markdown-blocks.test.ts` (settled text is never parsed twice; the
+stream end parses only the open blocks) guard the regression.
 
 ### Virtualized review diffs
 

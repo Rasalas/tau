@@ -140,6 +140,24 @@ describe("performance report checks", () => {
     expect(failures).toHaveLength(5);
   });
 
+  it("fails a stream end that reparses the whole message in one commit", () => {
+    const scenario = {
+      id: "markdown-fenced-stream-150kb",
+      fixture: { streamEnd: true },
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { p95: 2 },
+      longTasksMs: { maximum: 0 },
+      updateDurationsMs: { p95: 8 },
+      domNodes: 4_556,
+    };
+    const budgets = { rendererStreamEndCommitMs: 16 };
+    expect(evaluateRendererBudgets({ scenarios: [scenario] }, budgets)).toEqual(["markdown-fenced-stream-150kb stream end commit p95 was not reported by the renderer fixture"]);
+    const slow = { ...scenario, streamEndCommitMs: { median: 48.3, p95: 62.4, maximum: 69.6 } };
+    expect(evaluateRendererBudgets({ scenarios: [slow] }, budgets)).toEqual(["markdown-fenced-stream-150kb stream end commit p95 62.4ms > 16ms (median 48.3ms, p95 62.4ms, max 69.6ms)"]);
+    expect(evaluateRendererBudgets({ scenarios: [{ ...scenario, streamEndCommitMs: { median: 2.3, p95: 3, maximum: 3.1 } }] }, budgets)).toEqual([]);
+  });
+
   it("keeps documented renderer budgets aligned with the release gate", async () => {
     const [budgetText, documentation] = await Promise.all([
       readFile(new URL("./performance-budgets.json", import.meta.url), "utf8"),
