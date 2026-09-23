@@ -44,6 +44,8 @@ export interface SourceControl {
   /** The provider the user chose per host, for servers whose name says nothing. */
   hosts(): Promise<Record<string, RequestService>>;
   setHost(host: string, kind: RequestService | undefined): Promise<Record<string, RequestService>>;
+  /** Grows with every change of the user's choices, so a cached detection knows it is stale. */
+  revision(): number;
   tools: ProviderTools;
 }
 
@@ -86,6 +88,7 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
   const viewers = new Map<string, { at: number; login: Promise<string | undefined> }>();
   const credentials = new Map<string, { at: number; value: Promise<GitCredential | undefined> }>();
   let hostChoices: Promise<Record<string, RequestService>> | undefined;
+  let revision = 0;
   const hostsPath = join(services.stateDir, HOSTS_FILE);
 
   const readHosts = async (): Promise<Record<string, RequestService>> => {
@@ -231,8 +234,10 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
       await writeFile(temporary, `${JSON.stringify({ version: 1, hosts: next }, null, 2)}\n`);
       await rename(temporary, hostsPath);
       hostChoices = Promise.resolve(next);
+      revision += 1;
       return next;
     },
+    revision: () => revision,
     tools,
   };
 }

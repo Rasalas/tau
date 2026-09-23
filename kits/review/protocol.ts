@@ -148,6 +148,24 @@ export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
 
 export const providerInfo = (service: RequestService): ProviderInfo => PROVIDERS[service] ?? PROVIDERS.github;
 
+/** Whether a provider can be used on this machine, for Settings → Review. */
+export interface SourceProviderStatus {
+  service: RequestService;
+  name: string;
+  /** The program or credential store the provider goes through. */
+  tool: string;
+  installed: boolean;
+  /** Undefined when the tool cannot tell without a repository. */
+  signedIn?: boolean;
+  /** Who it is signed in as, or the servers it holds logins for. */
+  account?: string;
+  /** What to do next, in words. */
+  hint?: string;
+}
+
+/** A self-hosted server's provider, chosen by the user, by host (with a port when it has one). */
+export type SourceHosts = Record<string, RequestService>;
+
 /** A branch's request as Review Kit reports it; core's type names only the first two hosts. */
 export type ReviewRequest = Omit<UiReviewRequest, "provider"> & { provider: RequestService };
 

@@ -268,6 +268,14 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
       }
     },
     viewer: async () => text(record(record(JSON.parse(await tools.cli(kind, { args: ["account", "show", "--output", "json", "--only-show-errors"] }, "Reading the signed-in account"))).user).name),
+    status: async () => {
+      const extension = await tools.cli(kind, { args: ["extension", "show", "--name", "azure-devops", "--output", "json", "--only-show-errors"] }, "Checking the DevOps extension").then(() => true, () => false);
+      if (!extension) return { hint: "Add the DevOps extension: `az extension add --name azure-devops`." };
+      const account = await tools.cli(kind, { args: ["account", "show", "--output", "json", "--only-show-errors"] }, "Checking the sign-in")
+        .then((output) => text(record(record(JSON.parse(output)).user).name), () => undefined);
+      // A personal access token from `az devops login` shows only when a repository is asked.
+      return account ? { signedIn: true, account } : { hint: "Sign in with `az login`, or with a personal access token through `az devops login`." };
+    },
 
     current: async (target) => {
       const rows = list(JSON.parse(await az(target, ["repos", "pr", "list", ...inRepository(target), "--source-branch", target.branch, "--status", "all", "--top", "10"], `Looking for the pull request of ${target.branch}`)))

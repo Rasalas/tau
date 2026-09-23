@@ -352,6 +352,12 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
     requestUrl: ({ host, repo }, number) => `https://${host}/${repo}/pulls/${number}`,
     signedIn: async ({ host }) => Boolean(loginFor(await readLogins().catch(() => []), host)),
     viewer: async (host) => text(record(await json(host, "user", "Reading the signed-in account")).login),
+    status: async () => {
+      const found = await readLogins().catch(() => []);
+      if (found.length === 0) return { signedIn: false, hint: "Run `tea login add --url https://<your server>` in a terminal." };
+      const hostOf = (entry: TeaLogin) => { try { return new URL(entry.url).host; } catch { return entry.url; } };
+      return { signedIn: true, account: found.map((entry) => `${entry.user ?? entry.name} on ${hostOf(entry)}`).join(", ") };
+    },
 
     current: async ({ host, repo, branch }) => {
       const rows = list(await json(host, `${repoPath(repo)}/pulls?state=all&sort=recentupdate&limit=${PAGE}`, `Looking for the pull request of ${branch}`));

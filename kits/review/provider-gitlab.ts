@@ -1,7 +1,7 @@
 import { HostCommandError } from "tau/host-extension";
 import { PROVIDERS, type PullRequestRef, type ReviewRequest } from "./protocol.js";
 import { readPages, type ProviderTools, type SourceControlProvider } from "./provider.js";
-import { missingCli, parseCandidates } from "./provider-github.js";
+import { cliAuthStatus, missingCli, parseCandidates } from "./provider-github.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitLabChecks, parseGitLabDetail, parseGitLabDiffs, parseGitLabThreads } from "./pull-request-json.js";
@@ -32,6 +32,7 @@ export function createGitLabProvider(tools: ProviderTools): SourceControlProvide
       const raw = JSON.parse(await tools.cli(kind, { args: ["api", "--hostname", host, "user"] }, "Reading the signed-in account")) as Record<string, unknown>;
       return typeof raw.username === "string" && raw.username ? raw.username : undefined;
     },
+    status: () => cliAuthStatus(tools, kind, "gitlab.com"),
 
     current: async (branch) => await tools.workspace("review-request", branch.workspace ? { workspace: branch.workspace } : { fresh: branch.fresh }) as ReviewRequest | undefined,
     create: async ({ cwd }, input) => createdUrl(await tools.cli(kind, { args: createArgs(kind, input) }, "Creating the merge request", { cwd })),

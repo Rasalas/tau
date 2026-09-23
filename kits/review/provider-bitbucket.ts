@@ -299,6 +299,11 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
     requestUrl: ({ repo }, number) => `https://${WEB_HOST}/${repo}/pull-requests/${number}`,
     signedIn: async () => Boolean(await credential()),
     viewer: async () => actor(JSON.parse(await request("user", "Reading the signed-in account")))?.login,
+    status: async () => {
+      const found = await credential();
+      if (!found) return { signedIn: false, hint: `Store an API token for ${apiHost} in Git's credential helper: \`${SERVICES.bitbucket.login}\`.` };
+      return { signedIn: true, account: found.username === "x-token-auth" ? "an access token" : found.username };
+    },
 
     current: async (target) => {
       const query = new URLSearchParams({ q: `source.branch.name = "${target.branch.replace(/["\\]/gu, "")}"`, pagelen: "10", sort: "-updated_on" });

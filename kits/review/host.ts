@@ -2,6 +2,7 @@ import { HostCommandError, type HostExtension, type HostExtensionContext } from 
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type CommitMessageStyle } from "./protocol.js";
 import { registerPullRequestCommands } from "./pull-request-host.js";
 import { createSourceControl, type SourceControlOptions } from "./provider-registry.js";
+import { registerProviderSettings } from "./provider-settings-host.js";
 import { registerPullRequestListCommands } from "./pull-request-list-host.js";
 import { withInstructions } from "./writing.js";
 import { registerPublishCommands } from "./publish-host.js";
@@ -64,6 +65,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         created: (url) => { const thread = services.thread(); if (thread) void links.link(thread.sessionId, url, "created"); },
       });
       registerPublishCommands(context, options);
+      registerProviderSettings(context, sources);
       context.registerCommand("suggest-commit-message", async (input) => {
         const fields = record(input);
         const provider = text(fields.provider);

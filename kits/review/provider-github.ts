@@ -36,6 +36,18 @@ export const missingCli = (kind: keyof typeof SERVICES, findCommand: (name: stri
   return findCommand(facts.tool) ? undefined : `${facts.label} is not installed or not on your PATH. Install it from ${facts.install}, then run \`${facts.login}\`.`;
 };
 
+/** `gh auth status` or `glab auth status`: signed in when it exits 0, with the accounts it names. */
+export async function cliAuthStatus(tools: ProviderTools, kind: "github" | "gitlab", home: string): Promise<{ signedIn: boolean; account?: string; hint?: string }> {
+  let stderr = "";
+  try {
+    const stdout = await tools.cli(kind, { args: authArgs() }, "Checking the sign-in", { inspect: (_output, error) => { stderr = error; } });
+    const accounts = [...`${stdout}\n${stderr}`.matchAll(/Logged in to (\S+) (?:account|as) ([^\s(]+)/gu)].map((match) => match[1] === home ? match[2]! : `${match[2]} on ${match[1]}`);
+    return { signedIn: true, ...(accounts.length > 0 ? { account: [...new Set(accounts)].join(", ") } : {}) };
+  } catch {
+    return { signedIn: false, hint: `Run \`${SERVICES[kind].login}\` in a terminal.` };
+  }
+}
+
 /** GitHub through `gh`: its own verbs where it has them, `gh api` and GraphQL for the rest. */
 export function createGitHubProvider(tools: ProviderTools): SourceControlProvider {
   const kind = "github" as const;
@@ -69,6 +81,7 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       const raw = JSON.parse(await tools.cli(kind, { args: ["api", "--hostname", host, "user"] }, "Reading the signed-in account")) as Record<string, unknown>;
       return typeof raw.login === "string" && raw.login ? raw.login : undefined;
     },
+    status: () => cliAuthStatus(tools, kind, "github.com"),
 
     // The branch's request comes from Workspace Kit, which reads it with `gh` too and bases the branch diff on it.
     current: async (branch) => await tools.workspace("review-request", branch.workspace ? { workspace: branch.workspace } : { fresh: branch.fresh }) as ReviewRequest | undefined,

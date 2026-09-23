@@ -84,7 +84,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
   const now = options.now ?? Date.now;
   // Only a login is remembered, so signing in shows on the next look.
   const signedIn = new Map<string, number>();
-  const workspaceKinds = new Map<string, { at: number; kind: ReviewRequest["provider"] }>();
+  const workspaceKinds = new Map<string, { at: number; kind: ReviewRequest["provider"]; revision: number }>();
 
   const workspace = async <T>(command: string, input?: unknown): Promise<T> => await sources.tools.workspace(command, input) as T;
 
@@ -165,11 +165,11 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
   const rowRequest = async (named: string): Promise<ReviewRequest | undefined> => {
     const known = workspaceKinds.get(named);
     let git: ReviewRequestContext | undefined;
-    let kind = known && now() - known.at < WORKSPACE_KIND_MS ? known.kind : undefined;
+    let kind = known && now() - known.at < WORKSPACE_KIND_MS && known.revision === sources.revision() ? known.kind : undefined;
     if (!kind) {
       git = await workspace<ReviewRequestContext>("review-request-context", { workspace: named }).catch(() => undefined);
       kind = await sources.detect(git?.remote?.url);
-      workspaceKinds.set(named, { at: now(), kind });
+      workspaceKinds.set(named, { at: now(), kind, revision: sources.revision() });
     }
     const provider = sources.get(kind);
     if (kind === "github" || kind === "gitlab") return provider.current({ host: "", repo: "", cwd: named, branch: "", workspace: named, fresh: false });
