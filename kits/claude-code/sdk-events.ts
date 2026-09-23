@@ -1,5 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { ThreadRuntimeEvent, UiContextUsage, UiMessage, UiThreadUsage, UiToolRun } from "tau/host-extension";
+import type { ThreadRuntimeEvent, UiContextUsage, UiMessage, UiThreadUsage, UiToolRun, UsageTally } from "tau/host-extension";
 
 /** Matches the host's own bound for a tool card; the durable result stays with Claude's session. */
 export const MAX_TOOL_OUTPUT_BYTES = 128 * 1024;
@@ -16,6 +16,8 @@ export interface TurnOutcome {
   texts: string[];
   /** This turn's own tokens and cost; the backend adds them to the thread's total. */
   usage: UiThreadUsage;
+  /** The same, one tally per model the turn called (sub-agents may run another). */
+  tallies: UsageTally[];
   contextUsage?: UiContextUsage;
   error?: string;
   /** The turn was stopped, by the user or by the host; nothing went wrong. */
@@ -40,6 +42,8 @@ export interface SdkSessionFacts {
   apiKeySource?: string;
   /** The effort the session runs at, as the CLI reports it. */
   effort?: string;
+  /** Every `rate_limit_event` of the turn, oldest first: the plan's windows as the CLI saw them. */
+  rateLimits?: Array<Record<string, unknown>>;
 }
 
 const EMPTY_USAGE: UiThreadUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, turns: 0 };
@@ -91,6 +95,39 @@ function resultUsage(message: ResultMessage): UiThreadUsage {
     costUsd: typeof message.total_cost_usd === "number" ? message.total_cost_usd : summed.costUsd,
     turns: 1,
   };
+}
+
+type ModelUsage = { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number };
+
+/** The turn's tokens per model, as `modelUsage` splits them; one tally for the session's model without it. */
+export function resultTallies(message: ResultMessage, sessionModel: string | undefined): UsageTally[] {
+  const models = Object.entries((message as { modelUsage?: Record<string, ModelUsage> }).modelUsage ?? {});
+  if (models.length === 0) {
+    const usage = resultUsage(message);
+    return [{ provider: "anthropic", ...(sessionModel ? { model: sessionModel } : {}), inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheReadTokens: usage.cacheReadTokens, cacheWriteTokens: usage.cacheWriteTokens, totalTokens: usage.totalTokens, costUsd: usage.costUsd, turns: 1 }];
+  }
+  // The turn counts once, for the model it ran on (or the first one named).
+  const main = Math.max(0, models.findIndex(([name]) => name === sessionModel));
+  // The SDK's own estimate wins, as in the total; it is spread over the models by their share.
+  const named = models.reduce((sum, [, usage]) => sum + usage.costUSD, 0);
+  const total = typeof message.total_cost_usd === "number" ? message.total_cost_usd : named;
+  const costOf = (usage: ModelUsage, index: number) => named > 0 ? total * usage.costUSD / named : index === main ? total : 0;
+  return models.map(([model, usage], index) => {
+    const tally = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadInputTokens,
+      cacheWriteTokens: usage.cacheCreationInputTokens,
+    };
+    return {
+      provider: "anthropic",
+      model,
+      ...tally,
+      totalTokens: tally.inputTokens + tally.outputTokens + tally.cacheReadTokens + tally.cacheWriteTokens,
+      costUsd: costOf(usage, index),
+      turns: index === main ? 1 : 0,
+    };
+  });
 }
 
 function resultContextUsage(message: ResultMessage): UiContextUsage | undefined {
@@ -232,16 +269,17 @@ export class SdkTurnTranslator {
     if (message.subtype !== "success" || message.is_error) {
       const blocked = (message as { terminal_reason?: string }).terminal_reason === "blocking_limit" ? {} : undefined;
       const limit = this.rejected ?? blocked;
+      const tallies = resultTallies(message, this.facts.model);
       this.outcome = interruptedResult(message)
-        ? { texts: this.texts, usage: resultUsage(message), interrupted: true }
-        : { texts: this.texts, usage: resultUsage(message), error: resultErrorText(message), ...(limit ? { limit } : {}) };
+        ? { texts: this.texts, usage: resultUsage(message), tallies, interrupted: true }
+        : { texts: this.texts, usage: resultUsage(message), tallies, error: resultErrorText(message), ...(limit ? { limit } : {}) };
       return [];
     }
     // A resumed session answers with an empty result before the turn.
     if (message.num_turns === 0 && !this.sawAssistant) return [];
     const contextUsage = resultContextUsage(message);
     const texts = this.texts.length > 0 ? this.texts : message.result ? [message.result] : [];
-    this.outcome = { texts, usage: resultUsage(message), ...(contextUsage ? { contextUsage } : {}) };
+    this.outcome = { texts, usage: resultUsage(message), tallies: resultTallies(message, this.facts.model), ...(contextUsage ? { contextUsage } : {}) };
     return [];
   }
 
@@ -269,6 +307,7 @@ export class SdkTurnTranslator {
 
   private rateLimit(message: SDKMessage & { type: "rate_limit_event" }): ThreadRuntimeEvent[] {
     const info = message.rate_limit_info;
+    (this.facts.rateLimits ??= []).push({ ...info });
     if (info.status !== "rejected" || info.isUsingOverage) return [];
     this.rejected = info.resetsAt ? { resetsAt: info.resetsAt * 1000 } : {};
     const key = `${info.rateLimitType ?? "limit"}:${info.resetsAt ?? 0}`;

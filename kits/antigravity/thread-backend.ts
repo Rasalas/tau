@@ -22,6 +22,12 @@ import {
   type UiModel,
   type UiSkillDraft,
   type UiThreadUsage,
+  type UsageTally,
+  type UsageTurn,
+  appendUsageTurn,
+  legacyUsageTurn,
+  mergeTallies,
+  unpricedUsage,
 } from "tau/host-extension";
 import { AcpTurnTranslator, addUsage, type AcpCommand, type AcpPromptResponse, type AcpSessionUpdate } from "../_acp/events.js";
 import type { AcpContentBlock, AcpElicitationAnswer, AcpElicitationRequest, AcpInitializeResult, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "../_acp/session.js";
@@ -86,6 +92,8 @@ export interface AntigravityThreadBackendOptions {
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
   now?(): number;
+  /** Prices the thread's turns the way core prices every thread (API 1.12.0). */
+  priceUsage?(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
 }
 
 interface Turn {
@@ -128,6 +136,8 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
   private usage: UiThreadUsage = AcpTurnTranslator.emptyUsage();
   private contextUsage?: UiContextUsage;
   private sessionCostUsd?: number;
+  /** Each finished turn's tokens; `usage` is their running total. */
+  private usageTurns: UsageTurn[] = [];
   private chosenModel?: string;
   /** The model the thread last ran on, for the picker before a session exists. */
   private observedModel?: string;
@@ -175,6 +185,9 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.title = this.record.title;
     this.titleSource = this.record.titleSource;
     if (this.record.usage) this.usage = { ...this.record.usage };
+    const model = this.record.observedModel ?? this.record.model;
+    this.usageTurns = this.record.usageTurns?.map((turn) => ({ ...turn }))
+      ?? (this.record.usage && this.record.usage.turns > 0 ? [legacyUsageTurn(this.record.usage, this.record.updatedAt, { provider: MODEL_PROVIDER, ...(model ? { model } : {}) })] : []);
     this.chosenModel = this.record.model;
     this.observedModel = this.record.observedModel;
     this.rememberModels(await this.options.cachedModels?.() ?? []);
@@ -209,7 +222,8 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
     const live = this.live && !this.live.closed ? this.live : undefined;
     const current = live?.currentModel() ?? this.chosenModel ?? this.observedModel;
     const named = live?.modelOptions().find((option) => option.value === current) ?? (current ? { name: this.modelNames.get(current) } : undefined);
-    const usage = this.usage.turns > 0 ? { ...this.usage, ...(this.sessionCostUsd !== undefined ? { costUsd: this.sessionCostUsd } : {}) } : undefined;
+    const tallies = mergeTallies(this.usageTurns);
+    const usage = this.options.priceUsage ? this.options.priceUsage(tallies) : unpricedUsage(tallies);
     return {
       ...(current ? { model: { provider: MODEL_PROVIDER, id: current, name: named?.name ?? current } } : {}),
       thinkingLevel: "default",
@@ -321,7 +335,14 @@ export class AntigravityThreadRuntimeBackend implements ThreadRuntimeBackend {
       const events = turn.translator.finish(response);
       const outcome = turn.translator.outcome!;
       this.usage = addUsage(this.usage, outcome.usage);
-      await this.store.recordUsage(this.threadId, this.cwd, this.usage);
+      // The agent reports a session's cost as a running sum; a turn's is what it grew by, or all of it in a new session.
+      const reported = turn.translator.facts.sessionCostUsd;
+      const before = this.sessionCostUsd ?? 0;
+      const cost = reported === undefined ? 0 : reported >= before ? reported - before : reported;
+      const model = (live.closed ? undefined : live.currentModel()) ?? this.chosenModel ?? this.observedModel;
+      const finished: UsageTurn = { provider: MODEL_PROVIDER, ...(model ? { model } : {}), ...outcome.usage, costUsd: cost, turns: 1, at: this.now() };
+      this.usageTurns = appendUsageTurn(this.usageTurns, finished);
+      await this.store.recordUsage(this.threadId, this.cwd, this.usage, finished);
       if (outcome.stopReason === "refusal") this.report({ type: "notice", message: "Antigravity declined to continue this turn.", level: "warning" });
       this.settle(turn, outcome.cancelled ? "interrupted" : "completed", events);
       return { assistantText: outcome.texts.join("\n\n") };

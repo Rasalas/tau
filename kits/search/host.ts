@@ -2,15 +2,17 @@ import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
-import { commandInvocation } from "tau/host-extension";
+import { commandInvocation, THREAD_TEXTS_COMMAND } from "tau/host-extension";
 import { rankFuzzy } from "./fuzzy.js";
 import { parseRipgrepLine, projectPath, ripgrepArgs, ripgrepError, ripgrepFileArgs } from "./ripgrep.js";
+import { RuntimeThreadIndex } from "./runtime-threads.js";
 import { findInThread, queryTokens, sessionText, type ThreadText } from "./threads.js";
 import { contentPattern, searchWalkedFiles, walkProject } from "./walker.js";
 import {
   CONTENT_LIMIT,
   FILE_LIMIT,
   SEARCH_KIT_ID,
+  THREAD_TEXT_SOURCES,
   type ContentMatch,
   type ContentSearchInput,
   type ContentSearchResult,
@@ -71,6 +73,8 @@ function streamLines(command: string, args: readonly string[], cwd: string, onLi
 
 export interface SearchHostOptions {
   now?(): number;
+  /** Characters the index of other runtimes' threads keeps; see `RuntimeThreadIndex`. */
+  runtimeBudgetChars?: number;
 }
 
 /**
@@ -92,6 +96,12 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
       const running = new Map<string, () => void>();
       const fileLists = new Map<string, { at: number; files: Promise<string[]> }>();
       const threadTexts = new Map<string, { mtimeMs: number; size: number; texts: ThreadText[] }>();
+      const runtimeThreads = new RuntimeThreadIndex({
+        sources: THREAD_TEXT_SOURCES,
+        ask: (source, input) => context.invokeHostExtension(source, THREAD_TEXTS_COMMAND, input),
+        now,
+        ...(options.runtimeBudgetChars !== undefined ? { budgetChars: options.runtimeBudgetChars } : {}),
+      });
 
       const projectRoot = async (value: unknown): Promise<string> => {
         const cwd = text(value) || await services.cwd();
@@ -208,7 +218,7 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
         if (tokens.length === 0) return [];
         const phrase = tokens.join(" ");
         const limit = count(fields.limit, 20, 100);
-        const sessions = await services.sessions.list();
+        const [sessions] = await Promise.all([services.sessions.list(), runtimeThreads.sync()]);
         const dated = await Promise.all(sessions.map(async (session) => {
           try {
             const info = await stat(session.path);
@@ -223,8 +233,9 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
 
         const matches: ThreadMatch[] = [];
         const active = text(fields.activeSessionId);
+        const activeElsewhere = Boolean(active) && !sessions.some((session) => session.sessionId === active);
         // A thread of another runtime has no session file; the one on screen is read from its runtime.
-        if (active && !sessions.some((session) => session.sessionId === active)) {
+        if (activeElsewhere) {
           try {
             const texts = (await services.transcript(active))
               .filter((message) => message.role === "user" || message.role === "assistant")
@@ -235,10 +246,22 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
             // Nothing open under that id: the files are all there is.
           }
         }
-        for (const session of newest) {
-          if (matches.length >= limit) break;
-          const found = findInThread(await textsOf(session.path, session.mtimeMs, session.size), tokens, phrase);
-          if (found) matches.push({ sessionId: session.sessionId, path: session.path, ...found });
+        // Pi's session files and the other runtimes' threads, newest first, until the limit.
+        const runtime = runtimeThreads.entries().filter((thread) => !(activeElsewhere && thread.threadId === active));
+        let fileAt = 0;
+        let runtimeAt = 0;
+        while (matches.length < limit && (fileAt < newest.length || runtimeAt < runtime.length)) {
+          const session = newest[fileAt];
+          const thread = runtime[runtimeAt];
+          if (session && (!thread || session.mtimeMs >= thread.updatedAt)) {
+            fileAt += 1;
+            const found = findInThread(await textsOf(session.path, session.mtimeMs, session.size), tokens, phrase);
+            if (found) matches.push({ sessionId: session.sessionId, path: session.path, ...found });
+          } else if (thread) {
+            runtimeAt += 1;
+            const found = findInThread(thread.texts, tokens, phrase);
+            if (found) matches.push({ sessionId: thread.threadId, path: "", ...found });
+          }
         }
         return matches;
       }, { long: true });

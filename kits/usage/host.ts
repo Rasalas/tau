@@ -1,24 +1,96 @@
 import { join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
-import { summarize, type BackendScan, type UsageScan } from "./aggregate.js";
+import { applyPrices, summarize, type BackendScan, type RowPrice, type UsageScan } from "./aggregate.js";
 import { PiUsageCache } from "./pi-sessions.js";
 import {
+  BACKEND_LIMITS_COMMAND,
   BACKEND_USAGE_COMMAND,
   BACKEND_USAGE_SOURCES,
+  LIMIT_SOURCES,
   USAGE_EXTENSION_ID,
+  USAGE_LIMITS_COMMAND,
   USAGE_SUMMARY_COMMAND,
   type BackendUsageAnswer,
   type BackendUsageSource,
   type BackendUsageThread,
+  type BackendUsageTurn,
+  type LimitSource,
+  type UsageBilling,
+  type UsageLimitAccount,
+  type UsageLimitSourceReport,
+  type UsageLimitWindow,
+  type UsageLimitsSummary,
   type UsageSummary,
 } from "./protocol.js";
 
 /** A scan younger than this answers without touching the disk, unless a turn ended since. */
 export const SCAN_MAX_AGE_MS = 5 * 60_000;
 
+/** Limits read younger than this answer without asking the kits again. */
+export const LIMITS_MAX_AGE_MS = 5 * 60_000;
+
 export interface UsageHostOptions {
   now?(): number;
   sources?: readonly BackendUsageSource[];
+  limitSources?: readonly LimitSource[];
+}
+
+const BILLING = new Set<string>(["subscription", "api-key", "free", "local"]);
+
+function billingOf(value: unknown): UsageBilling | undefined {
+  return typeof value === "string" && BILLING.has(value) ? value as UsageBilling : undefined;
+}
+
+function turnsOf(value: unknown): BackendUsageTurn[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((item): BackendUsageTurn[] => {
+    const usage = usageOf(item);
+    const at = item && typeof item === "object" ? finite((item as { at?: unknown }).at) : undefined;
+    if (!usage || at === undefined) return [];
+    const raw = item as Record<string, unknown>;
+    const billing = billingOf(raw.billing);
+    return [{
+      ...usage,
+      at,
+      ...(typeof raw.provider === "string" && raw.provider ? { provider: raw.provider } : {}),
+      ...(typeof raw.model === "string" && raw.model ? { model: raw.model } : {}),
+      ...(billing ? { billing } : {}),
+    }];
+  });
+}
+
+function windowOf(value: unknown): UsageLimitWindow | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const used = typeof raw.usedPercent === "number" && Number.isFinite(raw.usedPercent) ? Math.max(0, Math.min(100, raw.usedPercent)) : undefined;
+  const kind = raw.kind === "session" || raw.kind === "weekly" || raw.kind === "monthly" ? raw.kind : "other";
+  if (typeof raw.id !== "string" || typeof raw.label !== "string" || used === undefined) return undefined;
+  const resetsAt = finite(raw.resetsAt);
+  const windowMinutes = finite(raw.windowMinutes);
+  return { id: raw.id, kind, label: raw.label, usedPercent: used, ...(resetsAt ? { resetsAt } : {}), ...(windowMinutes ? { windowMinutes } : {}) };
+}
+
+/** Another kit's limits, kept to the agreed shape. */
+export function readLimitsAnswer(value: unknown): UsageLimitAccount[] | undefined {
+  const accounts = value && typeof value === "object" ? (value as { accounts?: unknown }).accounts : undefined;
+  if (!Array.isArray(accounts)) return undefined;
+  return accounts.flatMap((item): UsageLimitAccount[] => {
+    if (!item || typeof item !== "object") return [];
+    const raw = item as Record<string, unknown>;
+    const checkedAt = finite(raw.checkedAt);
+    if (typeof raw.id !== "string" || typeof raw.runtime !== "string" || typeof raw.label !== "string" || checkedAt === undefined) return [];
+    const unavailable = raw.unavailable && typeof raw.unavailable === "object" ? raw.unavailable as { reason?: unknown; message?: unknown } : undefined;
+    const why = unavailable?.reason === "unsupported" || unavailable?.reason === "failed" || unavailable?.reason === "signed-out" ? unavailable.reason : undefined;
+    return [{
+      id: raw.id,
+      runtime: raw.runtime,
+      label: raw.label,
+      ...(typeof raw.plan === "string" && raw.plan ? { plan: raw.plan } : {}),
+      checkedAt,
+      windows: Array.isArray(raw.windows) ? raw.windows.flatMap((window) => windowOf(window) ?? []) : [],
+      ...(why ? { unavailable: { reason: why, ...(typeof unavailable?.message === "string" ? { message: unavailable.message } : {}) } } : {}),
+    }];
+  });
 }
 
 function finite(value: unknown): number | undefined {
@@ -49,12 +121,14 @@ export function readBackendAnswer(value: unknown): BackendUsageAnswer | undefine
       const updatedAt = finite(thread.updatedAt);
       if (typeof thread.threadId !== "string" || typeof thread.cwd !== "string" || updatedAt === undefined) return [];
       const usage = usageOf(thread.usage);
+      const turns = turnsOf(thread.turns);
       return [{
         threadId: thread.threadId,
         cwd: thread.cwd,
         updatedAt,
         ...(typeof thread.model === "string" && thread.model ? { model: thread.model } : {}),
         ...(usage ? { usage } : {}),
+        ...(turns ? { turns } : {}),
       }];
     }),
   };
@@ -108,12 +182,64 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
 
       const stopObserving = await services.registerTurnObserver({ ended: () => { stale = true; } });
 
+      /** Core's prices for the rows; the runtimes' own when this core has none to give. */
+      const price = async (summary: UsageSummary): Promise<UsageSummary> => {
+        if (summary.rows.length === 0 || !services.priceUsage) return summary;
+        try {
+          const priced = await services.priceUsage(summary.rows.map((row) => ({
+            ...(row.provider ? { provider: row.provider } : {}),
+            model: row.modelId ?? row.model,
+            ...(row.billing ? { billing: row.billing } : {}),
+            inputTokens: row.inputTokens,
+            outputTokens: row.outputTokens,
+            cacheReadTokens: row.cacheReadTokens,
+            cacheWriteTokens: row.cacheWriteTokens,
+            totalTokens: row.totalTokens,
+            // The row was summed unpriced; a subscription's runtime figure sits in its value.
+            costUsd: row.costUsd + row.apiValueUsd,
+            turns: row.requests,
+          })));
+          return applyPrices(summary, priced.map((entry): RowPrice => ({ ...(entry.billing ? { billing: entry.billing } : {}), costUsd: entry.costUsd, apiValueUsd: entry.apiValueUsd, source: entry.source })));
+        } catch (error) {
+          services.log("usage.price-failed", reason(error));
+          return summary;
+        }
+      };
+
       // A cold cache over a long history may take longer than a command's timeout.
       context.registerCommand(USAGE_SUMMARY_COMMAND, async (input): Promise<UsageSummary> => {
         const request = input && typeof input === "object" ? input as { since?: unknown; refresh?: unknown } : {};
         const since = finite(request.since);
         const result = await current(request.refresh === true);
-        return summarize(result, since === undefined ? {} : { since });
+        return price(summarize(result, since === undefined ? {} : { since }));
+      }, { long: true });
+
+      const limitSources = options.limitSources ?? LIMIT_SOURCES;
+      let limits: UsageLimitsSummary | undefined;
+      let readingLimits: Promise<UsageLimitsSummary> | undefined;
+      const readLimits = async (refresh: boolean): Promise<UsageLimitsSummary> => {
+        const answers = await Promise.all(limitSources.map(async (source): Promise<{ source: LimitSource; accounts?: UsageLimitAccount[]; error?: string }> => {
+          try {
+            const accounts = readLimitsAnswer(await context.invokeHostExtension(source.extensionId, BACKEND_LIMITS_COMMAND, refresh ? { refresh } : {}));
+            return accounts ? { source, accounts } : { source, error: `${source.label} answered in a shape this kit does not read` };
+          } catch (error) {
+            return { source, error: reason(error) };
+          }
+        }));
+        const reports = answers.map(({ source, accounts, error }): UsageLimitSourceReport => {
+          const base = { extensionId: source.extensionId, label: source.label };
+          if (!accounts) return { ...base, status: "unavailable", detail: `Not available: ${error ?? "no answer"}.` };
+          if (accounts.length === 0) return { ...base, status: "empty", detail: source.extensionId === "tau.pi-limits" ? "No subscription provider has reported limits yet; they come with its next answer." : "No account reports limits." };
+          const windows = accounts.reduce((sum, account) => sum + account.windows.length, 0);
+          return { ...base, status: "ok", detail: `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}, ${windows} ${windows === 1 ? "window" : "windows"}.` };
+        });
+        return { checkedAt: now(), accounts: answers.flatMap((answer) => answer.accounts ?? []), sources: reports };
+      };
+      context.registerCommand(USAGE_LIMITS_COMMAND, async (input): Promise<UsageLimitsSummary> => {
+        const refresh = Boolean(input && typeof input === "object" && (input as { refresh?: unknown }).refresh);
+        if (!refresh && limits && now() - limits.checkedAt < LIMITS_MAX_AGE_MS) return limits;
+        readingLimits ??= readLimits(refresh).then((next) => { limits = next; return next; }).finally(() => { readingLimits = undefined; });
+        return readingLimits;
       }, { long: true });
 
       return () => { stopObserving(); };

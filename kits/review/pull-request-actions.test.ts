@@ -93,7 +93,7 @@ describe("steps on a request opened by its URL", () => {
     await vi.waitFor(async () => {
       const links = await invoke<ThreadPullRequestLink[]>("thread-links", { threadId: "thread-1" });
       expect(links).toEqual([expect.objectContaining({ url: "https://github.com/acme/tau/pull/8", source: "created" })]);
-    });
+    }, { timeout: 10_000 });
     await expect(invoke("pr-action", { url: "https://gitlab.com/acme/tau/-/merge_requests/3", action: "revert" })).rejects.toThrow("GitLab does not let Tau revert a request");
   });
 

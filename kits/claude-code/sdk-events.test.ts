@@ -58,6 +58,7 @@ describe("SdkTurnTranslator", () => {
       texts: ["Looking.", "Done."],
       // Per-model totals cover sub-agents and compaction too; the SDK's own cost estimate wins.
       usage: { inputTokens: 1200, outputTokens: 300, cacheReadTokens: 30000, cacheWriteTokens: 900, totalTokens: 32400, costUsd: 0.25, turns: 1 },
+      tallies: [{ provider: "anthropic", model: "claude-opus-5", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 30000, cacheWriteTokens: 900, totalTokens: 32400, costUsd: 0.25, turns: 1 }],
       // The context window holds what the main loop's last call read.
       contextUsage: { tokens: 16500, contextWindow: 200000, percent: 8.3 },
     });
@@ -141,5 +142,22 @@ describe("SdkTurnTranslator", () => {
       { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, totalTokens: 10, costUsd: 0.5, turns: 1 },
       { inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40, totalTokens: 100, costUsd: 0.25, turns: 1 },
     )).toEqual({ inputTokens: 11, outputTokens: 22, cacheReadTokens: 33, cacheWriteTokens: 44, totalTokens: 110, costUsd: 0.75, turns: 2 });
+  });
+
+  it("splits a turn over the models it called, the SDK's cost spread by their share, and keeps the plan's windows it saw", () => {
+    const { translator } = run([
+      init("claude-sonnet-5"),
+      frame({ type: "rate_limit_event", rate_limit_info: { status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.81, resetsAt: 1_790_000_000 } }),
+      success({
+        total_cost_usd: 0.3,
+        modelUsage: {
+          "claude-haiku-4-5": { inputTokens: 100, outputTokens: 10, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0.05, contextWindow: 200000 },
+          "claude-sonnet-5": { inputTokens: 1000, outputTokens: 100, cacheReadInputTokens: 500, cacheCreationInputTokens: 0, costUSD: 0.1, contextWindow: 200000 },
+        },
+      }),
+    ]);
+    const tallies = translator.outcome?.tallies ?? [];
+    expect(tallies.map((tally) => [tally.model, tally.turns, Math.round(tally.costUsd * 100)])).toEqual([["claude-haiku-4-5", 0, 10], ["claude-sonnet-5", 1, 20]]);
+    expect(translator.facts.rateLimits).toEqual([{ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.81, resetsAt: 1_790_000_000 }]);
   });
 });

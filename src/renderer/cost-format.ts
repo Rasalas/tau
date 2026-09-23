@@ -1,4 +1,4 @@
-import type { UiThreadUsage } from "../shared/contracts";
+import type { UiSubscriptionUsage, UiThreadUsage } from "../shared/contracts";
 
 /** Tokens as the composer shows them: 842, 12.3k, 1.4M. */
 export function formatTokens(tokens: number): string {
@@ -18,16 +18,32 @@ export function formatCost(costUsd: number): string | undefined {
   return `$${costUsd.toFixed(2)}`;
 }
 
-/** What a thread has spent, or what it used when nothing priced it. */
+/** Tokens a thread ran on a subscription, or undefined when none did. */
+export function planUsage(usage: UiThreadUsage): UiSubscriptionUsage | undefined {
+  const plan = usage.subscription;
+  return plan && (plan.totalTokens > 0 || plan.turns > 0) ? plan : undefined;
+}
+
+/**
+ * What a thread has spent, or what it used when nothing priced it. A
+ * subscription's share is never added to the money: it reads "plan", with
+ * what the API would have charged for it.
+ */
 export function threadCostLabel(usage: UiThreadUsage | undefined): string | undefined {
   if (!usage) return undefined;
   const cost = formatCost(usage.costUsd);
+  const plan = planUsage(usage);
+  if (cost && plan) return `${cost} + plan`;
   if (cost) return cost;
+  if (plan) {
+    const value = formatCost(plan.apiValueUsd);
+    return value ? `plan ≈${value}` : "plan";
+  }
   return usage.totalTokens > 0 ? `${formatTokens(usage.totalTokens)} tok` : undefined;
 }
 
 /** The expanded form: "12.3k in · 2.1k out · 8.0k cache read · 3 turns". */
-export function threadUsageDetail(usage: UiThreadUsage): string {
+export function threadUsageDetail(usage: Pick<UiThreadUsage, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "turns">): string {
   const parts = [`${formatTokens(usage.inputTokens)} in`, `${formatTokens(usage.outputTokens)} out`];
   if (usage.cacheReadTokens > 0) parts.push(`${formatTokens(usage.cacheReadTokens)} cache read`);
   if (usage.cacheWriteTokens > 0) parts.push(`${formatTokens(usage.cacheWriteTokens)} cache write`);

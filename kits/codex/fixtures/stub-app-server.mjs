@@ -136,6 +136,8 @@ async function handle(message) {
     case "account/logout":
       signOut();
       return send({ id, result: {} });
+    // Shaped like codex-cli 0.156's `GetAccountRateLimitsResponse`; the params are logged for the test.
+    case "account/rateLimits/read": return send({ id, result: JSON.parse(readFileSync(new URL("./rate-limits-read.json", import.meta.url), "utf8")) });
     case "model/list": return send({ id, result: { data: fixture.models, nextCursor: null } });
     case "thread/start": {
       const thread = `thread-${process.pid}-${threads.size + 1}`;

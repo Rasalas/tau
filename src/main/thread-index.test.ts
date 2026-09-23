@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { threadUsageFrom } from "./usage-pricing.js";
 import type { HostEvent, UiSession } from "../shared/contracts.js";
 import type { HostUpdate } from "../shared/host-protocol.js";
 import { HostThreadLifecycleSet } from "./host-extensions.js";
@@ -51,6 +52,7 @@ function makeIndex(options: {
     threadLifecycle: options.threadLifecycle ?? new HostThreadLifecycleSet(),
     backends: () => new Map(),
     liveThreads: () => options.live ?? [],
+    priceUsage: (tallies) => threadUsageFrom(tallies, { overrides: () => undefined, apiPrice: () => undefined, subscription: () => false }),
     hostThread: (thread) => ({ sessionId: thread.threadId }) as never,
     emit: (event) => { events.push(event); },
     emitUpdate: (update) => { updates.push(update); },

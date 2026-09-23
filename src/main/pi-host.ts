@@ -169,6 +169,7 @@ export class PiHost {
   private completionModelsPending = false;
   private readonly runtimeVersions: RuntimeVersions;
   private readonly catalogs: PiHostComponents["catalogs"];
+  private readonly pricing: PiHostComponents["pricing"];
   private readonly lifecycleMetrics: HostLifecycleInstrumentation;
   /** Everything host extensions contribute; only the seam writes those registries. */
   private readonly seam: HostExtensionSeam;
@@ -344,7 +345,7 @@ export class PiHost {
     this.prompts = components.prompts;
     this.turns = components.turns;
     this.turnsInFlight = components.turnsInFlight;
-    ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs } = components);
+    ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs, pricing: this.pricing } = components);
     this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
@@ -2169,6 +2170,8 @@ export class PiHost {
   runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined> { return this.catalogs.get(kind); }
   /** Every runtime's the client does not hold (`known`); `revalidate` asks again behind the answer those some minutes old. */
   runtimeCatalogs(revalidate = false, known?: Record<string, number>): Promise<UiRuntimeCatalog[]> { return this.catalogs.list(revalidate, known); }
+  /** The user edited `modelPrices`; totals already published are worked out again. */
+  modelPricesChanged(): void { this.pricing.reloadPrices(); }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {
     return loadModelsConfig(this.agentDir);

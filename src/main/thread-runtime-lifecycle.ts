@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import type { UsageTally } from "./usage-pricing.js";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -9,7 +10,7 @@ import {
   type CreateAgentSessionRuntimeFactory,
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
-import type { ThreadBackendKind, UiMessage, UiSession } from "../shared/contracts.js";
+import type { ThreadBackendKind, UiMessage, UiSession, UiThreadUsage } from "../shared/contracts.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type {
@@ -78,6 +79,8 @@ export interface ThreadRuntimeLifecyclePort {
   emitRuntimeEvent(threadId: string, event: ThreadRuntimeEvent): void;
   logRuntimePhase(phase: string, startedAt: number, reason: string, cwd: string): void;
   log(label: string, detail?: string): void;
+  /** A thread's tallies priced as the host prices every thread. */
+  priceUsage(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
   errorMessage(error: unknown): string;
   /** Why a thread's runtime could not start, or undefined once it did. */
   runtimeUnavailable(threadId: string, reason: string | undefined): void;
@@ -211,6 +214,7 @@ export class ThreadRuntimeLifecycle {
         }
       },
       onEvent: (event) => this.port.emitRuntimeEvent(threadId, event),
+      priceUsage: (tallies) => this.port.priceUsage(tallies),
       ask: (prompt) => this.port.extensionUi.ask(
         { ...prompt, id: `backend-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, sessionId: threadId },
         this.port.currentRuntime(threadId),
@@ -266,6 +270,7 @@ export class ThreadRuntimeLifecycle {
             .filter((message): message is UiMessage => Boolean(message?.text || message?.skill));
         },
         modes: () => this.port.runtimeModes(),
+        priceUsage: (tallies) => this.port.priceUsage(tallies),
       });
       marks.mark("create-runtime");
       thread = new ThreadRuntime(backend, createdRuntime);

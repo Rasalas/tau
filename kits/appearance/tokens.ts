@@ -50,7 +50,7 @@ export const TOKEN_GROUPS: ReadonlyArray<{ id: string; title: string; tokens: Re
     tokens: [
       ["--working", "a run in flight"], ["--ready", "a run that finished"], ["--removed", "something taken away"], ["--stop", "the abort control"],
       ["--cyan", "numbers and types"], ["--danger", "destructive text"], ["--warn", "a caution"], ["--fail", "a failed run's mark"],
-      ["--info", "a step in progress"], ["--done", "a step that finished"],
+      ["--info", "a step in progress"], ["--done", "a step that finished"], ["--merged", "a merged request"],
     ],
   },
   {

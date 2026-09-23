@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarize, type UsageScan } from "./aggregate.js";
+import { applyPrices, summarize, type UsageScan } from "./aggregate.js";
 import type { PiSessionUsage, PiUsageRecord } from "./pi-sessions.js";
 import { BACKEND_USAGE_SOURCES } from "./protocol.js";
 
@@ -99,5 +99,36 @@ describe("summarize", () => {
       ["empty", "No Pi session directory at /sessions."],
       ["empty", "No Claude Code threads yet."],
     ]);
+  });
+
+  it("dates a backend's turns one by one, keeps a plan's turns in rows of their own, and never adds their value to the money", () => {
+    const turn = (at: number, billing: "subscription" | "api-key" | undefined, model = "gpt-5.6-luna", costUsd = 0) => ({
+      at, provider: "openai", model, ...(billing ? { billing } : {}), inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 110, costUsd, turns: 1,
+    });
+    const codex = { extensionId: "tau.codex", backend: "codex", label: "Codex" };
+    const summary = summarize(scan({
+      pi: { found: true, failed: 0, sessions: [] },
+      backends: [{ source: codex, answer: { threads: [
+        { threadId: "x", cwd: "/work/alpha", updatedAt: NOW, turns: [turn(NOW - 10 * DAY, "subscription"), turn(NOW - 1_000, "subscription", "gpt-5.6-luna", 0.3), turn(NOW - 500, "api-key", "o4-mini", 0.5)] },
+        { threadId: "old", cwd: "/work/alpha", updatedAt: NOW - 1_000, usage: { inputTokens: 5, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 6, costUsd: 0, turns: 2 } },
+      ] } }],
+    }), { since: NOW - DAY });
+    expect(summary.rows.map((row) => [row.model, row.billing ?? "unknown", row.requests, row.costUsd, row.apiValueUsd]).sort()).toEqual([
+      ["default model", "unknown", 2, 0, 0],
+      ["gpt-5.6-luna", "subscription", 1, 0, 0.3],
+      ["o4-mini", "api-key", 1, 0.5, 0],
+    ]);
+    expect(summary.totals).toMatchObject({ costUsd: 0.5, requests: 4, threads: 2, subscription: { totalTokens: 110, requests: 1, apiValueUsd: 0.3 } });
+    expect(summary.sources[1]).toMatchObject({ dating: "turn", detail: expect.stringContaining("1 older thread from before turns were kept is dated by its last activity") });
+  });
+
+  it("takes core's prices for its rows in place of the runtimes' own", () => {
+    const summary = summarize(scan());
+    const priced = applyPrices(summary, summary.rows.map((row) => row.backend === "pi" && row.model.startsWith("openai/")
+      ? { billing: "subscription" as const, costUsd: 0, apiValueUsd: 2, source: "api" as const }
+      : { costUsd: 1, apiValueUsd: 0, source: "custom" as const }));
+    expect(priced.rows[0]).toMatchObject({ model: "openai/gpt-5.6-luna", billing: "subscription", apiValueUsd: 2, priceSource: "api" });
+    expect(priced.totals.costUsd).toBe(priced.rows.length - 1);
+    expect(priced.totals.subscription.apiValueUsd).toBe(2);
   });
 });

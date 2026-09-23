@@ -652,6 +652,55 @@ commands that matched only by their group. An empty query lists the commands
 alone. Search Kit (`kits/search/`) is the shipped caller: threads by title and
 by what was said in them, and projects.
 
+#### Levels under a row (new in API 1.12.0)
+
+A command or a row may open a level of the palette instead of running: give
+it a `submenu`, a `PaletteMenu` with a `title`, an optional `placeholder` and
+`empty` line, and `items(query, context)`:
+
+```ts
+plugin.registerCommand({
+  id: "example.pick-issue",
+  label: "Link issue…",
+  group: "Project",
+  submenu: {
+    title: "Link issue",
+    placeholder: "Search open issues…",
+    items: async (query, { actions, signal }) => (await openIssues({ signal })).map((issue) => ({
+      id: issue.id,
+      label: issue.title,
+      detail: `#${issue.number}`,
+      keywords: [String(issue.number)],
+      run: () => linkIssue(issue),
+    })),
+  },
+  // What a chord or another surface does; here, the palette on the level.
+  run: (actions) => actions.openCommandPalette({ menu: "example.pick-issue" }),
+});
+```
+
+The level has its own search field: the palette asks `items` when the level
+opens and again per keystroke, with the context and the signal rules of a
+source, and hands it the query as typed, case and all (a path or a URL). It
+keeps the rows whose label, `detail` or `keywords` hold every word of the
+query, the label's matches first; `searches: true` says the answer already is
+the search and is shown as it comes. A row with its own `submenu` opens the
+next level — a folder in a folder browser, say — so levels nest as deep as
+the data does. The breadcrumb above the field names them and goes back to any;
+the back button and Backspace in an empty field go back one, and the level
+below gets its query back. A row may carry an `icon` (a node; name it with
+`aria-label` when it means something, as a runtime drawn only as its logo) and
+`current: true`, which the row shows as "Current". An `items` that throws
+shows its message in place of the rows. `run` on a row is optional when it has
+a `submenu`; on a command it stays what a chord or a `surfaces` entry does,
+and `actions.openCommandPalette({ menu: id })` opens the palette on the
+command's level. Core's levels are Set model… (every runtime's models,
+through `actions.runtimeModels()`), Change theme… and New thread on…
+(`actions.startThreadOn(runtime, model?)`); Workspace Kit's Add project…
+browses the host's folders level by level and opens the clone form with
+`actions.openProjectSources("workspace.git-clone")`; Review Kit's Link pull
+request… lists the project's open requests.
+
 #### Which clients draw it
 
 Every contribution the workbench draws — panels, settings pages, stage tabs,
@@ -959,7 +1008,18 @@ opens a shell in a tab of its own, shows the Terminal panel, types the command
 with `; exit` after it and answers `{ id, exitCode? }` once the shell ended —
 the command's status, or no `exitCode` when the shell was closed first. The
 click that asked for it is the consent; the output stays in the panel to read.
-Thread Rail publishes
+Computer Use publishes
+`tau.computer-use/screen`: the window each thread's agent drives, from the
+driver's own screenshots and calls. `state(threadId)` and `load(threadId)`
+answer a `ScreenState` — the window (`pid`, `windowId`, app, title), the latest
+frame's size and number, the recent inputs with their place in that frame's
+pixels, and whether the driver can raise the window — and `subscribe` hears
+every change; `frame(threadId, seq?)` fetches the picture itself (base64; the
+host keeps the last three per thread), `bringToFront`, `icon`, `access` (the
+Screen Recording status, read without asking) and `openAccessSettings` do what
+they say, and `live(threadId, onFrame, ended?)` records that one window a few
+frames a second where the system already allows it. Preview Kit's Screen view
+draws it; the types are in `kits/computer-use/protocol.ts`. Thread Rail publishes
 `tau.thread-rail/siblings`: `siblingsOf(threadId)` answers the threads started
 together from one prompt on several models (the thread itself included, or
 `[]`), and the Agents panel lists them beside a thread's agents. `actions.attachFiles(files, { sessionId? })` (new in API 1.11.0) hands `File`s to the composer the way a drop on the thread does, with the same limits; named for a thread, they wait until that thread's composer is mounted — open it with `switchSession` first — and are dropped if it has not come in ten seconds. Workspace Kit's rail uses it for files dropped on a row. `actions.copyText(text)` puts text on the user's clipboard and `actions.openExternal(url)` opens a URL in whatever the client calls a browser; both go through the client's `Platform`, so on a host across the network they still mean *this* machine.
@@ -1040,9 +1100,26 @@ command, input)`, and only for a command the target registered with
 runtime backend that keeps its own per-thread totals answers a `usage` command
 granted to `tau.usage` with `{ threads: [{ threadId, cwd, model?, updatedAt, usage? }] }`,
 `usage` being a `UiThreadUsage`, read from the kit's own store and never from the
-provider. Claude Code, Antigravity and Codex answer it; a backend that adds it also adds
-its row to `BACKEND_USAGE_SOURCES` in `kits/usage/protocol.ts`, and one that does
-not answer is listed as not available.
+provider. Since API 1.12.0 a thread also names its `turns`: one `UsageTurn` per turn
+(`at`, `provider?`, `model?`, `billing?`, the token counts, the runtime's own
+`costUsd` and the `turns` it sums), so the Usage page dates every turn on its own
+and keeps a plan's turns apart from billed ones; a thread from before its kit kept
+turns has only `usage` and is dated by its last activity. Claude Code, Antigravity and
+Codex answer it; a backend that adds it also adds its row to `BACKEND_USAGE_SOURCES`
+in `kits/usage/protocol.ts`, and one that does not answer is listed as not available.
+
+A kit whose runtime's login reports quota windows answers `usage-limits`, granted to
+`tau.usage`, with `{ accounts: [{ id, runtime, label, plan?, checkedAt, windows:
+[{ id, kind, label, usedPercent, resetsAt?, windowMinutes? }], unavailable? }] }`
+(`resetsAt` in epoch ms, `unavailable.reason` one of `unsupported`, `failed`,
+`signed-out`). The input may say `{ refresh: true }`. The command may read the account,
+never change it. Codex reads `account/rateLimits/read` through a short-lived
+app-server and merges `account/rateLimits/updated` from its turns; the Agent SDK
+runtime reads the SDK's usage call through its probe and merges each turn's
+`rate_limit_event`; Pi Limits (`kits/pi-limits/`) keeps what Pi's subscription
+providers send in their response headers. Both backends read at most every five
+minutes unless asked to refresh. A kit that adds limits adds its row to
+`LIMIT_SOURCES` in `kits/usage/protocol.ts`.
 
 Onboarding (`kits/onboarding/`) asks the backend kits the same way, for the
 conversations their CLIs ran outside Tau. A backend that can import them
@@ -1058,6 +1135,30 @@ row to `SESSION_SOURCES` in `kits/onboarding/protocol.ts`. Each reads its CLI's
 own home unless `TAU_IMPORT_ROOTS` names fixture homes — directories laid out
 as `<root>/<backend kind>/…`, like the CLI's own — and then reads nothing else;
 tests and dev instances use it so they never scan the user's history.
+
+Search Kit asks the backend kits for what their threads said, so the palette
+finds a thread nobody has open by its text and not only by its title. A
+backend that keeps its transcripts in its own store registers
+`THREAD_TEXTS_COMMAND` (`thread-texts`) granted to `tau.search`, and
+`threadTextsDelta(records, input)` from `tau/host-extension` (new in API
+1.12.0) answers it from the store's records (`{ tauThreadId, updatedAt,
+messages: [{ role, text }] }`):
+
+```ts
+context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: ["tau.search"] });
+```
+
+The input names what the caller holds, `{ known: { [threadId]: updatedAt },
+limit }`; the answer is `{ threads: [{ threadId, updatedAt, messages }],
+removed, more }` — new and newer threads newest first, `limit` of them (25 by
+default), the known ids the store no longer has, and whether more are left.
+Only user and assistant text travels, the first 64,000 characters of a
+thread (`THREAD_TEXT_CHARS`). Codex, the Agent SDK runtime, Antigravity and
+OpenCode answer it; a backend that adds it adds its id to
+`THREAD_TEXT_SOURCES` in `kits/search/protocol.ts`. Search Kit asks at most
+every five seconds, four pages per backend at a time, and past four million
+characters forgets the oldest threads' text but keeps their `updatedAt`, so it
+does not ask for them again until they change.
 
 `registerPromptHook` has two halves now. `afterPrompt(event, actions)` is the
 old one and is optional; `beforeNewThread(event, actions)` runs *before* a
@@ -1346,6 +1447,35 @@ its login; both answer `not-installed` without their CLI, and
 `sign-in-required` without an account: Codex from `account/read`, the Agent
 SDK runtime from its CLI's `auth status --json` (the probe lists models even
 signed out, so it is not asked then).
+
+#### What a thread cost (new in API 1.12.0)
+
+`UiThreadUsage.costUsd` is money billed per token and nothing else. What a
+subscription covered is `subscription`: its tokens and turns (also counted in
+the fields above) and `apiValueUsd`, what the same tokens would have cost over
+the provider's API. A client never adds the two; the composer shows
+`$0.12 + plan`, and its popover a "Spent" and a "Subscription … would have
+cost ≈ $X via the API" part.
+
+Core prices every thread the same way, from `UsageTally` entries — tokens of
+one `provider` and `model`, with the `billing` the runtime knew and its own
+`costUsd`. The user's price (`modelPrices` in Tau's config) wins; then the
+runtime's own price; then, for a subscription or an API key, the provider's
+API price from Pi's model data. A Pi tally names no billing; core asks Pi
+whether the provider is reached through a subscription login. A runtime
+backend keeps its turns as tallies and asks `context.priceUsage(tallies)` on
+the `open` context for its `catalogView().usage`, on every read, since prices
+can change under a thread; Codex, the Agent SDK runtime and Antigravity do.
+A host half that sums usage of its own asks `services.priceUsage(tallies)`
+(async, also on a worker) and gets one `PricedUsage` per tally: `billing`,
+`costUsd`, `apiValueUsd` and the price's `source` (`custom`, `runtime`,
+`api`, `none`). `mergeTallies`, `appendUsageTurn`, `legacyUsageTurn`,
+`readUsageTurns` and `unpricedUsage` on `tau/host-extension` are the helpers
+the backend kits share. `modelPrices` maps `provider/id`, or a bare model id
+for every provider, to `{ input, output, cacheRead?, cacheWrite? }` in USD
+per million tokens (a missing cache rate is the input rate); it is a record
+of the config levels, so `modelPrices.<key>` names one entry. The model
+picker shows and sorts by it too.
 
 #### Versions a backend works with (new in API 1.11.0)
 
@@ -2297,6 +2427,7 @@ reach 3:1. A theme is not held to that automatically, so check your own values.
 | `--info` | a step in progress | `#3457d5` | `#4d7cff` |
 | `--info-deep` | a step already done, in a dense bar | `#2745ad` | `#426fe1` |
 | `--info-ink` | the same, as text | `#2b4bbf` | `#79acf0` |
+| `--merged` | a merged pull or merge request | `#7446c2` | `#b59cf2` |
 | `--done` | a step that finished | `#0d7f5f` | `#13c99a` |
 | `--stale` | how long ago something ran | `#8a5a3f` | `#c9a18b` |
 | `--folder` | a directory | `#6f6118` | `#a59d68` |

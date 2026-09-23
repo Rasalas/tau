@@ -121,6 +121,9 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     const stored = await space.store.get("tau-1");
     expect(stored?.codexThreadId).toMatch(/^thread-/u);
     expect(stored?.usage?.turns).toBe(1);
+    // Each turn is kept on its own, dated, with the model and the login's billing.
+    expect(stored?.usageTurns).toEqual([expect.objectContaining({ provider: "openai", model: "gpt-5.6-luna", billing: "subscription", turns: 1, costUsd: 0, totalTokens: view.usage!.totalTokens })]);
+    expect(stored?.usageTurns?.[0]?.at).toEqual(expect.any(Number));
     // Tau's access level travels with every turn; full access runs without a sandbox.
     const turn = (await sent(space)).find((message) => message.method === "turn/start");
     expect(turn?.params).toMatchObject({ approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } });
@@ -227,6 +230,7 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect(resumes.map((message) => message.params?.threadId)).toEqual([codexThreadId]);
     expect(second.events.some((event) => event.type === "notice")).toBe(false);
     expect(second.backend.catalogView().usage?.turns).toBe(2);
+    expect((await space.store.get("tau-1"))?.usageTurns).toHaveLength(2);
   });
 
   it("keeps a turn's tool cards for the next open, anchored to a message the transcript shows again", async () => {

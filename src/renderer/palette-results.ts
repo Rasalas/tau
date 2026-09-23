@@ -63,3 +63,28 @@ export function paletteRows(
   });
   return [...strong, ...found, ...weak];
 }
+
+/** 3: the label starts with the query, 2: it holds it, 1: every word is somewhere in the row, 0: not. */
+export function scoreMenuItem(item: PaletteItem, needle: string): number {
+  if (!needle) return 1;
+  const label = item.label.toLowerCase();
+  const index = label.indexOf(needle);
+  if (index === 0) return 3;
+  if (index > 0) return 2;
+  const haystack = [label, item.detail ?? "", ...(item.keywords ?? [])].join(" ").toLowerCase();
+  return needle.split(/\s+/u).every((word) => haystack.includes(word)) ? 1 : 0;
+}
+
+/** A menu level's rows: its own order when it searched itself or nothing is typed, else the matches, best first. */
+export function menuRows(items: readonly PaletteItem[], needle: string, searches = false): PaletteRow[] {
+  const seen = new Set<string>();
+  const unique = items.filter((item) => !seen.has(item.id) && Boolean(seen.add(item.id)));
+  const kept = searches || !needle
+    ? unique
+    : unique
+      .map((item, index) => ({ item, index, rank: scoreMenuItem(item, needle) }))
+      .filter((entry) => entry.rank > 0)
+      .sort((left, right) => right.rank - left.rank || left.index - right.index)
+      .map((entry) => entry.item);
+  return kept.map((item) => ({ kind: "item", key: `menu:${item.id}`, item, source: "" }));
+}

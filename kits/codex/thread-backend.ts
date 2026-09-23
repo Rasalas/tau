@@ -23,8 +23,15 @@ import {
   type UiMessage,
   type UiModel,
   type UiPromptAttachment,
+  type UiModelBilling,
   type UiSkillDraft,
   type UiThreadUsage,
+  type UsageTally,
+  type UsageTurn,
+  appendUsageTurn,
+  legacyUsageTurn,
+  mergeTallies,
+  unpricedUsage,
 } from "tau/host-extension";
 import { MISSING_THREAD, type CodexAccount, type CodexCollaborationMode, type CodexLoginRequest, type CodexLoginStart, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
 import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
@@ -42,6 +49,8 @@ export interface CodexSessionLike {
   /** Where the CLI keeps its sessions and login, from the handshake. */
   readonly codexHome?: string;
   account?(): Promise<CodexAccount | undefined>;
+  /** `account/rateLimits/read`; see `limits.ts`. */
+  rateLimits?(): Promise<unknown>;
   loginStart?(request: CodexLoginRequest): Promise<CodexLoginStart>;
   loginCancel?(loginId: string): Promise<void>;
   logout?(): Promise<void>;
@@ -89,6 +98,24 @@ export interface CodexThreadBackendOptions {
   tools?: readonly string[];
   now?(): number;
   timeouts?: { interruptMs?: number };
+  /** Prices the thread's turns the way core prices every thread (API 1.12.0). */
+  priceUsage?(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
+  /** A turn reported the account's quota windows (`account/rateLimits/updated`). */
+  onRateLimits?(snapshot: unknown): void;
+}
+
+/** A ChatGPT login is the subscription; an API key is billed per token. */
+export function codexBilling(account: CodexAccount | undefined): UiModelBilling | undefined {
+  if (account?.type === "chatgpt") return "subscription";
+  return account?.type === "apiKey" ? "api-key" : undefined;
+}
+
+const TOKEN_FIELDS = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens"] as const;
+
+/** Tokens between two running totals; a total that went down started over, so all of it counts. */
+export function usageSince(before: UiThreadUsage | undefined, after: UiThreadUsage): Pick<UiThreadUsage, (typeof TOKEN_FIELDS)[number]> {
+  const restarted = !before || TOKEN_FIELDS.some((field) => after[field] < before[field]);
+  return Object.fromEntries(TOKEN_FIELDS.map((field) => [field, restarted ? after[field] : after[field] - before[field]])) as Pick<UiThreadUsage, (typeof TOKEN_FIELDS)[number]>;
 }
 
 interface Turn {
@@ -175,6 +202,12 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private title?: string;
   private titleSource?: ThreadTitleSource;
   private usage: UiThreadUsage = emptyUsage();
+  /** Each finished turn's tokens; the running total above is Codex's own. */
+  private usageTurns: UsageTurn[] = [];
+  /** The running total when the current turn started. */
+  private turnBaseline?: UiThreadUsage;
+  /** How the account pays, as the session's login says. */
+  private billing?: UiModelBilling;
   /** The last `account/rateLimits/updated`, for when a usage limit stops a turn. */
   private rateLimits: unknown;
   private context?: UiContextUsage;
@@ -237,6 +270,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.title = record.title;
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
+    this.usageTurns = record.usageTurns?.map((turn) => ({ ...turn }))
+      ?? (record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: MODEL_PROVIDER, ...(record.model ?? record.observedModel ? { model: record.model ?? record.observedModel } : {}) })] : []);
     this.chosenModel = record.model;
     this.chosenEffort = record.effort;
     this.mode = record.mode ?? DEFAULT_MODE;
@@ -284,8 +319,33 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       thinkingLevel: this.chosenEffort ?? fallback,
       thinkingLevels: [fallback, ...(info?.efforts ?? [])],
       allTools: [],
-      ...(this.usage.turns > 0 ? { usage: { ...this.usage } } : {}),
+      ...(this.threadUsage() ? { usage: this.threadUsage()! } : {}),
       ...(this.context ? { contextUsage: { ...this.context } } : {}),
+    };
+  }
+
+  /** The finished turns and the one running, per model and billing. */
+  private usageTallies(): UsageTally[] {
+    const running = this.turns[0] && this.turnBaseline ? this.turnTally(this.now()) : undefined;
+    return mergeTallies(running ? [...this.usageTurns, { ...running, turns: 0 }] : this.usageTurns);
+  }
+
+  private threadUsage(): UiThreadUsage | undefined {
+    const tallies = this.usageTallies();
+    return this.options.priceUsage ? this.options.priceUsage(tallies) : unpricedUsage(tallies);
+  }
+
+  /** The current turn's tokens so far; Codex names no price. */
+  private turnTally(at: number): UsageTurn {
+    const model = this.currentModelId();
+    return {
+      provider: MODEL_PROVIDER,
+      ...(model ? { model } : {}),
+      ...(this.billing ? { billing: this.billing } : {}),
+      ...usageSince(this.turnBaseline, this.usage),
+      costUsd: 0,
+      turns: 1,
+      at,
     };
   }
 
@@ -400,6 +460,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       }
       const level = this.permissionLevel();
       const mode = this.collaborationMode();
+      this.turnBaseline = { ...this.usage };
       const id = await live.startTurn({
         threadId: this.codexThreadId!,
         input: turn.input,
@@ -414,12 +475,24 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       const outcome = turn.translator.outcome;
       if (outcome?.status === "failed") this.report({ type: "notice", message: `Codex stopped: ${outcome.error ?? "the turn failed."}`, level: "error" });
       this.usage = { ...this.usage, turns: this.usage.turns + 1 };
-      await this.store.recordUsage(this.threadId, this.cwd, this.usage);
+      const finished = this.turnTally(this.now());
+      this.turnBaseline = undefined;
+      this.usageTurns = appendUsageTurn(this.usageTurns, finished);
+      await this.store.recordUsage(this.threadId, this.cwd, this.usage, finished);
       const limit = outcome?.usageLimit ? codexLimitReset(this.rateLimits, this.now()) : undefined;
       this.settle(turn, outcome?.status === "interrupted" ? "interrupted" : outcome?.status === "failed" ? "error" : "completed", outcome?.error,
         outcome?.usageLimit ? { ...(limit ? { resetsAt: limit } : {}) } : undefined);
       return outcome?.texts.length ? { assistantText: outcome.texts.join("\n\n") } : {};
     } catch (error) {
+      if (this.turnBaseline) {
+        // A failed turn still used what it used.
+        const partial = this.turnTally(this.now());
+        this.turnBaseline = undefined;
+        if (partial.totalTokens > 0) {
+          this.usageTurns = appendUsageTurn(this.usageTurns, partial);
+          await this.store.recordUsage(this.threadId, this.cwd, this.usage, partial).catch(() => undefined);
+        }
+      }
       if (!turn.status) {
         const message = error instanceof Error ? error.message : String(error);
         this.report({ type: "notice", message: `Codex reported an error: ${message}`, level: "error" });
@@ -511,6 +584,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         this.observedModel = info.model;
         await this.store.setObservedModel(this.threadId, this.cwd, info.model);
       }
+      this.billing = codexBilling(await session.account?.().catch(() => undefined)) ?? this.billing;
       const models = (await session.models().catch(() => [])).map(storedModel);
       if (models.length > 0) {
         this.modelList = models;
@@ -537,6 +611,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
     if (method === "account/rateLimits/updated") {
       this.rateLimits = params.rateLimits;
+      this.options.onRateLimits?.(params.rateLimits);
       return;
     }
     if (method === "error") {

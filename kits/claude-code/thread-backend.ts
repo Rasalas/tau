@@ -22,8 +22,15 @@ import {
   type UiMessage,
   type UiModel,
   type UiPromptAttachment,
+  type UiModelBilling,
   type UiSkillDraft,
   type UiThreadUsage,
+  type UsageTally,
+  type UsageTurn,
+  appendUsageTurn,
+  legacyUsageTurn,
+  mergeTallies,
+  unpricedUsage,
 } from "tau/host-extension";
 import {
   askUserQuestionAnswer,
@@ -37,7 +44,7 @@ import {
   resumeDialogPrompt,
   resumeDialogResult,
 } from "./approvals.js";
-import { EFFORT_LEVELS, uiModel, versionedModelName, type EffortLevel } from "./probe.js";
+import { EFFORT_LEVELS, apiKeyBilling, probeBilling, uiModel, versionedModelName, type EffortLevel } from "./probe.js";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
@@ -101,6 +108,12 @@ export interface ClaudeThreadBackendOptions {
   now?(): number;
   /** How long an interrupt may take before the session is closed instead. */
   interruptGraceMs?: number;
+  /** Prices the thread's turns the way core prices every thread (API 1.12.0). */
+  priceUsage?(tallies: readonly UsageTally[]): UiThreadUsage | undefined;
+  /** How the instance's login pays, as its last probe found; the live session's own word wins. */
+  billing?(): UiModelBilling | undefined;
+  /** A turn carried the plan's windows (`rate_limit_event`). */
+  onRateLimits?(infos: ReadonlyArray<Record<string, unknown>>): void;
 }
 
 interface LiveSession {
@@ -141,6 +154,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private title?: string;
   private titleSource?: ThreadTitleSource;
   private usage: UiThreadUsage = SdkTurnTranslator.emptyUsage();
+  /** Each finished turn's tokens per model; `usage` is their running total. */
+  private usageTurns: UsageTurn[] = [];
+  /** Turns settled but not written yet; `persistUsage` writes them with the total. */
+  private unsavedTurns: UsageTurn[] = [];
+  /** The live session's login, once it answered. */
+  private billing?: UiModelBilling;
   private contextUsage?: UiContextUsage;
   /** The model the session reports running. */
   private model?: string;
@@ -219,6 +238,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.title = record.title;
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
+    const model = record.observedModel ?? record.model;
+    this.usageTurns = record.usageTurns?.map((turn) => ({ ...turn }))
+      ?? (record.usage && record.usage.turns > 0 ? [legacyUsageTurn(record.usage, record.updatedAt, { provider: "anthropic", ...(model ? { model } : {}) })] : []);
     this.chosenModel = record.model;
     this.chosenEffort = effortLevel(record.effort);
     this.mode = record.mode ?? DEFAULT_MODE;
@@ -269,9 +291,14 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       thinkingLevel: this.chosenEffort ?? (this.observedEffort ? `${DEFAULT_EFFORT} (${this.observedEffort})` : DEFAULT_EFFORT),
       thinkingLevels: [this.chosenEffort ? DEFAULT_EFFORT : (this.observedEffort ? `${DEFAULT_EFFORT} (${this.observedEffort})` : DEFAULT_EFFORT), ...levels],
       allTools: [],
-      ...(this.usage.turns > 0 ? { usage: { ...this.usage } } : {}),
+      ...(this.threadUsage() ? { usage: this.threadUsage()! } : {}),
       ...(this.contextUsage ? { contextUsage: { ...this.contextUsage } } : {}),
     };
+  }
+
+  private threadUsage(): UiThreadUsage | undefined {
+    const tallies = mergeTallies(this.usageTurns);
+    return this.options.priceUsage ? this.options.priceUsage(tallies) : unpricedUsage(tallies);
   }
 
   /** The plan's models: from the live session when there is one, from a shared probe otherwise. */
@@ -461,6 +488,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       onStderr: (chunk) => { live.stderr = `${live.stderr}${chunk}`.slice(-STDERR_TAIL_BYTES); },
     });
     this.live = live;
+    void live.session.accountInfo?.().then((account) => { this.billing = probeBilling(account) ?? this.billing; }, () => undefined);
     return live;
   }
 
@@ -498,8 +526,16 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     turn.status = status;
     const outcome = turn.translator.outcome;
     this.noteFacts(turn.translator.facts);
+    if (turn.translator.facts.rateLimits?.length) this.options.onRateLimits?.(turn.translator.facts.rateLimits);
     if (outcome) {
       this.usage = addUsage(this.usage, outcome.usage);
+      const billing = this.billing ?? this.options.billing?.() ?? apiKeyBilling(turn.translator.facts.apiKeySource);
+      const at = this.now();
+      for (const tally of outcome.tallies) {
+        const dated: UsageTurn = { ...tally, ...(billing ? { billing } : {}), at };
+        this.usageTurns = appendUsageTurn(this.usageTurns, dated);
+        this.unsavedTurns.push(dated);
+      }
       if (outcome.contextUsage) this.contextUsage = outcome.contextUsage;
       this.report({ type: "usage" });
       if (outcome.error) this.report({ type: "notice", message: `Claude Code reported an error: ${outcome.error}`, level: "error" });
@@ -536,7 +572,8 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async persistUsage(): Promise<void> {
     if (this.usage.turns === 0) return;
-    await this.store.recordUsage(this.threadId, this.cwd, this.usage);
+    const turns = this.unsavedTurns.splice(0);
+    await this.store.recordUsage(this.threadId, this.cwd, this.usage, turns);
   }
 
   /** Claude's questions during a turn go to the workbench; without a dialog surface the SDK gets none. */

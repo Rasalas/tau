@@ -9,12 +9,15 @@ export function ProjectSourcesModal({
   actions,
   onClose,
   sources,
+  initialSource,
 }: {
   actions: WorkbenchActions;
   onClose(): void;
   sources: Array<ProjectSourceContribution & ContributionOwner>;
+  /** A source with its own view to open on, instead of the list. */
+  initialSource?: string;
 }) {
-  const [activeSourceId, setActiveSourceId] = useState<string>();
+  const [activeSourceId, setActiveSourceId] = useState<string | undefined>(() => sources.find((source) => source.id === initialSource && source.Component)?.id);
   const [busySourceId, setBusySourceId] = useState<string>();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);

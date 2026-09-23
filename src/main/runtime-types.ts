@@ -1,3 +1,4 @@
+import type { UsageTally } from "./usage-pricing.js";
 import type {
   ClientTurnIdentity,
   NewThreadRequestId,
@@ -80,6 +81,8 @@ export interface ThreadCatalogView {
   contextUsage?: UiContextUsage;
   /** Tokens and money the thread has spent so far, when the runtime tracks them. */
   usage?: UiThreadUsage;
+  /** What `usage` was priced from, per provider and model; Pi's own threads carry it for the index's cache. */
+  usageTallies?: readonly UsageTally[];
 }
 
 export interface ShellCommandResult {

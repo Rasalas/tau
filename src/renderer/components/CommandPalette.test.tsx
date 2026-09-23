@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type PaletteItem, type PaletteSearchContext, type WorkbenchActions } from "../extension-system";
 import { CommandPalette } from "./CommandPalette";
+import type { PaletteCommand } from "../palette-results";
 
 afterEach(cleanup);
 
@@ -117,5 +118,95 @@ describe("command palette focus", () => {
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(screen.getByRole("dialog", { name: "Command palette" }).querySelector("footer")!, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("command palette levels", () => {
+  const actions = () => ({ notify: vi.fn(), focusComposer: vi.fn() }) as unknown as WorkbenchActions;
+  const labels = () => [...document.querySelectorAll(".palette-results button > span")].map((row) => row.textContent);
+
+  function themes(chosen: (id: string) => void): PaletteCommand {
+    return {
+      id: "fixture.theme", label: "Change theme…", group: "Look", extensionId: "fixture", extensionName: "Fixture", run: vi.fn(),
+      submenu: {
+        title: "Change theme",
+        items: () => [
+          { id: "light", label: "Light", run: () => chosen("light") },
+          { id: "dark", label: "Dark", current: true, run: () => chosen("dark") },
+          {
+            id: "more", label: "More themes", submenu: {
+              title: "More themes", searches: true,
+              items: async (query) => [{ id: `solar-${query}`, label: `Solarized ${query}`.trim(), run: () => chosen(`solar${query}`) }],
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  it("drills into a command's level, searches it on its own and runs the row without running the command", () => {
+    const chosen = vi.fn();
+    const command = themes(chosen);
+    const onClose = vi.fn();
+    render(<CommandPalette open commands={[command]} extensionCount={1} actions={actions()} onClose={onClose} />);
+    const root = screen.getByRole("textbox", { name: "Command" });
+    fireEvent.change(root, { target: { value: "theme" } });
+    fireEvent.keyDown(root, { key: "Enter" });
+    expect(command.run).not.toHaveBeenCalled();
+    const field = screen.getByRole("textbox", { name: "Change theme" });
+    expect(field).toHaveProperty("value", "");
+    expect(labels()).toEqual(["Light", "Dark", "More themes"]);
+    expect(screen.getByText("Current")).toBeTruthy();
+    fireEvent.change(field, { target: { value: "dar" } });
+    expect(labels()).toEqual(["Dark"]);
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(chosen).toHaveBeenCalledWith("dark");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes back with Backspace on an empty field, the back button and the breadcrumb, giving each level its query back", async () => {
+    render(<CommandPalette open commands={[themes(vi.fn())]} extensionCount={1} actions={actions()} onClose={() => undefined} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Command" }), { target: { value: "theme" } });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Command" }), { key: "Enter" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Change theme" }), { target: { value: "more" } });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "Enter" });
+    await act(async () => undefined);
+    expect(labels()).toEqual(["Solarized"]);
+    const crumbs = screen.getByRole("navigation", { name: "Palette levels" });
+    expect(crumbs.textContent).toBe("CommandsChange themeMore themes");
+
+    const deepest = screen.getByRole("textbox", { name: "More themes" });
+    fireEvent.change(deepest, { target: { value: "x" } });
+    fireEvent.keyDown(deepest, { key: "Backspace" });
+    expect(screen.getByRole("textbox", { name: "More themes" })).toBeTruthy();
+    fireEvent.change(deepest, { target: { value: "" } });
+    fireEvent.keyDown(deepest, { key: "Backspace" });
+    expect(screen.getByRole("textbox", { name: "Change theme" })).toHaveProperty("value", "more");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("textbox", { name: "Command" })).toHaveProperty("value", "theme");
+    expect(screen.queryByRole("navigation", { name: "Palette levels" })).toBeNull();
+  });
+
+  it("asks a level that searches itself per keystroke and shows what the latest query answered", async () => {
+    render(<CommandPalette open menu="fixture.theme" commands={[themes(vi.fn())]} extensionCount={1} actions={actions()} onClose={() => undefined} />);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "Enter" });
+    const field = screen.getByRole("textbox", { name: "More themes" });
+    fireEvent.change(field, { target: { value: "Dark" } });
+    await act(async () => undefined);
+    expect(labels()).toEqual(["Solarized Dark"]);
+  });
+
+  it("opens on a command's level when asked for it, and says why a level failed", async () => {
+    const failing: PaletteCommand = {
+      id: "fixture.fails", label: "Broken…", group: "Look", extensionId: "fixture", extensionName: "Fixture", run: vi.fn(),
+      submenu: { title: "Broken", items: async () => { throw new Error("The host went away."); } },
+    };
+    render(<CommandPalette open menu="fixture.fails" commands={[failing]} extensionCount={1} actions={actions()} onClose={() => undefined} />);
+    expect(screen.getByRole("textbox", { name: "Broken" })).toBeTruthy();
+    await act(async () => undefined);
+    expect(screen.getByRole("alert").textContent).toBe("The host went away.");
   });
 });

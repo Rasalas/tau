@@ -36,6 +36,7 @@ import workspace from "./workspace/desktop.js";
 import worktreeNames from "./worktree-names/desktop.js";
 import appearance from "./appearance/desktop.js";
 import handoff from "./handoff/desktop.js";
+import { screenService } from "./preview/screen-store.js";
 
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
@@ -166,5 +167,18 @@ describe("client profiles", () => {
     expect(registry.isActive(workspace.id)).toBe(true);
     expect(invoked.some((entry) => entry.includes("deactivate"))).toBe(false);
     registry.deactivate(workspace.id);
+  });
+});
+
+describe("kits that meet through a service", () => {
+  it("hands Computer Use's screen to Preview Kit's Screen view, and takes it back", () => {
+    const { registry } = createKitHarness(workspaceHostStub());
+    registry.activate(preview);
+    expect(screenService.get()).toBeUndefined();
+    registry.activate(computerUse);
+    expect(screenService.get()).toBeDefined();
+    registry.deactivate(computerUse.id);
+    expect(screenService.get()).toBeUndefined();
+    registry.deactivate(preview.id);
   });
 });

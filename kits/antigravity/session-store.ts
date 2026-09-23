@@ -1,6 +1,6 @@
 import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage } from "tau/host-extension";
+import { appendUsageTurn, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
 
 /**
  * App-data persistence for Antigravity threads: the Tau thread → ACP session
@@ -30,6 +30,8 @@ export interface AntigravitySessionRecord {
   title?: string;
   titleSource?: ThreadTitleSource;
   usage?: UiThreadUsage;
+  /** Each turn's tokens, dated; threads from before turns were kept have only `usage`. */
+  usageTurns?: UsageTurn[];
   /** What the user picked for this thread; it is applied to every later session. */
   model?: string;
   /** What the thread last actually ran on; shown before a session exists, never applied. */
@@ -90,6 +92,7 @@ function storedRecord(value: unknown): AntigravitySessionRecord | undefined {
   const title = boundedString(item.title, MAX_TITLE_LENGTH)?.trim() || undefined;
   const titleSource = item.titleSource === "derived" || item.titleSource === "generated" || item.titleSource === "renamed" ? item.titleSource : undefined;
   const usage = storedUsage(item.usage);
+  const usageTurns = readUsageTurns(item.usageTurns);
   const model = boundedString(item.model, MAX_ID_LENGTH);
   const observedModel = boundedString(item.observedModel, MAX_ID_LENGTH);
   return {
@@ -101,6 +104,7 @@ function storedRecord(value: unknown): AntigravitySessionRecord | undefined {
     ...(title ? { title } : {}),
     ...(titleSource ? { titleSource } : {}),
     ...(usage ? { usage } : {}),
+    ...(usageTurns ? { usageTurns } : {}),
     ...(model ? { model } : {}),
     ...(observedModel ? { observedModel } : {}),
     updatedAt,
@@ -108,7 +112,12 @@ function storedRecord(value: unknown): AntigravitySessionRecord | undefined {
 }
 
 function cloneRecord(record: AntigravitySessionRecord): AntigravitySessionRecord {
-  return { ...record, messages: record.messages.map((message) => ({ ...message })), ...(record.usage ? { usage: { ...record.usage } } : {}) };
+  return {
+    ...record,
+    messages: record.messages.map((message) => ({ ...message })),
+    ...(record.usage ? { usage: { ...record.usage } } : {}),
+    ...(record.usageTurns ? { usageTurns: record.usageTurns.map((turn) => ({ ...turn })) } : {}),
+  };
 }
 
 function storedModel(value: unknown): AntigravityStoredModel | undefined {
@@ -219,8 +228,12 @@ export class AntigravitySessionStore {
     return this.update(tauThreadId, cwd, (record) => { record.observedModel = model; });
   }
 
-  recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage): Promise<void> {
-    return this.update(tauThreadId, cwd, (record) => { record.usage = { ...usage }; });
+  /** The running total, and the turn that just ended when there is one. */
+  recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turn?: UsageTurn): Promise<void> {
+    return this.update(tauThreadId, cwd, (record) => {
+      record.usage = { ...usage };
+      if (turn) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
+    });
   }
 
   setTitle(tauThreadId: string, cwd: string, title: string, source: ThreadTitleSource): Promise<void> {

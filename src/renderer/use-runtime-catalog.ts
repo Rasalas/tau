@@ -9,7 +9,7 @@ const idle = () => () => undefined;
 const NONE: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> = new Map();
 
 /** One store per client, following the host's catalog events for as long as the client lives. */
-function storeFor(client: HostClient | undefined): RuntimeCatalogStore | undefined {
+export function runtimeCatalogStore(client: HostClient | undefined): RuntimeCatalogStore | undefined {
   if (!client) return undefined;
   let store = stores.get(client);
   if (!store) {
@@ -22,7 +22,7 @@ function storeFor(client: HostClient | undefined): RuntimeCatalogStore | undefin
 
 /** What `kind` offers a thread that does not exist yet; asked of the host while a draft is bound for it. */
 export function useRuntimeCatalog(kind: ThreadBackendKind | undefined): RuntimeCatalogEntry | undefined {
-  const store = storeFor(useHostClient());
+  const store = runtimeCatalogStore(useHostClient());
   useEffect(() => { if (kind) store?.request(kind); }, [kind, store]);
   return useSyncExternalStore(store?.subscribe ?? idle, () => (kind ? store?.get(kind) : undefined));
 }
@@ -33,7 +33,7 @@ export function useRuntimeCatalog(kind: ThreadBackendKind | undefined): RuntimeC
  */
 export function useRuntimeCatalogs(open: boolean): ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> {
   const client = useHostClient();
-  const store = open ? storeFor(client) : undefined;
-  useEffect(() => { store?.refresh(); }, [store]);
+  const store = open ? runtimeCatalogStore(client) : undefined;
+  useEffect(() => { void store?.refresh(); }, [store]);
   return useSyncExternalStore(store?.subscribe ?? idle, () => store?.all() ?? NONE);
 }

@@ -3,6 +3,7 @@ import { ArrowDownUp, ChevronDown, ChevronRight, Clock, Eye, Layers, ListFilter,
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
+import { withPriceOverride } from "../../shared/model-prices";
 import { modelPresentation } from "../model-manifest";
 import { usePreferences } from "../renderer-services-context";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
@@ -227,7 +228,8 @@ export function ModelPicker({
       const arranged = settings.modelPreferences[kind];
       const hidden = new Set(arranged?.hidden);
       const positions = orderedPositions(list, arranged?.order);
-      for (const model of list) {
+      for (const listed of list) {
+        const { model, custom } = withPriceOverride(listed, settings.modelPrices);
         const key = offeringKey(kind, model);
         const presentation = modelPresentation(model);
         result.push({
@@ -241,11 +243,12 @@ export function ModelPicker({
           legacy: presentation.legacy,
           isNew: presentation.badge === "new",
           position: positions.get(modelKey(model)) ?? 0,
+          ...(custom ? { customPrice: true } : {}),
         });
       }
     }
     return result;
-  }, [catalogs, models, onHand, settings.favouriteModels, settings.modelPreferences, views]);
+  }, [catalogs, models, onHand, settings.favouriteModels, settings.modelPreferences, settings.modelPrices, views]);
   const byKey = useMemo(() => new Map(offerings.map((offering) => [offering.key, offering] as const)), [offerings]);
   const jumps = useMemo(() => {
     const map = new Map<string, number>();

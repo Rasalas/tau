@@ -1,0 +1,13 @@
+{
+  "id": "tau.pi-limits",
+  "name": "Pi Limits",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.11.0"
+  },
+  "permissions": [
+    "runtime:extend"
+  ],
+  "isolation": "in-process",
+  "host": "./host.ts"
+}

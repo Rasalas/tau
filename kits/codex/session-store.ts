@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTurn } from "tau/host-extension";
 
 /**
  * App-data persistence for Codex threads: the Tau thread → Codex thread
@@ -32,6 +32,8 @@ export interface CodexSessionRecord {
   title?: string;
   titleSource?: ThreadTitleSource;
   usage?: UiThreadUsage;
+  /** Each turn's tokens, dated; threads from before turns were kept have only `usage`. */
+  usageTurns?: UsageTurn[];
   /** What the user picked; sent with every turn. */
   model?: string;
   effort?: string;
@@ -93,6 +95,7 @@ function storedRecord(value: unknown): CodexSessionRecord | undefined {
     title: text(item.title, MAX_TITLE_LENGTH)?.trim() || undefined,
     titleSource: item.titleSource === "derived" || item.titleSource === "generated" || item.titleSource === "renamed" ? item.titleSource : undefined,
     usage: storedUsage(item.usage),
+    usageTurns: readUsageTurns(item.usageTurns),
     model: text(item.model, MAX_ID_LENGTH),
     effort: text(item.effort, MAX_ID_LENGTH),
     mode: text(item.mode, MAX_ID_LENGTH),
@@ -142,6 +145,7 @@ function clone(record: CodexSessionRecord): CodexSessionRecord {
     ...record,
     messages: record.messages.map((message) => ({ ...message })),
     ...(record.usage ? { usage: { ...record.usage } } : {}),
+    ...(record.usageTurns ? { usageTurns: record.usageTurns.map((turn) => ({ ...turn })) } : {}),
     ...(record.tools ? { tools: [...record.tools] } : {}),
   };
 }
@@ -256,8 +260,12 @@ export class CodexSessionStore {
     return this.update(tauThreadId, cwd, (record) => { record.observedModel = model; });
   }
 
-  recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage): Promise<void> {
-    return this.update(tauThreadId, cwd, (record) => { record.usage = { ...usage }; });
+  /** The running total, and the turn that just ended when there is one. */
+  recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turn?: UsageTurn): Promise<void> {
+    return this.update(tauThreadId, cwd, (record) => {
+      record.usage = { ...usage };
+      if (turn) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
+    });
   }
 
   setTitle(tauThreadId: string, cwd: string, title: string, source: ThreadTitleSource): Promise<void> {

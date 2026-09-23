@@ -26,7 +26,10 @@ import {
   type RuntimeToolVersion,
   type SignInMethod,
   type UiComposerCommand,
+  type UiModelBilling,
   type VersionPolicy,
+  THREAD_TEXTS_COMMAND,
+  threadTextsDelta,
 } from "tau/host-extension";
 import { claudeProjectDirs, importClaudeSessions, scanClaudeSessions } from "./history-import.js";
 import {
@@ -35,11 +38,13 @@ import {
   CLAUDE_HOME_VARIABLE,
   INSTANCES_EVENT,
   ONBOARDING_KIT_ID,
+  SEARCH_KIT_ID,
   USAGE_KIT_ID,
   type ClaudeInstancesReport,
   type ClaudeStatusReport,
 } from "./protocol.js";
-import { authBilling, claudeAuthAccount, describeAccount, probeNewThreadCatalog, readClaudeAuth, readClaudeVersion, type ClaudeAuthStatus } from "./probe.js";
+import { mergeWindows, rateLimitEventWindow, usageReadWindows, type LimitAccount, type LimitWindow } from "./limits.js";
+import { authBilling, claudeAuthAccount, describeAccount, probeBilling, probeNewThreadCatalog, readClaudeAuth, readClaudeVersion, type ClaudeAuthStatus, type ClaudeProbe } from "./probe.js";
 import { createClaudeCodeRuntimeAdapter, sdkExtraArgs, type ClaudeCodeAgentRuntimeAdapter, type ClaudeCodeRuntimeOptions } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
@@ -65,6 +70,8 @@ export interface ClaudeCodeHostExtensionOptions {
 }
 
 const CLAUDE_NPM_PACKAGE = "@anthropic-ai/claude-code";
+/** The plan's windows move with every turn; reading them more often than this only costs requests. */
+const LIMITS_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Releases of the CLI the Agent SDK runtime is known to have trouble with.
@@ -199,6 +206,40 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         };
       };
 
+      /** Per instance: the plan's windows last read or reported by a turn, and the login's billing. */
+      const limits = new Map<string, { at: number; windows: LimitWindow[]; plan?: string; billing?: UiModelBilling; error?: string; unsupported?: boolean }>();
+      const noteProbe = (id: string, probe: ClaudeProbe): ClaudeProbe => {
+        const billing = probeBilling(probe.account);
+        const held = limits.get(id);
+        limits.set(id, { at: held?.at ?? 0, windows: held?.windows ?? [], ...(held?.plan ? { plan: held.plan } : {}), ...(billing ? { billing } : {}) });
+        return probe;
+      };
+      const noteRateLimits = (id: string, infos: ReadonlyArray<Record<string, unknown>>): void => {
+        const updates = infos.flatMap((info) => rateLimitEventWindow(info) ?? []);
+        if (updates.length === 0) return;
+        const held = limits.get(id);
+        limits.set(id, { ...held, at: Date.now(), windows: mergeWindows(held?.windows ?? [], updates) });
+      };
+      const readLimits = async (id: string, adapter: ClaudeCodeAgentRuntimeAdapter): Promise<void> => {
+        try {
+          const probe = noteProbe(id, await adapter.probe({ usage: true }));
+          const windows = usageReadWindows(probe.usage);
+          const plan = probe.account?.subscriptionType;
+          limits.set(id, { ...limits.get(id), at: Date.now(), windows: windows ?? [], ...(plan ? { plan } : {}), ...(windows ? {} : { unsupported: true }) });
+        } catch (error) {
+          limits.set(id, { ...limits.get(id), at: Date.now(), windows: limits.get(id)?.windows ?? [], error: error instanceof Error ? error.message : String(error) });
+        }
+      };
+      const limitAccount = (id: string): LimitAccount => {
+        const held = limits.get(id);
+        const base = { id: `${settings.kind(id)}:account`, runtime: settings.kind(id), label: settings.label(id), checkedAt: held?.at || Date.now(), ...(held?.plan ? { plan: held.plan } : {}) };
+        if (held && held.windows.length > 0) return { ...base, windows: held.windows };
+        if (held?.error) return { ...base, windows: [], unavailable: { reason: "failed", message: held.error } };
+        if (held?.billing === "api-key") return { ...base, windows: [], unavailable: { reason: "unsupported", message: "An API key or a cloud provider has no plan limits." } };
+        if (held?.unsupported) return { ...base, windows: [], unavailable: { reason: "unsupported", message: "The CLI reports no plan limits for this login." } };
+        return { ...base, windows: [] };
+      };
+
       const providerFor = (id: string, adapter: ClaudeCodeAgentRuntimeAdapter): HostRuntimeBackendProvider => {
         const offered = commands(adapter);
         return {
@@ -234,6 +275,9 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,
               ask: thread.ask,
+              ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
+              billing: () => limits.get(id)?.billing,
+              onRateLimits: (infos) => noteRateLimits(id, infos),
             });
             await backend.start(resume ? "resume" : "create");
             return backend;
@@ -246,7 +290,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             // The probe lists models signed out too; the CLI's own login state decides.
             const auth = await authOf(id);
             if (auth && !auth.loggedIn) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
-            const catalog = probeNewThreadCatalog(await adapter.probe());
+            const catalog = probeNewThreadCatalog(noteProbe(id, await adapter.probe()));
             const billing = authBilling(auth);
             if (!billing) return catalog;
             return { ...catalog, models: catalog.models.map((model) => model.billing ? model : { ...model, billing }), ...(catalog.model ? { model: catalog.model.billing ? catalog.model : { ...catalog.model, billing } } : {}) };
@@ -356,6 +400,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         // A CLI that will not start or is not signed in is a missing prerequisite, not a broken kit.
         const probe = await adapter.probe({ fresh: Boolean(input && typeof input === "object" && (input as { fresh?: unknown }).fresh) })
           .catch((error: unknown) => { throw new HostCommandError(error instanceof Error ? error.message : String(error)); });
+        noteProbe(id, probe);
         const command = claudeCommand(id);
         return {
           // The probe learns the version only from a turn's init frame; the binary always knows it.
@@ -366,7 +411,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           models: probe.models,
         };
       });
-      // Each thread's running total, for the Usage kit; read from the store, never from Anthropic.
+      // Each thread's running total and its turns, for the Usage kit; read from the store, never from Anthropic.
       context.registerCommand("usage", async () => ({
         threads: (await store.list()).map((entry) => {
           const model = entry.observedModel ?? entry.model;
@@ -376,9 +421,23 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             updatedAt: entry.updatedAt,
             ...(model ? { model } : {}),
             ...(entry.usage ? { usage: { ...entry.usage } } : {}),
+            ...(entry.usageTurns ? { turns: entry.usageTurns } : {}),
           };
         }),
       }), { callers: [USAGE_KIT_ID] });
+      // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
+      // The plan's windows, for the Usage kit: read through the CLI at most every few minutes, fresher when a turn reported them.
+      context.registerCommand("usage-limits", async (input) => {
+        const refresh = Boolean(input && typeof input === "object" && (input as { refresh?: unknown }).refresh);
+        const ids = settings.list().map((instance) => instance.id).filter((id) => services.findCommand(claudeCommand(id)) && adapters.has(id));
+        await Promise.all(ids.map(async (id) => {
+          const held = limits.get(id);
+          if (!refresh && held && held.at > 0 && !held.error && Date.now() - held.at < LIMITS_TTL_MS) return;
+          await readLimits(id, adapters.get(id)!);
+        }));
+        return { accounts: ids.map(limitAccount) };
+      }, { long: true, callers: [USAGE_KIT_ID] });
       // Sessions the default instance's CLI ran on its own, for Onboarding to list and import as threads.
       const importDirs = () => claudeProjectDirs(settings.environment(DEFAULT_INSTANCE_ID, env));
       context.registerCommand("import-scan", async () => {

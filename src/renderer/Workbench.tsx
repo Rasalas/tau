@@ -160,9 +160,13 @@ export interface WorkbenchLayout {
   documentSource: ReturnType<ExtensionRegistry["getDocumentSource"]>;
   visibleStreaming: boolean;
   paletteOpen: boolean;
+  /** The command whose level the palette opens on. */
+  paletteMenu?: string;
   closePalette(): void;
   commands: ReturnType<ExtensionRegistry["getCommands"]>;
   projectSourcesOpen: boolean;
+  /** The source the project sources open on. */
+  projectSource?: string;
   closeProjectSources(): void;
   newThreadOpen: boolean;
   openNewThreadPicker(): void;
@@ -268,8 +272,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     centerRef, centerCompact, setCenterCompact,
     chatFocused, setChatFocused, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
-    documentState, documentSource, visibleStreaming, paletteOpen, closePalette, commands,
-    projectSourcesOpen, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
+    documentState, documentSource, visibleStreaming, paletteOpen, paletteMenu, closePalette, commands,
+    projectSourcesOpen, projectSource, closeProjectSources, newThreadOpen, openNewThreadPicker, closeNewThreadPicker,
     projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay,
   } = layout;
@@ -429,6 +433,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
         <LazyCommandPalette
           open={paletteOpen}
+          {...(paletteMenu ? { menu: paletteMenu } : {})}
           shortcutFor={(commandId) => registry.keybindingLabel(commandId)}
           commands={commands}
           extensionCount={registry.getExtensionNames().length}
@@ -439,7 +444,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       </Suspense>
     </LazyFeatureBoundary>
     {projectSourcesOpen ? <Suspense fallback={null}>
-      <LazyProjectSourcesModal actions={actions} onClose={closeProjectSources} sources={registry.getProjectSources()} />
+      <LazyProjectSourcesModal actions={actions} onClose={closeProjectSources} sources={registry.getProjectSources()} {...(projectSource ? { initialSource: projectSource } : {})} />
     </Suspense> : null}
     <Suspense fallback={null}>
       <LazyProjectPicker

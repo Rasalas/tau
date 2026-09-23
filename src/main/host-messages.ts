@@ -540,7 +540,9 @@ export function threadUsageEqual(left: UiThreadUsage | undefined, right: UiThrea
   if (!left || !right) return left === right;
   return left.costUsd === right.costUsd && left.totalTokens === right.totalTokens && left.turns === right.turns &&
     left.inputTokens === right.inputTokens && left.outputTokens === right.outputTokens &&
-    left.cacheReadTokens === right.cacheReadTokens && left.cacheWriteTokens === right.cacheWriteTokens;
+    left.cacheReadTokens === right.cacheReadTokens && left.cacheWriteTokens === right.cacheWriteTokens &&
+    left.subscription?.apiValueUsd === right.subscription?.apiValueUsd && left.subscription?.totalTokens === right.subscription?.totalTokens &&
+    left.subscription?.turns === right.subscription?.turns;
 }
 
 export function sessionShellEqual(left: UiSession, right: UiSession): boolean {
