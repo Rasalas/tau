@@ -50,6 +50,19 @@ CODEX_HOME=$PWD/.tau-dev/codex-home codex app-server
 
 The `config.toml` is the shadow's own and pins the cheapest model, so a new Codex thread's first turn does not run on the account's default. List the models first (`model/list` on the app server, or the Codex page in Settings) and pick the smallest; ask for one-word answers. Never write into the real `~/.codex`.
 
+### OpenCode gets a shadow home
+
+OpenCode keeps its config, logins, database, logs and caches in the XDG folders (`~/.config/opencode`, `~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode`). The OpenCode kit reads `TAU_OPENCODE_HOME` as all four (`<home>/config`, `<home>/data`, `<home>/state`, `<home>/cache`) for the servers it starts, and `dev-instance.mjs` sets it to `<worktree>/.tau-dev/opencode-home`; a value set in the calling shell is kept. Nothing is linked from the real folders: OpenCode Zen's free models answer without a login, so a test prompt runs on one of them (`opencode/mimo-v2.6-flash-free`, say) and asks for a one-word answer. A test that needs another provider copies only that provider's entry of `auth.json` into `<home>/data/opencode/auth.json` — never an OAuth entry, whose refresh would rotate the user's own token. By hand:
+
+```
+mkdir -p .tau-dev/opencode-home
+XDG_CONFIG_HOME=$PWD/.tau-dev/opencode-home/config XDG_DATA_HOME=$PWD/.tau-dev/opencode-home/data \
+XDG_STATE_HOME=$PWD/.tau-dev/opencode-home/state XDG_CACHE_HOME=$PWD/.tau-dev/opencode-home/cache \
+OPENCODE_SERVER_PASSWORD=test opencode serve --hostname 127.0.0.1 --port 0
+```
+
+Stop a server you started by its PID. For import tests, `<import root>/opencode` is such a home too: start a server over it, create a session and send one prompt, and Onboarding lists it.
+
 ### Earlier sessions to import come from fixtures
 
 Onboarding lists and imports the conversations the agent CLIs kept in their own homes. `dev-instance.mjs` sets `TAU_IMPORT_ROOTS=<worktree>/.tau-dev/import-roots` (a caller's own value is kept), and with it set the backend kits read only `<root>/<backend kind>/…` — laid out like the CLI's own home — and never the user's. Put small synthetic sessions there to test the wizard; an instance with an empty folder finds nothing to import.

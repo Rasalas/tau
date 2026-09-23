@@ -1150,7 +1150,8 @@ turn observers, so checkpoints and status watchers do not care which program
 answers. `ask(prompt)` puts a blocking question on the workbench's dialog
 surface (the one Pi's extension dialogs use); aborting the thread answers it as
 cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005);
-`kits/codex/` shows the same seam over a CLI's own JSON-RPC server.
+`kits/codex/` shows the same seam over a CLI's own JSON-RPC server, and
+`kits/opencode/` over an HTTP server and its event stream.
 
 A backend whose threads can be deleted answers two more members of its
 provider (new in API 1.11.0): `removeThread(threadId)` takes the thread's shell
@@ -1158,7 +1159,7 @@ record out of the backend's own store and answers it as plain JSON, which the
 host keeps in its trash, and `restoreThread(threadId, record)` puts that record
 back. Only the shell goes — the program's own history (a CLI's session files)
 is never touched. A backend without the pair refuses deletion. Codex, the
-Agent SDK runtime and Antigravity have it.
+Agent SDK runtime, Antigravity and OpenCode have it.
 
 A streamed backend whose tool cards should return after a restart or a reload
 offers the capability group `activityHistory` (new in API 1.12.0):
@@ -1175,8 +1176,8 @@ halves: one JSON Lines file per thread in a folder of the backend's choosing,
 outputs clipped to their last 16 KiB and long arguments shortened, turns a
 restart cut short read back as interrupted, the newest 500 turns kept, and
 `take(threadId)`/`put(threadId, value)` for `removeThread`/`restoreThread`.
-Codex and Antigravity keep theirs beside their session stores
-(`codex-activity/`, `antigravity-activity/`).
+Codex, Antigravity and OpenCode keep theirs beside their session stores
+(`codex-activity/`, `antigravity-activity/`, `opencode-activity/`).
 
 An MCP server may ask for a form (an *elicitation*: `requestedSchema` with
 text, number, integer, boolean, single- and multiple-choice fields — the same
@@ -1233,7 +1234,7 @@ every runtime list uses — the model picker's rail, the composer's runtime
 menu, Settings → Defaults and Providers, onboarding: Pi, then backends by the
 provider's `order` (new in API 1.11.0; lower first, unset last, ties in
 registration order). The bundled kits take 10 (the Agent SDK runtime), 20
-(Codex) and 30 (Antigravity); every instance of a program shares its order.
+(Codex), 30 (Antigravity) and 40 (OpenCode); every instance of a program shares its order.
 
 A backend that drives a program the user installed may say which version that
 is: `version()` on the provider answers `{ tool, installed?, latest?,
@@ -1430,20 +1431,24 @@ credential per thread.
 | `gate(gate)` | Runs before each call with `{ threadId, cwd, toolName, input, signal, confirm(title, message) }`; answering `{ block: true, reason }` refuses the call with that text. `confirm` is a yes/no question on the thread's own dialog surface. A gate that throws blocks. Access Kit's gate is the shipped one. |
 | `connect(thread, options?)` | For a runtime backend: `{ name, url, token, headers }`, the server entry to put into the session's own MCP configuration (`name` is `tau`, so a runtime shows `mcp__tau__<tool>`). `options.tools` narrows what the credential lists and calls to those names, for a thread started with `tools`. The credential lives as long as the thread's runtime; a new runtime gets a new one. `undefined` in safe mode or when the endpoint cannot listen — the thread then runs without Tau's tools. |
 
-The three runtime kits are the reference: Codex passes the entry as
+The runtime kits are the reference: Codex passes the entry as
 `codex app-server -c mcp_servers.tau.…` overrides with the token in the
 process environment (`bearer_token_env_var`), the Agent SDK runtime as an
 `http` entry of `mcpServers`, Antigravity as an ACP `http` server on
 `session/new` and `session/resume` (agy_acp_server 1.1.1 announces
 `mcpCapabilities: { http: true, sse: true }`; an agent that does not announce a
-transport is not sent servers of it). Each lets Tau's gate ask instead of
-asking again itself. Preview Kit and Agents Kit offer their tools this way.
+transport is not sent servers of it), OpenCode as a `remote` entry laid over
+the user's config through `OPENCODE_CONFIG_CONTENT` of the server Tau starts
+for the thread (a server the user runs and names by URL gets none). Each lets
+Tau's gate ask instead of asking again itself. Preview Kit and Agents Kit offer their tools this way.
 
 A thread started with `tools` keeps them on every runtime that can: Codex
 switches off its shell, web search, image viewing, image generation, apps and
 plugins as the list leaves them out (`kits/codex/tools.ts`) and runs read-only
 without `bash`, `edit` or `write`; the Agent SDK runtime gets Claude's own tools by their Pi
-names (`read` → `Read`, `find` → `Glob`, …) and no MCP server but Tau's.
+names (`read` → `Read`, `find` → `Glob`, …) and no MCP server but Tau's;
+OpenCode switches its own tools off in every prompt's `tools`
+(`kits/opencode/tools.ts`) and runs read-only without `bash`, `edit` or `write`.
 Antigravity cannot restrict its tools and refuses such a thread.
 
 ### Lifecycle hooks a host half may step into
