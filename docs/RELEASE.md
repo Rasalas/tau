@@ -57,6 +57,9 @@ The tag drives nothing but the release name. If it does not match
 `package.json`, the artifacts carry the version from `package.json` and the
 updater will compare against that one. Keep them equal.
 
+4. Once the release is published, update the package managers
+   ([Package managers](#package-managers)).
+
 ## Build all platforms without publishing
 
 `workflow_dispatch` runs the same three build jobs on a branch, with no tag
@@ -142,6 +145,198 @@ comes back as a 404 and every check fails with it (visible in
 `<userData>/logs/host.log` as `update.failed`). Making the repository public is
 the fix. Keeping it private means shipping a GitHub token to every user, which
 is worse than having no updates.
+
+### Stable and nightly
+
+Settings → Defaults → **Update track** writes `updates.channel` (`stable` or
+`nightly`) to this machine's `~/.tau/config.json`; the row is hidden while the
+window is a client of a host on another machine, because the updater reads the
+file of the machine it runs on. `src/main/app-updates.ts` reads the channel
+before every check, and again when the host reports a config change, so a
+switch checks at once.
+
+| | Stable | Nightly |
+|---|---|---|
+| feed | the GitHub provider from `app-update.yml`: the latest release, never a prerelease | `https://github.com/Rasalas/tau/releases/download/nightly/latest*.yml`, read as a generic feed |
+| `allowPrerelease` | off | on |
+| `allowDowngrade` | on only when the running build is a nightly | off |
+
+Nightly uses a plain URL because the GitHub provider cannot follow one moving
+tag: it looks for a semver tag per build. Switching from nightly back to stable
+installs the latest stable release even though it is older. With no channel in
+the config, a build follows its own kind: a nightly installed by hand stays on
+nightly instead of downgrading itself on the first check.
+
+### Version skew
+
+The window process and the host process it talks to say hello with their Tau
+version. When the two differ, the workbench shows a *Version mismatch* line
+above the status line, where a lost connection shows too, with both versions
+and a Dismiss button. A supervised host of another version is replaced when the
+window starts (ADR 0021), so in practice this shows for a window attached to a
+host on another machine (`TAU_HOST_URL`) that runs a different build.
+
+## Nightly builds
+
+`.github/workflows/release.yml` has a schedule (03:17 UTC). Its `gate` job
+decides whether anything runs:
+
+- only on `Rasalas/tau` (a fork's schedule stops there);
+- only once the repository variable `NIGHTLY` is `true`;
+- only when `main` moved since the commit the tag `nightly` points at.
+
+A run that passes builds the same three platforms as a release, with
+`package.json`'s version replaced by
+`<next patch>-nightly.<UTC date>.<run number>` (for 0.4.0:
+`0.4.1-nightly.20260922.42`, from `scripts/packaging/nightly-version.mjs`). The
+`nightly` job then deletes the previous release tagged `nightly` (only if it is
+a prerelease) and the tag, and publishes the new build as a prerelease under
+the same tag, never marked latest. The stable `release` job never runs for a
+nightly.
+
+Switch the schedule on (repository admin, once):
+
+```bash
+gh variable set NIGHTLY --repo Rasalas/tau --body true
+```
+
+or Settings → Secrets and variables → Actions → Variables → New repository
+variable, `NIGHTLY` = `true`. Delete the variable to stop the schedule. Publish
+one right away, even without new commits:
+
+```bash
+gh workflow run release.yml --ref main -f nightly=true
+```
+
+Before switching it on, know what it costs and needs:
+
+- Each nightly spends GitHub-hosted Linux and Windows minutes (Windows counts
+  double on a private repository) plus the self-hosted `tau-linux` and
+  `tau-macos` runners. Days without commits cost one short gate job.
+- While `Rasalas/tau` is private, an installed Tau cannot read the nightly
+  feed either (404, as for stable).
+- The tag `nightly` must stay movable: do not enable *immutable releases* for
+  the repository, and do not put `nightly` under a tag ruleset or protection
+  that forbids deleting it.
+
+## Package managers
+
+`packaging/` holds a Homebrew cask, the winget manifest triple and the AUR
+package `tau-bin`, all written by one command from a published release:
+
+```bash
+npm run packaging:update -- --tag v0.4.1
+git add packaging && git commit -m "chore(packaging): v0.4.1"
+```
+
+It reads the release with `gh api` (logged in, since the repository is
+private), takes each installer's SHA-256 from GitHub's asset `digest`, and
+writes `packaging/homebrew/tau.rb`, `packaging/winget/Rasalas.Tau*.yaml`,
+`packaging/aur/tau-bin/PKGBUILD` and `.SRCINFO`, plus
+`packaging/release.json`, the release they were written from.
+`scripts/packaging/packaging.test.mjs` renders that file again and fails when
+the committed files disagree with it, so edit the scripts, never the output.
+`--release-json <file>` works without network. Nightlies are not packaged.
+
+All three need the release downloadable without a login: **make
+`Rasalas/tau` public first.** Homebrew, winget and makepkg download the assets
+anonymously, and winget's validation rejects a URL it cannot fetch.
+
+### Homebrew (macOS)
+
+Homebrew only installs casks from a tap, a GitHub repository named
+`homebrew-<name>`. Once:
+
+1. Create the public repository `Rasalas/homebrew-tau` (empty, default branch
+   `main`).
+2. Clone it, copy the cask in and push:
+
+   ```bash
+   git clone git@github.com:Rasalas/homebrew-tau.git
+   mkdir -p homebrew-tau/Casks
+   cp packaging/homebrew/tau.rb homebrew-tau/Casks/tau.rb
+   cd homebrew-tau && git add Casks/tau.rb && git commit -m "tau 0.4.0" && git push
+   ```
+
+3. Check it on a Mac: `brew install --cask rasalas/tau/tau`, then
+   `brew uninstall --cask tau`.
+
+After each release: `npm run packaging:update`, copy `packaging/homebrew/tau.rb`
+to the tap's `Casks/tau.rb`, commit, push. Users install with:
+
+```bash
+brew install --cask rasalas/tau/tau
+```
+
+The cask sets `auto_updates true`: Tau updates itself, and `brew upgrade`
+leaves it alone unless run with `--greedy`. Until the build is signed
+([Signing](#signing)), macOS may refuse the first launch; the cask's caveats
+say how to allow it. `brew uninstall --zap` also removes `~/.tau` and the app's
+Library folders. Automating the tap update from the release workflow would need
+a token with write access to the tap as a secret; that is not wired up.
+
+### winget (Windows)
+
+winget installs from `microsoft/winget-pkgs`, one pull request per version.
+
+1. Fork `microsoft/winget-pkgs` on GitHub.
+2. In the fork, add the three files under
+   `manifests/r/Rasalas/Tau/<version>/`:
+
+   ```bash
+   mkdir -p manifests/r/Rasalas/Tau/0.4.0
+   cp <tau>/packaging/winget/Rasalas.Tau*.yaml manifests/r/Rasalas/Tau/0.4.0/
+   ```
+
+3. On a Windows machine, check them: `winget validate --manifest
+   manifests\r\Rasalas\Tau\0.4.0` and `winget install --manifest
+   manifests\r\Rasalas\Tau\0.4.0` (the second installs Tau).
+4. Open a pull request to `microsoft/winget-pkgs` titled `New package:
+   Rasalas.Tau version 0.4.0`, and answer the bot's checks. The first
+   submission of an unsigned installer may be held for manual review;
+   SmartScreen reputation is part of it.
+
+Later versions: the same with the new version folder (title `New version:
+Rasalas.Tau version 0.4.1`), or `wingetcreate update Rasalas.Tau --version
+0.4.1 --urls <installer URL> --submit` with a GitHub token, which writes the
+same manifests itself. Users install with `winget install Rasalas.Tau`.
+
+Releases up to 0.4.0 name the installer `Tau.Setup.<version>.exe`; from the next
+one it is `Tau-Setup-<version>.exe`, the name `latest.yml` always used, so
+Windows installs finally find their updates (`nsis.artifactName` in
+`electron-builder.yml`).
+
+### AUR (Arch Linux)
+
+`tau-bin` repacks the release's `Tau-<version>.AppImage` into `/opt/tau-bin`,
+with `/usr/bin/tau`, a desktop entry and the icons. Once:
+
+1. Create an account on <https://aur.archlinux.org> and add an SSH public key
+   to it (My Account → SSH Public Key).
+2. Set the contact line you want published at the top of
+   `packaging/aur/tau-bin/PKGBUILD` (`# Maintainer: …`, in
+   `scripts/packaging/update-aur.mjs`).
+3. On Arch Linux (a VM or container will do), build and check the package
+   before the first push:
+
+   ```bash
+   cp -r packaging/aur/tau-bin /tmp/tau-bin && cd /tmp/tau-bin
+   makepkg --printsrcinfo | diff - .SRCINFO   # must print nothing
+   namcap PKGBUILD
+   makepkg -si                                # installs it on that machine
+   ```
+
+4. Push to the AUR, which creates the package on the first push:
+
+   ```bash
+   git clone ssh://aur@aur.archlinux.org/tau-bin.git
+   cp /tmp/tau-bin/PKGBUILD /tmp/tau-bin/.SRCINFO tau-bin/
+   cd tau-bin && git add PKGBUILD .SRCINFO && git commit -m "tau-bin 0.4.0-1" && git push
+   ```
+
+After each release: `npm run packaging:update`, then steps 3 and 4 with the
+new files. Users install with an AUR helper, e.g. `yay -S tau-bin`. The package
+conflicts with `tau-editor`, which also installs `/usr/bin/tau`.
 
 ## Signing
 
