@@ -18,7 +18,10 @@ import {
   terminalPlacement,
   type ComposerContextChips,
   type PreviewBrowserService,
+  WORKSPACE_STORE_SERVICE,
+  type WorkspaceRowMarks,
 } from "./protocol.js";
+import { TerminalRowStatus } from "./row-status.js";
 
 /** A command keeps the actions it ran with, so a link clicked later has them too. */
 function withActions(run: (actions: WorkbenchActions) => unknown) {
@@ -75,6 +78,7 @@ export const terminalExtension: DesktopExtension = {
         terminalServices.preview = preview;
         return () => { if (terminalServices.preview === preview) delete terminalServices.preview; };
       }),
+      plugin.useService<WorkspaceRowMarks>(WORKSPACE_STORE_SERVICE, (workspace) => workspace.registerThreadRowAccessory(TerminalRowStatus)),
     ];
     // The setting picks dock or drawer; changing it registers the panel again in its new place.
     const placementNow = () => terminalPlacement(plugin.preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));

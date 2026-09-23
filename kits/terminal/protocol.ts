@@ -145,3 +145,9 @@ export const PREVIEW_BROWSER_SERVICE = "tau.preview/browser";
 export interface PreviewBrowserService {
   open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
 }
+
+/** Workspace Kit's store (`kits/workspace/protocol.ts`); only the row mark this kit draws. */
+export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
+export interface WorkspaceRowMarks {
+  registerThreadRowAccessory(accessory: (props: { session: { id: string } }) => unknown): () => void;
+}
