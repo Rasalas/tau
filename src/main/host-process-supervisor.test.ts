@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   HostProcessSupervisor,
+  parseHostAnnouncement,
   processAlive,
   pruneHostLogs,
   readHostDescriptor,
@@ -15,7 +16,8 @@ const started: HostProcessSupervisor[] = [];
 const directories: string[] = [];
 
 function workingDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "tau-supervisor-"));
+  // A space in the path, as a Windows profile often has.
+  const directory = mkdtempSync(join(tmpdir(), "tau supervisor-"));
   directories.push(directory);
   return directory;
 }
@@ -62,6 +64,15 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, what: string
 afterEach(async () => {
   for (const instance of started.splice(0)) await instance.stop().catch(() => undefined);
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
+
+describe("the host's announcement", () => {
+  it("reads a token path with spaces and Windows line endings", () => {
+    const output = "tau-host listening on ws://127.0.0.1:7788\r\ntoken: C:\\Users\\John Doe (Work)\\.tau\\host-token (copy it to the client machine, or pass it as TAU_HOST_TOKEN)\r\n";
+    expect(parseHostAnnouncement(output)).toEqual({ url: "ws://127.0.0.1:7788", tokenPath: "C:\\Users\\John Doe (Work)\\.tau\\host-token" });
+    expect(parseHostAnnouncement("tau-host listening on ws://127.0.0.1:1\ntoken: /home/me/.tau/host-token\n")?.tokenPath).toBe("/home/me/.tau/host-token");
+    expect(parseHostAnnouncement("tau-host listening on ws://127.0.0.1:1\n")).toBeUndefined();
+  });
 });
 
 describe("the host process supervisor", () => {
