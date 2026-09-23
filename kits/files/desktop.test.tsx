@@ -88,7 +88,7 @@ function setup(files: Record<string, string>, actionsPatch: Partial<WorkbenchAct
 describe("Files Kit", () => {
   it("edits a file, marks the tab dirty and saves on mod+s before the stash binding hears it", async () => {
     const tab = handle();
-    const shown: StageTab = { kind: "extension", id: tab.id, tabKind: FILE_EDITOR_TAB, params: { path: "notes.md" } } as StageTab;
+    const shown: StageTab = { kind: "extension", id: tab.id, preview: false, tabKind: FILE_EDITOR_TAB, params: { path: "notes.md" }, title: "notes.md" };
     const { host, kind, actions, store, registry } = setup({ "notes.md": "# Notes\n" }, { activeStageTab: () => shown });
     render(<>{kind.render({ path: "notes.md" }, tab, actions)}</>);
     const field = await screen.findByLabelText("Contents of notes.md") as HTMLTextAreaElement;
