@@ -14,8 +14,12 @@ import {
 import { workspaceChangesReader } from "./workspace.js";
 import { createRequestBadge } from "./request-badge.js";
 import { createRequestSection } from "./request-section.js";
+import { LinkDialogs } from "./link-dialog.js";
+import { PendingReviewStore } from "./pending-review.js";
+import { pullRequestClient } from "./pull-request-client.js";
 import { registerPullRequestTab } from "./pull-request-tab.js";
 import { requestClient, RowRequests } from "./requests.js";
+import { ThreadLinkRows } from "./thread-links-store.js";
 
 /**
  * Review Kit: the full review over the live worktree, the commit message the
@@ -35,6 +39,9 @@ export const reviewExtension: DesktopExtension = {
     const requests = requestClient(plugin.host);
     const rows = new RowRequests((path) => requests.request(path));
     const comments = new ReviewCommentStore(getClientStorage);
+    const client = pullRequestClient(plugin.host);
+    const links = new ThreadLinkRows(client);
+    const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs() };
     let chips: ComposerContextChips | undefined;
     plugin.registerOptions([
       { id: SPLIT_OPTION, kind: "toggle", label: "Open diffs in split view", defaultValue: false },
@@ -48,8 +55,8 @@ export const reviewExtension: DesktopExtension = {
     });
     plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // The view reads a request by its URL, so it does not wait for Workspace Kit's store.
-    registerPullRequestTab(plugin, requests, rows, () => chips);
-    return plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
+    const releaseTabs = registerPullRequestTab(plugin, requests, rows, () => chips, client, shared);
+    const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
       const disposers = [
         plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store, comments, () => chips) }),
         plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => store.openReview() }),
@@ -59,11 +66,12 @@ export const reviewExtension: DesktopExtension = {
         plugin.registerCommand({ id: "review.toggle", label: "Toggle the review", group: "Project", run: () => { if (store.getSnapshot().review) store.closeReview(); else store.openReview(); } }),
         plugin.registerKeybinding({ keys: "mod+d", commandId: "review.toggle", when: "!terminalFocus" }),
         registerCommitMessages(plugin, store),
-        store.registerChangesSection(createRequestSection(plugin, store, requests, rows)),
-        store.registerThreadRowAccessory(createRequestBadge(rows)),
+        store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),
+        store.registerThreadRowAccessory(createRequestBadge(rows, links)),
       ];
       return () => { for (const dispose of disposers.reverse()) dispose(); };
     });
+    return () => { releaseStore(); releaseTabs(); links.dispose(); shared.dialogs.close(); };
   },
 };
 

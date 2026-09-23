@@ -15,6 +15,7 @@ import {
   parseUnifiedDiff,
 } from "./pull-request-json.js";
 import type { CliRunOptions } from "./request-cli.js";
+import { LINK_SEAMS } from "./test-seams.js";
 
 const fixture = (name: string) => readFile(join(import.meta.dirname, "fixtures", name), "utf8");
 
@@ -180,12 +181,15 @@ async function harness(options: { tools?: Record<string, string>; answer?(call: 
   const calls: Call[] = [];
   const run = vi.fn(async (_command: string, args: string[], _cwd: string, runOptions?: CliRunOptions) => {
     const call: Call = { args, ...(runOptions?.input !== undefined ? { input: runOptions.input } : {}) };
+    // Who is signed in is asked once per host; the tests count the request's own calls.
+    if (args[0] === "api" && args.at(-1) === "user") return JSON.stringify({ login: "octo" });
     calls.push(call);
     if (options.answer) return options.answer(call);
     return defaultAnswer(call);
   });
   const tools = options.tools ?? { gh: "/bin/gh", glab: "/bin/glab" };
   const registry = await activateHostKit(createReviewHostExtension({ run }), {
+    ...LINK_SEAMS,
     findCommand: (name: string) => tools[name],
     noteSubprocess: () => undefined,
     stateDir: stateRoot,

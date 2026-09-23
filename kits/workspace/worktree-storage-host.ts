@@ -23,7 +23,7 @@ function sweepInterval(): number {
  */
 export function registerWorktreeStorage(
   context: HostExtensionContext,
-  options: { removed(repository: string): void; runGit?: GitRunner },
+  options: { removed(repository: string): void; runGit?: GitRunner; requestState?: (path: string) => Promise<"open" | "closed" | "merged" | undefined> },
 ): { storage: WorktreeStorage; dispose(): void } {
   const { services } = context;
   const runGit: GitRunner = options.runGit ?? (async (cwd, args, maxBuffer) => {
@@ -42,6 +42,7 @@ export function registerWorktreeStorage(
     hostCwd: () => services.cwd(),
     log: (label, detail) => services.log(label, detail),
     removed: options.removed,
+    ...(options.requestState ? { requestState: options.requestState } : {}),
   });
   const announce = (removed: readonly string[]) => {
     if (removed.length > 0) context.emit(STORAGE_CHANGED_EVENT, { removed });

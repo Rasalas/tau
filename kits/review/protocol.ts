@@ -197,6 +197,8 @@ export interface PullRequestDetail {
   checks: PullRequestCheck[];
   comments: PullRequestComment[];
   commits: PullRequestCommit[];
+  /** The signed-in login on the host, so the view offers to edit only its own comments. */
+  viewer?: string;
 }
 
 export interface PullRequestThread {
@@ -231,3 +233,80 @@ export interface PullRequestFiles {
 
 /** Ids of Review Kit's pull-request view: the stage-tab kind and its commands. */
 export const PULL_REQUEST_TAB = "review.pull-request";
+
+/** The Pull Requests page: every request of one project's repository. */
+export const PULL_REQUESTS_TAB = "review.pull-requests";
+
+export type PullRequestListState = "open" | "closed" | "merged" | "all";
+/** GitHub's summary of the reviews; absent where the host keeps none. */
+export type PullRequestReviewDecision = "approved" | "changes-requested" | "review-required";
+export type PullRequestChecksState = "passing" | "failing" | "pending";
+
+/** One row of the page, as the listing reads it: no conversation, no diff. */
+export interface PullRequestListEntry {
+  ref: PullRequestRef;
+  title: string;
+  author?: PullRequestActor;
+  headRef: string;
+  baseRef: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  mergeable?: "mergeable" | "conflicting";
+  /** Zero where the host did not count them. */
+  additions: number;
+  deletions: number;
+  createdAt: string;
+  updatedAt: string;
+  labels: PullRequestLabel[];
+  reviewDecision?: PullRequestReviewDecision;
+  checks?: PullRequestChecksState;
+  /** The signed-in account is among the requested reviewers. */
+  reviewRequested: boolean;
+}
+
+export interface PullRequestList {
+  service: RequestService;
+  host: string;
+  repo: string;
+  /** The signed-in login on that host; undefined when the CLI would not say. */
+  viewer?: string;
+  entries: PullRequestListEntry[];
+  /** The host had more than `limit` rows for this question. */
+  truncated: boolean;
+  limit: number;
+}
+
+/**
+ * A request a thread keeps beside it, whichever repository it lives in. The
+ * snapshot fields are what the host said when it was last read.
+ */
+export interface ThreadPullRequestLink {
+  url: string;
+  service: RequestService;
+  host: string;
+  repo: string;
+  number: number;
+  /** Who linked it: the user, the agent's tool, or creating it from the Changes panel. */
+  source: "user" | "agent" | "created";
+  linkedAt: number;
+  title?: string;
+  state?: "open" | "closed" | "merged";
+  draft?: boolean;
+  headRef?: string;
+  baseRef?: string;
+  refreshedAt?: number;
+}
+
+/** Emitted with `{ threadId }` whenever a thread's links change. */
+export const THREAD_LINKS_EVENT = "thread-links-changed";
+
+export type PullRequestReviewEvent = "comment" | "approve" | "request-changes";
+
+/** A line comment held for the review instead of posted at once. */
+export interface PendingReviewComment {
+  id: string;
+  path: string;
+  line: number;
+  side: "new" | "old";
+  body: string;
+}

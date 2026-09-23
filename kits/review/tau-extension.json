@@ -7,7 +7,8 @@
   },
   "permissions": [
     "sessions",
-    "process"
+    "process",
+    "runtime:extend"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

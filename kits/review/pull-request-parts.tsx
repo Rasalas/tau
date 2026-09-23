@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, ExternalLink, LoaderCircle, MessageSquare, Send } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, ExternalLink, LoaderCircle, MessageSquare, Pencil, Send } from "lucide-react";
 import { errorMessage, Markdown, type WorkbenchActions } from "tau";
 import type { ComposerContextChips, PullRequestCheck, PullRequestCheckStatus, PullRequestChip, PullRequestComment, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import { CHECK_LABELS, relativeTime, ROLLUP_TITLES, type ChecksRollup } from "./pull-request-logic.js";
@@ -76,15 +76,18 @@ export function verdictWord(comment: PullRequestComment): string {
  * One comment: who, when, what it decided, where in the code, the text, and
  * a way to hand it to the composer.
  */
-export function CommentCard({ comment, where, outdated, onSend, onOpenWhere, actions, children }: {
+export function CommentCard({ comment, where, outdated, onSend, onOpenWhere, onEdit, actions, children }: {
   comment: PullRequestComment;
   where?: string;
   outdated?: boolean;
   onSend?(): void;
   onOpenWhere?(): void;
+  /** Only for the signed-in account's own comments. */
+  onEdit?(body: string): Promise<void>;
   actions: WorkbenchActions;
   children?: ReactNode;
 }) {
+  const [editing, setEditing] = useState(false);
   return (
     <article className="pr-comment" aria-label={`${comment.author.login} ${verdictWord(comment)}`}>
       <header>
@@ -95,6 +98,7 @@ export function CommentCard({ comment, where, outdated, onSend, onOpenWhere, act
           <button className="pr-time" title="Open on the host" onClick={() => actions.openExternal(comment.url!)}>{relativeTime(comment.createdAt)}</button>
         ) : <span className="pr-time">{relativeTime(comment.createdAt)}</span>}
         <span className="spacer" />
+        {onEdit && !editing ? <button className="icon-button compact" aria-label="Edit comment" title="Edit comment" onClick={() => setEditing(true)}><Pencil size={11} /></button> : null}
         {onSend ? <button className="icon-button compact" aria-label="Send to composer" title="Send to composer" onClick={onSend}><Send size={12} /></button> : null}
       </header>
       {where ? (
@@ -103,7 +107,9 @@ export function CommentCard({ comment, where, outdated, onSend, onOpenWhere, act
           {outdated ? <span className="pr-tag">Outdated</span> : null}
         </p>
       ) : null}
-      {comment.body.trim() ? <div className="pr-comment-body"><Markdown>{comment.body}</Markdown></div> : null}
+      {editing && onEdit
+        ? <MarkdownEditor label="Edit comment" initial={comment.body} onSave={async (body) => { await onEdit(body); setEditing(false); }} onCancel={() => setEditing(false)} />
+        : comment.body.trim() ? <div className="pr-comment-body"><Markdown>{comment.body}</Markdown></div> : null}
       {children}
     </article>
   );
@@ -161,14 +167,27 @@ export function ReplyBox({ label, placeholder, submitLabel, onSubmit, onCancel, 
 }
 
 /** A review thread on a line: its state as the toggle, its comments, a reply and a hand-over. */
-export function ThreadCard({ thread, onReply, onSend }: {
+export function ThreadCard({ thread, onReply, onSend, onResolve, canEdit, onEdit }: {
   thread: PullRequestThread;
   onReply(text: string): Promise<void>;
   onSend(): void;
+  /** Marks the conversation resolved, or opens it again. */
+  onResolve?(resolved: boolean): Promise<void>;
+  canEdit?(comment: PullRequestComment): boolean;
+  onEdit?(comment: PullRequestComment, body: string): Promise<void>;
 }) {
   const [open, setOpen] = useState(!thread.resolved);
   const [replying, setReplying] = useState(false);
+  const [editing, setEditing] = useState<string>();
+  const [resolving, setResolving] = useState(false);
+  const [error, setError] = useState<string>();
   const count = thread.comments.length;
+  const resolve = async () => {
+    if (!onResolve || resolving) return;
+    setResolving(true);
+    setError(undefined);
+    try { await onResolve(!thread.resolved); } catch (reason) { setError(errorMessage(reason)); } finally { setResolving(false); }
+  };
   return (
     <section className={`pr-thread ${thread.resolved ? "resolved" : ""}`} aria-label={`Conversation on ${thread.path}${thread.line !== undefined ? `:${thread.line}` : ""}`}>
       <header>
@@ -179,13 +198,20 @@ export function ThreadCard({ thread, onReply, onSend }: {
         </button>
         {thread.outdated ? <span className="pr-tag">outdated</span> : null}
         <span className="spacer" />
+        {onResolve ? <button className="text-button pr-resolve" disabled={resolving} onClick={() => void resolve()}>{resolving ? "…" : thread.resolved ? "Unresolve" : "Resolve"}</button> : null}
         <button className="icon-button compact" aria-label="Send conversation to composer" title="Send to composer" onClick={onSend}><Send size={12} /></button>
       </header>
+      {error ? <p className="pr-error" role="alert">{error}</p> : null}
       {open ? <>
         {thread.comments.map((comment) => (
           <div key={comment.id} className="pr-thread-comment">
-            <p><strong>{comment.author.login}</strong> <span className="pr-time">{relativeTime(comment.createdAt)}</span></p>
-            {comment.body.trim() ? <div className="pr-comment-body"><Markdown>{comment.body}</Markdown></div> : null}
+            <p>
+              <strong>{comment.author.login}</strong> <span className="pr-time">{relativeTime(comment.createdAt)}</span>
+              {onEdit && canEdit?.(comment) && editing !== comment.id ? <button className="icon-button compact" aria-label="Edit comment" title="Edit comment" onClick={() => setEditing(comment.id)}><Pencil size={11} /></button> : null}
+            </p>
+            {editing === comment.id && onEdit
+              ? <MarkdownEditor label="Edit comment" initial={comment.body} onSave={async (body) => { await onEdit(comment, body); setEditing(undefined); }} onCancel={() => setEditing(undefined)} />
+              : comment.body.trim() ? <div className="pr-comment-body"><Markdown>{comment.body}</Markdown></div> : null}
           </div>
         ))}
         {replying

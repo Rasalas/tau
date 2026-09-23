@@ -13,7 +13,7 @@ afterEach(async () => { await Promise.all(made.splice(0).map((path) => rm(path, 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe", encoding: "utf8" });
 
 /** A repository whose worktrees go to a folder of this test's own. */
-async function fixture() {
+async function fixture(requestState?: (path: string) => Promise<"open" | "closed" | "merged" | undefined>) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "tau-storage-")));
   made.push(root);
   const repo = join(root, "repo");
@@ -37,6 +37,7 @@ async function fixture() {
     log: () => undefined,
     removed: (repository) => { removed.push(repository); },
     measure: async () => 1024,
+    ...(requestState ? { requestState } : {}),
   });
   /** A worktree the way Workspace Kit makes one, recorded like `create-worktree` does. */
   const tauWorktree = async (branch: string) => {
@@ -83,6 +84,23 @@ describe("worktree storage", () => {
     expect(git(repo, "branch", "--list", "idle").trim()).toContain("idle");
     expect(listed(repo)).not.toContain(idle);
     expect((await storage.report()).worktrees.map((tree) => tree.path)).not.toContain(idle);
+  });
+
+  it("takes a branch whose request was merged by squash, and asks the host only while the rule is on", async () => {
+    const asked: string[] = [];
+    const { repo, storage, tauWorktree } = await fixture(async (path) => { asked.push(path); return "merged"; });
+    const squashed = await tauWorktree("squashed");
+    await writeFile(join(squashed, "work.txt"), "work\n");
+    git(squashed, "add", "work.txt");
+    git(squashed, "commit", "-qm", "work");
+    // The pushed branch still holds the commits; the default branch has only the squash.
+    git(repo, "branch", "pushed-copy", "squashed");
+    const verdict = async () => (await storage.report({ sizes: false })).worktrees.find((tree) => tree.path === squashed)?.verdict;
+    expect(await verdict()).toEqual({ remove: false, reasons: [], blockers: [] });
+    expect(asked).toEqual([]);
+    await storage.setPolicy({ rules: { onMerge: true } });
+    expect(await verdict()).toEqual({ remove: true, reasons: ["merged"], blockers: [] });
+    expect(asked).toEqual([squashed]);
   });
 
   it("leaves worktrees Tau did not record or that lie outside the worktrees folder", async () => {
