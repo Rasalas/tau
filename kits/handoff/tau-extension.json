@@ -1,0 +1,15 @@
+{
+  "id": "tau.handoff",
+  "name": "Handoff",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.11.0"
+  },
+  "permissions": [
+    "sessions"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}
