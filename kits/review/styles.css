@@ -87,7 +87,7 @@
 .pr-number:hover { text-decoration: underline; }
 .pr-number.state-open, .pr-state.state-open { color: var(--ready); }
 .pr-number.state-draft, .pr-state.state-draft { color: var(--muted); }
-.pr-number.state-merged, .pr-state.state-merged { color: var(--info-ink); }
+.pr-number.state-merged, .pr-state.state-merged { color: var(--merged); }
 .pr-number.state-closed, .pr-state.state-closed { color: var(--removed); }
 .pr-state { font: 10px var(--mono); }
 .pr-head-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 600; }
@@ -334,7 +334,7 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-row-glyphs { position: relative; flex: none; width: 16px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 2px; }
 .pr-glyph.open { color: var(--ready); }
 .pr-glyph.draft { color: var(--muted); }
-.pr-glyph.merged { color: var(--info-ink); }
+.pr-glyph.merged { color: var(--merged); }
 .pr-glyph.closed { color: var(--removed); }
 .pr-row-conflict { position: absolute; top: 9px; right: -3px; display: inline-flex; border-radius: 50%; background: var(--stage); color: var(--warn); }
 .pr-row-checks { display: inline-flex; color: var(--faint); }
