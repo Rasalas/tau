@@ -37,28 +37,9 @@
 .files-error { color: var(--danger); }
 .files-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-/* The editor: a transparent textarea over the highlighted <pre>, one font and one box for both. */
-.files-code { flex: 1; min-height: 0; overflow: auto; cursor: text; background: var(--stage); font: 12px/1.75 var(--mono); }
-.files-code-grid { display: grid; grid-template-columns: max-content 1fr; min-width: max-content; min-height: 100%; }
-.files-code-gutter {
-  position: sticky; left: 0; z-index: 1; margin: 0; padding: 12px 12px 12px 16px;
-  text-align: right; color: var(--fainter); user-select: none;
-  background: var(--stage); border-right: 1px solid var(--line-soft);
-  font: inherit;
-}
-.files-code-body { position: relative; min-width: 0; }
-.files-code-text,
-.files-code-input {
-  margin: 0; padding: 12px 24px 12px 16px; border: 0;
-  font: inherit; letter-spacing: normal; white-space: pre; tab-size: 4; overflow-wrap: normal;
-}
-.files-code-text { color: var(--ink-2); pointer-events: none; }
-.files-code-input {
-  position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: hidden;
-  background: transparent; color: transparent; caret-color: var(--ink); outline: none;
-}
-.files-code-input::selection { background: color-mix(in srgb, var(--acid) 28%, transparent); color: transparent; }
-.files-code-input[readonly] { caret-color: transparent; }
+/* The editor: CodeMirror fills the body; its colours come from Tau's tokens in editor-theme.ts. */
+.files-code { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--stage); }
+.files-code > .cm-editor { flex: 1; min-height: 0; }
 
 .files-markdown { flex: 1; min-height: 0; overflow: auto; padding: 20px 28px 40px; }
 .files-markdown > .markdown { max-width: 860px; margin: 0 auto; color: var(--ink-prose); }

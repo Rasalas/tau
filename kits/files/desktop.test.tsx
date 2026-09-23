@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { language } from "@codemirror/language";
+import { EditorView } from "@codemirror/view";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StageTab, StageTabHandle, UiEditor, UiFileContent, UiFileWriteResult, WorkbenchActions } from "tau";
@@ -7,6 +9,27 @@ import { useAppKeybindings } from "../../src/renderer/test-support/kit-harness.j
 import filesExtension from "./desktop.js";
 import type { WorkspaceStoreLike } from "./kit.js";
 import { FILE_EDITOR_TAB, FILES_KIT_ID, WORKSPACE_STORE_SERVICE } from "./protocol.js";
+
+// jsdom lays out no text; CodeMirror measures it anyway.
+Range.prototype.getClientRects ??= function getClientRects() { return [] as unknown as DOMRectList; };
+Range.prototype.getBoundingClientRect ??= function getBoundingClientRect() { return new DOMRect(); };
+
+const mac = /mac/iu.test(navigator.platform);
+const mod = { ctrlKey: !mac, metaKey: mac };
+
+/** The CodeMirror view behind an editor tab, found by its accessible name. */
+async function findEditor(path: string) {
+  const content = await screen.findByLabelText(`Contents of ${path}`);
+  const view = EditorView.findFromDOM(content);
+  if (!view) throw new Error(`no editor for ${path}`);
+  return {
+    content,
+    view,
+    text: () => view.state.doc.toString(),
+    /** Types the whole text over, as a user edit. */
+    replace: (text: string) => act(() => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, userEvent: "input" }); }),
+  };
+}
 
 afterEach(() => {
   cleanup();
@@ -76,13 +99,13 @@ function handle(): StageTabHandle & { dirty: boolean[]; closers: Array<() => voi
 
 function setup(files: Record<string, string>, actionsPatch: Partial<WorkbenchActions> = {}) {
   const host = fakeHost(files);
-  const { registry } = createKitHarness(host.invoke);
+  const { registry, preferences } = createKitHarness(host.invoke);
   const store = workspaceStore();
   registry.activate(filesExtension);
   registry.activate({ id: "test.workspace", name: "Workspace stand-in", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, store); } });
   const kind = registry.getStageTabKind(FILE_EDITOR_TAB)!;
   const actions = { notify: vi.fn(), closeStageTab: vi.fn(), openStageTab: vi.fn(() => "tab"), ...actionsPatch } as unknown as WorkbenchActions;
-  return { host, registry, store, kind, actions };
+  return { host, registry, preferences, store, kind, actions };
 }
 
 describe("Files Kit", () => {
@@ -91,10 +114,10 @@ describe("Files Kit", () => {
     const shown: StageTab = { kind: "extension", id: tab.id, preview: false, tabKind: FILE_EDITOR_TAB, params: { path: "notes.md" }, title: "notes.md" };
     const { host, kind, actions, store, registry } = setup({ "notes.md": "# Notes\n" }, { activeStageTab: () => shown });
     render(<>{kind.render({ path: "notes.md" }, tab, actions)}</>);
-    const field = await screen.findByLabelText("Contents of notes.md") as HTMLTextAreaElement;
-    expect(field.value).toBe("# Notes\n");
+    const editor = await findEditor("notes.md");
+    expect(editor.text()).toBe("# Notes\n");
 
-    fireEvent.change(field, { target: { value: "# Notes\nmore\n" } });
+    editor.replace("# Notes\nmore\n");
     expect(tab.dirty.at(-1)).toBe(true);
     expect(screen.getByText("Unsaved")).toBeTruthy();
 
@@ -105,8 +128,8 @@ describe("Files Kit", () => {
       context.registerKeybinding({ keys: "mod+s", commandId: "stash", when: "!terminalFocus" });
     } });
     renderHook(() => useAppKeybindings(registry, actions, vi.fn()));
-    field.focus();
-    fireEvent.keyDown(field, { key: "s", ctrlKey: !/mac/iu.test(navigator.platform), metaKey: /mac/iu.test(navigator.platform) });
+    editor.content.focus();
+    fireEvent.keyDown(editor.content, { key: "s", ...mod });
     expect(stash).not.toHaveBeenCalled();
 
     await waitFor(() => expect(host.writes).toEqual([{ relPath: "notes.md", text: "# Notes\nmore\n", expectedMtimeMs: 1_000 }]));
@@ -118,28 +141,79 @@ describe("Files Kit", () => {
     const { host, kind, actions } = setup({ "notes.md": "one\n" });
     const tab = handle();
     render(<>{kind.render({ path: "notes.md" }, tab, actions)}</>);
-    const field = await screen.findByLabelText("Contents of notes.md") as HTMLTextAreaElement;
-    fireEvent.change(field, { target: { value: "mine\n" } });
+    const editor = await findEditor("notes.md");
+    editor.replace("mine\n");
     host.touch("notes.md", "theirs\n");
     await act(async () => { window.dispatchEvent(new Event("focus")); });
 
     expect(await screen.findByText(/changed on disk while you were editing it/u)).toBeTruthy();
     expect((screen.getByRole("button", { name: /^Save/u }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
-    await waitFor(() => expect((screen.getByLabelText("Contents of notes.md") as HTMLTextAreaElement).value).toBe("theirs\n"));
+    await waitFor(() => expect(editor.text()).toBe("theirs\n"));
     expect(screen.queryByText(/changed on disk/u)).toBeNull();
+    // The keyboard goes back to the text, so mod+s still saves here.
+    await waitFor(() => expect(document.activeElement).toBe(editor.content));
   });
 
   it("writes over the disk's version only when the user keeps theirs", async () => {
     const { host, kind, actions } = setup({ "notes.md": "one\n" });
     render(<>{kind.render({ path: "notes.md" }, handle(), actions)}</>);
-    const field = await screen.findByLabelText("Contents of notes.md") as HTMLTextAreaElement;
-    fireEvent.change(field, { target: { value: "mine\n" } });
+    (await findEditor("notes.md")).replace("mine\n");
     host.touch("notes.md", "theirs\n");
     await act(async () => { window.dispatchEvent(new Event("focus")); });
     fireEvent.click(await screen.findByRole("button", { name: "Keep my version" }));
     fireEvent.click(screen.getByRole("button", { name: /^Save/u }));
     await waitFor(() => expect(host.writes.at(-1)).toEqual({ relPath: "notes.md", text: "mine\n", expectedMtimeMs: 1_050 }));
+  });
+
+  it("keeps the editor's own chords: mod+f searches, mod+d adds a cursor, Escape stops nothing", async () => {
+    const { kind, actions, registry } = setup({ "src/a.ts": "one two one\n" });
+    const abort = vi.fn();
+    const review = vi.fn();
+    registry.activate({ id: "test.core", name: "Core stand-in", activate: (context) => {
+      context.registerCommand({ id: "abort", label: "Stop", group: "Test", run: abort });
+      context.registerKeybinding({ keys: "escape", commandId: "abort" });
+      context.registerCommand({ id: "review", label: "Review", group: "Test", run: review });
+      context.registerKeybinding({ keys: "mod+d", commandId: "review", when: "!terminalFocus" });
+    } });
+    renderHook(() => useAppKeybindings(registry, actions, vi.fn()));
+    render(<>{kind.render({ path: "src/a.ts" }, handle(), actions)}</>);
+    const editor = await findEditor("src/a.ts");
+    editor.content.focus();
+
+    fireEvent.keyDown(editor.content, { key: "f", ...mod });
+    const query = await screen.findByRole("textbox", { name: "Find" });
+    fireEvent.keyDown(query, { key: "Escape" });
+    expect(document.querySelector(".cm-search")).toBeNull();
+
+    act(() => { editor.view.dispatch({ selection: { anchor: 0, head: 3 } }); });
+    fireEvent.keyDown(editor.content, { key: "d", ...mod });
+    expect(editor.view.state.selection.ranges.map((range) => [range.from, range.to])).toEqual([[0, 3], [8, 11]]);
+    expect(review).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(editor.content, { key: "Escape" });
+    fireEvent.keyDown(editor.content, { key: "Escape" });
+    expect(editor.view.state.selection.ranges).toHaveLength(1);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("wraps long lines from the header switch, for every file and in Settings", async () => {
+    const { kind, actions, preferences } = setup({ "src/a.ts": "const a = 1;\n" });
+    render(<>{kind.render({ path: "src/a.ts" }, handle(), actions)}</>);
+    const editor = await findEditor("src/a.ts");
+    expect(editor.content.classList.contains("cm-lineWrapping")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Enable word wrap" }));
+    await waitFor(() => expect(editor.content.classList.contains("cm-lineWrapping")).toBe(true));
+    expect(screen.getByRole("button", { name: "Disable word wrap" }).getAttribute("aria-pressed")).toBe("true");
+    expect(preferences.optionValue(FILES_KIT_ID, "wordWrap", false)).toBe(true);
+  });
+
+  it("opens on the line it was asked for, with the TypeScript mode", async () => {
+    const { kind, actions } = setup({ "src/a.ts": "const a = 1;\nconst b = 2;\nfunction c() {\n  return 3;\n}\n" });
+    render(<>{kind.render({ path: "src/a.ts", line: 3 }, handle(), actions)}</>);
+    const editor = await findEditor("src/a.ts");
+    await waitFor(() => expect(editor.view.state.doc.lineAt(editor.view.state.selection.main.head).number).toBe(3));
+    await waitFor(() => expect(editor.view.state.facet(language)?.name).toBe("typescript"));
   });
 
   it("shows Markdown rendered or as source, and remembers the choice", async () => {
@@ -218,8 +292,7 @@ describe("Files Kit", () => {
     registry.dispatchWorkbenchEvent({ type: "workspace-changed", from: "/repo", to: "/other" });
     cleanup();
     render(<>{kind.render({ path: "notes.md" }, tab, actions)}</>);
-    const field = await screen.findByLabelText("Contents of notes.md") as HTMLTextAreaElement;
-    fireEvent.change(field, { target: { value: "two\n" } });
+    (await findEditor("notes.md")).replace("two\n");
     expect(tab.dirty.at(-1)).toBe(true);
     expect(tab.closers).toHaveLength(1);
   });
@@ -228,12 +301,11 @@ describe("Files Kit", () => {
     const { registry, kind, actions, store, host } = setup({ "notes.md": "one\n" });
     const tab = handle();
     render(<>{kind.render({ path: "notes.md" }, tab, actions)}</>);
-    const field = await screen.findByLabelText("Contents of notes.md") as HTMLTextAreaElement;
-    fireEvent.change(field, { target: { value: "unsaved\n" } });
+    (await findEditor("notes.md")).replace("unsaved\n");
     cleanup();
     tab.closers.forEach((close) => close());
     render(<>{kind.render({ path: "notes.md" }, handle(), actions)}</>);
-    expect(((await screen.findByLabelText("Contents of notes.md")) as HTMLTextAreaElement).value).toBe("one\n");
+    expect((await findEditor("notes.md")).text()).toBe("one\n");
     expect(host.invoke).toHaveBeenCalled();
 
     registry.deactivate(FILES_KIT_ID);

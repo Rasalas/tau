@@ -86,6 +86,16 @@ Inside the model picker, `mod+1` … `mod+9` choose a numbered model and
 picker handles those keys itself. Without Thread Rail, Workspace Kit binds
 `mod+shift+s` to its own "Settle thread".
 
+Inside Files Kit's editor, CodeMirror's own chords come first: `mod+f` opens
+search and replace, `mod+g` / `mod+shift+g` step through matches, `mod+d`
+selects the next occurrence (not the review), `mod+alt+arrowup` /
+`arrowdown` add a cursor (not thread navigation), `mod+i` selects the
+enclosing syntax node, `mod+[` / `mod+]` indent, and the fold chords are
+`mod+alt+[` / `mod+alt+]` on macOS and `ctrl+shift+[` / `]` elsewhere. `mod+s`
+still saves, Escape closes the search or drops extra cursors and never stops
+the run, and chords the editor does not use (`mod+k`, `mod+w`, `mod+p`, …)
+reach the workbench as usual.
+
 ## Where Tau differs from T3 Code
 
 - T3 Code scopes most global chords with `!terminalFocus`. Tau does that only

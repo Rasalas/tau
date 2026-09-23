@@ -1,13 +1,13 @@
-import { Code2, Eye, Save, Table2 } from "lucide-react";
+import { Code2, Eye, Save, Table2, WrapText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { errorMessage, getClientStorage, Markdown, type StageTabHandle, type UiSharedFile, type WorkbenchActions } from "tau";
 import { CodeEditor } from "./code-editor.js";
 import { parseDelimited } from "./delimited.js";
 import type { FileDocument } from "./document.js";
 import { fileViewKind, RENDERED_BY_DEFAULT, renderedMode, renderedToggleLabel, tableDelimiter, type RenderedMode } from "./file-kind.js";
-import { kit, type WorkspaceStoreLike } from "./kit.js";
+import { kit, WRAP_OPTION, wrapLines, type WorkspaceStoreLike } from "./kit.js";
 import { OpenInPicker } from "./open-in.js";
-import type { FileEditorParams } from "./protocol.js";
+import { FILES_KIT_ID, type FileEditorParams } from "./protocol.js";
 
 /** How often the tab on screen asks whether the disk moved on. */
 export const CHECK_INTERVAL_MS = 2_000;
@@ -48,6 +48,14 @@ function readRendered(mode: RenderedMode): boolean {
 /** A client without storage keeps the choice for this tab only. */
 function writeRendered(mode: RenderedMode, rendered: boolean): void {
   getClientStorage()?.set(RENDERED_KEY, JSON.stringify({ ...readStoredRendered(), [mode]: rendered }));
+}
+
+const noPreferences = () => () => undefined;
+
+/** The wrap switch, shared by every editor tab and Settings. */
+function useWrapLines(): boolean {
+  const preferences = kit.current?.preferences;
+  return useSyncExternalStore(preferences?.subscribe ?? noPreferences, () => preferences ? wrapLines(preferences) : false);
 }
 
 function useWorkspaceStore(): WorkspaceStoreLike | undefined {
@@ -181,7 +189,8 @@ export function FileEditorTab({ params, handle, actions, document }: {
   const name = fileName(params.path);
   const root = useRef<HTMLDivElement>(null);
   // A banner button that goes away must not take the keyboard with it: ⌘S belongs to this tab.
-  const refocus = () => requestAnimationFrame(() => (root.current?.querySelector<HTMLElement>(".files-code-input") ?? root.current)?.focus());
+  const refocus = () => requestAnimationFrame(() => (root.current?.querySelector<HTMLElement>(".cm-content") ?? root.current)?.focus());
+  const wrap = useWrapLines();
 
   useEffect(() => { handle.setTitle(name); }, [handle, name]);
 
@@ -204,12 +213,16 @@ export function FileEditorTab({ params, handle, actions, document }: {
   };
 
   const content = state.content;
-  const showsText = state.status === "ready" && content?.kind === "text";
+  // A reload keeps the editor, and with it the scroll position and the undo history.
+  const reloading = state.status === "loading" && content?.kind === "text";
+  const showsText = (state.status === "ready" || reloading) && content?.kind === "text";
   const meta = content ? formatBytes(content.size) : undefined;
   const status = statusText(state);
+  const showsSource = showsText && !(mode && rendered);
+  const wrapLabel = wrap ? "Disable word wrap" : "Enable word wrap";
 
   let body: ReactNode;
-  if (state.status === "loading") {
+  if (state.status === "loading" && !reloading) {
     body = <div className="stage-empty" role="status">Loading…</div>;
   } else if (state.status === "error") {
     body = <div className="stage-empty" role="alert">{state.error}</div>;
@@ -227,9 +240,10 @@ export function FileEditorTab({ params, handle, actions, document }: {
   } else {
     body = <CodeEditor
       text={state.text}
-      {...(content?.language ? { language: content.language } : {})}
+      path={params.path}
       label={`Contents of ${params.path}`}
-      readOnly={!state.editable}
+      readOnly={!state.editable || reloading}
+      wrap={wrap}
       {...(params.line ? { line: params.line } : {})}
       onChange={(text) => document.edit(text)}
       onCaretLine={(line) => { caretLine.current = line; }}
@@ -251,6 +265,14 @@ export function FileEditorTab({ params, handle, actions, document }: {
         title={renderedToggleLabel(mode, rendered)}
         onClick={toggleRendered}
       ><RenderedIcon mode={mode} rendered={rendered} /></button> : null}
+      {showsSource ? <button
+        type="button"
+        className="icon-button files-action"
+        aria-label={wrapLabel}
+        aria-pressed={wrap}
+        title={wrapLabel}
+        onClick={() => kit.current?.preferences.setOption(FILES_KIT_ID, WRAP_OPTION, !wrap)}
+      ><WrapText size={14} /></button> : null}
       {state.editable ? <button
         type="button"
         className="text-button files-save"

@@ -4,7 +4,7 @@ import type { FileDocument } from "./document.js";
 import { DocumentRegistry } from "./documents.js";
 import { fileEditorParams, fileName, FileEditorTab, MediaTab, saveDocument } from "./editor-tab.js";
 import { fileViewKind } from "./file-kind.js";
-import { AUTOSAVE_OPTION, autosaveDelay, kit, workspaceRelative, type WorkspaceStoreLike } from "./kit.js";
+import { AUTOSAVE_OPTION, autosaveDelay, kit, WRAP_OPTION, workspaceRelative, type WorkspaceStoreLike } from "./kit.js";
 import { createFilesHost, FILE_EDITOR_TAB, FILES_KIT_ID, WORKSPACE_STORE_SERVICE, type FileEditorParams } from "./protocol.js";
 
 /** Which document each tab's dot follows; a handle lives as long as its tab. */
@@ -53,6 +53,7 @@ export const filesExtension: DesktopExtension = {
 
     context.registerOptions([
       { id: AUTOSAVE_OPTION, kind: "toggle", label: "Save edited files automatically after a second", defaultValue: false },
+      { id: WRAP_OPTION, kind: "toggle", label: "Wrap long lines in the editor", defaultValue: false },
     ]);
 
     context.registerStageTab<FileEditorParams>({
