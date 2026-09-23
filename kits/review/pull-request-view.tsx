@@ -1,14 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, ExternalLink, GitBranch, MessageSquare, MessageSquarePlus, Pencil, RefreshCw, SquarePlus } from "lucide-react";
-import { errorMessage, type StageTabHandle, type WorkbenchActions } from "tau";
-import type { ComposerContextChips, PullRequestCheck, PullRequestDetail, PullRequestFile, PullRequestFiles, PullRequestThread } from "./protocol.js";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Check, Copy, ExternalLink, GitBranch, Link2, Link2Off, MessageSquare, MessageSquarePlus, Pencil, RefreshCw, SquarePlus } from "lucide-react";
+import { errorMessage, type PreferencesStore, type StageTabHandle, type WorkbenchActions } from "tau";
+import type { PendingReviewStore } from "./pending-review.js";
+import { REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { PullRequestCode } from "./pull-request-code.js";
 import { asReviewRequest, checksRollup, checksSummary, hostName, relativeTime, shortNoun, timelineCounts, type PullRequestTabParams } from "./pull-request-logic.js";
-import { handOver, ReplyBox, RollupIcon } from "./pull-request-parts.js";
+import { handOver, RollupIcon } from "./pull-request-parts.js";
 import { PullRequestSummary } from "./pull-request-summary.js";
+import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
 import type { RowRequests } from "./requests.js";
+import type { ThreadLinkRows } from "./thread-links-store.js";
+
+/** The Review Kit option the local review reads too: one whitespace choice for every diff. */
+export const WHITESPACE_OPTION_ID = "diff-ignore-whitespace";
+
+/** What the view shares with the rest of the kit: the thread's links, held review comments and the options. */
+export interface PullRequestViewShared {
+  links: ThreadLinkRows;
+  pending: PendingReviewStore;
+  preferences: PreferencesStore;
+}
 
 /** The detail and checks are read again this often while the tab is on screen and the window visible. */
 const POLL_MS = 60_000;
@@ -120,15 +133,28 @@ function useCopied(): [string | undefined, (key: string) => void] {
   return [copied, setCopied];
 }
 
-export function PullRequestView({ params, handle, actions, client, chips, rows }: {
+export function PullRequestView({ params, handle, actions, client, chips, rows, shared }: {
   params: PullRequestTabParams;
   handle: StageTabHandle;
   actions: WorkbenchActions;
   client: PullRequestClient;
   chips(): ComposerContextChips | undefined;
   rows: RowRequests;
+  shared: PullRequestViewShared;
 }) {
   const { data, setData, refresh, loadThreads, loadFiles, loadDetail, markViewed } = usePullRequest(client, params.url);
+  const pending = useSyncExternalStore(shared.pending.subscribe, () => shared.pending.comments(params.url));
+  useSyncExternalStore(shared.preferences.subscribe, shared.preferences.getSnapshot, shared.preferences.getSnapshot);
+  const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
+  const thread = actions.activeThread();
+  const threadId = thread?.sessionId;
+  const links = useSyncExternalStore(shared.links.subscribe, () => shared.links.get(threadId));
+  useEffect(() => { if (threadId) shared.links.ensure(threadId); }, [shared.links, threadId]);
+  const linked = links.some((link) => link.url === params.url);
+  const candidates = useMemo(() => {
+    let read: ReturnType<PullRequestClient["candidates"]> | undefined;
+    return () => (read ??= client.candidates(params.url).catch((error: unknown) => { read = undefined; throw error; }));
+  }, [client, params.url]);
   const [tab, setTab] = useState<Tab>("summary");
   const [visited, setVisited] = useState<ReadonlySet<Tab>>(() => new Set(["summary"]));
   const [oldestFirst, setOldestFirst] = useState(false);
@@ -165,6 +191,34 @@ export function PullRequestView({ params, handle, actions, client, chips, rows }
   const update = useCallback(async (input: { title?: string; body?: string }) => {
     setData({ detail: await client.update(params.url, input) });
   }, [client, params.url, setData]);
+
+  const canEdit = useCallback((target: PullRequestComment) => Boolean(data.detail?.viewer) && target.author.login.toLowerCase() === data.detail!.viewer!.toLowerCase(), [data.detail]);
+  const editComment = useCallback(async (target: PullRequestComment, body: string) => {
+    await client.editComment(params.url, target, body);
+    void loadThreads(true);
+    void loadDetail(true);
+  }, [client, loadDetail, loadThreads, params.url]);
+  const resolve = useCallback(async (target: PullRequestThread, resolved: boolean) => {
+    setData({ threads: await client.resolve(params.url, target.id, resolved) });
+  }, [client, params.url, setData]);
+  const review = useCallback(async (event: PullRequestReviewEvent, body: string) => {
+    const next = await client.review(params.url, { event, body, comments: shared.pending.comments(params.url) });
+    shared.pending.clear(params.url);
+    setData({ detail: next });
+    void loadThreads(true);
+  }, [client, loadThreads, params.url, setData, shared.pending]);
+
+  const toggleLink = async () => {
+    if (!threadId) return;
+    try {
+      if (linked) await client.unlink(threadId, params.url);
+      else await client.link(threadId, params.url, thread?.cwd);
+      await shared.links.load(threadId);
+      actions.notify(linked ? `Unlinked #${params.number} from this thread.` : `Linked #${params.number} to this thread.`);
+    } catch (error) {
+      actions.notify(errorMessage(error));
+    }
+  };
 
   const copy = (key: string, value: string) => {
     void actions.copyText(value).then(() => setCopied(key), (error: unknown) => actions.notify(errorMessage(error)));
@@ -208,6 +262,11 @@ export function PullRequestView({ params, handle, actions, client, chips, rows }
           <button className="icon-button compact" aria-label={`Add ${noun} #${detail.ref.number} to the composer`} title="Add to the composer" onClick={() => handOver({ kind: "pull-request", payload: { number: detail.ref.number, title: detail.title, url: detail.ref.url, ...(detail.headRef ? { branch: detail.headRef } : {}) } }, chips(), actions)}>
             <SquarePlus size={13} />
           </button>
+          {threadId ? (
+            <button className={`icon-button compact ${linked ? "active" : ""}`} aria-label={linked ? "Unlink from this thread" : "Link to this thread"} aria-pressed={linked} title={linked ? "Linked to this thread · click to unlink" : "Link to this thread"} onClick={() => void toggleLink()}>
+              {linked ? <Link2Off size={13} /> : <Link2 size={13} />}
+            </button>
+          ) : null}
           <button className="icon-button compact" aria-label="Copy link" title="Copy link" onClick={() => copy("link", detail.ref.url)}>
             {copied === "link" ? <Check size={13} /> : <Copy size={13} />}
           </button>
@@ -295,6 +354,11 @@ export function PullRequestView({ params, handle, actions, client, chips, rows }
               onSaveBody={(body) => update({ body })}
               onRetry={() => void loadThreads(true)}
               onOpenPath={(path) => { setFocusPath(path); open("code"); }}
+              canEdit={canEdit}
+              onEdit={editComment}
+              onReviewers={async (change) => { setData({ detail: await client.reviewers(params.url, change) }); }}
+              onLabels={async (change) => { setData({ detail: await client.labels(params.url, change) }); }}
+              candidates={candidates}
             />
           </div>
         ) : null}
@@ -316,25 +380,32 @@ export function PullRequestView({ params, handle, actions, client, chips, rows }
               onViewed={async (path, viewed) => markViewed(path, await client.viewed(params.url, path, viewed))}
               onComment={comment}
               onSend={(chip) => handOver(chip, chips(), actions)}
+              ignoreWhitespace={ignoreWhitespace}
+              onIgnoreWhitespace={(ignore) => shared.preferences.setOption(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, ignore)}
+              reviewComments={pending}
+              onPend={(held) => shared.pending.add(params.url, held)}
+              onRemovePending={(id) => shared.pending.remove(params.url, id)}
+              onResolve={resolve}
+              canEdit={canEdit}
+              onEdit={editComment}
             />
           </div>
         ) : null}
       </div>
 
       {composing ? (
-        <div className="pr-composer" role="dialog" aria-label={`Comment on ${noun} #${detail.ref.number}`}>
-          <strong>Comment on {params.service === "gitlab" ? "merge" : "pull"} request</strong>
-          <ReplyBox
-            label="Comment"
-            placeholder="Leave a comment"
-            submitLabel="Comment"
-            onSubmit={async (text) => { await comment({ body: text }); setComposing(false); actions.notify(`Commented on ${noun} #${detail.ref.number}.`); }}
-            onCancel={() => setComposing(false)}
-          />
-        </div>
+        <ReviewComposer
+          service={params.service}
+          pending={pending}
+          onRemovePending={(id) => shared.pending.remove(params.url, id)}
+          onComment={async (text) => { await comment({ body: text }); setComposing(false); actions.notify(`Commented on ${noun} #${detail.ref.number}.`); }}
+          onReview={async (event, text) => { await review(event, text); setComposing(false); actions.notify(`Review submitted on ${noun} #${detail.ref.number}.`); }}
+          onCancel={() => setComposing(false)}
+        />
       ) : (
-        <button className="pr-comment-fab" aria-label={`Comment on ${noun} #${detail.ref.number}`} title="Comment" onClick={() => setComposing(true)}>
+        <button className="pr-comment-fab" aria-label={`Comment on or review ${noun} #${detail.ref.number}`} title={pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review"} onClick={() => setComposing(true)}>
           <MessageSquarePlus size={15} />
+          {pending.length > 0 ? <span className="pr-fab-count">{pending.length}</span> : null}
         </button>
       )}
     </div>
