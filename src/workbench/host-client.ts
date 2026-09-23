@@ -1,3 +1,4 @@
+import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu";
 import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
@@ -123,6 +124,8 @@ export interface HostClient {
   showNotification(notification: SystemNotification): Promise<SystemNotificationOutcome>;
   /** The count on the client's app icon; 0 clears it. */
   setBadge(count: number): Promise<void>;
+  /** A menu the client's OS draws at a point of the window; the chosen id, or undefined. Refused where none is drawn. */
+  showContextMenu(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
   /**
    * Whether the host announced a capability in its hello. `local-files` means
@@ -243,6 +246,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     copyImage: (dataUrl) => call<void>("copy-image", [dataUrl]),
     showNotification: (notification) => call<SystemNotificationOutcome>("notify", [notification]),
     setBadge: (count) => call<void>("set-badge", [count]),
+    showContextMenu: async (entries, point) => (await call<{ id?: string } | undefined>("context-menu", [entries, point]))?.id,
     onHostEvent: (listener) => connection.onEvent(listener),
     hasCapability: connection.hasCapability,
     getConnectionState: connection.getState,

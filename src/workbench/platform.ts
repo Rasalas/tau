@@ -1,6 +1,7 @@
 import type { ClientStorage } from "./client-storage";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { UiSharedFile } from "../shared/contracts";
+import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu";
 
 export type { SystemNotification, SystemNotificationOutcome };
 
@@ -49,4 +50,12 @@ export interface Platform {
   importModule(url: string): Promise<unknown>;
   /** Absent where the client can reach the user only inside its own page. */
   attention?: PlatformAttention;
+  /**
+   * A right-click menu the OS draws at a point of the page, answering the
+   * chosen id or undefined. Absent — or refusing — where the client has none;
+   * the page then draws its own.
+   */
+  contextMenu?: {
+    show(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
+  };
 }

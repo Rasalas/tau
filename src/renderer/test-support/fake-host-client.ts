@@ -85,6 +85,8 @@ function defaults(): HostClient {
     copyImage: async () => undefined,
     showNotification: async () => "dismissed",
     setBadge: async () => undefined,
+    // Refused like a client without native menus, so right-clicks fall back to the page's own menu.
+    showContextMenu: async () => { throw Object.assign(new Error("No native menus in tests."), { code: "unsupported" }); },
     onHostEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
