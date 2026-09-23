@@ -79,6 +79,23 @@ newer `latest` comes from seeding the kit's registry cache before the start,
 and `TAU_VERSION_POLICY='{"codex":{"ranges":[]}}'` keeps the policy banner out
 of the way.
 
+### Release notes without a release
+
+The notes a new version shows once come from GitHub in an installed Tau. Start
+an instance with `TAU_RELEASE_NOTES_FILE=<abs path>` (a Markdown body, the way
+GitHub writes one) and it reads that file instead and fetches nothing. The
+notes are due when `.tau-dev/userdata/release-notes.json` names an older
+`lastVersion` than the running one: stop the instance, write
+`{"version":1,"lastVersion":"0.0.1"}` there, and start it again without
+`--fresh`.
+
+### What CDP keys do not reach
+
+`npm run cdp -- press` goes to the page. The app menu's accelerators (zoom,
+Paste as Text) and the window's `before-input-event` (the ⌘Q hold) never see
+it; drive those from the main process (`webContents.sendInputEvent`, a menu
+item's `click`) or leave them to the unit tests.
+
 ## Keeping an instance alive across turns
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.

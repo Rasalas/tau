@@ -280,10 +280,18 @@ answers — `copy-text`, `copy-image`, `read-image-preview`, `share-file`,
 `relaunch-workbench`, `install-update`, `notify` and `set-badge`, the
 notification and the app icon's count the OS draws for the window, and
 `context-menu`, a right-click menu the OS draws at a point of the page
-(`Menu.popup`; the answer is `{ id }` of the chosen item, or `{}`) — and they
+(`Menu.popup`; the answer is `{ id }` of the chosen item, or `{}`), and
+`window-action`, the page's side of the app around it
+(`src/shared/window-shell.ts`: Paste as Text, the answer to a quit, the
+downloaded update and release notes on load, Check for Updates) — and they
 travel over the window's Electron bridge (`createClientHostMethods`), which
 stays installed beside the socket. Everything else goes to the host, whose
 own table refuses them.
+The window's process speaks to its page with pushes on the same bridge:
+`app-update` and `window-shell` (a menu item the page carries out, the quit
+shortcut's hint, a quit waiting for `answer-quit`). The client forwards those
+two types from its local connection beside the host's pushes and nothing
+else; a quit whose page does not answer within two seconds goes ahead.
 `createHostClient(connection, local)` in the renderer does the routing; a
 window without a local side (the browser client) has one connection and sends
 everything to the host. `copy-thread-markdown` answers with the text rather
