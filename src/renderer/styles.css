@@ -980,7 +980,7 @@ button > svg { pointer-events: none; }
 
 .transcript-card + .live-status, .static-activity-transcript + .live-status { margin-top: 22px; }
 .live-status { display: flex; align-items: center; gap: 10px; }
-.live-status > span { font: 500 12px var(--mono); color: var(--working); }
+.live-status > span { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* --------------------------------------------------------------- tasks */
 
