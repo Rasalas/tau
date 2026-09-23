@@ -99,13 +99,16 @@ export function decodeUiPromptAttachments(channel: string, field: string, value:
 export function decodeNewThreadConfiguration(channel: string, field: string, value: unknown): NewThreadConfiguration | undefined {
   if (value === undefined) return undefined;
   const item = record(channel, field, value);
-  if (item.model === undefined) return {};
+  const thinkingLevel = item.thinkingLevel === undefined ? undefined : decodeString(channel, `${field}.thinkingLevel`, item.thinkingLevel);
+  const level = thinkingLevel ? { thinkingLevel } : {};
+  if (item.model === undefined) return level;
   const model = record(channel, `${field}.model`, item.model);
   return {
     model: {
       provider: decodeString(channel, `${field}.model.provider`, model.provider),
       id: decodeString(channel, `${field}.model.id`, model.id),
     },
+    ...level,
   };
 }
 

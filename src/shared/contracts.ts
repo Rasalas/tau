@@ -425,6 +425,24 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
 export interface NewThreadConfiguration {
   /** An explicit per-thread choice; omitted means use the runtime default. */
   model?: Pick<UiModel, "provider" | "id">;
+  /** The thinking level chosen with it, one the runtime's catalog offers; omitted means its default. */
+  thinkingLevel?: string;
+}
+
+/**
+ * What a runtime offers a thread that does not exist yet, so a draft bound
+ * for it chooses a model and a thinking level before its first prompt.
+ */
+export interface UiRuntimeCatalog {
+  kind: ThreadBackendKind;
+  models: UiModel[];
+  /** What a new thread runs on when nobody chooses. */
+  model?: UiModel;
+  /** The levels each model offers, by model id; the first is the runtime's own default. */
+  thinkingLevels: Record<string, string[]>;
+  runtimeCapabilities?: RuntimeCapabilities;
+  /** Why the models are known only once a thread runs, when they are. */
+  note?: string;
 }
 
 export interface PreparedThreadCapability {

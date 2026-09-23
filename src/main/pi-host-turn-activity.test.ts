@@ -624,9 +624,10 @@ describe("PiHost.generateThreadTitle", () => {
     const host = new PiHost("/repo", () => undefined, {} as never, true, false);
     const thread = makeActivationThread("configured-thread", "/configured.jsonl");
     const selectedModels: Array<{ provider: string; id: string }> = [];
+    const selectedLevels: string[] = [];
     thread.backend.capabilities.catalogWrite = {
       setModel: async (provider: string, id: string) => { selectedModels.push({ provider, id }); },
-      setThinkingLevel: async () => undefined,
+      setThinkingLevel: async (level: string) => { selectedLevels.push(level); },
     };
     mockInternalMethods(host, {
       rememberProject: async () => {},
@@ -645,10 +646,11 @@ describe("PiHost.generateThreadTitle", () => {
       "/repo",
       undefined,
       undefined,
-      { model: { provider: "openai-codex", id: "gpt-6-astra" } },
+      { model: { provider: "openai-codex", id: "gpt-6-astra" }, thinkingLevel: "low" },
     )).resolves.toMatchObject({ submission: { accepted: true }, sessionId: "configured-thread" });
 
     expect(selectedModels).toEqual([{ provider: "openai-codex", id: "gpt-6-astra" }]);
+    expect(selectedLevels).toEqual(["low"]);
   });
 
   it("admits newSession before the lifecycle queue so a later live switch stays visible", async () => {

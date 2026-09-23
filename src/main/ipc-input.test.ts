@@ -114,6 +114,10 @@ describe("ipc-input decoders", () => {
         model: { provider: "openai-codex", id: "gpt-6-astra" },
       })).toEqual({ model: { provider: "openai-codex", id: "gpt-6-astra" } });
       expect(decodeNewThreadConfiguration(CHANNEL, "field", undefined)).toBeUndefined();
+      expect(decodeNewThreadConfiguration(CHANNEL, "field", { model: { provider: "openai", id: "gpt-5.6-luna" }, thinkingLevel: "low" }))
+        .toEqual({ model: { provider: "openai", id: "gpt-5.6-luna" }, thinkingLevel: "low" });
+      expect(decodeNewThreadConfiguration(CHANNEL, "field", { thinkingLevel: "high" })).toEqual({ thinkingLevel: "high" });
+      expect(() => decodeNewThreadConfiguration(CHANNEL, "field", { thinkingLevel: 3 })).toThrow();
       expect(() => decodeNewThreadConfiguration(CHANNEL, "field", { model: { provider: "openai-codex" } })).toThrow();
     });
   });

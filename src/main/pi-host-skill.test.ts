@@ -323,6 +323,32 @@ describe("PiHost skill delivery", () => {
     expect(internals.externalComposerCommands("claude-code", "/repo")).toEqual([{ ...commands[0], skillCommand: "/tdd" }]);
   });
 
+  it("answers a draft's catalog from the backend, with the kind and the adapter's capabilities", async () => {
+    const adapter: AgentRuntimeAdapter = { id: "codex@work", capabilities: { skillInvocationDialect: "codex", fileAttachments: true }, transport: { sendPrompt: vi.fn(async () => ({})) } };
+    const kit: HostExtension = {
+      id: "test.catalog",
+      name: "catalog",
+      permissions: ["runtime:extend"],
+      activate: (context) => context.services.registerRuntimeBackend({
+        kind: "codex@work",
+        adapter,
+        listThreads: async () => [],
+        lookup: async () => undefined,
+        open: () => { throw new Error("unused"); },
+        composerCommands: () => [],
+        newThreadCatalog: async () => ({ models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }], thinkingLevels: { "gpt-5.6-luna": ["default (low)", "low"] } }),
+      }),
+    };
+    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [kit] });
+    await (host as unknown as { activateHostExtensions(): Promise<void> }).activateHostExtensions();
+    await expect(host.runtimeCatalog("codex@work")).resolves.toEqual({
+      kind: "codex@work",
+      models: [{ provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6 Luna" }],
+      thinkingLevels: { "gpt-5.6-luna": ["default (low)", "low"] },
+      runtimeCapabilities: { skillInvocationDialect: "codex", fileAttachments: true },
+    });
+  });
+
   it("prepares a new thread's prompt for the backend the client names", async () => {
     const adapter: AgentRuntimeAdapter = {
       id: "claude-code",
@@ -334,6 +360,9 @@ describe("PiHost skill delivery", () => {
     await internals.activateHostExtensions();
 
     expect(internals.runtimeBackends()).toEqual([{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "claude-code" }]);
+    // Without `newThreadCatalog` a backend offers a draft nothing; Pi's catalog is the snapshot's.
+    await expect(host.runtimeCatalog("claude-code")).resolves.toBeUndefined();
+    await expect(host.runtimeCatalog("pi")).resolves.toBeUndefined();
     await expect(host.preparePrompt("hello", undefined, undefined, "claude-code")).resolves.toMatchObject({ backendKind: "claude-code" });
     await expect(host.preparePrompt("hello")).resolves.toMatchObject({ backendKind: "pi" });
     await expect(host.preparePrompt("hello", undefined, undefined, "acme")).rejects.toThrow(/not installed/u);

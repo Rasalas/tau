@@ -306,6 +306,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       return defaultHostConfigManager.clear(keys, scope, await optionalWorkspace("clear-config", "workspace", params[2]));
     },
     "get-models-config": async () => (await host()).modelsConfig(),
+    "runtime-catalog": async (params) => (await host()).runtimeCatalog(decodeString("runtime-catalog", "kind", params[0])),
     "add-model-provider": async (params) => (await host()).addModelProvider(decodeCustomProviderInput("add-model-provider", "input", params[0])),
     "inspect-system-prompt": async (params) => (await host()).inspectSystemPrompt(
       decodeOptionalString("inspect-system-prompt", "threadId", params[0]),
