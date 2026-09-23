@@ -1313,18 +1313,14 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 
 /* -------------------------------------------------------- command palette */
 
+/* Shared by every overlay that looks like the palette; the palette's own rules
+   load with its chunk (components/command-palette.css). */
 .palette-backdrop {
   position: fixed; inset: 0; z-index: 80;
   background: var(--scrim);
   display: flex; justify-content: center; align-items: flex-start; padding-top: 64px;
 }
 .dialog-backdrop { align-items: center; padding: 24px; }
-.command-palette {
-  width: 560px; max-width: calc(100vw - 48px);
-  border: 1px solid var(--line-float); border-radius: 12px;
-  background: var(--overlay); box-shadow: var(--elevation-3);
-  overflow: hidden; color: var(--ink); animation: fade-up .14s ease;
-}
 .palette-input-wrap {
   display: flex; align-items: center; gap: 11px; height: 52px;
   border-bottom: 1px solid var(--line); padding: 0 16px;
@@ -1339,38 +1335,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
   font: 10px var(--mono); color: var(--faint);
   border: 1px solid var(--line-control); border-radius: 4px; padding: 2px 6px;
 }
-.palette-results { padding: 8px; max-height: 380px; overflow: auto; }
-.palette-results button {
-  width: 100%; display: flex; align-items: center; gap: 10px;
-  border: 0; border-radius: 8px; background: transparent;
-  padding: 9px 10px; cursor: pointer; text-align: left;
-}
-.palette-results button > span {
-  flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--ink-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.palette-results button > small { font: 10px var(--mono); color: var(--faint); flex: none; }
-.palette-results button > span > em { margin-left: 8px; font: 11px var(--mono); font-style: normal; color: var(--muted); }
-.palette-results button > kbd {
-  font: 10px var(--mono); color: var(--muted); flex: none;
-  border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px;
-}
-.palette-results button.selected {
-  border-radius: 0; background: var(--raised); box-shadow: inset 2px 0 var(--acid);
-}
-.palette-results button.selected > span { color: var(--ink); font-weight: 600; }
-.palette-results mark {
-  background: transparent; color: inherit;
-  text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px;
-}
-.palette-results button.selected mark { text-decoration-color: var(--acid-text); }
 .palette-empty { padding: 18px 12px; color: var(--faint); font-size: 12px; }
-.command-palette > footer {
-  display: flex; align-items: center; gap: 14px; height: 36px;
-  border-top: 1px solid var(--line); padding: 0 14px;
-  font: 10px var(--mono); color: var(--faint);
-}
-.command-palette > footer .spacer { flex: 1; }
 
 /* ----------------------------------------------------- extension prompt */
 
