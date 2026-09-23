@@ -165,9 +165,14 @@ describe("thread runtime backends", () => {
     ]);
     expect(backend.catalogView()).toMatchObject({
       model: { provider: "anthropic", id: "claude-opus-5" },
-      usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, costUsd: 0.2, turns: 2 },
+      usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, costUsd: expect.closeTo(0.2, 10) as number, turns: 2 },
       contextUsage: { tokens: 100, contextWindow: 200000 },
     });
+    // Each turn is kept on its own, dated, per model.
+    expect((await store.get("tau-thread"))?.usageTurns).toEqual([
+      expect.objectContaining({ provider: "anthropic", turns: 1, at: expect.any(Number) }),
+      expect.objectContaining({ provider: "anthropic", turns: 1, at: expect.any(Number) }),
+    ]);
     // Beside the model and effort pickers, the plan mode and the word it uses
     // to say a turn was cut short, Claude offers no Pi-shaped capability;
     // every such operation is refused in one place.
@@ -179,7 +184,7 @@ describe("thread runtime backends", () => {
     const restored = new ClaudeThreadRuntimeBackend("tau-thread", "/repo", { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
     await restored.start("resume");
     expect((await restored.transcript()).map((message) => message.text)).toEqual(["\n    preserve this", "Claude: /tdd \n    preserve this", "again", "Claude: again"]);
-    expect(restored.catalogView().usage).toMatchObject({ totalTokens: 220, costUsd: 0.2, turns: 2 });
+    expect(restored.catalogView().usage).toMatchObject({ totalTokens: 220, costUsd: expect.closeTo(0.2, 10) as number, turns: 2 });
     // A name the user or the title generator gave survives a restart; a thread that was never named stays unnamed.
     expect(restored.state().title).toBeUndefined();
     await restored.setTitle("Preserved name", "generated");

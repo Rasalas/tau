@@ -16,6 +16,8 @@ export interface ClaudeProbe {
   /** The model the CLI would pick on its own. */
   defaultModel?: string;
   effort?: string;
+  /** The SDK's usage read, when the probe was asked for it: the plan's windows. */
+  usage?: unknown;
   probedAt: number;
 }
 
@@ -26,6 +28,8 @@ export interface ProbeInput {
   env: NodeJS.ProcessEnv;
   /** Bedrock setups boot slowly; the default leaves them room. */
   timeoutMs?: number;
+  /** Also read the plan's usage windows; nothing on the account changes. */
+  usage?: boolean;
   now?(): number;
 }
 
@@ -129,6 +133,11 @@ export async function probeClaude(input: ProbeInput): Promise<ClaudeProbe> {
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Claude Code did not report its account and models within ${input.timeoutMs ?? 25_000} ms.`)), input.timeoutMs ?? 25_000).unref?.()),
     ]);
     const initFrame = init as { claude_code_version?: string; model?: string; effort?: string | null } | undefined;
+    // Experimental in the SDK: a CLI without it answers no windows rather than failing the probe.
+    const usage = input.usage && probeBilling(result.account) === "subscription"
+      ? await (session as { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (options: { skipBehaviors: boolean }) => Promise<unknown> })
+        .usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?.({ skipBehaviors: true }).catch(() => undefined)
+      : undefined;
     return {
       models: result.models.map(uiModel),
       modelInfos: result.models,
@@ -136,12 +145,19 @@ export async function probeClaude(input: ProbeInput): Promise<ClaudeProbe> {
       ...(initFrame?.claude_code_version ? { claudeCodeVersion: initFrame.claude_code_version } : {}),
       ...(initFrame?.model ? { defaultModel: initFrame.model } : {}),
       ...(initFrame?.effort ? { effort: initFrame.effort } : {}),
+      ...(usage ? { usage } : {}),
       probedAt: now(),
     };
   } finally {
     controller.abort();
     await consumed;
   }
+}
+
+/** What an init frame's `apiKeySource` says of billing: a key is billed per token, anything else is not known from it. */
+export function apiKeyBilling(source: string | undefined): UiModelBilling | undefined {
+  if (!source || source === "none") return undefined;
+  return source === "oauth" ? "subscription" : "api-key";
 }
 
 /** A plan login is the subscription; a key or a cloud provider's account is billed per token. */
