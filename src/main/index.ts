@@ -131,6 +131,7 @@ const hostOptions = {
   threadTrashDir: join(app.getPath("userData"), "thread-trash"),
   sessionLineageCachePath: join(app.getPath("userData"), "session-lineage.json"),
   runtimeCatalogsPath: join(app.getPath("userData"), "runtime-catalogs.json"),
+  warmRuntimeCatalogs: true,
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       const result = await dialog.showOpenDialog(mainWindow!, {

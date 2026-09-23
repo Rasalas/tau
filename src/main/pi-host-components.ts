@@ -655,7 +655,7 @@ function runtimeCatalogs(
       : [])],
     priceBook,
     publish: (catalog) => emit({ type: "runtime-catalog", catalog }),
-    automatic: deps.automaticPrewarm && !deps.safeMode,
+    automatic: options.warmRuntimeCatalogs === true && !deps.safeMode,
     log: (label, detail) => deps.log(label, detail),
     ...(options.runtimeCatalogsPath ? { file: options.runtimeCatalogsPath } : {}),
     ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),

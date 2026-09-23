@@ -42,6 +42,8 @@ export interface PiHostOptions {
   threadTrashDir?: string;
   /** Where every runtime's model catalog is kept between runs; without one it lasts only for this run. */
   runtimeCatalogsPath?: string;
+  /** Asks every runtime for its catalog in the background after start-up; off, only clients make the host ask. */
+  warmRuntimeCatalogs?: boolean;
   /** Where the index keeps which thread spawned which; defaults to memory only. */
   sessionLineageCachePath?: string;
   /**
