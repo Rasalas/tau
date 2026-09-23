@@ -451,6 +451,12 @@ fences. `Component` gets `body` (what stands between the tags), `complete`
 changed, so the block survives a restart wherever the runtime keeps text.
 Plan Kit draws `proposed_plan` as a plan card this way.
 
+`roles` says whose messages the block is drawn in: assistant replies when it
+is absent, `["user"]` for context a prompt carries. A user message draws its
+blocks above the bubble and keeps them out of the text the bubble shows, so a
+long piece of handed-over context reads as one folded card instead of a wall
+of text. Handoff Kit draws `handoff_context` and `merge_back_context` this way.
+
 #### The thread's interaction mode (new in API 1.11.0)
 
 A thread's turns run in a mode: `default`, or one its runtime adds — `plan`
