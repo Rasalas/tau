@@ -78,8 +78,8 @@ in that method's argument order. The host implements them in one table
 (`src/main/host-methods.ts`) which decodes every argument through `ipc-input.ts`;
 a transport only moves frames in and out of it.
 
-A connection opens with `hello { protocol, token?, lastSeq? }`. The reply names
-the host version, its capabilities (`jobs`, `replay`, `local-files`, `heartbeat`), the pushes
+A connection opens with `hello { protocol, token?, lastSeq?, subscription? }`. The reply names
+the host version, its capabilities (`jobs`, `replay`, `local-files`, `heartbeat`, `subscriptions`), the pushes
 the client missed, and `resync: true` when it cannot be repaired from the
 buffer. The host numbers every push and keeps the latest 8 MB of them
 (`HOST_PUSH_BUFFER_BYTES`, the newest push always); a client that sees a
@@ -137,6 +137,63 @@ window's `TAU_DEV_SERVER_URL` is added by itself. The token in the hello stays
 the real gate; the check keeps a page on another site, or an opaque `null`
 origin, from trying one. The socket client stops on 4403 as it does on 4401 and
 shows why.
+
+### Which pushes a client receives
+
+Before subscriptions every push went to every client, so a phone showing one
+thread was sent the tool output of every other thread and every terminal's
+bytes. Now a socket client can say what it shows (`HostSubscription`,
+`src/shared/host-transport.ts`):
+
+```ts
+{ threads: string[]; topics: string[]; requests?: string[] }
+```
+
+- **Everyone** still gets whatever is not about one thread's stream: the
+  thread index and shells, `agent-status`, `run`, catalogs and projects,
+  questions (`extension-ui-prompt`), delivery outcomes
+  (`new-thread-delivery-settled`, `user-message-failed`,
+  `prompt-without-user-turn`), job progress, `event-log` without a thread and
+  extension events without a topic.
+- **Only the threads it names**: `assistant-*`, `user-message`, `tool-*`,
+  `queue`, `notice` and a thread's `error` and `event-log`, the pushed
+  `thread-detail` and the wire events that stand for them
+  (`src/main/host-push-scope.ts`).
+- **Only the topics it names**: an extension event published with a topic,
+  keyed `<extensionId>/<topic>`.
+- **`requests`** are new-thread request ids the client awaits. The detail the
+  host pushes for such a request names the thread before the client knows
+  its id; from that detail on the connection follows the thread (it stays
+  followed after the request is gone, until the client lists or drops it).
+
+A hello without `subscription`, and any client of a host that does not
+announce `subscriptions`, receives every push as before. The `subscribe`
+method (`[HostSubscription | null]`, `null` for every push) replaces the
+subscription and is answered at once, before any push that waited: pushes
+before the answer were filtered by the old one, pushes after it by the new
+one. The first push a connection is sent after skipped ones carries
+`prev`, the last push it was sent, so the client does not count a gap.
+
+A replay is filtered by the hello's `subscription`, and `resync` is asked for
+only when a push that subscription admits fell out of the buffer, so a phone
+whose own thread was quiet reconnects cheaply however much another thread
+streamed. A thread that a `subscribe` adds makes the coalescer send that
+thread's outputs and texts whole again (below), as a client's first hello
+does for all of them.
+
+`HostConnection` (`src/workbench/host-connection.ts`) keeps ref-counted
+watches: `watchThread`, `watchNewThread`, `watchTopic`. After
+`limitToWatched()` it sends the subscription when the watches change, batched
+per microtask and always before its next request, so a thread watched before
+its detail is fetched misses nothing in between. A replay says hello with the
+subscription the host last confirmed (an unanswered `subscribe` may never have
+arrived) and sends the current one after the replay; when the replay cannot
+be repaired it starts over without a subscription, refetches the bootstrap,
+and subscribes again. The workbench limits pushes once its bootstrap is
+applied (`followShownThread`, `src/workbench/shown-thread.ts`), follows the
+active thread, holds the target of a switch while it runs and the request id
+of a `new-session` call. The window's own process subscribes to nothing. The
+Electron IPC transport ignores all of this.
 
 ### Coalescing and tool output deltas
 

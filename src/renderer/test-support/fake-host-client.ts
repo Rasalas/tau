@@ -108,6 +108,10 @@ function defaults(): HostClient {
     getConnectionLink: () => undefined,
     onConnectionLink: () => () => undefined,
     reconnectNow: () => undefined,
+    watchThread: () => () => undefined,
+    watchNewThread: () => () => undefined,
+    watchHostTopic: () => () => undefined,
+    limitPushesToWatched: () => undefined,
     getVersions: () => ({}),
     onVersions: () => () => undefined,
     listConnections: async () => ({ scheme: "ws", endpoints: [], webClient: false, tokenPath: "", links: [], requests: [], clients: [], owners: [] }),
@@ -121,6 +125,10 @@ function defaults(): HostClient {
     rotateHostToken: async () => undefined,
     setNetworkAccess: async () => { throw Object.assign(new Error("No network access in tests."), { code: "unsupported" }); },
     reloadCertificate: async () => ({ changed: false }),
+    // No service unless a test gives one: the section says the host cannot run as one.
+    serviceStatus: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
+    installService: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
+    uninstallService: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),

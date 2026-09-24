@@ -1,9 +1,10 @@
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
-import { askHost, main, parseArgs, readRunningHost, userDataDir } from "./tau.mjs";
+import { defaultUserData } from "../src/main/host-service-units.ts";
+import { askHost, main, parseArgs, readRunningHost, serviceLauncher, userDataDir } from "./tau.mjs";
 
 const cleanups = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map((cleanup) => cleanup())); });
@@ -98,5 +99,61 @@ describe("tau app", () => {
     const folder = await temp();
     await writeFile(join(folder, "file.txt"), "");
     await expect(main(["app", "file.txt"], { cwd: folder, out: () => undefined, env: {} })).rejects.toThrow(/is not a folder/u);
+  });
+});
+
+describe("tau service", () => {
+  it("reads its action", () => {
+    expect(parseArgs(["service", "install"])).toEqual({ command: "service", action: "install" });
+    expect(parseArgs(["service", "status"])).toEqual({ command: "service", action: "status" });
+    expect(parseArgs(["service"])).toEqual({ help: true });
+    expect(() => parseArgs(["service", "start"])).toThrow(/Unknown service action/u);
+    expect(() => parseArgs(["service", "status", "now"])).toThrow(/takes no arguments/u);
+  });
+
+  it("runs the app's service command as Node, for the instance it names", async () => {
+    const runs = [];
+    const code = await main(["service", "status"], {
+      out: () => undefined,
+      env: { TAU_USER_DATA: "/tmp/instance", ELECTRON_RUN_AS_NODE: "0" },
+      serviceLauncher: { command: "/Applications/Tau.app/Contents/MacOS/Tau", entry: "/x/service-cli.js" },
+      runService: (launcher, action, env) => { runs.push({ launcher, action, env }); return 3; },
+    });
+    expect(code).toBe(3);
+    expect(runs).toEqual([{
+      launcher: { command: "/Applications/Tau.app/Contents/MacOS/Tau", entry: "/x/service-cli.js" },
+      action: "status",
+      env: { TAU_USER_DATA: "/tmp/instance", ELECTRON_RUN_AS_NODE: "1" },
+    }]);
+  });
+
+  it("finds the binary of an installed Tau beside its unpacked archive", async () => {
+    const root = await temp();
+    const unpacked = join(root, "Tau.app", "Contents", "Resources", "app.asar.unpacked");
+    await mkdir(join(unpacked, "bin"), { recursive: true });
+    await mkdir(join(unpacked, "dist-electron", "main"), { recursive: true });
+    await mkdir(join(root, "Tau.app", "Contents", "MacOS"), { recursive: true });
+    await writeFile(join(unpacked, "bin", "tau.mjs"), "");
+    await writeFile(join(unpacked, "dist-electron", "main", "service-cli.js"), "");
+    await writeFile(join(root, "Tau.app", "Contents", "MacOS", "Tau"), "");
+    // Homebrew links the command line into its own bin; the link is resolved.
+    await symlink(join(unpacked, "bin", "tau.mjs"), join(root, "tau"));
+    expect(serviceLauncher(join(root, "tau"), "darwin")).toEqual({
+      command: join(root, "Tau.app", "Contents", "MacOS", "Tau"),
+      entry: join(unpacked, "dist-electron", "main", "service-cli.js"),
+    });
+    const linux = join(root, "linux", "resources", "app.asar.unpacked");
+    await mkdir(join(linux, "bin"), { recursive: true });
+    await mkdir(join(linux, "dist-electron", "main"), { recursive: true });
+    await writeFile(join(linux, "bin", "tau.mjs"), "");
+    await writeFile(join(linux, "dist-electron", "main", "service-cli.js"), "");
+    expect(serviceLauncher(join(linux, "bin", "tau.mjs"), "linux")).toBeUndefined();
+    await writeFile(join(root, "linux", "tau"), "");
+    expect(serviceLauncher(join(linux, "bin", "tau.mjs"), "linux")?.command).toBe(join(root, "linux", "tau"));
+  });
+
+  it("names the default userData as the service does", () => {
+    expect(userDataDir({}, "darwin", "/Users/me")).toBe(defaultUserData("darwin", "/Users/me", {}));
+    expect(userDataDir({ XDG_CONFIG_HOME: "/cfg" }, "linux", "/home/me")).toBe(defaultUserData("linux", "/home/me", { XDG_CONFIG_HOME: "/cfg" }));
   });
 });

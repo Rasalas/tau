@@ -13,7 +13,10 @@ const bootstrap = {
 
 interface Harness {
   transport: HostTransport;
-  push(seq: number, event: HostPushEvent): void;
+  push(seq: number, event: HostPushEvent, prev?: number): void;
+  capabilities: string[];
+  /** Answers a `subscribe`; the default accepts it. */
+  subscribe?: () => Promise<HostResponse>;
   reopen(): void;
   calls: Array<{ method: string; params: readonly unknown[] }>;
   buffered: HostPush[];
@@ -27,7 +30,8 @@ function harness(): Harness {
     calls: [],
     buffered: [],
     nextSeq: 1,
-    push: (seq, event) => { for (const listener of pushListeners) listener({ seq, event }); },
+    capabilities: ["jobs", "replay"],
+    push: (seq, event, prev) => { for (const listener of pushListeners) listener({ seq, event, ...(prev === undefined ? {} : { prev }) }); },
     reopen: () => { for (const listener of openListeners) listener(); },
     transport: {
       platform: "test",
@@ -37,8 +41,9 @@ function harness(): Harness {
           const lastSeq = (params[0] as { lastSeq?: number }).lastSeq;
           const missed = lastSeq === undefined ? [] : state.buffered.filter((push) => push.seq > lastSeq);
           const resync = lastSeq !== undefined && state.buffered.length > 0 && lastSeq < state.buffered[0]!.seq - 1;
-          return { id: "1", result: { protocol: 1, hostVersion: "0", capabilities: ["jobs", "replay"], resync, missed: resync ? [] : missed, nextSeq: state.nextSeq } };
+          return { id: "1", result: { protocol: 1, hostVersion: "0", capabilities: state.capabilities, resync, missed: resync ? [] : missed, nextSeq: state.nextSeq } };
         }
+        if (method === "subscribe") return state.subscribe ? state.subscribe() : { id: "1", result: true };
         if (method === "bootstrap") return { id: "1", result: bootstrap };
         if (method === "job-methods") return { id: "1", result: ["rebuild-workbench"] };
         if (method === "start-job") return { id: "1", result: { jobId: "job-1" } };
@@ -340,5 +345,106 @@ describe("host connection", () => {
     await connection.refreshJobMethods();
     expect(connection.isJobMethod("rebuild-workbench")).toBe(true);
     expect(connection.isJobMethod("host-extension", "tau.kit", "copy")).toBe(false);
+  });
+
+  describe("subscriptions", () => {
+    const delta = (sessionId: string): HostPushEvent => ({ type: "assistant-delta", sessionId, id: "a", delta: "x" });
+    const subscribing = () => {
+      const link = harness();
+      link.capabilities = ["jobs", "replay", "subscriptions"];
+      return link;
+    };
+    const methods = (link: Harness) => link.calls.map((call) => call.method);
+    const subscriptions = (link: Harness) => link.calls.filter((call) => call.method === "subscribe").map((call) => call.params[0]);
+
+    it("takes a push the host marks as following skipped ones without asking for a replay", async () => {
+      const link = subscribing();
+      const connection = new HostConnection(link.transport);
+      await connection.start();
+      const seen: number[] = [];
+      connection.onEvent(() => seen.push(seen.length));
+      link.push(1, delta("s1"));
+      link.push(4, delta("s1"), 1);
+      link.push(5, delta("s1"));
+      await settle();
+      expect(seen).toHaveLength(3);
+      expect(methods(link)).toEqual(["hello"]);
+      // A mark that names a push this client never got is still a gap.
+      link.push(9, delta("s1"), 7);
+      await settle();
+      expect(methods(link)).toEqual(["hello", "hello"]);
+    });
+
+    it("says what it watches before its next request, and only once it is limited", async () => {
+      const link = subscribing();
+      const connection = new HostConnection(link.transport);
+      await connection.start();
+      const stopFirst = connection.watchThread("s1");
+      await settle();
+      expect(subscriptions(link)).toEqual([]);
+      connection.limitToWatched();
+      connection.watchTopic("tau.terminal", "output/1");
+      connection.watchNewThread("new-thread-1");
+      stopFirst();
+      connection.watchThread("s2");
+      await connection.request("switch-session", ["/s2"]);
+      expect(methods(link)).toEqual(["hello", "subscribe", "switch-session"]);
+      expect(subscriptions(link)).toEqual([{ threads: ["s2"], topics: ["tau.terminal/output/1"], requests: ["new-thread-1"] }]);
+      await settle();
+      // Nothing changed since: nothing more is sent.
+      await connection.request("switch-session", ["/s2"]);
+      expect(subscriptions(link)).toHaveLength(1);
+    });
+
+    it("sends no subscription to a host that does not take one", async () => {
+      const link = harness();
+      const connection = new HostConnection(link.transport);
+      await connection.start();
+      connection.watchThread("s1");
+      connection.limitToWatched();
+      await settle();
+      expect(methods(link)).toEqual(["hello"]);
+    });
+
+    it("replays with what the host confirmed, then asks again for what it wants", async () => {
+      const link = subscribing();
+      const connection = new HostConnection(link.transport);
+      await connection.start();
+      connection.watchThread("s1");
+      connection.limitToWatched();
+      await settle();
+      // The link drops before the host answers the next one.
+      link.subscribe = () => new Promise(() => undefined);
+      connection.watchThread("s2");
+      await settle();
+      link.subscribe = undefined;
+      link.push(1, delta("s1"));
+      link.reopen();
+      await settle();
+      const hellos = link.calls.filter((call) => call.method === "hello").map((call) => call.params[0]);
+      expect(hellos[1]).toMatchObject({ lastSeq: 1, subscription: { threads: ["s1"], topics: [] } });
+      expect(subscriptions(link).at(-1)).toEqual({ threads: ["s1", "s2"], topics: [] });
+      expect(methods(link).slice(-2)).toEqual(["hello", "subscribe"]);
+    });
+
+    it("starts over without a subscription when a filtered replay cannot be repaired", async () => {
+      const link = subscribing();
+      const connection = new HostConnection(link.transport);
+      await connection.start();
+      connection.watchThread("s1");
+      connection.limitToWatched();
+      await settle();
+      link.push(1, delta("s1"));
+      link.buffered = [{ seq: 5, event: delta("s1") }];
+      link.nextSeq = 6;
+      link.reopen();
+      await settle();
+      await settle();
+      const hellos = link.calls.filter((call) => call.method === "hello").map((call) => call.params[0] as Record<string, unknown>);
+      expect(hellos.slice(1).map((hello) => [hello.lastSeq, hello.subscription !== undefined])).toEqual([[1, true], [undefined, false]]);
+      // The snapshot first, then what it watches: nothing streamed in between is lost.
+      expect(methods(link).slice(-3)).toEqual(["hello", "bootstrap", "subscribe"]);
+      expect(connection.getState()).toBe("connected");
+    });
   });
 });

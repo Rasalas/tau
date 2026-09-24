@@ -88,9 +88,18 @@ if (app.isPackaged && !process.env.ESBUILD_BINARY_PATH) {
   hostLog.warn("esbuild.binary.missing", "Nothing outside the archive to spawn; extensions cannot be compiled.");
 }
 
+// A test instance logs what would have been a native alert: it must never pop up on the user's screen.
+function showErrorBox(title: string, detail: string): void {
+  if (process.env.TAU_NO_NATIVE_DIALOGS === "1") {
+    hostLog.error("native-dialog.suppressed", { title, detail });
+    return;
+  }
+  dialog.showErrorBox(title, detail);
+}
+
 process.on("uncaughtException", (error) => {
   hostLog.error("process.uncaughtException", error);
-  dialog.showErrorBox("Tau hit an unexpected error and needs to close", `Details were written to:\n${hostLog.filePath}`);
+  showErrorBox("Tau hit an unexpected error and needs to close", `Details were written to:\n${hostLog.filePath}`);
   app.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
@@ -388,7 +397,7 @@ function openWindow(): BrowserWindow {
     const repeatedFailure = lastRenderProcessGoneAt !== undefined && now - lastRenderProcessGoneAt < 30_000;
     lastRenderProcessGoneAt = now;
     if (repeatedFailure) {
-      dialog.showErrorBox("Tau's window keeps crashing", `Details were written to:\n${hostLog.filePath}`);
+      showErrorBox("Tau's window keeps crashing", `Details were written to:\n${hostLog.filePath}`);
       return;
     }
     mainWindow?.webContents.reload();
@@ -477,7 +486,7 @@ async function startHostProcess(): Promise<void> {
     ...(requestedWorkspace ? { workspace: requestedWorkspace } : {}),
     logger: hostLog,
     onFatal: ({ message, logPath }) => {
-      dialog.showErrorBox("Tau's host stopped", `${message}\n\nDetails were written to:\n${logPath || hostLog.filePath}`);
+      showErrorBox("Tau's host stopped", `${message}\n\nDetails were written to:\n${logPath || hostLog.filePath}`);
     },
     // A restarted host may have landed on another port; the window's client
     // only learns the new one by being pointed at it again.
@@ -510,7 +519,7 @@ async function startHostProcess(): Promise<void> {
     hostLog.info("host-process.ready", { pid: running.pid, url: running.url, adopted: running.adopted });
   } catch (error: unknown) {
     hostLog.error("host-process.start.failed", error);
-    dialog.showErrorBox(
+    showErrorBox(
       "Tau could not start its host",
       `${error instanceof Error ? error.message : String(error)}\n\nDetails were written to:\n${windowHost.logFile || hostLog.filePath}`,
     );
@@ -684,6 +693,7 @@ function installTransport(): void {
     pushLog,
     beforeReply: () => pushes.flush(),
     onSnapshotClient: () => pushes.resendWholeOutputs(),
+    onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
     hostVersion: app.getVersion(),
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token: readOrCreateHostToken(),
@@ -788,7 +798,7 @@ if (primaryInstance) app.on("before-quit", (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   void (async () => {
-    const hostStays = Boolean(windowHost) && (quitAfterWindowClosed || await keepHostRunning());
+    const hostStays = Boolean(windowHost) && (quitAfterWindowClosed || windowHost?.servedByService === true || await keepHostRunning());
     // Threads stop with the host; the page asks first when any are working.
     if (!hostStays && !await appShell.confirmQuit()) {
       shutdownStarted = false;

@@ -55,6 +55,11 @@
     "heavy-turn": { "wireBytes": 149600, "decodedBytes": 625600, "messages": 530 },
     "answer-turn": { "wireBytes": 54300, "decodedBytes": 205700, "messages": 220 }
   },
+  "hostTransferOtherThread": {
+    "recorded-turn": { "wireBytes": 1700, "decodedBytes": 6300, "messages": 24 },
+    "heavy-turn": { "wireBytes": 200, "decodedBytes": 440, "messages": 4 },
+    "answer-turn": { "wireBytes": 200, "decodedBytes": 440, "messages": 4 }
+  },
   "rendererRequiredScenarios": [
     "markdown-code-stream-150kb",
     "markdown-fenced-stream-150kb",

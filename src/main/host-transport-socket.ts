@@ -8,6 +8,7 @@ import {
   HOST_ERROR,
   HOST_TRANSPORT_MAX_FRAME_BYTES,
   decodeHostClientFrame,
+  decodeHostSubscription,
   hostErrorInfo,
   type HostClientCall,
   type HostPush,
@@ -16,6 +17,7 @@ import {
 import { ACCESS_CLOSE_REASON, type DeviceAccess } from "../shared/connections.js";
 import type { HostPairReply, HostPairRequest } from "../shared/pairing.js";
 import { helloReply, type HostPushLog } from "./host-push-log.js";
+import { HostPushFilter, hostPushScope } from "./host-push-scope.js";
 import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
 import type { AccessPeer, HostCredential, PairingChannel } from "./host-access.js";
@@ -100,6 +102,8 @@ export interface SocketHostTransportOptions {
   beforeReply?(): void;
   /** A client starts from a snapshot, not a replay: its first hello, or a resync. */
   onSnapshotClient?(): void;
+  /** A connection's subscription gained these threads; what it never saw must travel whole again. */
+  onThreadsSubscribed?(sessionIds: readonly string[]): void;
   /** Page origins accepted besides the listener's own and Electron's local `file://` (`hostAllowedOrigins`); a function is asked per socket. */
   allowedOrigins?: readonly string[] | (() => readonly string[]);
   /** Defaults to `SOCKET_HELLO_TIMEOUT_MS`. */
@@ -134,6 +138,18 @@ export interface SocketHostTransport {
   close(): Promise<void>;
 }
 
+/** Handled by the transport itself: replaces the connection's subscription. */
+export const SUBSCRIBE_METHOD = "subscribe";
+
+interface Session {
+  connection: string;
+  principal: HostInvocationPrincipal;
+  /** Unset: every push goes to this connection. */
+  filter?: HostPushFilter;
+  /** The newest push sent to it, or the one its hello reply named as the last. */
+  lastSent: number;
+}
+
 /**
  * The same method table over a local socket. Nothing runs before the hello is
  * accepted, so an unauthenticated peer can neither call a method nor observe
@@ -155,7 +171,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   if (!options.access && !options.token) throw new Error("A socket listener needs a host token or an access model.");
   const access = options.access ?? tokenOnlyAccess(options.token!);
   /** Every authenticated socket, with the principal its requests run as. */
-  const authenticated = new Map<WebSocket, { connection: string; principal: HostInvocationPrincipal }>();
+  const authenticated = new Map<WebSocket, Session>();
   /** Sockets that asked to pair and have not been answered for good. */
   const pairing = new Map<WebSocket, { frameId: string; requestId?: string }>();
   /** The id the client registry knows a socket by, while it is authenticated. */
@@ -233,6 +249,29 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     send(socket, response);
   };
 
+  /**
+   * Answered at once, without flushing waiting pushes first: every push before
+   * the response went out under the old subscription, every push after it
+   * under the new one, so a client that loses the link knows which it has.
+   */
+  const subscribe = (socket: WebSocket, session: Session, id: string, value: unknown): void => {
+    if (value === null || value === undefined) {
+      delete session.filter;
+      send(socket, { type: "response", response: { id, result: true } });
+      return;
+    }
+    const subscription = decodeHostSubscription(value);
+    if (!subscription) {
+      send(socket, { type: "response", response: { id, error: { message: "subscribe expects { threads, topics } or null.", code: HOST_ERROR.invalidRequest } } });
+      return;
+    }
+    const filter = new HostPushFilter(subscription, session.filter);
+    const added = filter.addedThreads(session.filter);
+    session.filter = filter;
+    if (added.length > 0) options.onThreadsSubscribed?.(added);
+    send(socket, { type: "response", response: { id, result: true } });
+  };
+
   /** Sockets that answered the last WebSocket ping, or sent anything since. */
   const alive = new WeakSet<WebSocket>();
 
@@ -259,7 +298,11 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     }, options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS);
     helloTimer.unref?.();
     // Only a peer on this machine may be told that the host's files are local.
-    const capabilities = [...socketCapabilities(options.capabilities, request.socket.remoteAddress, process.env, trust), HOST_CAPABILITY.heartbeat];
+    const capabilities = [
+      ...socketCapabilities(options.capabilities, request.socket.remoteAddress, process.env, trust),
+      HOST_CAPABILITY.heartbeat,
+      HOST_CAPABILITY.subscriptions,
+    ];
     const local = isLocalPeer(trust, request.socket.remoteAddress);
     const address = peerAddress(trust, request);
     socket.on("message", (data) => {
@@ -314,7 +357,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           ...(frame.hello.windowId ? { windowId: frame.hello.windowId } : {}),
           ...(frame.hello.auxiliary && frame.hello.windowHalves ? { windowHalves: frame.hello.windowHalves } : {}),
         });
-        authenticated.set(socket, {
+        const filter = frame.hello.subscription ? new HostPushFilter(frame.hello.subscription) : undefined;
+        const session: Session = {
           connection,
           principal: Object.freeze({
             kind: "workbench-client",
@@ -323,10 +367,13 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
             // Only a connection from this machine through the loopback listener may manage access (ADR 0024).
             ...(local ? { local: true as const } : {}),
           }),
-        });
+          ...(filter ? { filter } : {}),
+          lastSent: options.pushLog.nextSeq - 1,
+        };
+        authenticated.set(socket, session);
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
-        const reply = helloReply(options.pushLog, frame.hello, { ...options, capabilities });
+        const reply = helloReply(options.pushLog, frame.hello, { ...options, capabilities }, filter);
         const readOnly = credential.kind === "client" && (access.accessOf?.(connection) ?? "read-only") === "read-only";
         send(socket, { type: "hello-reply", id: frame.id, reply: readOnly ? { ...reply, access: "read-only" } : reply });
         if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
@@ -348,8 +395,12 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         send(socket, { type: "pong", id: frame.id });
         return;
       }
-      access.touch(session.connection);
       const { id, method, params } = frame.request;
+      if (method === SUBSCRIBE_METHOD) {
+        subscribe(socket, session, id, params[0]);
+        return;
+      }
+      access.touch(session.connection);
       // JSON turns a missing positional argument into null; decoders expect undefined.
       const normalized = params.map((value) => (value === null ? undefined : value));
       void invokeHostMethod(options.methods, method, normalized, principalFor(session))
@@ -408,8 +459,20 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     ...(warning ? { warning } : {}),
     deliver: (push) => {
       if (authenticated.size === 0) return;
-      const frame = JSON.stringify({ type: "push", push } satisfies HostServerFrame);
-      for (const socket of authenticated.keys()) if (socket.readyState === socket.OPEN) socket.send(frame);
+      const scope = hostPushScope(push.event);
+      let event: string | undefined;
+      let frame: string | undefined;
+      for (const [socket, session] of authenticated) {
+        if (socket.readyState !== socket.OPEN || !(session.filter?.admits(push.event, scope) ?? true)) continue;
+        event ??= JSON.stringify(push.event);
+        // The first push after skipped ones says so, or the client would count a gap.
+        const prev = session.lastSent === push.seq - 1 ? "" : `,"prev":${session.lastSent}`;
+        const text = prev
+          ? `{"type":"push","push":{"seq":${push.seq}${prev},"event":${event}}}`
+          : (frame ??= `{"type":"push","push":{"seq":${push.seq},"event":${event}}}`);
+        socket.send(text);
+        session.lastSent = push.seq;
+      }
     },
     sendCall: (connection, call) => {
       const socket = sockets.get(connection);

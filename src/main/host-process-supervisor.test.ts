@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   HostProcessSupervisor,
+  type HostServiceControl,
   parseHostAnnouncement,
   processAlive,
   pruneHostLogs,
   readHostDescriptor,
 } from "./host-process-supervisor.js";
+import { HOST_SERVICE_ENV, serviceEnvironment } from "./host-service-units.js";
 
 const STUB = join(import.meta.dirname, "test-support", "stub-host.mjs");
 const started: HostProcessSupervisor[] = [];
@@ -39,6 +41,9 @@ function supervisor(userData: string, options: {
   onFatal?: (failure: { message: string }) => void;
   extraEnv?: NodeJS.ProcessEnv;
   spawnProcess?: (command: string, args: string[], env: NodeJS.ProcessEnv) => ReturnType<typeof spawn>;
+  service?: HostServiceControl;
+  serviceStartTimeoutMs?: number;
+  onUrlChanged?: (url: string) => void;
 } = {}) {
   const instance = new HostProcessSupervisor({
     entry: STUB,
@@ -48,6 +53,8 @@ function supervisor(userData: string, options: {
     startTimeoutMs: options.startTimeoutMs ?? 20_000,
     restartDelayMs: options.restartDelayMs ?? 10,
     ...(options.onFatal ? { onFatal: options.onFatal } : {}),
+    ...(options.service ? { service: options.service, serviceCheckMs: 50, serviceStartTimeoutMs: options.serviceStartTimeoutMs ?? 10_000 } : {}),
+    ...(options.onUrlChanged ? { onUrlChanged: options.onUrlChanged } : {}),
     spawnProcess: options.spawnProcess ?? spawnStub,
     env: {
       ...process.env,
@@ -77,8 +84,12 @@ function exited(child: ReturnType<typeof spawn>): boolean {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
+/** Service hosts outlive a window by design; the test that ran one stops it. */
+const services: Array<() => Promise<void>> = [];
+
 afterEach(async () => {
   for (const instance of started.splice(0)) await instance.stop().catch(() => undefined);
+  for (const stop of services.splice(0)) await stop();
   const survivors = spawned.splice(0).filter((child) => !exited(child));
   for (const child of survivors) process.kill(-child.pid!, "SIGKILL");
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
@@ -125,6 +136,28 @@ describe("the host process supervisor", () => {
     expect(childEnv).not.toHaveProperty("TAU_HOST_TLS_KEY");
     // Network access is the host's own setting (Settings → Connections), not the window's environment.
     expect(childEnv).not.toHaveProperty("TAU_HOST_PROXY_LISTEN");
+  }, 30_000);
+
+  it("gives its host the settings a service host gets from its unit", async () => {
+    const userData = workingDirectory();
+    let childEnv: NodeJS.ProcessEnv = {};
+    const installer = {
+      TAU_HOST_ALLOWED_ORIGINS: "capacitor://localhost",
+      TAU_DEV_SERVER_URL: "http://localhost:5173",
+      TAU_CONFIG_FILE: "/w/.tau-dev/config.json",
+      TAU_HOST_PROXY_LISTEN: "127.0.0.1:7789",
+      TAU_HOST_TLS: "1",
+    };
+    await supervisor(userData, { extraEnv: installer, spawnProcess: (command, args, env) => { childEnv = env; return spawnStub(command, args, env); } }).start();
+    const unit = serviceEnvironment({ userData, manager: "systemd", env: { ...process.env, ...installer }, path: "/usr/bin" });
+
+    // Network access is not among them: both hosts read it from <userData>/network.json.
+    for (const [key, value] of Object.entries(unit)) {
+      if (key === "PATH" || key === HOST_SERVICE_ENV) continue;
+      if (key === "TAU_HOST_LISTEN") { expect(childEnv[key]).toMatch(/^127\.0\.0\.1:\d+$/u); continue; }
+      expect(childEnv[key], key).toBe(value);
+    }
+    for (const key of ["TAU_HOST_PROXY_LISTEN", "TAU_HOST_TLS", "TAU_HOST_VERSION", "TAU_WORKSPACE"]) expect(unit).not.toHaveProperty(key);
   }, 30_000);
 
   it("adopts a host that is already running instead of starting a second one", async () => {
@@ -236,4 +269,166 @@ describe("the host process supervisor", () => {
     pruneHostLogs(directory, 2);
     expect(readdirSync(directory).sort()).toEqual(["host-out-2.log", "host-out-3.log", "host-process.log"]);
   });
+});
+
+/**
+ * A service manager in miniature: it runs the stub as a service host, which
+ * takes over from the host `host.json` names the way `headless.ts` does.
+ * `version` is what the unit runs now; `repairedVersion` what it runs once a
+ * window pointed it at itself.
+ */
+function fakeService(userData: string, initial: { version: string; installed?: boolean }) {
+  const state = { installed: initial.installed ?? true, version: initial.version, repairedVersion: initial.version, keepPort: true };
+  const calls: string[] = [];
+  let child: ReturnType<typeof spawn> | undefined;
+  const run = (version: string) => {
+    child = spawnStub(process.execPath, [STUB], {
+      ...process.env,
+      TAU_HOST_SERVICE: "launchd",
+      TAU_USER_DATA: userData,
+      STUB_VERSION: version,
+      STUB_TOKEN_PATH: join(userData, "token"),
+      STUB_WS_FROM: import.meta.filename,
+      ...(state.keepPort ? {} : { STUB_KEEP_PORT: "0" }),
+    });
+    return child;
+  };
+  const stop = async () => {
+    if (!child || exited(child)) return;
+    const gone = new Promise((resolve) => child!.once("exit", resolve));
+    child.kill("SIGTERM");
+    await gone;
+  };
+  // One command at a time, as a service manager queues them.
+  let queue: Promise<void> = Promise.resolve();
+  const serial = (step: () => Promise<void> | void) => (queue = queue.then(step, step));
+  const control: HostServiceControl = {
+    installed: async () => state.installed,
+    start: () => serial(() => { calls.push("start"); if (!child || exited(child)) run(state.version); }),
+    restart: () => serial(async () => { calls.push("restart"); await stop(); run(state.version); }),
+    repair: () => serial(async () => { calls.push("repair"); await stop(); state.version = state.repairedVersion; run(state.version); }),
+  };
+  services.push(stop);
+  return { state, calls, control, run, stop, get child() { return child; } };
+}
+
+describe("a host a service runs", () => {
+  it("is adopted, and left running when the window stops", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    await service.control.start();
+    await waitFor(async () => (await readHostDescriptor(userData))?.service === "launchd", "the service host");
+
+    const instance = supervisor(userData, { service: service.control });
+    const running = await instance.start();
+    expect(running).toMatchObject({ adopted: true, service: "launchd", pid: service.child!.pid });
+    await instance.stop();
+
+    expect(processAlive(running.pid)).toBe(true);
+    expect((await readHostDescriptor(userData))?.pid).toBe(running.pid);
+  }, 30_000);
+
+  it("is started when it is installed and not running, instead of a host of the window's own", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    let spawns = 0;
+    const instance = supervisor(userData, { service: service.control, spawnProcess: (command, args, env) => { spawns += 1; return spawnStub(command, args, env); } });
+
+    const running = await instance.start();
+
+    expect(service.calls).toEqual(["start"]);
+    expect(running.service).toBe("launchd");
+    expect(spawns).toBe(0);
+  }, 30_000);
+
+  it("takes over from the window's own host, and the window follows it", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0", installed: false });
+    const instance = supervisor(userData, { service: service.control });
+    const own = await instance.start();
+    expect(own.service).toBeUndefined();
+
+    service.state.installed = true;
+    await service.control.start();
+
+    await waitFor(() => instance.descriptor?.service === "launchd", "the window to follow the service host");
+    expect(instance.descriptor?.pid).toBe(service.child!.pid);
+    // The service asked for the port the window's clients already know.
+    expect(instance.descriptor?.url).toBe(own.url);
+    expect(processAlive(own.pid)).toBe(false);
+  }, 30_000);
+
+  it("of an older version is restarted once and adopted when the restart brought the update", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    await service.control.start();
+    await waitFor(async () => (await readHostDescriptor(userData))?.service === "launchd", "the service host");
+    // The app was updated in place: the unit's binary is 2.0.0 after a restart.
+    service.state.version = "2.0.0";
+
+    const running = await supervisor(userData, { version: "2.0.0", service: service.control }).start();
+
+    expect(service.calls).toEqual(["start", "restart"]);
+    expect(running).toMatchObject({ adopted: true, service: "launchd", pid: service.child!.pid });
+  }, 30_000);
+
+  it("that stays on another version gets one restart and one repair, then the window runs its own host", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    await service.control.start();
+    await waitFor(async () => (await readHostDescriptor(userData))?.service === "launchd", "the service host");
+
+    const instance = supervisor(userData, { version: "2.0.0", service: service.control });
+    const running = await instance.start();
+
+    expect(service.calls).toEqual(["start", "restart", "repair"]);
+    expect(running.adopted).toBe(false);
+    expect(running.service).toBeUndefined();
+    expect(exited(service.child!)).toBe(true);
+    // A crash of the window's own host is a crash now, not a reason to try the service again.
+    process.kill(running.pid, "SIGKILL");
+    await waitFor(async () => { const now = await readHostDescriptor(userData); return now !== undefined && now.pid !== running.pid && processAlive(now.pid); }, "a restarted host");
+    expect(service.calls).toEqual(["start", "restart", "repair"]);
+  }, 60_000);
+
+  it("is followed to another port when the service restarts it there", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    const moved: string[] = [];
+    const instance = supervisor(userData, { service: service.control, onUrlChanged: (url) => moved.push(url) });
+    const running = await instance.start();
+
+    service.state.keepPort = false;
+    // Held, so the new host cannot take the old port back.
+    const blocker = new (await import("ws")).WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await new Promise((resolve) => blocker.once("listening", resolve));
+    await service.control.restart();
+
+    await waitFor(() => moved.length === 1, "the window to be pointed at the new port");
+    blocker.close();
+    expect(moved[0]).not.toBe(running.url);
+    expect(instance.descriptor).toMatchObject({ url: moved[0], service: "launchd" });
+  }, 30_000);
+
+  it("is replaced by a host of the window's own once the service is uninstalled", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    const instance = supervisor(userData, { service: service.control });
+    const running = await instance.start();
+    expect(running.service).toBe("launchd");
+
+    service.state.installed = false;
+    await service.stop();
+
+    await waitFor(() => instance.descriptor !== undefined && instance.descriptor.service === undefined && processAlive(instance.descriptor.pid), "a host of the window's own");
+    expect(instance.descriptor!.pid).not.toBe(running.pid);
+  }, 30_000);
+
+  it("that starts nothing leaves the window a host of its own", async () => {
+    const userData = workingDirectory();
+    const control: HostServiceControl = { installed: async () => true, start: async () => undefined, restart: async () => undefined, repair: async () => undefined };
+    const running = await supervisor(userData, { service: control, serviceStartTimeoutMs: 300 }).start();
+    expect(running).toMatchObject({ adopted: false });
+    expect(running.service).toBeUndefined();
+  }, 30_000);
 });
