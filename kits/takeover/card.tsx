@@ -205,8 +205,9 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
     void screen.load(takeover.threadId).then((state) => {
       if (!live) return;
       setDriven(state?.window);
-      // A runtime's icon (Electron's, Java's) would name the wrong app.
-      if (!isGenericRuntime(state?.window?.app)) void screen.icon?.(takeover.threadId).then((url) => { if (live) setAppIcon(url); }, () => undefined);
+      // A runtime's icon (Electron's, Java's) would name the wrong app, and an unnamed app may be one.
+      const app = state?.window?.app;
+      if (app && !isGenericRuntime(app)) void screen.icon?.(takeover.threadId).then((url) => { if (live) setAppIcon(url); }, () => undefined);
     }, () => undefined);
     return () => { live = false; };
   }, [screen, takeover]);
