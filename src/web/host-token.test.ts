@@ -38,7 +38,7 @@ describe("how a browser learns the host token", () => {
     expect(pairingNotice({ state: "denied" })).toMatch(/declined/u);
     expect(pairingNotice({ state: "expired" })).toMatch(/in time/u);
     expect(pairingNotice({ state: "refused", reason: "unknown-code" })).toMatch(/already used or has expired/u);
-    expect(pairingNotice({ state: "refused", reason: "busy" })).toMatch(/other requests/u);
+    expect(pairingNotice({ state: "refused", reason: "busy" })).toMatch(/not taking a request/u);
     expect(pairingNotice({ state: "failed", message: "offline" })).toBe("offline");
   });
 });

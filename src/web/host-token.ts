@@ -33,7 +33,7 @@ export function pairingNotice(result: Exclude<PairingResult, { state: "approved"
     case "expired": return "Nobody answered on the host in time. Try again, and allow the device there.";
     case "refused":
       if (result.reason === "unknown-code") return "This pairing link was already used or has expired. Ask for a new one.";
-      if (result.reason === "busy") return "The host has other requests waiting. Try again in a few minutes.";
+      if (result.reason === "busy") return "The host is not taking a request from this device right now. Try again in a few minutes.";
       if (result.reason === "rate-limited") return "Too many attempts from this device. Wait a moment and try again.";
       return "The host did not understand the request.";
     case "failed": return result.message;

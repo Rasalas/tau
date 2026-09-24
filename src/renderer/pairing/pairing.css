@@ -5,4 +5,4 @@
   font: 600 32px/1 var(--mono); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; color: var(--ink);
 }
 .pairing-access { align-self: flex-start; }
-.pairing-access > button { padding: 5px 12px; }
+.pairing-access > button { padding: 5px 12px; white-space: nowrap; }
