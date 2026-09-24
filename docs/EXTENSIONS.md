@@ -1858,6 +1858,27 @@ without asking the host what changed. `context.events.on("host-connection", …)
 `resyncing` or `refused` — whenever the window's link to the host changes;
 `connected` after any other state means it is back.
 
+### Commands a Read-only device may call: `access: "read"` (new in API 1.13.0)
+
+A paired device is Full or Read only ([ADR 0024](adr/0024-pairing-allowed-on-the-host.md)).
+A Read-only device may call a host command only when it was registered as one
+that just looks:
+
+```ts
+context.registerCommand("state", () => book.state(), { access: "read" });
+context.registerCommand("apply-changes", applyChanges, { long: true }); // needs Full
+```
+
+Declare it only for a command that changes no file, thread, setting or process
+and asks no other kit to — the host cannot check that, and a Read-only device
+trusts the declaration. Every other command answers such a device `forbidden`
+before the handler runs, and the refusal does not count as a failure of the
+command. The option travels from an isolated package's worker too. An older
+host ignores it, so a package need not raise `engines.api` for it. A Read-only
+device learns what it is from its hello reply (`access: "read-only"`); a panel
+that hides its buttons there saves the user a refusal, but the host is what
+enforces it.
+
 ### Reaching the user outside the window: `context.attention`
 
 `context.attention` on the desktop half is the client's `Platform.attention`

@@ -246,58 +246,136 @@ non-loopback address unless `TAU_HOST_INSECURE=1` says otherwise; with TLS
 ## Tokens and pairing
 
 Two kinds of token open a socket ([ADR 0023](adr/0023-client-tokens-and-pairing.md),
-`src/main/host-access.ts`):
+[ADR 0024](adr/0024-pairing-allowed-on-the-host.md), `src/main/host-access.ts`):
 
 - **The host token**, 32 random bytes as hex in `TAU_HOST_TOKEN_FILE`
   (default `~/.tau/host-token`, 0o600 in a 0o700 directory). It belongs to the
   owner: the window beside the host reads the file, a window elsewhere gets it
   as `TAU_HOST_TOKEN`. The host re-reads the file when it changes on disk.
 - **A client token**, `tauc.<24 hex id>.<43 base64url secret>`, one per paired
-  client. The host keeps the id, a label, the device its user agent named, when
-  and from where it paired and was last seen, and only the SHA-256 of the
-  secret, in `<userData>/paired-clients.json`.
+  device. The host keeps the id, a label, the device its user agent named, when
+  and from where it paired and was last seen, its preset (`full` or
+  `read-only`), its idle timeout (30, 90 or 365 days, or never), its last
+  change, and only the SHA-256 of the secret, in `<userData>/paired-clients.json`
+  (version 2; version 1 records read as Full with 90 days).
 
-A client gets its token by redeeming a pairing link: `POST /pair { code }` on
-the web client's server answers `{ token }` (`cache-control: no-store`) or 403
-for an unknown, spent or expired code, and 429 with `retry-after` when a source
-tries too often. A code is 24 random bytes, lives 10 minutes by default (one
-minute to one day), is spent by the first attempt, and is kept only as a hash
-in memory. The link is `http(s)://host:port/#pair=<code>`.
+A token unused for its idle timeout stops working and its record is dropped.
+A hello or a request is a use, and so is being connected: the host marks every
+connected device as seen once a minute, so a phone whose app sits open in the
+background does not expire. Heartbeat pings (below) do not count on their own.
 
-The request's principal says which: `{ kind: "workbench-client", connection,
-pairedClient? }`, assigned by the transport, carried into jobs. Methods that
-manage access refuse a paired client with `forbidden`:
+### Pairing over the socket
+
+A device without a token asks on the socket, before any hello:
+
+```
+→ { type: "pair", id, pair: { code?, name?, commitment? } }
+← { type: "pair-reply", id, reply: { state: "challenge", requestId, hostNonce } }   // only with a commitment
+→ { type: "pair-reveal", id, nonce }
+← { type: "pair-reply", id, reply: { state: "waiting", requestId, verification, expiresAt } }
+← { type: "pair-reply", id, reply: { state: "approved", token, clientId, access } }   // or denied / expired
+```
+
+`code` comes from a pairing link and is spent by the attempt; without one the
+owner is asked all the same. `name` is how the device calls itself. Nobody gets
+a token before the owner allows the request on the host
+(`connections-approve`), after comparing the six digits of `verification`
+with the device's. The request waits two minutes. A refusal before anyone is
+asked is `{ state: "refused", reason }`: `unknown-code` (expired, spent,
+revoked and invented codes alike), `busy`, `rate-limited` (with
+`retryAfterMs`) or `invalid`. After `approved` the device says hello with the
+token on the same socket; every other end closes the socket (1000, the state).
+A socket that asked is kept past the hello deadline until its request ends,
+and gets a new deadline once it is let in.
+
+A device that pinned the host's self-signed certificate sends `commitment`,
+the SHA-256 (hex) of a random 32-byte nonce, and reveals the nonce after the
+host's challenge. Both sides then compute the digits from the certificate's
+fingerprint and both nonces (`pairingVerificationCode`, `src/shared/pairing.ts`),
+and the device shows its own. A relay presenting another certificate cannot
+make the two screens agree, since it had to pick the host's nonce before it
+learned the device's. A device that cannot pin (a browser) sends no
+commitment, and the host picks the digits. The device-side client is
+`pairWithHost` in `src/workbench/host-pairing.ts`.
+
+Limits: 20 open links; five requests waiting at once; without a link, one per
+address and three in all, and an address the owner denied waits ten minutes;
+per address, five attempts, then a backoff doubling up to a minute.
+
+`POST /pair` of the web client's server answers 410.
+
+### Pairing links
+
+`https://<address>:<port>/#pair=<code>&fp=<hex>&host=<id>&name=<host name>&e=<url>…`
+(`pairingUrl`, `parsePairingPayload` in `src/shared/connections.ts`). The origin
+is the address the link was made for; `e` repeats every other network address;
+`fp` is the SHA-256 of the host's certificate (absent in plaintext), which a
+device pins on each address that presents it; `host` is the id in
+`<userData>/host-id`. A link made for loopback names no other address. The
+page takes the fragment out of the address bar before it renders.
+
+### Presets
+
+A request's principal is `{ kind: "workbench-client", connection,
+pairedClient?, readOnly?, audit? }`, assigned by the transport per request and
+carried into jobs, so a new preset applies to the next call. Every method has
+an access class in `HOST_METHOD_ACCESS` (`src/main/host-method-access.ts`):
+
+- `read`: a Read-only device may call it.
+- `write`: it changes something, runs something, or reaches the host
+  machine's own screen or clipboard. A Read-only device gets `forbidden`.
+  A method missing from the table counts as `write`.
+- `owner`: the Connections methods and `host.shutdown`; every paired device
+  gets `forbidden`.
+
+`host-extension` is `read` at this level; the extension registry then refuses a
+Read-only device every command not registered with `{ access: "read" }`.
+`start-job` checks the method it would run. The hello reply of a Read-only
+device carries `access: "read-only"`. Every change a paired device makes, and
+every refusal, is recorded: the last one on its record (`lastAction`: the
+method or `<extension>/<command>`, never the input), each one in the host log
+(`access.action`, `access.refused`).
+
+### Connections methods
+
+Only the owner's connections may call these; a paired device gets `forbidden`:
 
 | Method | Params | Result |
 |---|---|---|
-| `connections-list` | – | `UiConnections`: endpoints, TLS fingerprint, token path, open links, paired clients, host-token connections (`src/shared/connections.ts`) |
-| `connections-create-link` | `{ label?, lifetimeMs? }` | `{ link, code, urls }`; the code is answered this once |
+| `connections-list` | – | `UiConnections`: host id, endpoints, TLS fingerprint, token path, open links, waiting requests, paired devices, host-token connections (`src/shared/connections.ts`) |
+| `connections-create-link` | `{ label?, lifetimeMs?, access? }` | `{ link, code, urls }`; the code is answered this once |
 | `connections-revoke-link` | `id` | `{ revoked }` |
+| `connections-approve` | `id, { access?, label? }` | `{ approved }`; false when the device stopped waiting |
+| `connections-deny` | `id` | `{ denied }` |
+| `connections-update-client` | `id, { label?, access?, idleTimeoutDays? }` | `{ updated }`; a new timeout counts from now |
 | `connections-revoke-client` | `id` | `{ revoked }`; its open connections close with 4401 `revoked` |
+| `connections-revoke-others` | – | `{ revoked }`: how many devices were signed out |
 | `connections-rotate-host-token` | – | `{ token }`; every other host-token connection closes with 4401 `token-rotated` |
 
-`host.shutdown` also refuses a paired client. A host without a socket answers
-the Connections methods with `unsupported`.
+A host without a socket answers them with `unsupported`. Any change to
+requests, devices or links pushes `{ type: "connections-changed" }` without
+details; an owner's window asks `connections-list` what changed.
 
-The 4401 close carries a reason: `unauthorized` (a token nobody knows),
-`revoked`, `token-rotated`. The socket client hands it to `onUnauthorized` and
-stops reconnecting. A window's own process re-reads its supervised host's token
-file once after a 4401 and tries again, which is how it follows a rotation.
+The 4401 close carries a reason: `unauthorized` (a token nobody knows, or one
+that expired unused), `revoked`, `token-rotated`. The socket client hands it
+to `onUnauthorized` and stops reconnecting. A window's own process re-reads its
+supervised host's token file once after a 4401 and tries again, which is how
+it follows a rotation.
 
-A token is not scoped: a client that holds either kind may call every method a
+A Full token is not a sandbox: a device that holds one may call every method a
 workbench uses, including the ones that open a workspace or a terminal. A client
 that still speaks paths rather than a `workspaceId` has that path accepted as
 given, so a token holder can point the host at any directory its process can
-read. Treat a token as "may use this host", not as "may read these threads":
-keep it on loopback, behind an SSH tunnel or behind TLS, and set
-`TAU_HOST_INSECURE=1` only for a network that is trusted for its own reasons.
+read. Read only narrows what it can change, not what it can read. Keep tokens
+on loopback, behind an SSH tunnel or behind TLS, and set `TAU_HOST_INSECURE=1`
+only for a network that is trusted for its own reasons.
 
 ## TLS
 
 A host can offer itself on a network without a tunnel. TLS changes the
 transport, not the protocol: the same frames, the same token in every hello,
-the same replay and resync. Pairing links and tokens are handled exactly as
-without TLS; a link then starts with `https://`.
+the same replay and resync. Pairing and tokens are handled exactly as without
+TLS; a link then starts with `https://` and carries the fingerprint.
 
 **Host side.** `TAU_HOST_TLS=1` makes the socket an HTTPS server (`wss:`),
 minimum TLS 1.2. On first start the host creates a self-signed ECDSA P-256
@@ -513,7 +591,7 @@ Current stores:
 | `<userData>/projects.json` | `src/main/project-history.ts` | 2 |
 | `<userData>/host-id` | `src/main/workspace-identity.ts` | plain text |
 | `<userData>/known-hosts.json` | `src/main/host-tls-trust.ts` | 1 |
-| `<userData>/paired-clients.json` | `src/main/host-access.ts` | 1 |
+| `<userData>/paired-clients.json` | `src/main/host-access.ts` | 2 |
 | `<agentDir>/tau/claude-runtime-sessions.json` | `kits/claude-code/session-store.ts` | 1 |
 
 Two configuration files are not stores of this kind, because Pi owns one of
