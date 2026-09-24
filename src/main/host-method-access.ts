@@ -94,11 +94,21 @@ export const HOST_METHOD_ACCESS = {
   "connections-rotate-host-token": "owner",
   "connections-set-network": "owner",
   "connections-reload-certificate": "owner",
+  "connections-discover": "owner",
   "host.shutdown": "owner",
   // The host's machine running it as a service: whether it does is anyone's to see, changing it the owner's.
   "service-status": "read",
   "service-install": "owner",
   "service-uninstall": "owner",
+  // A window's own list of machines (ADR 0025); a host refuses them all.
+  "environments-list": "read",
+  "environments-take-arrival": "read",
+  "environments-pair": "write",
+  "environments-cancel-pairing": "write",
+  "environments-rename": "write",
+  "environments-remove": "write",
+  "environments-retry": "write",
+  "environments-open": "write",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.
@@ -115,6 +125,11 @@ export function readOnlyRefusal(action: string): Error {
   return Object.assign(new Error(`This device is paired Read only, so it may not ${action}.`), { code: HOST_ERROR.forbidden });
 }
 
+/** The refusal of an `owner` method or kit command to anyone but the host token on this machine. */
+export function ownerRefusal(): Error {
+  return Object.assign(new Error("Only a connection with the host token, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
+}
+
 /**
  * Lets a call through or refuses it, before its handler runs. A Read-only
  * device may call only `read` methods, no paired device an `owner` one; every
@@ -127,7 +142,7 @@ export function authorizeMethod(principal: HostInvocationPrincipal, method: stri
   if (access === "owner") {
     if (isHostOwner(principal)) return;
     principal.audit?.(method, false);
-    throw Object.assign(new Error("Only a connection with the host token, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
+    throw ownerRefusal();
   }
   if (principal.readOnly) {
     principal.audit?.(method, false);

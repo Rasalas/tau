@@ -30,6 +30,9 @@ import { createWebClientServer } from "./host-web-server.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
+import { ServiceAnnouncer, discoverHosts, machineDisplayName } from "./host-discovery.js";
+import { TAU_SERVICE_TYPE, isServiceType } from "../shared/discovery.js";
+import { NetworkContributions } from "./host-network-contributions.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
@@ -59,6 +62,9 @@ const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless"
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
 // A loopback listener for a reverse proxy on this machine; every peer on it counts as remote.
 const proxyListen = process.env.TAU_HOST_PROXY_LISTEN;
+// Isolated instances and tests announce and browse `_tau-test._tcp`, never the real type.
+const bonjourType = process.env.TAU_BONJOUR_SERVICE_TYPE || TAU_SERVICE_TYPE;
+if (!isServiceType(bonjourType)) throw new Error(`TAU_BONJOUR_SERVICE_TYPE must look like _name._tcp; ${bonjourType} does not.`);
 /** How often network access looks again at Tailscale's addresses and the certificate files. */
 const NETWORK_POLL_MS = 60_000;
 // dist-electron/main/headless.js -> the app root the kits are shipped in.
@@ -162,6 +168,9 @@ async function main(): Promise<void> {
 
   /** The socket transport reports its clients here; the host publishes the count. */
   const clients = new HostClientRegistry();
+  // What packages add to network access; it waits for the listeners below.
+  const networkContributions = new NetworkContributions({ storePath: join(userData, "network-kept.json"), logger: hostLog });
+  await networkContributions.load();
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
     return new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {
@@ -174,6 +183,7 @@ async function main(): Promise<void> {
       logger: hostLog,
       workspaceIdentity,
       clients,
+      network: networkContributions.services,
       appPath: appRoot,
       kitStateDir: join(userData, "kit-state"),
       turnsInFlightPath: join(userData, "turns-in-flight.json"),
@@ -249,6 +259,8 @@ async function main(): Promise<void> {
       },
     } : {}),
     reloadCertificates,
+    discover: async (options) => ({ ...(await discoverHosts(bonjourType, { ...options, ownHostId: hostId, logger: hostLog })), serviceType: bonjourType }),
+    published: () => networkContributions.endpoints(),
   });
   const refreshOrigins = async (): Promise<void> => {
     publishedOrigins = await endpointOrigins(connectionsService()).catch((error: unknown) => {
@@ -343,6 +355,7 @@ async function main(): Promise<void> {
     onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
+    host: { id: hostId, name: hostname().split(".")[0] || hostname() },
     access,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     allowedOrigins: () => [...staticOrigins, ...publishedOrigins],
@@ -401,7 +414,21 @@ async function main(): Promise<void> {
     console.log(`tau-host proxy listener on http://${host}:${typeof address === "object" && address ? address.port : port}`);
   }
   // Settings → Connections: the listeners beyond loopback, off until the owner turns them on.
-  network = await HostNetworkAccess.open({ userData, attach: socket.attach, ...(web ? { web: web.handler } : {}), logger: hostLog });
+  // Its state reaches an owner's window the way every other Connections change does.
+  const announcer = new ServiceAnnouncer({ logger: hostLog, onChange: () => publish({ type: "connections-changed" }) });
+  network = await HostNetworkAccess.open({
+    userData,
+    attach: socket.attach,
+    ...(web ? { web: web.handler } : {}),
+    logger: hostLog,
+    bonjour: { announcer, serviceType: bonjourType, hostId, name: machineDisplayName() },
+    proxyHeld: () => networkContributions.proxyHeld,
+  });
+  networkContributions.bind({
+    state: () => network?.state(),
+    reconcile: async () => { await network?.reconcile(); await refreshOrigins(); },
+    endpointsChanged: refreshOrigins,
+  });
   await refreshOrigins();
   for (const listener of network.state().listeners) hostLog.info("host-network.open-at-start", listener);
   networkPoll = setInterval(() => {

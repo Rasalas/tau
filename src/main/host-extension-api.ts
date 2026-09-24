@@ -14,6 +14,8 @@ export type * from "./runtime-adapters.js";
 export type * from "./pi-kit-extensions.js";
 export type * from "./model-auth.js";
 export type * from "../shared/contracts.js";
+// What `services.network` speaks (API 1.13.0).
+export type { UiHostEndpoint, UiHostEndpointKind, UiNetworkAccess, UiNetworkCertificate, UiNetworkListener, UiNetworkSettings } from "../shared/connections.js";
 export { HostAuthorizationError, HostCommandError, type HostAuthorizationDetails } from "./host-extension-errors.js";
 export { buildTitleConversation, cleanThreadTitle, textFromContent, type TitleMessage } from "./host-text.js";
 export { isSmallModel, smallCompletionModel, type CompletionModelRef } from "./small-completion-model.js";

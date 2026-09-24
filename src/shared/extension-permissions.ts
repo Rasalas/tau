@@ -95,6 +95,8 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   presentUi: "runtime:extend",
   noteSubprocess: "process",
   findCommand: "process",
+  // The host's own listeners: a proxy in front of them and the addresses they publish.
+  network: "network",
   listPackages: "packages",
   installPackage: "packages",
   removePackage: "packages",

@@ -128,8 +128,8 @@ calls `reconnectNow()`.
 
 The host looks at the `Origin` header of the upgrade before anything else and
 closes a refused socket with 4403 (`src/main/host-origin.ts`). No `Origin` is a
-client that is not a browser page (the window's own process, a native HTTP
-stack, the smokes) and passes. A page passes when its origin is the listener's
+client that is not a browser page (the window's own process, the native app's
+pinned sockets, the smokes) and passes. A page passes when its origin is the listener's
 own (the `Host` it was reached by), when it is Electron's `file://` window on
 loopback, or when it is listed in `TAU_HOST_ALLOWED_ORIGINS` (comma-separated,
 for a native shell's scheme or a proxy that rewrites `Host`); a development
@@ -418,7 +418,8 @@ Only the owner's connections may call these; a paired device gets `forbidden`:
 | `connections-revoke-client` | `id` | `{ revoked }`; its open connections close with 4401 `revoked` |
 | `connections-revoke-others` | – | `{ revoked }`: how many devices were signed out |
 | `connections-rotate-host-token` | – | `{ token }`; every other host-token connection closes with 4401 `token-rotated` |
-| `connections-set-network` | `{ lan?, tailscale?, port?, proxyPort?, certificate?: { certPath, keyPath } \| null }` | `UiNetworkAccess`; opens and closes the listeners of [network access](#network-access) in the running host |
+| `connections-set-network` | `{ lan?, tailscale?, announce?, port?, proxyPort?, certificate?: { certPath, keyPath } \| null }` | `UiNetworkAccess`; opens and closes the listeners of [network access](#network-access) in the running host, and its [Bonjour](#bonjour) announcement |
+| `connections-discover` | `{ timeoutMs? }` (default 3000, 500–10000) | `UiDiscoveredHosts`: `{ hosts, serviceType, problem? }`, the Tau hosts that answered while this host looked ([Bonjour](#bonjour)) |
 | `connections-reload-certificate` | – | `{ changed }`; every listener re-reads its certificate |
 
 A host without a socket answers them with `unsupported`. Any change to
@@ -525,7 +526,7 @@ default and combine:
 |---|---|---|
 | Local network | `[::]:<port>`, dual-stack; `0.0.0.0` on a machine without IPv6 | TLS |
 | Tailscale | each Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) on `<port>`, so the LAN sees no open port; not needed while Local network covers them | TLS |
-| Tailscale | `127.0.0.1:<proxyPort>`, for a reverse proxy such as `tailscale serve` | plain HTTP |
+| Tailscale, or a package's hold | `127.0.0.1:<proxyPort>`, for a reverse proxy such as `tailscale serve` | plain HTTP |
 
 `port` (default 7788) and `proxyPort` (default 7789) are fixed, so a paired
 device and a `tailscale serve --bg` mapping find the host again after a
@@ -546,7 +547,10 @@ the transport what it may conclude about a peer:
 - `proxy`: bound on loopback, yet every peer is remote, because a proxy
   delivers them all from 127.0.0.1. No `local-files`, no local window, a
   strict pairing limit of its own, and the peer's address is the last
-  `X-Forwarded-For` hop, the one the proxy added.
+  `X-Forwarded-For` hop, the one the proxy added. `Tailscale-User-Login`,
+  which Tailscale Serve sets (Q-encoded outside ASCII) and strips from what a
+  client sent, is read here alone and listed as the client's `proxyUser` in
+  Connections: shown, never a login.
 
 The origin check at the upgrade follows the same trust. `file://` counts as
 a window on this machine only on the loopback listener. A proxy listener also
@@ -560,6 +564,46 @@ A hand-started host opens a proxy listener of its own with
 `TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>` (loopback only) and prints
 `tau-host proxy listener on http://…`.
 
+### Bonjour
+
+While the Local network listener is open and `announce` is on (the default),
+the host announces it as a DNS-SD service (`src/main/host-discovery.ts`):
+
+| Field | Value |
+|---|---|
+| Type | `_tau._tcp` (`TAU_BONJOUR_SERVICE_TYPE` overrides it; isolated instances use `_tau-test._tcp`) |
+| Instance | the machine's host name without `.local`; the network may suffix it after a clash |
+| Port | the Local network listener's, TLS |
+| TXT | `v=1`, `id=<host id>`, `fp=<SHA-256 of the certificate, 64 hex>` |
+
+Nothing in it is secret: the id and the fingerprint are in every pairing link
+too. A device that found the host pins `fp`, asks to pair over the socket
+without a code, and waits for the owner like any other request (`pairWithHost`,
+[Pairing over the socket](#pairing-over-the-socket)). `readTauServiceTxt`,
+`discoveredHosts` and `discoveredEndpoints` in `src/shared/discovery.ts` read a
+record the same way on every client.
+
+The host uses the system's responder, never a multicast socket of its own:
+`dns-sd -R` on macOS, `avahi-publish -s` on Linux (it needs `avahi-daemon`; without
+Avahi the state is `unavailable`), and `DnsServiceRegister` of `dnsapi.dll`
+through Windows PowerShell on Windows 10 1809 and later. On POSIX the tool runs
+under a small `sh` wrapper that ends it when its stdin closes, so the
+announcement goes when the host stops or dies. A changed port or certificate
+withdraws the old announcement before the new one goes up; one that stopped
+is started again at the next minute's look. `UiNetworkAccess.announcement`
+reports `starting`, `announced` (with the name the network settled on),
+`failed` or `unavailable`, and a change pushes `connections-changed`.
+
+Registering and browsing are local network operations that macOS 15 and later
+asks the user about once per app (Apple TN3179). The question comes when the
+owner turns on Local network or presses **Find Machines…**, never at start: a
+`network.json` written before Bonjour existed reads `announce` as off, and
+browsing runs only on `connections-discover`. It lists for three seconds with
+`dns-sd -Z` (then looks up the `.local` name's addresses), `avahi-browse
+--parsable --resolve --terminate`, or `DnsServiceBrowse` and `DnsServiceResolve`,
+and marks the host's own record `self`. The macOS app declares
+`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`electron-builder.yml`).
+
 **Endpoints.** `connections-list` names every URL a device may use, best
 first, each with a `kind` a device can choose by: `lan` (with its
 `interface`, IPv4 before IPv6), `mdns` (`<name>.local`: macOS's
@@ -568,6 +612,25 @@ Link-local addresses are left out. The MagicDNS name comes from a reverse
 lookup of the machine's own Tailscale address at 100.100.100.100, so nothing
 runs the Tailscale CLI; names are looked up only once a listener is beyond
 loopback. A pairing link carries one URL per endpoint.
+
+A package adds endpoints the host cannot see and may hold the proxy listener
+open without either switch (`services.network`, [EXTENSIONS.md](EXTENSIONS.md)).
+A package may also keep the proxy listener across restarts
+(`<userData>/network-kept.json`): the host then opens it at start, before any
+package runs, which a service host with no client yet (and so no packages
+started) needs as much as a window's. Tailscale (`kits/tailscale/`) does all
+three while `tailscale serve` forwards
+`https://<machine>.<tailnet>.ts.net/` to the proxy listener: that endpoint has
+`kind: "magicdns"` and `trustedCertificate: true`, ranks first, and a client
+does not pin the host's fingerprint for it, because Serve answers with its own
+Let's Encrypt certificate. Serve keeps the `Host` header and sets
+`X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-For` afresh, so a page
+opened there passes the origin check either way.
+
+The direct Tailscale listener stays beside Serve: it needs no HTTPS
+certificates in the tailnet and publishes no name, and a client that pins the
+fingerprint (the native app, another desktop) reaches it. A browser on a
+phone wants Serve's certificate.
 
 ## The window is always a client
 
@@ -636,6 +699,47 @@ Two methods are not part of the client surface:
   connection the call was sent to; any other is dropped without a reply that
   would tell it apart from an unknown id. When the addressee disconnects, its
   open calls fail.
+
+### Several machines in one window
+
+A window beside a supervised host also knows the machines the user paired it
+with ([ADR 0025](adr/0025-a-window-follows-the-threads-machine.md)). Its page
+still speaks to one host at a time, the one it was loaded for; the window's
+process keeps the rest:
+
+- **The catalog**, `<userData>/environments.json` (0600): per machine its host
+  id, name, addresses with their kinds, the pinned fingerprint and the client
+  token, encrypted with `safeStorage`.
+- **One connection per machine and one to its own host**: an auxiliary hello
+  with `subscription: { threads: [], topics: [] }`, a `bootstrap` for the thread
+  index, then only `thread-index` and `agent-status` pushes, and `ping` every
+  20 seconds where the host offers `heartbeat`. Its addresses are tried in turn,
+  the one that answered last first, then loopback, LAN, `.local`, Tailscale and
+  MagicDNS; an unreachable machine is tried after 1, 2, 5, 10, then every 30 s.
+  4401 is final (the token was revoked or expired there), and so is a
+  certificate other than the pinned one.
+- **Pairing** through [Pairing over the socket](#pairing-over-the-socket): with a
+  link's code and fingerprint, or from a bare address with the certificate it
+  presents pinned for the attempt. The digits are bound to that certificate
+  either way.
+- **Moving the page**: `environments-open [id, target?]` attaches a second
+  `WindowHost` (uplink only, no window halves) to the machine and loads the page
+  with `?host=<its socket>&token=<its client token>&environment=<id>`; `target`
+  (`{ thread: { path } }` or `{ newThread: { draft?, workspaceId? } }`) waits for
+  `environments-take-arrival`. `desktop-extensions` then goes to that machine.
+  Back to the own machine is the same call with its id.
+
+The page reads the list with `environments-list` and hears every change as the
+`environments` push of its local connection (forwarded like `app-update` and
+`window-shell`). These methods are client-side; a host refuses all of them with
+`unsupported`. For the page's own sockets the window's session accepts a saved
+machine's pinned certificate for its host names only, and drops `Origin` on
+sockets to saved machines, because a host lets a `file://` page in over loopback
+only.
+
+A hello reply now names the machine: `host: { id, name }`, its
+`<userData>/host-id` and host name. A client that saved the machine knows it
+again whatever address reached it.
 
 ## Workspace identity
 

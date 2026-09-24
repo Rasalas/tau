@@ -51,6 +51,9 @@ A package has up to two halves, sharing one `id`:
   reads Workspace Kit's changes and diffs this way). Those commands belong to
   that extension's contract, not to core: an invoke fails like any other when
   it is not installed.
+  Who may call a host command is its `access` (below): Full devices by
+  default, Read-only devices too with `"read"`, only the host token on this
+  machine with `"owner"`.
 
 Either entry may be omitted, but not both. `id` is lowercase, dot-separated
 (`vendor.name`), and must be the same string both halves export — the
@@ -1086,6 +1089,9 @@ panel, clean worktree or not, with the panel's `actions`, the commit message as
 the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
 the row's `session` (Terminal Kit marks a thread whose shells run a program this way).
+`registerRailSection?(Component)` (new in API 1.13.0) draws a section at the foot of
+the rail, above its footer, given the rail's `actions`; Machines Kit lists the other
+machines' threads there. An older Workspace Kit lacks it, so call it as `registerRailSection?.(…)`.
 `setRailProjectFilter(projectName | undefined)` shows only one repository's
 threads in the rail and `openProjectSettings(thread)` opens the settings of the
 project a thread runs in — its name, path and icon (both new in API 1.11.0,
@@ -1905,6 +1911,15 @@ device learns what it is from its hello reply (`access: "read-only"`); a panel
 that hides its buttons there saves the user a refusal, but the host is what
 enforces it.
 
+`access: "owner"` is the other end: a command that changes who can reach the
+host — Tailscale's `serve-on` and `serve-off` — answers `forbidden` to every
+paired device and to the host token over a LAN or proxy listener, exactly like
+the `connections-*` methods (`src/main/host-method-access.ts`). Only the host
+token from this machine, the window and the host itself get through, and a
+refused call is recorded for the device like any other. A host older than
+1.13.0 ignores the value, so a package that relies on it needs `engines.api`
+`^1.13.0`.
+
 ### What reaches which client: `emit(…, { topic })` and `watch` (new in API 1.13.0)
 
 A client is sent the stream of the threads it shows, not of every thread
@@ -1929,6 +1944,35 @@ written in between is lost. A host or client older than 1.13.0 ignores the
 topic and sends such events to everyone, which is why `watch` is optional on
 `HostExtensionClient`: call it as `host.watch?.(topic)`.
 
+### Network access: `services.network` (new in API 1.13.0)
+
+`services.network` is how a package takes part in Settings → Connections →
+Network access. It is gated by `network` and absent (in a worker: `state()`
+answers `undefined`) on a host that opens no listeners of its own, such as an
+in-process one.
+
+| Member | What it does |
+|---|---|
+| `state()` | The `UiNetworkAccess` Connections shows: the switches, the ports, what listens, the problems, the certificate. `proxyHeld` says a package holds the proxy listener. |
+| `holdProxy()` | Keeps the loopback proxy listener (`settings.proxyPort`, plain HTTP, every peer counted as remote, no `local-files`) open whatever the switches say, until the returned function runs. Resolves once the listeners followed; a port that would not open is in `state().problems`. For a reverse proxy the package set up on this machine. |
+| `keepProxy(keep)` | Keeps the proxy listener open for this package across restarts too, until `keepProxy(false)`: the host remembers it in `<userData>/network-kept.json` and opens the listener at start, before any package runs — a host started as a service has no client to start its packages for a while, and a proxy that outlives Tau (`tailscale serve --bg`) must find it at once. It speaks for the package it was called through. |
+| `publishEndpoints(endpoints)` | Adds addresses only the package knows — a proxy's public name — to Connections' list, to every pairing link, and to the page origins the socket accepts. Only an `http(s)` URL without credentials or fragment is taken, as `reachability: "network"`; `trustedCertificate: true` (https only) says a proxy answers there with a certificate browsers trust, so it ranks first and a client does not pin the host's fingerprint for it. The returned function withdraws the list; publish again to change it. |
+
+Everything a package asked for is dropped with it — a worker's holds and
+endpoints go when the worker stops — except a kept proxy listener, which stays
+until the package lets go of it. Tailscale (`kits/tailscale/`) is the
+shipped caller: it keeps the proxy listener and publishes
+`https://<machine>.<tailnet>.ts.net/` while `tailscale serve` forwards there.
+Behind the proxy listener the host also reads `Tailscale-User-Login` and shows
+it beside the client in Connections — never as a login.
+
+On the desktop side, `registerSettingsSection({ id, page, order?, Component })`
+(new in API 1.13.0) adds a section to one of core's Settings pages, below
+core's own sections; `page` is `"connections"` so far. The component gets
+`onNotify` and `onChanged`, which reads the page's own data again after the
+section changed something it shows (a new endpoint in the address list). It is
+profile-scoped like a panel.
+
 ### Reaching the user outside the window: `context.attention`
 
 `context.attention` on the desktop half is the client's `Platform.attention`
@@ -1948,6 +1992,31 @@ core's to say: a host half that raises news knows who is attached from
 `services.clients`, and Notifications (`kits/notifications/`) lets each client
 report whether its window has focus and which thread it shows, so exactly one
 of them hears of a thread nobody is looking at. That kit is the shipped caller.
+
+### Other machines: `context.environments`
+
+`context.environments` (new in API 1.13.0) is the client's `Platform.environments`
+(`src/workbench/environments.ts`): the machines this window knows and shows threads
+of ([ADR 0025](adr/0025-a-window-follows-the-threads-machine.md)). It is `undefined`
+in a client without a window process — a browser, a phone — and `getSnapshot()`
+stays `undefined` where the window keeps no list (a window started with
+`TAU_HOST_URL` or `TAU_HOST_INPROCESS=1`), so an older core and a web client simply
+show no other machines. Like `attention`, hold the context, not the value.
+
+| Member | What it does |
+|---|---|
+| `getSnapshot()` / `subscribe(listener)` | `UiEnvironments`: `shown` (the machine this page was loaded for), `environments` (this machine first, `local: true`, then the saved ones, each with `status` — `connecting`, `connected`, `offline`, `refused` — `detail`, `roundTripMs`, `lastSeenAt`, `readOnly`, its newest threads with `running`, `threadCount` and `projects`), the `pairing` in progress with its six digits, and whether `secureStorage` can keep a key. |
+| `open(id, target?)` | Points the window at another machine: the page loads again there, and `target` — `{ thread: { path } }` or `{ newThread: { draft?, workspaceId? } }` — waits for it. It rejects for a machine that is not connected. For the machine already shown, open the target yourself. |
+| `takeArrival()` | What this page was sent to show, once. |
+| `pair({ text, deviceName? })` | Adds a machine from a pairing link, its QR code's text, or an address; resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
+| `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
+
+The window's process answers all of it through client-side methods
+(`environments-list`, `-pair`, `-cancel-pairing`, `-rename`, `-remove`, `-retry`,
+`-open`, `-take-arrival`) and the `environments` window event; a host refuses the
+methods with `unsupported`. Every kit a page loads comes from the machine it shows,
+so a kit needs nothing of its own to work on another machine; what needs *this*
+window's machine — a window half, `local-files` — is not offered there.
 
 ### `engines` and `engines.api`
 
@@ -1986,7 +2055,7 @@ A package's `permissions` array draws from a fixed list
 | `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and provide and read turn attachments. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
-| `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
+| `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
@@ -2025,9 +2094,9 @@ and is logged as `host-extension.denied` (`guardedServices`, wraps
 `HostExtensionServices`; the same check runs for a worker's calls, dispatched
 into the identical guarded facade from the main side).
 
-`network` is the one permission not in `HOST_SERVICE_PERMISSIONS`: a package
-that dials out never asks the host for anything, so there is no member to gate.
-The worker enforces it for itself instead — see §6. `process` is enforced in
+`network` gates one facade member, `services.network` (the host's own
+listeners); dialling out asks the host for nothing, so for that the worker
+enforces the grant itself instead — see §6. `process` is enforced in
 both places: the facade members are guarded on the main side, and the worker
 refuses `child_process` for itself. For an `in-process` package neither is
 enforced, because a package running in the host process can reach everything

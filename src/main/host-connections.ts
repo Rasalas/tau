@@ -10,6 +10,7 @@ import {
   type UiNetworkAccess,
   type UiNetworkSettingsInput,
 } from "../shared/connections.js";
+import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import type { HostAccess } from "./host-access.js";
 import type { HostMethodContext } from "./host-jobs.js";
@@ -45,12 +46,16 @@ export interface HostConnectionsService {
   network?: HostNetworkService;
   /** Reads every listener's certificate again; answers whether one changed. */
   reloadCertificates?(): Promise<{ changed: boolean }>;
+  /** Endpoints packages published (`services.network.publishEndpoints`). */
+  published?(): UiHostEndpoint[];
   /** Replaceable for tests; the machine's own otherwise. */
   interfaces?(): Interfaces;
   names?(interfaces: Interfaces): Promise<EndpointNames>;
-  /** Carried in a pairing link, so a device recognises the host again (and a Bonjour record can name the same one). */
+  /** Carried in a pairing link and the Bonjour record, so a device recognises the host again. */
   hostId?: string;
   hostName?: string;
+  /** Looks for Tau hosts on this network for a few seconds; only when the owner asks. */
+  discover?(options: { timeoutMs?: number }): Promise<UiDiscoveredHosts>;
 }
 
 /** The URLs a browser opens this host's own listener at: every usable address of a wildcard bind, loopback last. */
@@ -83,7 +88,7 @@ async function allEndpoints(connections: HostConnectionsService, info: HostListe
   const interfaces = connections.interfaces?.() ?? networkInterfaces();
   const beyondLoopback = (info !== undefined && !isLoopbackHost(info.host)) || (connections.network?.state().listeners.length ?? 0) > 0;
   const names = beyondLoopback ? await (connections.names ?? machineNames)(interfaces) : {};
-  return mergeEndpoints([info ? hostEndpoints(info, interfaces, names) : [], connections.network?.endpoints(names) ?? []]);
+  return mergeEndpoints([connections.published?.() ?? [], info ? hostEndpoints(info, interfaces, names) : [], connections.network?.endpoints(names) ?? []]);
 }
 
 function forbidden(): never {
@@ -202,6 +207,13 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
     "connections-set-network": owned(({ network }, params) => {
       if (!network) unavailable("This host opens no network listeners of its own.");
       return network.update(decodeNetworkSettingsInput(params[0]));
+    }),
+    // Browsing is a local network operation macOS asks about; only the owner's click starts one.
+    "connections-discover": owned(async ({ discover }, params) => {
+      if (!discover) unavailable("This host cannot look for machines on its network.");
+      const { timeoutMs } = decodeObject("connections-discover", params[0]);
+      if (timeoutMs !== undefined && (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs))) throw new Error("connections-discover: timeoutMs must be a number.");
+      return discover(typeof timeoutMs === "number" ? { timeoutMs } : {});
     }),
     "connections-reload-certificate": owned(async ({ reloadCertificates }) => {
       if (!reloadCertificates) unavailable("This host serves no certificate to reload.");

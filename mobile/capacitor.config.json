@@ -1,0 +1,12 @@
+{
+  "appId": "io.github.rasalas.tau",
+  "appName": "Tau",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "never",
+    "initialFocus": false
+  },
+  "android": {
+    "adjustMarginsForEdgeToEdge": "disable"
+  }
+}

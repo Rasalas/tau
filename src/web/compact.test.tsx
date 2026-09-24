@@ -246,6 +246,28 @@ describe("the web client at 400 px", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
   });
 
+  it("names the host a native shell put on screen and runs the shell's own action from More", async () => {
+    const client = createFakeHostClient({ bootstrap: bootstrapWith(THREADS) });
+    const storage = createMemoryStorage();
+    setHostClient(client);
+    setClientStorage(storage);
+    const switched: string[] = [];
+    render(<WebWorkbench
+      client={client}
+      storage={storage}
+      services={createRendererServices()}
+      environment={{ ...webClientEnvironment("compact"), shell: { hostLabel: "Studio Mac", actions: [{ id: "hosts", label: "Hosts", run: () => switched.push("hosts") }] } }}
+    />);
+    await screen.findByRole("list", { name: "Threads" });
+    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
+    const threads = await screen.findByRole("dialog", { name: "Threads" });
+    expect(within(threads).getByText("Studio Mac")).toBeTruthy();
+    fireEvent.click(within(threads).getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Hosts" }));
+    expect(switched).toEqual(["hosts"]);
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Hosts" })).toBeNull());
+  });
+
   it("opens the thread list as a sheet from the title bar", async () => {
     renderCompactClient();
     await screen.findByRole("list", { name: "Threads" });

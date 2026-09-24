@@ -1,0 +1,121 @@
+import type { PairingEndpoint } from "../../src/shared/connections";
+import { pairWithHost, type PairingResult, type PairingSocket } from "../../src/workbench/host-pairing";
+import { RacingSocket, socketCandidates, type AttemptSocket, type DeviceNetwork, type RaceOptions, type SocketCandidate } from "./endpoints";
+import type { SavedHost } from "./hosts";
+
+/** A host to pair with, from a QR code, a pasted link or a Bonjour record. */
+export interface PairTarget {
+  hostId: string;
+  name: string;
+  fingerprint?: string;
+  endpoints: PairingEndpoint[];
+  /** From a link; without one the owner is asked all the same. */
+  code?: string;
+}
+
+export type PairOutcome =
+  | { state: "approved"; host: SavedHost; token: string }
+  | Exclude<PairingResult, { state: "approved" }>;
+
+export interface PairingDevice extends DeviceNetwork {
+  /** How the phone names itself to the host's owner. */
+  name: string;
+}
+
+export interface PairDependencies {
+  device: PairingDevice;
+  openSocket(candidate: SocketCandidate): AttemptSocket & PairingSocket;
+  now?(): Date;
+  race?: RaceOptions;
+}
+
+export type EndpointChoice =
+  | { candidate: SocketCandidate; fingerprint?: string }
+  | { failure: "no-address" | "unreachable" | "certificate-mismatch" };
+
+/** Races the candidates once and closes the winner: which address this phone reaches the host on right now. */
+export function chooseEndpoint(candidates: readonly SocketCandidate[], open: (candidate: SocketCandidate) => AttemptSocket, race?: RaceOptions): Promise<EndpointChoice> {
+  if (candidates.length === 0) return Promise.resolve({ failure: "no-address" });
+  return new Promise((resolve) => {
+    const socket = new RacingSocket(candidates, open, race);
+    socket.onopen = () => {
+      const candidate = socket.winner!;
+      resolve({ candidate, ...(socket.fingerprint ? { fingerprint: socket.fingerprint } : {}) });
+      socket.onclose = null;
+      socket.close();
+    };
+    socket.onclose = () => resolve({ failure: socket.pinMismatch ? "certificate-mismatch" : "unreachable" });
+  });
+}
+
+/**
+ * The certificate the pairing digits are bound to, as the host computes them
+ * for the listener the socket came through (ADR 0024): the pinned one; the one
+ * a TLS address showed when the link named none; nothing through a proxy that
+ * ends TLS itself (Tailscale Serve) or on a plaintext loopback socket.
+ */
+export function bindingFingerprint(candidate: SocketCandidate, seen: string | undefined): string {
+  if (candidate.fingerprint) return seen === candidate.fingerprint ? candidate.fingerprint : "";
+  if (!candidate.url.startsWith("wss:") || candidate.allowAuthority) return "";
+  return seen ?? "";
+}
+
+export const pairingFailure = {
+  "no-address": "None of this host's addresses can be reached from a phone. Turn on Local network or Tailscale in the host's Settings → Connections, then scan a new code.",
+  unreachable: "The host did not answer on any of its addresses. Is this phone on the same network, or on Tailscale?",
+  "certificate-mismatch": "Something answered at the host's address with another certificate than the one in the code. This phone did not send it anything.",
+} as const;
+
+/**
+ * Pairs with a host over the best address this phone reaches it on: the
+ * owner compares the digits and allows it, and the phone keeps the host with
+ * its token. The socket pins the host's certificate on every TLS address.
+ */
+export async function pairDevice(target: PairTarget, dependencies: PairDependencies, callbacks: {
+  onWaiting?(waiting: { verification: string; expiresAt: string }): void;
+  onAddress?(candidate: SocketCandidate): void;
+  signal?: AbortSignal;
+} = {}): Promise<PairOutcome> {
+  const candidates = socketCandidates(target.endpoints, target.fingerprint, dependencies.device);
+  const choice = await chooseEndpoint(candidates, dependencies.openSocket, dependencies.race);
+  if ("failure" in choice) return { state: "failed", message: pairingFailure[choice.failure] };
+  if (callbacks.signal?.aborted) return { state: "failed", message: "Pairing was cancelled." };
+  callbacks.onAddress?.(choice.candidate);
+  const result = await pairWithHost({
+    url: choice.candidate.url,
+    ...(target.code ? { code: target.code } : {}),
+    name: dependencies.device.name,
+    fingerprint: bindingFingerprint(choice.candidate, choice.fingerprint),
+    ...(callbacks.onWaiting ? { onWaiting: callbacks.onWaiting } : {}),
+    ...(callbacks.signal ? { signal: callbacks.signal } : {}),
+    createSocket: () => dependencies.openSocket(choice.candidate),
+  });
+  if (result.state !== "approved") return result;
+  const at = (dependencies.now?.() ?? new Date()).toISOString();
+  const endpoint = target.endpoints.find((entry) => sameAddress(entry.url, choice.candidate.url));
+  return {
+    state: "approved",
+    token: result.token,
+    host: {
+      id: target.hostId,
+      name: target.name,
+      ...(target.fingerprint ? { fingerprint: target.fingerprint } : {}),
+      endpoints: target.endpoints,
+      access: result.access,
+      addedAt: at,
+      lastUsedAt: at,
+      ...(endpoint ? { lastEndpoint: endpoint } : {}),
+    },
+  };
+}
+
+/** `https://h:1/` and `wss://h:1/` name the same listener; the Android emulator's alias aside. */
+export function sameAddress(endpointUrl: string, socketUrl: string): boolean {
+  try {
+    const a = new URL(endpointUrl);
+    const b = new URL(socketUrl);
+    return a.port === b.port && (a.hostname === b.hostname || b.hostname === "10.0.2.2");
+  } catch {
+    return false;
+  }
+}

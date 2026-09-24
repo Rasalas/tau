@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The desktop icon's glyph on a full square: iOS and Android cut their own shape. -->
+  <rect width="1024" height="1024" fill="#c7ff3d"/>
+  <g transform="translate(512 546) scale(1.08) translate(-512 -546)">
+    <path d="M284 326H740" fill="none" stroke="#151611" stroke-width="104" stroke-linecap="round"/>
+    <path d="M492 344V628C492 718 538 766 618 766C660 766 695 752 724 728" fill="none" stroke="#151611" stroke-width="104" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

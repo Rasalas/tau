@@ -121,6 +121,24 @@ describe("socket host client", () => {
     expect(states).toEqual(["reconnecting", "connected"]);
   });
 
+  it("opens every socket through the factory it was given, never the browser's", async () => {
+    vi.stubGlobal("WebSocket", class { constructor() { throw new Error("the page's WebSocket was used"); } });
+    vi.useFakeTimers();
+    const urls: string[] = [];
+    const { connection } = createSocketHostClient("wss://host.test:7788", "secret-token", {
+      createSocket: (url) => { urls.push(url); return new FakeSocket(url); },
+    });
+    const started = connection.start();
+    FakeSocket.opened[0]!.accept();
+    await vi.advanceTimersByTimeAsync(0);
+    answerHello(FakeSocket.opened[0]!, helloReply(1));
+    await started;
+
+    FakeSocket.opened[0]!.drop();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(urls).toEqual(["wss://host.test:7788", "wss://host.test:7788"]);
+  });
+
   it("stops trying when the host refuses the token, and says so once", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     vi.useFakeTimers();

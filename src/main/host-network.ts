@@ -17,6 +17,8 @@ import { HostTlsReloader, resolveHostTls, type HostTlsMaterial } from "./host-tl
 import { createProtocolServer } from "./host-transport-socket.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 import type { HostLogger } from "./host-log.js";
+import { instanceName, type ServiceAnnouncement, type ServiceAnnouncer } from "./host-discovery.js";
+import { tauServiceTxt } from "../shared/discovery.js";
 
 const STORE_VERSION = 1;
 const MIN_PORT = 1024;
@@ -34,15 +36,16 @@ export interface NetworkBind {
  * The listeners network access asks for with these interfaces up. Local
  * network is one dual-stack wildcard; Tailscale alone binds each Tailscale
  * address, so the port stays closed on the LAN; either way Tailscale adds the
- * loopback listener a reverse proxy forwards to.
+ * loopback listener a reverse proxy forwards to, and so does a package that
+ * set such a proxy up (`proxyHeld`).
  */
-export function planNetworkBinds(settings: UiNetworkSettings, interfaces: Interfaces): NetworkBind[] {
+export function planNetworkBinds(settings: UiNetworkSettings, interfaces: Interfaces, proxyHeld = false): NetworkBind[] {
   const binds: NetworkBind[] = [];
   if (settings.lan) binds.push({ key: "lan", host: "::", port: settings.port, kind: "network" });
   if (settings.tailscale && !settings.lan) {
     for (const address of tailscaleAddresses(interfaces)) binds.push({ key: `tailscale:${address}`, host: address, port: settings.port, kind: "network" });
   }
-  if (settings.tailscale) binds.push({ key: "proxy", host: "127.0.0.1", port: settings.proxyPort, kind: "proxy" });
+  if (settings.tailscale || proxyHeld) binds.push({ key: "proxy", host: "127.0.0.1", port: settings.proxyPort, kind: "proxy" });
   return binds;
 }
 
@@ -74,7 +77,7 @@ export function decodeNetworkSettingsInput(value: unknown): UiNetworkSettingsInp
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("connections-set-network: input must be an object.");
   const input = value as Record<string, unknown>;
   const result: UiNetworkSettingsInput = {};
-  for (const flag of ["lan", "tailscale"] as const) {
+  for (const flag of ["lan", "tailscale", "announce"] as const) {
     if (input[flag] === undefined) continue;
     if (typeof input[flag] !== "boolean") throw new Error(`connections-set-network: ${flag} must be true or false.`);
     result[flag] = input[flag];
@@ -101,7 +104,9 @@ function decodeStored(value: unknown): UiNetworkSettings | undefined {
   if (!value || typeof value !== "object") return undefined;
   const { settings } = value as { settings?: unknown };
   try {
-    return applyNetworkSettings(DEFAULT_NETWORK_SETTINGS, decodeNetworkSettingsInput(settings ?? {}));
+    const input = decodeNetworkSettingsInput(settings ?? {});
+    // Written before Bonjour: announcing would ask macOS for local network access at start, unasked.
+    return applyNetworkSettings(DEFAULT_NETWORK_SETTINGS, { announce: false, ...input });
   } catch {
     return undefined;
   }
@@ -116,10 +121,19 @@ export interface HostNetworkAccessOptions {
   web?: (trust: ListenerTrust) => RequestListener;
   interfaces?: () => Interfaces;
   /** Which listeners the settings mean; tests bind loopback in place of real interfaces. */
-  plan?: (settings: UiNetworkSettings, interfaces: Interfaces) => NetworkBind[];
+  plan?: (settings: UiNetworkSettings, interfaces: Interfaces, proxyHeld: boolean) => NetworkBind[];
+  /** A package keeps the proxy listener open; `reconcile` applies a change. */
+  proxyHeld?: () => boolean;
   /** The certificate for a network listener; the settings' own one, else self-signed. */
   resolveTls?: (settings: UiNetworkSettings) => HostTlsMaterial;
   logger?: HostLogger & PersistedJsonLogger;
+  /** Announces the local network listener with Bonjour while `announce` is on; without it nothing is announced. */
+  bonjour?: {
+    announcer: Pick<ServiceAnnouncer, "set" | "state" | "close">;
+    serviceType: string;
+    hostId: string;
+    name: string;
+  };
 }
 
 interface OpenListener {
@@ -192,6 +206,7 @@ export class HostNetworkAccess {
       try {
         const changed = this.tls.reload();
         this.tlsProblem = undefined;
+        await this.announce();
         return { changed, network: this.state() };
       } catch (error: unknown) {
         this.tlsProblem = `The certificate did not load, so the old one is still served: ${messageOf(error)}`;
@@ -216,11 +231,14 @@ export class HostNetworkAccess {
 
   state(): UiNetworkAccess {
     const material = this.tls?.current;
+    const announcement = this.options.bonjour?.announcer.state();
     return {
       settings: this.settings,
+      ...(announcement ? { announcement } : {}),
       listeners: [...this.open.values()].map(({ bind, host, server }) => ({ host, port: portOf(server) ?? bind.port, kind: bind.kind })),
       problems: [...this.problems, ...(this.tlsProblem ? [this.tlsProblem] : [])],
       tailscaleUp: tailscaleAddresses(this.interfaces()).length > 0,
+      ...(this.options.proxyHeld?.() ? { proxyHeld: true } : {}),
       ...(material ? {
         certificate: { source: material.source, fingerprint: material.fingerprint, validTo: material.validTo, certPath: material.certPath, warnings: material.warnings },
       } : {}),
@@ -242,6 +260,7 @@ export class HostNetworkAccess {
 
   async close(): Promise<void> {
     await this.serialize(async () => {
+      await this.options.bonjour?.announcer.close();
       for (const key of [...this.open.keys()]) await this.stop(key);
     });
   }
@@ -253,7 +272,9 @@ export class HostNetworkAccess {
   }
 
   private async reconcileNow(): Promise<void> {
-    const plan = (this.options.plan ?? planNetworkBinds)(this.settings, this.interfaces());
+    // Withdraw before the listener closes, so no device finds a port that is gone.
+    if (!this.settings.lan || !this.settings.announce) await this.announce();
+    const plan = (this.options.plan ?? planNetworkBinds)(this.settings, this.interfaces(), this.options.proxyHeld?.() ?? false);
     const wanted = new Map(plan.map((bind) => [bind.key, bind]));
     const problems: string[] = [];
     if (this.settings.tailscale && !this.settings.lan && !plan.some((bind) => bind.key.startsWith("tailscale:"))) {
@@ -293,6 +314,30 @@ export class HostNetworkAccess {
       }
     }
     this.problems = problems;
+    await this.announce();
+  }
+
+  /** What Bonjour should say now: the local network listener, while it is open and `announce` is on. */
+  private announcement(): ServiceAnnouncement | undefined {
+    const bonjour = this.options.bonjour;
+    const lan = this.open.get("lan");
+    const fingerprint = this.tls?.current.fingerprint;
+    if (!bonjour || !this.settings.lan || !this.settings.announce || !lan || !fingerprint) return undefined;
+    return {
+      type: bonjour.serviceType,
+      name: instanceName(bonjour.name),
+      port: portOf(lan.server) ?? lan.bind.port,
+      txt: tauServiceTxt({ hostId: bonjour.hostId, fingerprint }),
+    };
+  }
+
+  private async announce(): Promise<void> {
+    if (!this.options.bonjour) return;
+    try {
+      await this.options.bonjour.announcer.set(this.announcement());
+    } catch (error: unknown) {
+      this.options.logger?.warn("host-discovery.set-failed", error);
+    }
   }
 
   private resolveTls(settings: UiNetworkSettings): HostTlsMaterial {

@@ -3,6 +3,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 export type { PricedUsage, UsageTally, UsageTurn } from "./usage-pricing.js";
 import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
+import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
 
 /**
@@ -164,6 +165,13 @@ export interface WorkerHostServices {
     observe(observer: WorkerClientObserver): Promise<() => void>;
     count(): Promise<number>;
   };
+  /** Network access; see `HostExtensionServices.network`. `state` answers undefined where the host opens no listeners. New in API 1.13.0. */
+  readonly network: {
+    state(): Promise<UiNetworkAccess | undefined>;
+    holdProxy(): Promise<() => void>;
+    keepProxy(keep: boolean): Promise<void>;
+    publishEndpoints(endpoints: readonly UiHostEndpoint[]): Promise<() => void>;
+  };
   /** Follows the files the host watches; the hook receives one change at a time. */
   observeConfigChanges(listener: (change: { kind: string; paths: readonly string[] }) => void): Promise<() => void>;
   registerThreadLifecycle(lifecycle: WorkerThreadLifecycle): Promise<() => void>;
@@ -183,7 +191,7 @@ export interface WorkerHostExtensionContext {
   readonly services: WorkerHostServices;
   /** Calls another host entry through the supervisor-bound worker identity. */
   readonly invokeHostExtension: (extensionId: string, command: string, input?: unknown) => Promise<unknown>;
-  registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean; callers?: readonly string[]; access?: "read" }): () => void;
+  registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean; callers?: readonly string[]; access?: "read" | "owner" }): () => void;
   emit(name: string, payload?: unknown, options?: HostExtensionEmitOptions): void;
 }
 
@@ -214,7 +222,7 @@ export type HostToWorkerMessage =
 export type WorkerToHostMessage =
   | { t: "ready" }
   | { t: "fatal"; error: SerializedError }
-  | { t: "command"; name: string; long: boolean; callers: readonly string[]; access?: "read" }
+  | { t: "command"; name: string; long: boolean; callers: readonly string[]; access?: "read" | "owner" }
   | { t: "command-off"; name: string }
   | { t: "emit"; name: string; payload: unknown; topic?: string }
   | { t: "log"; label: string; detail?: string }

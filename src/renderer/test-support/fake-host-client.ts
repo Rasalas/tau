@@ -125,10 +125,20 @@ function defaults(): HostClient {
     rotateHostToken: async () => undefined,
     setNetworkAccess: async () => { throw Object.assign(new Error("No network access in tests."), { code: "unsupported" }); },
     reloadCertificate: async () => ({ changed: false }),
+    discoverHosts: async () => ({ hosts: [], serviceType: "_tau-test._tcp" }),
     // No service unless a test gives one: the section says the host cannot run as one.
     serviceStatus: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
     installService: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
     uninstallService: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
+    // No window process in tests unless one is given: the page shows no other machines.
+    listEnvironments: async () => { throw Object.assign(new Error("No machines in tests."), { code: "unsupported" }); },
+    pairEnvironment: async () => ({ state: "failed", message: "No machines in tests." }),
+    cancelEnvironmentPairing: async () => undefined,
+    renameEnvironment: async () => ({ renamed: false }),
+    removeEnvironment: async () => ({ removed: false }),
+    retryEnvironment: async () => undefined,
+    openEnvironment: async () => undefined,
+    takeEnvironmentArrival: async () => undefined,
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),

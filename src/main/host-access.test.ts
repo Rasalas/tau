@@ -710,7 +710,7 @@ describe("the Connections methods", () => {
 
     const token = await pair(access, { code: created.code });
     const phone = await client(port, token);
-    for (const method of ["connections-list", "connections-create-link", "connections-rotate-host-token", "connections-set-network", "connections-reload-certificate", "connections-approve", "connections-update-client", "connections-revoke-others"]) {
+    for (const method of ["connections-list", "connections-create-link", "connections-rotate-host-token", "connections-set-network", "connections-reload-certificate", "connections-approve", "connections-update-client", "connections-revoke-others", "connections-discover"]) {
       expect((await phone.request(method)).error?.code).toBe(HOST_ERROR.forbidden);
     }
     expect((await phone.request("start-job", ["connections-revoke-client", [token.split(".")[1]]])).error?.code).toBe(HOST_ERROR.forbidden);
@@ -735,6 +735,22 @@ describe("the Connections methods", () => {
       hostName: "studio",
       endpoints: [{ url: "https://192.0.2.5:4100/", kind: "lan" }],
     });
+  });
+
+  it("look for machines on the network only when the owner asks, for as long as asked", async () => {
+    const { access } = await openAccess();
+    const asked: unknown[] = [];
+    const methods = createConnectionsMethods(() => ({
+      access,
+      listen: () => undefined,
+      discover: async (options) => { asked.push(options); return { hosts: [], serviceType: "_tau-test._tcp" }; },
+    })) as HostMethodTable;
+    expect(await invokeHostMethod(methods, "connections-discover", [{ timeoutMs: 2000 }], HOST_CORE_PRINCIPAL)).toEqual({ hosts: [], serviceType: "_tau-test._tcp" });
+    await invokeHostMethod(methods, "connections-discover", [], HOST_CORE_PRINCIPAL);
+    expect(asked).toEqual([{ timeoutMs: 2000 }, {}]);
+    await expect(invokeHostMethod(methods, "connections-discover", [{ timeoutMs: "long" }], HOST_CORE_PRINCIPAL)).rejects.toThrow(/timeoutMs/u);
+    const without = createConnectionsMethods(() => ({ access, listen: () => undefined })) as HostMethodTable;
+    await expect(invokeHostMethod(without, "connections-discover", [], HOST_CORE_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
   });
 
   it("say so on a host without a listener", async () => {
@@ -781,6 +797,23 @@ describe("the Connections methods", () => {
     expect(parsePairingPayload(link.urls[0]!.url)).toMatchObject({ code: link.code, fingerprint: "CD:".repeat(31) + "CD", endpoints: [{ url: "https://192.168.1.20:7788/", kind: "lan" }] });
     await expect(invokeHostMethod(methods, "connections-reload-certificate", [], HOST_CORE_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
     expect(await endpointOrigins(service)).toEqual(["https://192.168.1.20:7788", "http://127.0.0.1:4100"]);
+  });
+
+  it("list a package's published endpoint first, in pairing links and among the page origins", async () => {
+    const { access } = await openAccess();
+    const served = { url: "https://box.tail0000.ts.net/", label: "Tailscale HTTPS", reachability: "network" as const, kind: "magicdns" as const, trustedCertificate: true };
+    const service: HostConnectionsService = {
+      access,
+      listen: () => ({ scheme: "ws", host: "127.0.0.1", port: 4100, webClient: true }),
+      interfaces: () => ({}) as Interfaces,
+      published: () => [served],
+    };
+    const methods = createConnectionsMethods(() => service) as HostMethodTable;
+    const list = await invokeHostMethod(methods, "connections-list", [], HOST_CORE_PRINCIPAL) as UiConnections;
+    expect(list.endpoints).toEqual([served, expect.objectContaining({ label: "This machine" })]);
+    const link = await invokeHostMethod(methods, "connections-create-link", [], HOST_CORE_PRINCIPAL) as UiCreatedPairingLink;
+    expect(link.urls[0]).toMatchObject({ url: `https://box.tail0000.ts.net/#pair=${encodeURIComponent(link.code)}&k=magicdns`, trustedCertificate: true });
+    expect(await endpointOrigins(service)).toEqual(["https://box.tail0000.ts.net", "http://127.0.0.1:4100"]);
   });
 });
 

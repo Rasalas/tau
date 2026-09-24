@@ -319,7 +319,13 @@ Without `TAU_HOST_FINGERPRINT` the window shows the certificate's fingerprint on
 
 A dropped link (a suspended machine, a restarted tunnel, a phone that slept or changed networks) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. Heartbeats find a link that died without a close, and coming back to the page or to a network tries again at once. A strip above the status line reads `Reconnecting to the host…` (with "Retry now" while it waits), then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. For a host on another machine, a dot in the title bar shows the link and its round trip. Nothing has to be restarted by hand.
 
-The host accepts sockets only from pages it served itself and from clients that are not pages; a native shell or a proxy that changes the host name is added with `TAU_HOST_ALLOWED_ORIGINS=capacitor://localhost,https://…`.
+The host accepts sockets only from pages it served itself and from clients that are not pages (the native app's sockets send no `Origin`); a proxy that changes the host name is added with `TAU_HOST_ALLOWED_ORIGINS=https://…`.
+
+### Other machines in the same window
+
+The easier way to work on another machine is to add it to the window you already use. On the other machine, open Settings → Connections, turn on network access and create a pairing link. On this one, open Settings → Machines and paste the link, or type the other machine's address (`studio.local:7788`). The other machine's window asks whether to let this computer in and shows six digits; allow it if this window shows the same six. Tau keeps that machine's key encrypted in the system keychain and never saves it anywhere it cannot.
+
+From then on the rail ends with **Other machines**: each with a dot for its status (connected with its round trip, connecting, offline since when, refused and why), and its newest threads, including the ones that are running. Clicking a thread opens this window on that machine: its threads, projects, terminals, files and kits are that machine's, and so is everything the agent does. **Run on** in a new thread's draft moves the draft, text and all, to another machine before it starts. Returning is the same click on a thread of this machine. Every move loads the window again, which takes a moment the first time a machine's kits are compiled. [ADR 0025](docs/adr/0025-a-window-follows-the-threads-machine.md) explains the design and what is left out: Preview and the folder picker stay with the machine the window runs on, and there is no load balancing between machines.
 
 ### The web client
 
@@ -381,6 +387,27 @@ carries all of them. Turning a switch off closes its listener and every connecti
 that came through it. A host you start by hand opens a proxy listener with
 `TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>`. The installed app ships the web client.
 
+While Local network is on, Tau also **announces itself with Bonjour** (`_tau._tcp`), so
+the Tau app on a phone and other machines on the same network find it without a link.
+The record carries the host's id and certificate fingerprint and nothing secret; a
+device found this way still waits until you allow it with matching digits. Turn off
+**Announce on this network** to be found only by link or QR code. **Find Machines…**
+lists the Tau hosts nearby; it looks only when you ask. macOS may ask once whether Tau
+may use the local network. Linux needs Avahi (`avahi-utils` and a running
+`avahi-daemon`); Windows 10 1809 or later uses its own mDNS through PowerShell.
+
+**Tailscale HTTPS**, in the Tailscale section below, has `tailscale serve` answer at
+`https://<machine>.<tailnet>.ts.net/` in your tailnet with a certificate every browser
+trusts, and forward to that proxy listener; neither switch has to be on. It needs
+MagicDNS and HTTPS certificates turned on in the Tailscale admin console, and the section
+says so while they are off. Before anything changes Tau asks, and says what it costs:
+every certificate is written to the public Certificate Transparency logs, so the
+machine's name becomes public for good. Rename the machine first if the name says too
+much. Serve keeps forwarding after Tau quits (the address answers with an error then);
+turning the switch off removes only Tau's path. On Linux, `tailscale serve` needs root
+or an operator: run `sudo tailscale set --operator=$USER` once. Tau never runs
+`tailscale funnel`, so nothing is published to the internet.
+
 The client is the same workbench: the same transcript, composer, thread list, Pi dialogs
 and Agents panel, reading the same stores over the same protocol. What differs is what it
 can draw. A browser has no editor and no Electron window, so contributions that need one
@@ -400,6 +427,29 @@ Without TLS the socket is unencrypted and the page is served over plain HTTP, so
 refuses to bind anything but a loopback address. To reach it from a phone, start the host
 with `TAU_HOST_TLS=1`, or forward the port over SSH or a tunnel you trust;
 `TAU_HOST_INSECURE=1` is the deliberate exception.
+
+### The app for iOS and Android
+
+`mobile/` is a native app built with Capacitor around the same compact client. It keeps
+several hosts, finds hosts on the local network over Bonjour, and talks to each over a
+socket of its own native side (URLSession on iOS, OkHttp on Android) that pins the host's
+self-signed certificate — a web view cannot. Tokens live in the Keychain or behind a
+Keystore key.
+
+Add a host by scanning the QR code in Settings → Connections (or pasting its link), or
+tap a host listed under "On this network". Either way the host's window asks
+"<phone> wants to connect" with six digits; allow it only if the phone shows the same
+ones. With a pinned certificate the digits depend on it, so something between the two
+that presents another certificate cannot make them agree (ADR 0024). The link names every
+address of the host; the app races them each time it connects — local network first,
+then `.local`, then Tailscale — so it follows a phone from home Wi-Fi to cellular on its
+own. Coming back to the foreground or to a network makes it check the link at once. More
+→ Hosts in the thread list goes back to the host list. `tau://thread?host=<id>&thread=<id>`
+opens a thread of a paired host (for push notifications, which are not built yet).
+
+Building and running it in a simulator is in `mobile/README.md`; putting it on your own
+iPhone through TestFlight, signed with your Apple Developer account, in
+`docs/mobile-testflight.md`.
 
 ### Share a live session with Pi
 
@@ -577,9 +627,8 @@ still open:
 - **Windows, run for real.** The host has a Windows path for everything it found POSIX-only (see
   [Windows](#windows)), but it is verified by tests on macOS and by a manual Windows workflow, not
   by a person using it on Windows.
-- **Kits in a desktop window pointed at a remote host.** A `file://` page may not evaluate the
-  bundle the host sends as source, so that window loads no kits. The browser client, served over
-  HTTP, has no such problem.
+- **One window showing two machines at once.** A window shows one machine's workbench at a time and
+  loads again to show another ([ADR 0025](docs/adr/0025-a-window-follows-the-threads-machine.md)).
 - **`kits/` in a repository of its own.** Two artifacts from one repository first; splitting them
   is a governance decision with a second release train behind it and no forcing need yet.
 

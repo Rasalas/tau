@@ -1,0 +1,29 @@
+{
+  "name": "tau-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tau's native app for iOS and Android: Capacitor around the compact web client",
+  "license": "MIT",
+  "scripts": {
+    "build": "vite build",
+    "build:dev": "vite build --mode development",
+    "sync": "npm run build && cap sync",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "ios:build": "node scripts/native-build.mjs ios",
+    "android:build": "node scripts/native-build.mjs android",
+    "sim": "node scripts/sim.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/network": "^8.0.1",
+    "tau-native": "file:plugins/tau-native"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  }
+}

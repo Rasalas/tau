@@ -136,6 +136,9 @@ export type {
   StageTabHandle,
   SettingsPageContribution,
   SettingsPageProps,
+  SettingsSectionContribution,
+  SettingsSectionPage,
+  SettingsSectionProps,
   SidebarContribution,
   SidebarContributionProps,
   ProjectSourceContribution,
@@ -178,6 +181,18 @@ export type { StageExtensionTab, StageFileTab, StagePanelTab, StageState, StageT
 export type { PreferencesStore } from "./preferences";
 /** What `context.attention` offers: a system notification and the app icon's badge. */
 export type { PlatformAttention, SystemNotification, SystemNotificationOutcome } from "../workbench/platform";
+export type { PlatformEnvironments } from "../workbench/environments";
+export type {
+  EnvironmentPairInput,
+  EnvironmentPairResult,
+  EnvironmentStatus,
+  EnvironmentTarget,
+  UiEnvironment,
+  UiEnvironmentPairing,
+  UiEnvironmentProject,
+  UiEnvironmentThread,
+  UiEnvironments,
+} from "../shared/environments";
 export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity } from "./components/ThreadRow";
 /** The line seam of `ReviewMode`'s diffs. */

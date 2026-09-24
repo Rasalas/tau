@@ -1,0 +1,15 @@
+{
+  "name": "tau-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Tau app's native side: Keychain/Keystore, pinned sockets, QR scanner, Bonjour",
+  "license": "MIT",
+  "files": ["android/src/main/", "android/build.gradle", "ios/Sources", "Package.swift"],
+  "capacitor": {
+    "ios": { "src": "ios" },
+    "android": { "src": "android" }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0"
+  }
+}

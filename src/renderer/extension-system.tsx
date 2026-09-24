@@ -31,6 +31,7 @@ import type {
 import type { DiffLoadOptions, UiFileContent, UiEditor, UiFileDiff, UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { StageTab } from "../workbench/stage";
 import type { Platform, PlatformAttention } from "../workbench/platform";
+import type { PlatformEnvironments } from "../workbench/environments";
 import { PreferencesStore } from "./preferences";
 import { errorMessage } from "../workbench/error-message";
 import type { SettingScope } from "../shared/config-layers";
@@ -612,6 +613,26 @@ export interface SettingsPageContribution extends ProfileScoped {
   Component: ComponentType<SettingsPageProps>;
 }
 
+/** Core's own Settings pages a package may add a section to (API 1.13.0). */
+export type SettingsSectionPage = "connections";
+
+export interface SettingsSectionProps {
+  onNotify(message: string): void;
+  /** Reads the page's own data again, after the section changed something it shows. */
+  onChanged(): void;
+}
+
+/**
+ * A section a package adds to one of core's Settings pages, below core's own
+ * sections, in `order`. It is gone with its package; the page stays core's.
+ */
+export interface SettingsSectionContribution extends ProfileScoped {
+  id: string;
+  page: SettingsSectionPage;
+  order?: number;
+  Component: ComponentType<SettingsSectionProps>;
+}
+
 /** One row a palette source or a palette menu answers with. */
 export interface PaletteItem {
   /** Unique within its source or menu. */
@@ -1060,6 +1081,11 @@ export interface DesktopExtensionContext {
    * draws, a count on the app's icon — or undefined where it cannot.
    */
   readonly attention: PlatformAttention | undefined;
+  /**
+   * The machines this window knows and how each is doing, or undefined in a
+   * client without a window process (ADR 0025). New in API 1.13.0.
+   */
+  readonly environments: PlatformEnvironments | undefined;
   registerRegion(region: RegionContribution): () => void;
   registerStatusItem(item: StatusItemContribution): () => void;
   registerOverlay(overlay: OverlayContribution): () => void;
@@ -1068,6 +1094,8 @@ export interface DesktopExtensionContext {
   registerStageTab<Params extends Record<string, unknown>>(tab: StageTabContribution<Params>): () => void;
   /** A page of the Settings modal; core lends the nav entry and the frame. */
   registerSettingsPage(page: SettingsPageContribution): () => void;
+  /** A section on one of core's Settings pages (API 1.13.0). */
+  registerSettingsSection(section: SettingsSectionContribution): () => void;
   /**
    * What the host sees in the package folders and in the kits it ships: the
    * same scan Settings' inspector reads, without loading any code.
@@ -1246,6 +1274,7 @@ export class ExtensionRegistry {
   private panels = new Map<string, Owned<PanelContribution>>();
   private stageTabKinds = new Map<string, Owned<StageTabContribution>>();
   private settingsPages = new Map<string, Owned<SettingsPageContribution>>();
+  private settingsSections = new Map<string, Owned<SettingsSectionContribution>>();
   private composerControls = new Map<string, Owned<ComposerControlContribution>>();
   private composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
   private composerGates = new Map<string, Owned<ComposerGateContribution>>();
@@ -1381,6 +1410,7 @@ export class ExtensionRegistry {
       preferences: this.services.preferences,
       // Read when used: the client builds its platform after the registry.
       get attention() { return platform?.()?.attention; },
+      get environments() { return platform?.()?.environments; },
       host: hostClient(extension.id),
       hostExtension: (extensionId) => hostClient(extensionId),
       registerPanel: (panel) => {
@@ -1398,6 +1428,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "settings page", page.id, page.label, page)) return noContribution;
         note("settings page");
         return this.register(this.settingsPages, page.id, { ...page, ...owner }, disposers);
+      },
+      registerSettingsSection: (section) => {
+        if (!this.scopeToProfile(owner, "settings section", section.id, section.id, section)) return noContribution;
+        note("settings section");
+        return this.register(this.settingsSections, section.id, { ...section, ...owner }, disposers);
       },
       inspectPackages: (cwd) => this.hostBridge.inspect
         ? this.hostBridge.inspect(cwd)
@@ -1721,6 +1756,11 @@ export class ExtensionRegistry {
   /** Pages extensions added to Settings, in `order`. */
   getSettingsPages(): Array<Owned<SettingsPageContribution>> {
     return this.sorted("settings-pages", this.settingsPages);
+  }
+
+  /** Sections packages added to one of core's Settings pages, in `order`. */
+  getSettingsSections(page: SettingsSectionPage): Array<Owned<SettingsSectionContribution>> {
+    return this.sorted("settings-sections", this.settingsSections).filter((section) => section.page === page);
   }
 
   /** The waiting label an extension set for a thread, if any. */

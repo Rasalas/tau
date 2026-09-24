@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, type ComponentType, type ReactNode } from "react";
 import { parseClientProfile, type ClientProfile } from "../workbench/client-profile";
 import { createElectronPlatform } from "./platform-electron";
 import type { ClientPlatformFactory } from "./client-platform";
@@ -16,6 +16,26 @@ export interface ClientEnvironment {
   /** Started without kits: a workbench with a command palette and nothing else. */
   safeMode: boolean;
   createPlatform: ClientPlatformFactory;
+  /** What the app around the workbench adds, where there is one (the native app). */
+  shell?: ClientShell;
+}
+
+/**
+ * A native shell that knows several hosts names the one on screen and offers
+ * its own few actions (switch host). The compact thread list shows both.
+ */
+export interface ClientShell {
+  /** The host this workbench talks to, as the shell calls it. */
+  hostLabel?: string;
+  /** At the end of the thread list's More menu. */
+  actions?: ClientShellAction[];
+}
+
+export interface ClientShellAction {
+  id: string;
+  label: string;
+  Icon?: ComponentType<{ size?: number }>;
+  run(): void;
 }
 
 const ClientEnvironmentContext = createContext<ClientEnvironment | undefined>(undefined);
