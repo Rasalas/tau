@@ -15,16 +15,29 @@ const SCROLLBACK_LINES = 5_000;
 
 const MAC = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
 
-/** xterm draws with its own palette; the tokens the workbench theme sets are read once per mount. */
+/**
+ * xterm draws with its own palette; the tokens the workbench theme sets are
+ * read once per mount. A token may be `light-dark(…)`, which xterm cannot
+ * parse, so each is resolved through a probe's computed colour.
+ */
 function themeFrom(element: HTMLElement): ITheme {
   const style = getComputedStyle(element);
-  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  return {
+  const probe = document.createElement("span");
+  element.append(probe);
+  const token = (name: string, fallback: string) => {
+    if (!style.getPropertyValue(name).trim()) return fallback;
+    probe.style.color = `var(${name})`;
+    const value = getComputedStyle(probe).color.trim();
+    return value && !value.startsWith("var(") ? value : fallback;
+  };
+  const theme: ITheme = {
     background: token("--sunken", "#111111"),
     foreground: token("--ink", "#e6e6e6"),
     cursor: token("--ink", "#e6e6e6"),
     selectionBackground: token("--accent", "#3b6ea8"),
   };
+  probe.remove();
+  return theme;
 }
 
 const FONT_SAMPLE = "iMW0@# .─│";
