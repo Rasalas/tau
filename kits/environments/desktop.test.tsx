@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EnvironmentPairResult, PlatformEnvironments, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
+import type { DiscoveredHost, EnvironmentPairResult, PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, statusText, unavailableReason } from "./machines.js";
@@ -41,6 +41,9 @@ function fakeEnvironments(initial: UiEnvironments) {
     retry: vi.fn(async () => undefined),
     open: vi.fn(async () => undefined),
     takeArrival: vi.fn(async () => undefined),
+    showLocal: vi.fn(async () => undefined),
+    discover: vi.fn(async (): Promise<UiDiscoveredHosts> => ({ hosts: [], serviceType: "_tau-test._tcp" })),
+    setPreferences: vi.fn(async () => undefined),
   } satisfies PlatformEnvironments;
   const set = (next: UiEnvironments) => { snapshot = next; act(() => listeners.forEach((listener) => listener())); };
   return { environments, set };
@@ -117,13 +120,15 @@ describe("the title bar", () => {
   it("names the machine the window shows, and nothing while it shows this one", () => {
     const here = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const Here = createShownMachine(here.environments);
-    const { container } = render(<Here />);
+    const { container } = render(<Here actions={fakeActions()} />);
     expect(container.innerHTML).toBe("");
     cleanup();
     const there = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
     const There = createShownMachine(there.environments);
-    render(<There />);
-    expect(screen.getByRole("note", { name: "Showing studio" })).toBeTruthy();
+    render(<There actions={fakeActions()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Showing studio" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Back to laptop/u }));
+    expect(there.environments.showLocal).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -140,6 +145,18 @@ describe("Run on", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /studio/u }));
     expect(environments.open).toHaveBeenCalledWith("studio", { newThread: { draft: "Refactor the parser", workspaceId: "ws-api" } });
     expect(setComposerDraft).toHaveBeenCalledWith("");
+  });
+
+  it("does not start a thread on a machine that paired this computer Read only, and says why", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, { ...studio, readOnly: true }], secureStorage: true });
+    const Control = createRunOnControl(environments);
+    render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }), composerDraft: () => "x" })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
+    const item = screen.getByRole("menuitem", { name: /studio/u });
+    expect(item.getAttribute("aria-disabled") ?? String((item as HTMLButtonElement).disabled)).toMatch(/true/u);
+    expect(item.textContent).toMatch(/Read only: studio lets this computer look/u);
+    fireEvent.click(item);
+    expect(environments.open).not.toHaveBeenCalled();
   });
 
   it("is not offered for a started thread, nor with one machine", () => {
@@ -178,6 +195,32 @@ describe("Settings → Machines", () => {
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "studio.local" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add machine" })); });
     expect(screen.getByRole("status").textContent).toMatch(/declined/u);
+  });
+
+  it("finds machines on this network and adds one with its record's pin", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const host = (id: string, name: string, patch: Partial<DiscoveredHost> = {}): DiscoveredHost => ({
+      name, hostId: id, fingerprint: "AB:".repeat(31) + "AB", port: 47788, addresses: ["192.168.1.9"], endpoints: [{ url: "https://192.168.1.9:47788/", kind: "lan" }], ...patch,
+    });
+    environments.discover.mockResolvedValue({ serviceType: "_tau-test._tcp", hosts: [host("attic-id", "Attic"), host("studio", "Studio"), host("laptop", "Laptop", { self: true })] });
+    const Page = createMachinesPage(environments);
+    render(<Page />);
+    // Nothing is looked for until asked: looking is what makes macOS ask about the local network.
+    expect(environments.discover).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Find Machines" })); });
+    expect(screen.getByText("Added")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Add [A-Z]/u }).map((button) => button.getAttribute("aria-label"))).toEqual(["Add Attic"]);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add Attic" })); });
+    expect(environments.pair).toHaveBeenCalledWith({ nearby: "attic-id" });
+    expect(screen.getByText(/studio was added/u)).toBeTruthy();
+  });
+
+  it("keeps the choice to show the last machine again at start", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    const Page = createMachinesPage(environments);
+    render(<Page />);
+    fireEvent.click(screen.getByRole("switch", { name: "Show the last machine again" }));
+    expect(environments.setPreferences).toHaveBeenCalledWith({ reopenShown: true });
   });
 
   it("removes a machine after asking", () => {

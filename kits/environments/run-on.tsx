@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Menu, tooltipProps, type ComposerControlProps, type PlatformEnvironments } from "tau";
-import { shownMachine, statusText, unavailableReason } from "./machines.js";
+import { cannotStartReason, shownMachine, statusText } from "./machines.js";
 import { MachineIcon, useEnvironments } from "./rail.js";
 
 /**
@@ -58,8 +58,8 @@ export function createRunOnControl(environments: PlatformEnvironments) {
               icon: <MachineIcon environment={machine} />,
               selected: machine.id === current.id,
               ...(machine.local ? { badge: "This computer" } : {}),
-              description: machine.id === current.id ? "Shown in this window" : unavailableReason(machine, now) ?? statusText(machine, now),
-              disabled: machine.id !== current.id && machine.status !== "connected",
+              description: machine.id === current.id ? "Shown in this window" : cannotStartReason(machine, now) ?? statusText(machine, now),
+              disabled: machine.id !== current.id && cannotStartReason(machine, now) !== undefined,
             }))}
             onSelect={(id) => { setOpen(false); move(id); }}
             onClose={() => setOpen(false)}
