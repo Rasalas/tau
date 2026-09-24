@@ -2180,6 +2180,37 @@ body.review-resizing { cursor: col-resize; user-select: none; }
   background: color-mix(in srgb, var(--warn) 12%, transparent);
   border-top: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
 }
+.host-connection-status.reconnecting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.host-connection-status.reconnecting .text-button { flex: none; }
+/* A host on another machine: the link's health as a dot, the words in its tooltip. */
+.host-link-indicator { padding: 6px; }
+.host-link-dot {
+  position: relative;
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--done);
+}
+.host-link-indicator.slow .host-link-dot,
+.host-link-indicator.pending .host-link-dot { background: var(--warn); }
+.host-link-indicator.offline .host-link-dot { background: var(--muted); }
+.host-link-indicator.refused .host-link-dot { background: var(--danger); }
+.host-link-indicator.pending .host-link-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: host-link-ping 2s cubic-bezier(0, 0, .2, 1) infinite;
+}
+@keyframes host-link-ping { 75%, 100% { transform: scale(2.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .host-link-indicator.pending .host-link-dot::after { animation: none; } }
 .host-connection-status.refused {
   display: flex;
   flex-direction: column;

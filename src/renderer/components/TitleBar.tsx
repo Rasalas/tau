@@ -4,6 +4,7 @@ import type { HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { Region } from "./Regions";
 import { WindowControlsInset } from "./WindowControlsInset";
+import { HostLinkIndicator } from "../host-connection-status";
 import { tooltipProps } from "./ui/Tooltip";
 
 function workspaceName(cwd?: string): string {
@@ -73,6 +74,7 @@ export function TitleBar({
         {thread ? <><span className="title-separator" aria-hidden>/</span>{thread}</> : null}
       </nav>
       <div className="title-spacer" />
+      <HostLinkIndicator />
 
       <Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />
 
