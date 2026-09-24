@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -177,6 +177,26 @@ describe("isolation", () => {
     expect(t3Env.T3CODE_HOME.startsWith(join(root, "t3"))).toBe(true);
     expect(t3Env.T3CODE_TELEMETRY_ENABLED).toBe("false");
     expect(tauEnv.TAU_USER_DATA.startsWith(join(root, "tau"))).toBe(true);
+  });
+
+  it("starts both apps without taking focus, T3 through a preload in its main process only", () => {
+    const tauEnv = APPS.tau.env(join(root, "tau"));
+    const t3Env = APPS.t3.env(join(root, "t3"), { backendPort: 1234 });
+    expect(tauEnv.TAU_NO_FOCUS).toBe("1");
+    expect(t3Env.NODE_OPTIONS).toMatch(/^--require ".*\/scripts\/compare\/background-preload\.cjs"$/u);
+    const preload = readFileSync(new URL("./background-preload.cjs", import.meta.url), "utf8");
+    expect(preload).toContain('process.type === "browser"');
+    expect(preload).toContain("delete process.env.NODE_OPTIONS");
+  });
+
+  it("puts both apps in front with TAU_FOREGROUND=1", () => {
+    vi.stubEnv("TAU_FOREGROUND", "1");
+    try {
+      expect(APPS.tau.env(join(root, "tau")).TAU_NO_FOCUS).toBeUndefined();
+      expect(APPS.t3.env(join(root, "t3"), { backendPort: 1234 }).NODE_OPTIONS).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("finds open files inside forbidden directories from lsof output", () => {

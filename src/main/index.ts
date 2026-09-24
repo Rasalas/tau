@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, session, shell } from "electron";
+import { app, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, session, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,7 @@ import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-ag
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
+import { backgroundModeRequested, installBackgroundMode } from "./background-mode.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
 import { HostPushLog } from "./host-push-log.js";
@@ -79,6 +80,8 @@ const inProcessHost = process.env.TAU_HOST_INPROCESS === "1";
 
 // Identity (and so userData) must be set before anything reads app.getPath("userData").
 configureAppIdentity(app, process.env.TAU_USER_DATA);
+const backgroundMode = backgroundModeRequested(process.env);
+if (backgroundMode) installBackgroundMode(app, BaseWindow.prototype);
 // Both must happen before the app is ready: a privileged scheme cannot be added later.
 const desktopBundles = new DesktopBundleStore();
 const EMPTY_DESKTOP_EXTENSIONS: WorkbenchDesktopExtensions = { bundles: [], errors: [], skipped: [] };
@@ -379,6 +382,8 @@ function openWindow(): BrowserWindow {
     // Centres the native traffic lights (14pt since the macOS 26 SDK) in Tau's 52px title bar.
     trafficLightPosition: { x: 19, y: 19 },
     backgroundColor: "#11110f",
+    // Shown inactive right below: showing from the constructor activates the app.
+    ...(backgroundMode ? { show: false } : {}),
     ...(appIconPath ? { icon: appIconPath } : {}),
     webPreferences: {
       preload: join(currentDir, "../preload/bundle.cjs"),
@@ -408,6 +413,7 @@ function openWindow(): BrowserWindow {
     event.preventDefault();
     openExternally(url);
   });
+  if (backgroundMode) mainWindow.showInactive();
   mainWindow.webContents.on("before-input-event", quitShortcut);
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     hostLog.error("renderer.render-process-gone", details);
@@ -462,6 +468,11 @@ async function requireHostReady(): Promise<PiHost> {
 function watchHostStart<T>(ready: Promise<T>): Promise<T> {
   ready.catch((error: unknown) => {
     hostLog.error("host.start.failed", error);
+    // A test instance must not raise a modal alert on the user's screen; the log above holds the error.
+    if (process.env.TAU_NO_NATIVE_DIALOGS === "1") {
+      app.exit(1);
+      return;
+    }
     const detail = error instanceof Error ? error.message : String(error);
     const choice = dialog.showMessageBoxSync({
       type: "error",

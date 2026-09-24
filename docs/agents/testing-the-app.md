@@ -12,6 +12,18 @@ Verifying a change against the real Tau app must never touch the user's real `~/
 
 Flags: `--safe` sets `TAU_NO_EXTENSIONS=1`; `--fresh` wipes this instance's userData, its isolated Pi session store and the runtime kits' thread stores beside it (`.tau-dev/tau`, where imported conversations land) before starting (guarded to only ever delete paths under `.tau-dev`); `--shared-sessions` opts back into the real `~/.pi/agent/sessions` (see below) for the rare test that needs the user's own threads; `--workspace <path>` uses an existing repository instead of creating the default scratch one (a fresh git repo with one commit); `--port <n>` pins the CDP port instead of deriving one; `--agent-dir <path>` sets `PI_CODING_AGENT_DIR`, Pi's own config directory, for this instance.
 
+### It never takes focus
+
+The user works on this Mac while instances, smokes and benchmarks run, so none of them may take focus. `dev-instance.mjs` sets `TAU_NO_FOCUS=1`, and Tau's main process then (`src/main/background-mode.ts`):
+
+- sets the macOS activation policy to `accessory`: no Dock icon, and the app never becomes the active one;
+- creates its window with `show: false` and shows it with `showInactive()`;
+- turns every later `show()` into `showInactive()` and ignores `focus()` and `app.focus({ steal: true })`, whoever calls them: `tau app`, a kit's window half, a notification click.
+
+The window still shows and paints at full frame rate (`document.visibilityState` is `visible`, `requestAnimationFrame` runs at 60 Hz), so CDP driving, screenshots and paint timings are unchanged. Only `document.hasFocus()` is false. `TAU_FOREGROUND=1` in the calling shell overrides `TAU_NO_FOCUS` for a check that needs the key window. The installed app sets neither variable and behaves as before. `benchmark:compare` and `compare:screens` start both apps the same way (see "T3 Code comparison" in `docs/PERFORMANCE.md`), and the Electron fixtures of `benchmark:renderer` and `start:report` run as `accessory` too. The smokes start no window at all.
+
+To check it, sample the frontmost app while something runs, reading only: `lsappinfo info "$(lsappinfo front)"` names it, and `lsappinfo list` shows an instance as `type="UIElement"` instead of `"Foreground"`. Never use System Events or `osascript` to put an app in front for such a check.
+
 ### A shadow agent dir, for testing keybindings.json
 
 Pi keeps `keybindings.json` in its config directory (`~/.pi/agent` by default). To test a custom one without touching the real file, build a shadow directory and point `--agent-dir` at it:
@@ -356,7 +368,7 @@ Run `npm run cdp -- stop` (SIGTERM, then SIGKILL after ~2s if the process is sti
 
 ## Advanced: the Electron client against a headless host
 
-To test the socket transport instead of the embedded host, start a headless host with `node dist-electron/main/headless.js` (`TAU_WORKSPACE`, `TAU_USER_DATA`, `TAU_HOST_LISTEN=127.0.0.1:0`; see `scripts/remote-host-smoke.mjs` for the full pattern, including reading the printed listen URL and the `~/.tau/host-token` file) and start an ordinary window against it with `TAU_HOST_URL=ws://127.0.0.1:<port>`. `dev-instance.mjs` only starts the embedded-host path; wire this one by hand. For TLS, add `TAU_HOST_TLS=1` to the host and `TAU_HOST_PUBLIC_KEY=<the printed public key>` to the window (without a pin the window asks on a native sheet that CDP cannot answer, so an agent always pins, or seeds `<userData>/known-hosts.json`); a wrong key must show `.host-connection-status.refused` in the window, never a native alert. `TAU_HOST_TOKEN_FILE` under `.tau-dev/` keeps the token out of `~/.tau`.
+To test the socket transport instead of the embedded host, start a headless host with `node dist-electron/main/headless.js` (`TAU_WORKSPACE`, `TAU_USER_DATA`, `TAU_HOST_LISTEN=127.0.0.1:0`; see `scripts/remote-host-smoke.mjs` for the full pattern, including reading the printed listen URL and the `~/.tau/host-token` file) and start an ordinary window against it with `TAU_HOST_URL=ws://127.0.0.1:<port>` and `TAU_NO_FOCUS=1`. `dev-instance.mjs` only starts the embedded-host path; wire this one by hand. For TLS, add `TAU_HOST_TLS=1` to the host and `TAU_HOST_PUBLIC_KEY=<the printed public key>` to the window (without a pin the window asks on a native sheet that CDP cannot answer, so an agent always pins, or seeds `<userData>/known-hosts.json`); a wrong key must show `.host-connection-status.refused` in the window, never a native alert. `TAU_HOST_TOKEN_FILE` under `.tau-dev/` keeps the token out of `~/.tau`.
 
 Network access (Settings → Connections) is tested on loopback wherever possible: `npm run smoke:remote-host` starts a host with `TAU_HOST_PROXY_LISTEN=127.0.0.1:0` and checks what a peer behind a proxy gets, and `src/main/host-network.test.ts` binds the real plan on 127.0.0.1 with injected interfaces. A real check of **Local network** in an instance binds every interface: keep it short, keep TLS on (it always is), pick a free port rather than 7788, turn the switch off again as soon as the check is done, and write down in the ticket how long it listened and on which interfaces. Never turn on **Tailscale** against the machine's tailnet to test `tailscale serve`, and never run `tailscale serve`, `funnel` or `cert`; a fake `tailscale` on `PATH` with an empty `ZDOTDIR` stands in. `<userData>/network.json` of the instance (under `.tau-dev/userdata/`) holds the switches; delete it, or start with `--fresh`, to begin with everything off.
 

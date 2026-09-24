@@ -4,6 +4,8 @@ const path = require("node:path");
 // Shared CI runners have no usable GPU process; software rendering keeps the
 // fixture alive there. Local runs keep hardware acceleration so numbers match the app.
 if (process.env.CI) app.disableHardwareAcceleration();
+// No Dock icon and no activation while the user works; TAU_FOREGROUND=1 opts out.
+if (process.platform === "darwin" && process.env.TAU_FOREGROUND !== "1") app.setActivationPolicy("accessory");
 
 const scenario = process.argv[2];
 if (!scenario) throw new Error("renderer benchmark scenario is required");

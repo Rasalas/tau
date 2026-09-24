@@ -10,6 +10,7 @@ import { assertEnvUnder } from "./isolation.mjs";
 
 const TAU_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const FAKE_CODEX = fileURLToPath(new URL("./fake-codex.mjs", import.meta.url));
+const BACKGROUND_PRELOAD = fileURLToPath(new URL("./background-preload.cjs", import.meta.url));
 const SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 export function freePort() {
@@ -47,6 +48,11 @@ function writeCodexShim(root) {
   writeFileSync(shim, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_CODEX)} "$@"\n`);
   chmodSync(shim, 0o755);
   return shim;
+}
+
+/** Both apps start without taking focus from the app the user works in; `TAU_FOREGROUND=1` brings them to the front. */
+export function startsInBackground(env = process.env) {
+  return env.TAU_FOREGROUND !== "1";
 }
 
 /** Environment shared by both apps: nothing inherited but locale, user and temp dir. */
@@ -124,6 +130,7 @@ export const tau = {
       PI_CODING_AGENT_SESSION_DIR: join(run, "pi-sessions"),
       PI_CODING_AGENT_DIR: join(run, "home", ".pi", "agent"),
       TAU_CODEX_COMMAND: join(root, "bin", "codex"),
+      ...(startsInBackground() ? { TAU_NO_FOCUS: "1" } : {}),
     };
     assertEnvUnder(env, ["HOME", "CFFIXED_USER_HOME", "TAU_USER_DATA", "TAU_WORKSPACE", "TAU_CONFIG_FILE", "TAU_WORKTREES_DIR", "TAU_THEMES_DIR", "TAU_HOST_TOKEN_FILE", "CODEX_HOME", "TAU_IMPORT_ROOTS", "PI_CODING_AGENT_SESSION_DIR", "PI_CODING_AGENT_DIR", "TAU_CODEX_COMMAND", "ZDOTDIR"], root);
     return env;
@@ -226,6 +233,8 @@ export const t3 = {
       CODEX_HOME: join(run, "home", ".codex"),
       CLAUDE_CONFIG_DIR: join(run, "home", ".claude"),
       GROK_HOME: join(run, "home", ".grok"),
+      // T3's checkout stays untouched: a preload gives its main process the rules of TAU_NO_FOCUS.
+      ...(startsInBackground() ? { NODE_OPTIONS: `--require ${JSON.stringify(BACKGROUND_PRELOAD)}` } : {}),
     };
     assertEnvUnder(env, ["HOME", "CFFIXED_USER_HOME", "T3CODE_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "ZDOTDIR"], root);
     return env;
