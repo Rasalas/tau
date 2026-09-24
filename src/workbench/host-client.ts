@@ -88,7 +88,8 @@ export interface HostClient {
   readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
   /** A deferred tool's output (`outputDeferred`), as the transcript would have carried it. */
   toolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputPreview | undefined>;
-  copyThreadMarkdown(expectedSessionId?: string): Promise<void>;
+  /** The thread as Markdown; the client's own clipboard takes it (a phone's, not the host's). */
+  threadMarkdown(expectedSessionId?: string): Promise<string | undefined>;
   readImagePreview(path: string): Promise<UiImagePreview | undefined>;
   /** A `tau-ext:` URL for a workspace PDF, image, audio or video; the window's own process serves it. */
   shareFile(path: string): Promise<UiSharedFile>;
@@ -308,10 +309,9 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     loadTranscript: (sessionId, cursor) => call<TranscriptPage>("transcript-page", [sessionId, cursor]),
     readToolOutput: (sessionId, toolCallId) => call<UiToolOutputReadResult | undefined>("read-tool-output", [sessionId, toolCallId]),
     toolOutput: (sessionId, toolCallId) => call<UiToolOutputPreview | undefined>("tool-output", [sessionId, toolCallId]),
-    // The host exports the text, the client's own clipboard takes it.
-    copyThreadMarkdown: async (expectedSessionId) => {
+    threadMarkdown: async (expectedSessionId) => {
       const markdown = await call<string | undefined>("copy-thread-markdown", [expectedSessionId]);
-      if (typeof markdown === "string" && markdown) await call<void>("copy-text", [markdown]);
+      return typeof markdown === "string" && markdown ? markdown : undefined;
     },
     readImagePreview: (path) => call<UiImagePreview | undefined>("read-image-preview", [path]),
     shareFile: (path) => call<UiSharedFile>("share-file", [path]),

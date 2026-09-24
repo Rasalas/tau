@@ -41,7 +41,8 @@ describe("a client with a host in another process", () => {
 
   it("exports the thread on the host and copies it on the client", async () => {
     const { log, client } = split();
-    await client.copyThreadMarkdown();
+    expect(await client.threadMarkdown()).toBe("# thread");
+    await client.copyText("# thread");
     expect(log).toEqual(["host:copy-thread-markdown", "local:copy-text"]);
   });
 
