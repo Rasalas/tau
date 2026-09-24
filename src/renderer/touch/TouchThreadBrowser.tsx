@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, Ellipsis, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
+import { useClientEnvironment } from "../client-environment";
 import { Popover } from "../components/ui/Dialog";
 import { useFocusReturn, useFocusTrap } from "../components/ui/focus";
 import { tooltipProps } from "../components/ui/Tooltip";
@@ -30,6 +31,7 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
   const menuButton = useRef<HTMLButtonElement>(null);
   const [popover, setPopover] = useState<"search" | "menu">();
   const screen = variant === "screen";
+  const shell = useClientEnvironment().shell;
   useFocusReturn(screen, surface);
   useFocusTrap(surface, screen && !popover);
   // Modal, so core's own Escape binding stands down for it; closing it is this listener's job.
@@ -47,7 +49,10 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
 
   const header = <header className="touch-browser-header">
     {screen && onClose ? <button type="button" className="touch-icon-button" aria-label="Close threads" onClick={onClose}><ChevronLeft size={22} /></button> : null}
-    <strong>Threads</strong>
+    {shell?.hostLabel ? <div className="touch-browser-title">
+      <strong>Threads</strong>
+      <small title={shell.hostLabel}>{shell.hostLabel}</small>
+    </div> : <strong>Threads</strong>}
     <span className="spacer" />
     <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={() => setPopover(popover === "search" ? undefined : "search")}><Search size={19} /></button>
     <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>
@@ -62,6 +67,9 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
       <div role="menu" aria-label="More">
         <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings(); }}><Settings size={17} />Settings</button>
         <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings("connections"); }}><MonitorSmartphone size={17} />Connections</button>
+        {shell?.actions?.map(({ id, label, Icon, run }) => <button key={id} type="button" role="menuitem" onClick={() => { setPopover(undefined); run(); }}>
+          {Icon ? <Icon size={17} /> : null}{label}
+        </button>)}
       </div>
     </Popover> : null}
   </>;

@@ -25,7 +25,9 @@
   height: 52px; padding: 0 6px 0 14px;
 }
 .touch-browser-header:has(> .touch-icon-button:first-child) { padding-left: 4px; }
-.touch-browser-header > strong { font: 650 17px var(--sans); letter-spacing: -0.01em; }
+.touch-browser-header > strong, .touch-browser-title > strong { font: 650 17px var(--sans); letter-spacing: -0.01em; }
+.touch-browser-title { min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.touch-browser-title > small { overflow: hidden; color: var(--muted); font: 500 13px var(--sans); text-overflow: ellipsis; white-space: nowrap; }
 .touch-browser-header > .spacer { flex: 1; }
 .touch-icon-button {
   width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0;
