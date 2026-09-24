@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import { CodexAppServer } from "../../kits/codex/app-server.ts";
 import { parseCodexSession } from "../../kits/codex/history-import.ts";
 import { APPS, resetRunFromTemplate } from "./apps.mjs";
@@ -14,6 +15,7 @@ import { MEASURE, TAB_ORDER } from "./screens/measure.mjs";
 import { rolloutLines, sessionPlan, writeCodexSessions } from "./sessions-fixture.mjs";
 import { largeThreadRows, writePiThread } from "./large-thread.mjs";
 import { aggregateRuns, frameStats, percentile } from "./stats.mjs";
+import { locate } from "./ui.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
 
 describe("the recorded turn", () => {
@@ -296,5 +298,39 @@ describe("the large Pi thread", () => {
     const paths = new Set(largeThreadRows().map(([, path]) => path));
     expect(Object.keys(budgets).length).toBeGreaterThan(0);
     for (const path of Object.keys(budgets)) expect(paths.has(path)).toBe(true);
+  });
+});
+
+describe("clicking by text", () => {
+  /** A page of one button at `top`, in a window as short as a fresh Tau opens on some screens. */
+  function page(top) {
+    const button = {
+      top,
+      textContent: "Continue",
+      disabled: false,
+      getAttribute: () => null,
+      getBoundingClientRect() { return { left: 700, right: 800, width: 100, height: 32, top: this.top, bottom: this.top + 32 }; },
+      scrollIntoView() { this.top = 705 - 32 - 24; },
+    };
+    return { button, context: { innerWidth: 1080, innerHeight: 705, document: { querySelectorAll: () => [button] } } };
+  }
+
+  it("scrolls a match below the fold into view before it names the point to click", () => {
+    const { button, context } = page(854);
+    const found = runInNewContext(locate("section.onboarding-dialog button", /^Continue/u), context);
+    expect(found.y).toBeGreaterThan(0);
+    expect(found.y).toBeLessThan(705);
+    expect(found.y).toBe(button.top + 16);
+  });
+
+  it("leaves a match in view where it is", () => {
+    const { context } = page(300);
+    expect(runInNewContext(locate("button", /^Continue/u), context).y).toBe(316);
+  });
+
+  it("names no point while the match stays out of view", () => {
+    const { button, context } = page(854);
+    button.scrollIntoView = () => undefined;
+    expect(runInNewContext(locate("button", /^Continue/u), context)).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APPS, assertOwnedRoot, realTmp, resetRunFromTemplate } from "../apps.mjs";
 import { click, evaluate, insertText, waitFor } from "../cdp.mjs";
+import { locate } from "../ui.mjs";
 import { checkIsolation, seed, start } from "../run.mjs";
 import { stopTree } from "../processes.mjs";
 import { buildTurn } from "../turn-fixture.mjs";
@@ -120,23 +121,6 @@ export async function openApp(id, { theme, fresh = false, beforeLaunch, afterClo
   };
   ctx.checkIsolation = () => checkIsolation(child.pid, app.label);
   return ctx;
-}
-
-/** Like ../ui.mjs `locate`, but scrolls the match into view first, so a row below the fold can be clicked. */
-function locate(selector, pattern) {
-  return `(() => {
-    const pattern = new RegExp(${JSON.stringify(pattern.source)}, ${JSON.stringify(pattern.flags)});
-    for (const element of document.querySelectorAll(${JSON.stringify(selector)})) {
-      const label = [element.getAttribute("aria-label"), element.textContent].filter(Boolean).join(" ").replace(/\\s+/g, " ").trim();
-      if (!pattern.test(label)) continue;
-      if (element.disabled || element.getAttribute("aria-disabled") === "true") continue;
-      let rect = element.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) continue;
-      if (rect.bottom > innerHeight || rect.top < 0) { element.scrollIntoView({ block: "nearest" }); rect = element.getBoundingClientRect(); }
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, label: label.slice(0, 120) };
-    }
-    return null;
-  })()`;
 }
 
 export function makeContext(app, session) {
