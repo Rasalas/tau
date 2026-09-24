@@ -492,6 +492,10 @@ class PreviewController implements PreviewToolController {
    * New defaults from Settings. What the user or the agent set for the page
    * stays; a value still at the old default follows the new one.
    */
+  currentDefaults(): PreviewDefaults {
+    return this.defaults;
+  }
+
   async setDefaults(input: unknown): Promise<void> {
     const previous = this.defaults;
     const next = readDefaults(input);
@@ -945,6 +949,7 @@ export function createPreviewHostExtension(
         return controller.setAppearance(appearance);
       });
       context.registerCommand("defaults", (input) => controller.setDefaults(input));
+      context.registerCommand("current-defaults", () => controller.currentDefaults(), { access: "read" });
       context.registerCommand("history", () => controller.historyList(), { access: "read" });
       context.registerCommand("forget", (input) => controller.forget(input));
       context.registerCommand("mini-frame", () => controller.miniFrame(), { access: "read" });

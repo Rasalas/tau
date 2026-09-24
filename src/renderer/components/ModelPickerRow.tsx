@@ -93,7 +93,7 @@ export function OfferingRow({ id, offering, grouped, cross, selected, narrow, ce
           {offering.hidden ? <span className="model-badge">hidden</span> : null}
           {current ? <em className="model-in-use">in use</em> : null}
           {chosen ? <em className="model-chosen">{chosen}</em> : null}
-          {jump ? <kbd className="model-kbd">⌘{jump}</kbd> : null}
+          {jump ? <kbd className="model-kbd keyboard-hint">⌘{jump}</kbd> : null}
           {cells.badges.filter((badge) => wears(badge, model, runtime)).map((badge) => (
             <span key={badge.id} className={`model-badge${badge.tone === "warning" ? " model-badge-warning" : ""}`} title={badge.title}>{badge.label}</span>
           ))}

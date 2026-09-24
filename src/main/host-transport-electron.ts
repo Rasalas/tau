@@ -87,7 +87,8 @@ export function installElectronHostTransport(options: ElectronHostTransportOptio
         // not reach the window before the sequence it starts counting from.
         setImmediate(() => { if (!event.sender.isDestroyed()) attach(event.sender, hello.profile); });
         options.beforeReply?.();
-        const reply = helloReply(pushLog, hello, options);
+        // The window in the host's own process manages access (ADR 0024).
+        const reply = { ...helloReply(pushLog, hello, options), owner: true };
         if (hello.lastSeq === undefined || reply.resync) options.onSnapshotClient?.();
         return { id: request.id, result: reply };
       }

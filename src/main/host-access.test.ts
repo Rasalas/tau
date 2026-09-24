@@ -446,7 +446,9 @@ describe("pairing over the socket", () => {
   it("waits for the owner's answer and lets the device say hello on the same socket", async () => {
     const { access, tokenFile } = await openAccess();
     const port = await listen(access, { ...connectionsOf(access), "bootstrap": async () => "state" });
-    const owner = await client(port, tokenFile.current());
+    const owner = await connect(port);
+    // The hello says who manages access, so a device need not ask and be refused.
+    expect(await owner.hello(tokenFile.current())).toMatchObject({ type: "hello-reply", reply: { owner: true } });
     const created = (await owner.request("connections-create-link", [{ label: "Phone" }])).result as UiCreatedPairingLink;
 
     const device = await connect(port);
@@ -463,7 +465,7 @@ describe("pairing over the socket", () => {
     expect(approved).toMatchObject({ reply: { state: "approved", access: "read-only" } });
     const token = (approved as { reply: { token: string } }).reply.token;
     const hello = await device.hello(token);
-    expect(hello).toMatchObject({ type: "hello-reply", reply: { access: "read-only" } });
+    expect(hello).toMatchObject({ type: "hello-reply", reply: { access: "read-only", owner: false } });
     expect((await device.request("bootstrap")).result).toBe("state");
   });
 

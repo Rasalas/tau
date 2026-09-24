@@ -25,7 +25,7 @@ import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { WorkspaceTitleActions } from "./title.js";
 import { createStoragePage } from "./storage-page.js";
-import { OPEN_REQUEST_EVENT, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
+import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT, TAKE_OPEN_REQUEST_COMMAND, type WorktreeStorageHostCommands } from "./storage-protocol.js";
 import { OpenRequests } from "./open-requests.js";
 import { SourceControlPage } from "./source-control-page.js";
 
@@ -170,7 +170,15 @@ export const workspaceExtension: DesktopExtension = {
     // `tau app <path>`: a request pushed now, or one that waited for this window.
     const openRequests = new OpenRequests();
     context.host.onEvent(OPEN_REQUEST_EVENT, (payload) => openRequests.receive(payload));
-    context.host.invoke(TAKE_OPEN_REQUEST_COMMAND).then((request) => openRequests.receive(request), () => undefined);
+    // Only a client that follows requests takes the waiting one, and only once it knows one waits.
+    let took = false;
+    const takeWaiting = () => {
+      if (took) return;
+      took = true;
+      context.host.invoke(OPEN_REQUEST_WAITING_COMMAND)
+        .then((waiting) => (waiting === true ? context.host.invoke(TAKE_OPEN_REQUEST_COMMAND) : null))
+        .then((request) => openRequests.receive(request), () => undefined);
+    };
     context.registerRegion({
       id: "workspace.open-requests",
       placement: "composer-above",
@@ -178,6 +186,7 @@ export const workspaceExtension: DesktopExtension = {
       profiles: ["desktop", "web"],
       Component: function OpenRequestFollower({ actions }) {
         useEffect(() => openRequests.bind(actions), [actions]);
+        useEffect(takeWaiting, []);
         return null;
       },
     });

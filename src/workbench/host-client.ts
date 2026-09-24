@@ -171,6 +171,11 @@ export interface HostClient {
    */
   isReadOnly(): boolean;
   /**
+   * Whether this connection manages who may connect (the host token on the
+   * host's machine); undefined when the host did not say (API 1.13.0).
+   */
+  isOwner?(): boolean | undefined;
+  /**
    * Whether this device may run a kit's host command: always with Full access;
    * Read only, just the commands registered `access: "read"`, and none until the
    * host said which those are (API 1.13.0). Optional for a stand-in client.
@@ -379,6 +384,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     },
     hasCapability: connection.hasCapability,
     isReadOnly: connection.isReadOnly,
+    isOwner: connection.isOwner,
     mayInvokeHostExtension: (extensionId, command) => !connection.isReadOnly() || readCommands.allows(extensionId, command) === true,
     onHostCommandsChanged: (listener) => readCommands.onChange(listener),
     getConnectionState: connection.getState,

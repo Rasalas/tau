@@ -724,7 +724,7 @@ export function ModelPicker({
           <span>↵ select</span>
           <span>⌥↵ favourite</span>
         </>}
-        {multiSelect ? <span>{chosen.length > 1 ? `${chosen.length} models chosen` : "⇧click add a model"}</span> : null}
+        {multiSelect ? chosen.length > 1 ? <span>{`${chosen.length} models chosen`}</span> : <span className="keyboard-hint">⇧click add a model</span> : null}
         <span className="spacer" />
         {hiddenCount > 0 ? (
           <button className="model-footer-link" onClick={() => setShowHidden((held) => !held)}>

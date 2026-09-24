@@ -44,16 +44,28 @@ export function floatingEnabled(preferences: PreferenceReader): boolean {
 
 /**
  * Hands the defaults to the host, now and whenever Settings change them; the
- * host opens pages with them. Answers the unsubscribe.
+ * host opens pages with them. With `held`, what the host holds already is not
+ * sent again: a paired device's log counts each call as a change it made.
+ * Answers the unsubscribe.
  */
-export function syncDefaults(preferences: PreferenceReader & Pick<PreferencesStore, "subscribe">, send: (defaults: PreviewDefaults) => Promise<unknown>): () => void {
+export function syncDefaults(
+  preferences: PreferenceReader & Pick<PreferencesStore, "subscribe">,
+  send: (defaults: PreviewDefaults) => Promise<unknown>,
+  held?: () => Promise<unknown>,
+): () => void {
   let sent = "";
   const push = () => {
     const defaults = defaultsFromPreferences(preferences);
     const encoded = JSON.stringify(defaults);
     if (encoded === sent) return;
     sent = encoded;
-    void send(defaults).catch(() => { sent = ""; });
+    if (!held) {
+      void send(defaults).catch(() => { sent = ""; });
+      return;
+    }
+    void held().then((current) => JSON.stringify(readDefaults(current)) === encoded, () => false)
+      .then((same) => (same ? undefined : send(defaults)))
+      .catch(() => { sent = ""; });
   };
   push();
   return preferences.subscribe(push);

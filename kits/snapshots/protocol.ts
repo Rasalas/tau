@@ -138,6 +138,8 @@ export interface SnapShotsHostCommands {
   "release": { input: { ids: string[] }; output: void };
   "arm": { input: ArmInput; output: ShortcutState };
   "shortcut-state": { input: undefined; output: ShortcutState };
+  /** What `arm` set in the window a call reaches now; null when that window was not armed. */
+  "armed": { input: undefined; output: ArmInput | null };
   "access": { input: undefined; output: SnapShotAccess };
   "request-access": { input: { kind: PermissionKind }; output: SnapShotAccess };
   "open-settings": { input: { kind: PermissionKind }; output: void };

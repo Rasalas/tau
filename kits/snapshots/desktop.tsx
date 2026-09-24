@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { AlertCircle, Camera } from "lucide-react";
 import {
+  hostHasLocalFiles,
   useWorkbenchShell,
   type ComposerChipDetailProps,
   type ComposerChipIcon,
@@ -195,11 +196,16 @@ const snapshots: DesktopExtension = {
 
     let armed = "";
     const arm = (force = false) => {
+      // The shortcut is the host machine's; a phone or another computer arming it would count as a change it made.
+      if (!hostHasLocalFiles()) return;
       const next = armFor(context.preferences);
       const key = JSON.stringify(next);
       if (!force && key === armed) return;
       armed = key;
-      void host("arm", next).catch(() => { armed = ""; });
+      // Arming what the window holds already would still count as a change a paired device made.
+      void host("armed", undefined).catch(() => null)
+        .then((held) => (JSON.stringify(held) === key ? undefined : host("arm", next)))
+        .catch(() => { armed = ""; });
     };
     const stopPreferences = context.preferences.subscribe(() => arm());
     context.events.on("host-connection", ({ state }) => {

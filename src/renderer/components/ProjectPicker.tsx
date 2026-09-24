@@ -117,7 +117,7 @@ export function ProjectPicker({
             placeholder="Search projects"
             aria-label="Search projects"
           />
-          <kbd>esc</kbd>
+          <kbd className="keyboard-hint">esc</kbd>
         </header>
         <div className="project-picker-heading">
           <span>Projects</span>
@@ -161,7 +161,7 @@ export function ProjectPicker({
         />
         <footer>
           <button onClick={onBrowse}><span>＋</span> Add project from another source…</button>
-          <small><kbd>↑↓</kbd> select <kbd>↵</kbd> open</small>
+          <small className="keyboard-hint"><kbd>↑↓</kbd> select <kbd>↵</kbd> open</small>
         </footer>
       </section>
       {contextMenu ? <div
