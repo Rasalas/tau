@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { build } from "esbuild";
 import type { UiToolRun } from "../shared/contracts.js";
+import type { UiHostEndpoint } from "../shared/connections.js";
 import type {
   DirectoryPickerOptions,
   HostClientObserver,
@@ -324,6 +325,20 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
         const handle = nextHandle++;
         const dispose = services.describeProjects(factsFor(handle, args[0] as string[]));
         registrations.set(handle, dispose);
+        return handle;
+      }
+      case "network.state": return services.network?.state();
+      case "network.holdProxy": {
+        if (!services.network) throw new Error("This host opens no listeners of its own.");
+        const release = await services.network.holdProxy();
+        const handle = nextHandle++;
+        registrations.set(handle, release);
+        return handle;
+      }
+      case "network.publishEndpoints": {
+        if (!services.network) throw new Error("This host opens no listeners of its own.");
+        const handle = nextHandle++;
+        registrations.set(handle, services.network.publishEndpoints(Array.isArray(args[0]) ? args[0] as UiHostEndpoint[] : []));
         return handle;
       }
       case "observeConfigChanges": {

@@ -316,6 +316,23 @@ describe("the Connections methods", () => {
     await expect(invokeHostMethod(methods, "connections-reload-certificate", [], HOST_CORE_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
     expect(await endpointOrigins(service)).toEqual(["https://192.168.1.20:7788", "http://127.0.0.1:4100"]);
   });
+
+  it("list a package's published endpoint first, in pairing links and among the page origins", async () => {
+    const { access } = await openAccess();
+    const served = { url: "https://box.tail0000.ts.net/", label: "Tailscale HTTPS", reachability: "network" as const, kind: "magicdns" as const, trustedCertificate: true };
+    const service: HostConnectionsService = {
+      access,
+      listen: () => ({ scheme: "ws", host: "127.0.0.1", port: 4100, webClient: true }),
+      interfaces: () => ({}) as Interfaces,
+      published: () => [served],
+    };
+    const methods = createConnectionsMethods(() => service) as HostMethodTable;
+    const list = await invokeHostMethod(methods, "connections-list", [], HOST_CORE_PRINCIPAL) as UiConnections;
+    expect(list.endpoints).toEqual([served, expect.objectContaining({ label: "This machine" })]);
+    const link = await invokeHostMethod(methods, "connections-create-link", [], HOST_CORE_PRINCIPAL) as UiCreatedPairingLink;
+    expect(link.urls[0]).toMatchObject({ url: `https://box.tail0000.ts.net/#pair=${encodeURIComponent(link.code)}`, trustedCertificate: true });
+    expect(await endpointOrigins(service)).toEqual(["https://box.tail0000.ts.net", "http://127.0.0.1:4100"]);
+  });
 });
 
 describe("host endpoints", () => {

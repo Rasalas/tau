@@ -32,11 +32,11 @@ function scratch(): string {
 
 /** The real plan, bound on loopback: no test ever listens beyond this machine. */
 function onLoopback(ports: "any" | "settings" = "any") {
-  return (settings: UiNetworkSettings, interfaces: Interfaces): NetworkBind[] =>
-    planNetworkBinds(settings, interfaces).map((bind) => ({ ...bind, host: "127.0.0.1", port: ports === "any" ? 0 : bind.port }));
+  return (settings: UiNetworkSettings, interfaces: Interfaces, proxyHeld: boolean): NetworkBind[] =>
+    planNetworkBinds(settings, interfaces, proxyHeld).map((bind) => ({ ...bind, host: "127.0.0.1", port: ports === "any" ? 0 : bind.port }));
 }
 
-async function openAccess(options: { userData?: string; interfaces?: () => Interfaces; ports?: "any" | "settings"; web?: boolean } = {}) {
+async function openAccess(options: { userData?: string; interfaces?: () => Interfaces; ports?: "any" | "settings"; web?: boolean; proxyHeld?: () => boolean } = {}) {
   const attached: Array<{ server: Server; trust: ListenerTrust; detached: boolean }> = [];
   const access = await HostNetworkAccess.open({
     userData: options.userData ?? scratch(),
@@ -48,6 +48,7 @@ async function openAccess(options: { userData?: string; interfaces?: () => Inter
       return () => { entry.detached = true; };
     },
     ...(options.web ? { web: () => (_request, response) => { response.end("the web client"); } } : {}),
+    ...(options.proxyHeld ? { proxyHeld: options.proxyHeld } : {}),
   });
   accesses.push(access);
   return { access, attached };
@@ -75,6 +76,11 @@ describe("the listeners network access asks for", () => {
       { key: "tailscale:100.96.0.12", host: "100.96.0.12", port: 7788, kind: "network" },
       { key: "proxy", host: "127.0.0.1", port: 7789, kind: "proxy" },
     ]);
+  });
+
+  it("are the proxy listener alone while a package holds it with both switches off", () => {
+    expect(planNetworkBinds(DEFAULT_NETWORK_SETTINGS, { ...wifi, ...tailnet }, true)).toEqual([{ key: "proxy", host: "127.0.0.1", port: 7789, kind: "proxy" }]);
+    expect(planNetworkBinds({ ...DEFAULT_NETWORK_SETTINGS, tailscale: true }, tailnet, true).filter((bind) => bind.kind === "proxy")).toHaveLength(1);
   });
 
   it("need no Tailscale address of their own when the wildcard already covers it", () => {
@@ -157,6 +163,22 @@ describe("network access in a running host", () => {
     await access.poll();
     expect(access.state().listeners.map((listener) => listener.kind)).toEqual(["proxy"]);
     expect(attached[1]!.detached).toBe(true);
+  });
+
+  it("opens the proxy listener while a package holds it and closes it on release, with no certificate", async () => {
+    let held = false;
+    const { access, attached } = await openAccess({ proxyHeld: () => held });
+    expect(access.state().listeners).toEqual([]);
+    held = true;
+    await access.reconcile();
+    expect(access.state()).toMatchObject({ listeners: [{ host: "127.0.0.1", kind: "proxy" }], proxyHeld: true, problems: [] });
+    expect(access.state().certificate).toBeUndefined();
+    expect(attached.map((entry) => entry.trust)).toEqual(["proxy"]);
+    held = false;
+    await access.reconcile();
+    expect(access.state().listeners).toEqual([]);
+    expect(access.state().proxyHeld).toBeUndefined();
+    expect(attached[0]!.detached).toBe(true);
   });
 
   it("says which port is taken and never opens a plaintext listener instead", async () => {

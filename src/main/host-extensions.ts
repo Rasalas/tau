@@ -17,6 +17,7 @@ import type {
   UiToolRun,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
+import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
@@ -401,6 +402,30 @@ export interface HostClientObserver {
   detached?(clientId: string): void;
 }
 
+/**
+ * Network access as a package sees it (API 1.13.0): the listeners the owner
+ * turned on, the loopback proxy listener a proxy the package set up forwards
+ * to, and the addresses only the package knows. Absent on a host that opens no
+ * listeners of its own.
+ */
+export interface HostNetworkServices {
+  /** What Settings → Connections shows under Network access. */
+  state(): UiNetworkAccess | undefined;
+  /**
+   * Keeps the loopback proxy listener (`state().settings.proxyPort`, plain
+   * HTTP, every peer remote) open until the returned function runs. Resolves
+   * once the listeners follow; a port that cannot open is in `state().problems`.
+   */
+  holdProxy(): Promise<() => void>;
+  /**
+   * Adds endpoints the host cannot see itself, such as a proxy's public name.
+   * They join Connections' list and every pairing link, and a page opened at
+   * one may open its socket. Only `network` endpoints with an http(s) URL are
+   * taken. The returned function withdraws them; publish again to change them.
+   */
+  publishEndpoints(endpoints: readonly UiHostEndpoint[]): () => void;
+}
+
 /** Who is attached right now, and word when that changes. */
 export interface HostClientServices {
   observe(observer: HostClientObserver): () => void;
@@ -766,6 +791,8 @@ export interface HostExtensionServices {
    * nothing about what they see.
    */
   readonly clients: HostClientServices;
+  /** Network access and what a package adds to it; gated by `network` (API 1.13.0). */
+  readonly network?: HostNetworkServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   /** Follows the turns of every thread the host drives. */

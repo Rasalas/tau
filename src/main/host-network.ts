@@ -34,15 +34,16 @@ export interface NetworkBind {
  * The listeners network access asks for with these interfaces up. Local
  * network is one dual-stack wildcard; Tailscale alone binds each Tailscale
  * address, so the port stays closed on the LAN; either way Tailscale adds the
- * loopback listener a reverse proxy forwards to.
+ * loopback listener a reverse proxy forwards to, and so does a package that
+ * set such a proxy up (`proxyHeld`).
  */
-export function planNetworkBinds(settings: UiNetworkSettings, interfaces: Interfaces): NetworkBind[] {
+export function planNetworkBinds(settings: UiNetworkSettings, interfaces: Interfaces, proxyHeld = false): NetworkBind[] {
   const binds: NetworkBind[] = [];
   if (settings.lan) binds.push({ key: "lan", host: "::", port: settings.port, kind: "network" });
   if (settings.tailscale && !settings.lan) {
     for (const address of tailscaleAddresses(interfaces)) binds.push({ key: `tailscale:${address}`, host: address, port: settings.port, kind: "network" });
   }
-  if (settings.tailscale) binds.push({ key: "proxy", host: "127.0.0.1", port: settings.proxyPort, kind: "proxy" });
+  if (settings.tailscale || proxyHeld) binds.push({ key: "proxy", host: "127.0.0.1", port: settings.proxyPort, kind: "proxy" });
   return binds;
 }
 
@@ -116,7 +117,9 @@ export interface HostNetworkAccessOptions {
   web?: (trust: ListenerTrust) => RequestListener;
   interfaces?: () => Interfaces;
   /** Which listeners the settings mean; tests bind loopback in place of real interfaces. */
-  plan?: (settings: UiNetworkSettings, interfaces: Interfaces) => NetworkBind[];
+  plan?: (settings: UiNetworkSettings, interfaces: Interfaces, proxyHeld: boolean) => NetworkBind[];
+  /** A package keeps the proxy listener open; `reconcile` applies a change. */
+  proxyHeld?: () => boolean;
   /** The certificate for a network listener; the settings' own one, else self-signed. */
   resolveTls?: (settings: UiNetworkSettings) => HostTlsMaterial;
   logger?: HostLogger & PersistedJsonLogger;
@@ -221,6 +224,7 @@ export class HostNetworkAccess {
       listeners: [...this.open.values()].map(({ bind, host, server }) => ({ host, port: portOf(server) ?? bind.port, kind: bind.kind })),
       problems: [...this.problems, ...(this.tlsProblem ? [this.tlsProblem] : [])],
       tailscaleUp: tailscaleAddresses(this.interfaces()).length > 0,
+      ...(this.options.proxyHeld?.() ? { proxyHeld: true } : {}),
       ...(material ? {
         certificate: { source: material.source, fingerprint: material.fingerprint, validTo: material.validTo, certPath: material.certPath, warnings: material.warnings },
       } : {}),
@@ -253,7 +257,7 @@ export class HostNetworkAccess {
   }
 
   private async reconcileNow(): Promise<void> {
-    const plan = (this.options.plan ?? planNetworkBinds)(this.settings, this.interfaces());
+    const plan = (this.options.plan ?? planNetworkBinds)(this.settings, this.interfaces(), this.options.proxyHeld?.() ?? false);
     const wanted = new Map(plan.map((bind) => [bind.key, bind]));
     const problems: string[] = [];
     if (this.settings.tailscale && !this.settings.lan && !plan.some((bind) => bind.key.startsWith("tailscale:"))) {

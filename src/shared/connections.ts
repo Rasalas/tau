@@ -75,6 +75,12 @@ export interface UiHostEndpoint {
   /** The interface it sits on, `en0` or `utun4`, when it is an address. */
   interface?: string;
   ipv6?: boolean;
+  /**
+   * A proxy in front of the host answers here with a certificate browsers
+   * trust (Tailscale Serve's), not the host's own: a client does not pin the
+   * host's fingerprint for it.
+   */
+  trustedCertificate?: boolean;
 }
 
 /**
@@ -116,6 +122,8 @@ export interface UiNetworkAccess {
   problems: string[];
   /** This machine has a Tailscale address right now. */
   tailscaleUp: boolean;
+  /** A package keeps the proxy listener open for a proxy it set up, whatever the switches say. */
+  proxyHeld?: boolean;
   /** The certificate the network listeners serve, once one is needed. */
   certificate?: UiNetworkCertificate;
 }

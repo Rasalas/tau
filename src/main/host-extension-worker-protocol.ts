@@ -3,6 +3,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 export type { PricedUsage, UsageTally, UsageTurn } from "./usage-pricing.js";
 import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../shared/contracts.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
+import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { DirectoryPickerOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostStartedThread, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
 
 /**
@@ -163,6 +164,12 @@ export interface WorkerHostServices {
   readonly clients: {
     observe(observer: WorkerClientObserver): Promise<() => void>;
     count(): Promise<number>;
+  };
+  /** Network access; see `HostExtensionServices.network`. `state` answers undefined where the host opens no listeners. New in API 1.13.0. */
+  readonly network: {
+    state(): Promise<UiNetworkAccess | undefined>;
+    holdProxy(): Promise<() => void>;
+    publishEndpoints(endpoints: readonly UiHostEndpoint[]): Promise<() => void>;
   };
   /** Follows the files the host watches; the hook receives one change at a time. */
   observeConfigChanges(listener: (change: { kind: string; paths: readonly string[] }) => void): Promise<() => void>;

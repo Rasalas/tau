@@ -25,6 +25,7 @@ import { createWebClientServer } from "./host-web-server.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
+import { NetworkContributions } from "./host-network-contributions.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
@@ -100,6 +101,8 @@ async function main(): Promise<void> {
 
   /** The socket transport reports its clients here; the host publishes the count. */
   const clients = new HostClientRegistry();
+  // What packages add to network access; it waits for the listeners below.
+  const networkContributions = new NetworkContributions();
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
     return new PiHost(workspace, publish, projectHistory, safeMode, false, {
@@ -112,6 +115,7 @@ async function main(): Promise<void> {
       logger: hostLog,
       workspaceIdentity,
       clients,
+      network: networkContributions.services,
       appPath: appRoot,
       kitStateDir: join(userData, "kit-state"),
       turnsInFlightPath: join(userData, "turns-in-flight.json"),
@@ -160,6 +164,7 @@ async function main(): Promise<void> {
       },
     } : {}),
     reloadCertificates,
+    published: () => networkContributions.endpoints(),
   });
   const refreshOrigins = async (): Promise<void> => {
     publishedOrigins = await endpointOrigins(connectionsService()).catch((error: unknown) => {
@@ -290,7 +295,18 @@ async function main(): Promise<void> {
     console.log(`tau-host proxy listener on http://${host}:${typeof address === "object" && address ? address.port : port}`);
   }
   // Settings → Connections: the listeners beyond loopback, off until the owner turns them on.
-  network = await HostNetworkAccess.open({ userData, attach: socket.attach, ...(web ? { web: web.handler } : {}), logger: hostLog });
+  network = await HostNetworkAccess.open({
+    userData,
+    attach: socket.attach,
+    proxyHeld: () => networkContributions.proxyHeld,
+    ...(web ? { web: web.handler } : {}),
+    logger: hostLog,
+  });
+  networkContributions.bind({
+    state: () => network?.state(),
+    reconcile: async () => { await network?.reconcile(); await refreshOrigins(); },
+    endpointsChanged: refreshOrigins,
+  });
   await refreshOrigins();
   for (const listener of network.state().listeners) hostLog.info("host-network.open-at-start", listener);
   networkPoll = setInterval(() => {
