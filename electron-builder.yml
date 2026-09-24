@@ -47,8 +47,8 @@ files:
   - "!t3.json"
   - "!.oxlintrc.json"
   - "!tsconfig*.json"
-  - "!vite.config.ts"
-  - "!vite.web.config.ts"
+  # The Vite configs and their plugins; the editable source (`dist-source`) carries them.
+  - "!vite.*.ts"
   - "!vitest.config.ts"
   - "!**/*.test.js"
   - "!**/*.test.js.map"
