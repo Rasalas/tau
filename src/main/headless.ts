@@ -34,6 +34,7 @@ import { ClientCalls } from "./client-calls.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
+import { resolveStartupWorkspace } from "./startup-workspace.js";
 import { IdleHeapCompactor } from "./host-idle-compaction.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { KeepAwake } from "./keep-awake.js";
@@ -46,7 +47,7 @@ import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor
  * reachable only over the socket transport. This is what a remote client
  * connects to, and what `scripts/remote-host-smoke.mjs` drives.
  */
-const workspace = process.env.TAU_WORKSPACE || process.cwd();
+const requestedWorkspace = process.env.TAU_WORKSPACE || undefined;
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless");
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
@@ -58,6 +59,8 @@ const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || packageVersion(appRoot) || "0.0.0";
 /** Set in a service's unit: this host writes `host.json` itself and takes over from the host it names. */
 const serviceKind = process.env[HOST_SERVICE_ENV] || undefined;
+// A service runs from the home folder and nobody names a workspace for it: it opens the last project.
+const workspace = requestedWorkspace ?? (serviceKind ? undefined : process.cwd());
 // The built browser client, when there is one; `npm run build:web` writes it.
 const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
@@ -143,12 +146,13 @@ async function main(): Promise<void> {
   await installShellEnvironment().catch((error: unknown) => hostLog.warn("shell-environment.failed", error));
   const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
   await projectHistory.load();
+  const startupWorkspace = workspace ?? resolveStartupWorkspace(undefined, projectHistory.list()).cwd;
 
   /** The socket transport reports its clients here; the host publishes the count. */
   const clients = new HostClientRegistry();
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
-    return new PiHost(workspace, publish, projectHistory, safeMode, false, {
+    return new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {
       defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
       hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
       hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
