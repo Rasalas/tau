@@ -10,7 +10,7 @@ const QUESTIONS: Record<Switchable, { on: { title: string; message: string }; of
   lan: {
     on: {
       title: "Let devices on your network connect?",
-      message: "Tau listens on every network interface of this machine, over TLS only, and announces itself with Bonjour. A device still needs your approval here, and a paired device can do everything you can: run agents, open terminals, read files.",
+      message: "Tau listens on every network interface of this machine, over TLS only, and announces itself with Bonjour. A device still needs your approval here. Paired with Full access it can run agents, open terminals and read files; Read only, it can only look. Who may connect is changed only on this machine.",
     },
     off: {
       title: "Stop listening on the local network?",

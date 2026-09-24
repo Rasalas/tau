@@ -6,7 +6,7 @@ import type { WorkbenchActions } from "tau";
 import type { HostExtensionContext } from "tau/host-extension";
 import { registerAppOpen } from "./app-open.js";
 import { OpenRequests } from "./open-requests.js";
-import { APP_OPEN_COMMAND, OPEN_REQUEST_EVENT, TAKE_OPEN_REQUEST_COMMAND } from "./storage-protocol.js";
+import { APP_OPEN_COMMAND, OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, TAKE_OPEN_REQUEST_COMMAND } from "./storage-protocol.js";
 
 const made: string[] = [];
 afterEach(async () => { await Promise.all(made.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -51,10 +51,13 @@ describe("tau app on the host", () => {
     const kit = host(0, async () => { throw new Error("no window"); });
     expect(await kit.call(APP_OPEN_COMMAND, { path })).toMatchObject({ delivered: false, focused: false });
     expect(kit.events).toEqual([]);
+    expect(await kit.call(OPEN_REQUEST_WAITING_COMMAND)).toBe(true);
     expect(await kit.call(TAKE_OPEN_REQUEST_COMMAND)).toMatchObject({ workspaceId: `ws1_${path}` });
+    expect(await kit.call(OPEN_REQUEST_WAITING_COMMAND)).toBe(false);
     expect(await kit.call(TAKE_OPEN_REQUEST_COMMAND)).toBeNull();
     await kit.call(APP_OPEN_COMMAND, { path });
     kit.advance(3 * 60_000);
+    expect(await kit.call(OPEN_REQUEST_WAITING_COMMAND)).toBe(false);
     expect(await kit.call(TAKE_OPEN_REQUEST_COMMAND)).toBeNull();
   });
 

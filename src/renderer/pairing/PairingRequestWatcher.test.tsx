@@ -44,4 +44,13 @@ describe("a device asking to pair, wherever the owner is", () => {
     expect(listConnections).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("never asks when the hello said this connection is not the owner", async () => {
+    const listConnections = vi.fn(async () => listed([request]));
+    const client = createFakeHostClient({ listConnections, isOwner: () => false });
+    render(<TestProviders><HostClientProvider client={client}><PairingRequestWatcher /></HostClientProvider></TestProviders>);
+    act(() => client.emit({ type: "connections-changed" }));
+    await Promise.resolve();
+    expect(listConnections).not.toHaveBeenCalled();
+  });
 });

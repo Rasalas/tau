@@ -291,7 +291,7 @@ export function CommandPalette({
             aria-label={level ? level.menu.title : "Command"}
           />
           {levelAnswer?.loading && levelAnswer.items.length > 0 ? <Spinner size="xs" label="Loading" /> : null}
-          <kbd>esc</kbd>
+          <kbd className="keyboard-hint">esc</kbd>
         </div>
         <VirtualList
           items={rows}
@@ -319,11 +319,11 @@ export function CommandPalette({
           </button>}
         />
         <footer>
-          <span>↑↓ navigate</span>
-          <span>↵ {level ? "select" : "run"}</span>
-          {level ? <span>⌫ back</span> : null}
+          <span className="keyboard-hint">↑↓ navigate</span>
+          <span className="keyboard-hint">↵ {level ? "select" : "run"}</span>
+          {level ? <span className="keyboard-hint">⌫ back</span> : null}
           <span className="spacer" />
-          {level ? <span>esc close</span> : <span>{extensionCount} extensions contribute {commands.length} commands</span>}
+          {level ? <span className="keyboard-hint">esc close</span> : <span>{extensionCount} extensions contribute {commands.length} commands</span>}
         </footer>
       </section>
     </div>

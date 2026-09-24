@@ -98,4 +98,23 @@ describe("Settings → Preview", () => {
     stop();
     expect(listeners.size).toBe(0);
   });
+
+  it("sends nothing when the host holds the same defaults already", async () => {
+    let values: Record<string, string> = { "default-zoom": "1.5" };
+    const listeners = new Set<() => void>();
+    const preferences = {
+      value: (_id: string, key: string) => values[key],
+      optionValue: (_id: string, _key: string, fallback: boolean) => fallback,
+      subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    };
+    let held: unknown = defaultsFromPreferences(preferences);
+    const send = vi.fn(async (defaults: unknown) => { held = defaults; });
+    syncDefaults(preferences as never, send, async () => held);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(send).not.toHaveBeenCalled();
+    values = { "default-zoom": "2" };
+    listeners.forEach((listener) => listener());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(send).toHaveBeenCalledTimes(1);
+  });
 });

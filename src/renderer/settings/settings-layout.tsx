@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Check, Layers, Undo2 } from "lucide-react";
 import type { ConfigLayerName } from "../../shared/config-layers";
 import type { SettingHandle } from "./setting-state";
+import { tooltipProps } from "../components/ui/Tooltip";
 
 // The hooks live apart so the `tau` module reaches `useSetting` without loading these rows.
 export { SettingsLevelsProvider, useSetting, useSettingsLevels, type SettingHandle, type SettingOptions } from "./setting-state";
@@ -130,7 +131,7 @@ export function SettingRow({ id, title, description, status, control, setting, d
   status?: ReactNode;
   control?: ReactNode;
   setting?: SettingHandle<never> | SettingHandle<unknown>;
-  /** Why the control is off, for a row without a `setting`: it turns inert with this as its tooltip (API 1.13.0). */
+  /** Why the control is off, for a row without a `setting`: it turns inert with this as its tooltip, which a tap shows on touch (API 1.13.0). */
   disabledReason?: string | undefined;
   children?: ReactNode;
 }) {
@@ -159,7 +160,7 @@ export function SettingRow({ id, title, description, status, control, setting, d
         </div>
         {control ? (
           // The reason sits on a wrapper: an inert element shows no tooltip of its own.
-          <div className="settings-row-control" data-inert={inert ? "" : undefined} title={disabledReason ?? (inert ? notWritableReason(handle!) : undefined)}>
+          <div className="settings-row-control" data-inert={inert ? "" : undefined} {...tooltipProps(disabledReason ?? (inert ? notWritableReason(handle!) : undefined))}>
             {inert ? <div className="settings-row-control-inert" inert>{control}</div> : control}
           </div>
         ) : null}

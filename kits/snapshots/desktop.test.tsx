@@ -2,12 +2,13 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerInlineContext } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import snapshots, { armFor, prepareSend, SnapShotDetail, type HostApi } from "./desktop.js";
 import { DEFAULT_SHORTCUT, SETTING_ENABLED, SETTING_SHORTCUT, SNAPSHOTS_EXTENSION_ID as ID, SNAPSHOT_EVENT, type SnapShotContent, type SnapShotMeta } from "./protocol.js";
 import { ShotStore } from "./shots.js";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); setHostClient(undefined); });
 
 const SCOPE = "session:t1";
 const inline = (overrides: Partial<ComposerInlineContext> = {}): ComposerInlineContext => ({ scope: SCOPE, fileAttachments: false, imageInput: true, ...overrides });
@@ -20,7 +21,7 @@ const content = (id: string): SnapShotContent => ({
   accessibility: { imageSize: { width: 2, height: 1 }, truncated: false, nodes: 2, root: { role: "window", name: "E18 test window", children: [{ role: "button", name: "Press me", children: [] }] } },
 });
 
-function activate(pending: SnapShotMeta[] = []) {
+function activate(pending: SnapShotMeta[] = [], held: unknown = null) {
   const claimed = new Set<string>();
   const released: string[] = [];
   const armed: unknown[] = [];
@@ -28,6 +29,7 @@ function activate(pending: SnapShotMeta[] = []) {
     const fields = (input ?? {}) as Record<string, unknown>;
     switch (command) {
       case "arm": armed.push(input); return {};
+      case "armed": return held;
       case "pending": return pending.filter((entry) => !claimed.has(entry.id));
       case "claim": {
         const id = String(fields.id);
@@ -148,6 +150,7 @@ describe("SnapShots desktop", () => {
   });
 
   it("arms the shortcut only when it is on, with the default chord unless another was recorded", async () => {
+    setHostClient(createFakeHostClient());
     const kit = activate();
     expect(armFor(kit.preferences)).toEqual({ accelerator: null, accessibility: true });
     await waitFor(() => expect(kit.armed).toEqual([{ accelerator: null, accessibility: true }]));
@@ -156,5 +159,21 @@ describe("SnapShots desktop", () => {
     await waitFor(() => expect(kit.armed.at(-1)).toEqual({ accelerator: DEFAULT_SHORTCUT, accessibility: true }));
     act(() => kit.preferences.setValue(ID, SETTING_SHORTCUT, "Control+Alt+F19"));
     await waitFor(() => expect(kit.armed.at(-1)).toEqual({ accelerator: "Control+Alt+F19", accessibility: true }));
+  });
+
+  it("does not arm again what the window holds already", async () => {
+    setHostClient(createFakeHostClient());
+    const kit = activate([], { accelerator: null, accessibility: true });
+    await waitFor(() => expect(kit.invoke).toHaveBeenCalledWith(ID, "armed", undefined));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(kit.armed).toEqual([]);
+  });
+
+  it("leaves the shortcut alone from a client on another machine", async () => {
+    setHostClient(createFakeHostClient({ hasCapability: () => false }));
+    const kit = activate();
+    act(() => kit.preferences.setOption(ID, SETTING_ENABLED, true));
+    await Promise.resolve();
+    expect(kit.armed).toEqual([]);
   });
 });

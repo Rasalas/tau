@@ -50,7 +50,9 @@ function createControl(preferences: PreferencesStore) {
 
 /**
  * Keeps the host gate at the level the person chose. The preference is the
- * source of truth; the host is told on activation and after every change.
+ * source of truth; the host is told on activation and after every change,
+ * unless it holds that level already: a paired device's log counts every
+ * `set-level` as a change it made.
  */
 function syncLevel(host: HostExtensionClient, preferences: PreferencesStore): () => void {
   let pushed: AccessLevel | undefined;
@@ -59,11 +61,13 @@ function syncLevel(host: HostExtensionClient, preferences: PreferencesStore): ()
     // The host refuses a Read-only device's level; the owner's clients set it.
     if (level === pushed || hostIsReadOnly()) return;
     pushed = level;
-    void host.invoke("set-level", { level }).catch((error: unknown) => {
-      pushed = undefined;
-      if (error instanceof HostUnavailableError) return;
-      console.warn("Access Kit could not apply the access level", error);
-    });
+    void host.invoke("level").catch(() => undefined)
+      .then((held) => (held === level ? undefined : host.invoke("set-level", { level })))
+      .catch((error: unknown) => {
+        pushed = undefined;
+        if (error instanceof HostUnavailableError) return;
+        console.warn("Access Kit could not apply the access level", error);
+      });
   };
   push();
   return preferences.subscribe(push);

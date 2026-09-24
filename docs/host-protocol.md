@@ -370,7 +370,7 @@ apart, and behind a proxy the address is the one it forwarded.
 
 ### Pairing links
 
-`https://<address>:<port>/#pair=<code>&k=<kind>&fp=<hex>&pk=<hex>&host=<id>&name=<host name>&e=<kind>:<url>…&ca=<url>…`
+`https://<address>:<port>/#pair=<code>&k=<kind>&fp=<hex>&pk=<hex>&host=<id>&name=<machine name>&e=<kind>:<url>…&ca=<url>…`
 (`pairingUrl`, `parsePairingPayload` in `src/shared/connections.ts`). The origin
 is the address the link was made for and `k` its kind; `e` repeats every other
 network address with its kind (`lan`, `mdns`, `tailscale`, `magicdns`), so a
@@ -381,7 +381,8 @@ address not named by a `ca`; `fp` is that certificate's own SHA-256, for
 devices from before key pins; each `ca` names an address (the link's own
 too) where a proxy answers with a certificate a CA vouches for (Tailscale
 Serve), which a device checks by chain and name instead, and only on a DNS
-name outside `.local`; `host` is the id in `<userData>/host-id`. A link made
+name outside `.local`; `host` is the id in `<userData>/host-id` and `name`
+the machine's name as the hello reply gives it. A link made
 for loopback names no other address. The page takes the fragment out of the
 address bar before it renders.
 
@@ -414,7 +415,10 @@ an access class in `HOST_METHOD_ACCESS` (`src/main/host-method-access.ts`):
 `host-extension` is `read` at this level; the extension registry then refuses a
 Read-only device every command not registered with `{ access: "read" }`.
 `start-job` checks the method it would run. The hello reply of a Read-only
-device carries `access: "read-only"`. Every change a paired device makes, and
+device carries `access: "read-only"`, and every hello reply says `owner: true`
+or `owner: false`: whether the connection may call the `owner` methods (API
+1.13.0; absent from an older host), so a window that is not the owner never
+asks for the Connections list only to be refused. Every change a paired device makes, and
 every refusal, is recorded: the last one on its record (`lastAction`: the
 method or `<extension>/<command>`, never the input), each one in the host log
 (`access.action`, `access.refused`).
@@ -778,7 +782,9 @@ sockets to saved machines, because a host lets a `file://` page in over loopback
 only.
 
 A hello reply now names the machine: `host: { id, name, endpoints? }`, its
-`<userData>/host-id`, host name, and the addresses its network listeners have
+`<userData>/host-id`, the machine's name (the Mac's Computer Name, elsewhere
+the host name without its domain; the same name Bonjour and a pairing link
+carry), and the addresses its network listeners have
 now (`{ url, kind, trustedCertificate? }`, nothing on loopback; refreshed with
 the minute's network poll; the flag counts only on a DNS name outside `.local`). A client that saved the machine knows it again whatever address reached
 it, and follows it: the saved LAN addresses become the ones named, while names,

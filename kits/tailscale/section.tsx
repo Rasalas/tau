@@ -202,7 +202,7 @@ function ConsentDialog({ view, dnsName, busy, onOpen, onCancel, onConfirm }: {
       <h2>Set up Tailscale HTTPS?</h2>
       <p>
         Tau asks Tailscale Serve to answer at the address below in your tailnet and forward it to Tau on <code>127.0.0.1:{view.proxyPort}</code>.
-        Devices in your tailnet then open Tau without a certificate warning. They still need a pairing link, and a paired device can do everything you can here.
+        Devices in your tailnet then open Tau without a certificate warning. They still need a pairing link. Paired with Full access a device can do what you can here; Read only, it can only look. Who may connect is changed only on this machine.
       </p>
       <section className="tailscale-public" aria-label="What becomes public">
         <strong>This machine’s name becomes public.</strong>

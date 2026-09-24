@@ -1,6 +1,5 @@
 import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, session, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
-import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
@@ -52,6 +51,7 @@ import { createQuitShortcut } from "./quit-shortcut.js";
 import { ReleaseNotesStore, fileReleaseNotes, githubReleaseNotes } from "./release-notes.js";
 import { DEFAULT_QUIT_CONFIRMATION, type QuitConfirmation, type WindowShellEvent } from "../shared/window-shell.js";
 import { WindowEnvironments, type EnvironmentConnection } from "./window-environments.js";
+import { machineDisplayName } from "./host-discovery.js";
 import { installEnvironmentSession } from "./environment-session.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -573,8 +573,8 @@ async function loadWindowHalves(): Promise<void> {
 
 /** The machine list, a connection to each machine, and the page's trust in their certificates (ADR 0025). */
 async function startEnvironments(local: WindowHost): Promise<void> {
-  // `studio.local` or `studio.fritz.box` reads as `studio`.
-  const name = hostname().split(".")[0] || hostname();
+  // The name Bonjour and this machine's host give it too; the host name is only an address.
+  const name = machineDisplayName();
   environments = new WindowEnvironments({
     catalogPath: join(app.getPath("userData"), "environments.json"),
     box: {

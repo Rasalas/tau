@@ -125,7 +125,7 @@ describe("the Settings screen", () => {
     await within(page).findByRole("button", { name: /Settings apply to app/u });
     const row = within(page).getByRole("switch", { name: "Keep the host running in the background" }).closest(".settings-row-control")!;
     expect(row.getAttribute("data-inert")).toBe("");
-    expect(row.getAttribute("title")).toMatch(/setting of this machine/u);
+    expect(row.getAttribute("data-tooltip")).toMatch(/setting of this machine/u);
   });
 
   it("turns watching Tau's files off and back to the default", async () => {
@@ -160,7 +160,7 @@ describe("the Settings screen", () => {
     await act(async () => undefined);
     const model = within(page).getByRole("button", { name: /No model selected/u }).closest(".settings-row-control");
     expect(model?.hasAttribute("data-inert")).toBe(true);
-    expect(model?.getAttribute("title")).toMatch(/^Read only/u);
+    expect(model?.getAttribute("data-tooltip")).toMatch(/^Read only/u);
     expect(within(page).getByText("The model has no thinking levels").closest(".settings-row-control")?.hasAttribute("data-inert")).toBe(true);
   });
 

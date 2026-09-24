@@ -8,23 +8,37 @@ import { ACCESS_HOST_EXTENSION_ID } from "./protocol.js";
 
 afterEach(cleanup);
 
-function activate() {
+function activate(hostLevel = "ask") {
   const calls: unknown[][] = [];
-  const { registry, preferences } = createKitHarness(async (...args) => { calls.push(args); return args[2]; });
+  const { registry, preferences } = createKitHarness(async (...args) => {
+    calls.push(args);
+    return args[1] === "level" ? hostLevel : args[2];
+  });
   preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "full");
   registry.activate(accessKitExtension);
   return { registry, calls, preferences };
 }
 
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("Access Kit desktop extension", () => {
-  it("pushes the stored level on activation and after every change", () => {
+  it("pushes the stored level on activation and after every change", async () => {
     const { registry, calls, preferences } = activate();
-    expect(calls).toEqual([[ACCESS_HOST_EXTENSION_ID, "set-level", { level: "full" }]]);
+    await settled();
+    expect(calls).toEqual([[ACCESS_HOST_EXTENSION_ID, "level", undefined], [ACCESS_HOST_EXTENSION_ID, "set-level", { level: "full" }]]);
     preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "read-only");
+    await settled();
     expect(calls.at(-1)).toEqual([ACCESS_HOST_EXTENSION_ID, "set-level", { level: "read-only" }]);
     registry.deactivate(ACCESS_HOST_EXTENSION_ID);
     preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "ask");
-    expect(calls).toHaveLength(2);
+    await settled();
+    expect(calls).toHaveLength(4);
+  });
+
+  it("sends nothing on activation when the host already holds the stored level", async () => {
+    const { calls } = activate("full");
+    await settled();
+    expect(calls).toEqual([[ACCESS_HOST_EXTENSION_ID, "level", undefined]]);
   });
 
   it("contributes the composer control and disables ask mode a runtime cannot serve", () => {

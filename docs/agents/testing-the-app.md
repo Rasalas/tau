@@ -271,10 +271,10 @@ npm run cdp:mobile -- snapshot
 The test prompt, from the phone. The model picker is a bottom sheet there; pick by aria-label and check the chip before sending:
 
 ```
-npm run cdp:mobile -- tap "all('button').find(b => /^Select model/.test(b.getAttribute('aria-label') ?? ''))"
+npm run cdp:mobile -- tap "all('button').find(b => /^Select (runtime and )?model/.test(b.getAttribute('aria-label') ?? ''))"
 npm run cdp:mobile -- tap "all('[role=option]').find(o => /^GPT-5\.6 Luna, Pi\b/.test(o.getAttribute('aria-label') ?? ''))"
-npm run cdp:mobile -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select model/.test(t))"
-#   must print "Select model: GPT-5.6 Luna"
+npm run cdp:mobile -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select (runtime and )?model/.test(t))"
+#   must print "Select model: GPT-5.6 Luna" (a draft that offers runtimes says "Select runtime and model: GPT-5.6 Luna")
 npm run cdp:mobile -- type "document.querySelector('textarea')" "Reply with one word: ok"
 npm run cdp:mobile -- tap "document.querySelector('.send-button[aria-label=\"Send\"]')"
 npm run cdp:mobile -- wait-for "document.querySelector('.message.assistant') && !document.querySelector('.send-button.stop')" 120000

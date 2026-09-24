@@ -1,12 +1,13 @@
 /* Onboarding: the welcome wizard, laid out as T3 Code's — identity, step bar, one tinted panel per step. */
 .onboarding-screen {
+  --onboarding-edge: 24px;
   position: fixed;
   inset: 0;
   display: grid;
   /* safe: a dialog taller than the window starts at the top instead of losing it above the fold. */
   place-items: safe center;
   overflow: auto;
-  padding: 24px;
+  padding: var(--onboarding-edge);
   background: var(--shell);
   font-family: var(--sans);
   color: var(--ink-2);
@@ -181,7 +182,8 @@ fieldset:disabled .onboarding-row { cursor: default; opacity: .7; }
 /* Stays at the window's bottom edge when the step is taller than the window, so Continue is never below the fold. */
 .onboarding-actions {
   position: sticky;
-  bottom: 0;
+  /* A sticky edge stops at the scroller's padding; below it the step would show through. */
+  bottom: calc(-1 * var(--onboarding-edge));
   z-index: 1;
   display: flex;
   flex-wrap: wrap;
