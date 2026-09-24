@@ -118,7 +118,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       current = { ...current, ...change };
       void book.update(host.id, change);
     };
-    const { client, connection, won } = connectHost(() => current, token, {
+    const { client, connection } = connectHost(() => current, token, {
       bridge: context.bridge,
       device,
       ...(context.wakes ? { wakes: context.wakes } : {}),
@@ -131,21 +131,21 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       onUnauthorized: () => {
         void book.forgetToken(host.id).finally(() => leaveTo("?view=hosts", `${host.name} no longer accepts this phone: its access was revoked, or it ran out unused. Open the host to ask again.`));
       },
+      // After every hello: an old certificate pin moves to the key, and the host says where else it is reachable.
+      onHello: (address) => {
+        const pin = migratedPin(current, address);
+        if (pin) learn(pin);
+        void client.reachHost().then((reach) => {
+          const endpoints = reachedHostEndpoints(current, reach, address.candidate.url, sameAddress);
+          if (endpoints) learn({ endpoints });
+        }, () => undefined);
+      },
       onCertificateMismatch: () => leaveTo("?view=hosts", `${host.name} answered with another key than the one this phone pinned, so the phone sent it nothing. A renewed certificate keeps the key; if the host's key was replaced on purpose, remove it here and scan a new pairing code.`),
     });
     setHostClient(client);
     let registered = false;
     connection.onState((state) => {
-      if (state !== "connected") return;
-      // After every hello: an old certificate pin moves to the key, and the host says where else it is reachable.
-      const address = won();
-      const pin = address ? migratedPin(current, address) : undefined;
-      if (pin) learn(pin);
-      void client.reachHost().then((reach) => {
-        const endpoints = reachedHostEndpoints(current, reach, won()?.candidate.url, sameAddress);
-        if (endpoints) learn({ endpoints });
-      }, () => undefined);
-      if (registered) return;
+      if (state !== "connected" || registered) return;
       registered = true;
       void pushRegistrar()?.register({ host, client }).catch(() => undefined);
     });

@@ -110,6 +110,8 @@ export interface RaceOptions {
   onWinner?(candidate: SocketCandidate, seen: { fingerprint?: string; publicKey?: string }): void;
   /** No address opened; `certificate-mismatch` when every one showed another certificate. */
   onFailure?(reason: "unreachable" | "certificate-mismatch"): void;
+  /** Every frame the chosen socket receives, before the socket's own handler sees it. */
+  onMessage?(data: unknown): void;
 }
 
 /** After the first address answers, better ones get this long to answer too. */
@@ -210,7 +212,10 @@ export class RacingSocket {
       ...(this.fingerprint ? { fingerprint: this.fingerprint } : {}),
       ...(this.publicKey ? { publicKey: this.publicKey } : {}),
     });
-    attempt.socket.addEventListener("message", (event) => this.onmessage?.({ data: event.data }));
+    attempt.socket.addEventListener("message", (event) => {
+      this.options.onMessage?.(event.data);
+      this.onmessage?.({ data: event.data });
+    });
     attempt.socket.addEventListener("close", (event) => {
       this.readyState = CLOSED;
       this.onclose?.({ ...(event.code !== undefined ? { code: event.code } : {}), ...(event.reason ? { reason: event.reason } : {}) });

@@ -106,6 +106,19 @@ function race(urls: string[]) {
 }
 
 describe("RacingSocket", () => {
+  it("hands every frame of the chosen socket to onMessage before its own handler", () => {
+    const attempts: FakeAttempt[] = [];
+    const seen: unknown[] = [];
+    const socket = new RacingSocket([{ url: "wss://lan/", rank: 0, trust: "pin", allowAuthority: false }], (candidate) => { const attempt = new FakeAttempt(candidate); attempts.push(attempt); return attempt; }, {
+      timers: manualTimers(),
+      onMessage: (data) => seen.push(`hook ${String(data)}`),
+    });
+    socket.onmessage = (event) => seen.push(`socket ${String(event.data)}`);
+    attempts[0]!.open();
+    attempts[0]!.message("{\"type\":\"hello-reply\"}");
+    expect(seen).toEqual(["hook {\"type\":\"hello-reply\"}", "socket {\"type\":\"hello-reply\"}"]);
+  });
+
   it("takes the best address at once when it opens first, and closes the rest", () => {
     const { attempts, events } = race(["wss://lan/", "wss://tailscale/"]);
     attempts[0]!.open();
