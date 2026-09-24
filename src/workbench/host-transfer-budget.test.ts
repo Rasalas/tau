@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostEvent, UiToolRun } from "../shared/contracts";
-import { HOST_TRANSPORT_VERSION, type HostHello, type HostPush, type HostPushEvent } from "../shared/host-transport";
+import { HOST_TRANSPORT_VERSION, type HostHello, type HostPush, type HostPushEvent, type HostSubscription } from "../shared/host-transport";
 import { HostPushLog, helloReply } from "../main/host-push-log.js";
 import { HostPushCoalescer, type CoalescerClock } from "../main/host-push-coalescer.js";
+import { HostPushFilter } from "../main/host-push-scope.js";
 import { startSocketHostTransport, type SocketHostTransport } from "../main/host-transport-socket.js";
 import { boundedToolOutput } from "../main/host-messages.js";
 import { clientToolRun, clientTranscript, liveToolOutput } from "../main/client-tool-output.js";
@@ -23,7 +24,11 @@ interface TimedEvent { t: number; event: HostPushEvent }
 interface Budget { wireBytes: number; decodedBytes: number; messages: number }
 
 const TOKEN = "transfer-budget-token";
-const BUDGETS = JSON.parse(readFileSync(new URL("../../scripts/performance-budgets.json", import.meta.url), "utf8")).hostTransfer as Record<string, Budget>;
+const BUDGET_FILE = JSON.parse(readFileSync(new URL("../../scripts/performance-budgets.json", import.meta.url), "utf8")) as {
+  hostTransfer: Record<string, Budget>;
+  hostTransferOtherThread: Record<string, Budget>;
+};
+const BUDGETS = BUDGET_FILE.hostTransfer;
 
 /** The recorded turn stores each tool update as what it added; the host sends the whole output. */
 function recordedTurn(): { sessionId: string; events: TimedEvent[] } {
@@ -180,26 +185,36 @@ class VirtualClock implements CoalescerClock {
 interface WireClient {
   /** The sequence the host's hello reply named for this client's first push. */
   nextSeq: number;
+  /** Push frames, as they arrived. */
   frames: string[];
+  /** Replaces the subscription and waits for the host's answer. */
+  subscribe(subscription: HostSubscription): Promise<void>;
   bytesRead(): number;
   extensions(): string;
   untilSeq(seq: number): Promise<void>;
   close(): void;
 }
 
-/** An auxiliary client counts; a regular one starts from a snapshot and makes the host send outputs whole. */
-async function connect(port: number, auxiliary = true): Promise<WireClient> {
+/**
+ * An auxiliary client counts; a regular one starts from a snapshot and makes the host send outputs whole.
+ * With a subscription it is sent the threads it names and what every client gets.
+ */
+async function connect(port: number, auxiliary = true, subscription?: HostSubscription): Promise<WireClient> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}`);
   const frames: string[] = [];
   let lastSeq = 0;
   let waiting: { seq: number; resolve: () => void } | undefined;
+  const answers = new Map<string, () => void>();
   const replied = new Promise<number>((resolve, reject) => {
     socket.on("error", reject);
-    socket.on("open", () => socket.send(JSON.stringify({ type: "hello", id: "h1", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN, ...(auxiliary ? { auxiliary } : {}) } })));
+    socket.on("open", () => socket.send(JSON.stringify({ type: "hello", id: "h1", hello: {
+      protocol: HOST_TRANSPORT_VERSION, token: TOKEN, ...(auxiliary ? { auxiliary } : {}), ...(subscription ? { subscription } : {}),
+    } })));
     socket.on("message", (data) => {
       const text = String(data);
-      const frame = JSON.parse(text) as { type: string; push?: HostPush; reply?: { nextSeq: number } };
+      const frame = JSON.parse(text) as { type: string; push?: HostPush; reply?: { nextSeq: number }; response?: { id: string } };
       if (frame.type === "hello-reply") { resolve(frame.reply!.nextSeq); return; }
+      if (frame.type === "response") { answers.get(frame.response!.id)?.(); return; }
       frames.push(text);
       lastSeq = frame.push!.seq;
       if (waiting && lastSeq >= waiting.seq) waiting.resolve();
@@ -209,9 +224,15 @@ async function connect(port: number, auxiliary = true): Promise<WireClient> {
   let raw: { bytesRead: number } = { bytesRead: 0 };
   socket.once("upgrade", (response) => { raw = response.socket; });
   const nextSeq = await replied;
+  let requests = 0;
   return {
     nextSeq,
     frames,
+    subscribe: (next) => new Promise((resolve) => {
+      const id = `s${++requests}`;
+      answers.set(id, resolve);
+      socket.send(JSON.stringify({ type: "request", request: { id, method: "subscribe", params: [next] } }));
+    }),
     bytesRead: () => raw.bytesRead,
     extensions: () => socket.extensions,
     untilSeq: (seq) => lastSeq >= seq ? Promise.resolve() : new Promise((resolve) => { waiting = { seq, resolve }; }),
@@ -225,6 +246,25 @@ interface Measurement extends Budget {
   extensions: string;
   /** The second client, when one joined mid-turn. */
   joined?: WireClient;
+  /** What a subscribed second client received, when there was one. */
+  phone?: Budget & { pushes: HostPush[] };
+}
+
+/** A second client that subscribes from the start, and may switch to another subscription at `switchAt`. */
+interface PhoneOptions {
+  /** None: every push, as every client received before subscriptions. */
+  subscription?: HostSubscription;
+  switchAt?: number;
+  switchTo?: HostSubscription;
+}
+
+function counted(client: WireClient, before: number): Budget & { pushes: HostPush[] } {
+  return {
+    wireBytes: client.bytesRead() - before,
+    decodedBytes: client.frames.reduce((sum, frame) => sum + Buffer.byteLength(frame), 0),
+    messages: client.frames.length,
+    pushes: client.frames.map((frame) => (JSON.parse(frame) as { push: HostPush }).push),
+  };
 }
 
 const transports: SocketHostTransport[] = [];
@@ -233,7 +273,7 @@ afterEach(async () => {
 });
 
 /** Plays the turn through the host's push path and counts what one client receives. */
-async function measure(events: readonly TimedEvent[], options: { joinAt?: number } = {}): Promise<Measurement> {
+async function measure(events: readonly TimedEvent[], options: { joinAt?: number; phone?: PhoneOptions } = {}): Promise<Measurement> {
   const log = new HostPushLog();
   const clock = new VirtualClock();
   let transport: SocketHostTransport | undefined;
@@ -251,20 +291,34 @@ async function measure(events: readonly TimedEvent[], options: { joinAt?: number
     token: TOKEN,
     beforeReply: () => pushes.flush(),
     onSnapshotClient: () => pushes.resendWholeOutputs(),
+    onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
   });
   transports.push(transport);
   const client = await connect(transport.port);
   const before = client.bytesRead();
+  const phone = options.phone && await connect(transport.port, false, options.phone.subscription);
+  const phoneBefore = phone?.bytesRead() ?? 0;
   let joined: WireClient | undefined;
+  let switched = false;
   for (const { t, event } of events) {
     clock.advanceTo(t);
     if (options.joinAt !== undefined && !joined && t >= options.joinAt) joined = await connect(transport.port, false);
+    if (phone && options.phone?.switchTo && !switched && t >= (options.phone.switchAt ?? Infinity)) {
+      switched = true;
+      await phone.subscribe(options.phone.switchTo);
+    }
     pushes.publish(published(event));
   }
   pushes.flush();
   await client.untilSeq(log.nextSeq - 1);
   await joined?.untilSeq(log.nextSeq - 1);
   joined?.close();
+  if (phone && options.phone) {
+    const subscription = options.phone.switchTo ?? options.phone.subscription;
+    await phone.untilSeq(subscription ? log.since(0, new HostPushFilter(subscription)).missed.at(-1)?.seq ?? 0 : log.nextSeq - 1);
+  }
+  const phoneMeasured = phone && counted(phone, phoneBefore);
+  phone?.close();
   const wireBytes = client.bytesRead() - before;
   client.close();
   return {
@@ -275,6 +329,7 @@ async function measure(events: readonly TimedEvent[], options: { joinAt?: number
     log,
     extensions: client.extensions(),
     ...(joined ? { joined } : {}),
+    ...(phoneMeasured ? { phone: phoneMeasured } : {}),
   };
 }
 
@@ -296,13 +351,18 @@ function asClientSees(event: HostEvent): HostEvent {
  * `HostConnection`. `from` starts the client later; `gap` drops a range, which
  * the connection repairs by replaying from `log`.
  */
-async function received(pushes: readonly HostPush[], log: HostPushLog, options: { from?: number; gap?: [number, number] } = {}): Promise<HostEvent[]> {
+async function received(
+  pushes: readonly HostPush[],
+  log: HostPushLog,
+  options: { from?: number; gap?: [number, number]; hellos?: { count: number } } = {},
+): Promise<HostEvent[]> {
   const listeners = new Set<(push: HostPush) => void>();
   const start = options.from ?? 0;
   const transport: HostTransport = {
     platform: "test",
     request: async (method, params) => {
       if (method !== "hello") throw new Error(`unexpected ${method}`);
+      if (options.hellos) options.hellos.count += 1;
       const hello = params[0] as HostHello;
       const reply = helloReply(log, hello, { hostVersion: "test", capabilities: [] });
       return { id: "hello", result: hello.lastSeq === undefined ? { ...reply, nextSeq: start + 1 } : reply };
@@ -415,5 +475,69 @@ describe("host transfer budget", () => {
     const lastDetail = late.filter((event) => event.type === "host-update" && event.update.type === "thread-detail").at(-1) as Extract<HostEvent, { type: "host-update" }>;
     expect((lastDetail.update as { detail: { messages: Array<{ text: string }> } }).detail.messages.at(-1)?.text).toBe(answer);
     expect(view(sessionId, await received(measured.pushes, measured.log)).messages.at(-1)?.text).toBe(answer);
+  });
+
+  describe("a compact client that shows another thread", () => {
+    const elsewhere: HostSubscription = { threads: ["shown-on-the-phone"], topics: [] };
+
+    for (const [name, scenario] of Object.entries(scenarios)) {
+      it(`${name} sends it only what every client gets`, async () => {
+        const { sessionId, events } = scenario();
+        const before = (await measure(events, { phone: {} })).phone!;
+        const measured = await measure(events, { phone: { subscription: elsewhere } });
+        const phone = measured.phone!;
+        const observed = { wireBytes: phone.wireBytes, decodedBytes: phone.decodedBytes, messages: phone.messages };
+        const everything = { wireBytes: before.wireBytes, decodedBytes: before.decodedBytes, messages: before.messages };
+        console.info(`host transfer ${name}, other thread: ${JSON.stringify(observed)}; without a subscription ${JSON.stringify(everything)}`);
+        if (process.env.TRANSFER_BREAKDOWN) console.info(breakdown(phone.pushes));
+        expect(before.messages).toBe(measured.messages);
+        const budget = BUDGET_FILE.hostTransferOtherThread[name]!;
+        expect(observed.wireBytes, "wire bytes").toBeLessThanOrEqual(budget.wireBytes);
+        expect(observed.decodedBytes, "decoded bytes").toBeLessThanOrEqual(budget.decodedBytes);
+        expect(observed.messages, "messages").toBeLessThanOrEqual(budget.messages);
+        // Nothing of the streaming thread's own stream, and no gap the connection would repair.
+        expect(phone.pushes.filter(({ event }) => new HostPushFilter(elsewhere).admits(event) === false)).toEqual([]);
+        expect(phone.pushes.some(({ event }) => event.type === "agent-status" && event.sessionId === sessionId)).toBe(true);
+        const hellos = { count: 0 };
+        const events2 = await received(phone.pushes, measured.log, { hellos });
+        expect(hellos.count).toBe(1);
+        expect(events2.map((event) => event.type)).toEqual(phone.pushes.map(({ event }) => event.type));
+      });
+    }
+
+    it("streams a thread to it from the moment it switches there, whole where it missed the start", async () => {
+      const { sessionId, events } = answerTurn(recordedTurn().events);
+      const answer = (events.find(({ event }) => event.type === "assistant-end")!.event as Extract<HostEvent, { type: "assistant-end" }>).message.text;
+      const halfway = events.find(({ event }) => event.type === "assistant-delta" && event.delta === answer.slice(75_000, 75_200))!.t;
+      const measured = await measure(events, { phone: { subscription: elsewhere, switchAt: halfway, switchTo: { threads: [sessionId], topics: [] } } });
+      const phone = measured.phone!;
+      const first = phone.pushes.findIndex(({ event }) => event.type === "assistant-delta");
+      expect(first).toBeGreaterThan(0);
+      // It never saw the start, so the end and the detail carry the text.
+      expect(phone.pushes.some(({ event }) => event.type === "assistant-end-delta")).toBe(false);
+      const hellos = { count: 0 };
+      const late = await received(phone.pushes, measured.log, { hellos });
+      expect(hellos.count).toBe(1);
+      const end = late.find((event): event is Extract<HostEvent, { type: "assistant-end" }> => event.type === "assistant-end");
+      expect(end?.message.text).toBe(answer);
+      const lastDetail = late.filter((event) => event.type === "host-update" && event.update.type === "thread-detail").at(-1) as Extract<HostEvent, { type: "host-update" }>;
+      expect((lastDetail.update as { detail: { messages: Array<{ text: string }> } }).detail.messages.at(-1)?.text).toBe(answer);
+    });
+
+    it("sends a running tool whole to it after it switches there", async () => {
+      const { sessionId, events } = heavyTurn(recordedTurn().events, { bytes: 200_000, chunks: 400 });
+      const sent = events.flatMap(({ event }) => event.type === "tool-update" && event.id === "tool-21" ? [liveToolOutput(event.output)] : []);
+      const halfway = events.find(({ event }) => event.type === "tool-update" && liveToolOutput(event.output) === sent[200])!.t;
+      const measured = await measure(events, { phone: { subscription: elsewhere, switchAt: halfway, switchTo: { threads: [sessionId], topics: [] } } });
+      const big = measured.phone!.pushes.filter(({ event }) => event.type !== "tool-end-delta" && "id" in event && event.id === "tool-21");
+      expect(big[0]?.event.type).toBe("tool-update");
+      const hellos = { count: 0 };
+      const late = await received(measured.phone!.pushes, measured.log, { hellos });
+      expect(hellos.count).toBe(1);
+      const outputs = late
+        .filter((event): event is Extract<HostEvent, { type: "tool-update" }> => event.type === "tool-update" && event.id === "tool-21")
+        .map((event) => event.output);
+      expect(outputs).toEqual(sent.slice(sent.length - outputs.length));
+    });
   });
 });
