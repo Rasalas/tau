@@ -124,6 +124,8 @@ export function TooltipLayer() {
       schedule(target, TOOLTIP_DELAY_MS);
     };
     const onOut = (event: PointerEvent) => {
+      // A lifted finger leaves its target too; what a press showed stays until the next press.
+      if (event.pointerType === "touch") return;
       const target = triggerOf(event.target);
       if (!target || target.contains(event.relatedTarget as Node | null)) return;
       if (target === pressed) pressed = undefined;

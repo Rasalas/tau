@@ -126,7 +126,11 @@ describe("TooltipLayer", () => {
       <button type="button" disabled {...tooltipProps("Read only: this needs a device with Full access.")}>Merge</button>
       <div data-inert="" {...tooltipProps("Read only: it can see settings")}><div inert><button type="button">Model</button></div></div>
     </>);
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Merge" }), { pointerType: "touch", clientX: 5, clientY: 5 });
+    const merge = screen.getByRole("button", { name: "Merge" });
+    fireEvent.pointerDown(merge, { pointerType: "touch", clientX: 5, clientY: 5 });
+    fireEvent.pointerUp(merge, { pointerType: "touch" });
+    // A lifted finger leaves the control; the reason stays to be read.
+    fireEvent.pointerOut(merge, { pointerType: "touch" });
     expect(screen.getByRole("tooltip").textContent).toContain("Full access");
     fireEvent.pointerDown(screen.getByText("Model").closest("[data-inert]")!, { pointerType: "touch", clientX: 5, clientY: 5 });
     expect(screen.getByRole("tooltip").textContent).toContain("can see settings");
