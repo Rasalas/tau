@@ -570,7 +570,8 @@ async function exerciseCalls(host, tokenPath, workspace, elsewhere) {
   await window.close();
   const started = Date.now();
   const alone = await page.request("host-extension", ["tau.workspace", "pick-folder"]).then(() => "answered", (error) => String(error.message));
-  if (!/no window that can answer/u.test(alone) || Date.now() - started > 5_000) fail(`a call without a window did not fail at once: ${alone}`);
+  // Under load the host may still be closing the window when the call arrives; that fails at once too.
+  if (!/no window that can answer|window that was asked disconnected/u.test(alone) || Date.now() - started > 5_000) fail(`a call without a window did not fail at once: ${alone}`);
   step("calls: without a window the call fails at once", `${Date.now() - started} ms`);
 
   // Kit commands: a Read-only device runs those registered with access "read", and no other, not even as a job.
