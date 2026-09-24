@@ -319,7 +319,7 @@ Without `TAU_HOST_FINGERPRINT` the window shows the certificate's fingerprint on
 
 A dropped link (a suspended machine, a restarted tunnel, a phone that slept or changed networks) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. Heartbeats find a link that died without a close, and coming back to the page or to a network tries again at once. A strip above the status line reads `Reconnecting to the host…` (with "Retry now" while it waits), then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. For a host on another machine, a dot in the title bar shows the link and its round trip. Nothing has to be restarted by hand.
 
-The host accepts sockets only from pages it served itself and from clients that are not pages; a native shell or a proxy that changes the host name is added with `TAU_HOST_ALLOWED_ORIGINS=capacitor://localhost,https://…`.
+The host accepts sockets only from pages it served itself and from clients that are not pages (the native app's sockets send no `Origin`); a proxy that changes the host name is added with `TAU_HOST_ALLOWED_ORIGINS=https://…`.
 
 ### The web client
 
@@ -400,6 +400,29 @@ Without TLS the socket is unencrypted and the page is served over plain HTTP, so
 refuses to bind anything but a loopback address. To reach it from a phone, start the host
 with `TAU_HOST_TLS=1`, or forward the port over SSH or a tunnel you trust;
 `TAU_HOST_INSECURE=1` is the deliberate exception.
+
+### The app for iOS and Android
+
+`mobile/` is a native app built with Capacitor around the same compact client. It keeps
+several hosts, finds hosts on the local network over Bonjour, and talks to each over a
+socket of its own native side (URLSession on iOS, OkHttp on Android) that pins the host's
+self-signed certificate — a web view cannot. Tokens live in the Keychain or behind a
+Keystore key.
+
+Add a host by scanning the QR code in Settings → Connections (or pasting its link), or
+tap a host listed under "On this network". Either way the host's window asks
+"<phone> wants to connect" with six digits; allow it only if the phone shows the same
+ones. With a pinned certificate the digits depend on it, so something between the two
+that presents another certificate cannot make them agree (ADR 0024). The link names every
+address of the host; the app races them each time it connects — local network first,
+then `.local`, then Tailscale — so it follows a phone from home Wi-Fi to cellular on its
+own. Coming back to the foreground or to a network makes it check the link at once. More
+→ Hosts in the thread list goes back to the host list. `tau://thread?host=<id>&thread=<id>`
+opens a thread of a paired host (for push notifications, which are not built yet).
+
+Building and running it in a simulator is in `mobile/README.md`; putting it on your own
+iPhone through TestFlight, signed with your Apple Developer account, in
+`docs/mobile-testflight.md`.
 
 ### Share a live session with Pi
 

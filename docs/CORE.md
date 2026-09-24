@@ -153,7 +153,7 @@ three facts it cannot work out for itself — which client this is, whether kits
 were left out, and how to build the platform — arrive as a `ClientEnvironment`
 from the entry point.
 
-There are two such entry points. `src/renderer/main.tsx` is the Electron window;
+There are two such entry points in `src/`. `src/renderer/main.tsx` is the Electron window;
 `src/web/` is the browser client a listening host serves, which reuses every
 component and adds only its entry, its platform and the token handling. Below
 720 px either of them lays itself out compactly — the thread list as a screen of
@@ -172,6 +172,15 @@ height the on-screen keyboard leaves (`visualViewport`), a tap that shows a
 message's actions, and the open thread in the address (`?thread=<id>`, which a
 push notification opens). A touch keyboard's return key writes a newline; the
 send button sends. Settings on a phone is stacked: the section list, then a page.
+
+`mobile/` is a third entry point, the native app (Capacitor), which puts the compact
+client in a shell of its own: saved hosts, pairing by QR code or Bonjour, and a choice
+of address each time it connects (`mobile/src/endpoints.ts`). It asks two things of the
+workbench and nothing of the host: `SocketTransportOptions.createSocket`, so every socket
+is a native one that pins the host's certificate, and `ClientEnvironment.shell`, the
+host's name above the thread list and the shell's own actions (Hosts) in its More menu.
+Each host gets its own view of the page's store (`mobile/src/storage.ts`), so drafts and
+the bootstrap cache of one never show up for another.
 
 The model picker (`src/renderer/components/ModelPicker.tsx`) opens as a popover
 at the control that opened it (the composer's model chip, a settings field),

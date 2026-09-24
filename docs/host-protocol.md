@@ -128,8 +128,8 @@ calls `reconnectNow()`.
 
 The host looks at the `Origin` header of the upgrade before anything else and
 closes a refused socket with 4403 (`src/main/host-origin.ts`). No `Origin` is a
-client that is not a browser page (the window's own process, a native HTTP
-stack, the smokes) and passes. A page passes when its origin is the listener's
+client that is not a browser page (the window's own process, the native app's
+pinned sockets, the smokes) and passes. A page passes when its origin is the listener's
 own (the `Host` it was reached by), when it is Electron's `file://` window on
 loopback, or when it is listed in `TAU_HOST_ALLOWED_ORIGINS` (comma-separated,
 for a native shell's scheme or a proxy that rewrites `Host`); a development
