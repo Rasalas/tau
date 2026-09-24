@@ -161,6 +161,8 @@ export interface HostClient {
    * sense; without it the workbench offers neither.
    */
   hasCapability(capability: string): boolean;
+  /** Whether the host's last hello said this device may only read; every change is refused then (ADR 0024). */
+  isReadOnly(): boolean;
   /** Whether the link to the host is whole, being repaired, refetching state, or refused. */
   getConnectionState(): HostConnectionState;
   /** Why the connection is `refused`, written for the user; undefined otherwise. */
@@ -316,6 +318,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       return () => { offHost(); offWindow?.(); };
     },
     hasCapability: connection.hasCapability,
+    isReadOnly: connection.isReadOnly,
     getConnectionState: connection.getState,
     getConnectionRefusal: connection.getRefusal,
     onConnectionState: (listener) => connection.onState(listener),

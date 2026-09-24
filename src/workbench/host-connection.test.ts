@@ -315,6 +315,23 @@ describe("host connection", () => {
     });
   });
 
+  it("learns from each hello whether this device may only read", async () => {
+    const link = harness();
+    let access: "read-only" | undefined = "read-only";
+    const request = link.transport.request;
+    link.transport.request = async (method, params) => {
+      const response = await request(method, params);
+      return method === "hello" ? { ...response, result: { ...(response.result as object), ...(access ? { access } : {}) } } : response;
+    };
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    expect(connection.isReadOnly()).toBe(true);
+    access = undefined;
+    link.reopen();
+    await settle();
+    expect(connection.isReadOnly()).toBe(false);
+  });
+
   it("learns which methods the host wants run as jobs", async () => {
     const link = harness();
     const connection = new HostConnection(link.transport);

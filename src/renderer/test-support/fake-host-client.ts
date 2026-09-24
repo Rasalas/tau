@@ -101,6 +101,7 @@ function defaults(): HostClient {
       return () => listeners.delete(listener);
     },
     hasCapability: () => true,
+    isReadOnly: () => false,
     getConnectionState: () => "connected",
     getConnectionRefusal: () => undefined,
     onConnectionState: () => () => undefined,
