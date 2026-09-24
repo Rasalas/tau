@@ -292,7 +292,9 @@ A device that pinned the host's self-signed certificate sends `commitment`,
 the SHA-256 (hex) of a random 32-byte nonce, and reveals the nonce after the
 host's challenge. Both sides then compute the digits from the certificate's
 fingerprint and both nonces (`pairingVerificationCode`, `src/shared/pairing.ts`),
-and the device shows its own. A relay presenting another certificate cannot
+and the device shows its own. The host takes the fingerprint from the
+certificate the socket's own listener presented, so it matches what the
+device pinned on any TLS listener. A relay presenting another certificate cannot
 make the two screens agree, since it had to pick the host's nonce before it
 learned the device's. A device that cannot pin (a browser) sends no
 commitment, and the host picks the digits. The device-side client is
@@ -300,19 +302,24 @@ commitment, and the host picks the digits. The device-side client is
 
 Limits: 20 open links; five requests waiting at once; without a link, one per
 address and three in all, and an address the owner denied waits ten minutes;
-per address, five attempts, then a backoff doubling up to a minute.
+per address, five attempts (twenty from this machine on the loopback
+listener), then a backoff doubling up to a minute. Each listener kind counts
+apart, and behind a proxy the address is the one it forwarded.
 
 `POST /pair` of the web client's server answers 410.
 
 ### Pairing links
 
-`https://<address>:<port>/#pair=<code>&fp=<hex>&host=<id>&name=<host name>&e=<url>…`
+`https://<address>:<port>/#pair=<code>&k=<kind>&fp=<hex>&host=<id>&name=<host name>&e=<kind>:<url>…`
 (`pairingUrl`, `parsePairingPayload` in `src/shared/connections.ts`). The origin
-is the address the link was made for; `e` repeats every other network address;
-`fp` is the SHA-256 of the host's certificate (absent in plaintext), which a
-device pins on each address that presents it; `host` is the id in
-`<userData>/host-id`. A link made for loopback names no other address. The
-page takes the fragment out of the address bar before it renders.
+is the address the link was made for and `k` its kind; `e` repeats every other
+network address with its kind (`lan`, `mdns`, `tailscale`, `magicdns`), so a
+device picks one it reaches; `fp` is the SHA-256 of the certificate the
+network listeners present (network access's, else the host's own listener's;
+absent in plaintext), which a device pins on each address that presents it;
+`host` is the id in `<userData>/host-id`. A link made for loopback names no
+other address. The page takes the fragment out of the address bar before it
+renders.
 
 ### Presets
 
@@ -325,8 +332,11 @@ an access class in `HOST_METHOD_ACCESS` (`src/main/host-method-access.ts`):
 - `write`: it changes something, runs something, or reaches the host
   machine's own screen or clipboard. A Read-only device gets `forbidden`.
   A method missing from the table counts as `write`.
-- `owner`: the Connections methods and `host.shutdown`; every paired device
-  gets `forbidden`.
+- `owner`: the Connections methods (including `connections-set-network` and
+  `connections-reload-certificate`) and `host.shutdown`. They need the host
+  token on a connection from this machine through the loopback listener; every
+  paired device, and the host token over a LAN or proxy listener, gets
+  `forbidden`.
 
 `host-extension` is `read` at this level; the extension registry then refuses a
 Read-only device every command not registered with `{ access: "read" }`.

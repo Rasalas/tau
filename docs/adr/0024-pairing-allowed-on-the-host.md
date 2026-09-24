@@ -109,6 +109,33 @@ lists waiting requests beside the devices. A host started by hand in a
 terminal asks there. Only a payload-free `connections-changed` push goes to
 all clients; what changed is answered to owners alone.
 
+**Access is managed from this machine only.** Methods of class `owner` — the
+Connections methods (links, requests, devices, rotation, network access,
+certificate reload) and `host.shutdown` — need the host token *and* a
+connection from this machine through the loopback listener (`isHostOwner`:
+loopback trust and a loopback peer; the in-process window counts). The host
+token over a LAN or proxy listener, or from another machine to a hand-started
+host bound beyond loopback, uses the host like a Full device but manages
+nothing. No paired device ever manages access, whatever its preset. A token
+that leaked off the machine can then neither let further devices in, nor lock
+the owner out by rotating, nor open the host to more networks. A host started
+by hand on another machine is managed on its own terminal (it asks there) or
+through an SSH tunnel to its loopback listener.
+
+**The digits are bound to the listener's own certificate.** The transport reads
+the certificate each socket's TLS listener presented (`getCertificate()`), so a
+device that pinned the network listeners' certificate agrees with the host
+even when the host's own listener is plaintext loopback. A pairing link carries
+that certificate's fingerprint (network access's, else the host's own) and
+names each address with its kind (`k=` for its own origin, `e=<kind>:<url>`
+for the others). Behind a proxy that ends TLS itself (`tailscale serve`) there
+is no certificate of the host's to bind to; a device reaching it that way
+trusts the proxy's public certificate and sends no commitment.
+
+Pairing attempts are counted per listener kind, strictly beyond loopback, and
+behind a proxy by the address it forwarded, so a flood through the proxy never
+locks out this machine's own browser.
+
 **What is not weakened.** Everything ADR 0023 lists still holds: the host
 token stays with the owner and only it manages access; secrets and codes are
 kept as hashes; a record is written before its token leaves; revocation and
@@ -128,6 +155,8 @@ any other.
   the app pairs without a code and binds the digits. F07 uses `pairWithHost`
   with a pinned socket and `parsePairingPayload` for the QR code. F14 stores
   the host id, the addresses and the pin from the same payload.
+- An owner who is away from the machine cannot approve a device or change
+  access from a browser that holds the host token; they can use it otherwise.
 - Anyone who reaches the port can put a request in front of the owner. The
   limits keep that from becoming a flood, and the port is closed to the
   network unless the owner opened it (F04).
