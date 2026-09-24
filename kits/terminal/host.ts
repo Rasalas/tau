@@ -5,6 +5,7 @@ import { basename } from "node:path";
 import type { HostExtension, HostExtensionContext } from "tau/host-extension";
 import {
   TERMINAL_DATA_EVENT,
+  terminalOutputTopic,
   TERMINAL_EXITED_EVENT,
   TERMINAL_HOST_EXTENSION_ID,
   TERMINAL_LIST_EVENT,
@@ -90,7 +91,7 @@ export class TerminalSessions {
 
   constructor(
     private readonly spawn: PtyFactory,
-    private readonly emit: (name: string, payload?: unknown) => void,
+    private readonly emit: (name: string, payload?: unknown, options?: { topic?: string }) => void,
     /** This machine's name, which a shell's directory report must carry to count. */
     private readonly machine: string = hostname(),
   ) {}
@@ -274,7 +275,7 @@ export class TerminalSessions {
       const session = this.sessions.get(id);
       if (!session) continue;
       const event: TerminalDataEvent = { id, data, offset: session.offset };
-      this.emit(TERMINAL_DATA_EVENT, event);
+      this.emit(TERMINAL_DATA_EVENT, event, { topic: terminalOutputTopic(id) });
     }
     this.pending.clear();
   }

@@ -1,6 +1,7 @@
 import { Terminal } from "lucide-react";
 import type { DesktopExtension, WorkbenchActions } from "tau";
 import { TerminalPanel } from "./panel.js";
+import { CompactTerminalPanel } from "./compact.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
 import { connectTerminalFont, connectTerminalHost, createTerminalFontService, terminalKit, terminalServices, terminalStore } from "./store.js";
 import { TerminalSettingsPage } from "./settings.js";
@@ -107,6 +108,8 @@ export const terminalExtension: DesktopExtension = {
     let placement = placementNow();
     const registerPanel = () => plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["desktop", "web"], placement, maximizable: true, Component: TerminalPanel });
     let panel = registerPanel();
+    // A phone or a tablet draws the same shells as a sheet with a key bar; dock and drawer mean nothing there.
+    const compactPanel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["compact"], Component: CompactTerminalPanel });
     const stopPlacement = plugin.preferences.subscribe(() => {
       const next = placementNow();
       if (next === placement) return;
@@ -171,6 +174,7 @@ export const terminalExtension: DesktopExtension = {
       settings();
       stageTab();
       stopPlacement();
+      compactPanel();
       panel();
       for (const dispose of services) dispose();
       stopFont();

@@ -7,6 +7,7 @@ export interface PublishedKitEvent {
   extensionId: string;
   name: string;
   payload?: unknown;
+  topic?: string;
 }
 
 /**

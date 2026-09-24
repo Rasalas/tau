@@ -87,7 +87,8 @@ What follows from that:
   it has no window opens one.
 - **Quitting stops the host** — unless *Settings → Defaults → "Keep the host
   running in the background"* is on, in which case it keeps going and the next
-  start adopts it.
+  start adopts it, or the host runs as a system service (below), which a
+  window never stops.
 - **The window still owns its own machine.** The clipboard, image previews and
   the workbench rebuild are answered in the window process, not in the host;
   everything else is one call over the protocol.
@@ -177,6 +178,52 @@ ln -s /Applications/Tau.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs ~/.
 
 `npm run smoke:cli-app` (after `npm run build`) drives it against a headless
 host in temp folders.
+
+### Run the host as a system service
+
+The host can run as a service of the machine, so threads, terminals and paired
+devices keep working with no Tau window open and after a restart of the
+machine. Install it in *Settings → Connections → Background*, or from a
+terminal:
+
+| Task | Command |
+|---|---|
+| Install and start (again: repair) | `tau service install` |
+| Where it stands, and its log | `tau service status` |
+| Restart it | `tau service restart` |
+| Stop it and remove it from login | `tau service uninstall` |
+
+- **macOS:** a LaunchAgent, `~/Library/LaunchAgents/dev.tbuck.tau.host.plist`.
+  It starts when you log in and stops when you log out; keep the Mac logged in
+  (and, for a phone, awake) for access from elsewhere. Tau must run from
+  Applications, not from the Downloads folder macOS starts it from.
+- **Linux:** a systemd user unit, `~/.config/systemd/user/tau-host.service`.
+  Installing turns on lingering (`loginctl enable-linger`) so it starts at
+  boot and outlives your session; where that needs an administrator, the
+  status says so with the command. An AppImage cannot run as a service.
+- **Windows:** a Task Scheduler task, "Tau Host", that runs at your logon.
+
+The service runs the app's own binary on the app's own userData, so a Tau
+window adopts the host it finds in `host.json` like any other and never starts
+a second one; quitting the window leaves it running. Installing from a window
+moves that window's threads into the service host, on the same port. An
+instance with its own `TAU_USER_DATA` gets a service of its own (a suffix on
+the names). Network access (Settings → Connections) lives in
+`<userData>/network.json`, so the service host opens the same Local network,
+Tailscale and proxy listeners, on the same ports, once it has taken over.
+Uninstalling leaves threads and settings where they are.
+
+After an update the window finds the service on the old version and restarts
+it once; if the unit points at another copy of Tau, it rewrites the unit for
+this one and restarts it once more. A service that still answers with another
+version is stopped, and the window runs its own host until the next start.
+The unit restarts a host only after a crash (`KeepAlive.SuccessfulExit` false,
+`Restart=on-failure`), so a window stopping it never starts a loop.
+
+*Keep this machine awake while turns run*, beside it, holds off sleep while
+any thread works: `caffeinate` on macOS, `systemd-inhibit` on Linux,
+`SetThreadExecutionState` on Windows. It applies to a host in its own process,
+service or not.
 
 ### First start
 

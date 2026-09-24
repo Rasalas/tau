@@ -324,6 +324,7 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
   if (item.showCosts !== undefined) result.showCosts = decodeBoolean(channel, `${field}.showCosts`, item.showCosts);
   if (item.prewarm !== undefined) result.prewarm = decodeBoolean(channel, `${field}.prewarm`, item.prewarm);
   if (item.hostBackground !== undefined) result.hostBackground = decodeBoolean(channel, `${field}.hostBackground`, item.hostBackground);
+  if (item.hostKeepAwake !== undefined) result.hostKeepAwake = decodeBoolean(channel, `${field}.hostKeepAwake`, item.hostKeepAwake);
   if (item.vimMode !== undefined) result.vimMode = decodeBoolean(channel, `${field}.vimMode`, item.vimMode);
   if (item.threads !== undefined) {
     const threads = record(channel, `${field}.threads`, item.threads);

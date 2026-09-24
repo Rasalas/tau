@@ -26,6 +26,7 @@ import { LINK_LIFETIMES, describeDevice, formatAgo, formatExpiresIn, qrEndpoint 
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
 import { NearbyMachinesDialog } from "./NearbyMachines";
+import { HostServiceSection } from "./HostServiceSection";
 
 type PageState =
   | { status: "loading" }
@@ -239,6 +240,8 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
         {data.owners.map((owner) => <OwnerRow key={owner.id} owner={owner} now={now} />)}
         {nothing ? <p className="settings-group-note">No pairing links or clients.</p> : null}
       </SettingsSection>
+
+      <HostServiceSection onNotify={onNotify} />
 
       {creating ? (
         <CreateLinkDialog

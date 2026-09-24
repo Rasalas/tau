@@ -85,6 +85,19 @@ describe("HostPushCoalescer", () => {
     expect(recorded.filter((event) => event.type === "tool-update")).toHaveLength(4);
   });
 
+  it("sends whole again only the outputs of threads a client just started to show", () => {
+    const { clock, recorded, coalescer } = setup();
+    const other: HostPushEvent = { type: "tool-update", sessionId: "o", id: "t9", output: "x".repeat(100) };
+    coalescer.publish(update("x".repeat(100)));
+    coalescer.publish(other);
+    clock.fire();
+    coalescer.resendWholeOutputs(["s"]);
+    coalescer.publish(update(`${"x".repeat(100)}a`));
+    coalescer.publish({ ...other, output: `${"x".repeat(100)}b` });
+    clock.fire();
+    expect(recorded.slice(2).map((event) => event.type)).toEqual(["tool-update", "tool-update-delta"]);
+  });
+
   it("keeps tools and messages apart", () => {
     const { clock, recorded, coalescer } = setup();
     coalescer.publish(update("first", "t1"));

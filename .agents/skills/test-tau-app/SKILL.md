@@ -56,6 +56,10 @@ Symlink whatever the test needs from the real dir (auth, settings, the `npm` ext
 
 `dev-instance` sets `TAU_GROK_HOME=.tau-dev/grok-home`, which the Grok kit hands the CLI as `GROK_HOME`; nothing comes from `~/.grok`. Real-app checks set `TAU_GROK_COMMAND` to `kits/grok/fixtures/fake-grok.mjs` (it speaks ACP, no account); `docs/agents/testing-the-app.md` has the recipe. Never sign in to Grok, set `XAI_API_KEY`, or start `grok` against the real `~/.grok`.
 
+### The host service runs against a fake service manager
+
+`dev-instance` sets `TAU_SERVICE_UNIT_DIR=.tau-dev/service-units` and `TAU_SERVICE_CONTROL=scripts/fake-service-manager.mjs`, so Settings → Connections → Install starts a real service host through the fake, never launchd, systemd or Task Scheduler. That host outlives `cdp stop`: uninstall the service in the instance first, or stop the pid in `.tau-dev/service-units/.fake-state.json`. Never install the service or run `tau service` outside such an instance.
+
 ### Session imports read fixtures only
 
 `dev-instance` also sets `TAU_IMPORT_ROOTS=.tau-dev/import-roots` (a caller's own value is kept): Onboarding's import then reads `<root>/<backend kind>/…` and never the user's own CLI homes. Write small synthetic sessions there to test it.
@@ -119,6 +123,7 @@ npm run cdp -- snapshot
 ## Known traps
 
 - `npm run cdp` without a port refuses to act unless the process on the port in `.tau-dev/instance.json` was started from this worktree: after an instance dies, its port can be taken by another worktree's instance, and driving or stopping that one acts on someone else's test (on 2026-09-23 a click in a foreign instance's update toast updated a real CLI). Start a new instance instead of passing the old port by hand.
+- `dev-instance` sets `TAU_NO_NATIVE_DIALOGS=1`: a fatal error (the host not starting, a crash) goes to `.tau-dev/userdata/logs/host.log` as `native-dialog.suppressed` instead of a native alert on the user's screen. Read the log when an instance seems to hang.
 - `dev-instance` sets `TAU_RUNTIME_UPDATE_COMMAND` to a harmless `echo` for every runtime (`"*"`), so an update toast clicked in a test instance never updates the machine's real CLIs. Override it only with another stub.
 
 - Stop the instance before `npm run dist` in the same worktree: while it runs, Chromium keeps dangling `Singleton*` symlinks in `.tau-dev/userdata`, and electron-builder aborts on the first one it cannot `stat`.
