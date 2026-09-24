@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { AppWindow, ArrowUpToLine, Bot, Globe, PanelRight, X } from "lucide-react";
-import { errorMessage, tooltipProps, useThreadStore, type PreferencesStore, type RegionProps, type WorkbenchActions } from "tau";
+import { errorMessage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useThreadStore, type PreferencesStore, type RegionProps, type WorkbenchActions } from "tau";
 import { AgentCursorLayer } from "./agent-cursor.js";
-import type { PreviewDriver, PreviewMiniCorner, PreviewMiniPrefs, PreviewState } from "./protocol.js";
+import { PREVIEW_HOST_EXTENSION_ID, type PreviewDriver, type PreviewMiniCorner, type PreviewMiniPrefs, type PreviewState } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenState } from "./screen-protocol.js";
 import { previewView, screenService } from "./screen-store.js";
 import { PREVIEW_PANEL, drawsFrames, panelShown, previewKit, usePreviewState } from "./store.js";
@@ -133,6 +133,9 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
   const service = screenService.use();
   const screen = driver.source === "screen";
   const [prefs, setPrefs] = useState<PreviewMiniPrefs>(state.mini);
+  // Where the card sits is the host's to keep; a Read-only device moves it for itself only.
+  const mayKeep = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "mini-prefs");
+  const mayDismiss = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "mini-dismiss");
   const [drag, setDrag] = useState<{ dx: number; dy: number } | undefined>();
   const [resizing, setResizing] = useState(false);
   const [error, setError] = useState("");
@@ -198,8 +201,8 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
       const corner = nearestCorner({ x: event.clientX, y: event.clientY }, { ...insets, width: window.innerWidth, height: window.innerHeight });
       setDrag(undefined);
       setPrefs((value) => ({ ...value, corner }));
-      run(() => previewKit["mini-prefs"]({ corner }));
-    } else {
+      if (mayKeep) run(() => previewKit["mini-prefs"]({ corner }));
+    } else if (mayKeep) {
       run(() => previewKit["mini-prefs"]({ width: prefs.width }));
     }
   };
@@ -245,7 +248,7 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
         onClick={() => run(async () => { await service?.bringToFront(driver.threadId); })}
       ><ArrowUpToLine size={12} /></button> : null}
       <button type="button" className="icon-button compact" aria-label="Open in Preview" {...tooltipProps("Open in Preview", { side: "bottom" })} onClick={openInPreview}><PanelRight size={12} /></button>
-      <button type="button" className="icon-button compact" aria-label="Hide the floating preview" {...tooltipProps("Hide until an agent drives again", { side: "bottom" })} onClick={() => run(() => previewKit["mini-dismiss"]())}><X size={12} /></button>
+      <button type="button" className="icon-button compact" aria-label="Hide the floating preview" disabled={!mayDismiss} {...tooltipProps(mayDismiss ? "Hide until an agent drives again" : READ_ONLY_REASON, { side: "bottom" })} onClick={() => run(() => previewKit["mini-dismiss"]())}><X size={12} /></button>
     </header>
     <button ref={body} type="button" className={cropped ? "preview-mini-body cropped" : "preview-mini-body"} aria-label={`Open in Preview: ${sourceTitle}`} onClick={openInPreview}>
       {picture ? <img src={picture.url} alt="" draggable={false} /> : <span className="preview-mini-waiting">Waiting for a picture…</span>}

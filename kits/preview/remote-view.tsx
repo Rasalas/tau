@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import { AppWindow, ArrowLeft, ArrowRight, Bot, CornerDownLeft, Delete, Globe, RotateCw, Send } from "lucide-react";
-import { Empty, errorMessage, tooltipProps, useHostCapabilities, type WorkbenchActions } from "tau";
-import { PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey } from "./protocol.js";
+import { Empty, errorMessage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useHostCapabilities, type WorkbenchActions } from "tau";
+import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenInput, ScreenInputKey } from "./screen-protocol.js";
 import { SCREEN_INPUT_KEYS } from "./screen-protocol.js";
 import { activeThread, previewView, screenService, useDrivenWindow, windowName, type PreviewView } from "./screen-store.js";
@@ -95,6 +95,9 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   const view: PreviewView = screen ? chosen : "browser";
   const threadId = activeThread.use() ?? actions.activeThread()?.sessionId;
   const { readOnly } = useHostCapabilities();
+  const mayNavigate = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "navigate");
+  const mayOpen = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "open");
+  const mayInput = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "input");
   const stage = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLImageElement>(null);
   const pointer = useRef<Pointer | undefined>(undefined);
@@ -116,7 +119,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   const box = useStageBox(stage);
   // Fitted by hand: an <img> never grows past its own size, and a small frame on a slow link would stay small.
   const fitted = frames.picture && box ? fit(frames.picture, box) : undefined;
-  const canDrive = !readOnly && (view === "browser" ? Boolean(state.url) : Boolean(screen?.input && threadId));
+  const canDrive = view === "browser" ? mayInput && Boolean(state.url) : !readOnly && Boolean(screen?.input && threadId);
 
   // A secret field on the page makes this device's own field a password field; switching away forgets it.
   useEffect(() => { setSecret(false); }, [view, state.url]);
@@ -224,15 +227,15 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   const empty = view === "browser"
     ? !state.available
       ? <Empty icon={<Globe size={20} />} title="The Preview needs Tau on the host" description="Open the Tau desktop app on the computer this host runs on; the page is drawn there." />
-      : <Empty icon={<Globe size={20} />} title="Nothing open" description={readOnly ? "The page an agent or the host opens shows here." : "Type an address above, or ask the agent to open one."} />
+      : <Empty icon={<Globe size={20} />} title="Nothing open" description={mayOpen ? "Type an address above, or ask the agent to open one." : "The page an agent or the host opens shows here."} />
     : <Empty icon={<AppWindow size={20} />} title="No window yet" description="The window this thread's agent drives shows here once it has looked at one." />;
 
   return <section className={`panel-body preview-remote${compact ? " compact" : ""}`} aria-label="Preview on this device">
     <header className="preview-remote-bar">
       {view === "browser" ? <>
-        <button type="button" className="preview-remote-icon" aria-label="Back" {...tooltipProps("Back")} disabled={readOnly || !state.canGoBack} onClick={() => navigate("back")}><ArrowLeft size={18} /></button>
-        <button type="button" className="preview-remote-icon" aria-label="Forward" {...tooltipProps("Forward")} disabled={readOnly || !state.canGoForward} onClick={() => navigate("forward")}><ArrowRight size={18} /></button>
-        <button type="button" className="preview-remote-icon" aria-label="Reload" {...tooltipProps("Reload")} disabled={readOnly || !state.url} onClick={() => navigate("reload")}><RotateCw size={18} /></button>
+        <button type="button" className="preview-remote-icon" aria-label="Back" {...tooltipProps(mayNavigate ? "Back" : READ_ONLY_REASON)} disabled={!mayNavigate || !state.canGoBack} onClick={() => navigate("back")}><ArrowLeft size={18} /></button>
+        <button type="button" className="preview-remote-icon" aria-label="Forward" {...tooltipProps(mayNavigate ? "Forward" : READ_ONLY_REASON)} disabled={!mayNavigate || !state.canGoForward} onClick={() => navigate("forward")}><ArrowRight size={18} /></button>
+        <button type="button" className="preview-remote-icon" aria-label="Reload" {...tooltipProps(mayNavigate ? "Reload" : READ_ONLY_REASON)} disabled={!mayNavigate || !state.url} onClick={() => navigate("reload")}><RotateCw size={18} /></button>
         <form className="preview-remote-address" onSubmit={openAddress}>
           <input
             aria-label="Preview address"
@@ -242,7 +245,8 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
             autoCorrect="off"
             spellCheck={false}
             enterKeyHint="go"
-            readOnly={readOnly}
+            readOnly={!mayOpen}
+            {...tooltipProps(mayOpen ? undefined : READ_ONLY_REASON)}
             value={address}
             onFocus={() => setEditing(true)}
             onBlur={() => setEditing(false)}

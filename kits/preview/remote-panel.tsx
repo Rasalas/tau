@@ -1,7 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { AppWindow, Globe, X } from "lucide-react";
-import { tooltipProps, useHostCapabilities, useThreadStore, type PanelProps, type PreferencesStore, type RegionProps } from "tau";
+import { READ_ONLY_REASON, tooltipProps, useCommandAllowed, useHostCapabilities, useThreadStore, type PanelProps, type PreferencesStore, type RegionProps } from "tau";
 import { PreviewPanel } from "./panel.js";
+import { PREVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import { miniPlayerShown } from "./mini-player.js";
 import { floatingEnabled } from "./settings.js";
 import { previewView, screenService, useDrivenWindow, windowName } from "./screen-store.js";
@@ -61,6 +62,7 @@ export function createMiniBarRegion(preferences: PreferencesStore) {
     const threads = useThreadStore();
     const index = useSyncExternalStore(threads.subscribe, threads.getSnapshot);
     const driven = useDrivenWindow(driver && !browser ? screen : undefined, driver?.threadId);
+    const mayDismiss = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "mini-dismiss");
     if (!driver) return null;
     const thread = index.threads.find((entry) => entry.id === driver.threadId);
     const title = thread?.title || "an agent";
@@ -81,7 +83,7 @@ export function createMiniBarRegion(preferences: PreferencesStore) {
           <small>Used by “{title}”</small>
         </span>
       </button>
-      <button type="button" className="preview-minibar-close" aria-label="Hide until an agent drives again" {...tooltipProps("Hide until an agent drives again")} onClick={() => void previewKit["mini-dismiss"]().catch(() => undefined)}><X size={18} /></button>
+      <button type="button" className="preview-minibar-close" aria-label="Hide until an agent drives again" disabled={!mayDismiss} {...tooltipProps(mayDismiss ? "Hide until an agent drives again" : READ_ONLY_REASON)} onClick={() => void previewKit["mini-dismiss"]().catch(() => undefined)}><X size={18} /></button>
     </div>;
   };
 }
