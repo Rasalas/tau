@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppWindow, Hand, KeyRound, X } from "lucide-react";
-import { errorMessage, tooltipProps, useHostCapabilities, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
-import { PREVIEW_PANEL, webUrl, type Takeover } from "./protocol.js";
+import { errorMessage, hostCommandAllowed, tooltipProps, useCommandAllowed, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
+import { PREVIEW_EXTENSION_ID, PREVIEW_PANEL, TAKEOVER_EXTENSION_ID, webUrl, type Takeover } from "./protocol.js";
 import { services, takeovers, workbench } from "./store.js";
 
 export interface TakeoverHosts {
@@ -94,7 +94,8 @@ export async function jumpTo(takeover: Takeover, actions: WorkbenchActions, host
   await preview.jump({ kind: "browser" }, actions);
   if (target.url) {
     const state = await hosts.preview.invoke("state").catch(() => undefined) as { url?: string } | undefined;
-    if (!state?.url) await preview.open(target.url, actions);
+    // A Read-only device looks at what is open; it cannot open the page itself.
+    if (!state?.url && hostCommandAllowed(PREVIEW_EXTENSION_ID, "open")) await preview.open(target.url, actions);
   }
   // A phone's Preview is a full sheet already; there is no stage to move it to.
   if (!remote) await enlargePreview(actions, takeover.id);
@@ -194,7 +195,11 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
   const screen = useSyncExternalStore(services.screen.subscribe, services.screen.get);
   const preview = useSyncExternalStore(services.preview.subscribe, services.preview.get);
   const remote = preview?.remote?.() ?? false;
-  const { readOnly } = useHostCapabilities();
+  const mayDone = useCommandAllowed(TAKEOVER_EXTENSION_ID, "done");
+  const mayCancel = useCommandAllowed(TAKEOVER_EXTENSION_ID, "cancel");
+  // Passwords are typed into the page; a device that may not type has no use for the help.
+  const mayType = useCommandAllowed(PREVIEW_EXTENSION_ID, "input");
+  const readOnly = !mayDone || !mayCancel;
   const [passwords, setPasswords] = useState(false);
   const [busy, setBusy] = useState(false);
   const [driven, setDriven] = useState<{ app?: string; title?: string }>();
@@ -214,7 +219,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
   const label = jumpLabel(takeover, remote);
   const showsFrame = remote && (takeover.target.kind === "preview" || takeover.target.kind === "window");
   const where = takeover.target.kind === "browser" ? takeover.target.url : takeover.target.kind === "window" ? windowTooltip(driven) : undefined;
-  const passwordsApply = takeover.target.kind === "preview";
+  const passwordsApply = takeover.target.kind === "preview" && mayType;
   const finish = (command: "done" | "cancel") => {
     setBusy(true);
     putBack(takeover.id, actions);
@@ -251,10 +256,10 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
               {label}
             </button>
           ) : null}
-          <button type="button" className="takeover-button primary" disabled={busy || readOnly} onClick={() => finish("done")} {...tooltipProps(readOnly ? READ_ONLY_REASON : "Hand control back to the agent")}>
+          <button type="button" className="takeover-button primary" disabled={busy || !mayDone} onClick={() => finish("done")} {...tooltipProps(mayDone ? "Hand control back to the agent" : READ_ONLY_REASON)}>
             Done
           </button>
-          <button type="button" className="takeover-icon-button" aria-label="Cancel" disabled={busy || readOnly} onClick={() => finish("cancel")} {...tooltipProps(readOnly ? READ_ONLY_REASON : "Cancel: the agent stops")}>
+          <button type="button" className="takeover-icon-button" aria-label="Cancel" disabled={busy || !mayCancel} onClick={() => finish("cancel")} {...tooltipProps(mayCancel ? "Cancel: the agent stops" : READ_ONLY_REASON)}>
             <X size={14} aria-hidden="true" />
           </button>
         </span>

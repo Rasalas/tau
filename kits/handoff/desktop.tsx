@@ -4,8 +4,11 @@ import {
   HostUnavailableError,
   Markdown,
   Menu,
+  READ_ONLY_REASON,
   errorMessage,
+  hostCommandAllowed,
   tooltipProps,
+  useCommandAllowed,
   useThreadStore,
   type ComposerInlineProps,
   type DesktopExtension,
@@ -128,6 +131,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         const index = useSyncExternalStore(threads.subscribe, threads.getSnapshot);
         const view = useSyncExternalStore(store.subscribe, store.getSnapshot);
         const [forksOpen, setForksOpen] = useState(false);
+        const mayBringBack = useCommandAllowed(HANDOFF_EXTENSION_ID, "prepare-merge-back");
         const sessionId = snapshot?.sessionId;
         useEffect(() => {
           store.threads = threads;
@@ -173,7 +177,8 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
                 type="button"
                 className="handoff-icon"
                 aria-label="Bring back to parent"
-                {...tooltipProps(`Bring back to “${parent?.title ?? "the parent"}”`)}
+                disabled={!mayBringBack}
+                {...tooltipProps(mayBringBack ? `Bring back to “${parent?.title ?? "the parent"}”` : READ_ONLY_REASON)}
                 onClick={() => void bringBack(actions)}
               >
                 <Undo2 size={13} />
@@ -339,7 +344,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         search: (query, { actions }) => {
           const thread = currentThread(actions);
           const words = query.trim().toLowerCase().split(/\s+/u).filter(Boolean);
-          if (!thread || words.length === 0) return [];
+          if (!thread || words.length === 0 || !hostCommandAllowed(HANDOFF_EXTENSION_ID, "create-transfer")) return [];
           return store.getSnapshot().runtimes.flatMap((runtime) => {
             const label = `Continue in ${runtime.label}`;
             if (!words.every((word) => label.toLowerCase().includes(word))) return [];
