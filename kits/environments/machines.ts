@@ -38,6 +38,12 @@ export function unavailableReason(environment: UiEnvironment, now: number): stri
   return `${environment.name} is offline${environment.lastSeenAt !== undefined ? ` (last seen ${ago(environment.lastSeenAt, now)})` : ""}.`;
 }
 
+/** Why a new thread cannot start on a machine; undefined when it can. */
+export function cannotStartReason(environment: UiEnvironment, now: number): string | undefined {
+  if (environment.readOnly) return `Read only: ${environment.name} lets this computer look, not start threads.`;
+  return unavailableReason(environment, now);
+}
+
 /** The machines besides the one this page shows, this machine first. */
 export function otherMachines(list: UiEnvironments): UiEnvironment[] {
   return list.environments.filter((environment) => environment.id !== list.shown)

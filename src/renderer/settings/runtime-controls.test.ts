@@ -3,6 +3,8 @@ import type { WorkbenchActions } from "../extension-system";
 import { ExtensionRegistry } from "../extension-system";
 import { PreferencesStore } from "../preferences";
 import { runtimeControls } from "./runtime-controls";
+import type { Platform } from "../../workbench/platform";
+import type { PlatformEnvironments } from "../../workbench/environments";
 
 describe("runtime controls extension", () => {
   it("contributes one command that applies every kind of change", async () => {
@@ -277,5 +279,22 @@ describe("runtime controls focus and dock commands", () => {
     expect(toggleSidebar).toHaveBeenCalledOnce();
     // Without the action (an older client) the command does nothing rather than throw.
     expect(() => commands.find((cmd) => cmd.id === "workbench.toggle-sidebar")?.run(actions)).not.toThrow();
+  });
+});
+
+describe("the way back to this computer", () => {
+  const registryWith = (environments: Partial<PlatformEnvironments>) => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), platform: () => ({ environments } as unknown as Platform) });
+    registry.activate(runtimeControls);
+    return registry.getCommands().find((item) => item.id === "runtime.show-this-computer");
+  };
+
+  it("is in the palette only while the page shows another machine, whatever kits that one serves", async () => {
+    expect(registryWith({})).toBeUndefined();
+    const showLocal = vi.fn(async () => undefined);
+    const command = registryWith({ shownElsewhere: "host-studio", showLocal });
+    expect(command?.label).toBe("Back to this computer");
+    await command!.run({ notify: vi.fn() } as unknown as WorkbenchActions);
+    expect(showLocal).toHaveBeenCalledOnce();
   });
 });

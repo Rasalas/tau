@@ -1,15 +1,19 @@
+import { lookup } from "node:dns/promises";
+import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import type {
   EnvironmentPairInput,
+  EnvironmentPreferences,
   EnvironmentPairResult,
   EnvironmentTarget,
   UiEnvironment,
   UiEnvironmentPairing,
   UiEnvironments,
 } from "../shared/environments.js";
-import { environmentProjects, environmentThreads, orderEndpoints, socketUrl } from "../shared/environments.js";
+import { environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
+import type { PairingEndpoint } from "../shared/connections.js";
 import { EnvironmentCatalog, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
-import { pairEnvironment, type PairEnvironmentOptions } from "./environment-pairing.js";
+import { pairEnvironment, type NearbyMachine, type PairEnvironmentOptions } from "./environment-pairing.js";
 import type { HostLogger } from "./host-log.js";
 import { CERTIFICATE_ACCEPT, CERTIFICATE_DEFAULT, CERTIFICATE_REJECT, hostEndpoint } from "./host-tls-trust.js";
 import { fingerprintsMatch } from "./host-tls.js";
@@ -37,6 +41,12 @@ export interface WindowEnvironmentsOptions {
    * The window's process attaches its uplink and loads the page again.
    */
   show(connection: EnvironmentConnection | undefined): Promise<void>;
+  /** A Bonjour search from the window's own host (`connections-discover`); absent where it has none. */
+  discover?(): Promise<UiDiscoveredHosts>;
+  /** How long a start waits for the machine shown last before it shows this one. */
+  reopenWaitMs?: number;
+  /** Resolves a `.local` name for the page, whose Chromium cannot; the system's resolver by default. */
+  resolve?(hostname: string): Promise<string | undefined>;
   /** Test seams. */
   monitor?(options: EnvironmentMonitorOptions): EnvironmentMonitor;
   pair?(options: PairEnvironmentOptions): ReturnType<typeof pairEnvironment>;
@@ -68,6 +78,11 @@ export class WindowEnvironments {
   private pairingAbort: AbortController | undefined;
   private publishTimer: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
+  /** What the last Bonjour search found, by host id; pairing with one takes its addresses and pin from here. */
+  private nearby = new Map<string, NearbyMachine>();
+  private readonly connectedWaiters = new Map<string, Set<() => void>>();
+  /** Addresses a `.local` name resolved to for the page, by machine id; trusted like the name. */
+  private readonly resolved = new Map<string, string>();
 
   constructor(private readonly options: WindowEnvironmentsOptions) {
     this.shownId = options.local.id;
@@ -77,6 +92,36 @@ export class WindowEnvironments {
     this.catalog = await EnvironmentCatalog.open(this.options.catalogPath, this.options.box, this.options.logger);
     for (const saved of this.catalog.list()) this.watchSaved(saved);
     this.schedulePublish();
+    await this.reopenShown();
+  }
+
+  /**
+   * Shows the machine the window showed last, when the user asked for that
+   * and it answers within a moment; otherwise the window starts on this one.
+   * Runs before the page first loads, so no page is loaded twice.
+   */
+  private async reopenShown(): Promise<void> {
+    const { reopenShown, lastShown } = this.catalog?.preferences ?? {};
+    if (!reopenShown || !lastShown || lastShown === this.options.local.id || !this.catalog?.get(lastShown)) return;
+    const reached = await this.whenConnected(lastShown, this.options.reopenWaitMs ?? 2_500);
+    this.options.logger.info("environments.reopen", { id: lastShown, reached });
+    if (reached && this.shownId === this.options.local.id) await this.open(lastShown).catch(() => undefined);
+  }
+
+  private whenConnected(id: string, timeoutMs: number): Promise<boolean> {
+    if (this.watched.get(id)?.state.status === "connected") return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const waiters = this.connectedWaiters.get(id) ?? new Set();
+      this.connectedWaiters.set(id, waiters);
+      const done = (reached: boolean) => {
+        clearTimeout(timer);
+        waiters.delete(onConnected);
+        resolve(reached);
+      };
+      const onConnected = () => done(true);
+      const timer = setTimeout(() => done(false), timeoutMs);
+      waiters.add(onConnected);
+    });
   }
 
   /** The supervised host came up, or moved to another port. */
@@ -101,7 +146,40 @@ export class WindowEnvironments {
       environments: [local, ...saved.sort((a, b) => a.name.localeCompare(b.name))],
       ...(this.pairing ? { pairing: this.pairing } : {}),
       secureStorage: this.catalog?.secure ?? this.options.box.available(),
+      ...(this.catalog?.preferences.reopenShown ? { reopenShown: true } : {}),
     };
+  }
+
+  async setPreferences(preferences: EnvironmentPreferences): Promise<void> {
+    if (!this.catalog) throw new Error("The machine list is not ready yet.");
+    await this.catalog.setPreferences({
+      ...(preferences.reopenShown !== undefined ? { reopenShown: preferences.reopenShown } : {}),
+      // Remembered from now on, so the next start has something to show.
+      ...(preferences.reopenShown ? { lastShown: this.shownId } : {}),
+    });
+    this.schedulePublish();
+  }
+
+  /**
+   * Looks for machines on this network through the window's own host. A
+   * saved machine found with the certificate it was pinned for gets the
+   * addresses it has now, and is tried at them at once.
+   */
+  async discover(): Promise<UiDiscoveredHosts> {
+    if (!this.options.discover) throw new Error("This window has no host of its own to look from.");
+    const result = await this.options.discover();
+    this.nearby = new Map(result.hosts.filter((host) => !host.self).map((host) => [host.hostId, {
+      hostId: host.hostId,
+      name: host.name,
+      fingerprint: host.fingerprint,
+      endpoints: host.endpoints,
+    }]));
+    for (const host of result.hosts) {
+      const saved = this.catalog?.get(host.hostId);
+      if (!saved?.fingerprint || !fingerprintsMatch(host.fingerprint, saved.fingerprint)) continue;
+      if (await this.refreshAddresses(saved.id, host.endpoints, undefined, "bonjour")) this.retry(saved.id);
+    }
+    return result;
   }
 
   async pair(input: EnvironmentPairInput): Promise<EnvironmentPairResult> {
@@ -115,9 +193,11 @@ export class WindowEnvironments {
       this.pairing = pairing;
       this.schedulePublish();
     };
-    setPairing({ address: input.text.trim().slice(0, 200), state: "connecting" });
+    const nearby = input.nearby ? this.nearby.get(input.nearby) : undefined;
+    if (input.nearby && !nearby) return { state: "failed", message: "That machine is no longer in the list. Search again." };
+    setPairing({ address: (nearby?.name ?? input.text ?? "").trim().slice(0, 200), state: "connecting" });
     const result = await (this.options.pair ?? pairEnvironment)({
-      text: input.text,
+      ...(nearby ? { nearby } : { text: input.text ?? "" }),
       deviceName: input.deviceName?.trim() || this.options.deviceName,
       signal: abort.signal,
       onConnecting: (address) => setPairing({ address, state: "connecting" }),
@@ -190,6 +270,7 @@ export class WindowEnvironments {
       this.shownId = id;
       this.arrival = target;
       this.schedulePublish();
+      this.rememberShown();
       await this.options.show(undefined);
       return;
     }
@@ -203,7 +284,28 @@ export class WindowEnvironments {
     this.shownId = id;
     this.arrival = target;
     this.schedulePublish();
-    await this.options.show(connection);
+    this.rememberShown();
+    await this.options.show(await this.forPage(connection));
+  }
+
+  /**
+   * The page's Chromium does not resolve `.local` names here, while this
+   * process does; the page gets the address, pinned like the name.
+   */
+  private async forPage(connection: EnvironmentConnection): Promise<EnvironmentConnection> {
+    const url = new URL(connection.url);
+    if (!/\.local$/iu.test(url.hostname)) return connection;
+    const resolve = this.options.resolve ?? (async (name: string) => (await lookup(name)).address);
+    const address = await resolve(url.hostname).catch(() => undefined);
+    if (!address) return connection;
+    this.resolved.set(address.toLowerCase(), connection.id);
+    url.hostname = address.includes(":") ? `[${address}]` : address;
+    return { ...connection, url: url.toString() };
+  }
+
+  private rememberShown(): void {
+    if (!this.catalog?.preferences.reopenShown) return;
+    void this.catalog.setPreferences({ lastShown: this.shownId }).catch(() => undefined);
   }
 
   /** What the page was sent here to show; handed out once. */
@@ -230,7 +332,8 @@ export class WindowEnvironments {
   certificateVerdict(hostname: string, presented: string): number {
     const bare = hostname.replace(/^\[|\]$/gu, "").toLowerCase();
     const pins = (this.catalog?.list() ?? []).filter((entry) => entry.fingerprint
-      && entry.endpoints.some((endpoint) => endpoint.url.startsWith("https:") && hostEndpoint(socketUrl(endpoint.url)).hostname === bare));
+      && (this.resolved.get(bare) === entry.id
+        || entry.endpoints.some((endpoint) => endpoint.url.startsWith("https:") && hostEndpoint(socketUrl(endpoint.url)).hostname === bare)));
     if (pins.length === 0) return CERTIFICATE_DEFAULT;
     return pins.some((entry) => fingerprintsMatch(presented, entry.fingerprint!)) ? CERTIFICATE_ACCEPT : CERTIFICATE_REJECT;
   }
@@ -239,9 +342,11 @@ export class WindowEnvironments {
   isSavedSocket(url: string): boolean {
     let target: URL;
     try { target = new URL(url); } catch { return false; }
+    const address = target.hostname.replace(/^\[|\]$/gu, "").toLowerCase();
     return (this.catalog?.list() ?? []).some((entry) => entry.endpoints.some((endpoint) => {
       const socket = new URL(socketUrl(endpoint.url));
-      return socket.protocol === target.protocol && socket.host === target.host;
+      return socket.protocol === target.protocol && (socket.host === target.host
+        || (this.resolved.get(address) === entry.id && socket.port === target.port));
     }));
   }
 
@@ -269,8 +374,22 @@ export class WindowEnvironments {
           ...(page ? { lastUrl: page } : {}),
           readOnly: reply.access === "read-only" ? true : undefined,
         }).catch(() => undefined);
+        if (reply.host?.id === saved.id && reply.host.endpoints?.length) {
+          void this.refreshAddresses(saved.id, reply.host.endpoints, page, "hello").catch(() => undefined);
+        }
       },
     });
+  }
+
+  /** A saved machine's addresses after it told fresh ones; true when they changed. */
+  private async refreshAddresses(id: string, fresh: readonly PairingEndpoint[], keep: string | undefined, source: "hello" | "bonjour"): Promise<boolean> {
+    const current = this.catalog?.get(id);
+    if (!current) return false;
+    const endpoints = refreshEndpoints(current.endpoints, fresh, keep ?? current.lastUrl);
+    if (sameEndpoints(endpoints, current.endpoints)) return false;
+    await this.catalog!.update(id, { endpoints });
+    this.options.logger.info("environment.addresses", { id, source, endpoints: endpoints.length });
+    return true;
   }
 
   private watch(id: string, key: string, options: Omit<EnvironmentMonitorOptions, "onChange" | "logger">): void {
@@ -288,6 +407,7 @@ export class WindowEnvironments {
       onChange: (state) => {
         if (this.watched.get(id) !== entry) return;
         entry.state = state;
+        if (state.status === "connected") for (const waiter of [...this.connectedWaiters.get(id) ?? []]) waiter();
         if (state.index) {
           entry.kept = {
             threads: environmentThreads(state.index, state.running),

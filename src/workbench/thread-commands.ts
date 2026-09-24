@@ -67,9 +67,23 @@ export class ThreadCommands {
     return false;
   };
 
+  /** A host, and a device allowed to change something on it. */
+  private requireWrite(what: string): boolean {
+    return !this.readOnly(what) && this.requireHost(what);
+  }
+
   // Shared by the composer and the activity rail's stop button, so neither
   // recreates it every render and defeats a downstream memo.
-  abort = (sessionId?: string): void => { void this.client?.abort(sessionId); };
+  abort = (sessionId?: string): void => {
+    if (!this.readOnly("Stopping a run")) void this.client?.abort(sessionId);
+  };
+
+  /** A Read-only device is refused every change (ADR 0024); true after saying so. */
+  private readOnly(what: string): boolean {
+    if (!this.client?.isReadOnly()) return false;
+    this.notify(`${what} needs Full access; this device is paired Read only.`);
+    return true;
+  }
 
   loadThread = async (sessionId: string): Promise<UiMessage[]> => {
     const client = this.client;
@@ -84,7 +98,7 @@ export class ThreadCommands {
   };
 
   removeProject = async (project: UiProject): Promise<void> => {
-    if (!this.requireHost("Project removal")) return;
+    if (!this.requireWrite("Project removal")) return;
     try {
       this.ports.applyActionResult(await this.client!.removeProject(project.workspaceId ?? project.path));
     } catch (error) {
@@ -93,7 +107,7 @@ export class ThreadCommands {
   };
 
   renameThread = async (title: string): Promise<boolean> => {
-    if (!this.requireHost("Thread rename")) return false;
+    if (!this.requireWrite("Thread rename")) return false;
     try {
       this.ports.applyActionResult(await this.client!.renameThread(
         title,
@@ -107,7 +121,7 @@ export class ThreadCommands {
   };
 
   setModel = async (provider: string, id: string): Promise<void> => {
-    if (!this.requireHost("Model selection")) return;
+    if (!this.requireWrite("Model selection")) return;
     try {
       this.ports.applyActionResult(await this.client!.setModel(provider, id));
     } catch (error) {
@@ -116,7 +130,7 @@ export class ThreadCommands {
   };
 
   setThinking = async (level: string): Promise<void> => {
-    if (!this.requireHost("Thinking level")) return;
+    if (!this.requireWrite("Thinking level")) return;
     try {
       this.ports.applyActionResult(await this.client!.setThinkingLevel(level));
     } catch (error) {
@@ -126,7 +140,7 @@ export class ThreadCommands {
 
   /** Resolves false when the host refused; the notice says why. */
   setMode = async (mode: string): Promise<boolean> => {
-    if (!this.requireHost("Interaction mode")) return false;
+    if (!this.requireWrite("Interaction mode")) return false;
     try {
       this.ports.applyActionResult(await this.client!.setMode(mode, this.sessionId()));
       return true;
@@ -137,7 +151,7 @@ export class ThreadCommands {
   };
 
   recoverThread = async (): Promise<void> => {
-    if (!this.requireHost("Thread recovery")) return;
+    if (!this.requireWrite("Thread recovery")) return;
     try {
       const sessionId = this.sessionId();
       this.ports.applyActionResult(await this.client!.recoverThread());
@@ -153,7 +167,7 @@ export class ThreadCommands {
   };
 
   compactContext = async (): Promise<void> => {
-    if (!this.requireHost("Compaction")) return;
+    if (!this.requireWrite("Compaction")) return;
     try {
       this.ports.applyActionResult(await this.client!.compactContext());
       this.notify("Context compacted.");
@@ -170,6 +184,8 @@ export class ThreadCommands {
   };
 
   answerUiPrompt = (id: string, answer: ExtensionUiAnswer): void => {
+    // Left on screen: the host keeps waiting for a device that may answer.
+    if (this.readOnly("Answering")) return;
     const prompt = this.ports.view.getUiPrompts().find((entry) => entry.id === id);
     if (prompt) this.ports.registry.notifyPromptAnswered(prompt, answer);
     this.ports.view.setUiPrompts((current) => current.filter((entry) => entry.id !== id));
@@ -245,7 +261,7 @@ export class ThreadCommands {
 
   forkMessage = async (message: UiMessage): Promise<void> => {
     const sessionId = this.sessionId();
-    if (!message.sourceEntryId || !sessionId || !this.requireHost("Fork thread")) return;
+    if (!message.sourceEntryId || !sessionId || !this.requireWrite("Fork thread")) return;
     try {
       this.notify("Forking thread…");
       this.ports.applyActionResult(await this.client!.forkThread(message.sourceEntryId, sessionId));
@@ -255,7 +271,7 @@ export class ThreadCommands {
   };
 
   duplicateThread = async (): Promise<boolean> => {
-    if (!this.requireHost("Duplicate thread")) return false;
+    if (!this.requireWrite("Duplicate thread")) return false;
     try {
       this.notify("Duplicating thread…");
       this.ports.applyActionResult(await this.client!.duplicateThread(this.sessionId()));

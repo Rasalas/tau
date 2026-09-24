@@ -820,6 +820,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
   const onForkMessage = useCallback((message: UiMessage) => void forkMessage(message), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
+  const { readOnly } = useHostCapabilities();
   const showRunClock = Boolean(conversationSnapshot?.isStreaming) && conversationActivityTools.length === 0;
   const { queue, steerQueued, returnQueued, reorderQueue } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
@@ -859,8 +860,9 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       detail={detail}
       liveStatus={liveStatus}
       onCopyMessage={onCopyMessage}
-      onForkMessage={onForkMessage}
-      onEditMessage={onEditMessage}
+      // A Read-only device may not rewind or fork; the buttons are left out.
+      onForkMessage={readOnly ? undefined : onForkMessage}
+      onEditMessage={readOnly ? undefined : onEditMessage}
       onReachStart={loadOlderOnReach}
     />}
   </TranscriptHistoryBoundary>;

@@ -56,6 +56,16 @@ export const runtimeControls: DesktopExtension = {
   name: "Runtime Controls",
   activate(plugin) {
     plugin.registerCommand({ id: "runtime.settings", label: "Open Settings", group: "Runtime", run: (app) => app.openSettings() });
+    // The way back from another machine must not depend on the kits that machine serves (ADR 0025).
+    const environments = plugin.environments;
+    if (environments?.shownElsewhere) {
+      plugin.registerCommand({
+        id: "runtime.show-this-computer",
+        label: "Back to this computer",
+        group: "Workbench",
+        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(error instanceof Error ? error.message : String(error))),
+      });
+    }
     // In the palette it lists the models; from a chord it opens the picker.
     plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", submenu: lazyLevel("Set model", (loaded, app) => loaded.modelItems(plugin.preferences, app)), run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
     plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useSyncExternalStore, t
 import { resolveSetting, settingWritable, type ConfigLayerName, type SettingLayerValue, type SettingScope } from "../../shared/config-layers";
 import { ConfigLayersStore, type ConfigLayersSnapshot, type SettingsProject } from "../../workbench/config-layers-store";
 import { useHostClient } from "../host-client-context";
+import { useHostCapabilities } from "../use-host-capabilities";
 import { usePreferences } from "../renderer-services-context";
 
 const SettingsLevelsContext = createContext<ConfigLayersStore | undefined>(undefined);
@@ -49,6 +50,8 @@ export interface SettingHandle<T> {
   editing: "host" | "project";
   project?: SettingsProject;
   writable: boolean;
+  /** Why it is not writable when that is the device's pairing, not the level (API 1.13.0). */
+  readOnly?: boolean;
   loaded: boolean;
   set(value: T): void;
   /** Removes the value from the level being edited. */
@@ -70,6 +73,7 @@ function defaultFormat(value: unknown): string {
  */
 export function useSetting<T>(key: string, options: SettingOptions<T>): SettingHandle<T> {
   const { store, snapshot } = useSettingsLevels();
+  const { readOnly } = useHostCapabilities();
   const scope = options.scope ?? "host";
   const resolved = resolveSetting(snapshot.layers, key, options.defaultValue, snapshot.editing, options.read);
   const format = (value: unknown) => (value == null ? "Not set" : (options.format ?? defaultFormat)(value as T));
@@ -82,7 +86,8 @@ export function useSetting<T>(key: string, options: SettingOptions<T>): SettingH
     ...(resolved.projectOverride !== undefined ? { projectOverride: resolved.projectOverride } : {}),
     editing: snapshot.editing,
     ...(snapshot.project ? { project: snapshot.project } : {}),
-    writable: settingWritable(scope, snapshot.editing),
+    writable: !readOnly && settingWritable(scope, snapshot.editing),
+    ...(readOnly ? { readOnly } : {}),
     loaded: snapshot.loaded,
     set: (value) => {
       if (store.available) void store.write(key, options.write ? options.write(value) : value);

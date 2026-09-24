@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Bot } from "lucide-react";
-import { useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
+import { useHostCapabilities, useThreadStore, useWorkbenchShell, type PanelProps } from "tau";
 import type { AgentThreadStatus } from "./protocol.js";
 import { agentsHost, agentsStore, definitionsStore, siblingsSource } from "./store.js";
 import { DefinitionsSection } from "./definitions-panel.js";
@@ -60,6 +60,8 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
 }) {
   const disabled = !row.path;
   const worktree = worktreeLine(row);
+  // A Read-only device may look at an agent's work, not take or drop it (ADR 0024).
+  const { readOnly } = useHostCapabilities();
   return (
     <button
       type="button"
@@ -77,7 +79,7 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle }: {
       <span className="agent-row-activity">{activityLine(row)}</span>
       <span className="agent-row-meta">
         <span className="agent-row-meta-text">{[row.model, formatCost(row.costUsd), worktree].filter(Boolean).join(" · ")}</span>
-        {canSettleWorktree(row) ? (
+        {canSettleWorktree(row) && !readOnly ? (
           <span className="agent-row-actions">
             <span role="button" tabIndex={-1} aria-label={`Apply changes of ${row.title}`}
               onClick={(event) => { event.stopPropagation(); onSettle(row, "apply"); }}

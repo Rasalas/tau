@@ -26,4 +26,19 @@ describe("the machines a page reads", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(environments.getSnapshot()).toBeUndefined();
   });
+
+  it("goes back to the window's own machine, reading the list when it has none yet", async () => {
+    const openEnvironment = vi.fn(async () => undefined);
+    const client = createFakeHostClient({
+      listEnvironments: async () => ({ shown: "studio", secureStorage: true, environments: [
+        { id: "studio", name: "studio", local: false, status: "connected", threads: [], threadCount: 0, projects: [] },
+        { id: "laptop", name: "laptop", local: true, status: "connected", threads: [], threadCount: 0, projects: [] },
+      ] }),
+      openEnvironment,
+    });
+    const environments = createPlatformEnvironments(client, { shownElsewhere: "studio" });
+    expect(environments.shownElsewhere).toBe("studio");
+    await environments.showLocal();
+    expect(openEnvironment).toHaveBeenCalledWith("laptop");
+  });
 });

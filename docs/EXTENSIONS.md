@@ -256,6 +256,10 @@ command gets no id and acts on the open one. A long press on a row lists every
 and the first non-destructive `thread-row` command that brings an `Icon` (new in
 API 1.13.0, a component like a panel's). Thread Rail's Snooze, Archive and
 Delete are the shipped callers, with Snooze in the tray as in T3 Code.
+On a device paired Read only, the thread surfaces (the title menu, the compact
+list's sheet and tray) disable a command with the reason unless it declares
+`access: "read"` (new in API 1.13.0): running it changes nothing on the host.
+Workspace Kit's "Copy branch" declares it.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -999,7 +1003,7 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
-| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. |
+| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the title menu, the compact list, Edit/Fork and the changes tree; preferences stay on the device. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
@@ -2008,12 +2012,15 @@ show no other machines. Like `attention`, hold the context, not the value.
 | `getSnapshot()` / `subscribe(listener)` | `UiEnvironments`: `shown` (the machine this page was loaded for), `environments` (this machine first, `local: true`, then the saved ones, each with `status` — `connecting`, `connected`, `offline`, `refused` — `detail`, `roundTripMs`, `lastSeenAt`, `readOnly`, its newest threads with `running`, `threadCount` and `projects`), the `pairing` in progress with its six digits, and whether `secureStorage` can keep a key. |
 | `open(id, target?)` | Points the window at another machine: the page loads again there, and `target` — `{ thread: { path } }` or `{ newThread: { draft?, workspaceId? } }` — waits for it. It rejects for a machine that is not connected. For the machine already shown, open the target yourself. |
 | `takeArrival()` | What this page was sent to show, once. |
-| `pair({ text, deviceName? })` | Adds a machine from a pairing link, its QR code's text, or an address; resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
+| `pair({ text, deviceName? })` or `pair({ nearby })` | Adds a machine from a pairing link, its QR code's text, or an address; or (new in API 1.13.0) one the last `discover()` found, by its host id: it asks without a link, pinned to the fingerprint the record carried. Resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
+| `discover()` | New in API 1.13.0. `UiDiscoveredHosts`: the machines that announce themselves on this network, looked for a few seconds by the window's own host, whichever machine the page shows. A saved machine found with its pinned fingerprint takes the addresses it has now. Look only when the user asks: looking makes macOS ask about local network access. `NearbyMachineList` draws the result with an action slot per host. |
+| `shownElsewhere`, `showLocal()` | New in API 1.13.0. The id of the machine the page shows when it is not the window's own (from the page's address, so known before the list loads), and the way back. Core offers "Back to this computer" in the palette whenever `shownElsewhere` is set, whatever kits that machine serves. |
+| `setPreferences({ reopenShown })` | New in API 1.13.0. Whether the window shows the machine it showed last again at start (`UiEnvironments.reopenShown`); it does when that machine answers within 2.5 s. |
 | `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
 
 The window's process answers all of it through client-side methods
 (`environments-list`, `-pair`, `-cancel-pairing`, `-rename`, `-remove`, `-retry`,
-`-open`, `-take-arrival`) and the `environments` window event; a host refuses the
+`-open`, `-take-arrival`, `-discover`, `-set-preferences`) and the `environments` window event; a host refuses the
 methods with `unsupported`. Every kit a page loads comes from the machine it shows,
 so a kit needs nothing of its own to work on another machine; what needs *this*
 window's machine — a window half, `local-files` — is not offered there.

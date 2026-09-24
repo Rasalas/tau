@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage } from "tau";
+import { errorMessage, hostIsReadOnly } from "tau";
 import type { ILink, ITheme, Terminal } from "@xterm/xterm";
 import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, useTerminalFont, watchTerminalOutput } from "./store.js";
 import { unseenOutput } from "./output.js";
@@ -128,7 +128,7 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
   useEffect(() => {
     running.current = exitCode === undefined;
     if (terminal.current) {
-      terminal.current.options.disableStdin = !running.current;
+      terminal.current.options.disableStdin = !running.current || hostIsReadOnly();
       terminal.current.options.cursorBlink = running.current;
     }
   }, [exitCode]);
@@ -144,7 +144,8 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
       const current = sized(terminalFont.getSnapshot().resolved);
       const instance = new xterm.Terminal({
         ...initialSize.current,
-        disableStdin: !running.current,
+        // A Read-only device watches; the host would refuse its keys and its size (ADR 0024).
+        disableStdin: !running.current || hostIsReadOnly(),
         cursorBlink: running.current,
         fontSize: current.size,
         fontFamily: monospaceStack(current),
@@ -204,7 +205,7 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
       const unwatch = watchTerminalOutput(id);
       const report = (problem: unknown) => { if (!disposed) setError(errorMessage(problem)); };
       const input = instance.onData((data) => {
-        if (disposed || !running.current || replaying) return;
+        if (disposed || !running.current || replaying || hostIsReadOnly()) return;
         const sent = touchRef.current ? touchRef.current.filterInput(data) : data;
         void terminalKit.input({ id, data: sent }).catch(report);
       });
@@ -217,7 +218,7 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
           themed = true;
         }
         addon.fit();
-        if (running.current) void terminalKit.resize({ id, cols: instance.cols, rows: instance.rows }).catch(report);
+        if (running.current && !hostIsReadOnly()) void terminalKit.resize({ id, cols: instance.cols, rows: instance.rows }).catch(report);
       };
       refitRef.current = refit;
       const observer = new ResizeObserver(refit);

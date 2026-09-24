@@ -74,8 +74,12 @@
 
 /* The machine the window shows, when it is not this one: beside the link dot. */
 .machine-shown {
+  cursor: pointer; background: transparent;
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; margin-right: 4px;
   border: 1px solid var(--line-control); border-radius: 7px;
   color: var(--ink-2); font: 500 11.5px var(--sans); white-space: nowrap;
 }
 .machine-shown svg { color: var(--muted); }
+.machine-nearby { display: flex; flex-direction: column; gap: 6px; }
+.machine-nearby-head { display: flex; align-items: center; justify-content: space-between; font: 500 12px var(--sans); color: var(--ink-2); }
+.machine-nearby-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }

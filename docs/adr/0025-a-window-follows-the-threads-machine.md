@@ -179,11 +179,22 @@ stays the gate, as ADR 0023 has it.
   reason. Removing it deletes the token. Pairing again gives a new one.
 - A window started with `TAU_HOST_URL` or `TAU_HOST_INPROCESS=1` shows its
   one host as before. The catalog works beside the supervised host only.
+- The way back does not depend on the shown machine's kits: while the page
+  shows another machine, core offers "Back to this computer" in the palette
+  (the page's address says so before any list loads). The Machines Kit adds
+  the same step to its title-bar chip.
+- Addresses follow the machine without pairing again: its hello names the
+  addresses its network listeners have, and a Bonjour record with the pinned
+  fingerprint does too. Only LAN addresses are replaced; names, Tailscale
+  addresses and typed ones stay, since a machine reached one way may not list
+  the others at that moment.
+- The window may show the machine it showed last again at start (a setting,
+  off by default). It waits 2.5 s for that machine before the first page
+  loads, so the page never loads twice; a machine that does not answer in
+  time leaves the window on this one.
 
 ## Out of scope
 
-- **Discovery** of machines in the local network (F06). Its results fill the
-  same "add a machine" step.
 - **Desktop without a host of its own** ("Local environment" off in T3).
 - **SSH-managed machines** and relays (plan, decision 3).
 - **Moving a thread between machines**, or one thread visible on two at once.

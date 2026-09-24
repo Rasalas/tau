@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useS
 import {
   errorMessage,
   hostAvailable,
+  hostIsReadOnly,
   loadReviewMode,
   useWorkbench,
   type DesktopExtensionContext,
@@ -225,7 +226,7 @@ function createController(store: CheckpointStore, workspaceStore: WorkspaceStore
           <WorkspaceCheckpointCard
             checkpoint={checkpoint}
             onOpenDiff={(path) => { store.update({ review: { checkpoint, path } }); actions.openOverlay(CHECKPOINT_REVIEW_OVERLAY); }}
-            onRestore={restoreSupported && checkpoint.completeness !== "partial" && state.restorable.has(checkpoint.id) && !streaming
+            onRestore={restoreSupported && checkpoint.completeness !== "partial" && state.restorable.has(checkpoint.id) && !streaming && !hostIsReadOnly()
               ? () => void requestRestore(checkpoint)
               : undefined}
             loadFiles={hostAvailable() ? (cursor, limit) => workspaceStore.host.getTurnFiles(checkpoint.sessionId, checkpoint.id, cursor, limit) : undefined}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ExternalLink, GitPullRequest, GitPullRequestDraft, Link2, RefreshCw, X } from "lucide-react";
-import { errorMessage, type DesktopExtensionContext, type WorkbenchActions } from "tau";
+import { errorMessage, useHostCapabilities, type DesktopExtensionContext, type WorkbenchActions } from "tau";
 import type { LinkDialogs } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
@@ -43,6 +43,8 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     const [status, setStatus] = useState<ReviewRequestStatus>();
     const [mode, setMode] = useState<Mode>("idle");
     const [form, setForm] = useState<Form>(EMPTY_FORM);
+    // A Read-only device sees the request, not create, merge or publish (ADR 0024).
+    const { readOnly } = useHostCapabilities();
     const [method, setMethod] = useState<MergeMethod>(() => preferredMethod(["squash", "merge", "rebase"]) ?? "squash");
     const [deleteBranch, setDeleteBranch] = useState(false);
     const [busy, setBusy] = useState<string>();
@@ -160,7 +162,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
         {error ? <p className="request-error" role="alert">{error}</p> : null}
         {busy ? <p className="request-busy">{busy}</p> : null}
 
-        {mode === "idle" && status && !status.problem && !busy ? (
+        {mode === "idle" && status && !status.problem && !busy && !readOnly ? (
           <div className="commit-actions request-actions">
             {!open ? (
               capabilities.create ? (
@@ -178,7 +180,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
           </div>
         ) : null}
 
-        {mode === "idle" && status && !status.remote && status.branch && !busy ? (
+        {mode === "idle" && status && !status.remote && status.branch && !busy && !readOnly ? (
           <div className="commit-actions request-actions">
             <button className="primary" onClick={() => setMode("publish")}>Publish repository…</button>
           </div>
@@ -292,6 +294,7 @@ function LinkedRequests({ actions, parts }: { actions: WorkbenchActions; parts: 
   const threadId = thread?.sessionId;
   const links = useSyncExternalStore(parts.rows.subscribe, () => parts.rows.get(threadId));
   const [error, setError] = useState<string>();
+  const { readOnly } = useHostCapabilities();
   useEffect(() => { if (threadId) void parts.rows.load(threadId, true); }, [parts.rows, threadId]);
   if (!threadId) return null;
   const unlink = async (url: string) => {
@@ -304,9 +307,9 @@ function LinkedRequests({ actions, parts }: { actions: WorkbenchActions; parts: 
         <Link2 size={13} aria-hidden="true" />
         <small className="request-none">{links.length === 0 ? "No linked pull requests" : `Linked (${links.length})`}</small>
         <span className="spacer" />
-        <button className="icon-button compact" aria-label="Link pull request" title="Link pull request…" onClick={() => parts.dialogs.show({ threadId, ...(thread?.cwd ? { cwd: thread.cwd } : {}) })}>
+        {readOnly ? null : <button className="icon-button compact" aria-label="Link pull request" title="Link pull request…" onClick={() => parts.dialogs.show({ threadId, ...(thread?.cwd ? { cwd: thread.cwd } : {}) })}>
           <GitPullRequest size={12} />
-        </button>
+        </button>}
       </div>
       {links.map((link) => {
         const short = providerInfo(link.service).short;
@@ -318,9 +321,9 @@ function LinkedRequests({ actions, parts }: { actions: WorkbenchActions; parts: 
             </button>
             <span className="request-link-title" title={`${link.repo}${link.title ? ` · ${link.title}` : ""}`}>{link.title ?? link.repo}</span>
             <span className={`request-state state-${state}`}>{state}</span>
-            <button className="icon-button compact" aria-label={`Unlink ${short} #${link.number}`} title="Unlink" onClick={() => void unlink(link.url)}>
+            {readOnly ? null : <button className="icon-button compact" aria-label={`Unlink ${short} #${link.number}`} title="Unlink" onClick={() => void unlink(link.url)}>
               <X size={11} />
-            </button>
+            </button>}
           </div>
         );
       })}

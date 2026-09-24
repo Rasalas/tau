@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { MenuSection } from "./Menu";
 import { Menu } from "../deferred-surfaces";
+import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
 
 export function ThreadTitleMenu({
   title,
@@ -36,7 +37,7 @@ export function ThreadTitleMenu({
   onToggleSettled(): void;
   onRename(title: string): Promise<boolean>;
   /** Extension commands offered on the thread-title surface. */
-  commands?: ReadonlyArray<{ id: string; label: string; destructive?: boolean }>;
+  commands?: ReadonlyArray<{ id: string; label: string; destructive?: boolean; access?: "read" }>;
   onCommand?(id: string): void;
   onMarkUnread(): void;
   onCopy(value: "chat" | "path" | "thread-id"): void;
@@ -45,6 +46,7 @@ export function ThreadTitleMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const { readOnly } = useHostCapabilities();
   const [draft, setDraft] = useState(title);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -59,21 +61,23 @@ export function ThreadTitleMenu({
     inputRef.current?.select();
   }, [renaming]);
 
+  // Pin, settle and copy stay this device's; the host refuses the rest (ADR 0024).
+  const locked = readOnly ? { disabled: true, description: READ_ONLY_REASON } : {};
   const sections: MenuSection[] = [
     {
       items: [
         { id: "new", label: label ? `New thread on ${label}` : "New thread" },
         { id: "tree", label: "Thread tree…" },
         ...(onOpenInstructions ? [{ id: "instructions", label: "Active instructions & prompt…" }] : []),
-        { id: "duplicate", label: "Duplicate thread" },
+        { id: "duplicate", label: "Duplicate thread", ...locked },
         { id: "pin", label: pinned ? "Unpin thread" : "Pin thread" },
         { id: "settle", label: settled ? "Un-settle thread" : "Settle thread" },
       ],
     },
     {
       items: [
-        { id: "rename", label: "Rename thread" },
-        ...commands.filter((command) => !command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label })),
+        { id: "rename", label: "Rename thread", ...locked },
+        ...commands.filter((command) => !command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label, ...(command.access === "read" ? {} : locked) })),
         { id: "unread", label: "Mark unread" },
       ],
     },
@@ -85,7 +89,7 @@ export function ThreadTitleMenu({
       ],
     },
     ...(commands.some((command) => command.destructive)
-      ? [{ items: commands.filter((command) => command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label, destructive: true })) }]
+      ? [{ items: commands.filter((command) => command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label, destructive: true, ...locked })) }]
       : []),
   ];
 

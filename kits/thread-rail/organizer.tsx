@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Clock } from "lucide-react";
-import { ConfirmDialog, Dialog, errorMessage, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
+import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
@@ -309,7 +309,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         ? [{ id: "wake", label: "Wake thread" }, { id: "snooze:custom", label: "Snooze until…" }]
         : [{ id: "snooze", label: "Snooze", submenu: snoozeSubmenu() }];
       // T3 Code's order: start, keep, then name and find, then copy and the project, then the lifecycle.
-      return [
+      return lockWrites([
         {
           items: [
             ...(branch ? [{ id: "new-on-branch", label: `New thread on ${branch}` }] : []),
@@ -338,7 +338,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         },
         ...(settled || snoozed ? [] : [{ items: [{ id: "move-up", label: "Move up" }, { id: "move-down", label: "Move down" }] }]),
         lifecycleSection(session),
-      ];
+      ]);
     },
     runMenu(session, itemId, actions) {
       store.actions = actions;
@@ -375,7 +375,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const pinned = sessions.filter((session) => meta(session.id)?.pinned).length;
       const snoozable = sessions.every((session) => ["pinned", "active"].includes(sectionOf(meta(session.id), now())));
       const idle = sessions.filter((session) => !port.running(session.id)).length;
-      return [
+      return lockWrites([
         {
           items: [
             ...(pinned > 0 ? [{ id: "unpin", label: `Unpin (${pinned})` }] : []),
@@ -390,7 +390,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
             { id: "delete", label: `Delete (${idle})`, destructive: true, disabled: idle === 0 },
           ],
         },
-      ];
+      ]);
     },
     runBulkMenu(sessions, itemId, actions) {
       store.actions = actions;
@@ -430,7 +430,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     // T3 Code's clock beside Settle: the presets and Custom…, for a thread still in the rail.
     rowActions(session) {
       const section = sectionOf(meta(session.id), now());
-      if (section !== "pinned" && section !== "active") return [];
+      if ((section !== "pinned" && section !== "active") || hostIsReadOnly()) return [];
       return [{
         id: "snooze",
         label: "Snooze thread",
@@ -452,6 +452,19 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     remove,
     restore,
   };
+}
+
+/** Menu items that only read or stay on this device; a Read-only device gets the others disabled, with the reason. */
+const DEVICE_ITEMS = new Set(["new-on-branch", "mark-unread", "filter-project", "copy", "copy-path", "copy-branch", "copy-thread-id", "project-settings"]);
+
+function lockWrites(sections: MenuSection[]): MenuSection[] {
+  if (!hostIsReadOnly()) return sections;
+  return sections.map((section) => ({
+    ...section,
+    items: section.items.map((item): MenuItem => DEVICE_ITEMS.has(item.id) ? item : {
+      id: item.id, label: item.label, disabled: true, description: READ_ONLY_REASON, ...(item.destructive ? { destructive: true } : {}),
+    }),
+  }));
 }
 
 const QUESTION_TEXT: Record<RailQuestionAction, { verb: string; message(count: number): string; destructive?: boolean }> = {

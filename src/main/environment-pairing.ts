@@ -1,14 +1,24 @@
 import { WebSocket, type ClientOptions } from "ws";
-import { parsePairingPayload, type PairingEndpoint } from "../shared/connections.js";
-import { addressPageUrl, orderEndpoints, socketUrl } from "../shared/environments.js";
+import { parsePairingPayload, type PairingEndpoint, type PairingPayload } from "../shared/connections.js";
+import { addressPageUrl, orderEndpoints, refreshEndpoints, socketUrl } from "../shared/environments.js";
 import { pairWithHost, type PairingSocket } from "../shared/host-pairing.js";
 import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostHelloReply } from "../shared/host-transport.js";
 import type { SavedEnvironment } from "./environment-catalog.js";
 import { pinnedTlsConnect, probeHostCertificate, type PresentedCertificate } from "./host-tls-trust.js";
 
+/** A machine a Bonjour search found: its record's host id and fingerprint, and the addresses it resolved to. */
+export interface NearbyMachine {
+  hostId: string;
+  name: string;
+  fingerprint: string;
+  endpoints: PairingEndpoint[];
+}
+
 export interface PairEnvironmentOptions {
   /** A pairing link, the text of its QR code, or an address such as `studio.local:7788`. */
-  text: string;
+  text?: string;
+  /** Instead of `text`: asks a found machine without a link, pinning the fingerprint its record carried. */
+  nearby?: NearbyMachine;
   /** How this window names itself to the owner. */
   deviceName: string;
   onConnecting?(address: string): void;
@@ -45,8 +55,12 @@ const REFUSALS: Record<string, string> = {
  * screens show are bound to it. Only an approved machine comes back to be saved.
  */
 export async function pairEnvironment(options: PairEnvironmentOptions): Promise<PairEnvironmentResult> {
-  const payload = parsePairingPayload(options.text);
-  const typed = payload ? undefined : addressPageUrl(options.text);
+  const nearby = options.nearby;
+  const text = options.text ?? "";
+  const payload: PairingPayload | undefined = nearby
+    ? { code: "", endpoints: nearby.endpoints, fingerprint: nearby.fingerprint, hostId: nearby.hostId, hostName: nearby.name }
+    : parsePairingPayload(text);
+  const typed = payload ? undefined : addressPageUrl(text);
   if (!payload && !typed) return { state: "failed", message: "Paste a pairing link or type an address such as studio.local:7788." };
   const endpoints: PairingEndpoint[] = payload ? orderEndpoints(payload.endpoints) : [{ url: typed! }];
   if (endpoints.length === 0) return { state: "failed", message: "The pairing link names no address." };
@@ -95,7 +109,8 @@ export async function pairEnvironment(options: PairEnvironmentOptions): Promise<
     const environment: SavedEnvironment = {
       id: reply?.host?.id ?? payload?.hostId ?? `address:${new URL(endpoint.url).host}`,
       name: reply?.host?.name || fallbackName,
-      endpoints: payload ? payload.endpoints : [endpoint],
+      // A machine reached at one address names the others its listeners have now.
+      endpoints: refreshEndpoints(payload ? payload.endpoints : [endpoint], reply?.host?.endpoints ?? [], endpoint.url),
       ...(pin ? { fingerprint: pin } : {}),
       token: result.token,
       addedAt: (options.now?.() ?? new Date()).toISOString(),

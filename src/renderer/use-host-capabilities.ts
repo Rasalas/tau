@@ -17,6 +17,9 @@ export interface HostCapabilities {
   readOnly: boolean;
 }
 
+/** The reason a write control of a Read-only device gives, where it is disabled rather than left out (API 1.13.0). */
+export const READ_ONLY_REASON = "Read only: this needs a device with Full access.";
+
 /** What the connected host announced in its hello. */
 export function useHostCapabilities(): HostCapabilities {
   const client = useHostClient();

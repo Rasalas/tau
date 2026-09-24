@@ -728,6 +728,12 @@ export interface CommandContribution {
    * offers the first non-destructive `thread-row` command that has one (API 1.13.0).
    */
   Icon?: PanelIconComponent;
+  /**
+   * Running it changes nothing on the host. On a device paired Read only, the
+   * thread surfaces (title menu, touch list) disable a command without it and
+   * say why (API 1.13.0).
+   */
+  access?: "read";
   run(actions: WorkbenchActions, context?: CommandContext): void | Promise<void>;
 }
 

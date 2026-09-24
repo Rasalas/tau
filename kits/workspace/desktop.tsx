@@ -251,7 +251,7 @@ export const workspaceExtension: DesktopExtension = {
     });
     context.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", run: (app) => app.settleActiveThread() });
     // The branch is the kit's fact; the title menu only lends the slot.
-    context.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], run: async (app) => {
+    context.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], access: "read", run: async (app) => {
       const branch = store.getSnapshot().workspace?.branch;
       if (!branch) { app.notify("Branch is unavailable."); return; }
       try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error)); }

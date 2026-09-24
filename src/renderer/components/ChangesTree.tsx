@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw } from "lucide-react";
 import type { UiChangedFile } from "../../shared/workspace-kit-types";
 import { FileKindIcon } from "./FileKindIcon";
+import { useHostCapabilities } from "../use-host-capabilities";
 
 interface DirectoryNode {
   kind: "directory";
@@ -57,6 +58,8 @@ export function ChangesTree({ files, activePath, onOpen, onStage, onUnstage, onR
   onRevert(path: string): Promise<void> | void;
 }) {
   const tree = useMemo(() => buildChangesTree(files), [files]);
+  // A Read-only device looks; staging and reverting are the host's to refuse (ADR 0024).
+  const { readOnly } = useHostCapabilities();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(directoryPaths(tree)));
   const [busy, setBusy] = useState<string>();
   const [confirmRevert, setConfirmRevert] = useState<string>();
@@ -91,7 +94,7 @@ export function ChangesTree({ files, activePath, onOpen, onStage, onUnstage, onR
         <i>{file.status.charAt(0).toUpperCase()}</i>
         <span className="stat-add">+{file.added}</span><span className="stat-del">−{file.removed}</span>
       </button>
-      <span className="changes-tree-actions">
+      {readOnly ? null : <span className="changes-tree-actions">
         <button disabled={waiting} title={file.staged ? "Unstage file" : "Stage file"} aria-label={`${file.staged ? "Unstage" : "Stage"} ${file.path}`} onClick={() => void run(file.path, file.staged ? onUnstage : onStage)}>
           {file.staged ? <Minus size={14} /> : <Plus size={14} />}
         </button>
@@ -100,7 +103,7 @@ export function ChangesTree({ files, activePath, onOpen, onStage, onUnstage, onR
           <strong>Discard this file?</strong><small>This cannot be undone.</small>
           <span><button onClick={() => setConfirmRevert(undefined)}>Cancel</button><button className="danger" onClick={() => void run(file.path, onRevert)}>Revert</button></span>
         </div> : null}
-      </span>
+      </span>}
     </div>;
   });
 

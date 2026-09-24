@@ -87,6 +87,9 @@ function windowCalls(context: HostExtensionContext, local: (command: string, inp
  * the kit's state folder, hands them to the first client that shows a
  * composer, and passes the shortcut and the permissions on to the window half.
  */
+/** Looks only; a device paired Read only may call it (ADR 0024). */
+const READ = { access: "read" } as const;
+
 export function createSnapShotsHostExtension(): HostExtension {
   return {
     id: SNAPSHOTS_EXTENSION_ID,
@@ -97,9 +100,9 @@ export function createSnapShotsHostExtension(): HostExtension {
       await store.load();
       let shortcut: ShortcutState = {};
       const commands = new Map<string, (input: unknown) => unknown>();
-      const register = (name: string, handler: (input: unknown) => unknown) => {
+      const register = (name: string, handler: (input: unknown) => unknown, options?: { access: "read" }) => {
         commands.set(name, handler);
-        context.registerCommand(name, handler);
+        context.registerCommand(name, handler, options);
       };
       const callWindow = windowCalls(context, async (command, input) => {
         const handler = commands.get(command);
@@ -132,10 +135,10 @@ export function createSnapShotsHostExtension(): HostExtension {
           return undefined;
         }
       });
-      register("pending", () => store.list().filter((meta) => !meta.claimed));
+      register("pending", () => store.list().filter((meta) => !meta.claimed), READ);
       register("claim", async (input) => await store.claim(String((input as { id?: unknown } | undefined)?.id)) ?? null);
-      register("meta", (input) => idsOf(input).map((id) => store.meta(id) ?? null));
-      register("read", async (input) => await store.read(String((input as { id?: unknown } | undefined)?.id)) ?? null);
+      register("meta", (input) => idsOf(input).map((id) => store.meta(id) ?? null), READ);
+      register("read", async (input) => await store.read(String((input as { id?: unknown } | undefined)?.id)) ?? null, READ);
       register("release", async (input) => {
         for (const id of idsOf(input)) await store.remove(id);
       });
@@ -149,14 +152,14 @@ export function createSnapShotsHostExtension(): HostExtension {
         context.emit(SHORTCUT_EVENT, shortcut);
         return shortcut;
       });
-      register("shortcut-state", () => shortcut);
+      register("shortcut-state", () => shortcut, READ);
       register("access", async () => {
         try {
           return await callWindow("access") as SnapShotAccess;
         } catch {
           return UNSUPPORTED;
         }
-      });
+      }, READ);
       register("request-access", (input) => callWindow("request-access", { kind: kindOf(input) }));
       register("open-settings", (input) => callWindow("open-settings", { kind: kindOf(input) }));
 

@@ -54,8 +54,14 @@ export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
     // Drawn by the window's process: `Menu.popup`.
     ...(client ? { contextMenu: { show: (entries, point) => client.showContextMenu(entries, point) } } : {}),
     // The window's process keeps the list; a host in this process refuses it and the list stays empty.
-    ...(client ? { environments: createPlatformEnvironments(client) } : {}),
+    ...(client ? { environments: createPlatformEnvironments(client, environmentOptions()) } : {}),
   };
+}
+
+/** The page's address names the machine it shows when that is not the window's own (ADR 0025). */
+function environmentOptions(): { shownElsewhere?: string } {
+  const shown = new URLSearchParams(globalThis.location?.search ?? "").get("environment");
+  return shown ? { shownElsewhere: shown } : {};
 }
 
 function electronAttention(client: HostClient): PlatformAttention {

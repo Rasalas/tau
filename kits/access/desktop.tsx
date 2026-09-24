@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from "react";
 import { ChevronDown, Lock, LockOpen } from "lucide-react";
-import { HostUnavailableError, Menu, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
+import { HostUnavailableError, hostIsReadOnly, Menu, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
 import type { AccessLevel } from "./protocol.js";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
 
@@ -56,7 +56,8 @@ function syncLevel(host: HostExtensionClient, preferences: PreferencesStore): ()
   let pushed: AccessLevel | undefined;
   const push = () => {
     const level = storedLevel(preferences);
-    if (level === pushed) return;
+    // The host refuses a Read-only device's level; the owner's clients set it.
+    if (level === pushed || hostIsReadOnly()) return;
     pushed = level;
     void host.invoke("set-level", { level }).catch((error: unknown) => {
       pushed = undefined;

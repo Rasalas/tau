@@ -41,7 +41,7 @@ import type { SystemNotification, SystemNotificationOutcome } from "../shared/sy
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
 import type { UiDiscoveredHosts } from "../shared/discovery";
-import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentTarget, UiEnvironments } from "../shared/environments";
+import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
@@ -230,6 +230,9 @@ export interface HostClient {
   openEnvironment(id: string, target?: EnvironmentTarget): Promise<void>;
   /** What this page was sent to show on arrival, once. */
   takeEnvironmentArrival(): Promise<EnvironmentTarget | undefined>;
+  /** A Bonjour search from the window's own host, whichever machine the page shows. */
+  discoverEnvironments(): Promise<UiDiscoveredHosts>;
+  setEnvironmentPreferences(preferences: EnvironmentPreferences): Promise<void>;
 }
 
 /**
@@ -395,5 +398,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     retryEnvironment: (id) => call<void>("environments-retry", [id]),
     openEnvironment: (id, target) => call<void>("environments-open", target ? [id, target] : [id]),
     takeEnvironmentArrival: async () => (await call<EnvironmentTarget | null>("environments-take-arrival")) ?? undefined,
+    discoverEnvironments: () => call<UiDiscoveredHosts>("environments-discover"),
+    setEnvironmentPreferences: (preferences) => call<void>("environments-set-preferences", [preferences]),
   };
 }

@@ -35,6 +35,7 @@ import { FileKindIcon } from "./FileKindIcon";
 import { ReviewFileTree } from "./ReviewFileTree";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { usePagedWorkspaceFiles } from "./usePagedWorkspaceFiles";
+import { useHostCapabilities } from "../use-host-capabilities";
 
 const SIDEBAR_WIDTH_KEY = STORAGE_KEYS.reviewSidebarWidth;
 const SIDEBAR_OPEN_KEY = STORAGE_KEYS.reviewSidebarOpen;
@@ -178,6 +179,9 @@ export function ReviewMode({
   const selectedPathRef = useRef(selectedPath);
   selectedPathRef.current = selectedPath;
   const suggestedFingerprintRef = useRef<string | undefined>(undefined);
+  // A device paired Read only reviews but does not commit (ADR 0024).
+  const deviceReadOnly = useHostCapabilities().readOnly;
+  const noCommit = readOnly || deviceReadOnly;
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
   const paged = usePagedWorkspaceFiles(visibleChanges, readOnly ? loadFiles : undefined);
 
@@ -418,11 +422,11 @@ export function ReviewMode({
   };
   const suggestionFingerprint = `${scope}:${visibleChanges.baseCommit ?? ""}:${paged.files.map((file) => `${file.path}:${file.added}:${file.removed}`).join("|")}`;
   useEffect(() => {
-    if (readOnly || !autoSuggestCommitMessage || !suggestCommitMessage || paged.files.length === 0 || diffs.size + diffErrors.size < paged.files.length) return;
+    if (noCommit || !autoSuggestCommitMessage || !suggestCommitMessage || paged.files.length === 0 || diffs.size + diffErrors.size < paged.files.length) return;
     if (suggestedFingerprintRef.current === suggestionFingerprint) return;
     suggestedFingerprintRef.current = suggestionFingerprint;
     void generateCommitMessage();
-  }, [autoSuggestCommitMessage, diffErrors.size, diffs.size, paged.files.length, readOnly, suggestionFingerprint, suggestCommitMessage]);
+  }, [autoSuggestCommitMessage, diffErrors.size, diffs.size, paged.files.length, noCommit, suggestionFingerprint, suggestCommitMessage]);
 
   return <div className="review-shell">
     <header className="title-bar">
@@ -442,13 +446,15 @@ export function ReviewMode({
         </div> : null}
       </div> : null}
       <div className="title-spacer" />
-      {!readOnly && scope === "worktree" ? <button
+      {!noCommit && scope === "worktree" ? <button
         className="chrome-button accent"
         disabled={busy || paged.fileCount === 0 || message.trim().length === 0}
         onClick={() => onCommit(message, primaryPush)}
       >
         <GitCommitHorizontal size={13} /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
-      </button> : readOnly
+      </button> : deviceReadOnly && !readOnly && scope === "worktree"
+        ? <span className="review-read-only">Read only</span>
+        : readOnly
         ? <span className="review-read-only">Historical turn</span>
         : <span className="review-read-only">Committed branch diff</span>}
     </header>
@@ -583,7 +589,7 @@ export function ReviewMode({
             </button>
             {paged.error ? <small className="file-tree-error">{paged.error}</small> : null}
           </div> : null}
-          {paged.fileCount > 0 && !readOnly && scope === "worktree" ? <div className="commit-proposal">
+          {paged.fileCount > 0 && !noCommit && scope === "worktree" ? <div className="commit-proposal">
             <div className="commit-proposal-heading"><span><Sparkles size={12} /> Commit message</span>{suggestCommitMessage ? <button className="icon-button compact" aria-label="Generate commit message" title="Generate a new commit message" disabled={generatingMessage} onClick={() => void generateCommitMessage()}><RefreshCw className={generatingMessage ? "spinning" : ""} size={12} /></button> : null}</div>
             {editingMessage ? <textarea autoFocus value={message} onChange={(event) => setMessage(event.target.value)} onBlur={() => setEditingMessage(false)} /> : <button className="commit-message-preview" onClick={() => setEditingMessage(true)}>{generatingMessage ? "Writing from the diff…" : message || "No suggestion yet"}</button>}
             {messageError ? <small className="commit-message-error">{messageError}</small> : null}

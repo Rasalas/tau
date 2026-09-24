@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, ChevronRight, Circle, Minus, Play, X } from "lucide-react";
-import { errorMessage, useThreadStore, type RegionProps, type ThreadStore, type WorkbenchActions } from "tau";
+import { errorMessage, hostIsReadOnly, useThreadStore, type RegionProps, type ThreadStore, type WorkbenchActions } from "tau";
 import type { ProjectScriptsHostClient, UiSetupStage, UiWorktreeSetup } from "./protocol.js";
 
 /** Worktree setups the host pushes, newest first. One per activation. */
@@ -174,7 +174,7 @@ export function createSetupCards(store: SetupStore, host: ProjectScriptsHostClie
   return function WorktreeSetupCards({ actions, snapshot }: RegionProps) {
     const setups = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const visible = setupsOnScreen(setups, screenOf(actions, snapshot, useThreads()));
-    if (visible.length === 0) return null;
+    if (visible.length === 0 || hostIsReadOnly()) return null;
     return (
       <div className="project-scripts-setups">
         {visible.map((setup) => <SetupCard key={setup.id} setup={setup} actions={cardActions} notify={(message) => actions.notify(message)} />)}
