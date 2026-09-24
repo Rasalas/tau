@@ -204,7 +204,8 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-composer { position: absolute; right: 16px; bottom: 16px; z-index: 3; width: min(420px, calc(100% - 32px)); padding: 12px; border: 1px solid var(--line-float); border-radius: var(--radius-lg); background: var(--float); box-shadow: var(--elevation-2); }
 .pr-composer > strong { color: var(--ink); font-size: 12px; }
 .pr-comment-fab { position: absolute; right: 18px; bottom: 18px; z-index: 3; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line-float); border-radius: var(--radius-pill); background: var(--float); color: var(--ink-2); box-shadow: var(--elevation-1); cursor: pointer; }
-.pr-comment-fab:hover { background: var(--raised-strong); color: var(--ink); }
+.pr-comment-fab:hover:not(:disabled) { background: var(--raised-strong); color: var(--ink); }
+.pr-comment-fab:disabled { opacity: .5; cursor: not-allowed; }
 
 /* Timeline: a vertical rail with one mark per event. */
 .pr-timeline { position: relative; list-style: none; margin: 0; padding: 14px 16px 72px; }
@@ -279,7 +280,8 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 
 /* Merge, auto-merge, revert and the stack: the header's controls and the questions before them. */
 .pr-primary { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: var(--acid); color: var(--acid-ink); font: 600 11.5px var(--sans); white-space: nowrap; cursor: pointer; }
-.pr-primary:hover { background: var(--acid-strong); }
+.pr-primary:hover:not(:disabled) { background: var(--acid-strong); }
+.pr-primary:disabled { opacity: .5; cursor: not-allowed; }
 .pr-armed { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--info) 35%, transparent); border-radius: var(--radius-pill); color: var(--info-ink); font: 500 10.5px var(--sans); white-space: nowrap; }
 .pr-stack-button { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: 11px var(--mono); cursor: pointer; }
 .pr-stack-button:hover, .pr-stack-button[aria-expanded="true"] { border-color: var(--line-control); background: var(--raised); color: var(--ink-2); }
