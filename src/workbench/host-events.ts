@@ -122,6 +122,9 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
     case "window-shell":
       targets.windowShell?.(event.event);
       return;
+    // The platform's machine list follows these itself.
+    case "environments":
+      return;
     case "user-message": {
       const clientMessageId = event.message.clientMessageId;
       if (clientMessageId && targets.submission.hasRecovery(clientMessageId)) {

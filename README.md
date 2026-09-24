@@ -321,6 +321,12 @@ A dropped link (a suspended machine, a restarted tunnel, a phone that slept or c
 
 The host accepts sockets only from pages it served itself and from clients that are not pages (the native app's sockets send no `Origin`); a proxy that changes the host name is added with `TAU_HOST_ALLOWED_ORIGINS=https://…`.
 
+### Other machines in the same window
+
+The easier way to work on another machine is to add it to the window you already use. On the other machine, open Settings → Connections, turn on network access and create a pairing link. On this one, open Settings → Machines and paste the link, or type the other machine's address (`studio.local:7788`). The other machine's window asks whether to let this computer in and shows six digits; allow it if this window shows the same six. Tau keeps that machine's key encrypted in the system keychain and never saves it anywhere it cannot.
+
+From then on the rail ends with **Other machines**: each with a dot for its status (connected with its round trip, connecting, offline since when, refused and why), and its newest threads, including the ones that are running. Clicking a thread opens this window on that machine: its threads, projects, terminals, files and kits are that machine's, and so is everything the agent does. **Run on** in a new thread's draft moves the draft, text and all, to another machine before it starts. Returning is the same click on a thread of this machine. Every move loads the window again, which takes a moment the first time a machine's kits are compiled. [ADR 0025](docs/adr/0025-a-window-follows-the-threads-machine.md) explains the design and what is left out: Preview and the folder picker stay with the machine the window runs on, and there is no load balancing between machines.
+
 ### The web client
 
 A listening host also serves a browser client, so a phone or a second machine can
@@ -609,9 +615,8 @@ still open:
 - **Windows, run for real.** The host has a Windows path for everything it found POSIX-only (see
   [Windows](#windows)), but it is verified by tests on macOS and by a manual Windows workflow, not
   by a person using it on Windows.
-- **Kits in a desktop window pointed at a remote host.** A `file://` page may not evaluate the
-  bundle the host sends as source, so that window loads no kits. The browser client, served over
-  HTTP, has no such problem.
+- **One window showing two machines at once.** A window shows one machine's workbench at a time and
+  loads again to show another ([ADR 0025](docs/adr/0025-a-window-follows-the-threads-machine.md)).
 - **`kits/` in a repository of its own.** Two artifacts from one repository first; splitting them
   is a governance decision with a second release train behind it and no forcing need yet.
 

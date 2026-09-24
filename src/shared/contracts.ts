@@ -644,6 +644,8 @@ export type GlobalHostEvent =
   | { type: "app-update"; version: string; sessionId?: undefined }
   /** The window's own process to its page: the app menu, the quit shortcut, a quit waiting for an answer. */
   | { type: "window-shell"; event: import("./window-shell.js").WindowShellEvent; sessionId?: undefined }
+  /** The window's own process to its page: the machines it knows and how each is doing (ADR 0025). */
+  | { type: "environments"; environments: import("./environments.js").UiEnvironments; sessionId?: undefined }
   | { type: "event-log"; label: string; detail?: string; timestamp: number; sessionId?: undefined };
 
 /** Events emitted by a runtime always carry the owning session explicitly. */

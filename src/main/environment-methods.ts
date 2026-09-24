@@ -1,0 +1,62 @@
+import {
+  decodeEnvironmentTarget,
+  type EnvironmentPairInput,
+  type EnvironmentPairResult,
+  type EnvironmentTarget,
+  type UiEnvironments,
+} from "../shared/environments.js";
+import { HOST_ERROR } from "../shared/host-transport.js";
+import type { HostMethodTable } from "./host-methods.js";
+
+/** What the window's process answers about its machines (ADR 0025); `WindowEnvironments` is the one implementation. */
+export interface EnvironmentsService {
+  snapshot(): UiEnvironments;
+  pair(input: EnvironmentPairInput): Promise<EnvironmentPairResult>;
+  cancelPairing(): void;
+  rename(id: string, name: string): Promise<boolean>;
+  remove(id: string): Promise<boolean>;
+  retry(id: string): void;
+  open(id: string, target?: EnvironmentTarget): Promise<void>;
+  takeArrival(): EnvironmentTarget | undefined;
+}
+
+function text(method: string, name: string, value: unknown, max = 4_096): string {
+  if (typeof value !== "string" || !value.trim() || value.length > max) {
+    throw Object.assign(new Error(`${method}: ${name} must be a non-empty string of at most ${max} characters.`), { code: HOST_ERROR.invalidRequest });
+  }
+  return value;
+}
+
+/**
+ * The `environments-*` methods. A window answers them from its own process;
+ * a host has no list of machines and refuses them all, so a page without a
+ * window (a browser, a phone) simply has none.
+ */
+export function createEnvironmentMethods(service: () => EnvironmentsService | undefined): HostMethodTable {
+  const require = (): EnvironmentsService => {
+    const current = service();
+    if (current) return current;
+    throw Object.assign(new Error("Only a desktop window keeps a list of machines."), { code: HOST_ERROR.unsupported });
+  };
+  return {
+    "environments-list": async () => require().snapshot(),
+    "environments-pair": async (params) => {
+      const input = params[0] as { text?: unknown; deviceName?: unknown } | undefined;
+      return require().pair({
+        text: text("environments-pair", "text", input?.text),
+        ...(typeof input?.deviceName === "string" && input.deviceName.trim() ? { deviceName: input.deviceName.slice(0, 80) } : {}),
+      });
+    },
+    "environments-cancel-pairing": async () => { require().cancelPairing(); },
+    "environments-rename": async (params) => ({
+      renamed: await require().rename(text("environments-rename", "id", params[0], 200), text("environments-rename", "name", params[1], 80)),
+    }),
+    "environments-remove": async (params) => ({ removed: await require().remove(text("environments-remove", "id", params[0], 200)) }),
+    "environments-retry": async (params) => { require().retry(text("environments-retry", "id", params[0], 200)); },
+    "environments-open": async (params) => {
+      const target = params[1] === undefined ? undefined : decodeEnvironmentTarget(params[1]);
+      await require().open(text("environments-open", "id", params[0], 200), target);
+    },
+    "environments-take-arrival": async () => require().takeArrival() ?? null,
+  };
+}

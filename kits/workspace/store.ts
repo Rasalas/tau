@@ -63,6 +63,7 @@ const INITIAL: WorkspaceKitState = {
   preparingWorktree: false,
   changesSections: [],
   threadRowAccessories: [],
+  railSections: [],
   defaultBranches: {},
   turnStats: {},
 };
@@ -619,6 +620,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<ThreadRowAccessoryProps>): () => void {
     this.update({ threadRowAccessories: [...this.state.threadRowAccessories, accessory] });
     return () => this.update({ threadRowAccessories: this.state.threadRowAccessories.filter((entry) => entry !== accessory) });
+  }
+
+  registerRailSection(section: ComponentType<{ actions: WorkbenchActions }>): () => void {
+    this.update({ railSections: [...this.state.railSections, section] });
+    return () => this.update({ railSections: this.state.railSections.filter((entry) => entry !== section) });
   }
 
   setRailProjectFilter(projectName: string | undefined): void {

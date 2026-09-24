@@ -2,6 +2,7 @@ import type { TauDesktopApi } from "../shared/contracts";
 import { createHostClient, type HostClient } from "../workbench/host-client";
 import { HostConnection, type HostTransport } from "../workbench/host-connection";
 import type { Platform, PlatformAttention } from "../workbench/platform";
+import { createPlatformEnvironments } from "../workbench/environments";
 import type { ClientPlatformPorts } from "./client-platform";
 
 /**
@@ -52,6 +53,8 @@ export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
     ...(ports.client ? { attention: electronAttention(ports.client) } : {}),
     // Drawn by the window's process: `Menu.popup`.
     ...(client ? { contextMenu: { show: (entries, point) => client.showContextMenu(entries, point) } } : {}),
+    // The window's process keeps the list; a host in this process refuses it and the list stays empty.
+    ...(client ? { environments: createPlatformEnvironments(client) } : {}),
   };
 }
 
