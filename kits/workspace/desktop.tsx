@@ -209,9 +209,9 @@ export const workspaceExtension: DesktopExtension = {
       { id: "compact-rows", kind: "toggle", label: "Compact rows in the thread rail", defaultValue: false },
       { id: "sources", kind: "chips", label: "Add-project sources", values: ["local folder", "git clone"] },
     ]);
-    context.registerCommand({ id: "workspace.files", label: "Open file index", group: "Project", run: (app) => app.openPanel(WORKSPACE_FILES_PANEL) });
-    context.registerCommand({ id: "workspace.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
-    context.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", run: async (app) => {
+    context.registerCommand({ id: "workspace.files", label: "Open file index", group: "Project", access: "read", run: (app) => app.openPanel(WORKSPACE_FILES_PANEL) });
+    context.registerCommand({ id: "workspace.changes", label: "Inspect Git changes", group: "Project", access: "read", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
+    context.registerCommand({ id: "workspace.open-project", label: "Open project…", group: "Project", access: "write", run: async (app) => {
       try {
         const picked = await host.pickFolder();
         if (picked) await app.openWorkspace(picked.workspaceId);
@@ -223,14 +223,16 @@ export const workspaceExtension: DesktopExtension = {
       id: "workspace.add-project",
       label: "Add project…",
       group: "Project",
+      access: "write",
       submenu: addProjectMenu({ listDirectories: (path) => host.listDirectories(path), pickFolder: () => host.pickFolder(), baseDirectory: () => store.projectBaseDirectory() }),
       run: (app) => app.openCommandPalette({ menu: "workspace.add-project" }),
     });
-    context.registerCommand({ id: "workspace.switch-project", label: "Switch project…", group: "Project", run: () => requestProjectSwitcher() });
+    context.registerCommand({ id: "workspace.switch-project", label: "Switch project…", group: "Project", access: "write", run: () => requestProjectSwitcher() });
     context.registerCommand({
       id: "workspace.project-settings",
       label: "Project settings…",
       group: "Project",
+      access: "write",
       run: (app) => {
         const active = app.activeThread();
         const cwd = active?.cwd ?? store.getSnapshot().cwd;
@@ -242,6 +244,7 @@ export const workspaceExtension: DesktopExtension = {
       id: "workspace.open-in-editor",
       label: "Open in external editor",
       group: "Project",
+      access: "write",
       run: async (app) => {
         const activeEditor = store.activeEditor();
         if (activeEditor) app.notify(`Opening in ${activeEditor.name}…`);
@@ -252,13 +255,14 @@ export const workspaceExtension: DesktopExtension = {
       id: "workspace.open-terminal",
       label: "Open in external terminal",
       group: "Project",
+      access: "write",
       run: async (app) => {
         const activeTerminal = store.activeTerminal();
         if (activeTerminal) app.notify(`Opening in ${activeTerminal.name}…`);
         await store.openTerminal();
       },
     });
-    context.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", run: (app) => app.settleActiveThread() });
+    context.registerCommand({ id: "workspace.settle", label: "Settle thread", group: "Thread", access: "write", run: (app) => app.settleActiveThread() });
     // The branch is the kit's fact; the title menu only lends the slot.
     context.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], access: "read", run: async (app) => {
       const branch = store.getSnapshot().workspace?.branch;
@@ -267,7 +271,7 @@ export const workspaceExtension: DesktopExtension = {
     } });
     // T3 Code's composer chords: each opens the composer control that carries its id.
     for (const [id, label, keys] of [["composer.workspace", "Choose where the thread runs", "mod+shift+x"], ["composer.branch", "Choose the branch", "mod+shift+g"]] as const) {
-      context.registerCommand({ id, label, group: "Composer", run: (app) => {
+      context.registerCommand({ id, label, group: "Composer", access: "write", run: (app) => {
         const control = document.querySelector<HTMLElement>(`[data-composer-shortcut~="${id}"]`);
         if (control) control.click();
         else app.notify("The composer shows no such control here.");
@@ -338,6 +342,7 @@ export const workspaceExtension: DesktopExtension = {
       id: "workspace.open-prompt-editor",
       label: "Edit prompt in external editor",
       group: "Thread",
+      access: "write",
       run: (app) => { lastAppActions = app; void openPromptInEditor(app); },
     });
     context.registerSlashCommand({

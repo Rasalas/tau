@@ -57,6 +57,7 @@ function bindPiShortcuts(plugin: DesktopExtensionContext, isDisposed: () => bool
           id,
           label: shortcut.description ?? `Pi shortcut ${shortcut.keys}`,
           group: "Pi",
+          access: "write",
           run: async (app) => {
             try { await plugin.host.invoke("run-shortcut", { keys: shortcut.keys, sessionId: app.activeThread()?.sessionId }); } catch (error) { app.notify(errorMessage(error)); }
           },

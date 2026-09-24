@@ -58,7 +58,7 @@ const onboarding: DesktopExtension = {
     context.registerOverlay({ id: WELCOME_OVERLAY, profiles: ["desktop"], Component: createWelcomeWizard(flow, () => runner) });
     context.registerRegion({ id: "onboarding.first-start", placement: "title-bar", profiles: ["desktop"], Component: createFirstStart(context, flow) });
     context.registerSlashCommand({ name: "welcome", description: "Set up Tau: agents, projects and earlier conversations", run: (_args, actions) => { open(actions); } });
-    context.registerCommand({ id: "onboarding.welcome", label: "Set up Tau…", group: "Workbench", run: open });
+    context.registerCommand({ id: "onboarding.welcome", label: "Set up Tau…", group: "Workbench", access: "write", run: open });
   },
 };
 

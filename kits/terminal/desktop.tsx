@@ -136,37 +136,41 @@ export const terminalExtension: DesktopExtension = {
       Component: (props) => <TerminalSettingsPage {...props} preferences={plugin.preferences} />,
     });
     const disposers = [
-      plugin.registerCommand({ id: "terminal.open", label: "Open terminal panel", group: "Terminal", run: (app) => app.openPanel(TERMINAL_PANEL) }),
-      plugin.registerCommand({ id: TERMINAL_COMMANDS.toggle, label: "Toggle terminal", group: "Terminal", run: withActions(toggleTerminal) }),
+      plugin.registerCommand({ id: "terminal.open", label: "Open terminal panel", group: "Terminal", access: "read", run: (app) => app.openPanel(TERMINAL_PANEL) }),
+      plugin.registerCommand({ id: TERMINAL_COMMANDS.toggle, label: "Toggle terminal", group: "Terminal", access: "read", run: withActions(toggleTerminal) }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.new,
         label: "New terminal",
         group: "Terminal",
+        access: "write",
         run: withActions((app) => { app.openPanel(TERMINAL_PANEL); return openTerminal(app); }),
       }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.split,
         label: "Split terminal right",
         group: "Terminal",
+        access: "write",
         run: withActions((app) => split(app, "right")),
       }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.splitDown,
         label: "Split terminal down",
         group: "Terminal",
+        access: "write",
         run: withActions((app) => split(app, "down")),
       }),
       plugin.registerCommand({
         id: TERMINAL_COMMANDS.close,
         label: "Close terminal",
         group: "Terminal",
+        access: "write",
         run: withActions(async () => {
           const id = targetShell();
           if (id) await closeTerminals([id]);
         }),
       }),
-      plugin.registerCommand({ id: TERMINAL_COMMANDS.focusNext, label: "Focus next terminal", group: "Terminal", run: withActions((app) => focusPane(app, 1)) }),
-      plugin.registerCommand({ id: TERMINAL_COMMANDS.focusPrevious, label: "Focus previous terminal", group: "Terminal", run: withActions((app) => focusPane(app, -1)) }),
+      plugin.registerCommand({ id: TERMINAL_COMMANDS.focusNext, label: "Focus next terminal", group: "Terminal", access: "read", run: withActions((app) => focusPane(app, 1)) }),
+      plugin.registerCommand({ id: TERMINAL_COMMANDS.focusPrevious, label: "Focus previous terminal", group: "Terminal", access: "read", run: withActions((app) => focusPane(app, -1)) }),
       ...TERMINAL_KEYBINDINGS.map((binding) => plugin.registerKeybinding(binding)),
     ];
     return () => {

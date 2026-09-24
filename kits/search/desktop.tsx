@@ -22,8 +22,8 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
       // One window's searches cancel each other, never another window's.
       const channel = `window-${Math.random().toString(36).slice(2)}`;
 
-      context.registerCommand({ id: "search.content", label: "Search in project…", group: "Search", run: () => dialogs.toggle("content") });
-      context.registerCommand({ id: "search.files", label: "Go to file…", group: "Search", run: () => dialogs.toggle("files") });
+      context.registerCommand({ id: "search.content", label: "Search in project…", group: "Search", access: "read", run: () => dialogs.toggle("content") });
+      context.registerCommand({ id: "search.files", label: "Go to file…", group: "Search", access: "read", run: () => dialogs.toggle("files") });
       context.registerKeybinding({ keys: "mod+shift+f", commandId: "search.content" });
       context.registerKeybinding({ keys: "mod+p", commandId: "search.files" });
 

@@ -321,6 +321,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         id: "handoff.continue-in",
         label: "Continue in…",
         group: "Thread",
+        access: "write",
         // From the model picker, with the runtime the user pointed at.
         surfaces: ["thread-title", "runtime-switch"],
         run: (actions, target) => {
@@ -334,6 +335,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         id: "handoff.bring-back",
         label: "Bring back to parent",
         group: "Thread",
+        access: "write",
         surfaces: ["thread-title"],
         run: (actions) => bringBack(actions),
       });
@@ -352,6 +354,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
               id: runtime.kind,
               label,
               detail: isNative(thread.backendKind ?? "pi", runtime.kind) ? "fork with its history" : "with a handoff summary",
+              access: "write" as const,
               run: (next: WorkbenchActions) => continueIn(runtime.kind, next),
             }];
           });

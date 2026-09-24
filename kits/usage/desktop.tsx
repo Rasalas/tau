@@ -21,6 +21,7 @@ export const usageExtension: DesktopExtension = {
       id: "usage.open",
       label: "Show usage",
       group: "Extensions",
+      access: "read",
       run: (app) => app.openSettings(USAGE_SETTINGS_PAGE),
     });
   },

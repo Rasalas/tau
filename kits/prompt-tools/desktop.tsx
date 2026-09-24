@@ -190,6 +190,7 @@ const promptTools: DesktopExtension = {
       id: "prompt-tools.stash",
       label: "Stash the draft",
       group: "Composer",
+      access: "write",
       run: async (actions) => { if (!(await controller.stash(actions))) actions.notify("There is nothing to stash."); },
     });
     // As in T3 Code: a terminal has nothing to stash, and Files Kit's editor saves on the same chord.
@@ -198,6 +199,7 @@ const promptTools: DesktopExtension = {
       id: "prompt-tools.stash-list",
       label: "Bring back a stashed prompt…",
       group: "Composer",
+      access: "write",
       run: () => controller.requestList(),
     });
     context.registerComposerControl({ id: "prompt-tools.stash", order: 40, profiles: ["desktop"], Component: createStashControl(controller) });
@@ -237,6 +239,7 @@ const promptTools: DesktopExtension = {
       id: "prompt-tools.toggle-follow-up",
       label: "Switch between queueing and steering while a turn runs",
       group: "Composer",
+      access: "write",
       run: (actions) => {
         const next: FollowUpBehavior = followUp() === "steer" ? "queue" : "steer";
         context.preferences.setValue(PROMPT_TOOLS_ID, FOLLOW_UP_OPTION, next);

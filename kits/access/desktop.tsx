@@ -79,7 +79,7 @@ export const accessKitExtension: DesktopExtension = {
   activate(plugin) {
     plugin.registerComposerControl({ id: "access.level", order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences) });
     // T3 Code's `composer.mode` opens the access menu, its runtime mode.
-    plugin.registerCommand({ id: "composer.mode", label: "Choose the access level", group: "Composer", run: (app) => {
+    plugin.registerCommand({ id: "composer.mode", label: "Choose the access level", group: "Composer", access: "write", run: (app) => {
       const control = document.querySelector<HTMLElement>('[data-composer-shortcut~="composer.mode"]');
       if (control) control.click();
       else app.notify("The composer shows no access control here.");
@@ -90,6 +90,7 @@ export const accessKitExtension: DesktopExtension = {
         id: `access.${entry.id}`,
         label: `Access: ${entry.label}`,
         group: "Runtime",
+        access: "write",
         run: () => { plugin.preferences.setValue(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY, entry.id); },
       });
     }
