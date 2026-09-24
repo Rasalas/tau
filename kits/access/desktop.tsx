@@ -53,8 +53,9 @@ function createControl(preferences: PreferencesStore, choose: (level: string) =>
  */
 function chooser(host: HostExtensionClient, preferences: PreferencesStore): (level: string) => void {
   return (level) => {
-    if (!isAccessLevel(level) || level === storedLevel(preferences)) return;
+    if (!isAccessLevel(level)) return;
     preferences.setValue(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY, level);
+    // Sent even when this client shows that level already: its copy may be older than the host's.
     // The host refuses a Read-only device's level; the owner's clients set it.
     if (hostIsReadOnly()) return;
     void host.invoke("set-level", { level }).catch((error: unknown) => {

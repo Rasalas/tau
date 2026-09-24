@@ -31,10 +31,11 @@ describe("Access Kit desktop extension", () => {
     await settled();
     expect(calls).toEqual([]);
     const run = (id: string) => registry.getCommands().find((command) => command.id === id)!.run({ notify: vi.fn() } as never);
-    void run("access.read-only");
-    expect(calls).toEqual([]);
     void run("access.ask");
     expect(calls).toEqual([[ACCESS_HOST_EXTENSION_ID, "set-level", { level: "ask" }]]);
+    // A pick of the level shown is still the person's: this client's copy may be stale.
+    void run("access.ask");
+    expect(calls).toHaveLength(2);
     expect(preferences.value(ACCESS_HOST_EXTENSION_ID, "level")).toBe("ask");
   });
 
