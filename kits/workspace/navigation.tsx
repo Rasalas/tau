@@ -6,6 +6,7 @@ import {
   ThreadRow,
   tooltipProps,
   useContextMenu,
+  useHostCapabilities,
   usePreferences,
   useThreadStore,
   useWorkbenchShell,
@@ -361,6 +362,7 @@ function ProjectScope({ actions }: SidebarContributionProps) {
   const preferences = usePreferences();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const [searchOpen, setSearchOpen] = useState(false);
+  const { readOnly } = useHostCapabilities();
 
   const activeThread = snapshot?.sessionId ? threadStore.getThread(snapshot.sessionId) : undefined;
   const activeProject = findProjectForSession(projects, {
@@ -388,14 +390,15 @@ function ProjectScope({ actions }: SidebarContributionProps) {
             <X size={15} />
           </button>
         ) : null}
-        <button
+        {/* Adding a project changes the host's list; a Read-only device may not (ADR 0024). */}
+        {readOnly ? null : <button
           className="sidebar-action"
           {...tooltipProps("Add project", { side: "bottom" })}
           aria-label="Add project"
           onClick={() => { setSearchOpen(false); actions.openProjectSources(); }}
         >
           <FolderPlus size={16} />
-        </button>
+        </button>}
       </div>
       <ProjectSwitcherPopover
         activePath={activeProject?.path ?? snapshot?.cwd}

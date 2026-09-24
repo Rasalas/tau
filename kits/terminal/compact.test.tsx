@@ -2,7 +2,8 @@
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PanelProps, WorkbenchActions } from "tau";
-import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, createMemoryStorage, HostClientProvider, setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import terminal from "./desktop.js";
 import { chipLabels, CompactTerminalPanel, shellOrder } from "./compact.js";
 import { TerminalPanel } from "./panel.js";
@@ -179,6 +180,30 @@ describe("the terminal on a compact client", () => {
   it("numbers shells that share a name", () => {
     const shell = (id: string, label: string) => ({ id, label, cols: 80, rows: 24 });
     expect([...chipLabels([shell("a", "zsh"), shell("b", "npm"), shell("c", "zsh")]).values()]).toEqual(["zsh 1", "npm", "zsh 2"]);
+  });
+
+  it("lets a Read-only device watch a shell, but not open, type in or close one", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    await fake.host.invoke("open");
+    const client = createFakeHostClient({ isReadOnly: () => true });
+    setHostClient(client);
+    try {
+      render(<HostClientProvider client={client}><CompactTerminalPanel {...panelProps()} /></HostClientProvider>);
+      await screen.findByRole("tab", { name: /shell 1/u });
+      await waitFor(() => expect(drawn.length).toBe(1));
+      expect(screen.getByRole("note").textContent).toMatch(/paired Read only/u);
+      expect(screen.queryByRole("button", { name: "New terminal" })).toBeNull();
+      expect(screen.queryByRole("toolbar", { name: "Terminal keys" })).toBeNull();
+      await waitFor(() => expect(drawn[0]!.options.disableStdin).toBe(true));
+      drawn[0]!.input("ls\r");
+      observers.forEach((refit) => refit());
+      expect(fake.typed).toEqual([]);
+      expect(fake.invoke.mock.calls.some(([command]) => command === "resize")).toBe(false);
+    } finally {
+      setHostClient(undefined);
+      disconnect();
+    }
   });
 
   it("offers a shell to open when there is none", () => {

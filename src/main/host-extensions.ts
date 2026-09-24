@@ -45,7 +45,19 @@ export interface HostPlatform {
    * Calls the window half of an extension. Only a host whose client runs in
    * its own process has one; a host with a window of its own does not.
    */
-  callClient?(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  callClient?(extensionId: string, command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown>;
+  /** The id of the window on the host's machine a call with `{ window: "host" }` reaches now. */
+  clientWindow?(extensionId: string): string | undefined;
+}
+
+/**
+ * Which window `callClient` asks (API 1.13.0). `"host"`: a Tau window on the
+ * host's own machine — the caller's, when it is one, else the newest — never
+ * a window on another device. A window id from `clientWindow()`: exactly that
+ * window, whoever the caller is; the call rejects at once once it is gone.
+ */
+export interface HostClientCallOptions {
+  window?: "host" | (string & {});
 }
 
 /** A thread an external backend persisted, as the index lists it. */
@@ -840,7 +852,15 @@ export interface HostExtensionServices {
    * needs the process the user's window lives in (ADR 0021). Rejects when the
    * host has no such client, so a kit can fall back or say so.
    */
-  callClient(command: string, input?: unknown): Promise<unknown>;
+  callClient(command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown>;
+  /**
+   * The id of the Tau window on the host's machine that `callClient` with
+   * `{ window: "host" }` would ask now: the caller's, when it is one, else the
+   * newest. Pass it as `window` to keep talking to that one window — the one
+   * that holds a view, say — whichever client or turn asks next. Undefined
+   * when there is none. Absent before API 1.13.0 and in a worker.
+   */
+  clientWindow?(): string | undefined;
   /**
    * Follows the files the host watches. The host re-reads none of them for a
    * kit and calls no kit by name: it reports what moved, and whoever owns those
@@ -967,14 +987,17 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
   const stateDir = services.stateDir ? join(services.stateDir, extension.id) : undefined;
   // `callClient` reaches one extension's own window half: the id is bound
   // here, never passed by the caller, so no kit can drive another kit's.
-  const callClient = (command: string, input?: unknown): Promise<unknown> =>
-    (services.callClient as unknown as (id: string, command: string, input?: unknown) => Promise<unknown>)(extension.id, command, input);
+  const callClient = (command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown> =>
+    (services.callClient as unknown as (id: string, command: string, input?: unknown, options?: HostClientCallOptions) => Promise<unknown>)(extension.id, command, input, options);
+  const rawWindow = services.clientWindow as unknown as ((id: string) => string | undefined) | undefined;
+  const clientWindow = rawWindow ? () => rawWindow(extension.id) : undefined;
   // Settings and attachments speak for the extension that asks, never for another.
   const rawSettings = services.settings as unknown as ((id: string, cwd?: string) => Promise<HostExtensionSettings>) | undefined;
   const settings = rawSettings ? (cwd?: string) => rawSettings(extension.id, cwd) : undefined;
   return new Proxy(guarded, {
     get: (target, prop, receiver) => {
       if (prop === "callClient") return callClient;
+      if (prop === "clientWindow") return clientWindow;
       if (prop === "settings") return settings;
       if (prop === "turnAttachments") {
         const raw: unknown = Reflect.get(target, prop, receiver);

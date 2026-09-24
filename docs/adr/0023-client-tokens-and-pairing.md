@@ -121,6 +121,14 @@ Now:
 - Only the addressee's `client-call-result` settles the call. Answers from any
   other connection are dropped the same way as an answer to an unknown id.
   When the addressee disconnects, its open calls fail.
+- A kit may narrow the addressee (API 1.13.0, wave F): `{ window: "host" }`
+  skips a caller's window on another computer, and a window id from
+  `clientWindow()` pins every later call to that one window on the host's
+  machine, whoever asks — the window that holds a view. A pin can only name a
+  loopback window with the host token, never a paired client's, and a call to
+  a pinned window that is gone fails at once. This settles where an agent's
+  tool goes when no request is running: to the window that holds what the tool
+  acts on, the same one every device's panel reaches.
 
 **What is not weakened.** A plaintext listener still binds loopback only unless
 `TAU_HOST_INSECURE=1`; a TLS client still pins the fingerprint and refuses a

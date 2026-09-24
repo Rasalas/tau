@@ -256,6 +256,10 @@ command gets no id and acts on the open one. A long press on a row lists every
 and the first non-destructive `thread-row` command that brings an `Icon` (new in
 API 1.13.0, a component like a panel's). Thread Rail's Snooze, Archive and
 Delete are the shipped callers, with Snooze in the tray as in T3 Code.
+On a device paired Read only, the thread surfaces (the title menu, the compact
+list's sheet and tray) disable a command with the reason unless it declares
+`access: "read"` (new in API 1.13.0): running it changes nothing on the host.
+Workspace Kit's "Copy branch" declares it.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -999,7 +1003,7 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
-| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. |
+| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the title menu, the compact list, Edit/Fork and the changes tree; preferences stay on the device. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
 | `formatCost` | core's money formatting. `ThreadRow` already draws a thread's own cost and token detail. |
@@ -1023,7 +1027,12 @@ Scripts opens a script's `previewUrl` through it, and falls back to
 (new in API 1.12.0) brings forward what an agent drives: `{ kind: "browser" }`
 the Preview panel with the page, `{ kind: "app", threadId }` the window that
 thread's Computer Use driver steers, raised by the driver itself; a handover
-that asks the user to take over uses it. Preview Kit also publishes
+that asks the user to take over uses it. On a client away from the host's
+machine (a phone, a browser, a window on another computer) `jump` opens the
+Preview there instead, where the user drives the page or window by tapping and
+typing, and `remote()` (new in API 1.13.0) says so. `watch(target, maxWidth, onFrame)`
+(new in API 1.13.0) delivers a small live picture of the page or of a thread's
+driven window while the calling page is visible, until the returned stop. Preview Kit also publishes
 `tau.preview/cookie-import` (new in API 1.12.0): `importSite({ site, profile? })`
 opens its cookie import dialog with that site filtered to and ticked and that
 Preview profile as the target, and answers the import's result, or `undefined`
@@ -1052,7 +1061,14 @@ every change; `frame(threadId, seq?)` fetches the picture itself (base64; the
 host keeps the last three per thread), `bringToFront`, `icon`, `access` (the
 Screen Recording status, read without asking) and `openAccessSettings` do what
 they say, and `live(threadId, onFrame, ended?)` records that one window a few
-frames a second where the system already allows it. Preview Kit's Screen view
+frames a second where the system already allows it. For a device away from the
+host (new in API 1.13.0), `viewFrame(threadId, maxWidth, since?)` answers a
+frame at that width — the live capture where allowed, else the driver's
+screenshot scaled down — or only its id while it is unchanged, and
+`input(threadId, input)` clicks, scrolls, types or presses Enter, Tab,
+Backspace, Escape or an arrow in that window through the thread's own driver,
+at the pid and window the feed names and nowhere else; a Read-only device may
+call the first, not the second. Preview Kit's Screen view
 draws it; the types are in `kits/computer-use/protocol.ts`. Its host commands
 `screen-state` and `screen-frame` also answer Evidence Kit (`callers`), which
 fetches each new frame before the feed lets go of it after three. Evidence Kit publishes
@@ -1996,12 +2012,15 @@ show no other machines. Like `attention`, hold the context, not the value.
 | `getSnapshot()` / `subscribe(listener)` | `UiEnvironments`: `shown` (the machine this page was loaded for), `environments` (this machine first, `local: true`, then the saved ones, each with `status` — `connecting`, `connected`, `offline`, `refused` — `detail`, `roundTripMs`, `lastSeenAt`, `readOnly`, its newest threads with `running`, `threadCount` and `projects`), the `pairing` in progress with its six digits, and whether `secureStorage` can keep a key. |
 | `open(id, target?)` | Points the window at another machine: the page loads again there, and `target` — `{ thread: { path } }` or `{ newThread: { draft?, workspaceId? } }` — waits for it. It rejects for a machine that is not connected. For the machine already shown, open the target yourself. |
 | `takeArrival()` | What this page was sent to show, once. |
-| `pair({ text, deviceName? })` | Adds a machine from a pairing link, its QR code's text, or an address; resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
+| `pair({ text, deviceName? })` or `pair({ nearby })` | Adds a machine from a pairing link, its QR code's text, or an address; or (new in API 1.13.0) one the last `discover()` found, by its host id: it asks without a link, pinned to the fingerprint the record carried. Resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
+| `discover()` | New in API 1.13.0. `UiDiscoveredHosts`: the machines that announce themselves on this network, looked for a few seconds by the window's own host, whichever machine the page shows. A saved machine found with its pinned fingerprint takes the addresses it has now. Look only when the user asks: looking makes macOS ask about local network access. `NearbyMachineList` draws the result with an action slot per host. |
+| `shownElsewhere`, `showLocal()` | New in API 1.13.0. The id of the machine the page shows when it is not the window's own (from the page's address, so known before the list loads), and the way back. Core offers "Back to this computer" in the palette whenever `shownElsewhere` is set, whatever kits that machine serves. |
+| `setPreferences({ reopenShown })` | New in API 1.13.0. Whether the window shows the machine it showed last again at start (`UiEnvironments.reopenShown`); it does when that machine answers within 2.5 s. |
 | `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
 
 The window's process answers all of it through client-side methods
 (`environments-list`, `-pair`, `-cancel-pairing`, `-rename`, `-remove`, `-retry`,
-`-open`, `-take-arrival`) and the `environments` window event; a host refuses the
+`-open`, `-take-arrival`, `-discover`, `-set-preferences`) and the `environments` window event; a host refuses the
 methods with `unsupported`. Every kit a page loads comes from the machine it shows,
 so a kit needs nothing of its own to work on another machine; what needs *this*
 window's machine — a window half, `local-files` — is not offered there.
@@ -2132,7 +2151,21 @@ client, `callClient` asks that client's own window; otherwise, and when that
 client has no window with this half (a browser, a phone), it asks the Tau
 window on the host's machine. With neither, the call rejects at once instead
 of waiting for a timeout. A paired device is only ever asked for calls its own
-requests caused. `services.pickDirectory` is stricter: only the asking
+requests caused.
+
+Two options narrow that (new in API 1.13.0). `callClient(command, input, { window: "host" })`
+asks only a Tau window on the host's own machine — the caller's, when it is
+one, else the newest — never a window on another computer: use it for work on
+what lives on the host, like a window an agent drives. `services.clientWindow()`
+names the window such a call would reach now; pass that id as
+`{ window: id }` and every later call goes to exactly that window, whichever
+client or turn asks, or rejects at once with "The window this was pinned to
+is gone." once it closed. A kit whose half holds a view pins it where the view
+was made, so a panel on one device and an agent's tool in a turn reach the
+same view. Preview Kit and Computer Use share `kits/_host-window/pinned-calls.ts`
+for that: it pins on the first call and moves to the next window when the
+pinned one is gone. `clientWindow` is absent before 1.13.0 and in a worker; an
+older host ignores the options. `services.pickDirectory` is stricter: only the asking
 client's window shows the dialog, so a browser or a phone gets a rejection,
 not a dialog on the host's screen.
 

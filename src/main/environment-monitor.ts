@@ -7,6 +7,7 @@ import {
   HOST_TRANSPORT_VERSION,
   decodeHostServerFrame,
   type HostHelloReply,
+  type HostIdentity,
 } from "../shared/host-transport.js";
 import type { UiHostReach } from "../shared/connections.js";
 import type { HostLogger } from "./host-log.js";
@@ -28,7 +29,7 @@ export interface MonitorState {
   address?: string;
   hostVersion?: string;
   readOnly?: boolean;
-  host?: { id: string; name: string };
+  host?: HostIdentity;
   index?: ThreadIndexSnapshot;
   running: ReadonlySet<string>;
 }

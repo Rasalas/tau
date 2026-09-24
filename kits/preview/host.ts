@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { HostExtension, HostExtensionContext, RuntimeExtensionFactory } from "tau/host-extension";
+import { HostCommandError, type HostExtension, type HostExtensionContext, type RuntimeExtensionFactory } from "tau/host-extension";
 import {
   EMPTY_PREVIEW_STATE,
   PREVIEW_HOST_EXTENSION_ID,
@@ -15,6 +16,8 @@ import {
   type PreviewFrame,
   type PreviewHistoryEntry,
   type PreviewImage,
+  type PreviewInputResult,
+  type PreviewLiveFrame,
   type PreviewProfiles,
   type PreviewRecording,
   type PreviewServer,
@@ -48,6 +51,8 @@ import { PreviewMiniState } from "./mini-state.js";
 import { previewTools, type PreviewToolController } from "./agent-tools.js";
 import { DEFAULT_PREVIEW_DEFAULTS, fitViewport, readAppearance, readDefaults, readViewport, readZoom, stepZoom } from "./viewport.js";
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
+import { pageInput, previewFocusKind, readPreviewInput, type PreviewPageInput } from "./remote-input.js";
+import { pinnedWindowCalls } from "../_host-window/pinned-calls.js";
 
 /** Where the view is drawn inside the window, in device-independent pixels. */
 export interface PreviewRect {
@@ -83,6 +88,8 @@ export interface PreviewSurface {
   /** A webm recording of the view: `take` answers the chunks since the last call, base64. */
   record(action: "start" | "take" | "stop", options?: { frameRate?: number }): Promise<PreviewRecordingChunks>;
   pressKey(key: string): void;
+  /** Trusted input from a device that shows the page; a surface without it cannot be driven remotely. */
+  input?(event: PreviewPageInput): Promise<void>;
   destroy(): void;
 }
 
@@ -112,6 +119,11 @@ export type PreviewPartitionCleaner = (partition: string, callClient: (command: 
 const LOAD_TIMEOUT_MS = 15_000;
 const SCREENSHOT_MAX_WIDTH = 1_280;
 const MINI_FRAME_WIDTH = 640;
+const LIVE_FRAME_WIDTH = { min: 120, max: 1_600 } as const;
+/** Clients asking within this long share one capture. */
+const LIVE_FRAME_SHARED_MS = 150;
+/** A view nobody placed yet still lays the page out at this size, so a remote device sees something. */
+const UNPLACED_RECT: PreviewRect = { x: 0, y: 0, width: 1_280, height: 800 };
 const NO_DESKTOP = "Preview needs the Tau desktop app on this host";
 const PICK_POLL_MS = 200;
 const PICK_TIMEOUT_MS = 5 * 60_000;
@@ -290,6 +302,11 @@ class PreviewController implements PreviewToolController {
 
   private actionCount = 0;
 
+  /** The one window on the host's machine the view lives in; every call goes there, whoever asks. */
+  private readonly window: ReturnType<typeof pinnedWindowCalls>;
+
+  private liveCapture: { maxWidth: number; at: number; frame: Promise<{ id: string; data: string; width: number; height: number; url: string } | null> } | undefined;
+
   constructor(
     private readonly createSurface: PreviewSurfaceFactory,
     private readonly clearPartition: PreviewPartitionCleaner,
@@ -298,7 +315,13 @@ class PreviewController implements PreviewToolController {
     this.profiles = new PreviewProfileStore(context.services.stateDir);
     this.history = new PreviewHistory(context.services.stateDir);
     this.mini = new PreviewMiniState(context.services.stateDir);
+    this.window = pinnedWindowCalls(context.services);
     void this.mini.load().then(() => this.publish());
+  }
+
+  /** The kit's window half, in the window that holds the view. */
+  windowCall(command: string, input?: unknown): Promise<unknown> {
+    return this.window.call(command, input);
   }
 
   /** The workspace of the thread whose runtime asked, which gates `file://`. */
@@ -317,7 +340,7 @@ class PreviewController implements PreviewToolController {
       onChord: (chord) => { void this.chord(chord).catch(() => undefined); },
       workspaceRoot: () => this.workspaceRoot,
       log: (label, detail) => this.context.services.log(label, detail),
-      callClient: (command, input) => this.context.services.callClient(command, input),
+      callClient: (command, input) => this.window.call(command, input),
     });
     if (!created) {
       this.available = false;
@@ -354,7 +377,9 @@ class PreviewController implements PreviewToolController {
   private place(): void {
     const view = this.view;
     if (!view) return;
-    const fitted = fitViewport(previewRect(this.bounds, view.zoomFactor()), this.viewport, this.zoom);
+    const measured = this.bounds.width > 0 && this.bounds.height > 0;
+    const rect = measured ? previewRect(this.bounds, view.zoomFactor()) : UNPLACED_RECT;
+    const fitted = fitViewport(rect, this.viewport, this.zoom);
     view.place(fitted.rect, previewVisible(this.bounds));
     view.setZoom(fitted.zoom);
   }
@@ -370,6 +395,8 @@ class PreviewController implements PreviewToolController {
     await this.recordStop().catch(() => null);
     this.view?.destroy();
     this.view = undefined;
+    this.window.release();
+    this.liveCapture = undefined;
     this.agentActions = [];
     this.publish();
     return this.state();
@@ -508,6 +535,44 @@ class PreviewController implements PreviewToolController {
     if (!view || !view.state().url) return null;
     const shot = await view.capture(MINI_FRAME_WIDTH, undefined, true);
     return { data: shot.base64, width: shot.width, height: shot.height };
+  }
+
+  /**
+   * A picture of the page for one client that shows it, at the width it asked
+   * for. Clients asking at once share a capture; one that still shows the same
+   * picture gets its id back without the bytes.
+   */
+  async liveFrame(input: unknown): Promise<PreviewLiveFrame | null> {
+    const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
+    const asked = typeof fields.maxWidth === "number" && Number.isFinite(fields.maxWidth) ? fields.maxWidth : MINI_FRAME_WIDTH;
+    const maxWidth = Math.round(Math.min(LIVE_FRAME_WIDTH.max, Math.max(LIVE_FRAME_WIDTH.min, asked)));
+    const view = this.view;
+    if (!view || !view.state().url) return null;
+    const recent = this.liveCapture;
+    const now = Date.now();
+    const shared = recent && recent.maxWidth === maxWidth && now - recent.at < LIVE_FRAME_SHARED_MS ? recent.frame : undefined;
+    const frame = shared ?? view.capture(maxWidth, undefined, true).then((shot) => shot.width > 0 && shot.height > 0
+      ? { id: createHash("sha1").update(shot.base64).digest("base64url").slice(0, 16), data: shot.base64, width: shot.width, height: shot.height, url: view.state().url }
+      : null);
+    if (!shared) this.liveCapture = { maxWidth, at: now, frame };
+    const taken = await frame.catch(() => null);
+    if (!taken) return null;
+    return taken.id === fields.since ? { id: taken.id, unchanged: true } : taken;
+  }
+
+  /**
+   * A device's tap, text or key, as trusted input to the page. The answer says
+   * whether a secret has the keyboard now, so the device masks its own field.
+   */
+  async input(raw: unknown): Promise<PreviewInputResult> {
+    const input = readPreviewInput(raw);
+    const surface = await this.loadedPage("sending it input");
+    if (!surface.input) throw new Error("This preview cannot take input from another device.");
+    await surface.input(pageInput(input, surface.viewport()));
+    this.liveCapture = undefined;
+    const focus = await surface.evaluate(pageCall(previewFocusKind), true).catch(() => "none");
+    this.publish();
+    return { focus: focus === "secret" || focus === "field" ? focus : "none" };
   }
 
   /** The agent's cursor goes where its action landed, in the page, so a recording shows it too. */
@@ -739,7 +804,7 @@ class PreviewController implements PreviewToolController {
     const id = String(fields.id);
     // The partition goes with its view: a session in use cannot be cleared under it.
     if (before === id) await this.reopenInActiveProfile();
-    await this.clearPartition(profilePartition(id), (command, value) => this.context.services.callClient(command, value))
+    await this.clearPartition(profilePartition(id), (command, value) => this.window.call(command, value))
       .catch((error: unknown) => this.context.services.log("preview.profile.clear-failed", error instanceof Error ? error.message : String(error)));
     return profiles;
   }
@@ -823,9 +888,9 @@ const DRIVES_A_WINDOW = /(?:^|__)computer_use_/u;
  * Cookie import runs where the browser sessions are: in this process when the
  * host is the window's own, else in the kit's window half.
  */
-const windowCookieImport = (context: HostExtensionContext): CookieImportWindow => process.type === "browser"
+const windowCookieImport = (callWindow: (command: string, input?: unknown) => Promise<unknown>): CookieImportWindow => process.type === "browser"
   ? { inProcess: true, call: async (command, input) => (await import("./view.js")).handleCookieImport(command.replace(/^cookie-/u, ""), input) }
-  : { inProcess: false, call: (command, input) => context.services.callClient(command, input) };
+  : { inProcess: false, call: callWindow };
 
 /**
  * Preview Kit's host entry: one browser view over the Preview panel, its
@@ -834,7 +899,7 @@ const windowCookieImport = (context: HostExtensionContext): CookieImportWindow =
  */
 export function createPreviewHostExtension(
   createSurface: PreviewSurfaceFactory = electronSurface,
-  cookieWindow: (context: HostExtensionContext) => CookieImportWindow = windowCookieImport,
+  cookieWindow: (callWindow: (command: string, input?: unknown) => Promise<unknown>) => CookieImportWindow = windowCookieImport,
   clearPartition: PreviewPartitionCleaner = electronPartitionCleaner,
 ): HostExtension {
   return {
@@ -885,8 +950,15 @@ export function createPreviewHostExtension(
       context.registerCommand("mini-frame", () => controller.miniFrame(), { access: "read" });
       context.registerCommand("mini-prefs", (input) => controller.setMiniPrefs(input));
       context.registerCommand("mini-dismiss", () => controller.dismissMini());
+      context.registerCommand("live-frame", (input) => controller.liveFrame(input), { access: "read" });
+      // Decision 7: a device that shows the page may drive it; a Read-only one only watches.
+      // A page that went away under a tap is the device's answer, not a broken kit.
+      context.registerCommand("input", (input) => controller.input(input).catch((error: unknown) => {
+        throw new HostCommandError(error instanceof Error ? error.message : String(error));
+      }));
       // Only the panel's own dialog reaches these; no agent tool imports cookies.
-      const cookies = new CookieImportHost(cookieWindow(context), {
+      // Cookies go into the view's sessions, so into the window that holds the view.
+      const cookies = new CookieImportHost(cookieWindow((command, input) => controller.windowCall(command, input)), {
         profiles: () => controller.profileList(),
         partition: profilePartition,
         reload: (profile) => controller.reloadIn(profile),

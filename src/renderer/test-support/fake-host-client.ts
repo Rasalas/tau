@@ -140,6 +140,8 @@ function defaults(): HostClient {
     retryEnvironment: async () => undefined,
     openEnvironment: async () => undefined,
     takeEnvironmentArrival: async () => undefined,
+    discoverEnvironments: async () => ({ hosts: [], serviceType: "_tau-test._tcp" }),
+    setEnvironmentPreferences: async () => undefined,
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),

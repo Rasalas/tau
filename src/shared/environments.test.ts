@@ -7,8 +7,10 @@ import {
   environmentStorageKey,
   environmentThreads,
   orderEndpoints,
+  refreshEndpoints,
   socketUrl,
 } from "./environments.js";
+import { decodeHostServerFrame } from "./host-transport.js";
 
 const session = (id: string, modifiedAt: number, extra: Partial<UiSession> = {}): UiSession => ({
   id, path: `/s/${id}.jsonl`, title: `Thread ${id}`, modifiedAt, projectPath: "/p", projectName: "p", messageCount: 1, ...extra,
@@ -24,6 +26,31 @@ describe("a machine's addresses", () => {
     ];
     expect(orderEndpoints(endpoints).map((endpoint) => endpoint.kind)).toEqual(["lan", "mdns", "tailscale", "magicdns"]);
     expect(orderEndpoints(endpoints, "https://100.64.1.2:7788/")[0]!.kind).toBe("tailscale");
+  });
+
+  it("follow the machine to new LAN addresses, keeping names, Tailscale, typed ones and the one that works", () => {
+    const saved = [
+      { url: "https://192.168.1.4:7788/", kind: "lan" as const },
+      { url: "https://192.168.1.5:7788/", kind: "lan" as const },
+      { url: "https://studio.local:7788/", kind: "mdns" as const },
+      { url: "https://100.64.1.2:7788/", kind: "tailscale" as const },
+      { url: "https://studio.example:7788/" },
+    ];
+    const fresh = [{ url: "https://10.0.0.8:7788/", kind: "lan" as const }, { url: "https://studio.local:7788/", kind: "mdns" as const }];
+    expect(refreshEndpoints(saved, fresh, "https://192.168.1.5:7788/").map((endpoint) => endpoint.url)).toEqual([
+      "https://10.0.0.8:7788/", "https://studio.local:7788/", "https://192.168.1.5:7788/", "https://100.64.1.2:7788/", "https://studio.example:7788/",
+    ]);
+    // A machine that names no address beyond loopback changes nothing.
+    expect(refreshEndpoints(saved, [])).toEqual(saved);
+  });
+
+  it("travel in a hello only as http(s) URLs of a known kind", () => {
+    const reply = { protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 0 };
+    const frame = decodeHostServerFrame({
+      type: "hello-reply", id: "h",
+      reply: { ...reply, host: { id: "host-studio", name: "studio", endpoints: [{ url: "https://10.0.0.8:7788/", kind: "lan" }, { url: "file:///etc/passwd" }, { url: "https://x:1/", kind: "moon" }] } },
+    });
+    expect(frame).toMatchObject({ type: "hello-reply", reply: { host: { id: "host-studio", endpoints: [{ url: "https://10.0.0.8:7788/", kind: "lan" }, { url: "https://x:1/" }] } } });
   });
 
   it("have their socket on the page's own origin", () => {

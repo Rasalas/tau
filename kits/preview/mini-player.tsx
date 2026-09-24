@@ -5,11 +5,10 @@ import { AgentCursorLayer } from "./agent-cursor.js";
 import type { PreviewDriver, PreviewMiniCorner, PreviewMiniPrefs, PreviewState } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenState } from "./screen-protocol.js";
 import { previewView, screenService } from "./screen-store.js";
-import { PREVIEW_PANEL, panelShown, previewKit, usePreviewState } from "./store.js";
+import { PREVIEW_PANEL, drawsFrames, panelShown, previewKit, usePreviewState } from "./store.js";
 import { floatingEnabled } from "./settings.js";
+import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 
-const FRAME_MS = 1_000;
-const FRAME_MS_LARGE = 500;
 /** How much a hover enlarges the player, before the room around it caps it. */
 const HOVER_SCALE = 2.5;
 const EDGE = 12;
@@ -90,31 +89,9 @@ function useInsets(anchor: React.RefObject<HTMLElement | null>): MiniInsets | un
   return insets;
 }
 
-/** The page as a small JPEG, fetched once a second (twice while enlarged). */
-function useBrowserFrame(active: boolean, large: boolean): Picture | undefined {
-  const [picture, setPicture] = useState<Picture | undefined>();
-  useEffect(() => {
-    if (!active) return undefined;
-    let live = true;
-    let timer: number | undefined;
-    const fetchFrame = () => {
-      if (document.visibilityState !== "visible") {
-        timer = window.setTimeout(fetchFrame, FRAME_MS);
-        return;
-      }
-      void previewKit["mini-frame"]()
-        .then((frame) => { if (live && frame) setPicture({ url: `data:image/jpeg;base64,${frame.data}`, width: frame.width, height: frame.height }); })
-        .catch(() => undefined)
-        .finally(() => { if (live) timer = window.setTimeout(fetchFrame, large ? FRAME_MS_LARGE : FRAME_MS); });
-    };
-    fetchFrame();
-    return () => {
-      live = false;
-      window.clearTimeout(timer);
-    };
-  }, [active, large]);
-  return picture;
-}
+/** A frame of the page from the host, at the width the player draws. */
+const pageFrames: LiveFrameSource = async (maxWidth, since) =>
+  await previewKit["live-frame"]({ maxWidth, ...(since ? { since } : {}) }) as LiveFrameAnswer;
 
 /** The driven window's state and latest screenshot, from Computer Use's service. */
 function useScreenFrame(service: ComputerUseScreenService | undefined, threadId: string | undefined): { state?: ScreenState; picture?: Picture } {
@@ -155,7 +132,6 @@ type Gesture = { kind: "move" | "resize"; pointerId: number; x: number; y: numbe
 function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver; state: PreviewState; insets: MiniInsets; actions: WorkbenchActions }) {
   const service = screenService.use();
   const screen = driver.source === "screen";
-  const [hovered, setHovered] = useState(false);
   const [prefs, setPrefs] = useState<PreviewMiniPrefs>(state.mini);
   const [drag, setDrag] = useState<{ dx: number; dy: number } | undefined>();
   const [resizing, setResizing] = useState(false);
@@ -163,7 +139,10 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
   const gesture = useRef<Gesture | undefined>(undefined);
   useEffect(() => setPrefs(state.mini), [state.mini]);
 
-  const browserPicture = useBrowserFrame(!screen, hovered);
+  const body = useRef<HTMLButtonElement>(null);
+  // Sized to what the player draws, so the hover's larger picture asks for a larger frame.
+  const browserFrames = useLiveFrames(screen ? undefined : pageFrames, body, { active: true });
+  const browserPicture = browserFrames.picture;
   const { state: screenState, picture: screenPicture } = useScreenFrame(screen ? service : undefined, screen ? driver.threadId : undefined);
   const picture = screen ? screenPicture : browserPicture;
 
@@ -240,10 +219,8 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
     style={style}
     aria-label="Floating preview"
     data-preview-mini={driver.source}
-    onPointerEnter={() => setHovered(true)}
-    onPointerLeave={() => setHovered(false)}
-    onFocus={() => setHovered(true)}
-    onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHovered(false); }}
+    onPointerEnter={() => browserFrames.poke()}
+    onFocus={() => browserFrames.poke()}
   >
     <header className="preview-mini-head" onPointerDown={begin("move")} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
       <span className="preview-mini-source" aria-label={sourceTitle} {...tooltipProps(sourceTitle, { side: "bottom" })}>
@@ -258,7 +235,8 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
         onClick={() => { if (thread) void actions.switchSession(thread.path); }}
       ><Bot size={12} /></button>
       <span className="spacer" />
-      {screen ? <button
+      {/* Raising the window on the host's screen helps nobody at another computer. */}
+      {screen && !drawsFrames() ? <button
         type="button"
         className="icon-button compact"
         aria-label="Jump to the app"
@@ -269,7 +247,7 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
       <button type="button" className="icon-button compact" aria-label="Open in Preview" {...tooltipProps("Open in Preview", { side: "bottom" })} onClick={openInPreview}><PanelRight size={12} /></button>
       <button type="button" className="icon-button compact" aria-label="Hide the floating preview" {...tooltipProps("Hide until an agent drives again", { side: "bottom" })} onClick={() => run(() => previewKit["mini-dismiss"]())}><X size={12} /></button>
     </header>
-    <button type="button" className={cropped ? "preview-mini-body cropped" : "preview-mini-body"} aria-label={`Open in Preview: ${sourceTitle}`} onClick={openInPreview}>
+    <button ref={body} type="button" className={cropped ? "preview-mini-body cropped" : "preview-mini-body"} aria-label={`Open in Preview: ${sourceTitle}`} onClick={openInPreview}>
       {picture ? <img src={picture.url} alt="" draggable={false} /> : <span className="preview-mini-waiting">Waiting for a picture…</span>}
       {screen && screenState ? <AgentCursorLayer actions={screenState.actions} {...(screenState.frame ? { space: { width: screenState.frame.width, height: screenState.frame.height } } : {})} /> : null}
     </button>

@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NewThreadClaimEvent, UiModel, UiSession, WorkbenchActions } from "tau";
-import { createKitHarness, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, setHostClient, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import threadRailExtension from "./desktop.js";
 import {
@@ -117,6 +118,25 @@ describe("Thread Rail on the desktop", () => {
     organizer().runMenu(thread("a"), "pin", actions);
     expect(organizer().sections([thread("a")])[0]?.threads.map((entry) => entry.id)).toEqual(["a"]);
     expect(calls("patch")).toEqual([{ patches: { a: { pinned: true, pinOrder: 0 } } }]);
+  });
+
+  it("disables what a Read-only device may not change, says why, and sends nothing", async () => {
+    const { organizer, calls, actions } = setup();
+    await flush();
+    organizer().sections([thread("a")]);
+    setHostClient(createFakeHostClient({ isReadOnly: () => true }));
+    try {
+      const items = organizer().menu(thread("a")).flatMap((section) => section.items);
+      const enabled = items.filter((item) => !item.disabled).map((item) => item.id);
+      expect(enabled).toEqual(["mark-unread", "filter-project", "copy", "project-settings"]);
+      expect(items.find((item) => item.id === "archive")?.description).toMatch(/Read only/u);
+      expect(organizer().rowActions?.(thread("a"))).toEqual([]);
+      organizer().runMenu(thread("a"), "pin", actions);
+      expect(calls("patch")).toEqual([]);
+      expect(actions.notify).toHaveBeenCalledWith(expect.stringMatching(/Read only/u));
+    } finally {
+      setHostClient(undefined);
+    }
   });
 
   it("offers the snooze clock on rows still in the rail, and runs its choice like the menu's", async () => {

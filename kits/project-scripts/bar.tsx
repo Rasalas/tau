@@ -1,6 +1,6 @@
 import { useEffect, useState, type ComponentType } from "react";
 import { Bug, Check, Ellipsis, FlaskConical, Globe, Hammer, ListChecks, Play, Square, TriangleAlert, Wrench, X } from "lucide-react";
-import { Menu, type RegionProps, type WorkbenchActions } from "tau";
+import { hostIsReadOnly, Menu, type RegionProps, type WorkbenchActions } from "tau";
 import type { ProjectScript, ScriptIcon, ScriptScope, UiScriptRun } from "./protocol.js";
 import { useProjectScripts, type ProjectScriptsStore } from "./store.js";
 
@@ -50,7 +50,8 @@ export function createQuickActions(controller: ScriptsController): ComponentType
     const scripts = state?.scripts ?? [];
     const errors = state?.problems.filter((problem) => problem.level === "error").length ?? 0;
     const runs = state ? view.runs.filter((run) => run.directory === state.directory).slice(0, VISIBLE_RUNS) : [];
-    if (!view.error && scripts.length === 0 && errors === 0 && runs.length === 0) return null;
+    // Every control here runs or stops something; a Read-only device gets none of them (ADR 0024).
+    if (hostIsReadOnly() || (!view.error && scripts.length === 0 && errors === 0 && runs.length === 0)) return null;
     const running = new Set(runs.filter((run) => run.status === "running").map((run) => run.scriptId));
 
     return (

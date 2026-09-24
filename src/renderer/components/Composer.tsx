@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, Brain, ChevronDown, Paperclip, Sparkles, Terminal, X } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, Lock, Paperclip, Sparkles, Terminal, X } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -26,6 +26,7 @@ import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import { PromptSubmitContext, type PromptSubmitAction } from "./prompt-submit";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { TaskProgress } from "./TaskProgress";
+import { useHostCapabilities } from "../use-host-capabilities";
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
 import { promptTakesFiles } from "../../shared/extension-prompt-options";
 import {
@@ -199,6 +200,7 @@ export function Composer({
   newThread?: boolean;
 }) {
   const [menu, setMenu] = useState<OpenMenu>();
+  const { readOnly } = useHostCapabilities();
   const clientStorage = useClientStorage();
   const attachmentScope = createDraftKey(draftStorageKey);
   const subscribeToScope = useCallback((listener: () => void) => scopeStore.subscribe(attachmentScope, listener), [attachmentScope, scopeStore]);
@@ -749,6 +751,18 @@ export function Composer({
     textareaRef,
     onSubmit: () => submitCurrent(),
   });
+
+  // The host refuses every send and change from a Read-only device (ADR 0024); say so instead of offering them.
+  if (readOnly) {
+    return (
+      <footer className="composer-zone" data-keybinding-context="composer">
+        <div className="composer-surface composer-read-only" role="note">
+          <Lock size={14} aria-hidden="true" />
+          <span>{prompt ? "The agent is waiting for an answer. " : ""}This device is paired Read only: it follows threads, and sending or changing them needs Full access.</span>
+        </div>
+      </footer>
+    );
+  }
 
   return (
     <footer className="composer-zone" data-keybinding-context="composer">

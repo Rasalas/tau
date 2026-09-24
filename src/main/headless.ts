@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import type { HostEvent } from "../shared/contracts.js";
 import { HOST_CAPABILITY, HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
-import { pairingUrl } from "../shared/connections.js";
+import { pairingUrl, type PairingEndpoint } from "../shared/connections.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
@@ -21,7 +21,7 @@ import { createHostMethods } from "./host-methods.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
 import { promptPairingsOnTerminal } from "./host-pairing-terminal.js";
-import { endpointOrigins, type HostConnectionsService, type HostListenInfo } from "./host-connections.js";
+import { publishedEndpoints, type HostConnectionsService, type HostListenInfo } from "./host-connections.js";
 import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { hostAllowedOrigins } from "./host-origin.js";
@@ -194,7 +194,8 @@ async function main(): Promise<void> {
       // only way a host without a window of its own reaches one. The folder
       // picker is the window's own, and only the asking client's window shows it.
       platform: {
-        callClient: (extensionId, command, input) => clientCalls.call(extensionId, command, input),
+        callClient: (extensionId, command, input, options) => clientCalls.call(extensionId, command, input, options),
+        clientWindow: (extensionId) => clientCalls.clientWindow(extensionId),
         pickDirectory: (options) => clientCalls.pickDirectory(options),
       },
       sessionUsageCachePath: join(userData, "session-usage.json"),
@@ -241,6 +242,8 @@ async function main(): Promise<void> {
   const staticOrigins = hostAllowedOrigins();
   /** Origins of the published endpoints; the socket accepts pages opened at any of them. */
   let publishedOrigins: string[] = [];
+  /** The addresses beyond loopback; a hello names them to a window that saved this host. */
+  let networkEndpoints: PairingEndpoint[] = [];
   const connectionsService = (): HostConnectionsService => ({
     access,
     listen: () => listening,
@@ -262,10 +265,13 @@ async function main(): Promise<void> {
     published: () => networkContributions.endpoints(),
   });
   const refreshOrigins = async (): Promise<void> => {
-    publishedOrigins = await endpointOrigins(connectionsService()).catch((error: unknown) => {
+    const published = await publishedEndpoints(connectionsService()).catch((error: unknown) => {
       hostLog.warn("host-network.origins-failed", error);
-      return publishedOrigins;
+      return undefined;
     });
+    if (!published) return;
+    publishedOrigins = published.origins;
+    networkEndpoints = published.network;
   };
   const methods = createHostMethods({
     clientCalls,
@@ -354,7 +360,7 @@ async function main(): Promise<void> {
     onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
-    host: { id: hostId, name: hostname().split(".")[0] || hostname() },
+    host: { id: hostId, name: hostname().split(".")[0] || hostname(), endpoints: () => networkEndpoints },
     access,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     allowedOrigins: () => [...staticOrigins, ...publishedOrigins],

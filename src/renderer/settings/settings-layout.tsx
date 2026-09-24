@@ -110,6 +110,7 @@ export function SettingsSection({ title, id, headerAction, children, plain = fal
 }
 
 function notWritableReason(setting: SettingHandle<unknown>): string {
+  if (setting.readOnly) return "This device is paired Read only: it can see settings, not change them.";
   return setting.editing === "project"
     ? "A setting of this machine. Switch the scope to This machine to change it."
     : "A setting of each project. Choose a project in the scope menu to change it.";

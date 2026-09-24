@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { ChevronRight, Laptop, Plus, RefreshCw, Server } from "lucide-react";
-import { tooltipProps, type PlatformEnvironments, type UiEnvironment, type UiEnvironmentThread, type WorkbenchActions } from "tau";
+import { Menu, tooltipProps, type PlatformEnvironments, type UiEnvironment, type UiEnvironmentThread, type WorkbenchActions } from "tau";
 import { otherMachines, shownMachine, shortAge, statusText, unavailableReason } from "./machines.js";
 import { MACHINES_SETTINGS_PAGE } from "./protocol.js";
 
@@ -149,16 +149,44 @@ export function createMachinesRailSection(environments: PlatformEnvironments) {
   };
 }
 
-/** Beside the title bar's link dot, while the window shows another machine: which one. */
+/** Beside the title bar's link dot, while the window shows another machine: which one, and the way back. */
 export function createShownMachine(environments: PlatformEnvironments) {
-  return function ShownMachine() {
+  return function ShownMachine({ actions }: { actions: WorkbenchActions }) {
     const list = useEnvironments(environments);
+    const [open, setOpen] = useState(false);
     const machine = list ? shownMachine(list) : undefined;
-    if (!machine || machine.local) return null;
+    if (!list || !machine || machine.local) return null;
+    const local = list.environments.find((environment) => environment.local);
+    const back = () => {
+      void environments.showLocal().catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+    };
     return (
-      <span className="machine-shown" role="note" aria-label={`Showing ${machine.name}`} {...tooltipProps(`This window shows ${machine.name}: its threads, files and terminals are that machine's.`, { side: "bottom" })}>
-        <MachineIcon environment={machine} size={13} />
-        <span>{machine.name}</span>
+      <span className="menu-anchor">
+        <button
+          type="button"
+          className="machine-shown"
+          aria-label={`Showing ${machine.name}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          {...tooltipProps(`This window shows ${machine.name}: its threads, files and terminals are that machine's.`, { side: "bottom" })}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <MachineIcon environment={machine} size={13} />
+          <span>{machine.name}</span>
+          {machine.readOnly ? <em className="machine-badge">Read only</em> : null}
+        </button>
+        {open ? (
+          <Menu
+            items={[{
+              id: "back",
+              label: `Back to ${local?.name ?? "this computer"}`,
+              icon: <Laptop size={13} aria-hidden="true" />,
+              description: "Shows this computer's threads in the window again",
+            }]}
+            onSelect={() => { setOpen(false); back(); }}
+            onClose={() => setOpen(false)}
+          />
+        ) : null}
       </span>
     );
   };

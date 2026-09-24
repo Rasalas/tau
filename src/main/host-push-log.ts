@@ -3,6 +3,7 @@ import {
   HOST_TRANSPORT_VERSION,
   type HostHello,
   type HostHelloReply,
+  type HostIdentity,
   type HostPush,
   type HostPushEvent,
 } from "../shared/host-transport.js";
@@ -100,7 +101,7 @@ export class HostPushLog {
 export function helloReply(
   pushLog: HostPushLog,
   hello: HostHello,
-  options: { hostVersion: string; capabilities: string[]; host?: { id: string; name: string } },
+  options: { hostVersion: string; capabilities: string[]; host?: HostIdentity },
   filter?: HostPushFilter,
 ): HostHelloReply {
   const { resync, missed } = pushLog.since(hello.lastSeq, filter);

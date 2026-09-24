@@ -1,5 +1,18 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ConfirmDialog, SettingsSection, errorMessage, type PlatformEnvironments, type UiEnvironment } from "tau";
+import {
+  ConfirmDialog,
+  NearbyMachineList,
+  SettingRow,
+  SettingsSection,
+  errorMessage,
+  type DiscoveredHost,
+  type EnvironmentPairInput,
+  type EnvironmentPairResult,
+  type PlatformEnvironments,
+  type UiDiscoveredHosts,
+  type UiEnvironment,
+  type UiEnvironments,
+} from "tau";
 import { formatDigits, statusText } from "./machines.js";
 import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
 
@@ -60,33 +73,87 @@ type AddState =
   | { kind: "busy" }
   | { kind: "done"; message: string; tone: "ok" | "problem" };
 
+function pairOutcome(result: EnvironmentPairResult): AddState {
+  switch (result.state) {
+    case "added": return { kind: "done", tone: "ok", message: `${result.environment.name} was added. Its threads are listed at the foot of the thread rail.` };
+    case "denied": return { kind: "done", tone: "problem", message: "The other machine's owner declined." };
+    case "expired": return { kind: "done", tone: "problem", message: "Nobody answered on the other machine in time. Try again and allow it there." };
+    case "cancelled": return { kind: "idle" };
+    case "failed": return { kind: "done", tone: "problem", message: result.message };
+  }
+}
+
+type Search =
+  | { status: "idle" }
+  | { status: "searching" }
+  | { status: "done"; result: UiDiscoveredHosts }
+  | { status: "error"; message: string };
+
+/**
+ * Machines that announce themselves on this network (Bonjour), each with
+ * "Add". It looks only on a click: looking is what makes macOS ask about
+ * local network access.
+ */
+function NearbyMachines({ environments, list, busy, onAdd }: {
+  environments: PlatformEnvironments;
+  list: UiEnvironments;
+  busy: boolean;
+  onAdd(host: DiscoveredHost): void;
+}) {
+  const [search, setSearch] = useState<Search>({ status: "idle" });
+  const look = () => {
+    setSearch({ status: "searching" });
+    environments.discover().then(
+      (result) => setSearch({ status: "done", result }),
+      (error: unknown) => setSearch({ status: "error", message: errorMessage(error) }),
+    );
+  };
+  const saved = new Set(list.environments.map((machine) => machine.id));
+  const action = (host: DiscoveredHost) => {
+    if (host.self) return null;
+    if (saved.has(host.hostId)) return <em className="connection-badge">Added</em>;
+    return <button type="button" className="chrome-button" disabled={busy} aria-label={`Add ${host.name}`} onClick={() => onAdd(host)}>Add</button>;
+  };
+  return (
+    <div className="machine-nearby" aria-busy={search.status === "searching"}>
+      <div className="machine-nearby-head">
+        <span>On this network</span>
+        <button type="button" className="text-button" disabled={search.status === "searching"} onClick={look}>
+          {search.status === "idle" ? "Find Machines" : search.status === "searching" ? "Looking…" : "Search Again"}
+        </button>
+      </div>
+      {search.status === "idle" ? (
+        <p className="machine-nearby-note">Finds machines whose owner turned on Local network and Announce. This computer may ask to allow local network access.</p>
+      ) : search.status === "error" ? (
+        <p className="machine-add-result problem" role="status">Looking failed: {search.message}</p>
+      ) : search.status === "done" ? (
+        <NearbyMachineList result={search.result} action={action} />
+      ) : null}
+    </div>
+  );
+}
+
 function AddMachine({ environments, busyElsewhere }: { environments: PlatformEnvironments; busyElsewhere: boolean }) {
   const [text, setText] = useState("");
   const [state, setState] = useState<AddState>({ kind: "idle" });
   const list = useEnvironments(environments);
   const pairing = list?.pairing;
+  const run = (input: EnvironmentPairInput) => {
+    if (state.kind === "busy") return;
+    setState({ kind: "busy" });
+    void environments.pair(input).then((result) => {
+      if (result.state === "added" && input.text) setText("");
+      setState(pairOutcome(result));
+    }, (error: unknown) => setState({ kind: "done", tone: "problem", message: errorMessage(error) }));
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!text.trim() || state.kind === "busy") return;
-    setState({ kind: "busy" });
-    void environments.pair({ text }).then((result) => {
-      if (result.state === "added") {
-        setText("");
-        setState({ kind: "done", tone: "ok", message: `${result.environment.name} was added. Its threads are listed at the foot of the thread rail.` });
-      } else if (result.state === "denied") {
-        setState({ kind: "done", tone: "problem", message: "The other machine's owner declined." });
-      } else if (result.state === "expired") {
-        setState({ kind: "done", tone: "problem", message: "Nobody answered on the other machine in time. Try again and allow it there." });
-      } else if (result.state === "cancelled") {
-        setState({ kind: "idle" });
-      } else if (result.state === "failed") {
-        setState({ kind: "done", tone: "problem", message: result.message });
-      }
-    }, (error: unknown) => setState({ kind: "done", tone: "problem", message: errorMessage(error) }));
+    if (text.trim()) run({ text });
   };
   const busy = state.kind === "busy" || busyElsewhere;
   return (
     <form className="machine-add" onSubmit={submit}>
+      {list ? <NearbyMachines environments={environments} list={list} busy={busy} onAdd={(host) => run({ nearby: host.hostId })} /> : null}
       <label className="machine-add-field">
         <span>Pairing link or address</span>
         <input
@@ -161,6 +228,22 @@ export function createMachinesPage(environments: PlatformEnvironments) {
             <p className="settings-group-note machine-warning">This computer offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.</p>
           )}
           <AddMachine environments={environments} busyElsewhere={!list.secureStorage} />
+        </SettingsSection>
+        <SettingsSection title="At start">
+          <SettingRow
+            title="Show the last machine again"
+            description="After a restart the window shows the machine it showed last, if it answers within a few seconds; otherwise this computer."
+            control={(
+              <button
+                type="button"
+                role="switch"
+                aria-checked={list.reopenShown === true}
+                aria-label="Show the last machine again"
+                className={`switch ${list.reopenShown ? "on" : ""}`}
+                onClick={() => void environments.setPreferences({ reopenShown: !list.reopenShown })}
+              ><i /></button>
+            )}
+          />
         </SettingsSection>
         {removing ? (
           <ConfirmDialog

@@ -5,6 +5,7 @@ import {
   getClientStorage,
   hostAvailable,
   hostHasLocalFiles,
+  hostIsReadOnly,
   readCachedTurnActivity,
   type FileNode,
   type HostActionResult,
@@ -262,7 +263,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    * left alone, and the next focus or tick asks again.
    */
   async autoPullDefaultBranch(): Promise<void> {
-    if (!this.preferences.optionValue(WORKSPACE_KIT_ID, AUTO_PULL_OPTION, false) || !hostAvailable()) return;
+    // A Read-only device's pull would be refused; the owner's own clients pull.
+    if (!this.preferences.optionValue(WORKSPACE_KIT_ID, AUTO_PULL_OPTION, false) || !hostAvailable() || hostIsReadOnly()) return;
     const workspace = this.workspace();
     if (!workspace) return;
     try {

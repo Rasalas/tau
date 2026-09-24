@@ -1,6 +1,8 @@
+import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import {
   decodeEnvironmentTarget,
   type EnvironmentPairInput,
+  type EnvironmentPreferences,
   type EnvironmentPairResult,
   type EnvironmentTarget,
   type UiEnvironments,
@@ -18,6 +20,8 @@ export interface EnvironmentsService {
   retry(id: string): void;
   open(id: string, target?: EnvironmentTarget): Promise<void>;
   takeArrival(): EnvironmentTarget | undefined;
+  discover(): Promise<UiDiscoveredHosts>;
+  setPreferences(preferences: EnvironmentPreferences): Promise<void>;
 }
 
 function text(method: string, name: string, value: unknown, max = 4_096): string {
@@ -41,11 +45,19 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
   return {
     "environments-list": async () => require().snapshot(),
     "environments-pair": async (params) => {
-      const input = params[0] as { text?: unknown; deviceName?: unknown } | undefined;
+      const input = params[0] as { text?: unknown; nearby?: unknown; deviceName?: unknown } | undefined;
       return require().pair({
-        text: text("environments-pair", "text", input?.text),
+        ...(input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text) }),
         ...(typeof input?.deviceName === "string" && input.deviceName.trim() ? { deviceName: input.deviceName.slice(0, 80) } : {}),
       });
+    },
+    "environments-discover": async () => require().discover(),
+    "environments-set-preferences": async (params) => {
+      const input = params[0] as { reopenShown?: unknown } | undefined;
+      if (typeof input?.reopenShown !== "boolean") {
+        throw Object.assign(new Error("environments-set-preferences: reopenShown must be a boolean."), { code: HOST_ERROR.invalidRequest });
+      }
+      await require().setPreferences({ reopenShown: input.reopenShown });
     },
     "environments-cancel-pairing": async () => { require().cancelPairing(); },
     "environments-rename": async (params) => ({

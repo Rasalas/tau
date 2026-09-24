@@ -40,7 +40,7 @@ export type { ConfigLayerName, SettingScope } from "../shared/config-layers";
 export { listUserThemes as userThemes } from "./theme";
 export { useClientStorage } from "./client-storage-context";
 export { getClientStorage } from "../workbench/client-storage";
-export { useHostCapabilities, hostHasLocalFiles, hostIsReadOnly } from "./use-host-capabilities";
+export { useHostCapabilities, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASON } from "./use-host-capabilities";
 export { hostAvailable } from "./host-client-context";
 export { useKeepClear } from "./reserved-region";
 export { changesSinceTurn, changesTouchedByTools, readCachedTurnActivity } from "../workbench/turn-activity";
@@ -185,6 +185,7 @@ export type { PlatformEnvironments } from "../workbench/environments";
 export type {
   EnvironmentPairInput,
   EnvironmentPairResult,
+  EnvironmentPreferences,
   EnvironmentStatus,
   EnvironmentTarget,
   UiEnvironment,
@@ -193,6 +194,9 @@ export type {
   UiEnvironmentThread,
   UiEnvironments,
 } from "../shared/environments";
+export type { DiscoveredHost, UiDiscoveredHosts } from "../shared/discovery";
+/** The hosts one Bonjour search found, with a slot per host for an action (API 1.13.0). */
+export { NearbyMachineList } from "./settings/NearbyMachineList";
 export type { ClientStorage } from "../workbench/client-storage";
 export type { ThreadActivity } from "./components/ThreadRow";
 /** The line seam of `ReviewMode`'s diffs. */

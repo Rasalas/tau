@@ -585,6 +585,8 @@ async function startEnvironments(local: WindowHost): Promise<void> {
     local: { id: localHostId, name },
     publish: (list) => publish({ type: "environments", environments: list }),
     show: showEnvironment,
+    // Looks from this machine's host, whichever machine the page shows.
+    discover: () => local.request("connections-discover", [{}]),
   });
   environments.setLocalHost(local.hostUrl, local.hostToken);
   installEnvironmentSession(session.defaultSession, environments, () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : undefined);

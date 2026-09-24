@@ -1,4 +1,4 @@
-import { app, shell, systemPreferences } from "electron";
+import { app, nativeImage, shell, systemPreferences } from "electron";
 import { execFile } from "node:child_process";
 import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
 import { WindowCapture, windowSourceId, type WindowCaptureOptions } from "../_window-capture/capture.js";
@@ -84,6 +84,18 @@ export default function activate(_context: WindowExtensionContext): WindowExtens
           const windowId = windowIdOf(input);
           if (!capture || capture.windowId !== windowId) return { ended: true };
           return capture.take();
+        }
+        case "shrink": {
+          // A driver screenshot, made small enough for a phone; only the host sends it.
+          const fields = (input ?? {}) as { data?: unknown; maxWidth?: unknown };
+          if (typeof fields.data !== "string" || typeof fields.maxWidth !== "number") throw new Error("Nothing to shrink.");
+          const image = nativeImage.createFromBuffer(Buffer.from(fields.data, "base64"));
+          if (image.isEmpty()) return null;
+          const size = image.getSize();
+          const width = Math.max(1, Math.min(size.width, Math.round(fields.maxWidth)));
+          const scaled = width < size.width ? image.resize({ width, height: Math.max(1, Math.round(size.height * (width / size.width))), quality: "good" }) : image;
+          const final = scaled.getSize();
+          return { data: scaled.toJPEG(72).toString("base64"), width: final.width, height: final.height };
         }
         case "live-stop": {
           // A late stop for the window before must not end the one that replaced it.

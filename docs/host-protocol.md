@@ -748,9 +748,13 @@ process keeps the rest:
   hello the connection asks `connections-reach` and the catalog keeps what the
   host lists; a certificate pin that just held becomes a key pin.
 - **Pairing** through [Pairing over the socket](#pairing-over-the-socket): with a
-  link's code and key, or from a bare address with the key it presents pinned
-  for the attempt. The digits are bound to that key either way; an address
-  the link names with `ca=` is checked by a CA and binds none.
+  link's code and key, from a bare address with the key it presents pinned
+  for the attempt, or without a link from a machine a [Bonjour](#bonjour)
+  search found, pinned to its record's `pk` (a record from before key pins:
+  `fp`; `environments-discover` runs `connections-discover` on the window's own
+  host, then `environments-pair [{ nearby: <host id> }]`). The digits are bound
+  to that key either way; an address the link names with `ca=` is checked by a
+  CA and binds none.
 - **Moving the page**: `environments-open [id, target?]` attaches a second
   `WindowHost` (uplink only, no window halves) to the machine and loads the page
   with `?host=<its socket>&token=<its client token>&environment=<id>`; `target`
@@ -767,9 +771,16 @@ for a CA to Chromium's own verification, and drops `Origin` on
 sockets to saved machines, because a host lets a `file://` page in over loopback
 only.
 
-A hello reply now names the machine: `host: { id, name }`, its
-`<userData>/host-id` and host name. A client that saved the machine knows it
-again whatever address reached it.
+A hello reply now names the machine: `host: { id, name, endpoints? }`, its
+`<userData>/host-id`, host name, and the addresses its network listeners have
+now (`{ url, kind }`, nothing on loopback; refreshed with the minute's network
+poll). A client that saved the machine knows it again whatever address reached
+it, and follows it: the saved LAN addresses become the ones named, while names,
+Tailscale addresses, typed ones and the one that just answered stay. A Bonjour
+record with the pinned fingerprint does the same.
+
+`environments-set-preferences [{ reopenShown }]` keeps whether the window shows
+the machine it showed last again at start; the catalog remembers which one.
 
 ## Workspace identity
 

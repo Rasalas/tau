@@ -4,6 +4,7 @@ import {
   Markdown,
   Menu,
   errorMessage,
+  hostIsReadOnly,
   tooltipProps,
   useThreadStore,
   useWorkbenchShell,
@@ -170,7 +171,8 @@ function createFollowUp(host: HostExtensionClient) {
   return function PlanFollowUp({ snapshot, actions }: RegionProps) {
     const onThread = snapshot?.sessionId !== undefined && actions.activeThread()?.sessionId === snapshot.sessionId;
     const pending = onThread && snapshot?.mode === PLAN_MODE && !snapshot.isStreaming ? pendingPlan(snapshot.messages) : undefined;
-    return pending ? <PlanReady host={host} actions={actions} plan={pending.plan} /> : null;
+    // Implementing sends a prompt; a Read-only device may not (ADR 0024).
+    return pending && !hostIsReadOnly() ? <PlanReady host={host} actions={actions} plan={pending.plan} /> : null;
   };
 }
 

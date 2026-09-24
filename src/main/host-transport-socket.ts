@@ -11,10 +11,11 @@ import {
   decodeHostSubscription,
   hostErrorInfo,
   type HostClientCall,
+  type HostIdentity,
   type HostPush,
   type HostServerFrame,
 } from "../shared/host-transport.js";
-import { ACCESS_CLOSE_REASON, type DeviceAccess } from "../shared/connections.js";
+import { ACCESS_CLOSE_REASON, type DeviceAccess, type PairingEndpoint } from "../shared/connections.js";
 import type { HostPairReply, HostPairRequest } from "../shared/pairing.js";
 import { helloReply, type HostPushLog } from "./host-push-log.js";
 import { HostPushFilter, hostPushScope } from "./host-push-scope.js";
@@ -79,7 +80,7 @@ export interface SocketHostTransportOptions {
   hostVersion: string;
   capabilities: string[];
   /** Named in every hello reply, so a saved machine is recognised whatever address reached it. */
-  host?: { id: string; name: string };
+  host?: { id: string; name: string; endpoints?(): readonly PairingEndpoint[] };
   /** The secret from `~/.tau/host-token`; every client repeats it in its hello. Ignored when `access` is given. */
   token?: string;
   /** The host token and the paired clients' tokens (ADR 0023). */
@@ -378,7 +379,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         authenticated.set(socket, session);
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
-        const reply = helloReply(options.pushLog, frame.hello, { ...options, capabilities }, filter);
+        const identity = options.host ? helloIdentity(options.host) : undefined;
+        const reply = helloReply(options.pushLog, frame.hello, { hostVersion: options.hostVersion, capabilities, ...(identity ? { host: identity } : {}) }, filter);
         const readOnly = credential.kind === "client" && (access.accessOf?.(connection) ?? "read-only") === "read-only";
         send(socket, { type: "hello-reply", id: frame.id, reply: readOnly ? { ...reply, access: "read-only" } : reply });
         if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
@@ -494,6 +496,11 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       await new Promise<void>((resolve) => http.close(() => resolve()));
     },
   };
+}
+
+function helloIdentity(host: NonNullable<SocketHostTransportOptions["host"]>): HostIdentity {
+  const endpoints = host.endpoints?.() ?? [];
+  return { id: host.id, name: host.name, ...(endpoints.length ? { endpoints: [...endpoints] } : {}) };
 }
 
 function everyInterval(tick: () => void, ms: number): () => void {

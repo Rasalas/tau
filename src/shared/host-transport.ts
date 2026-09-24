@@ -1,6 +1,7 @@
 import type { HostEvent, UiMessage, UiToolRun } from "./contracts.js";
 import { isHostUpdate, type HostUpdate } from "./host-protocol.js";
 import type { ToolOutputDelta } from "./tool-output-delta.js";
+import { decodePairingEndpoints, type PairingEndpoint } from "./connections.js";
 import { isPairingCommitment, isPairingNonce, type HostPairReply, type HostPairRequest } from "./pairing.js";
 
 /**
@@ -46,6 +47,8 @@ export const CLIENT_SIDE_METHODS = [
   "environments-retry",
   "environments-open",
   "environments-take-arrival",
+  "environments-discover",
+  "environments-set-preferences",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>
@@ -204,7 +207,14 @@ export interface HostHelloReply {
   /** Set for a device paired Read only: every call that changes something is refused (ADR 0024). */
   access?: "read-only";
   /** Which machine answered: its `<userData>/host-id` and name, so a client that saved it knows it again (ADR 0025). */
-  host?: { id: string; name: string };
+  host?: HostIdentity;
+}
+
+export interface HostIdentity {
+  id: string;
+  name: string;
+  /** The addresses its network listeners have now, so a client that saved it follows a move to another network. */
+  endpoints?: PairingEndpoint[];
 }
 
 export type HostClientFrame =
@@ -449,10 +459,11 @@ export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined
   };
 }
 
-function decodeHostIdentity(value: unknown): { host: { id: string; name: string } } | undefined {
+function decodeHostIdentity(value: unknown): { host: HostIdentity } | undefined {
   const item = record(value);
   if (!item || !nonEmptyString(item.id) || item.id.length > 128 || typeof item.name !== "string") return undefined;
-  return { host: { id: item.id, name: item.name.slice(0, 200) } };
+  const endpoints = decodePairingEndpoints(item.endpoints);
+  return { host: { id: item.id, name: item.name.slice(0, 200), ...(endpoints.length ? { endpoints } : {}) } };
 }
 
 const MAX_PAIR_CODE = 256;

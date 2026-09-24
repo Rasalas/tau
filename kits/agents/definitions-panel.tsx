@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { errorMessage, type WorkbenchActions } from "tau";
+import { errorMessage, READ_ONLY_REASON, useHostCapabilities, type WorkbenchActions } from "tau";
 import type { AgentsState } from "./protocol.js";
 import { definitionRows, type DefinitionRow } from "./model.js";
 import { agentsHost, definitionsStore } from "./store.js";
@@ -12,6 +12,7 @@ function DefinitionItem({ row, parentThreadId, actions }: {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
+  const { readOnly } = useHostCapabilities();
   const { definition } = row;
 
   const submit = (event: { preventDefault(): void }) => {
@@ -37,8 +38,8 @@ function DefinitionItem({ row, parentThreadId, actions }: {
         <button
           type="button"
           className="text-button"
-          disabled={!parentThreadId}
-          title={parentThreadId ? `Start ${definition.name} from this thread` : "Open a thread to start an agent from it"}
+          disabled={!parentThreadId || readOnly}
+          title={readOnly ? READ_ONLY_REASON : parentThreadId ? `Start ${definition.name} from this thread` : "Open a thread to start an agent from it"}
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >Start</button>
