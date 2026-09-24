@@ -279,6 +279,30 @@ describe("HostExtensionRegistry", () => {
     await expect(r.invoke("caller.kit", "who", undefined, WORKBENCH_CLIENT_PRINCIPAL)).resolves.toBeNull();
   });
 
+  it("lets a Read-only device run only commands that declared they just look, and records the rest", async () => {
+    const { registry: r } = registry();
+    let ran = 0;
+    await r.activate({
+      id: "tau.terminal",
+      name: "Terminal Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("list", () => "terminals", { access: "read" });
+        ctx.registerCommand("open", () => { ran += 1; return "opened"; });
+      },
+    });
+    const audit: Array<[string, boolean]> = [];
+    const phone = { kind: "workbench-client", connection: "c1", pairedClient: "p1", readOnly: true, audit: (action: string, allowed: boolean) => audit.push([action, allowed]) } as const;
+    await expect(r.invoke("tau.terminal", "list", undefined, phone)).resolves.toBe("terminals");
+    await expect(r.invoke("tau.terminal", "open", undefined, phone)).rejects.toMatchObject({ code: "forbidden", message: expect.stringMatching(/Read only/u) });
+    expect(ran).toBe(0);
+    // Refused before it counts as a failure of the command.
+    expect(r.isActive("tau.terminal")).toBe(true);
+    const full = { ...phone, readOnly: undefined };
+    await expect(r.invoke("tau.terminal", "open", undefined, full)).resolves.toBe("opened");
+    expect(audit).toEqual([["tau.terminal/open", false], ["tau.terminal/open", true]]);
+  });
+
   it("authorizes host-issued callers per declared command and rejects forged contexts", async () => {
     const { registry: r, services: s } = registry();
     let reviewContextId = "";

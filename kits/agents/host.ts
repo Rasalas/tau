@@ -1017,7 +1017,7 @@ export function createAgentsHostExtension(options: {
             if (changedState) { publish(); save(); }
           },
         }),
-        context.registerCommand("state", () => book.state()),
+        context.registerCommand("state", () => book.state(), { access: "read" }),
         // The panel's two row actions; the tools do the same from a turn.
         context.registerCommand("apply-changes", (input) => settleWorkspace(requireThreadId(input), "applied"), { long: true }),
         context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded"), { long: true }),
@@ -1026,7 +1026,7 @@ export function createAgentsHostExtension(options: {
           const thread = typeof sessionId === "string" && sessionId ? services.thread(sessionId) : undefined;
           const report = await definitionReader.read(thread?.cwd ?? services.cwd());
           return { directory: report.directory, definitions: report.definitions.map(summarize), problems: report.problems };
-        }),
+        }, { access: "read" }),
         // The panel's "Start": the user spawns from a definition into the thread they read.
         context.registerCommand("start", async (input) => {
           const parentThreadId = requireText(input, "parentThreadId");

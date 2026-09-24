@@ -8,10 +8,11 @@ import { setClientStorage } from "../workbench/client-storage";
 import { browserClientProfile } from "../workbench/client-profile";
 import { createSocketHostClient } from "../workbench/host-connection-socket";
 import { browserWakeSource } from "../renderer/browser-wakes";
-import { TokenGate } from "./TokenGate";
+import { PairingWait, TokenGate } from "./TokenGate";
 import { accessRefusal } from "../workbench/access-refusal";
+import { pairWithHost } from "../workbench/host-pairing";
 import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
-import { WEB_TOKEN_KEY, hostSocketUrl, resolveHostToken, takePairingCode } from "./host-token";
+import { WEB_TOKEN_KEY, hostSocketUrl, pairingNotice, takePairingCode } from "./host-token";
 import "../renderer/styles.css";
 import "../renderer/profile-compact.css";
 import "./web.css";
@@ -33,8 +34,37 @@ function showGate(notice?: string): void {
     <TokenGate
       {...(notice ? { notice } : {})}
       onSubmit={(token) => { storage.set(WEB_TOKEN_KEY, token); connect(token); }}
+      onAsk={() => pair()}
     />
   </StrictMode>);
+}
+
+/**
+ * Asks the host to let this browser in, with the link's code or without one,
+ * and waits while its owner compares the code on both screens (ADR 0024).
+ */
+function pair(code?: string): void {
+  const cancel = new AbortController();
+  const wait = (verification?: string) => root.render(<StrictMode>
+    <PairingWait {...(verification ? { verification } : {})} onCancel={() => cancel.abort()} />
+  </StrictMode>);
+  wait();
+  void pairWithHost({
+    url: hostSocketUrl(window.location),
+    ...(code ? { code } : {}),
+    signal: cancel.signal,
+    onWaiting: ({ verification }) => wait(verification),
+  }).then((result) => {
+    if (result.state === "approved") {
+      storage.set(WEB_TOKEN_KEY, result.token);
+      connect(result.token);
+      return;
+    }
+    // A browser that paired before keeps working when a second link fails.
+    const stored = storage.get(WEB_TOKEN_KEY);
+    if (stored && result.state === "refused" && result.reason === "unknown-code") connect(stored);
+    else showGate(cancel.signal.aborted ? undefined : pairingNotice(result));
+  });
 }
 
 function connect(token: string): void {
@@ -58,5 +88,8 @@ function connect(token: string): void {
 }
 
 // The pairing code is taken out of the address bar before anything renders.
-void resolveHostToken(storage, takePairingCode(window))
-  .then((token) => (token ? connect(token) : showGate()));
+const code = takePairingCode(window);
+const stored = storage.get(WEB_TOKEN_KEY);
+if (code) pair(code);
+else if (stored) connect(stored);
+else showGate();

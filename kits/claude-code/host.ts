@@ -345,8 +345,8 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           ...(updateAvailable(version) ? { update: { installed: version.installed, latest: version.latest, command: version.updateCommand } } : {}),
           ...(version?.compatibility ? { compatibility: version.compatibility, ...(version.installed ? { installed: version.installed } : {}), ...(version.updateCommand ? { updateCommand: version.updateCommand } : {}) } : {}),
         };
-      });
-      context.registerCommand("instances", () => instancesReport());
+      }, { access: "read" });
+      context.registerCommand("instances", () => instancesReport(), { access: "read" });
       // Adds or edits an instance from the Providers page; its backend is registered anew.
       context.registerCommand("save-instance", async (input) => {
         const requested = (input as { instance?: unknown } | undefined)?.instance as RuntimeInstanceConfig | undefined;
@@ -424,7 +424,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             ...(entry.usageTurns ? { turns: entry.usageTurns } : {}),
           };
         }),
-      }), { callers: [USAGE_KIT_ID] });
+      }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
       context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
       // The plan's windows, for the Usage kit: read through the CLI at most every few minutes, fresher when a turn reported them.
@@ -437,7 +437,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           await readLimits(id, adapters.get(id)!);
         }));
         return { accounts: ids.map(limitAccount) };
-      }, { long: true, callers: [USAGE_KIT_ID] });
+      }, { access: "read", long: true, callers: [USAGE_KIT_ID] });
       // Sessions the default instance's CLI ran on its own, for Onboarding to list and import as threads.
       const importDirs = () => claudeProjectDirs(settings.environment(DEFAULT_INSTANCE_ID, env));
       context.registerCommand("import-scan", async () => {

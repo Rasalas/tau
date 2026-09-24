@@ -167,7 +167,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         return sweeping;
       };
 
-      context.registerCommand("state", () => publicState());
+      context.registerCommand("state", () => publicState(), { access: "read" });
       context.registerCommand("patch", (input) => {
         const patches: Record<string, ThreadMetaPatch | null> = {};
         for (const [id, patch] of Object.entries(record(record(input).patches))) {

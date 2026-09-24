@@ -332,30 +332,39 @@ npm run build && npm run build:web
 TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=127.0.0.1:7788 node dist-electron/main/headless.js
 ```
 
-Besides the socket line, the host prints a link:
+Besides the socket line, the host prints a pairing link:
 
 ```
-web client: http://127.0.0.1:7788/#pair=<code> (single use, 10 minutes)
+web client: http://127.0.0.1:7788/#pair=<code>&host=<id>&name=<machine> (single use, 10 minutes; allow the device in Settings → Connections or here)
 ```
 
-With `TAU_HOST_TLS=1` the page and the socket are served over HTTPS on the same port, and the link starts with `https://`. A browser shows a self-signed certificate as a warning; its fingerprint should match the one the host printed.
+With `TAU_HOST_TLS=1` the page and the socket are served over HTTPS on the same port, the link starts with `https://`, and it carries the certificate's fingerprint (`fp=`). A browser shows a self-signed certificate as a warning; its fingerprint should match the one the host printed.
 
 Open it. The code lives in the URL's fragment, so it reaches neither a proxy nor an
-access log, the page replaces the address before it renders anything, and the code can
-be redeemed once. The browser gets a token of its own for it, never the host token
-(`docs/adr/0023-client-tokens-and-pairing.md`), and keeps it in `localStorage`. Without
-a link, the client shows a field where the host's owner can paste the host token — the
-line in `~/.tau/host-token` on the host machine. A token the host refuses, or one whose
-access was revoked, closes the socket and brings the field back with the reason.
+access log, and the page replaces the address before it renders anything. The page does
+not get in by itself: it asks the host, shows six digits, and waits. The host's owner
+sees "<device> wants to connect" in every Tau window that holds the host token — or, for
+a host started by hand, on its terminal — with the same digits, and allows the device
+only if they match (`docs/adr/0024-pairing-allowed-on-the-host.md`). The browser then
+gets a token of its own, never the host token, and keeps it in `localStorage`. Without a
+link, "Ask to connect" sends the same request; the host's owner can also paste the host
+token — the line in `~/.tau/host-token` on the host machine. A token the host refuses,
+one whose access was revoked, or one unused past its timeout, closes the socket and
+brings the page back with the reason.
 
 **Settings → Connections** in a Tau window manages who else may connect. It shows the
-addresses the host listens on and its certificate fingerprint, makes more pairing links
-(a label, 10 minutes to a day, single use; Copy link, and a QR code when the address is
-reachable from another device), lists the clients that paired — browser, OS, address,
-when each was last active — and revokes one, which closes its open connection at once.
-"Rotate…" replaces the host token and disconnects every other connection that used it
-(a browser paired before tokens of their own, say); paired clients keep theirs. A
-paired client cannot use the page: managing access takes the host token.
+addresses the host listens on and its certificate fingerprint, the devices waiting to be
+allowed (with their digits), and makes more pairing links (a label, 10 minutes to a day,
+Full or Read only, single use; Copy link, and a QR code when the address is reachable
+from another device — the link names every address and the fingerprint, for the app).
+It lists the paired devices — browser, OS, address, when each was last active, the last
+thing it changed, when it will be signed out unused — lets you rename one, make it Read
+only (it may look, and every change is refused) or Full, pick when it is signed out
+(30, 90 or 365 days unused, or never), revoke one or all others, which closes their open
+connections at once. "Rotate…" replaces the host token and disconnects every other
+connection that used it (a browser paired before tokens of their own, say); paired
+devices keep theirs. A paired device cannot use the page: managing access takes the
+host token.
 
 **Network access** on the same page lets the app's own host take other devices, with
 no environment variables and no restart. Two switches, off by default, combine:

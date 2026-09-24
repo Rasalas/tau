@@ -408,20 +408,24 @@ type Method = (params: readonly unknown[], context: HostMethodContext) => Promis
 
 /**
  * Settings → Connections asks the host about the service of its own machine.
- * The owner's alone, as everything on that page. The service host installing
- * or removing itself answers first; the steps that stop it run detached.
+ * Any client may read the status; installing and removing it are the owner's
+ * (`host-method-access.ts`). The service host installing or removing itself
+ * answers first; the steps that stop it run detached.
  */
 export function createHostServiceMethods(manager: () => HostServiceManager | undefined, self: { pid: number } = { pid: process.pid }): Record<string, Method> {
-  const owned = (run: (service: HostServiceManager) => Promise<unknown>): Method => async (_params, context) => {
-    if (!isHostOwner(context.principal)) {
-      throw Object.assign(new Error("Only a connection with the host token manages the host's service."), { code: HOST_ERROR.forbidden });
-    }
+  const available = (): HostServiceManager => {
     const service = manager();
     if (!service) throw Object.assign(new Error("This host cannot run as a service."), { code: HOST_ERROR.unsupported });
-    return run(service);
+    return service;
+  };
+  const owned = (run: (service: HostServiceManager) => Promise<unknown>): Method => async (_params, context) => {
+    if (!isHostOwner(context.principal)) {
+      throw Object.assign(new Error("Only a connection with the host token, on this machine, manages the host's service."), { code: HOST_ERROR.forbidden });
+    }
+    return run(available());
   };
   return {
-    "service-status": owned((service) => service.status(self)),
+    "service-status": async () => available().status(self),
     "service-install": owned(async (service) => {
       const serving = (await service.status(self)).serving;
       await service.install({ detached: serving });

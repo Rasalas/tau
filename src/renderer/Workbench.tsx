@@ -15,6 +15,7 @@ import { ComposerHost, LiveStatus, TurnErrorLine } from "./components/ComposerHo
 import { useThreadShell } from "./use-thread-shell";
 import { QueuedMessages } from "./deferred-surfaces";
 import { ToastLayer } from "./components/ui/ToastLayer";
+import { PairingRequestWatcher } from "./pairing/PairingRequestWatcher";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";
 import type { ToastStore } from "../workbench/toast-store";
@@ -483,6 +484,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     <ToastLayer store={toasts} />
     <TooltipLayer />
     <ContextMenuLayer />
+    <PairingRequestWatcher onNotify={actions.notify} />
   </>;
 
   const activeOverlay = registry.getOverlay(activeOverlayId);

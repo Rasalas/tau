@@ -39,7 +39,7 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
-import type { UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
+import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
@@ -179,11 +179,17 @@ export interface HostClient {
   getVersions(): { host?: string; window?: string };
   onVersions(listener: () => void): () => void;
 
-  // Who else may connect to the host (Settings → Connections, ADR 0023). The owner's alone.
+  // Who else may connect to the host (Settings → Connections, ADR 0023, ADR 0024). The owner's alone.
   listConnections(): Promise<UiConnections>;
-  createPairingLink(input?: { label?: string; lifetimeMs?: number }): Promise<UiCreatedPairingLink>;
+  createPairingLink(input?: { label?: string; lifetimeMs?: number; access?: DeviceAccess }): Promise<UiCreatedPairingLink>;
   revokePairingLink(id: string): Promise<{ revoked: boolean }>;
   revokeClient(id: string): Promise<{ revoked: boolean }>;
+  /** Signs out every paired device; answers how many. */
+  revokeOtherClients(): Promise<{ revoked: number }>;
+  updateClient(id: string, update: UiClientUpdate): Promise<{ updated: boolean }>;
+  /** Lets a waiting device in; false when it stopped waiting. */
+  approvePairing(id: string, choice?: { access?: DeviceAccess; label?: string }): Promise<{ approved: boolean }>;
+  denyPairing(id: string): Promise<{ denied: boolean }>;
   /** Closes every other connection on the old host token; this one carries on with the new one. */
   rotateHostToken(): Promise<void>;
   /** Opens or closes the listeners beyond loopback in the running host. */
@@ -332,6 +338,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     createPairingLink: (input) => call<UiCreatedPairingLink>("connections-create-link", [input ?? {}]),
     revokePairingLink: (id) => call<{ revoked: boolean }>("connections-revoke-link", [id]),
     revokeClient: (id) => call<{ revoked: boolean }>("connections-revoke-client", [id]),
+    revokeOtherClients: () => call<{ revoked: number }>("connections-revoke-others"),
+    updateClient: (id, update) => call<{ updated: boolean }>("connections-update-client", [id, update]),
+    approvePairing: (id, choice) => call<{ approved: boolean }>("connections-approve", [id, choice ?? {}]),
+    denyPairing: (id) => call<{ denied: boolean }>("connections-deny", [id]),
     rotateHostToken: async () => {
       const { token } = await call<{ token: string }>("connections-rotate-host-token");
       connection.updateToken(token);

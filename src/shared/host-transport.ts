@@ -1,6 +1,7 @@
 import type { HostEvent, UiMessage, UiToolRun } from "./contracts.js";
 import { isHostUpdate, type HostUpdate } from "./host-protocol.js";
 import type { ToolOutputDelta } from "./tool-output-delta.js";
+import { isPairingCommitment, isPairingNonce, type HostPairReply, type HostPairRequest } from "./pairing.js";
 
 /**
  * The client-to-host protocol. Electron IPC is one transport for it, a local
@@ -163,11 +164,17 @@ export interface HostHelloReply {
   missed: HostPush[];
   /** Sequence the next push will use, so a resyncing client can skip ahead. */
   nextSeq: number;
+  /** Set for a device paired Read only: every call that changes something is refused (ADR 0024). */
+  access?: "read-only";
 }
 
 export type HostClientFrame =
   | { type: "hello"; id: string; hello: HostHello }
   | { type: "request"; request: HostRequest }
+  /** Asks to pair before any hello; answered with one or more `pair-reply` frames of the same id (ADR 0024). */
+  | { type: "pair"; id: string; pair: HostPairRequest }
+  /** The nonce a `pair` request committed to, after the host's `challenge`. */
+  | { type: "pair-reveal"; id: string; nonce: string }
   /** A heartbeat; only after the hello was answered, and only to a host that announced `heartbeat`. */
   | { type: "ping"; id: string };
 
@@ -177,6 +184,7 @@ export type HostServerFrame =
   | { type: "push"; push: HostPush }
   /** Sent to one connection only, outside the push sequence: never replayed, never seen by another client. */
   | { type: "client-call"; call: HostClientCall }
+  | { type: "pair-reply"; id: string; reply: HostPairReply }
   | { type: "pong"; id: string };
 
 /**
@@ -366,7 +374,55 @@ export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined
     resync: item.resync,
     missed: missedFrames as HostPush[],
     nextSeq: item.nextSeq as number,
+    ...(item.access === "read-only" ? { access: "read-only" as const } : {}),
   };
+}
+
+const MAX_PAIR_CODE = 256;
+const MAX_DEVICE_NAME = 200;
+
+function decodePairRequest(value: unknown): HostPairRequest | undefined {
+  const item = record(value);
+  if (!item) return undefined;
+  if (item.code !== undefined && !(nonEmptyString(item.code) && item.code.length <= MAX_PAIR_CODE)) return undefined;
+  if (item.name !== undefined && !(typeof item.name === "string" && item.name.length <= MAX_DEVICE_NAME)) return undefined;
+  if (item.commitment !== undefined && !isPairingCommitment(item.commitment)) return undefined;
+  return {
+    ...(typeof item.code === "string" ? { code: item.code } : {}),
+    ...(typeof item.name === "string" && item.name.trim() ? { name: item.name } : {}),
+    ...(typeof item.commitment === "string" ? { commitment: item.commitment } : {}),
+  };
+}
+
+const PAIR_REFUSALS = new Set(["unknown-code", "busy", "rate-limited", "invalid"]);
+
+export function decodePairReply(value: unknown): HostPairReply | undefined {
+  const item = record(value);
+  if (!item) return undefined;
+  switch (item.state) {
+    case "challenge":
+      return nonEmptyString(item.requestId) && isPairingNonce(item.hostNonce)
+        ? { state: "challenge", requestId: item.requestId, hostNonce: item.hostNonce } : undefined;
+    case "waiting":
+      return nonEmptyString(item.requestId) && /^\d{6}$/u.test(String(item.verification)) && typeof item.expiresAt === "string"
+        ? { state: "waiting", requestId: item.requestId, verification: String(item.verification), expiresAt: item.expiresAt } : undefined;
+    case "approved":
+      return nonEmptyString(item.token) && nonEmptyString(item.clientId) && (item.access === "full" || item.access === "read-only")
+        ? { state: "approved", token: item.token, clientId: item.clientId, access: item.access } : undefined;
+    case "denied":
+    case "expired":
+      return { state: item.state };
+    case "refused":
+      return typeof item.reason === "string" && PAIR_REFUSALS.has(item.reason)
+        ? {
+          state: "refused",
+          reason: item.reason as Extract<HostPairReply, { state: "refused" }>["reason"],
+          ...(count(item.retryAfterMs) ? { retryAfterMs: item.retryAfterMs as number } : {}),
+        }
+        : undefined;
+    default:
+      return undefined;
+  }
 }
 
 export function decodeHostClientFrame(value: unknown): HostClientFrame | undefined {
@@ -379,6 +435,13 @@ export function decodeHostClientFrame(value: unknown): HostClientFrame | undefin
   if (item.type === "request") {
     const request = decodeHostRequest(item.request);
     return request ? { type: "request", request } : undefined;
+  }
+  if (item.type === "pair") {
+    const pair = decodePairRequest(item.pair);
+    return pair && nonEmptyString(item.id) ? { type: "pair", id: item.id, pair } : undefined;
+  }
+  if (item.type === "pair-reveal") {
+    return nonEmptyString(item.id) && isPairingNonce(item.nonce) ? { type: "pair-reveal", id: item.id, nonce: item.nonce } : undefined;
   }
   if (item.type === "ping") return nonEmptyString(item.id) && item.id.length <= MAX_WINDOW_ID ? { type: "ping", id: item.id } : undefined;
   return undefined;
@@ -402,6 +465,10 @@ export function decodeHostServerFrame(value: unknown): HostServerFrame | undefin
   if (item.type === "client-call") {
     const call = decodeHostClientCall(item.call);
     return call ? { type: "client-call", call } : undefined;
+  }
+  if (item.type === "pair-reply") {
+    const reply = decodePairReply(item.reply);
+    return reply && nonEmptyString(item.id) ? { type: "pair-reply", id: item.id, reply } : undefined;
   }
   if (item.type === "pong") return nonEmptyString(item.id) ? { type: "pong", id: item.id } : undefined;
   return undefined;

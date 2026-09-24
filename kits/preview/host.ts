@@ -847,7 +847,7 @@ export function createPreviewHostExtension(
       context.registerCommand("navigate", (input) => controller.navigate(input));
       context.registerCommand("close", () => controller.close());
       context.registerCommand("bounds", (input) => { controller.setBounds(readPreviewBounds(input)); });
-      context.registerCommand("state", () => controller.state());
+      context.registerCommand("state", () => controller.state(), { access: "read" });
       // The window half reports what the page did and the chords it took; core only routes them here.
       context.registerCommand("view-changed", (input) => controller.acceptRemoteState(input));
       const field = (input: unknown, key: string): unknown => input && typeof input === "object" ? (input as Record<string, unknown>)[key] : undefined;
@@ -856,7 +856,7 @@ export function createPreviewHostExtension(
         if (chord === "reload" || chord === "hard-reload" || chord === "zoom-in" || chord === "zoom-out" || chord === "zoom-reset") return controller.chord(chord);
         throw new Error("Unknown preview chord.");
       });
-      context.registerCommand("ports", (input) => controller.ports(field(input, "cwd")));
+      context.registerCommand("ports", (input) => controller.ports(field(input, "cwd")), { access: "read" });
       context.registerCommand("pick", () => controller.pick());
       context.registerCommand("pick-cancel", () => controller.cancelPick());
       context.registerCommand("annotate", (input) => controller.annotate(field(input, "tool")));
@@ -864,7 +864,7 @@ export function createPreviewHostExtension(
       context.registerCommand("annotate-send", () => controller.annotateSend());
       context.registerCommand("record-start", () => controller.recordStart());
       context.registerCommand("record-stop", () => controller.recordStop());
-      context.registerCommand("profiles", () => controller.profileList());
+      context.registerCommand("profiles", () => controller.profileList(), { access: "read" });
       context.registerCommand("use-profile", (input) => controller.useProfile(field(input, "name")));
       context.registerCommand("rename-profile", (input) => controller.renameProfile(input));
       context.registerCommand("delete-profile", (input) => controller.deleteProfile(input));
@@ -880,9 +880,9 @@ export function createPreviewHostExtension(
         return controller.setAppearance(appearance);
       });
       context.registerCommand("defaults", (input) => controller.setDefaults(input));
-      context.registerCommand("history", () => controller.historyList());
+      context.registerCommand("history", () => controller.historyList(), { access: "read" });
       context.registerCommand("forget", (input) => controller.forget(input));
-      context.registerCommand("mini-frame", () => controller.miniFrame());
+      context.registerCommand("mini-frame", () => controller.miniFrame(), { access: "read" });
       context.registerCommand("mini-prefs", (input) => controller.setMiniPrefs(input));
       context.registerCommand("mini-dismiss", () => controller.dismissMini());
       // Only the panel's own dialog reaches these; no agent tool imports cookies.

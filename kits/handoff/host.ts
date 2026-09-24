@@ -188,7 +188,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         return transfer;
       };
 
-      context.registerCommand("state", () => lineage());
+      context.registerCommand("state", () => lineage(), { access: "read" });
 
       context.registerCommand("create-transfer", async (input): Promise<CreateTransferResult> => {
         const target = required(input, "target");

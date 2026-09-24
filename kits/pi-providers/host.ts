@@ -67,7 +67,7 @@ export function createPiProvidersHostExtension(): HostExtension {
         if (!provider) throw new HostCommandError(`Pi knows no provider “${id}”.`);
         return provider;
       };
-      context.registerCommand(PROVIDERS_COMMAND, async () => (await seam().providers()).map(view));
+      context.registerCommand(PROVIDERS_COMMAND, async () => (await seam().providers()).map(view), { access: "read" });
       const signIn = registerSignIn(context, {
         report: async (id) => {
           const provider = await find(id);

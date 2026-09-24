@@ -398,6 +398,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
             {
               ...(message.long ? { long: true } : {}),
               ...(callers.length > 0 ? { callers } : {}),
+              ...(message.access === "read" ? { access: "read" as const } : {}),
             },
           ));
         } catch (error) {

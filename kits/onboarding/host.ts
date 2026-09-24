@@ -130,7 +130,7 @@ export function createOnboardingHostExtension(options: OnboardingHostOptions = {
       context.registerCommand("state", async (): Promise<WelcomeState> => {
         const done = await completed();
         return { completed: done, firstStart: !done && (await services.sessions.list()).length === 0 };
-      });
+      }, { access: "read" });
       context.registerCommand("complete", async () => {
         await mkdir(services.stateDir, { recursive: true });
         await writeFile(stateFile, `${JSON.stringify({ completedAt: new Date().toISOString() })}\n`);

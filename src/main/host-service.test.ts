@@ -250,11 +250,13 @@ describe("a platform without a known service manager", () => {
 });
 
 describe("the Connections methods", () => {
-  it("are the owner's alone", async () => {
+  it("show the status to any client and leave installing and removing to the owner", async () => {
     const { service } = manager("darwin");
     const methods = createHostServiceMethods(() => service);
     const paired = { principal: { kind: "workbench-client", pairedClient: "phone" } } as HostMethodContext;
-    await expect(methods["service-status"]!([], paired)).rejects.toMatchObject({ code: "forbidden" });
+    expect(await methods["service-status"]!([], paired)).toMatchObject({ installed: false });
+    await expect(methods["service-install"]!([], paired)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(methods["service-uninstall"]!([], paired)).rejects.toMatchObject({ code: "forbidden" });
     expect(await methods["service-status"]!([], owner)).toMatchObject({ installed: false });
   });
 
