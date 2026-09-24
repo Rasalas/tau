@@ -387,7 +387,7 @@ export function SettingsScreen({
               ) : page === "inspector" ? (
                 <InspectorPage registry={registry} cwd={snapshot?.cwd} />
               ) : page === "connections" ? (
-                <ConnectionsPage onNotify={onNotify} />
+                <ConnectionsPage onNotify={onNotify} sections={registry.getSettingsSections("connections")} />
               ) : page === "about" ? (
                 <AboutPage />
               ) : active ? (

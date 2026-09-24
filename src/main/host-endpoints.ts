@@ -40,6 +40,8 @@ export interface EndpointNames {
 const ORDER: Record<string, number> = { lan: 0, mdns: 1, magicdns: 2, tailscale: 3, "lan-6": 4, "tailscale-6": 5, loopback: 6 };
 
 function rank(endpoint: UiHostEndpoint): number {
+  // No certificate warning and no pinning: the one a browser on another device opens best.
+  if (endpoint.trustedCertificate) return -1;
   return ORDER[`${endpoint.kind ?? "lan"}${endpoint.ipv6 ? "-6" : ""}`] ?? 9;
 }
 

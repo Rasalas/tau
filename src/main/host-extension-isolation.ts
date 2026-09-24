@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { build } from "esbuild";
 import type { UiToolRun } from "../shared/contracts.js";
+import type { UiHostEndpoint } from "../shared/connections.js";
 import type {
   DirectoryPickerOptions,
   HostClientObserver,
@@ -326,6 +327,24 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
         registrations.set(handle, dispose);
         return handle;
       }
+      case "network.state": return services.network?.state();
+      case "network.holdProxy": {
+        if (!services.network) throw new Error("This host opens no listeners of its own.");
+        const release = await services.network.holdProxy();
+        const handle = nextHandle++;
+        registrations.set(handle, release);
+        return handle;
+      }
+      case "network.keepProxy": {
+        if (!services.network) throw new Error("This host opens no listeners of its own.");
+        return services.network.keepProxy(args[0] === true);
+      }
+      case "network.publishEndpoints": {
+        if (!services.network) throw new Error("This host opens no listeners of its own.");
+        const handle = nextHandle++;
+        registrations.set(handle, services.network.publishEndpoints(Array.isArray(args[0]) ? args[0] as UiHostEndpoint[] : []));
+        return handle;
+      }
       case "observeConfigChanges": {
         const handle = nextHandle++;
         const dispose = services.observeConfigChanges((change) => { void hookCall(handle, "changed", [change]); });
@@ -398,7 +417,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
             {
               ...(message.long ? { long: true } : {}),
               ...(callers.length > 0 ? { callers } : {}),
-              ...(message.access === "read" ? { access: "read" as const } : {}),
+              ...(message.access === "read" || message.access === "owner" ? { access: message.access } : {}),
             },
           ));
         } catch (error) {
