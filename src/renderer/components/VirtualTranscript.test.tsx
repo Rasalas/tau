@@ -652,6 +652,8 @@ describe("virtual transcript", () => {
         container.scrollTop -= 240;
         await act(async () => { container.dispatchEvent(new Event("scroll")); });
         await harness.flushFrames();
+        // Now and then the scroll settles too: virtual-core reports that 150 ms after the last event.
+        if (step % 8 === 0) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
         for (const row of visible) expect(rowTop(container, row.id)).toBe(row.top + 240);
       }
     } finally {
