@@ -17,6 +17,8 @@ export type HostCredential = { kind: "owner" } | { kind: "client"; clientId: str
 /** What a transport knows about the peer behind a connection. */
 export interface AccessPeer {
   address?: string;
+  /** Who the proxy in front of the connection named; shown, never trusted. */
+  proxyUser?: string;
   userAgent?: string;
   profile?: string;
   /** The window process beside a renderer, or a probe: served, closed on rotation, never listed. */
@@ -252,10 +254,12 @@ export class HostAccess {
     this.pruneLinks();
     const currentCredential = this.credentialOf(current);
     const counts = new Map<string, number>();
+    const proxyUsers = new Map<string, string>();
     const owners: UiOwnerConnection[] = [];
     for (const connection of this.live.values()) {
       if (connection.credential.kind === "client") {
         counts.set(connection.credential.clientId, (counts.get(connection.credential.clientId) ?? 0) + 1);
+        if (connection.peer.proxyUser) proxyUsers.set(connection.credential.clientId, connection.peer.proxyUser);
         continue;
       }
       if (connection.peer.auxiliary) continue;
@@ -267,6 +271,7 @@ export class HostAccess {
         current: connection.id === current,
         ...(connection.peer.profile ? { profile: connection.peer.profile } : {}),
         ...(address ? { address } : {}),
+        ...(connection.peer.proxyUser ? { proxyUser: connection.peer.proxyUser } : {}),
       });
     }
     const clients = [...this.clients.values()].map((client): UiPairedClient => ({
@@ -278,6 +283,7 @@ export class HostAccess {
       current: currentCredential?.kind === "client" && currentCredential.clientId === client.id,
       ...(client.lastSeenAt ? { lastSeenAt: client.lastSeenAt } : {}),
       ...(client.lastAddress ? { lastAddress: client.lastAddress } : {}),
+      ...(proxyUsers.has(client.id) ? { proxyUser: proxyUsers.get(client.id)! } : {}),
     }));
     clients.sort((a, b) => Number(b.current) - Number(a.current)
       || Number(b.connections > 0) - Number(a.connections > 0)

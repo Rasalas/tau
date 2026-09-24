@@ -29,6 +29,8 @@ export interface UiPairedClient {
   lastSeenAt?: string;
   /** The address it last connected from; behind a proxy, the one the proxy forwarded. */
   lastAddress?: string;
+  /** Who the proxy in front of an open connection named (Tailscale Serve's user login). Shown, never trusted. */
+  proxyUser?: string;
   /** Open connections with this client's token right now. */
   connections: number;
   /** The connection asking is this client. */
@@ -41,6 +43,8 @@ export interface UiOwnerConnection {
   profile?: string;
   device: UiClientDevice;
   address?: string;
+  /** Who the proxy in front of it named; see `UiPairedClient.proxyUser`. */
+  proxyUser?: string;
   since: string;
   current: boolean;
 }
