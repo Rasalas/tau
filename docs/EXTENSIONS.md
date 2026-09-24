@@ -51,6 +51,11 @@ A package has up to two halves, sharing one `id`:
   reads Workspace Kit's changes and diffs this way). Those commands belong to
   that extension's contract, not to core: an invoke fails like any other when
   it is not installed.
+  Any client that may use the host may call a host command. A command that
+  changes who can reach the host registers with `{ owner: true }` (new in API
+  1.13.0): a paired device is refused with `HostAuthorizationError`, and only a
+  connection with the host token, the window and the host itself get through.
+  Tailscale's `serve-on` and `serve-off` are such commands.
 
 Either entry may be omitted, but not both. `id` is lowercase, dot-separated
 (`vendor.name`), and must be the same string both halves export — the
@@ -1870,6 +1875,33 @@ without asking the host what changed. `context.events.on("host-connection", …)
 `resyncing` or `refused` — whenever the window's link to the host changes;
 `connected` after any other state means it is back.
 
+### Network access: `services.network` (new in API 1.13.0)
+
+`services.network` is how a package takes part in Settings → Connections →
+Network access. It is gated by `network` and absent (in a worker: `state()`
+answers `undefined`) on a host that opens no listeners of its own, such as an
+in-process one.
+
+| Member | What it does |
+|---|---|
+| `state()` | The `UiNetworkAccess` Connections shows: the switches, the ports, what listens, the problems, the certificate. `proxyHeld` says a package holds the proxy listener. |
+| `holdProxy()` | Keeps the loopback proxy listener (`settings.proxyPort`, plain HTTP, every peer counted as remote, no `local-files`) open whatever the switches say, until the returned function runs. Resolves once the listeners followed; a port that would not open is in `state().problems`. For a reverse proxy the package set up on this machine. |
+| `publishEndpoints(endpoints)` | Adds addresses only the package knows — a proxy's public name — to Connections' list, to every pairing link, and to the page origins the socket accepts. Only an `http(s)` URL without credentials or fragment is taken, as `reachability: "network"`; `trustedCertificate: true` (https only) says a proxy answers there with a certificate browsers trust, so it ranks first and a client does not pin the host's fingerprint for it. The returned function withdraws the list; publish again to change it. |
+
+Everything a package asked for is dropped with it: a worker's holds and
+endpoints go when the worker stops. Tailscale (`kits/tailscale/`) is the
+shipped caller: it holds the proxy listener and publishes
+`https://<machine>.<tailnet>.ts.net/` while `tailscale serve` forwards there.
+Behind the proxy listener the host also reads `Tailscale-User-Login` and shows
+it beside the client in Connections — never as a login.
+
+On the desktop side, `registerSettingsSection({ id, page, order?, Component })`
+(new in API 1.13.0) adds a section to one of core's Settings pages, below
+core's own sections; `page` is `"connections"` so far. The component gets
+`onNotify` and `onChanged`, which reads the page's own data again after the
+section changed something it shows (a new endpoint in the address list). It is
+profile-scoped like a panel.
+
 ### Reaching the user outside the window: `context.attention`
 
 `context.attention` on the desktop half is the client's `Platform.attention`
@@ -1927,7 +1959,7 @@ A package's `permissions` array draws from a fixed list
 | `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and provide and read turn attachments. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
-| `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
+| `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
@@ -1966,9 +1998,9 @@ and is logged as `host-extension.denied` (`guardedServices`, wraps
 `HostExtensionServices`; the same check runs for a worker's calls, dispatched
 into the identical guarded facade from the main side).
 
-`network` is the one permission not in `HOST_SERVICE_PERMISSIONS`: a package
-that dials out never asks the host for anything, so there is no member to gate.
-The worker enforces it for itself instead — see §6. `process` is enforced in
+`network` gates one facade member, `services.network` (the host's own
+listeners); dialling out asks the host for nothing, so for that the worker
+enforces the grant itself instead — see §6. `process` is enforced in
 both places: the facade members are guarded on the main side, and the worker
 refuses `child_process` for itself. For an `in-process` package neither is
 enforced, because a package running in the host process can reach everything

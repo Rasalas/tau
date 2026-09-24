@@ -325,6 +325,18 @@ carries all of them. Turning a switch off closes its listener and every connecti
 that came through it. A host you start by hand opens a proxy listener with
 `TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>`. The installed app ships the web client.
 
+**Tailscale HTTPS**, in the Tailscale section below, has `tailscale serve` answer at
+`https://<machine>.<tailnet>.ts.net/` in your tailnet with a certificate every browser
+trusts, and forward to that proxy listener; neither switch has to be on. It needs
+MagicDNS and HTTPS certificates turned on in the Tailscale admin console, and the section
+says so while they are off. Before anything changes Tau asks, and says what it costs:
+every certificate is written to the public Certificate Transparency logs, so the
+machine's name becomes public for good. Rename the machine first if the name says too
+much. Serve keeps forwarding after Tau quits (the address answers with an error then);
+turning the switch off removes only Tau's path. On Linux, `tailscale serve` needs root
+or an operator: run `sudo tailscale set --operator=$USER` once. Tau never runs
+`tailscale funnel`, so nothing is published to the internet.
+
 The client is the same workbench: the same transcript, composer, thread list, Pi dialogs
 and Agents panel, reading the same stores over the same protocol. What differs is what it
 can draw. A browser has no editor and no Electron window, so contributions that need one
