@@ -27,6 +27,8 @@ import { createWebClientServer } from "./host-web-server.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
+import { ServiceAnnouncer, discoverHosts } from "./host-discovery.js";
+import { TAU_SERVICE_TYPE, isServiceType } from "../shared/discovery.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
@@ -50,6 +52,9 @@ const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless"
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
 // A loopback listener for a reverse proxy on this machine; every peer on it counts as remote.
 const proxyListen = process.env.TAU_HOST_PROXY_LISTEN;
+// Isolated instances and tests announce and browse `_tau-test._tcp`, never the real type.
+const bonjourType = process.env.TAU_BONJOUR_SERVICE_TYPE || TAU_SERVICE_TYPE;
+if (!isServiceType(bonjourType)) throw new Error(`TAU_BONJOUR_SERVICE_TYPE must look like _name._tcp; ${bonjourType} does not.`);
 /** How often network access looks again at Tailscale's addresses and the certificate files. */
 const NETWORK_POLL_MS = 60_000;
 // A supervised host is told which version it belongs to; a hand-started one
@@ -175,6 +180,7 @@ async function main(): Promise<void> {
       },
     } : {}),
     reloadCertificates,
+    discover: async (options) => ({ ...(await discoverHosts(bonjourType, { ...options, ownHostId: hostId })), serviceType: bonjourType }),
   });
   const refreshOrigins = async (): Promise<void> => {
     publishedOrigins = await endpointOrigins(connectionsService()).catch((error: unknown) => {
@@ -306,7 +312,15 @@ async function main(): Promise<void> {
     console.log(`tau-host proxy listener on http://${host}:${typeof address === "object" && address ? address.port : port}`);
   }
   // Settings → Connections: the listeners beyond loopback, off until the owner turns them on.
-  network = await HostNetworkAccess.open({ userData, attach: socket.attach, ...(web ? { web: web.handler } : {}), logger: hostLog });
+  // Its state reaches an owner's window the way every other Connections change does.
+  const announcer = new ServiceAnnouncer({ logger: hostLog, onChange: () => publish({ type: "connections-changed" }) });
+  network = await HostNetworkAccess.open({
+    userData,
+    attach: socket.attach,
+    ...(web ? { web: web.handler } : {}),
+    logger: hostLog,
+    bonjour: { announcer, serviceType: bonjourType, hostId, name: hostname() },
+  });
   await refreshOrigins();
   for (const listener of network.state().listeners) hostLog.info("host-network.open-at-start", listener);
   networkPoll = setInterval(() => {

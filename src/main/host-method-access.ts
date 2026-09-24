@@ -94,6 +94,7 @@ export const HOST_METHOD_ACCESS = {
   "connections-rotate-host-token": "owner",
   "connections-set-network": "owner",
   "connections-reload-certificate": "owner",
+  "connections-discover": "owner",
   "host.shutdown": "owner",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",

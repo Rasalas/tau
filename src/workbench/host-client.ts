@@ -40,6 +40,7 @@ import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
 import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
+import type { UiDiscoveredHosts } from "../shared/discovery";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
@@ -196,6 +197,8 @@ export interface HostClient {
   setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
   /** Reads the served certificates again; `changed` when a listener now serves another one. */
   reloadCertificate(): Promise<{ changed: boolean }>;
+  /** Tau hosts that announce themselves on the host's network, after a few seconds of looking. */
+  discoverHosts(options?: { timeoutMs?: number }): Promise<UiDiscoveredHosts>;
 }
 
 /**
@@ -343,5 +346,6 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     },
     setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
     reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
+    discoverHosts: (options) => call<UiDiscoveredHosts>("connections-discover", [options ?? {}]),
   };
 }

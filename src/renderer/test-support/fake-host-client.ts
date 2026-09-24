@@ -120,6 +120,7 @@ function defaults(): HostClient {
     rotateHostToken: async () => undefined,
     setNetworkAccess: async () => { throw Object.assign(new Error("No network access in tests."), { code: "unsupported" }); },
     reloadCertificate: async () => ({ changed: false }),
+    discoverHosts: async () => ({ hosts: [], serviceType: "_tau-test._tcp" }),
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),
