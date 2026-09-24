@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyModifiers, arrowSequence, compactFontSize, DEFAULT_COMPACT_FONT_SIZE, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
+  applyModifiers, arrowSequence, dragLines, compactFontSize, DEFAULT_COMPACT_FONT_SIZE, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
   stepCompactFontSize, TOUCH_KEYS, type TouchModifier,
 } from "./touch-keys.js";
 
@@ -69,5 +69,22 @@ describe("the compact text size", () => {
     expect(stepCompactFontSize(11, 1)).toBe(12);
     expect(stepCompactFontSize(MIN_COMPACT_FONT_SIZE, -1)).toBe(MIN_COMPACT_FONT_SIZE);
     expect(stepCompactFontSize(MAX_COMPACT_FONT_SIZE, 1)).toBe(MAX_COMPACT_FONT_SIZE);
+  });
+});
+
+describe("dragLines", () => {
+  it("scrolls a line per cell the finger moved, older lines for a pull down", () => {
+    expect(dragLines(0, 30, 14)).toEqual({ lines: -2, carry: 2 });
+    expect(dragLines(0, -15, 14)).toEqual({ lines: 1, carry: -1 });
+  });
+
+  it("carries what is left of a line to the next move", () => {
+    const first = dragLines(0, 10, 14);
+    expect(first.lines).toBe(0);
+    expect(dragLines(first.carry, 5, 14)).toEqual({ lines: -1, carry: 1 });
+  });
+
+  it("scrolls nothing before the cell has a size", () => {
+    expect(dragLines(0, 40, 0)).toEqual({ lines: 0, carry: 0 });
   });
 });

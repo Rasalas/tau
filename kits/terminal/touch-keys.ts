@@ -95,3 +95,17 @@ export function compactFontSize(raw: string | null | undefined): number {
 export function stepCompactFontSize(size: number, step: 1 | -1): number {
   return compactFontSize(String(size + step));
 }
+
+/** Before a finger has moved this far, a touch may still be a tap that focuses the shell. */
+export const DRAG_SLOP_PX = 8;
+
+/**
+ * Whole lines a vertical drag scrolls, and the part of a line carried to the
+ * next move. A finger moving down shows older lines, so the count is negative.
+ */
+export function dragLines(carry: number, dy: number, cellHeight: number): { lines: number; carry: number } {
+  if (!(cellHeight > 0)) return { lines: 0, carry: 0 };
+  const total = carry + dy;
+  const whole = Math.trunc(total / cellHeight);
+  return { lines: whole === 0 ? 0 : -whole, carry: total - whole * cellHeight };
+}

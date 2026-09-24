@@ -8,7 +8,7 @@ import { closeTerminals, openTerminal, restartTerminal } from "./controller.js";
 import { PLACE_LABEL, placeOf, shellDirectory } from "./panes.js";
 import { TerminalView, type TerminalTouchBinding } from "./view.js";
 import {
-  applyModifiers, arrowSequence, COMPACT_FONT_SIZE_KEY, compactFontSize, INTERRUPT, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
+  applyModifiers, arrowSequence, COMPACT_FONT_SIZE_KEY, DRAG_SLOP_PX, dragLines, compactFontSize, INTERRUPT, isTypedInput, MAX_COMPACT_FONT_SIZE, MIN_COMPACT_FONT_SIZE,
   stepCompactFontSize, TOUCH_KEYS, type TouchKey, type TouchModifier,
 } from "./touch-keys.js";
 import type { UiTerminalSession } from "./protocol.js";
@@ -26,6 +26,18 @@ export function shellOrder(layout: TerminalLayout, sessions: readonly UiTerminal
   const placed = [...layout.groups, ...layout.stage].flatMap((group) => paneIds(group.root));
   const ordered = [...placed, ...sessions.map((session) => session.id)];
   return [...new Set(ordered)].filter((id) => live.has(id));
+}
+
+/** Names for the strip: a label two shells share gets a number, so the chips tell them apart. */
+export function chipLabels(shells: readonly UiTerminalSession[]): Map<string, string> {
+  const seen = new Map<string, number>();
+  const total = new Map<string, number>();
+  for (const shell of shells) total.set(shell.label, (total.get(shell.label) ?? 0) + 1);
+  return new Map(shells.map((shell) => {
+    const count = (seen.get(shell.label) ?? 0) + 1;
+    seen.set(shell.label, count);
+    return [shell.id, (total.get(shell.label) ?? 0) > 1 ? `${shell.label} ${count}` : shell.label];
+  }));
 }
 
 const fontListeners = new Set<() => void>();
@@ -68,6 +80,51 @@ function plainInput(field: HTMLTextAreaElement | undefined): void {
   field.setAttribute("enterkeyhint", "enter");
 }
 
+/**
+ * xterm has no touch scrolling of its own. A vertical drag moves through the
+ * scrollback; in a full-screen program (less, vim), which has none, it sends
+ * the arrow keys instead. A touch that barely moves stays a tap.
+ */
+function touchScrolling(instance: Terminal): () => void {
+  const element = instance.element;
+  if (!element) return () => undefined;
+  let drag: { y: number; moved: boolean; carry: number } | undefined;
+  const cellHeight = () => (element.querySelector(".xterm-screen")?.clientHeight ?? 0) / Math.max(1, instance.rows);
+  const onStart = (event: TouchEvent) => {
+    const touch = event.touches[0];
+    drag = event.touches.length === 1 && touch ? { y: touch.clientY, moved: false, carry: 0 } : undefined;
+  };
+  const onMove = (event: TouchEvent) => {
+    const touch = event.touches[0];
+    if (!drag || !touch) return;
+    const dy = touch.clientY - drag.y;
+    if (!drag.moved && Math.abs(dy) < DRAG_SLOP_PX) return;
+    drag.moved = true;
+    if (event.cancelable) event.preventDefault();
+    const step = dragLines(drag.carry, dy, cellHeight());
+    drag.y = touch.clientY;
+    drag.carry = step.carry;
+    if (step.lines === 0) return;
+    if (instance.buffer.active.type === "alternate") {
+      const arrow = arrowSequence(step.lines < 0 ? "up" : "down", instance.modes.applicationCursorKeysMode);
+      instance.input(arrow.repeat(Math.abs(step.lines)), true);
+    } else {
+      instance.scrollLines(step.lines);
+    }
+  };
+  const onEnd = () => { drag = undefined; };
+  element.addEventListener("touchstart", onStart, { passive: true });
+  element.addEventListener("touchmove", onMove, { passive: false });
+  element.addEventListener("touchend", onEnd);
+  element.addEventListener("touchcancel", onEnd);
+  return () => {
+    element.removeEventListener("touchstart", onStart);
+    element.removeEventListener("touchmove", onMove);
+    element.removeEventListener("touchend", onEnd);
+    element.removeEventListener("touchcancel", onEnd);
+  };
+}
+
 function IconButton({ label, onClick, disabled, children, pressed }: { label: string; onClick(): void; disabled?: boolean; children: ReactNode; pressed?: boolean }) {
   return <button
     type="button"
@@ -105,6 +162,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   useEffect(() => { if (focusRequest) setPicked(focusRequest.id); }, [focusRequest]);
 
   const ids = shellOrder(layout, sessions);
+  const names = chipLabels(ids.map((id) => sessions.find((session) => session.id === id)!));
   const shownId = [picked, focusedPane(layout), ...ids].find((id): id is string => Boolean(id && ids.includes(id)));
   const shown = sessions.find((session) => session.id === shownId);
   const exited = shown?.exitCode !== undefined;
@@ -116,18 +174,23 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   // A modifier armed for one shell is not carried to the next.
   useEffect(() => { arm(new Set()); }, [shownId]);
 
-  const binding = useMemo<TerminalTouchBinding>(() => ({
-    attach: (instance) => {
-      terminal.current = instance;
-      plainInput(instance?.textarea);
-    },
-    filterInput: (data) => {
-      if (modifiers.current.size === 0 || !isTypedInput(data)) return data;
-      const sent = applyModifiers(data, modifiers.current);
-      arm(new Set());
-      return sent;
-    },
-  }), []);
+  const binding = useMemo<TerminalTouchBinding>(() => {
+    let stopScrolling = () => {};
+    return {
+      attach: (instance) => {
+        stopScrolling();
+        stopScrolling = instance ? touchScrolling(instance) : () => {};
+        terminal.current = instance;
+        plainInput(instance?.textarea);
+      },
+      filterInput: (data) => {
+        if (modifiers.current.size === 0 || !isTypedInput(data)) return data;
+        const sent = applyModifiers(data, modifiers.current);
+        arm(new Set());
+        return sent;
+      },
+    };
+  }, []);
 
   const run = (work: () => Promise<unknown> | unknown) => {
     setBusy(true);
@@ -238,7 +301,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
             {...tooltipProps(`${shellDirectory(session) ?? session.label} · ${PLACE_LABEL[place]}`)}
             onClick={() => pick(id)}
           >
-            {session.label}
+            {names.get(id)}
             {session.exitCode !== undefined ? <span className="terminal-tab-place">exited</span> : null}
           </button>;
         })}
@@ -267,7 +330,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
         className="terminal-compact-menu-item destructive"
         disabled={busy}
         onClick={() => { setMenu(false); run(() => closeTerminals([shown.id])); }}
-      ><X size={18} aria-hidden="true" />Close {shown.label}</button> : null}
+      ><X size={18} aria-hidden="true" />Close {names.get(shown.id)}</button> : null}
     </Popover> : null}
     {error ? <p role="alert" className="terminal-error">{error}</p> : null}
     {shown && exited ? <p className="terminal-compact-exit" role="status">

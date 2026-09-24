@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PanelProps, WorkbenchActions } from "tau";
 import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
 import terminal from "./desktop.js";
-import { CompactTerminalPanel, shellOrder } from "./compact.js";
+import { chipLabels, CompactTerminalPanel, shellOrder } from "./compact.js";
 import { TerminalPanel } from "./panel.js";
 import { connectTerminalHost, terminalServices, terminalStore } from "./store.js";
 import { EMPTY_LAYOUT } from "./layout.js";
@@ -174,6 +174,11 @@ describe("the terminal on a compact client", () => {
       active: "g",
     };
     expect(shellOrder(layout, sessions)).toEqual(["b", "d", "a", "c"]);
+  });
+
+  it("numbers shells that share a name", () => {
+    const shell = (id: string, label: string) => ({ id, label, cols: 80, rows: 24 });
+    expect([...chipLabels([shell("a", "zsh"), shell("b", "npm"), shell("c", "zsh")]).values()]).toEqual(["zsh 1", "npm", "zsh 2"]);
   });
 
   it("offers a shell to open when there is none", () => {
