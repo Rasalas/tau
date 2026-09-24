@@ -6,11 +6,13 @@ import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostHelloReply } fr
 import type { SavedEnvironment } from "./environment-catalog.js";
 import { hostTlsConnect, probeHostCertificate, type EndpointTrust, type HostPin, type PresentedCertificate } from "./host-tls-trust.js";
 
-/** A machine a Bonjour search found: its record's host id and fingerprint, and the addresses it resolved to. */
+/** A machine a Bonjour search found: its record's host id, key and fingerprint, and the addresses it resolved to. */
 export interface NearbyMachine {
   hostId: string;
   name: string;
   fingerprint: string;
+  /** The record's `pk`; pinned in place of the fingerprint when the record carries it. */
+  publicKey?: string;
   endpoints: PairingEndpoint[];
 }
 
@@ -60,7 +62,7 @@ export async function pairEnvironment(options: PairEnvironmentOptions): Promise<
   const nearby = options.nearby;
   const text = options.text ?? "";
   const payload: PairingPayload | undefined = nearby
-    ? { code: "", endpoints: nearby.endpoints, fingerprint: nearby.fingerprint, hostId: nearby.hostId, hostName: nearby.name }
+    ? { code: "", endpoints: nearby.endpoints, fingerprint: nearby.fingerprint, ...(nearby.publicKey ? { publicKey: nearby.publicKey } : {}), hostId: nearby.hostId, hostName: nearby.name }
     : parsePairingPayload(text);
   const typed = payload ? undefined : addressPageUrl(text);
   if (!payload && !typed) return { state: "failed", message: "Paste a pairing link or type an address such as studio.local:7788." };

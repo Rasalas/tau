@@ -12,7 +12,7 @@ import { WebWorkbench } from "../../src/web/WebWorkbench";
 import { connectHost, openCandidate } from "./connect";
 import { nearbyHosts, withDiscoveredEndpoints, type DiscoveredHost, type NativeService } from "./discovery";
 import type { SocketCandidate } from "./endpoints";
-import { fallbackHostId, migratedPin, reachedHostEndpoints, sortHosts, type HostBook, type SavedHost } from "./hosts";
+import { fallbackHostId, helloEndpoints, migratedPin, sortHosts, type HostBook, type SavedHost } from "./hosts";
 import type { DeviceInfo, ScanResult } from "./native";
 import type { SocketBridge } from "./native-socket";
 import { pairDevice, sameAddress, targetPins, type PairTarget } from "./pairing";
@@ -131,14 +131,11 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       onUnauthorized: () => {
         void book.forgetToken(host.id).finally(() => leaveTo("?view=hosts", `${host.name} no longer accepts this phone: its access was revoked, or it ran out unused. Open the host to ask again.`));
       },
-      // After every hello: an old certificate pin moves to the key, and the host says where else it is reachable.
-      onHello: (address) => {
+      // After every hello: an old certificate pin moves to the key, and the host's addresses are taken as it names them.
+      onHello: (address, reply) => {
         const pin = migratedPin(current, address);
-        if (pin) learn(pin);
-        void client.reachHost().then((reach) => {
-          const endpoints = reachedHostEndpoints(current, reach, address.candidate.url, sameAddress);
-          if (endpoints) learn({ endpoints });
-        }, () => undefined);
+        const endpoints = helloEndpoints(current, reply.host, address.candidate.url, sameAddress);
+        if (pin || endpoints) learn({ ...pin, ...(endpoints ? { endpoints } : {}) });
       },
       onCertificateMismatch: () => leaveTo("?view=hosts", `${host.name} answered with another key than the one this phone pinned, so the phone sent it nothing. A renewed certificate keeps the key; if the host's key was replaced on purpose, remove it here and scan a new pairing code.`),
     });

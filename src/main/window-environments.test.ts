@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PairingEndpoint } from "../shared/connections.js";
 import type { UiEnvironments } from "../shared/environments.js";
 import type { SavedEnvironment, SecretBox } from "./environment-catalog.js";
 import type { EnvironmentMonitor, EnvironmentMonitorOptions, MonitorState } from "./environment-monitor.js";
@@ -171,11 +172,12 @@ describe("the machines of a window", () => {
     await environments.pair({ text: "link" });
     const monitor = monitors.get("wss://192.168.1.4:7788/")!;
     const serve = { url: "https://studio.tail0000.ts.net/", kind: "magicdns" as const, trustedCertificate: true };
-    monitor.options.onReach!("wss://192.168.1.4:7788/", { hostId: "someone-else", endpoints: [serve] });
+    const hello = (id: string, endpoints: PairingEndpoint[]) => ({ protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 0, host: { id, name: "studio", endpoints } });
+    monitor.options.onReached!("wss://192.168.1.4:7788/", hello("someone-else", [serve]));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/"]);
 
-    monitor.options.onReach!("wss://192.168.1.4:7788/", { hostId: "host-studio", endpoints: [{ url: "https://100.64.0.9:7788/", kind: "tailscale" }, serve] });
+    monitor.options.onReached!("wss://192.168.1.4:7788/", hello("host-studio", [{ url: "https://100.64.0.9:7788/", kind: "tailscale" }, serve]));
     // The address in use stays though the host did not list it; the order is the window's own.
     await expect.poll(() => monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/", "wss://100.64.0.9:7788/", "wss://studio.tail0000.ts.net/"]);
     expect(monitor.options.trust!("wss://studio.tail0000.ts.net/")).toEqual({});
@@ -221,6 +223,23 @@ describe("the machines of a window", () => {
     expect(pairCalls.at(-1)?.nearby).toEqual({ hostId: "host-attic", name: "Attic", fingerprint: OTHER, endpoints: found.hosts[0]!.endpoints });
     expect(pairCalls.at(-1)?.text).toBeUndefined();
     expect(await environments.pair({ nearby: "host-laptop" })).toMatchObject({ state: "failed", message: expect.stringMatching(/Search again/u) });
+  });
+
+  it("matches a machine pinned by key to a record with its key, whatever certificate it serves now", async () => {
+    const keyed = { ...studio, fingerprint: undefined, publicKey: KEY } as SavedEnvironment;
+    const record = (publicKey: string | undefined, url: string) => ({ name: "studio", hostId: "host-studio", fingerprint: OTHER, ...(publicKey ? { publicKey } : {}), port: 7788, addresses: [], endpoints: [{ url, kind: "lan" as const }] });
+    let hosts = [record(OTHER, "https://10.6.6.6:7788/")];
+    const { environments, monitors } = await setup({ state: "approved", environment: keyed }, { discover: async () => ({ serviceType: "_tau-test._tcp", hosts }) });
+    await environments.pair({ text: "link" });
+    const monitor = monitors.get("wss://192.168.1.4:7788/")!;
+    await environments.discover();
+    expect(monitor.options.urls()).not.toContain("wss://10.6.6.6:7788/");
+    hosts = [record(undefined, "https://10.6.6.6:7788/")];
+    await environments.discover();
+    expect(monitor.options.urls()).not.toContain("wss://10.6.6.6:7788/");
+    hosts = [record(KEY, "https://10.0.0.8:7788/")];
+    await environments.discover();
+    expect(monitor.options.urls()).toContain("wss://10.0.0.8:7788/");
   });
 
   it("does not take a found machine's addresses when its certificate is not the pinned one", async () => {

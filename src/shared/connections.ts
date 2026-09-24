@@ -297,7 +297,8 @@ export function decodePairingEndpoints(value: unknown, max = 16): PairingEndpoin
     const url = (item as { url?: unknown } | null)?.url;
     const kind = (item as { kind?: unknown } | null)?.kind;
     if (typeof url !== "string" || url.length > 2_048 || !/^https?:\/\/[^\s]+$/u.test(url) || endpoints.some((entry) => entry.url === url)) continue;
-    endpoints.push({ url, ...(typeof kind === "string" && isEndpointKind(kind) ? { kind } : {}) });
+    const trusted = (item as { trustedCertificate?: unknown }).trustedCertificate === true && authorityName(url);
+    endpoints.push({ url, ...(typeof kind === "string" && isEndpointKind(kind) ? { kind } : {}), ...(trusted ? { trustedCertificate: true } : {}) });
     if (endpoints.length === max) break;
   }
   return endpoints;
@@ -373,34 +374,6 @@ export function authorityName(url: string): boolean {
   try { host = new URL(url).hostname.toLowerCase(); } catch { return false; }
   if (!host || host.startsWith("[") || /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(host)) return false;
   return host.includes(".") && !host.endsWith(".local") && host !== "localhost";
-}
-
-/**
- * Where a paired device reaches its host (`connections-reach`): every
- * network address, each with its kind and whether a CA vouches for it. A
- * device asks after every hello, so one paired over Bonjour learns the
- * Tailscale addresses too, and a moved host is not lost.
- */
-export interface UiHostReach {
-  hostId?: string;
-  endpoints: PairingEndpoint[];
-}
-
-const REACH_KINDS: ReadonlySet<string> = new Set<UiHostEndpointKind>(["loopback", "lan", "mdns", "tailscale", "magicdns"]);
-
-/**
- * The addresses a host listed after a hello (`connections-reach`), in its
- * order, with the one this connection used kept when the host did not list
- * it: a tunnel, a simulator's loopback, the emulator's alias.
- */
-export function reachedEndpoints(listed: readonly PairingEndpoint[], current: PairingEndpoint | undefined): PairingEndpoint[] {
-  const endpoints: PairingEndpoint[] = listed.filter((endpoint) => typeof endpoint?.url === "string" && /^https?:\/\//u.test(endpoint.url)).map((endpoint) => ({
-    url: endpoint.url,
-    ...(endpoint.kind && REACH_KINDS.has(endpoint.kind) ? { kind: endpoint.kind } : {}),
-    ...(endpoint.trustedCertificate === true && authorityName(endpoint.url) ? { trustedCertificate: true } : {}),
-  }));
-  if (current && !endpoints.some((endpoint) => endpoint.url === current.url)) endpoints.push(current);
-  return endpoints;
 }
 
 /** `AB:CD:…` from any spelling of 32 bytes of hex; undefined for anything else. */

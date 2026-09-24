@@ -82,8 +82,6 @@ export const HOST_METHOD_ACCESS = {
   "inspect-system-prompt": "read",
   "list-user-themes": "read",
   "open-external-editor": "write",
-  // Where the host is reachable; every paired device asks after its hello.
-  "connections-reach": "read",
   // Each checks its caller besides.
   "connections-list": "owner",
   "connections-create-link": "owner",

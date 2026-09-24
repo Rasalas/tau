@@ -114,7 +114,6 @@ function defaults(): HostClient {
     limitPushesToWatched: () => undefined,
     getVersions: () => ({}),
     onVersions: () => () => undefined,
-    reachHost: async () => ({ endpoints: [] }),
     listConnections: async () => ({ scheme: "ws", endpoints: [], webClient: false, tokenPath: "", links: [], requests: [], clients: [], owners: [] }),
     createPairingLink: async () => { throw Object.assign(new Error("No pairing in tests."), { code: "unsupported" }); },
     revokePairingLink: async () => ({ revoked: false }),

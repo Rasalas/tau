@@ -382,18 +382,17 @@ devices from before key pins; each `ca` names an address (the link's own
 too) where a proxy answers with a certificate a CA vouches for (Tailscale
 Serve), which a device checks by chain and name instead, and only on a DNS
 name outside `.local`; `host` is the id in `<userData>/host-id`. A link made
-for loopback names no other address.
+for loopback names no other address. The page takes the fragment out of the
+address bar before it renders.
 
 ### Where a paired device reaches the host
 
-`connections-reach` (class `read`, any paired device) answers
-`UiHostReach { hostId?, endpoints }`: every network address with its kind and
-`trustedCertificate`, as a link carries them, never loopback. The app and a
-desktop window ask after every hello and keep that list, plus the address
-they are connected on when the host does not list it
-(`reachedEndpoints`), so a device paired over Bonjour learns the Tailscale
-addresses and a host that moved is not lost. The page takes the fragment out of the address bar before it
-renders.
+Every hello reply names the host's network addresses (`host.endpoints`, see
+[Several machines in one window](#several-machines-in-one-window)), each with
+its kind and `trustedCertificate` as a link carries them, never loopback. The
+app and a desktop window take them after every hello (`refreshEndpoints`), so
+a device paired over Bonjour learns the Tailscale and Serve addresses and a
+host that moved is not lost.
 
 ### Presets
 
@@ -422,9 +421,7 @@ method or `<extension>/<command>`, never the input), each one in the host log
 
 ### Connections methods
 
-Only the owner's connections may call these; a paired device gets `forbidden`.
-`connections-reach` is the exception, see
-[Where a paired device reaches the host](#where-a-paired-device-reaches-the-host).
+Only the owner's connections may call these; a paired device gets `forbidden`:
 
 | Method | Params | Result |
 |---|---|---|
@@ -744,9 +741,8 @@ process keeps the rest:
   MagicDNS; an unreachable machine is tried after 1, 2, 5, 10, then every 30 s.
   4401 is final (the token was revoked or expired there), and so is a key
   other than the pinned one. Each address is trusted on its own: pinned to the
-  key, or checked by chain and name where the host flagged a CA. After each
-  hello the connection asks `connections-reach` and the catalog keeps what the
-  host lists; a certificate pin that just held becomes a key pin.
+  key, or checked by chain and name where the host flagged a CA. After a hello
+  that a certificate pin let in, that pin becomes a key pin.
 - **Pairing** through [Pairing over the socket](#pairing-over-the-socket): with a
   link's code and key, from a bare address with the key it presents pinned
   for the attempt, or without a link from a machine a [Bonjour](#bonjour)
@@ -773,11 +769,11 @@ only.
 
 A hello reply now names the machine: `host: { id, name, endpoints? }`, its
 `<userData>/host-id`, host name, and the addresses its network listeners have
-now (`{ url, kind }`, nothing on loopback; refreshed with the minute's network
-poll). A client that saved the machine knows it again whatever address reached
+now (`{ url, kind, trustedCertificate? }`, nothing on loopback; refreshed with
+the minute's network poll; the flag counts only on a DNS name outside `.local`). A client that saved the machine knows it again whatever address reached
 it, and follows it: the saved LAN addresses become the ones named, while names,
 Tailscale addresses, typed ones and the one that just answered stay. A Bonjour
-record with the pinned fingerprint does the same.
+record with the pinned key (or, for an old pin, fingerprint) does the same.
 
 `environments-set-preferences [{ reopenShown }]` keeps whether the window shows
 the machine it showed last again at start; the catalog remembers which one.

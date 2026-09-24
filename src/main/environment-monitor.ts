@@ -9,7 +9,6 @@ import {
   type HostHelloReply,
   type HostIdentity,
 } from "../shared/host-transport.js";
-import type { UiHostReach } from "../shared/connections.js";
 import type { HostLogger } from "./host-log.js";
 import { HostCertificateRefusedError, hostTlsConnect, type EndpointTrust, type PresentedIdentity } from "./host-tls-trust.js";
 
@@ -54,8 +53,6 @@ export interface EnvironmentMonitorOptions {
   onChange(state: MonitorState): void;
   /** The machine answered at this address; it is tried first next time. `certificate` is absent without TLS. */
   onReached?(url: string, reply: HostHelloReply, certificate?: ReachedCertificate): void;
-  /** Where the machine says it can be reached, asked after every hello. */
-  onReach?(url: string, reach: UiHostReach): void;
   logger?: HostLogger;
   createSocket?(url: string, trust: EndpointTrust | undefined, onPresented: (certificate: ReachedCertificate) => void): MonitorSocket;
   now?(): number;
@@ -244,12 +241,6 @@ export class EnvironmentMonitor {
       });
       this.options.onReached?.(url, reply, certificate);
       if (reply.capabilities.includes(HOST_CAPABILITY.heartbeat)) this.schedulePing(socket);
-      // A host from before F19 answers unknown-method; its saved addresses stay as they are.
-      if (this.options.onReach) {
-        void this.request<UiHostReach>(socket, "connections-reach", BOOTSTRAP_TIMEOUT_MS)
-          .then((reach) => { if (this.socket === socket && reach && Array.isArray(reach.endpoints)) this.options.onReach?.(url, reach); })
-          .catch(() => undefined);
-      }
       void this.request<HostBootstrap>(socket, "bootstrap", BOOTSTRAP_TIMEOUT_MS)
         .then((bootstrap) => { if (this.socket === socket) this.set({ index: bootstrap.threadIndex, lastSeenAt: this.now() }); })
         .catch((error: unknown) => this.options.logger?.warn("environment.bootstrap.failed", { url, error: error instanceof Error ? error.message : String(error) }));

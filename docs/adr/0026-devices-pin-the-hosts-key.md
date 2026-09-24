@@ -33,7 +33,7 @@ so it lost the host as soon as it left home.
    and the Bonjour record as `pk=`, both beside `fp=`, which older devices
    still read. A key pin is strict: nothing else is accepted in its place.
 2. **A CA only where the host says.** Each address a CA vouches for is named
-   in the link with `ca=<url>` and in `connections-reach` with
+   in the link with `ca=<url>` and in the hello's `host.endpoints` with
    `trustedCertificate: true`. A device checks such an address by chain and
    name, pins nothing there, and binds no digits there, because the proxy
    ends TLS. The flag counts only on a DNS name outside `.local`
@@ -51,11 +51,11 @@ so it lost the host as soon as it left home.
    belongs to the proxy. Until the migration, the old certificate pin may give
    way to a CA for a DNS name, as before, so a phone away from home still
    reaches Serve.
-5. **Every address after every hello.** Any paired device, Read only
-   included, may call `connections-reach`. It returns the host id and every
-   network address with its kind and the CA flag, never loopback. The app and
-   the window call it after each hello and keep that list, plus the address
-   they are connected on if the host did not list it.
+5. **Every address after every hello.** The hello reply names the host's
+   network addresses with their kinds and the CA flag, never loopback
+   (`host.endpoints`, which F18 added for the window). The app takes them the
+   way the window does (`refreshEndpoints`): the named ones first, then the
+   saved names, Tailscale addresses and the address it is connected on.
 
 ## Consequences
 

@@ -1,3 +1,4 @@
+import { decodeHostServerFrame, type HostHelloReply } from "../../src/shared/host-transport";
 import { createSocketHostClient } from "../../src/workbench/host-connection-socket";
 import type { HostClient } from "../../src/workbench/host-client";
 import type { HostConnection } from "../../src/workbench/host-connection";
@@ -22,7 +23,7 @@ export interface ConnectCallbacks {
   /** Every address showed another certificate than the pinned one. */
   onCertificateMismatch(): void;
   /** The host answered a hello with this token, on the address that won; after every reconnect too. */
-  onHello?(won: WonAddress): void;
+  onHello?(won: WonAddress, reply: HostHelloReply): void;
 }
 
 /** A pinned native socket for one candidate address. */
@@ -62,10 +63,11 @@ export function connectHost(host: () => SavedHost, token: string, dependencies: 
       onMessage: (data) => {
         if (!callbacks.onHello || !won || typeof data !== "string" || !data.includes("\"hello-reply\"")) return;
         const address = won;
-        let frame: { type?: unknown } | undefined;
-        try { frame = JSON.parse(data) as { type?: unknown }; } catch { return; }
-        // After the transport has taken the reply in, so what the callback asks is sent on a live connection.
-        if (frame?.type === "hello-reply") setTimeout(() => callbacks.onHello?.(address), 0);
+        let parsed: unknown;
+        try { parsed = JSON.parse(data); } catch { return; }
+        const frame = decodeHostServerFrame(parsed);
+        // After the transport has taken the reply in.
+        if (frame?.type === "hello-reply") setTimeout(() => callbacks.onHello?.(address, frame.reply), 0);
       },
     }),
     onUnauthorized: callbacks.onUnauthorized,

@@ -443,8 +443,8 @@ tap a host listed under "On this network". Either way the host's window asks
 "<phone> wants to connect" with six digits; allow it only if the phone shows the same
 ones. With a pinned key the digits depend on it, so something between the two that
 presents another key cannot make them agree (ADR 0024, ADR 0026). The link names every
-address of the host, and after each connection the app asks the host for its current
-list, so a host added over Bonjour becomes reachable over Tailscale too; the app races
+address of the host, and every connection's hello names the host's current ones, so a
+host added over Bonjour becomes reachable over Tailscale too; the app races
 them each time it connects — local network first,
 then `.local`, then Tailscale — so it follows a phone from home Wi-Fi to cellular on its
 own. Coming back to the foreground or to a network makes it check the link at once. More

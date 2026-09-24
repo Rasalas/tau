@@ -10,7 +10,7 @@ import type {
   UiEnvironments,
 } from "../shared/environments.js";
 import { environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
-import { reachedEndpoints, type PairingEndpoint } from "../shared/connections.js";
+import type { PairingEndpoint } from "../shared/connections.js";
 import { EnvironmentCatalog, endpointTrust, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
 import { pairEnvironment, type NearbyMachine, type PairEnvironmentOptions } from "./environment-pairing.js";
@@ -171,7 +171,7 @@ export class WindowEnvironments {
 
   /**
    * Looks for machines on this network through the window's own host. A
-   * saved machine found with the certificate it was pinned for gets the
+   * saved machine found with the key (or old certificate) it was pinned for gets the
    * addresses it has now, and is tried at them at once.
    */
   async discover(): Promise<UiDiscoveredHosts> {
@@ -181,11 +181,12 @@ export class WindowEnvironments {
       hostId: host.hostId,
       name: host.name,
       fingerprint: host.fingerprint,
+      ...(host.publicKey ? { publicKey: host.publicKey } : {}),
       endpoints: host.endpoints,
     }]));
     for (const host of result.hosts) {
       const saved = this.catalog?.get(host.hostId);
-      if (!saved?.fingerprint || !fingerprintsMatch(host.fingerprint, saved.fingerprint)) continue;
+      if (!saved || !recordMatchesPin(saved, host)) continue;
       if (await this.refreshAddresses(saved.id, host.endpoints, undefined, "bonjour")) this.retry(saved.id);
     }
     return result;
@@ -406,14 +407,6 @@ export class WindowEnvironments {
           void this.refreshAddresses(saved.id, reply.host.endpoints, page, "hello").catch(() => undefined);
         }
       },
-      onReach: (url, reach) => {
-        const entry = current();
-        if (reach.hostId && reach.hostId !== saved.id) return;
-        const endpoints = reachedEndpoints(reach.endpoints, entry.endpoints.find((endpoint) => socketUrl(endpoint.url) === url));
-        if (JSON.stringify(endpoints) === JSON.stringify(entry.endpoints)) return;
-        this.options.logger.info("environment.endpoints-updated", { id: saved.id, endpoints: endpoints.length });
-        void catalog?.update(saved.id, { endpoints }).catch(() => undefined);
-      },
     });
   }
 
@@ -486,4 +479,10 @@ export class WindowEnvironments {
     }, 50);
     this.publishTimer.unref?.();
   }
+}
+
+/** A Bonjour record carries the pin a machine was saved with: its key, or for an old pin its certificate. */
+function recordMatchesPin(saved: Pick<SavedEnvironment, "publicKey" | "fingerprint">, record: { fingerprint: string; publicKey?: string }): boolean {
+  if (saved.publicKey) return record.publicKey !== undefined && fingerprintsMatch(record.publicKey, saved.publicKey);
+  return saved.fingerprint !== undefined && fingerprintsMatch(record.fingerprint, saved.fingerprint);
 }

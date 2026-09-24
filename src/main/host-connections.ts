@@ -9,7 +9,6 @@ import {
   type UiCreatedPairingLink,
   type UiHostEndpoint,
   type UiNetworkAccess,
-  type UiHostReach,
   type UiNetworkSettingsInput,
 } from "../shared/connections.js";
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
@@ -217,15 +216,6 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
       }));
       return { link, code, urls };
     }),
-    // Any paired device, Read only too: where else it may reach this host (F19). No secret, no owner check.
-    "connections-reach": async (): Promise<UiHostReach> => {
-      const connections = service() ?? unavailable();
-      const endpoints = await allEndpoints(connections, connections.listen());
-      return {
-        ...(connections.hostId ? { hostId: connections.hostId } : {}),
-        endpoints: networkOnly(endpoints),
-      };
-    },
     "connections-revoke-link": owned(({ access }, params) =>
       ({ revoked: access.revokeLink(decodeString("connections-revoke-link", "id", params[0])) })),
     "connections-revoke-client": owned(async ({ access }, params) =>

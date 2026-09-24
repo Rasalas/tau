@@ -478,10 +478,10 @@ async function exerciseAccess(host, tokenPath, userData, label) {
 
   const phone = createClient(host.url, paired.token, host.fingerprint);
   await phone.opened;
-  await phone.hello();
-  const reach = await phone.request("connections-reach");
-  if (!Array.isArray(reach?.endpoints) || reach.hostId !== link.hostId || reach.endpoints.some((endpoint) => /127\.0\.0\.1|\[::1\]/u.test(endpoint.url))) fail(`connections-reach answered ${JSON.stringify(reach)}`);
-  step(`${label}: a paired device learns where the host is reachable`, `${reach.endpoints.length} network address(es), no loopback`);
+  const phoneHello = await phone.hello();
+  const named = phoneHello?.host?.endpoints ?? [];
+  if (phoneHello?.host?.id !== link.hostId || named.some((endpoint) => /127\.0\.0\.1|\[::1\]/u.test(endpoint.url))) fail(`the hello named ${JSON.stringify(phoneHello?.host)}`);
+  step(`${label}: a paired device's hello names the host and where it is reachable`, `${named.length} network address(es), no loopback`);
   const forbidden = await phone.request("connections-list").then(() => "answered", (error) => String(error.message));
   if (!forbidden.startsWith("forbidden")) fail(`a paired client could list connections: ${forbidden}`);
   const listed = await owner.request("connections-list");

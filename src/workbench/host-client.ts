@@ -39,7 +39,7 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
-import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostReach, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
+import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
 import type { UiDiscoveredHosts } from "../shared/discovery";
 import type { EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironments } from "../shared/environments";
 import type { HostLink } from "./host-link";
@@ -195,8 +195,6 @@ export interface HostClient {
 
   // Who else may connect to the host (Settings → Connections, ADR 0023, ADR 0024). The owner's alone.
   listConnections(): Promise<UiConnections>;
-  /** Where this host is reachable, for a paired device to keep; any paired device may ask. */
-  reachHost(): Promise<UiHostReach>;
   createPairingLink(input?: { label?: string; lifetimeMs?: number; access?: DeviceAccess }): Promise<UiCreatedPairingLink>;
   revokePairingLink(id: string): Promise<{ revoked: boolean }>;
   revokeClient(id: string): Promise<{ revoked: boolean }>;
@@ -374,7 +372,6 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     },
 
     listConnections: () => call<UiConnections>("connections-list"),
-    reachHost: () => call<UiHostReach>("connections-reach"),
     createPairingLink: (input) => call<UiCreatedPairingLink>("connections-create-link", [input ?? {}]),
     revokePairingLink: (id) => call<{ revoked: boolean }>("connections-revoke-link", [id]),
     revokeClient: (id) => call<{ revoked: boolean }>("connections-revoke-client", [id]),

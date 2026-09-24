@@ -1,4 +1,6 @@
-import { reachedEndpoints, type DeviceAccess, type PairingEndpoint, type UiHostReach } from "../../src/shared/connections";
+import type { DeviceAccess, PairingEndpoint } from "../../src/shared/connections";
+import { refreshEndpoints, sameEndpoints } from "../../src/shared/environments";
+import type { HostIdentity } from "../../src/shared/host-transport";
 import type { SocketCandidate } from "./endpoints";
 
 /** The Keychain on iOS, the Keystore-backed store on Android. */
@@ -131,16 +133,16 @@ export function migratedPin(host: SavedHost, won: WonAddress): Pick<SavedHost, "
 }
 
 /**
- * The addresses to keep after a host said where it is reachable: its list,
- * and the one this connection won with when the host did not list it.
- * Undefined when nothing changes, or when the answer names another host.
+ * The addresses to keep after a hello named the host's current ones
+ * (`host.endpoints`, with the CA flag): those first, then the saved ones the
+ * window keeps too (names, Tailscale, the one this connection won with).
+ * Undefined when nothing changes, or when the hello names another host.
  */
-export function reachedHostEndpoints(host: SavedHost, reach: UiHostReach, wonUrl: string | undefined, same: (endpointUrl: string, socketUrl: string) => boolean): PairingEndpoint[] | undefined {
-  if (reach.hostId && reach.hostId !== host.id) return undefined;
-  const current = wonUrl ? host.endpoints.find((endpoint) => same(endpoint.url, wonUrl)) : undefined;
-  const endpoints = reachedEndpoints(reach.endpoints, current);
-  if (endpoints.length === 0 || JSON.stringify(endpoints) === JSON.stringify(host.endpoints)) return undefined;
-  return endpoints;
+export function helloEndpoints(host: SavedHost, identity: HostIdentity | undefined, wonUrl: string | undefined, same: (endpointUrl: string, socketUrl: string) => boolean): PairingEndpoint[] | undefined {
+  if (!identity || identity.id !== host.id || !identity.endpoints?.length) return undefined;
+  const keep = wonUrl ? host.endpoints.find((endpoint) => same(endpoint.url, wonUrl))?.url : undefined;
+  const endpoints = refreshEndpoints(host.endpoints, identity.endpoints, keep);
+  return sameEndpoints(endpoints, host.endpoints) ? undefined : endpoints;
 }
 
 /** A host id for a link from a host that names none: stable per certificate, else per first address. */

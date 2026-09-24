@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HostBook, fallbackHostId, migratedPin, reachedHostEndpoints, sortHosts, type SavedHost, type SecureStore, type WonAddress } from "./hosts";
+import { HostBook, fallbackHostId, helloEndpoints, migratedPin, sortHosts, type SavedHost, type SecureStore, type WonAddress } from "./hosts";
 import { sameAddress } from "./pairing";
 
 function memoryStore(): SecureStore & { data: Map<string, string> } {
@@ -93,19 +93,20 @@ describe("after a hello", () => {
     expect(migratedPin(host("a", { publicKey: KEY }), won({ publicKey: KEY }, { fingerprint: FP, publicKey: KEY }))).toBeUndefined();
   });
 
-  it("keeps every address the host lists, the Serve name flagged, plus the one it won with", () => {
+  it("takes every address the hello names, the Serve name flagged, and keeps the one it won with", () => {
     const bonjour = host("a", { publicKey: KEY, endpoints: [{ url: "https://192.168.1.2:7788/", kind: "lan" }] });
-    const reach = { hostId: "a", endpoints: [
+    const hello = { id: "a", name: "Mac", endpoints: [
       { url: "https://192.168.1.2:7788/", kind: "lan" as const },
       { url: "https://100.64.0.2:7788/", kind: "tailscale" as const },
       { url: "https://mac.tail0000.ts.net/", kind: "magicdns" as const, trustedCertificate: true },
     ] };
-    expect(reachedHostEndpoints(bonjour, reach, "wss://192.168.1.2:7788/", sameAddress)).toEqual(reach.endpoints);
-    expect(reachedHostEndpoints({ ...bonjour, endpoints: reach.endpoints }, reach, "wss://192.168.1.2:7788/", sameAddress)).toBeUndefined();
-    // A simulator reached the host on loopback, which the host never lists to a device.
+    expect(helloEndpoints(bonjour, hello, "wss://192.168.1.2:7788/", sameAddress)).toEqual(hello.endpoints);
+    expect(helloEndpoints({ ...bonjour, endpoints: hello.endpoints }, hello, "wss://192.168.1.2:7788/", sameAddress)).toBeUndefined();
+    // A simulator reached the host on loopback, which the host never names to a device.
     const simulator = host("a", { endpoints: [{ url: "https://127.0.0.1:52233/", kind: "loopback" }] });
-    expect(reachedHostEndpoints(simulator, reach, "wss://127.0.0.1:52233/", sameAddress)?.at(-1)).toEqual({ url: "https://127.0.0.1:52233/", kind: "loopback" });
-    expect(reachedHostEndpoints(bonjour, { ...reach, hostId: "b" }, undefined, sameAddress)).toBeUndefined();
-    expect(reachedHostEndpoints(bonjour, { endpoints: [] }, undefined, sameAddress)).toBeUndefined();
+    expect(helloEndpoints(simulator, hello, "wss://127.0.0.1:52233/", sameAddress)?.at(-1)).toEqual({ url: "https://127.0.0.1:52233/", kind: "loopback" });
+    expect(helloEndpoints(bonjour, { ...hello, id: "b" }, undefined, sameAddress)).toBeUndefined();
+    expect(helloEndpoints(bonjour, { id: "a", name: "Mac" }, undefined, sameAddress)).toBeUndefined();
+    expect(helloEndpoints(bonjour, undefined, undefined, sameAddress)).toBeUndefined();
   });
 });
