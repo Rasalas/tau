@@ -430,6 +430,7 @@ export default function App() {
     panels, stage, setStage, stageTabs, dockOpen, setDockOpen, activePanel, setActivePanel, drawer, setDrawer,
     showStage: () => setChatFocused(false),
     focusedPanel: () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]")?.dataset.panelId,
+    sheets: { open: (id) => workbenchControlRef.current?.openSheet(id) ?? false, close: (id) => workbenchControlRef.current?.closeSheet(id) ?? false },
   });
   const openPanel = panelLayout.openPanel;
   const openFile = useCallback((path: string, options?: { pin?: boolean; view?: StageView; line?: number }) => { setStage((current) => openFileTab(current, path, options)); setChatFocused(false); }, []);
