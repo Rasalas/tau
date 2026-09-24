@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { dedupeLegalComments } from "./vite.legal-comments";
 import { stripIconKeys } from "./vite.icon-keys";
+import { packIconSet } from "./vite.icon-set";
 import { dropSvgAttributes } from "./vite.markdown-schema";
 import { rendererBuild } from "./vite.renderer-build";
 import { thirdPartyLicenses } from "./vite.third-party-licenses";
@@ -13,7 +14,7 @@ import { thirdPartyLicenses } from "./vite.third-party-licenses";
  * platform and the HTML around it differ, so this config differs only there.
  */
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), stripIconKeys(), dropSvgAttributes(), dedupeLegalComments(), thirdPartyLicenses()],
+  plugins: [react(), stripIconKeys(), packIconSet(), dropSvgAttributes(), dedupeLegalComments(), thirdPartyLicenses()],
   resolve: rendererBuild.resolve,
   base: "/",
   build: {
