@@ -84,8 +84,8 @@ export function commitQuestion(changes: UiWorkspaceChanges, info: WorkspaceInfo 
   const staged = changes.files.filter((file) => file.staged).length;
   const branch = info?.branch ?? changes.branch;
   const what = staged > 0
-    ? `Commits the ${countLabel(staged, "staged file")}`
-    : `Stages and commits all ${countLabel(count, "changed file")}`;
+    ? staged === 1 ? "Commits the staged file" : `Commits the ${countLabel(staged, "staged file")}`
+    : count === 1 ? "Stages and commits the changed file" : `Stages and commits all ${countLabel(count, "changed file")}`;
   const where = branch ? ` on ${branch}` : "";
   const subject = message.trim().split(/\r?\n/u)[0] ?? "";
   const pushing = push ? `, then pushes to ${info?.upstream ?? "the remote"}` : "";

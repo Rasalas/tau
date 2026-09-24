@@ -295,7 +295,8 @@ function ActionBar({ deps, source, changes, info, actions, readOnly, refresh }: 
   changes: UiWorkspaceChanges;
   info?: WorkspaceInfo;
 } & Common) {
-  if (source.kind === "turn") return null;
+  // A turn is history, and a clean working tree has nothing to commit.
+  if (source.kind === "turn" || (source.kind === "worktree" && changes.files.length === 0)) return null;
   const request = changes.request;
   const buttons: ReactNode[] = [];
   if (source.kind === "worktree") {

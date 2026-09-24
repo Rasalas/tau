@@ -71,7 +71,8 @@ describe("the compact review's model", () => {
     const info = { branch: "feat/x", upstream: "origin/feat/x", ahead: 2 } as WorkspaceInfo;
     expect(commitQuestion(changes, info, "Fix it\n\nbody", false)).toEqual({ title: "Commit?", message: "Stages and commits all 2 changed files on feat/x: “Fix it”.", confirm: "Commit" });
     const staged = { ...changes, files: [{ ...changes.files[0]!, staged: true }, changes.files[1]!] };
-    expect(commitQuestion(staged, info, "Fix it", true).message).toBe("Commits the 1 staged file on feat/x, then pushes to origin/feat/x: “Fix it”.");
+    expect(commitQuestion(staged, info, "Fix it", true).message).toBe("Commits the staged file on feat/x, then pushes to origin/feat/x: “Fix it”.");
+    expect(commitQuestion({ ...changes, files: [changes.files[0]!] }, info, "Fix it", false).message).toBe("Stages and commits the changed file on feat/x: “Fix it”.");
     expect(pushQuestion(info).message).toBe("Pushes 2 commits of feat/x to origin/feat/x. Others with access to the remote can see them.");
     expect(requestQuestion({ title: " Add x ", base: "main", branch: "feat/x", draft: true, noun: "pull request", host: "GitHub" }))
       .toEqual({ title: "Open a draft pull request?", message: "Pushes feat/x and opens “Add x” into main on GitHub.", confirm: "Open pull request" });

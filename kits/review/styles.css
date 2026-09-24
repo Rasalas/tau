@@ -618,7 +618,9 @@ span.lpr-thumb-image { cursor: default; }
 .review-compact .diff-gutter { padding: 0 6px; }
 .review-compact .diff-code { padding: 0 10px 0 8px; }
 .review-compact .diff-annotate { display: block; inset: 0; width: 100%; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; opacity: 0; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-.review-compact .diff-row.selected { background: color-mix(in srgb, var(--acid-bg) 70%, transparent); box-shadow: inset 3px 0 var(--acid-line); }
+/* Added and removed rows paint their own background, so the gutter carries the selection. */
+.review-compact .diff-row.selected { box-shadow: inset 3px 0 var(--acid-line); }
+.review-compact .diff-row.selected .diff-gutter { background: var(--acid-bg); color: var(--acid-text); font-weight: 650; }
 .review-compact .diff-load-more { min-height: 44px; }
 .review-compact-hint { flex: none; margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--faint); font: 13px var(--sans); }
 .review-compact-selection { display: flex; align-items: center; gap: 6px; flex: none; padding: 8px 8px 8px 12px; border-top: 1px solid var(--line); background: var(--chrome); }
