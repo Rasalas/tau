@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerInlineContext } from "tau";
 import { createKitHarness, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
-import snapshots, { armFor, prepareSend, SnapShotDetail, type HostApi } from "./desktop.js";
-import { DEFAULT_SHORTCUT, SETTING_ENABLED, SETTING_SHORTCUT, SNAPSHOTS_EXTENSION_ID as ID, SNAPSHOT_EVENT, type SnapShotContent, type SnapShotMeta } from "./protocol.js";
+import snapshots, { prepareSend, SnapShotDetail, type HostApi } from "./desktop.js";
+import { SETTING_ENABLED, SNAPSHOTS_EXTENSION_ID as ID, SNAPSHOT_EVENT, type SnapShotContent, type SnapShotMeta } from "./protocol.js";
 import { ShotStore } from "./shots.js";
 
 afterEach(() => { cleanup(); setHostClient(undefined); });
@@ -149,16 +149,14 @@ describe("SnapShots desktop", () => {
     expect(screen.getByText(/Kept on this machine until you send it/u)).toBeTruthy();
   });
 
-  it("arms the shortcut only when it is on, with the default chord unless another was recorded", async () => {
+  it("asks the host to arm a window that holds no shortcut, and sends none of this client's settings", async () => {
     setHostClient(createFakeHostClient());
     const kit = activate();
-    expect(armFor(kit.preferences)).toEqual({ accelerator: null, accessibility: true });
-    await waitFor(() => expect(kit.armed).toEqual([{ accelerator: null, accessibility: true }]));
-
+    await waitFor(() => expect(kit.armed).toEqual([undefined]));
+    // A setting that changes here reaches the host through its config, which re-arms itself.
     act(() => kit.preferences.setOption(ID, SETTING_ENABLED, true));
-    await waitFor(() => expect(kit.armed.at(-1)).toEqual({ accelerator: DEFAULT_SHORTCUT, accessibility: true }));
-    act(() => kit.preferences.setValue(ID, SETTING_SHORTCUT, "Control+Alt+F19"));
-    await waitFor(() => expect(kit.armed.at(-1)).toEqual({ accelerator: "Control+Alt+F19", accessibility: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(kit.armed).toEqual([undefined]);
   });
 
   it("does not arm again what the window holds already", async () => {

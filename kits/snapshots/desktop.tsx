@@ -10,7 +10,6 @@ import {
   type ComposerInlineProps,
   type ComposerSendContribution,
   type DesktopExtension,
-  type DesktopExtensionContext,
   type HostExtensionClient,
   type UiPromptImageAttachment,
   type WorkbenchActions,
@@ -18,10 +17,6 @@ import {
 import { outline } from "./accessibility.js";
 import { snapshotContext, snapshotLabel } from "./prompt.js";
 import {
-  DEFAULT_SHORTCUT,
-  SETTING_ACCESSIBILITY,
-  SETTING_ENABLED,
-  SETTING_SHORTCUT,
   SNAPSHOTS_EXTENSION_ID as ID,
   SNAPSHOT_EVENT,
   SNAPSHOT_FAILED_EVENT,
@@ -40,15 +35,6 @@ const isMeta = (value: unknown): value is SnapShotMeta => {
   const meta = value as Partial<SnapShotMeta> | null;
   return Boolean(meta && typeof meta.id === "string" && typeof meta.app === "string");
 };
-
-/** What the shortcut should be now, from this machine's settings. */
-export function armFor(preferences: DesktopExtensionContext["preferences"]): { accelerator: string | null; accessibility: boolean } {
-  const enabled = preferences.optionValue(ID, SETTING_ENABLED, false);
-  return {
-    accelerator: enabled ? preferences.value(ID, SETTING_SHORTCUT) || DEFAULT_SHORTCUT : null,
-    accessibility: preferences.optionValue(ID, SETTING_ACCESSIBILITY, true),
-  };
-}
 
 /** Reads a capture in full once and keeps it while its chip lives. */
 export async function loadContent(store: ShotStore, host: HostApi, id: string): Promise<ShotContent | undefined> {
@@ -194,28 +180,25 @@ const snapshots: DesktopExtension = {
       });
     });
 
-    let armed = "";
-    const arm = (force = false) => {
+    let arming = false;
+    const arm = () => {
       // The shortcut is the host machine's; a phone or another computer arming it would count as a change it made.
-      if (!hostHasLocalFiles()) return;
-      const next = armFor(context.preferences);
-      const key = JSON.stringify(next);
-      if (!force && key === armed) return;
-      armed = key;
-      // Arming what the window holds already would still count as a change a paired device made.
+      if (!hostHasLocalFiles() || arming) return;
+      arming = true;
+      // The host arms from its own settings, and only a window that holds no shortcut yet.
       void host("armed", undefined).catch(() => null)
-        .then((held) => (JSON.stringify(held) === key ? undefined : host("arm", next)))
-        .catch(() => { armed = ""; });
+        .then((held) => (held ? undefined : host("arm", undefined)))
+        .catch(() => undefined)
+        .finally(() => { arming = false; });
     };
-    const stopPreferences = context.preferences.subscribe(() => arm());
     context.events.on("host-connection", ({ state }) => {
       if (state !== "connected") return;
-      arm(true);
+      arm();
       // An event sent while the socket was down may be lost.
       mayWait = true;
       if (store.activeScope) deliverPending();
     });
-    arm(true);
+    arm();
 
     const Strip = ({ scope, draftState }: ComposerInlineProps) => {
       const shell = useShellActions();
@@ -258,12 +241,11 @@ const snapshots: DesktopExtension = {
       order: 46,
       keywords: ["snapshot", "screenshot", "capture", "window", "accessibility", "shortcut", "screen recording"],
       profiles: ["desktop"],
-      Component: createSnapShotsSettingsPage(context, host, () => arm(true)),
+      Component: createSnapShotsSettingsPage(context, host, () => { void host("arm", undefined).catch(() => undefined); }),
     });
 
     return () => {
       disposed = true;
-      stopPreferences();
     };
   },
 };
