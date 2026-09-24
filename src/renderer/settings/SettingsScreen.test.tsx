@@ -154,6 +154,16 @@ describe("the Settings screen", () => {
     expect(within(remotePage).queryByRole("group", { name: "Update track" })).toBeNull();
   });
 
+  it("turns the thread defaults inert with the reason on a device paired Read only", async () => {
+    const readOnly = createFakeHostClient({ isReadOnly: () => true });
+    const { page } = renderScreen({ client: readOnly as ReturnType<typeof hostWithFiles>["client"] });
+    await act(async () => undefined);
+    const model = within(page).getByRole("button", { name: /No model selected/u }).closest(".settings-row-control");
+    expect(model?.hasAttribute("data-inert")).toBe(true);
+    expect(model?.getAttribute("title")).toMatch(/^Read only/u);
+    expect(within(page).getByText("The model has no thinking levels").closest(".settings-row-control")?.hasAttribute("data-inert")).toBe(true);
+  });
+
   it("offers the scope only on pages that have project rows", async () => {
     const { client } = hostWithFiles();
     const { page } = renderScreen({ client, page: "keybindings" });
