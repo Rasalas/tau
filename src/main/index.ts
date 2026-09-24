@@ -786,7 +786,7 @@ if (primaryInstance) app.on("before-quit", (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   void (async () => {
-    const hostStays = Boolean(windowHost) && (quitAfterWindowClosed || await keepHostRunning());
+    const hostStays = Boolean(windowHost) && (quitAfterWindowClosed || windowHost?.servedByService === true || await keepHostRunning());
     // Threads stop with the host; the page asks first when any are working.
     if (!hostStays && !await appShell.confirmQuit()) {
       shutdownStarted = false;

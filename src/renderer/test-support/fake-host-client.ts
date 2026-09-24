@@ -111,6 +111,10 @@ function defaults(): HostClient {
     revokePairingLink: async () => ({ revoked: false }),
     revokeClient: async () => ({ revoked: false }),
     rotateHostToken: async () => undefined,
+    // No service unless a test gives one: the section says the host cannot run as one.
+    serviceStatus: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
+    installService: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
+    uninstallService: async () => { throw Object.assign(new Error("No service in tests."), { code: "unknown-method" }); },
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),

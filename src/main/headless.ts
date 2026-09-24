@@ -1,7 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import type { HostEvent } from "../shared/contracts.js";
 import { HOST_CAPABILITY, HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
@@ -32,6 +35,9 @@ import { selectDefaultBackend } from "./runtime-adapters.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
 import { IdleHeapCompactor } from "./host-idle-compaction.js";
+import { HostServiceManager } from "./host-service.js";
+import { HOST_SERVICE_ENV } from "./host-service-units.js";
+import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
 
 /**
  * The host without a window: the same `PiHost` and the same method table,
@@ -42,11 +48,14 @@ const workspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless");
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
-// A supervised host is told which version it belongs to; a hand-started one
-// reads npm's environment, as it always did.
-const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || "0.0.0";
 // dist-electron/main/headless.js -> the app root the kits are shipped in.
 const appRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+// A supervised host is told which version it belongs to; a hand-started one
+// reads npm's environment. A service host reads the app it runs from, so an
+// update in place is a new version after a restart without touching the unit.
+const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || packageVersion(appRoot) || "0.0.0";
+/** Set in a service's unit: this host writes `host.json` itself and takes over from the host it names. */
+const serviceKind = process.env[HOST_SERVICE_ENV] || undefined;
 // The built browser client, when there is one; `npm run build:web` writes it.
 const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
@@ -77,6 +86,43 @@ function broadcast(event: HostPushEvent): void {
 function publish(event: HostEvent): void {
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
   broadcast(event);
+}
+
+function packageVersion(root: string): string | undefined {
+  try {
+    const version = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version?: unknown }).version;
+    return typeof version === "string" ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function portIsFree(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(false));
+    probe.listen(port, host, () => probe.close(() => resolve(true)));
+  });
+}
+
+/**
+ * A service host takes over from the host `host.json` names — the one a
+ * window started, or its own previous run — and asks for that host's port
+ * again, so the clients of the host it replaces reconnect to it unchanged.
+ */
+async function takeOverListen(): Promise<string> {
+  const previous = await readHostDescriptor(userData);
+  if (!previous || previous.pid === process.pid) return listen;
+  const token = await readFile(previous.tokenPath, "utf8").then((value) => value.trim()).catch(() => "");
+  if (token) {
+    hostLog.info("host.service.take-over", { pid: previous.pid, url: previous.url, service: previous.service });
+    await retireHost(previous, token);
+  }
+  const { host: bindHost, port } = parseListen(listen);
+  let wanted = 0;
+  try { wanted = Number(new URL(previous.url).port) || 0; } catch { /* no port to keep */ }
+  if (port !== 0 || wanted === 0) return listen;
+  return await portIsFree(bindHost, wanted) ? `${bindHost.includes(":") ? `[${bindHost}]` : bindHost}:${wanted}` : listen;
 }
 
 const versions: ExtensionHostVersions = { tau: hostVersion, pi: PI_VERSION, api: EXTENSION_API_VERSION };
@@ -124,10 +170,25 @@ async function main(): Promise<void> {
   });
   const tokenFile = new HostTokenFile(hostTokenPath());
   const access = await HostAccess.open({ tokenFile, storePath: join(userData, "paired-clients.json"), logger: hostLog });
+  // The machine's service for this userData, whether or not this host is it (Settings → Connections).
+  const service = new HostServiceManager({
+    execPath: process.execPath,
+    entry: fileURLToPath(import.meta.url),
+    userData,
+    // Ending a Windows task leaves the host it started: this one stops itself, another is asked to.
+    retireHost: async () => {
+      const running = await readHostDescriptor(userData);
+      if (!running?.service) return;
+      if (running.pid === process.pid) { setTimeout(() => shutdown(), 1_000); return; }
+      const token = await readFile(running.tokenPath, "utf8").then((value) => value.trim()).catch(() => "");
+      if (token) await retireHost(running, token);
+    },
+  });
   let listening: HostListenInfo | undefined;
   const methods = createHostMethods({
     clientCalls,
     connections: () => ({ access, listen: () => listening }),
+    service: () => service,
     ...started.methodDeps(),
     jobs,
     platform: {
@@ -167,6 +228,10 @@ async function main(): Promise<void> {
       clientCalls.dispose();
       compactor.dispose();
       await socket?.close();
+      // Only a service host wrote the file; a window's supervisor removes its own.
+      if (serviceKind && (await readHostDescriptor(userData))?.pid === process.pid) {
+        await rm(hostDescriptorPath(userData), { force: true }).catch(() => undefined);
+      }
       await access.flush().catch((error: unknown) => hostLog.warn("host.access.flush-failed", error));
       await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
       process.exit(0);
@@ -182,7 +247,9 @@ async function main(): Promise<void> {
     return { stopping: true };
   };
 
-  const { host: boundHost } = parseListen(listen);
+
+  const listenOn = serviceKind ? await takeOverListen() : listen;
+  const { host: boundHost } = parseListen(listenOn);
   // TAU_HOST_TLS=1, or a certificate of the operator's own; the key stays under userData.
   const tls = resolveHostTls(process.env, { userData, bindHost: boundHost });
   // A built client turns this host into something a browser can open. Without
@@ -191,7 +258,7 @@ async function main(): Promise<void> {
     ? createWebClientServer({ dir: webRoot, pairing: access, ...(tls ? { tls } : {}) })
     : undefined;
   socket = await startSocketHostTransport({
-    listen,
+    listen: listenOn,
     methods: compactor.observe(methods),
     pushLog,
     beforeReply: () => pushes.flush(),
@@ -209,6 +276,18 @@ async function main(): Promise<void> {
   // The smoke test reads this line to learn the port when it asked for 0.
   listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint } : {}) };
   console.log(`tau-host listening on ${socket.scheme}://${boundHost}:${socket.port}`);
+  if (serviceKind) {
+    // Nobody supervises a service host: it tells a window where it is itself.
+    await writeHostDescriptor(userData, {
+      pid: process.pid,
+      url: `${socket.scheme}://${boundHost.includes(":") ? `[${boundHost}]` : boundHost}:${socket.port}`,
+      tokenPath: tokenFile.path,
+      startedAt: new Date().toISOString(),
+      version: hostVersion,
+      service: serviceKind,
+    });
+    hostLog.info("host.service.started", { service: serviceKind, pid: process.pid, port: socket.port, version: hostVersion });
+  }
   console.log(`token: ${tokenFile.path} (copy it to the client machine, or pass it as TAU_HOST_TOKEN)`);
   if (tls) {
     const origin = tls.source === "self-signed" ? `self-signed, ${tls.created ? "created now" : "kept"} in ${tls.certPath}` : `from ${tls.certPath}`;

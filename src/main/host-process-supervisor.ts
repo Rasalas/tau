@@ -13,6 +13,21 @@ export interface HostProcessDescriptor {
   tokenPath: string;
   startedAt: string;
   version: string;
+  /** Set by a host a service manager started: it wrote this file itself, and quitting a window leaves it running. */
+  service?: string;
+}
+
+/**
+ * The machine's service for this userData, as far as a window needs it
+ * (`host-service.ts`). A host it runs is the host of this userData: a window
+ * adopts it and starts none of its own.
+ */
+export interface HostServiceControl {
+  installed(): Promise<boolean>;
+  start(): Promise<void>;
+  restart(): Promise<void>;
+  /** Points the unit at this app and restarts it. */
+  repair(): Promise<void>;
 }
 
 export interface HostProcessSupervisorOptions {
@@ -34,6 +49,11 @@ export interface HostProcessSupervisorOptions {
   spawnProcess?: (command: string, args: string[], env: NodeJS.ProcessEnv) => ChildProcess;
   startTimeoutMs?: number;
   restartDelayMs?: number;
+  service?: HostServiceControl;
+  /** How long a service host may take to answer after a start or a restart. */
+  serviceStartTimeoutMs?: number;
+  /** How often an adopted service host's `host.json` is read for a restart or a new port. */
+  serviceCheckMs?: number;
 }
 
 export interface RunningHost {
@@ -43,6 +63,8 @@ export interface RunningHost {
   pid: number;
   /** True when this host was already running and was adopted rather than started. */
   adopted: boolean;
+  /** The service manager that runs it, when a service does. */
+  service?: string;
 }
 
 /** How often a host may crash and be restarted before the supervisor gives up. */
@@ -50,6 +72,8 @@ const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const DEFAULT_START_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
+const SERVICE_START_TIMEOUT_MS = 30_000;
+const SERVICE_CHECK_MS = 2_000;
 /** How many rotated host logs are kept beside the current one. */
 const KEPT_LOGS = 5;
 
@@ -78,9 +102,33 @@ export async function readHostDescriptor(userData: string): Promise<HostProcessD
       tokenPath: parsed.tokenPath ?? "",
       startedAt: parsed.startedAt ?? "",
       version: parsed.version ?? "",
+      ...(typeof parsed.service === "string" && parsed.service ? { service: parsed.service } : {}),
     };
   } catch {
     return undefined;
+  }
+}
+
+export async function writeHostDescriptor(userData: string, descriptor: HostProcessDescriptor): Promise<void> {
+  await mkdir(userData, { recursive: true }).catch(() => undefined);
+  await writeFile(hostDescriptorPath(userData), `${JSON.stringify(descriptor, null, 2)}\n`, { mode: 0o600 });
+}
+
+/**
+ * Asks a host to stop with `host.shutdown` and waits for it, then signals.
+ * Used for a host of another version and by a service host taking over.
+ */
+export async function retireHost(descriptor: Pick<HostProcessDescriptor, "pid" | "url">, token: string): Promise<void> {
+  if (!processAlive(descriptor.pid)) return;
+  const uplink = new HostUplink({ url: descriptor.url, token, requestTimeoutMs: SHUTDOWN_TIMEOUT_MS });
+  await uplink.request("host.shutdown").catch(() => undefined);
+  uplink.close();
+  const deadline = Date.now() + SHUTDOWN_TIMEOUT_MS;
+  while (Date.now() < deadline && processAlive(descriptor.pid)) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (processAlive(descriptor.pid)) {
+    try { process.kill(descriptor.pid, "SIGTERM"); } catch { /* already gone */ }
   }
 }
 
@@ -121,6 +169,13 @@ export class HostProcessSupervisor {
   private restartTimer: ReturnType<typeof setTimeout> | undefined;
   /** The port a restart asks for again, so the window's client keeps its URL. */
   private preferredPort = 0;
+  /** Reads an adopted service host's `host.json` for a restart or a new port. */
+  private serviceCheck: ReturnType<typeof setInterval> | undefined;
+  private checking = false;
+  /** When an adopted service host was first found gone; it gets one start and some time. */
+  private serviceGoneSince: number | undefined;
+  /** The service would not run this version; this window runs a host of its own until it restarts. */
+  private serviceRefused = false;
 
   constructor(private readonly options: HostProcessSupervisorOptions) {}
 
@@ -132,12 +187,15 @@ export class HostProcessSupervisor {
     return this.logPath;
   }
 
-  /** Adopts the host named in `host.json` when it is alive and current; starts one otherwise. */
+  /**
+   * Adopts the host named in `host.json` when it is alive and current, starts
+   * the installed service when there is one, and starts a host otherwise.
+   */
   async start(): Promise<RunningHost> {
     this.stopping = false;
-    const adopted = await this.adopt();
+    const adopted = await this.adopt() ?? await this.startService();
     if (adopted) {
-      this.running = adopted;
+      this.settle(adopted);
       return adopted;
     }
     return this.spawnHost();
@@ -145,17 +203,23 @@ export class HostProcessSupervisor {
 
   /**
    * Asks the host to shut down and waits for it, then signals. A host that is
-   * meant to outlive this window is detached instead. A pending restart is
-   * cancelled, and a host still starting is ended.
+   * meant to outlive this window is detached instead, and a service host is
+   * the service manager's to stop. A pending restart is cancelled, and a host
+   * still starting is ended.
    */
   async stop(): Promise<void> {
     this.stopping = true;
+    this.stopServiceCheck();
     clearTimeout(this.restartTimer);
     this.restartTimer = undefined;
     const starting = this.child && this.child.pid !== this.running?.pid ? this.child : undefined;
     if (starting) await endChild(starting);
     const running = this.running;
     if (!running) return;
+    if (running.service) {
+      this.running = undefined;
+      return;
+    }
     try {
       // The file, not the token read at start: a rotation may have replaced it since.
       const token = await readFile(running.tokenPath, "utf8").then((value) => value.trim()).catch(() => "") || running.token;
@@ -181,37 +245,163 @@ export class HostProcessSupervisor {
   detach(): void {
     this.detached = true;
     this.stopping = true;
+    this.stopServiceCheck();
     this.child?.unref();
   }
 
   private async adopt(): Promise<RunningHost | undefined> {
+    const found = await this.probeDescriptor();
+    if (!found) return undefined;
+    const { descriptor, token, version } = found;
+    if (version !== this.options.version) {
+      this.options.logger?.info("host-process.version-changed", { was: version, now: this.options.version, service: descriptor.service });
+      if (descriptor.service && this.options.service) return this.updateService(descriptor.pid);
+      await retireHost(descriptor, token);
+      return undefined;
+    }
+    this.options.logger?.info("host-process.adopted", { pid: descriptor.pid, url: descriptor.url, service: descriptor.service });
+    return this.adopted(descriptor, token);
+  }
+
+  /** The host `host.json` names, when it is alive and answers its token. */
+  private async probeDescriptor(): Promise<{ descriptor: HostProcessDescriptor; token: string; version: string } | undefined> {
     const descriptor = await readHostDescriptor(this.options.userData);
     if (!descriptor || !processAlive(descriptor.pid)) return undefined;
     const token = await readFile(descriptor.tokenPath, "utf8").then((value) => value.trim()).catch(() => "");
     if (!token) return undefined;
     const hello = await HostUplink.probe(descriptor.url, token);
     if (!hello) return undefined;
-    if (hello.hostVersion !== this.options.version) {
-      this.options.logger?.info("host-process.version-changed", { was: hello.hostVersion, now: this.options.version });
-      await this.shutdownForeign(descriptor, token);
-      return undefined;
-    }
-    this.options.logger?.info("host-process.adopted", { pid: descriptor.pid, url: descriptor.url });
-    this.preferredPort = portOf(descriptor.url);
-    return { ...descriptor, token, adopted: true };
+    return { descriptor, token, version: hello.hostVersion };
   }
 
-  /** A host of another version is asked to leave before a current one starts. */
-  private async shutdownForeign(descriptor: HostProcessDescriptor, token: string): Promise<void> {
-    const uplink = new HostUplink({ url: descriptor.url, token, requestTimeoutMs: SHUTDOWN_TIMEOUT_MS });
-    await uplink.request("host.shutdown").catch(() => undefined);
-    uplink.close();
-    const deadline = Date.now() + SHUTDOWN_TIMEOUT_MS;
-    while (Date.now() < deadline && processAlive(descriptor.pid)) {
+  private adopted(descriptor: HostProcessDescriptor, token: string): RunningHost {
+    this.preferredPort = portOf(descriptor.url);
+    return {
+      url: descriptor.url,
+      token,
+      tokenPath: descriptor.tokenPath,
+      pid: descriptor.pid,
+      adopted: true,
+      ...(descriptor.service ? { service: descriptor.service } : {}),
+    };
+  }
+
+  private settle(running: RunningHost): void {
+    this.running = running;
+    this.serviceGoneSince = undefined;
+    if (running.service) this.startServiceCheck();
+  }
+
+  /** The service of this userData, started when it is installed and not running. */
+  private async startService(): Promise<RunningHost | undefined> {
+    const service = this.options.service;
+    if (!service || this.serviceRefused || !await service.installed().catch(() => false)) return undefined;
+    this.options.logger?.info("host-process.service-start");
+    await service.start().catch((error: unknown) => this.options.logger?.warn("host-process.service-start-failed", error));
+    const found = await this.waitForServiceHost(undefined);
+    if (!found) {
+      this.options.logger?.warn("host-process.service-silent", "The installed service started no host; this window runs its own.");
+      return undefined;
+    }
+    if (found.version === this.options.version) return this.adopted(found.descriptor, found.token);
+    return this.updateService(found.descriptor.pid);
+  }
+
+  /**
+   * The service runs another Tau than this window. A restart picks up an app
+   * updated in place; a unit that names another copy of Tau is pointed at this
+   * one. Each is tried once: a service that still answers with another version
+   * is stopped, and this window runs a host of its own. `SuccessfulExit` and
+   * `Restart=on-failure` leave a stopped service stopped, so nothing loops.
+   */
+  private async updateService(runningPid: number): Promise<RunningHost | undefined> {
+    const service = this.options.service!;
+    let pid = runningPid;
+    for (const step of ["restart", "repair"] as const) {
+      this.options.logger?.info(`host-process.service-${step}`, { pid });
+      try {
+        await (step === "restart" ? service.restart() : service.repair());
+      } catch (error: unknown) {
+        this.options.logger?.warn(`host-process.service-${step}-failed`, error);
+        continue;
+      }
+      const found = await this.waitForServiceHost(pid);
+      if (!found) continue;
+      if (found.version === this.options.version) return this.adopted(found.descriptor, found.token);
+      pid = found.descriptor.pid;
+    }
+    this.serviceRefused = true;
+    this.options.logger?.warn("host-process.service-refused", { version: this.options.version });
+    const last = await this.probeDescriptor();
+    if (last) await retireHost(last.descriptor, last.token);
+    return undefined;
+  }
+
+  /** Waits for a service host other than `previousPid` to write `host.json` and answer. */
+  private async waitForServiceHost(previousPid: number | undefined): Promise<{ descriptor: HostProcessDescriptor; token: string; version: string } | undefined> {
+    const deadline = Date.now() + (this.options.serviceStartTimeoutMs ?? SERVICE_START_TIMEOUT_MS);
+    while (Date.now() < deadline && !this.stopping) {
+      const descriptor = await readHostDescriptor(this.options.userData);
+      if (descriptor?.service && descriptor.pid !== previousPid && processAlive(descriptor.pid)) {
+        const found = await this.probeDescriptor();
+        if (found?.descriptor.pid === descriptor.pid) return found;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    if (processAlive(descriptor.pid)) {
-      try { process.kill(descriptor.pid, "SIGTERM"); } catch { /* already gone */ }
+    return undefined;
+  }
+
+  private startServiceCheck(): void {
+    this.stopServiceCheck();
+    this.serviceCheck = setInterval(() => void this.checkService(), this.options.serviceCheckMs ?? SERVICE_CHECK_MS);
+    this.serviceCheck.unref?.();
+  }
+
+  private stopServiceCheck(): void {
+    clearInterval(this.serviceCheck);
+    this.serviceCheck = undefined;
+  }
+
+  /**
+   * An adopted service host is the service manager's: it may restart it (an
+   * update, a crash) or remove it. This window follows: to a restarted host,
+   * and to a host of its own once the service is gone.
+   */
+  private async checkService(): Promise<void> {
+    const running = this.running;
+    if (this.checking || this.stopping || !running?.service) return;
+    this.checking = true;
+    try {
+      const descriptor = await readHostDescriptor(this.options.userData);
+      if (descriptor && processAlive(descriptor.pid)) {
+        this.serviceGoneSince = undefined;
+        if (descriptor.pid === running.pid && descriptor.url === running.url) return;
+        const token = await readFile(descriptor.tokenPath, "utf8").then((value) => value.trim()).catch(() => running.token);
+        this.options.logger?.info("host-process.service-moved", { pid: descriptor.pid, url: descriptor.url });
+        this.running = this.adopted(descriptor, token);
+        // Somebody started a host that is not the service's; it is adopted like any other.
+        if (!descriptor.service) this.stopServiceCheck();
+        if (descriptor.url !== running.url) this.options.onUrlChanged?.(descriptor.url);
+        return;
+      }
+      const installed = await this.options.service?.installed().catch(() => false);
+      if (installed) {
+        const now = Date.now();
+        if (this.serviceGoneSince === undefined) {
+          this.serviceGoneSince = now;
+          await this.options.service?.start().catch((error: unknown) => this.options.logger?.warn("host-process.service-start-failed", error));
+          return;
+        }
+        if (now - this.serviceGoneSince < (this.options.serviceStartTimeoutMs ?? SERVICE_START_TIMEOUT_MS)) return;
+      }
+      this.options.logger?.info("host-process.service-gone", { installed });
+      this.stopServiceCheck();
+      const own = await this.spawnHost();
+      if (own.url !== running.url) this.options.onUrlChanged?.(own.url);
+    } catch (error: unknown) {
+      this.options.logger?.error("host-process.service-check-failed", error);
+    } finally {
+      this.checking = false;
     }
   }
 
@@ -296,19 +486,47 @@ export class HostProcessSupervisor {
   }
 
   private async writeDescriptor(running: RunningHost): Promise<void> {
-    const descriptor: HostProcessDescriptor = {
+    await writeHostDescriptor(this.options.userData, {
       pid: running.pid,
       url: running.url,
       tokenPath: running.tokenPath,
       startedAt: new Date().toISOString(),
       version: this.options.version,
-    };
-    await mkdir(this.options.userData, { recursive: true }).catch(() => undefined);
-    await writeFile(hostDescriptorPath(this.options.userData), `${JSON.stringify(descriptor, null, 2)}\n`, { mode: 0o600 });
+    });
   }
 
   private onExit(code: number | null, signal: string | null): void {
     if (this.stopping || this.detached) return;
+    if (this.options.service && !this.serviceRefused) {
+      void this.followService(code, signal);
+      return;
+    }
+    this.scheduleRestart(code, signal);
+  }
+
+  /**
+   * With a service installed, this host most likely stopped because the
+   * service took over (`headless.ts`); the window follows it instead of
+   * starting another. Without one, or when none answers, it is a crash.
+   */
+  private async followService(code: number | null, signal: string | null): Promise<void> {
+    const previous = this.running;
+    if (!await this.options.service!.installed().catch(() => false)) {
+      this.scheduleRestart(code, signal);
+      return;
+    }
+    const found = await this.waitForServiceHost(previous?.pid);
+    if (this.stopping || this.detached) return;
+    if (!found || found.version !== this.options.version) {
+      this.scheduleRestart(code, signal);
+      return;
+    }
+    this.options.logger?.info("host-process.service-took-over", { pid: found.descriptor.pid, url: found.descriptor.url });
+    this.settle(this.adopted(found.descriptor, found.token));
+    if (found.descriptor.url !== previous?.url) this.options.onUrlChanged?.(found.descriptor.url);
+  }
+
+  private scheduleRestart(code: number | null, signal: string | null): void {
     this.options.logger?.error("host-process.exited", { code, signal, log: this.logPath });
     const now = Date.now();
     this.restarts = [...this.restarts.filter((at) => now - at < RESTART_WINDOW_MS), now];

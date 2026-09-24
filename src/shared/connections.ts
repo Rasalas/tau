@@ -74,6 +74,39 @@ export interface UiCreatedPairingLink {
   urls: UiHostEndpoint[];
 }
 
+/** Something about the installed service the user should fix, with the command that does it. */
+export interface UiHostServiceProblem {
+  code: string;
+  message: string;
+  command?: string;
+}
+
+/**
+ * The host as a system service of the machine it runs on: a LaunchAgent, a
+ * systemd user unit or a Task Scheduler task that starts it at login and keeps
+ * it running without a window.
+ */
+export interface UiHostService {
+  supported: boolean;
+  /** Why this machine cannot run it, when it cannot. */
+  reason?: string;
+  manager?: "launchd" | "systemd" | "task-scheduler";
+  /** What the service manager calls it. */
+  label?: string;
+  installed: boolean;
+  /** A host the service started answers on this machine. */
+  running: boolean;
+  /** The host answering this call is that one. */
+  serving: boolean;
+  /** The unit names another copy of Tau or other settings than this host would write; installing again repairs it. */
+  stale: boolean;
+  /** The version the running service host reported. */
+  version?: string;
+  unitPath?: string;
+  logPath: string;
+  problems: UiHostServiceProblem[];
+}
+
 /** How long a new pairing link may be redeemed; the host clamps anything else. */
 export const PAIRING_LINK_LIFETIMES_MS = [10 * 60_000, 60 * 60_000, 24 * 60 * 60_000] as const;
 

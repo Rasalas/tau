@@ -17,6 +17,7 @@ import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
 import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
+import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
 import {
   decodeBoolean,
   decodeCommandName,
@@ -152,6 +153,8 @@ export interface HostMethodDeps {
   platform: HostMethodPlatform;
   /** Who else may connect (ADR 0023); absent where no socket listens. */
   connections?(): HostConnectionsService | undefined;
+  /** The host's machine running it as a service; absent for a host in the window's process. */
+  service?(): HostServiceManager | undefined;
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
@@ -385,6 +388,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     },
 
     ...createConnectionsMethods(() => deps.connections?.()),
+    ...createHostServiceMethods(() => deps.service?.()),
 
     // The other direction of the protocol: a client answering a `client-call`.
     // Only the connection it was sent to may answer (ADR 0023).

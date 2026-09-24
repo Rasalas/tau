@@ -5,7 +5,8 @@ import type { DesktopExtensionLoadResult, HostEvent } from "../shared/contracts.
 import { isHostUpdate } from "../shared/host-protocol.js";
 import type { HostPush } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
-import { HostProcessSupervisor, type RunningHost } from "./host-process-supervisor.js";
+import { HostProcessSupervisor, type HostServiceControl, type RunningHost } from "./host-process-supervisor.js";
+import { HostServiceManager } from "./host-service.js";
 import { HostUplink } from "./host-uplink.js";
 import { readHostToken } from "./host-token.js";
 import type { HostCertificateRefusedError } from "./host-tls-trust.js";
@@ -32,6 +33,8 @@ export interface WindowHostOptions {
   onEvent?(event: HostEvent): void;
   /** An attached host's certificate is not the pinned one; the uplink has stopped. */
   onCertificateRefused?(error: HostCertificateRefusedError): void;
+  /** The machine's service for this userData; `host-service.ts` by default. */
+  service?: HostServiceControl | null;
 }
 
 /**
@@ -70,11 +73,16 @@ export class WindowHost {
   get logFile(): string { return this.supervisor?.logFile ?? ""; }
   /** The workspace the host last published; a packaged rebuild looks for a checkout there. */
   get activeWorkspace(): string { return this.workspace; }
+  /** A service runs the host: quitting the window leaves it running, whatever the setting says. */
+  get servedByService(): boolean { return Boolean(this.supervisor?.descriptor?.service); }
 
   /** Starts (or adopts) the host process and opens this window's own connection. */
   async startSupervised(): Promise<RunningHost> {
+    const entry = headlessEntry(this.options.mainDirectory);
+    const service = this.options.service === undefined ? serviceControl(entry, this.options) : this.options.service ?? undefined;
     const supervisor = new HostProcessSupervisor({
-      entry: headlessEntry(this.options.mainDirectory),
+      entry,
+      ...(service ? { service } : {}),
       execPath: this.options.execPath,
       userData: this.options.userData,
       version: this.options.version,
@@ -195,6 +203,18 @@ export class WindowHost {
     }
     this.options.onEvent?.(event);
   }
+}
+
+/** The installed service a window adopts, starts or repairs; none where the machine has no manager. */
+function serviceControl(entry: string, options: WindowHostOptions): HostServiceControl | undefined {
+  const manager = new HostServiceManager({ execPath: options.execPath, entry, userData: options.userData });
+  if (manager.unsupported) return undefined;
+  return {
+    installed: () => manager.installed(),
+    start: () => manager.start(),
+    restart: () => manager.restart(),
+    repair: () => manager.install(),
+  };
 }
 
 /**
