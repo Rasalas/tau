@@ -99,11 +99,16 @@ describe("WorkspaceWatch", () => {
     await vi.waitFor(() => expect(changes).toHaveLength(1));
     expect(changes[0]).toEqual({ kind: "keybindings", paths: [join(agentDir, "keybindings.json")] });
 
-    // The themes folder and the config file do not exist yet, so both watches
-    // sit on the `.tau` folder that does; each group is still reported as its own.
+    // The themes folder and the config file did not exist, so both watches sat
+    // on the `.tau` folder; each reports only its own path appearing.
+    await mkdir(join(home, ".tau", "themes"));
     platform.fire(join(home, ".tau"), "themes");
-    await vi.waitFor(() => expect(changes.length).toBeGreaterThan(2));
-    expect(changes.slice(1).map((change) => change.kind).sort()).toEqual(["config", "themes"]);
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toEqual({ kind: "themes", paths: [join(home, ".tau", "themes")] });
+    await writeFile(join(home, ".tau", "config.json"), "{}");
+    platform.fire(join(home, ".tau"), "config.json");
+    await vi.waitFor(() => expect(changes).toHaveLength(3));
+    expect(changes[2]).toEqual({ kind: "config", paths: [join(home, ".tau", "config.json")] });
     expect(refreshed).toEqual([]);
     watch.close();
   });

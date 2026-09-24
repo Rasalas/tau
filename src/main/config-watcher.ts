@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, watch, type FSWatcher } from "node:fs";
-import { dirname, join, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 /** `fs.watch`, injectable so a test can drive events without touching a disk. */
 export type WatchFn = (
@@ -231,6 +231,7 @@ export class ConfigWatcher {
   private record(key: string, filename: string | null): void {
     const attachment = this.attachments.get(key);
     if (!attachment || this.closed) return;
+    if (attachment.waitingFor && !this.appeared(attachment.path, attachment.waitingFor, filename)) return;
     const path = attachment.waitingFor
       ? attachment.waitingFor
       : attachment.target.directory && filename ? join(attachment.path, filename) : attachment.path;
@@ -242,6 +243,19 @@ export class ConfigWatcher {
     this.timer = setTimeout(() => this.flush(), this.debounceMs);
     // A host that is otherwise idle should still be allowed to exit.
     this.timer.unref?.();
+  }
+
+  /**
+   * Whether an ancestor's event means the missing path is there now. Other
+   * entries in the ancestor are not the path; a folder on the way to it only
+   * moves the watch closer.
+   */
+  private appeared(ancestor: string, missing: string, filename: string | null): boolean {
+    const step = relative(ancestor, missing).split(sep)[0];
+    if (filename !== null && filename.split(/[\\/]/u)[0] !== step) return false;
+    if (this.exists(missing)) return true;
+    this.reconcile();
+    return false;
   }
 
   private flush(): void {

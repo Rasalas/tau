@@ -1052,7 +1052,7 @@ npm run benchmark:compare -- --runs 9 --warmup 1 [--apps tau,t3] [--check]
 npm run benchmark:compare -- --large-thread [--seed] --runs 5 --warmup 1 [--check]   # Tau alone, see "Opening a large thread"
 ```
 
-The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 350 messages, about 15 % above the measurement after wave E) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
+The report is written to `reports/compare-<timestamp>.json` and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 328 messages received and 12 sent, about 15 % above the measurement after E31) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check needs no T3: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
 
 ### First results (2026-09-23)
 
@@ -1160,6 +1160,11 @@ Two faults kept wave E from producing this table:
 
 - **The harness never finished its turn.** A root's `bin/codex` was written only when the root was seeded, and it pointed at the seeding worktree's `fake-codex.mjs`. After wave D that worktree was removed, so `codex` exited at once and no turn streamed. Every run now rewrites the shim.
 - **Every kit restarted after every turn.** The client lost the workspace id whenever a thread detail arrived: after a turn, on opening a thread and on loading older turns. Each loss and its return re-ran the renderer's workspace effect, which syncs the runtime extensions: every kit was deactivated and activated again, and each read its state from the host once more. That cost about 40 requests and their answers per turn, already in wave D's 340 / 44. With wave E's new kits it went to 372 / 85 and broke the 360-message budget. With the fix a turn receives 305 messages and sends 25.
+
+After ticket E31 a turn receives 284 messages and sends 10 (medians over five runs, `reports/compare-20260924-e31.json`; before: 305 and 25). Two sources of traffic went:
+
+- **SnapShots asked for waiting captures about ten times per turn.** Core hands a composer strip a fresh draft handle whenever its registry changes, and each time the kit asked the host for `pending`. New captures arrive as events; the kit now asks only at start, after a reconnect, or after an event found no composer on screen.
+- **A missing themes folder reported changes it did not have.** The harness has no `run/themes`, so the watcher waited on `run/`, and every write there (logs, sessions) came out as "themes changed", twice per turn, each followed by `list-user-themes` and `get-config`. A watch on an ancestor now reports only the missing path appearing.
 
 ### Screen by screen
 
