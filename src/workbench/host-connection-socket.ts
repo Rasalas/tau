@@ -257,8 +257,8 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       for (const listener of pushListeners) listener(frame.push);
       return;
     }
-    // Calls into a window go to the window's own process, never to a page.
-    if (frame.type === "client-call") return;
+    // Calls into a window go to the window's own process, never to a page; pairing has its own client.
+    if (frame.type === "client-call" || frame.type === "pair-reply") return;
     if (frame.type === "pong") {
       if (probe?.id !== frame.id) return;
       clearTimeout(probe.timer);

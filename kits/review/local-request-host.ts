@@ -45,7 +45,7 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
       ...(git.forkedAt ? { forkedAt: git.forkedAt } : {}),
       ...(git.diffStat ? { diffStat: git.diffStat } : {}),
     };
-  }, { long: true });
+  }, { access: "read", long: true });
 
   context.registerCommand("local-pr-evidence", async (input): Promise<{ available: boolean; evidence: LocalEvidence[] }> => {
     const attachments = services.turnAttachments;
@@ -71,7 +71,7 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
       caption: entry.caption ?? "",
     }))));
     return { available: true, evidence: lists.flat().filter((entry) => entry.mediaType.startsWith("image/")) };
-  });
+  }, { access: "read" });
 
   context.registerCommand("local-pr-image", async (input) => {
     const fields = record(input);
@@ -81,7 +81,7 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
     if (!threadId || !source || !id) throw new HostCommandError("Name the picture by thread, source and id.");
     const data = await read({ threadId, source, id, caption: "" });
     return data ? `data:${data.mediaType};base64,${data.data}` : null;
-  });
+  }, { access: "read" });
 
   // Only on a click: the model is the user's own choice for Review's writing, else a small one near the thread's.
   context.registerCommand("local-pr-describe", async (input): Promise<ReviewRequestDraft & { model?: string }> => {

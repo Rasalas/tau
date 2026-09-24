@@ -164,7 +164,7 @@ export function createPromptToolsHostExtension(options: PromptToolsHostOptions =
       context.registerCommand("stash-list", (input) => {
         const project = text(record(input).project);
         return serially(project, () => folderOf(project).list());
-      });
+      }, { access: "read" });
 
       context.registerCommand("stash-add", (input) => {
         const fields = record(input);
@@ -222,7 +222,7 @@ export function createPromptToolsHostExtension(options: PromptToolsHostOptions =
           if (answer.length >= PROJECT_HISTORY_PROMPTS) break;
         }
         return answer;
-      }, { long: true });
+      }, { access: "read", long: true });
     },
   };
 }

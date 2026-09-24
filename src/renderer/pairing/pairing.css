@@ -1,0 +1,8 @@
+/* A device asking to pair: the code to compare is the largest thing on it. */
+.pairing-request { width: 420px; }
+.pairing-code {
+  display: block; padding: 8px 0 4px; text-align: center;
+  font: 600 32px/1 var(--mono); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; color: var(--ink);
+}
+.pairing-access { align-self: flex-start; }
+.pairing-access > button { padding: 5px 12px; white-space: nowrap; }

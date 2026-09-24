@@ -86,7 +86,7 @@ Workbench
 - **the levels a setting is read from**: the built-in default, the host (`~/.tau/config.json`) and the project (`<project>/.tau/config.json`), first set wins from the project down. `HostConfigManager.readLayers` and `clear` (host methods `get-config-layers`, `clear-config`) keep the two files apart, `src/shared/config-layers.ts` resolves a key's value and origin, and `src/workbench/config-layers-store.ts` is the client's copy that writes to the level being edited. A row shows where its value comes from and resets or overrides it; a page with `scope` "project" or "both" offers the project in its breadcrumb. Pi's own keys stay Pi's: they have Pi's global and project files A host half reads its own keys resolved for a project with `services.settings(cwd)`.
 - extension lifecycle on both sides: desktop extensions in the renderer, host extensions in the host
 - one versioned request/push protocol between client and host, with reconnect, heartbeats, replay and per-client subscriptions (a client is sent the streams of the threads and topics it shows); Electron IPC is one transport of it, and the one generic method host extensions use travels on it
-- **who may connect to the host** ([ADR 0023](adr/0023-client-tokens-and-pairing.md), `src/main/host-access.ts`): the host token is the owner's; any other client pairs with a single-use, expiring link for a token of its own, kept only as a hash in `<userData>/paired-clients.json`. Settings → Connections (`src/renderer/settings/ConnectionsPage.tsx`) lists the host's addresses, the paired clients and the host-token connections, makes links (with a QR code for a network address), revokes a client — its open connection closes at once — and rotates the host token. Only a connection with the host token may do any of it
+- **who may connect to the host** ([ADR 0023](adr/0023-client-tokens-and-pairing.md), [ADR 0024](adr/0024-pairing-allowed-on-the-host.md), `src/main/host-access.ts`): the host token is the owner's; any other device asks to pair over the socket — with a single-use link's code or, for discovery, without one — and gets a token of its own only once the owner allows it on the host after comparing six digits both screens show (bound to the pinned certificate when the device pins). Tokens are kept as hashes in `<userData>/paired-clients.json` and end after 30/90/365 days unused or never; each device is Full or Read only, and `src/main/host-method-access.ts` classifies every host method so a Read-only device is refused every change on every call (kit commands declare `access: "read"`). Every owner window asks about a waiting device at once (`src/renderer/pairing/`); Settings → Connections (`src/renderer/settings/ConnectionsPage.tsx`) lists the host's addresses, waiting requests, the paired devices with their preset, last change and expiry, and the host-token connections, makes links (every address and the fingerprint in the fragment, a QR code for a network address), renames a device, changes its preset or timeout, revokes one or all others — open connections close at once — and rotates the host token. Only a connection with the host token may do any of it. **Network access** on the same page opens listeners beside the host's own loopback one, in the running host (`src/main/host-network.ts`, `<userData>/network.json`): Local network (every interface) and Tailscale (its addresses, plus a loopback listener a proxy such as `tailscale serve` forwards to), on fixed ports, TLS only beyond loopback, with the self-signed certificate or the user's own, re-read when it changes. Each listener carries a trust — `loopback`, `network` or `proxy` — and only the loopback one grants local files and the local window; endpoints are labelled by kind (LAN, `.local`, Tailscale, MagicDNS, IPv6) so a device picks the one it reaches (`src/main/host-endpoints.ts`, [host-protocol.md](host-protocol.md#network-access))
 - **which clients are attached**: every transport reports its clients to one registry, so the host knows how many there are and what each claims to be; the count is published, and `services.clients` on the host seam is where a kit reads it
 - `sessions.start` on the host seam: an extension has core create a thread for a project, index it and deliver its first prompt, without ever taking the screen
 - **Tau's tools for every runtime** ([ADR 0022](adr/0022-tau-tools-over-mcp.md)): a local MCP endpoint in the host process (`src/main/mcp-endpoint.ts`, Streamable HTTP on `127.0.0.1`, stateless) where kits offer the same Pi tool definitions they give Pi (`services.mcp.registerTools`) and gate every call (`services.mcp.gate`). A runtime backend asks `services.mcp.connect` for a thread's server entry — one bearer credential per thread, revoked when that thread's runtime closes — and puts it into its own MCP configuration; the credential decides which thread a call belongs to, so no tool reaches across threads
@@ -155,10 +155,22 @@ from the entry point.
 There are two such entry points. `src/renderer/main.tsx` is the Electron window;
 `src/web/` is the browser client a listening host serves, which reuses every
 component and adds only its entry, its platform and the token handling. Below
-720 px either of them lays itself out compactly — the thread list as a sheet,
-the composer at the bottom edge, agent supervision as the start screen — through
-`body[data-profile]` and `src/renderer/profile-compact.css`, not a second
-component tree.
+720 px either of them lays itself out compactly — the thread list as a screen of
+its own, the composer at the bottom edge, agent supervision as the start screen —
+through `body[data-profile]` and `src/renderer/profile-compact.css`, not a second
+component tree. A browser on a touch screen claims `compact` at any width, and a
+compact client at least 720 × 600 px (a tablet) keeps the thread list in a
+sidebar beside the thread instead (`compactFormFor`). The touch pieces live in
+`src/renderer/touch/`, a chunk only a compact layout loads: the thread list with
+T3 Code's swipe to settle and a long press for every action (`TouchThreadList`,
+`SwipeRow`, `ActionSheet`), the list's header with search and More as popovers
+and a floating New thread button (`TouchThreadBrowser`), panels that claim
+`compact` as sheets over the thread (`PanelSheet`, opened from the title bar),
+sheets that close on a pull down (`sheet-drag.ts`), and `TouchLayer` — the
+height the on-screen keyboard leaves (`visualViewport`), a tap that shows a
+message's actions, and the open thread in the address (`?thread=<id>`, which a
+push notification opens). A touch keyboard's return key writes a newline; the
+send button sends. Settings on a phone is stacked: the section list, then a page.
 
 The model picker (`src/renderer/components/ModelPicker.tsx`) opens as a popover
 at the control that opened it (the composer's model chip, a settings field),

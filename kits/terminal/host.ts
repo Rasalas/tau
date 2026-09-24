@@ -436,9 +436,9 @@ export function createTerminalHostExtension(
       context.registerCommand("kill", (raw) => {
         sessions.kill(String(fields(raw).id));
       });
-      context.registerCommand("list", () => sessions.list());
-      context.registerCommand("replay", (raw) => sessions.replay(String(fields(raw).id)));
-      context.registerCommand("font", () => fontDefaults());
+      context.registerCommand("list", () => sessions.list(), { access: "read" });
+      context.registerCommand("replay", (raw) => sessions.replay(String(fields(raw).id)), { access: "read" });
+      context.registerCommand("font", () => fontDefaults(), { access: "read" });
       context.registerCommand("foreground", (raw) => {
         const process = sessions.foreground(String(fields(raw).id));
         return process ? { process } : {};

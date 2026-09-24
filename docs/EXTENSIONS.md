@@ -245,6 +245,14 @@ exists looks at another runtime's models: the picker draws the label with the
 runtime's name in place of a trailing ellipsis ("Continue in…" → "Continue in
 Codex") and runs it with a second argument, `{ runtime }`; from the palette the
 command runs without one. Handoff Kit's "Continue in…" is the shipped caller.
+`thread-row` (new in API 1.13.0) offers the command on any thread of the
+compact thread list — a phone's or a tablet's — and runs it with `{ threadId }`,
+which need not be the open thread; from the palette or the title menu the
+command gets no id and acts on the open one. A long press on a row lists every
+`thread-row` command (destructive ones last); the swipe tray holds core's Settle
+and the first non-destructive `thread-row` command that brings an `Icon` (new in
+API 1.13.0, a component like a panel's). Thread Rail's Snooze, Archive and
+Delete are the shipped callers, with Snooze in the tray as in T3 Code.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -715,8 +723,12 @@ context.registerToolRenderer("git.rows", match, render, { profiles: ["desktop", 
 ```
 
 `"desktop"` is the Electron window, `"web"` a browser at the same host,
-`"compact"` a browser small enough that the thread list is a sheet and diffs do
-not split. The default is `["desktop"]`, so a package that says nothing keeps
+`"compact"` a phone or tablet: a browser that starts narrower than 720 px or on
+a touch screen, and the native app around the web client. There the thread list
+is a screen of its own (a sidebar on a tablet) and diffs do not split. A panel
+that claims `compact` is not docked there: its glyph sits in the title bar and
+opens the panel as a sheet over the thread, with `placement` reading `stage`.
+That is where a phone's terminal or review goes: claim `compact` on the panel. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 
 A client whose profile is not in the list never registers the contribution, so
@@ -1857,6 +1869,27 @@ without asking the host what changed. `context.events.on("host-connection", …)
 (new in API 1.12.0) carries `{ state }` — `connected`, `reconnecting`,
 `resyncing` or `refused` — whenever the window's link to the host changes;
 `connected` after any other state means it is back.
+
+### Commands a Read-only device may call: `access: "read"` (new in API 1.13.0)
+
+A paired device is Full or Read only ([ADR 0024](adr/0024-pairing-allowed-on-the-host.md)).
+A Read-only device may call a host command only when it was registered as one
+that just looks:
+
+```ts
+context.registerCommand("state", () => book.state(), { access: "read" });
+context.registerCommand("apply-changes", applyChanges, { long: true }); // needs Full
+```
+
+Declare it only for a command that changes no file, thread, setting or process
+and asks no other kit to — the host cannot check that, and a Read-only device
+trusts the declaration. Every other command answers such a device `forbidden`
+before the handler runs, and the refusal does not count as a failure of the
+command. The option travels from an isolated package's worker too. An older
+host ignores it, so a package need not raise `engines.api` for it. A Read-only
+device learns what it is from its hello reply (`access: "read-only"`); a panel
+that hides its buttons there saves the user a refusal, but the host is what
+enforces it.
 
 ### What reaches which client: `emit(…, { topic })` and `watch` (new in API 1.13.0)
 

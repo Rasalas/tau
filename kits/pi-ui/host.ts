@@ -67,7 +67,7 @@ export function createPiUiHostExtension(): HostExtension {
       context.registerCommand("state", (input) => {
         const sessionId = optionalString(input, "sessionId") ?? context.services.thread()?.sessionId;
         return sessionId ? stateOf(sessionId) : undefined;
-      });
+      }, { access: "read" });
       return stopPresenting;
     },
   };

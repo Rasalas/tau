@@ -212,7 +212,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         const since = finite(request.since);
         const result = await current(request.refresh === true);
         return price(summarize(result, since === undefined ? {} : { since }));
-      }, { long: true });
+      }, { access: "read", long: true });
 
       const limitSources = options.limitSources ?? LIMIT_SOURCES;
       let limits: UsageLimitsSummary | undefined;
@@ -240,7 +240,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         if (!refresh && limits && now() - limits.checkedAt < LIMITS_MAX_AGE_MS) return limits;
         readingLimits ??= readLimits(refresh).then((next) => { limits = next; return next; }).finally(() => { readingLimits = undefined; });
         return readingLimits;
-      }, { long: true });
+      }, { access: "read", long: true });
 
       return () => { stopObserving(); };
     },

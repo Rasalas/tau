@@ -37,4 +37,10 @@ describe("composer send keys", () => {
     expect(sendHint("enter", true, "followUp")).toBe("Queue after this turn — ↵ queues, ⌘↵ steers now, ⌥↑ dequeues");
     expect(sendHint("mod-enter", true, "steer")).toBe("Steer this turn — ⌘↵ steers now, ⌘⇧↵ queues, ⌥↑ dequeues");
   });
+
+  it("names no chord on a touch keyboard, whose return key writes a newline", () => {
+    expect(sendHint("mod-enter", false, "followUp", true)).toBe("Direct the agent");
+    expect(sendHint("mod-enter", true, "steer", true)).toBe("Steer this turn");
+    expect(enter({ shortcut: "mod-enter" })).toBe("newline");
+  });
 });

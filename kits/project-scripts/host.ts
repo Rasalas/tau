@@ -94,7 +94,7 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
         return state;
       };
 
-      context.registerCommand("list", async (raw) => load(await directoryOf(scopeOf(fields(raw)))));
+      context.registerCommand("list", async (raw) => load(await directoryOf(scopeOf(fields(raw)))), { access: "read" });
       context.registerCommand("run", async (raw) => {
         const input = fields(raw);
         const scriptId = text(input.scriptId);
@@ -119,7 +119,7 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
       });
       context.registerCommand("stop", (raw) => { runs.stop(String(fields(raw).runId)); });
       context.registerCommand("dismiss", (raw) => { runs.dismiss(String(fields(raw).runId)); });
-      context.registerCommand("runs", () => runs.list());
+      context.registerCommand("runs", () => runs.list(), { access: "read" });
 
       // Workspace Kit's worktree setup, on the same script definitions, tracked
       // step by step for the card. A blocking script (`async: false`) holds the
@@ -198,7 +198,7 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
         return { setupId, runs: started.map((run) => current.get(run.id) ?? run) };
       }, { long: true, ...workspaceOnly });
 
-      context.registerCommand("setups", () => setups.list());
+      context.registerCommand("setups", () => setups.list(), { access: "read" });
       context.registerCommand("setup-cancel", (raw) => {
         const id = setupIdOf(fields(raw));
         if (!id) return;

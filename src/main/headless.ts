@@ -1,10 +1,13 @@
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { createServer } from "node:http";
+import type { Server as TlsServer } from "node:tls";
+import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import type { HostEvent } from "../shared/contracts.js";
 import { HOST_CAPABILITY, HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
+import { pairingUrl } from "../shared/connections.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
@@ -14,14 +17,16 @@ import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods } from "./host-methods.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
-import type { HostListenInfo } from "./host-connections.js";
+import { promptPairingsOnTerminal } from "./host-pairing-terminal.js";
+import { endpointOrigins, type HostConnectionsService, type HostListenInfo } from "./host-connections.js";
 import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { hostAllowedOrigins } from "./host-origin.js";
-import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createProtocolServer, startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
-import { parseListen } from "./host-listen.js";
-import { resolveHostTls } from "./host-tls.js";
+import { isLoopbackHost, parseListen } from "./host-listen.js";
+import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
+import { HostNetworkAccess } from "./host-network.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
@@ -43,6 +48,10 @@ const workspace = process.env.TAU_WORKSPACE || process.cwd();
 const safeMode = process.env.TAU_NO_EXTENSIONS === "1";
 const userData = process.env.TAU_USER_DATA || join(homedir(), ".tau", "headless");
 const listen = process.env.TAU_HOST_LISTEN || "127.0.0.1:0";
+// A loopback listener for a reverse proxy on this machine; every peer on it counts as remote.
+const proxyListen = process.env.TAU_HOST_PROXY_LISTEN;
+/** How often network access looks again at Tailscale's addresses and the certificate files. */
+const NETWORK_POLL_MS = 60_000;
 // A supervised host is told which version it belongs to; a hand-started one
 // reads npm's environment, as it always did.
 const hostVersion = process.env.TAU_HOST_VERSION || process.env.npm_package_version || "0.0.0";
@@ -53,7 +62,8 @@ const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
 // Its own file: the window process writes host.log in the same directory.
 const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
-const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
+const hostId = readOrCreateHostId(join(userData, "host-id"));
+const workspaceIdentity = new WorkspaceIdentity(hostId);
 const pushLog = new HostPushLog();
 const compactor = new IdleHeapCompactor({
   onCompacted: ({ beforeBytes, afterBytes, ms }) =>
@@ -70,6 +80,7 @@ const jobs = new HostJobRunner((event) => broadcast(event));
 /** The other direction: what a host extension asks one client's process to do. */
 const clientCalls = new ClientCalls((connection, call) => socket?.sendCall(connection, call) ?? false);
 let socket: SocketHostTransport | undefined;
+let networkPoll: ReturnType<typeof setInterval> | undefined;
 
 function broadcast(event: HostPushEvent): void {
   pushes.publish(event);
@@ -124,11 +135,56 @@ async function main(): Promise<void> {
     });
   });
   const tokenFile = new HostTokenFile(hostTokenPath());
-  const access = await HostAccess.open({ tokenFile, storePath: join(userData, "paired-clients.json"), logger: hostLog });
+  let terminalPairing: (() => void) | undefined;
+  const access = await HostAccess.open({
+    tokenFile,
+    storePath: join(userData, "paired-clients.json"),
+    logger: hostLog,
+    // No details on the wire: only an owner may ask connections-list what changed.
+    onChange: () => { publish({ type: "connections-changed" }); terminalPairing?.(); },
+    audit: (entry) => (entry.allowed ? hostLog.info("access.action", entry) : hostLog.warn("access.refused", entry)),
+  });
+  // Requests nobody answered and tokens unused past their timeout end here, not only at the next hello.
+  setInterval(() => access.sweep(), 60_000).unref();
   let listening: HostListenInfo | undefined;
+  let network: HostNetworkAccess | undefined;
+  let mainTls: HostTlsReloader | undefined;
+  const reloadCertificates = async (): Promise<{ changed: boolean }> => {
+    const own = mainTls?.reload() ?? false;
+    const fromNetwork = network ? (await network.reloadCertificate()).changed : false;
+    if (listening && mainTls) listening = { ...listening, fingerprint: mainTls.current.fingerprint };
+    return { changed: own || fromNetwork };
+  };
+  const staticOrigins = hostAllowedOrigins();
+  /** Origins of the published endpoints; the socket accepts pages opened at any of them. */
+  let publishedOrigins: string[] = [];
+  const connectionsService = (): HostConnectionsService => ({
+    access,
+    listen: () => listening,
+    hostId,
+    hostName: hostname(),
+    ...(network ? {
+      network: {
+        state: () => network!.state(),
+        endpoints: (names) => network!.endpoints(names),
+        update: async (input) => {
+          const state = await network!.update(input);
+          await refreshOrigins();
+          return state;
+        },
+      },
+    } : {}),
+    reloadCertificates,
+  });
+  const refreshOrigins = async (): Promise<void> => {
+    publishedOrigins = await endpointOrigins(connectionsService()).catch((error: unknown) => {
+      hostLog.warn("host-network.origins-failed", error);
+      return publishedOrigins;
+    });
+  };
   const methods = createHostMethods({
     clientCalls,
-    connections: () => ({ access, listen: () => listening }),
+    connections: () => connectionsService(),
     ...started.methodDeps(),
     jobs,
     platform: {
@@ -167,6 +223,8 @@ async function main(): Promise<void> {
     void (async () => {
       clientCalls.dispose();
       compactor.dispose();
+      clearInterval(networkPoll);
+      await network?.close().catch((error: unknown) => hostLog.warn("host-network.close-failed", error));
       await socket?.close();
       await access.flush().catch((error: unknown) => hostLog.warn("host.access.flush-failed", error));
       await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
@@ -176,7 +234,7 @@ async function main(): Promise<void> {
   // Not part of the client protocol: the supervisor that started this process
   // asks for a clean stop here before it reaches for a signal (ADR 0021).
   methods["host.shutdown"] = async (_params, context) => {
-    if (!isHostOwner(context.principal)) throw Object.assign(new Error("Only the host token may stop the host."), { code: HOST_ERROR.forbidden });
+    if (!isHostOwner(context.principal)) throw Object.assign(new Error("Only the host token, on this machine, may stop the host."), { code: HOST_ERROR.forbidden });
     hostLog.info("host.shutdown.requested");
     // Answer first, leave afterwards.
     setTimeout(shutdown, 50).unref();
@@ -185,11 +243,14 @@ async function main(): Promise<void> {
 
   const { host: boundHost } = parseListen(listen);
   // TAU_HOST_TLS=1, or a certificate of the operator's own; the key stays under userData.
-  const tls = resolveHostTls(process.env, { userData, bindHost: boundHost });
+  // Re-read when its files change, so a renewed certificate needs no restart.
+  const envTls = () => resolveHostTls(process.env, { userData, bindHost: boundHost });
+  const tls = envTls();
+  mainTls = tls ? new HostTlsReloader(() => envTls()!, { initial: tls }) : undefined;
   // A built client turns this host into something a browser can open. Without
   // one the host is exactly what it was: a socket and nothing else.
   const web = existsSync(join(webRoot, "index.html"))
-    ? createWebClientServer({ dir: webRoot, pairing: access, ...(tls ? { tls } : {}) })
+    ? createWebClientServer({ dir: webRoot, ...(tls ? { tls } : {}) })
     : undefined;
   socket = await startSocketHostTransport({
     listen,
@@ -202,13 +263,14 @@ async function main(): Promise<void> {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     access,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
-    allowedOrigins: hostAllowedOrigins(),
+    allowedOrigins: () => [...staticOrigins, ...publishedOrigins],
     ...(tls ? { tls } : {}),
     ...(web ? { attachTo: web.server } : {}),
     clients,
     calls: clientCalls,
     logger: hostLog,
   });
+  if (mainTls) mainTls.track(socket.server as unknown as TlsServer);
   // The smoke test reads this line to learn the port when it asked for 0.
   listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint } : {}) };
   console.log(`tau-host listening on ${socket.scheme}://${boundHost}:${socket.port}`);
@@ -221,15 +283,42 @@ async function main(): Promise<void> {
     hostLog.info("host.tls", { source: tls.source, fingerprint: tls.fingerprint, created: tls.created });
   }
   if (socket.warning) console.warn(`\nWARNING: ${socket.warning}\n`);
-  if (web) {
-    // The code lives in the fragment: no proxy, no access log and no Referer
-    // ever carries it, and the page drops it before it renders anything.
-    // A token of the browser's own, not the host token (ADR 0023).
-    const { code } = access.createLink();
-    console.log(`web client: ${tls ? "https" : "http"}://${boundHost}:${socket.port}/#pair=${code} (single use, 10 minutes)`);
-  } else {
-    console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
+  // The code lives in the fragment: no proxy, no access log and no Referer
+  // ever carries it, and the page drops it before it renders anything. It
+  // only asks: the owner still allows the device (ADR 0024).
+  const { code } = access.createLink();
+  const page = `${tls ? "https" : "http"}://${boundHost}:${socket.port}/`;
+  const link = pairingUrl(page, { code, ...(tls ? { fingerprint: tls.fingerprint } : {}), hostId, hostName: hostname() });
+  console.log(`${web ? "web client" : "pairing link"}: ${link} (single use, 10 minutes; allow the device in Settings → Connections${process.stdin.isTTY ? " or here" : ""})`);
+  if (!web) console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
+  // A host started by hand in a terminal asks there; a supervised one has a window to ask in.
+  if (process.stdin.isTTY) terminalPairing = promptPairingsOnTerminal(access, { input: process.stdin, output: process.stdout });
+
+  if (proxyListen) {
+    const { host, port } = parseListen(proxyListen);
+    if (!isLoopbackHost(host)) throw new Error(`TAU_HOST_PROXY_LISTEN must be a loopback address; ${host} is not. The proxy in front of it does the TLS.`);
+    const proxy = web ? createServer(web.handler("proxy")) : createProtocolServer();
+    socket.attach(proxy, "proxy");
+    await new Promise<void>((resolve, reject) => {
+      proxy.once("error", reject);
+      proxy.listen(port, host, () => resolve());
+    });
+    const address = proxy.address();
+    console.log(`tau-host proxy listener on http://${host}:${typeof address === "object" && address ? address.port : port}`);
   }
+  // Settings → Connections: the listeners beyond loopback, off until the owner turns them on.
+  network = await HostNetworkAccess.open({ userData, attach: socket.attach, ...(web ? { web: web.handler } : {}), logger: hostLog });
+  await refreshOrigins();
+  for (const listener of network.state().listeners) hostLog.info("host-network.open-at-start", listener);
+  networkPoll = setInterval(() => {
+    void network?.poll().then(refreshOrigins).catch((error: unknown) => hostLog.warn("host-network.poll-failed", error));
+    try {
+      if (mainTls?.refresh() && listening) listening = { ...listening, fingerprint: mainTls.current.fingerprint };
+    } catch (error: unknown) {
+      hostLog.warn("host.tls.reload-failed", error);
+    }
+  }, NETWORK_POLL_MS);
+  networkPoll.unref();
 
   compactor.start();
   process.on("SIGINT", shutdown);

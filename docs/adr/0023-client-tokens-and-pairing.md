@@ -7,7 +7,10 @@ the whole authentication of a listening host) and builds on
 [ADR 0021](0021-host-runs-in-its-own-process.md) (the host is its own process;
 every window is a socket client). Amended 2026-09-24: a call into a window
 goes to one connection (below); this changes how ADR 0021's `client-call`
-travels.
+travels. Amended by [ADR 0024](0024-pairing-allowed-on-the-host.md): a link
+no longer yields a token by itself; the owner allows each device on the host,
+pairing travels over the socket, tokens expire unused, and devices are Full or
+Read only.
 
 ## Context
 
@@ -152,6 +155,8 @@ an SSH tunnel, or TLS.
   no caller, because they arrive over the worker's port.
 
 ## Out of scope
+
+The first three items below are decided in ADR 0024.
 
 - **Scopes per client** (T3's read-only / operate / terminal / access rights).
   Every method would need a declared scope first; wave F decides whether a

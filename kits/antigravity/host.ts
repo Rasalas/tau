@@ -195,7 +195,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         } catch (error) {
           return { kind: ANTIGRAVITY_BACKEND_KIND, ...command, installed: false, available, message: error instanceof Error ? error.message : String(error) };
         }
-      });
+      }, { access: "read" });
       // The server's path from the Providers card; empty goes back to the release Tau installs.
       context.registerCommand("set-command", async (input) => {
         const requested = typeof (input as { command?: unknown } | undefined)?.command === "string" ? (input as { command: string }).command.trim() : "";
@@ -244,7 +244,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             ...(entry.usageTurns ? { turns: entry.usageTurns } : {}),
           };
         }),
-      }), { callers: [USAGE_KIT_ID] });
+      }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
       context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
 

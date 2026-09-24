@@ -79,7 +79,7 @@ export function createPackagesHostExtension(): HostExtension {
         context.emit("progress", { message });
       };
 
-      context.registerCommand("list", async () => ({ packages: (await services.listPackages()).map(row) }));
+      context.registerCommand("list", async () => ({ packages: (await services.listPackages()).map(row) }), { access: "read" });
 
       context.registerCommand("install", async (input) => {
         const source = requiredSource(input);

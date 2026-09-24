@@ -1,4 +1,4 @@
-import type { ClientStorage } from "../workbench/client-storage";
+import type { PairingResult } from "../workbench/host-pairing";
 
 /** Where a paired browser keeps its token: its own after pairing, or the host token its owner pasted. One host per origin, so one key. */
 export const WEB_TOKEN_KEY = "tau.web.host-token";
@@ -26,45 +26,16 @@ export function hostSocketUrl(location: { protocol: string; host: string }): str
   return `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/`;
 }
 
-/**
- * Trades a single-use code for a token of this browser's own (ADR 0023). A
- * refused code is not an error to show: it usually means the link had already
- * been opened once, or expired.
- */
-export async function redeemPairingCode(
-  code: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<string | undefined> {
-  try {
-    const response = await fetchImpl("/pair", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code }),
-    });
-    if (!response.ok) return undefined;
-    const body = await response.json() as { token?: unknown };
-    return typeof body.token === "string" && body.token.length > 0 ? body.token : undefined;
-  } catch {
-    return undefined;
+/** What the page says when pairing did not let it in. */
+export function pairingNotice(result: Exclude<PairingResult, { state: "approved" }>): string {
+  switch (result.state) {
+    case "denied": return "The host’s owner declined this device.";
+    case "expired": return "Nobody answered on the host in time. Try again, and allow the device there.";
+    case "refused":
+      if (result.reason === "unknown-code") return "This pairing link was already used or has expired. Ask for a new one.";
+      if (result.reason === "busy") return "The host is not taking a request from this device right now. Try again in a few minutes.";
+      if (result.reason === "rate-limited") return "Too many attempts from this device. Wait a moment and try again.";
+      return "The host did not understand the request.";
+    case "failed": return result.message;
   }
-}
-
-/**
- * The token this tab will say hello with: the one the link paired, else the one
- * a previous visit stored. Nothing else — a token typed into the paste field
- * comes back through `storage` on the reload that follows it.
- */
-export async function resolveHostToken(
-  storage: ClientStorage,
-  code: string | undefined,
-  fetchImpl?: typeof fetch,
-): Promise<string | undefined> {
-  if (code) {
-    const paired = await redeemPairingCode(code, fetchImpl);
-    if (paired) {
-      storage.set(WEB_TOKEN_KEY, paired);
-      return paired;
-    }
-  }
-  return storage.get(WEB_TOKEN_KEY) ?? undefined;
 }

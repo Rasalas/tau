@@ -191,7 +191,7 @@ export function createComposerContextHostExtension(): HostExtension {
             return { path: wanted.path, error: (error as NodeJS.ErrnoException).code === "ENOENT" ? "not found" : "unreadable" };
           }
         }));
-      });
+      }, { access: "read" });
 
       context.registerCommand("describe-attachments", async (input) => {
         const paths = Array.isArray(record(input).paths) ? (record(input).paths as unknown[]).map(text) : [];
@@ -206,7 +206,7 @@ export function createComposerContextHostExtension(): HostExtension {
             return { path };
           }
         }));
-      });
+      }, { access: "read" });
 
       context.registerCommand("list-files", async (input) => {
         const fields = record(input);
@@ -220,7 +220,7 @@ export function createComposerContextHostExtension(): HostExtension {
           fileLists.set(cwd, { at: Date.now(), files });
         }
         return rankFiles(await files, text(fields.query));
-      });
+      }, { access: "read" });
 
       context.registerCommand("list-pull-requests", async (input) => {
         const cwd = workspace(record(input));
@@ -242,7 +242,7 @@ export function createComposerContextHostExtension(): HostExtension {
         pullRequests.set(cwd, { at: Date.now(), list });
         list.catch(() => pullRequests.delete(cwd));
         return list;
-      });
+      }, { access: "read" });
       return () => { stopLifecycle(); };
     },
   };

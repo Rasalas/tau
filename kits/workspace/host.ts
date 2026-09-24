@@ -234,7 +234,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       // `tau app <path>` from a terminal.
       registerAppOpen(context);
       // Project sources: browse, pick, clone. Opening the result is core's job.
-      context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)));
+      context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)), { access: "read" });
       // The folder dialog waits on the user, well past the ordinary command timeout.
       context.registerCommand("pick-folder", async () => {
         const path = await services.pickDirectory();
@@ -265,14 +265,14 @@ export function createWorkspaceHostExtension(): HostExtension {
         return clones.start(url, parent);
       }, { long: true });
       context.registerCommand("clone-cancel", (input) => clones.cancel(requiredString(input, "id")));
-      context.registerCommand("clone-jobs", () => clones.list());
+      context.registerCommand("clone-jobs", () => clones.list(), { access: "read" });
       context.registerCommand("clone-forget", (input) => { clones.forget(requiredString(input, "id")); });
       context.registerCommand("file-tree", async (input) => {
         const project = cwd();
         const relative = optionalRelativePath(input);
         if (relative) await workspaceGit.assertWorkspacePath(project, relative);
         return readFileTree(relative ? resolve(project, relative) : project, relative ?? "");
-      });
+      }, { access: "read" });
       // A branch with a pull or merge request diffs against that request's base.
       const branchChanges = async (project: string, query: WorkspaceChangesQuery) => {
         const request = query.baseRef ? undefined : await branchRequest(project);
@@ -285,13 +285,13 @@ export function createWorkspaceHostExtension(): HostExtension {
         const query = (record(input).query ?? {}) as WorkspaceChangesQuery;
         if (query.scope === "branch") return branchChanges(cwd(), query);
         return git.getChanges(cwd());
-      }, { callers: [REVIEW_KIT_ID] });
+      }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("file-diff", async (input) => {
         const project = cwd();
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
-      }, { callers: [REVIEW_KIT_ID] });
+      }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("stage-file", (input) => stageThen(relativePath(input), workspaceGit.stageFile));
       context.registerCommand("unstage-file", (input) => stageThen(relativePath(input), workspaceGit.unstageFile));
       context.registerCommand("revert-file", (input) => stageThen(relativePath(input), workspaceGit.revertFile));
@@ -305,13 +305,13 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return readBoundedFileContent(resolve(project, path));
-      }, { callers: [FILES_KIT_ID] });
+      }, { access: "read", callers: [FILES_KIT_ID] });
       context.registerCommand("file-stat", async (input) => {
         const project = cwd();
         const path = relativePath(input);
         await workspaceGit.assertWorkspacePath(project, path);
         return statFile(resolve(project, path));
-      }, { callers: [FILES_KIT_ID] });
+      }, { access: "read", callers: [FILES_KIT_ID] });
       // An editor's save: refused as a conflict when the file changed since `expectedMtimeMs`.
       context.registerCommand("write-file", async (input) => {
         const project = cwd();
@@ -385,16 +385,16 @@ export function createWorkspaceHostExtension(): HostExtension {
           detail: record(input).detail === true,
           ...(optionalString(input, "base") ? { base: optionalString(input, "base") } : {}),
         });
-      }, { callers: [REVIEW_KIT_ID] });
+      }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("workspace-info", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
         return git.getWorkspaceInfo(canonical);
-      });
+      }, { access: "read" });
       context.registerCommand("worktree-statuses", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
         const sessions = await services.sessions.list();
         return git.getWorktreeStatuses(canonical, sessions.map((session) => session.cwd));
-      });
+      }, { access: "read" });
       context.registerCommand("worktree-base", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const base = await workspaceGit.resolveWorktreeBase(project, {
@@ -448,7 +448,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const tree = info.worktrees.find((candidate) => candidate.path === path);
         if (!tree) throw new Error(`${path} is not a worktree of this project.`);
         return workspaceGit.previewWorktreeRemoval(project, path, tree.branch);
-      });
+      }, { access: "read" });
       context.registerCommand("remove-worktree", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const path = requiredString(input, "path");
@@ -484,7 +484,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         let branch = defaultBranches.get(project);
         if (!branch) defaultBranches.set(project, branch = workspaceGit.readDefaultBranch(project));
         return branch;
-      });
+      }, { access: "read" });
       // Keeps the default branch current, fast-forward only; the client says when and whether.
       const puller = new DefaultBranchPuller();
       context.registerCommand("auto-pull", async (input) => {
@@ -510,7 +510,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("project-defaults", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         return readProjectDefaults(project);
-      });
+      }, { access: "read" });
       context.registerCommand("switch-ref", async (input) => {
         const project = cwd();
         const ref = requiredString(input, "ref");
@@ -537,7 +537,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         },
         schedule: (run) => { setTimeout(run, 2_000).unref?.(); },
       });
-      context.registerCommand("turn-stats", () => turnStats.all());
+      context.registerCommand("turn-stats", () => turnStats.all(), { access: "read" });
       const checkpoints = createWorkspaceKitLifecycle(services, {
         emit: (event) => {
           if (event.type === "turn-checkpoint") void turnStats.record(event.sessionId, turnStatOf(event.checkpoint));
@@ -565,15 +565,15 @@ export function createWorkspaceHostExtension(): HostExtension {
         () => turnStats.flush(),
       ];
       const checkpointRef = (input: unknown) => ({ sessionId: requiredString(input, "sessionId"), checkpointId: requiredString(input, "checkpointId") });
-      context.registerCommand("checkpoints", (input) => checkpoints.checkpoints(requiredString(input, "sessionId")));
+      context.registerCommand("checkpoints", (input) => checkpoints.checkpoints(requiredString(input, "sessionId")), { access: "read" });
       context.registerCommand("can-restore", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.canRestore(sessionId, checkpointId);
-      });
+      }, { access: "read" });
       context.registerCommand("restore-preview", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.restorePreview(sessionId, checkpointId);
-      });
+      }, { access: "read" });
       context.registerCommand("restore", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.restore(sessionId, checkpointId);
@@ -585,12 +585,12 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("turn-file-diff", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         return checkpoints.turnFileDiff(sessionId, checkpointId, relativePath(input), record(input).options as DiffLoadOptions | undefined);
-      });
+      }, { access: "read" });
       context.registerCommand("turn-files", (input) => {
         const { sessionId, checkpointId } = checkpointRef(input);
         const limit = record(input).limit;
         return checkpoints.turnFiles(sessionId, checkpointId, optionalString(input, "cursor"), typeof limit === "number" ? limit : undefined);
-      });
+      }, { access: "read" });
       const installedEditors = () => findInstalledEditors(defaultEditorProbe((name) => services.findCommand(name)));
       const openEditor = async (editorId: string, directory: string, target: string, isFile: boolean, position?: { line?: number; column?: number }) => {
         const editor = installedEditors().find((entry) => entry.id === editorId);
@@ -599,7 +599,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         services.noteSubprocess();
         await launchEditor(command, args, directory);
       };
-      context.registerCommand("list-editors", () => installedEditors().map(({ id, name }) => ({ id, name })));
+      context.registerCommand("list-editors", () => installedEditors().map(({ id, name }) => ({ id, name })), { access: "read" });
       context.registerCommand("open-in-editor", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const editorId = requiredString(input, "editorId");
@@ -614,7 +614,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           ...(typeof column === "number" ? { column } : {}),
         });
       });
-      context.registerCommand("list-terminals", () => workspaceGit.listTerminals());
+      context.registerCommand("list-terminals", () => workspaceGit.listTerminals(), { access: "read" });
       context.registerCommand("open-terminal", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const terminalId = optionalString(input, "terminalId");

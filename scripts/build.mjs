@@ -28,5 +28,8 @@ const buildTimeMs = Math.round(performance.now() - started);
 const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs });
 await mkdir(join(ROOT, "reports"), { recursive: true });
 await writeFile(join(ROOT, "reports/build-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+// The host serves this to browsers and phones; a packaged app ships it (electron-builder.yml).
+// After the report, so the desktop build budget measures the desktop build alone.
+run("../scripts/build-web.mjs", []);
 console.log(`Build completed in ${buildTimeMs}ms`);
 console.log("Run npm run build:budget to enforce release budgets.");

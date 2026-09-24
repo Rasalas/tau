@@ -14,12 +14,18 @@ export interface ThreadSupervisionRow {
   path: string;
   title: string;
   projectName: string;
+  /** The project's short label, e.g. its Git branch. */
+  projectLabel?: string;
   status: ThreadSupervisionStatus;
   /** Set while the thread is running, for the elapsed timer. */
   startedAt?: number;
   /** A finished run the user has not looked at yet. */
   unread: boolean;
   modifiedAt: number;
+  pinned: boolean;
+  settled: boolean;
+  backendKind?: string;
+  modelProvider?: string;
 }
 
 const RANK: Record<ThreadSupervisionStatus, number> = { waiting: 0, running: 1, failed: 2, done: 3 };
@@ -31,6 +37,36 @@ export function threadSupervisionStatus(id: string, activity: ThreadActivitySnap
   return "done";
 }
 
+/** Which threads the user pinned and settled; both live in preferences. */
+export interface ThreadOrganization {
+  pinned?: readonly string[];
+  settled?: readonly string[];
+}
+
+function rowFor(thread: UiSession, activity: ThreadActivitySnapshot, organization: ThreadOrganization): ThreadSupervisionRow {
+  const status = threadSupervisionStatus(thread.id, activity);
+  const startedAt = activity.runningStartedAt[thread.id];
+  return {
+    id: thread.id,
+    path: thread.path,
+    title: thread.title || "Untitled thread",
+    projectName: thread.projectName,
+    ...(thread.projectLabel ? { projectLabel: thread.projectLabel } : {}),
+    status,
+    ...(startedAt === undefined ? {} : { startedAt }),
+    unread: activity.unreadThreadIds.includes(thread.id),
+    modifiedAt: thread.modifiedAt,
+    pinned: organization.pinned?.includes(thread.id) ?? false,
+    // A thread that needs the user again is not settled, whatever the list says.
+    settled: status === "done" && (organization.settled?.includes(thread.id) ?? false),
+    ...(thread.backendKind ? { backendKind: thread.backendKind } : {}),
+    ...(thread.modelProvider ? { modelProvider: thread.modelProvider } : {}),
+  };
+}
+
+const worstFirst = (left: ThreadSupervisionRow, right: ThreadSupervisionRow) =>
+  RANK[left.status] - RANK[right.status] || right.modifiedAt - left.modifiedAt;
+
 /**
  * The threads a supervisor sees first: everything that needs attention, then
  * the rest by recency. `limit` keeps the list a screen tall rather than an
@@ -40,23 +76,61 @@ export function threadSupervisionRows(
   threads: readonly UiSession[],
   activity: ThreadActivitySnapshot,
   limit = 12,
+  organization: ThreadOrganization = {},
 ): ThreadSupervisionRow[] {
-  const rows = threads.map((thread): ThreadSupervisionRow => {
-    const status = threadSupervisionStatus(thread.id, activity);
-    const startedAt = activity.runningStartedAt[thread.id];
-    return {
-      id: thread.id,
-      path: thread.path,
-      title: thread.title || "Untitled thread",
-      projectName: thread.projectName,
-      status,
-      ...(startedAt === undefined ? {} : { startedAt }),
-      unread: activity.unreadThreadIds.includes(thread.id),
-      modifiedAt: thread.modifiedAt,
-    };
-  });
-  rows.sort((left, right) => RANK[left.status] - RANK[right.status] || right.modifiedAt - left.modifiedAt);
+  const rows = threads.map((thread) => rowFor(thread, activity, organization));
+  rows.sort(worstFirst);
   return rows.slice(0, limit);
+}
+
+export type ThreadListSection = "pinned" | "active" | "settled";
+
+export interface ThreadListGroup {
+  id: ThreadListSection;
+  /** Empty for the one unlabelled group, the active threads. */
+  label: string;
+  rows: ThreadSupervisionRow[];
+  /** Rows past what the group shows; "Show more" reveals them. */
+  hidden: number;
+}
+
+export interface ThreadListOptions extends ThreadOrganization {
+  /** Keeps threads whose title, project or label contain it, ignoring case. */
+  query?: string;
+  /** How many active and settled rows show before "Show more". */
+  shown?: Partial<Record<"active" | "settled", number>>;
+}
+
+export const THREAD_LIST_PAGE: Record<"active" | "settled", number> = { active: 40, settled: 10 };
+
+/**
+ * The compact thread list, after T3 Code's: pinned threads, then the active
+ * ones worst first, then a shelf of settled ones by recency. A thread an agent
+ * spawned stays with its parent (the Agents panel lists it) unless it asks the
+ * user something.
+ */
+export function threadListGroups(
+  threads: readonly UiSession[],
+  activity: ThreadActivitySnapshot,
+  options: ThreadListOptions = {},
+): ThreadListGroup[] {
+  const query = options.query?.trim().toLowerCase();
+  const rows = threads
+    .filter((thread) => !thread.parentThreadId || activity.waitingThreadIds.includes(thread.id))
+    .map((thread) => rowFor(thread, activity, options))
+    .filter((row) => !query || [row.title, row.projectName, row.projectLabel ?? ""].some((text) => text.toLowerCase().includes(query)));
+  const pinned = rows.filter((row) => row.pinned && !row.settled).sort(worstFirst);
+  const active = rows.filter((row) => !row.pinned && !row.settled).sort(worstFirst);
+  const settled = rows.filter((row) => row.settled).sort((left, right) => right.modifiedAt - left.modifiedAt);
+  const page = (id: "active" | "settled", list: ThreadSupervisionRow[]) => {
+    const shown = options.shown?.[id] ?? THREAD_LIST_PAGE[id];
+    return { rows: list.slice(0, shown), hidden: Math.max(0, list.length - shown) };
+  };
+  const groups: ThreadListGroup[] = [];
+  if (pinned.length > 0) groups.push({ id: "pinned", label: "Pinned", rows: pinned, hidden: 0 });
+  if (active.length > 0) groups.push({ id: "active", label: "", ...page("active", active) });
+  if (settled.length > 0) groups.push({ id: "settled", label: "Settled", ...page("settled", settled) });
+  return groups;
 }
 
 export const THREAD_SUPERVISION_LABELS: Record<ThreadSupervisionStatus, string> = {
@@ -65,3 +139,20 @@ export const THREAD_SUPERVISION_LABELS: Record<ThreadSupervisionStatus, string> 
   failed: "Failed",
   done: "Done",
 };
+
+/** A row's age, as short as T3 Code's list: `<1m`, `5m`, `3h`, `2d`, `6w`. */
+export function threadAge(modifiedAt: number, now: number): string {
+  const minutes = Math.floor(Math.max(0, now - modifiedAt) / 60_000);
+  if (minutes < 1) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return days < 14 ? `${days}d` : `${Math.floor(days / 7)}w`;
+}
+
+/** The running timer: `42s`, then `3m 05s`. */
+export function threadElapsed(startedAt: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}

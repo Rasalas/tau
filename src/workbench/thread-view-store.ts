@@ -300,6 +300,8 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     case "extension-deactivated":
     // Who else is attached is client-wide, not thread state; extensions read it.
     case "client-count":
+    // Settings → Connections and the pairing prompt ask the host themselves.
+    case "connections-changed":
     // The runtime catalog store follows these itself.
     case "runtime-catalog":
     case "window-title":

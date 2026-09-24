@@ -53,8 +53,8 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
       // Review's desktop half reaches the Workspace read API through this
       // host-owned context. Workspace declares the two commands as callers of
       // tau.review, so this proxy cannot be widened by renderer input.
-      context.registerCommand("changes", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "changes", input));
-      context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input));
+      context.registerCommand("changes", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "changes", input), { access: "read" });
+      context.registerCommand("file-diff", (input) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, "file-diff", input), { access: "read" });
       const sources = createSourceControl(context, options);
       const workspace = (command: string, input?: unknown) => context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input);
       let links: ThreadLinks | undefined;
