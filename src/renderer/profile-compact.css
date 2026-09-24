@@ -24,6 +24,9 @@ body[data-profile="compact"] .app-shell {
 body[data-profile="compact"] .app-shell.touch-split { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0; }
 body[data-keyboard] .app-shell { --safe-bottom: 0px; }
 
+/* Keys and chords a touch screen has none of: esc, ↑↓, ⌘5, ⇧click. */
+body[data-profile="compact"] .keyboard-hint { display: none; }
+
 body[data-profile="compact"] .title-bar {
   gap: 4px; height: calc(52px + var(--safe-top));
   padding: var(--safe-top) max(6px, var(--safe-right)) 0 max(6px, var(--safe-left));
