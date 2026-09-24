@@ -328,7 +328,7 @@ function workbenchQuery(): Record<string, string> {
     // Which client this window claims to be (ADR 0016). Unset is `desktop`;
     // setting it is how the desktop window shows what a smaller one leaves out.
     ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
-    ...(windowHost ? { host: windowHost.hostUrl || remoteHostUrl || "" } : {}),
+    ...(windowHost ? { host: windowHost.hostUrl || remoteHostUrl || "", windowId: windowHost.windowId } : {}),
     // A refused host never gets the token, so the page does not hold it either.
     ...(hostRefusal ? { hostRefused: hostRefusal } : windowHost?.hostToken ? { token: windowHost.hostToken } : {}),
   };
@@ -527,14 +527,14 @@ async function loadWindowHalves(): Promise<void> {
       return hostOptions.platform.pickDirectory(input as Parameters<typeof hostOptions.platform.pickDirectory>[0]);
     },
   }));
-  if (safeMode) return;
-  const loaded = await loadBundledKitWindowHalves(kitOptions).catch((error: unknown) => {
+  const loaded = safeMode ? undefined : await loadBundledKitWindowHalves(kitOptions).catch((error: unknown) => {
     hostLog.error("window-extension.load.failed", error);
     return undefined;
   });
-  if (!loaded) return;
-  for (const failure of loaded.errors) hostLog.warn("window-extension.kit.failed", `${failure.path}: ${failure.message}`);
-  windowHost.extensions.load(loaded.halves);
+  for (const failure of loaded?.errors ?? []) hostLog.warn("window-extension.kit.failed", `${failure.path}: ${failure.message}`);
+  if (loaded) windowHost.extensions.load(loaded.halves);
+  // The host only calls halves a connection named in its hello.
+  await windowHost.announceHalves().catch((error: unknown) => hostLog.warn("window-extension.announce.failed", error));
 }
 
 /** Points the open window at the host's current URL; used when a restart moved it. */

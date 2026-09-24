@@ -1998,11 +1998,21 @@ machine the user sits at rather than the one the host runs on — SnapShots
 reads the accessibility tree of a window this way. A half written for an older
 Tau checks that the member exists.
 
+A call goes to one window, never to every client
+([ADR 0023](adr/0023-client-tokens-and-pairing.md)). While a command runs for a
+client, `callClient` asks that client's own window; otherwise, and when that
+client has no window with this half (a browser, a phone), it asks the Tau
+window on the host's machine. With neither, the call rejects at once instead
+of waiting for a timeout. A paired device is only ever asked for calls its own
+requests caused. `services.pickDirectory` is stricter: only the asking
+client's window shows the dialog, so a browser or a phone gets a rejection,
+not a dialog on the host's screen.
+
 Two limits: an isolated (worker) package cannot use `callClient` at all, and a
-client that has no window half (the browser client, a host nobody is attached
-to) makes the call reject. Treat it as an optional capability and say what is
-missing, the way Preview Kit answers "Preview needs the Tau desktop app on this
-host".
+host with no Tau window that runs the half (the browser client alone, a host
+nobody is attached to) makes the call reject. Treat it as an optional
+capability and say what is missing, the way Preview Kit answers "Preview needs
+the Tau desktop app on this host".
 
 ### Isolation
 

@@ -68,6 +68,19 @@ describe("host connection", () => {
     expect(connection.getState()).toBe("connected");
   });
 
+  it("names its window in every hello, a reconnect's included", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start("desktop", "w1");
+    link.reopen();
+    await settle();
+    const hellos = link.calls.filter((call) => call.method === "hello").map((call) => call.params[0]);
+    expect(hellos).toEqual([
+      expect.objectContaining({ profile: "desktop", windowId: "w1" }),
+      expect.objectContaining({ profile: "desktop", windowId: "w1" }),
+    ]);
+  });
+
   it("repairs a gap by replaying the pushes the host still has", async () => {
     const link = harness();
     const connection = new HostConnection(link.transport);

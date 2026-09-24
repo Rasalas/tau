@@ -140,8 +140,8 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
 }
 
 export interface HostMethodDeps {
-  /** Answers to the calls this host made into a client's process, when it makes any. */
-  clientCalls?: { settle(callId: string, result: unknown, error?: string): void };
+  /** Answers to the calls this host made into a client's process, when it makes any; `from` is the answering connection. */
+  clientCalls?: { settle(callId: string, result: unknown, error: string | undefined, from: string | undefined): void };
   /** Starts the host on the first call; later calls read what is already running. */
   bootstrap(): Promise<HostBootstrap>;
   /** Resolves once the host finished starting; it never asks for a bootstrap first. */
@@ -387,11 +387,13 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ...createConnectionsMethods(() => deps.connections?.()),
 
     // The other direction of the protocol: a client answering a `client-call`.
-    "client-call-result": async (params) => {
+    // Only the connection it was sent to may answer (ADR 0023).
+    "client-call-result": async (params, context) => {
       deps.clientCalls?.settle(
         decodeString("client-call-result", "callId", params[0]),
         params[1],
         decodeOptionalString("client-call-result", "error", params[2]),
+        context.principal.kind === "workbench-client" ? context.principal.connection : undefined,
       );
     },
 

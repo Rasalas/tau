@@ -101,7 +101,9 @@ describe("client tokens", () => {
     const { access, tokenFile } = await openAccess();
     const token = (await access.redeem(access.createLink().code, peer))!;
     const [prefix, id, secret] = token.split(".");
-    expect(access.authenticate(`${prefix}.${id}.${secret!.slice(0, -1)}A`)).toBeUndefined();
+    // Another last character, whatever the random secret ends with.
+    const altered = `${secret!.slice(0, -1)}${secret!.endsWith("A") ? "B" : "A"}`;
+    expect(access.authenticate(`${prefix}.${id}.${altered}`)).toBeUndefined();
     expect(access.authenticate(`${prefix}.${"0".repeat(24)}.${secret}`)).toBeUndefined();
     expect(access.authenticate(`${token}.extra`)).toBeUndefined();
     expect(access.authenticate(undefined)).toBeUndefined();

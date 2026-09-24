@@ -57,6 +57,8 @@ export class HostConnection {
   private lastSeq = 0;
   /** Which client this is, repeated in every hello so the host can count profiles. */
   private profile?: string;
+  /** The window this renderer sits in, so the host sends the calls it causes to that window. */
+  private windowId?: string;
   private state: HostConnectionState = "connected";
   private refusal: string | undefined;
   private recovering = false;
@@ -118,8 +120,9 @@ export class HostConnection {
   }
 
   /** Says hello without a `lastSeq`: a fresh client starts from the bootstrap it fetches. */
-  async start(profile?: string): Promise<HostHelloReply | undefined> {
+  async start(profile?: string, windowId?: string): Promise<HostHelloReply | undefined> {
     this.profile = profile;
+    this.windowId = windowId;
     return this.hello(undefined);
   }
 
@@ -246,6 +249,7 @@ export class HostConnection {
       protocol: HOST_TRANSPORT_VERSION,
       ...(lastSeq === undefined ? {} : { lastSeq }),
       ...(this.profile ? { profile: this.profile } : {}),
+      ...(this.windowId ? { windowId: this.windowId } : {}),
     }]));
     if (!reply) throw new HostRequestError("The host answered hello with a frame this client cannot read.", "invalid-hello");
     this.capabilities = new Set(reply.capabilities);

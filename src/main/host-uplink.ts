@@ -2,6 +2,8 @@ import { WebSocket, type ClientOptions } from "ws";
 import {
   HOST_TRANSPORT_VERSION,
   decodeHostServerFrame,
+  type HostClientCall,
+  type HostHello,
   type HostHelloReply,
   type HostPush,
 } from "../shared/host-transport.js";
@@ -17,8 +19,12 @@ const UNAUTHORIZED = 4401;
 export interface HostUplinkOptions {
   url: string;
   token: string;
-  /** Every push the host sends, including the ones meant for this process. */
+  /** Every push the host sends. */
   onPush?(push: HostPush): void;
+  /** A call the host sent to this connection alone: a window half is asked to do something. */
+  onCall?(call: HostClientCall): void;
+  /** Read at every hello, a reconnect's included: which window this is and which halves it runs. */
+  helloFields?(): Pick<HostHello, "windowId" | "windowHalves">;
   onHello?(reply: HostHelloReply): void;
   logger?: HostLogger;
   requestTimeoutMs?: number;
@@ -81,7 +87,7 @@ export class HostUplink {
   async hello(): Promise<HostHelloReply> {
     this.helloSent = true;
     // Not a client of its own: the renderer beside this process is the one that counts.
-    const reply = await this.send("hello", [{ protocol: HOST_TRANSPORT_VERSION, auxiliary: true }]) as HostHelloReply;
+    const reply = await this.send("hello", [{ ...this.options.helloFields?.(), protocol: HOST_TRANSPORT_VERSION, auxiliary: true }]) as HostHelloReply;
     this.options.onHello?.(reply);
     return reply;
   }
@@ -173,6 +179,10 @@ export class HostUplink {
     if (!frame) return;
     if (frame.type === "push") {
       this.options.onPush?.(frame.push);
+      return;
+    }
+    if (frame.type === "client-call") {
+      this.options.onCall?.(frame.call);
       return;
     }
     const id = frame.type === "response" ? frame.response.id : frame.id;

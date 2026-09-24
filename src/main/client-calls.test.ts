@@ -1,49 +1,181 @@
 import { describe, expect, it } from "vitest";
-import type { HostEvent } from "../shared/contracts.js";
+import type { HostClientCall } from "../shared/host-transport.js";
 import { ClientCalls } from "./client-calls.js";
+import { runAsCaller } from "./host-invocation.js";
 import { WindowExtensionRegistry } from "./window-extensions.js";
 
-type ClientCall = Extract<HostEvent, { type: "client-call" }>;
+interface Sent extends HostClientCall { to: string }
 
-function calls(timeoutMs = 50): { calls: ClientCalls; published: ClientCall[] } {
-  const published: ClientCall[] = [];
-  const instance = new ClientCalls((event) => { if (event.type === "client-call") published.push(event); }, timeoutMs);
-  return { calls: instance, published };
+function calls(timeoutMs = 50): { calls: ClientCalls; sent: Sent[] } {
+  const sent: Sent[] = [];
+  const instance = new ClientCalls((to, call) => { sent.push({ ...call, to }); return true; }, timeoutMs);
+  return { calls: instance, sent };
 }
 
-describe("calls from the host into a client's process", () => {
-  it("publishes one call and resolves with the client's answer", async () => {
-    const { calls: pending, published } = calls();
-    const answer = pending.call("tau.preview", "open-view", { url: "about:blank" });
+const PREVIEW = "tau.preview";
+/** The window process beside the host: loopback, host token, halves. */
+const hostWindow = { local: true, windowId: "w-host", windowHalves: [PREVIEW, "window"] };
 
-    expect(published).toHaveLength(1);
-    expect(published[0]).toMatchObject({ extensionId: "tau.preview", command: "open-view", input: { url: "about:blank" } });
-    pending.settle(published[0]!.callId, { ok: true });
+describe("calls from the host into a client's process", () => {
+  it("sends one call to the window on this machine and resolves with its answer", async () => {
+    const { calls: pending, sent } = calls();
+    pending.attach("win", hostWindow);
+    pending.attach("page", { local: true });
+    const answer = pending.call(PREVIEW, "open-view", { url: "about:blank" });
+
+    expect(sent).toEqual([expect.objectContaining({ to: "win", extensionId: PREVIEW, command: "open-view", input: { url: "about:blank" } })]);
+    pending.settle(sent[0]!.callId, { ok: true }, undefined, "win");
     await expect(answer).resolves.toEqual({ ok: true });
   });
 
-  it("fails the call when the client reports an error", async () => {
-    const { calls: pending, published } = calls();
-    const answer = pending.call("tau.preview", "open-view");
-    pending.settle(published[0]!.callId, undefined, "This window cannot draw a preview.");
+  it("fails the call when the window reports an error", async () => {
+    const { calls: pending, sent } = calls();
+    pending.attach("win", hostWindow);
+    const answer = pending.call(PREVIEW, "open-view");
+    pending.settle(sent[0]!.callId, undefined, "This window cannot draw a preview.", "win");
     await expect(answer).rejects.toThrow(/cannot draw a preview/u);
   });
 
-  it("gives up when no client answers", async () => {
+  it("fails at once when no window has the half", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("page", { local: true });
+    pending.attach("win", { ...hostWindow, windowHalves: ["window"] });
+    await expect(pending.call(PREVIEW, "open-view")).rejects.toThrow(/No Tau window on this host has the window half of tau.preview/u);
+    expect(sent).toEqual([]);
+  });
+
+  it("gives up when the window never answers", async () => {
     const { calls: pending } = calls(10);
-    await expect(pending.call("tau.preview", "open-view")).rejects.toThrow(/No client answered/u);
+    pending.attach("win", hostWindow);
+    await expect(pending.call(PREVIEW, "open-view")).rejects.toThrow(/No window answered/u);
+  });
+
+  it("drops an answer from any connection but the addressee", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("win", hostWindow);
+    pending.attach("phone", { local: false, pairedClient: "c1", windowHalves: ["window"] });
+    const answer = pending.pickDirectory();
+    const { callId } = sent[0]!;
+
+    pending.settle(callId, "/forged", undefined, "phone");
+    pending.settle(callId, "/forged", undefined, undefined);
+    pending.settle(callId, "/chosen", undefined, "win");
+    await expect(answer).resolves.toBe("/chosen");
   });
 
   it("ignores an answer to a call it does not know", () => {
     const { calls: pending } = calls();
-    expect(() => pending.settle("never-asked", "x")).not.toThrow();
+    expect(() => pending.settle("never-asked", "x", undefined, "win")).not.toThrow();
+  });
+
+  it("fails what a window was asked when it disconnects", async () => {
+    const { calls: pending } = calls(10_000);
+    pending.attach("win", hostWindow);
+    const answer = pending.call(PREVIEW, "open-view");
+    pending.detach("win");
+    await expect(answer).rejects.toThrow(/disconnected/u);
+    await expect(pending.call(PREVIEW, "open-view")).rejects.toThrow(/No Tau window/u);
+  });
+
+  it("fails at once when the connection cannot be written to", async () => {
+    const pending = new ClientCalls(() => false, 10_000);
+    pending.attach("win", hostWindow);
+    await expect(pending.call(PREVIEW, "open-view")).rejects.toThrow(/disconnected/u);
   });
 
   it("fails everything still waiting when the host stops", async () => {
     const { calls: pending } = calls(10_000);
-    const answer = pending.call("tau.preview", "open-view");
+    pending.attach("win", hostWindow);
+    const answer = pending.call(PREVIEW, "open-view");
     pending.dispose();
     await expect(answer).rejects.toThrow(/stopped waiting/u);
+  });
+});
+
+describe("which connection a call goes to", () => {
+  it("goes to the window of the renderer whose request caused it", () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("win", hostWindow);
+    pending.attach("mac-window", { local: false, windowId: "w-mac", windowHalves: [PREVIEW] });
+    pending.attach("mac-page", { local: false, windowId: "w-mac" });
+    void pending.call(PREVIEW, "open-view", undefined, {}, "mac-page").catch(() => undefined);
+    void pending.call(PREVIEW, "open-view", undefined, {}, "mac-window").catch(() => undefined);
+    expect(sent.map((call) => call.to)).toEqual(["mac-window", "mac-window"]);
+  });
+
+  it("falls back to the window on this machine when the caller has no half", () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("win", hostWindow);
+    pending.attach("browser", { local: false, pairedClient: "c1" });
+    void pending.call(PREVIEW, "open-view", undefined, {}, "browser").catch(() => undefined);
+    expect(sent.map((call) => call.to)).toEqual(["win"]);
+  });
+
+  it("never sends a paired client a call it did not cause", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("phone", { local: true, pairedClient: "c1", windowId: "w-phone", windowHalves: [PREVIEW, "window"] });
+    await expect(pending.call(PREVIEW, "open-view")).rejects.toThrow(/No Tau window/u);
+    await expect(pending.call(PREVIEW, "open-view", undefined, {}, "someone-else")).rejects.toThrow(/No Tau window/u);
+    expect(sent).toEqual([]);
+
+    void pending.call(PREVIEW, "open-view", undefined, {}, "phone").catch(() => undefined);
+    expect(sent.map((call) => call.to)).toEqual(["phone"]);
+  });
+
+  it("does not lend a window to a renderer holding another credential", () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("win", hostWindow);
+    // Claims the host window's id, but said hello with a paired client's token.
+    pending.attach("impostor", { local: true, pairedClient: "c1", windowId: "w-host" });
+    void pending.call(PREVIEW, "open-view", undefined, { callerOnly: true }, "impostor").catch(() => undefined);
+    expect(sent).toEqual([]);
+  });
+
+  it("ignores a remote host-token window unless it is the caller's", () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("remote", { local: false, windowId: "w-remote", windowHalves: [PREVIEW] });
+    void pending.call(PREVIEW, "open-view").catch(() => undefined);
+    expect(sent).toEqual([]);
+  });
+
+  it("asks the newest of two windows on this machine, and only it", () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("first", hostWindow);
+    pending.attach("second", { ...hostWindow, windowId: "w-second" });
+    void pending.call(PREVIEW, "open-view").catch(() => undefined);
+    expect(sent.map((call) => call.to)).toEqual(["second"]);
+  });
+
+  it("shows the folder picker only in the caller's window", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("win", hostWindow);
+    pending.attach("page", { local: true, windowId: "w-host" });
+    pending.attach("browser", { local: false, pairedClient: "c1" });
+
+    await expect(pending.pickDirectory(undefined, "browser")).rejects.toThrow(/no window that can answer/u);
+    expect(sent).toEqual([]);
+    void pending.pickDirectory(undefined, "page");
+    expect(sent.map((call) => call.to)).toEqual(["win"]);
+    // A call the host makes for itself has no caller: its own window answers.
+    void pending.pickDirectory(undefined, undefined);
+    expect(sent.map((call) => call.to)).toEqual(["win", "win"]);
+  });
+
+  it("takes the caller from the request that is running, and only while it runs", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("win", hostWindow);
+    pending.attach("mac-window", { local: false, windowId: "w-mac", windowHalves: [PREVIEW] });
+    pending.attach("mac-page", { local: false, windowId: "w-mac" });
+    const principal = { kind: "workbench-client", connection: "mac-page" } as const;
+
+    let later: (() => void) | undefined;
+    await runAsCaller(principal, async () => {
+      await Promise.resolve();
+      void pending.call(PREVIEW, "during").catch(() => undefined);
+      later = () => void pending.call(PREVIEW, "after").catch(() => undefined);
+    });
+    later?.();
+    expect(sent.map((call) => [call.command, call.to])).toEqual([["during", "mac-window"], ["after", "win"]]);
   });
 });
 

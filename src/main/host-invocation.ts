@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 /**
  * Provenance the main process can actually distinguish for a host command.
  * Desktop extensions share one renderer, so their names never appear here.
@@ -26,4 +28,29 @@ export const HOST_CORE_PRINCIPAL: HostInvocationPrincipal = Object.freeze({ kind
  */
 export function isHostOwner(principal: HostInvocationPrincipal): boolean {
   return principal.kind === "host-core" || (principal.kind === "workbench-client" && principal.pairedClient === undefined);
+}
+
+/** The connection whose request is running; `active` ends with the request, not with its async leftovers. */
+const callerScope = new AsyncLocalStorage<{ readonly connection: string; active: boolean }>();
+
+/**
+ * Runs `run` on behalf of a socket client, so a call into a window made on the
+ * way reaches that client's own window first (ADR 0023). Other principals keep
+ * the caller of the request they run inside.
+ */
+export async function runAsCaller<T>(principal: HostInvocationPrincipal, run: () => Promise<T>): Promise<T> {
+  const connection = principal.kind === "workbench-client" ? principal.connection : undefined;
+  if (!connection) return run();
+  const scope = { connection, active: true };
+  try {
+    return await callerScope.run(scope, run);
+  } finally {
+    scope.active = false;
+  }
+}
+
+/** The socket connection whose request is running right now, if any. */
+export function currentCaller(): string | undefined {
+  const scope = callerScope.getStore();
+  return scope?.active ? scope.connection : undefined;
 }

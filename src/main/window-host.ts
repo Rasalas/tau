@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { DesktopExtensionLoadResult, HostEvent } from "../shared/contracts.js";
@@ -49,8 +50,12 @@ export class WindowHost {
   private tokenPath: string | undefined;
   private fingerprint: string | undefined;
   private workspace: string;
+  /** Once the halves are loaded, a new uplink says hello at once so the host can reach them. */
+  private announced = false;
   /** The halves of the kits that need this process; the host calls into them. */
   readonly extensions: WindowExtensionRegistry;
+  /** Said in this process's hello and the renderer's, so the host sends a renderer's calls here. */
+  readonly windowId = randomBytes(16).toString("hex");
 
   constructor(private readonly options: WindowHostOptions) {
     this.workspace = options.workspace ?? "";
@@ -123,6 +128,15 @@ export class WindowHost {
     return serve(result);
   }
 
+  /**
+   * Tells the host which window halves this process runs; call it after
+   * loading them. The host sends a call only to a connection that named the half.
+   */
+  async announceHalves(): Promise<void> {
+    this.announced = true;
+    await this.uplink?.hello();
+  }
+
   /** Ends the host, or leaves it running when the user asked for that. */
   async stop(keepRunning: boolean): Promise<void> {
     this.extensions.dispose();
@@ -157,6 +171,8 @@ export class WindowHost {
       logger: this.options.logger,
       requestTimeoutMs: UPLINK_TIMEOUT_MS,
       onPush: (push) => this.receive(push),
+      onCall: (call) => void this.answer(call.callId, call.extensionId, call.command, call.input),
+      helloFields: () => ({ windowId: this.windowId, windowHalves: this.extensions.ids }),
       ...(this.fingerprint ? { fingerprint: this.fingerprint } : {}),
       ...(this.options.onCertificateRefused ? { onCertificateRefused: this.options.onCertificateRefused } : {}),
       // The next page load takes the token from here, so a window reopened after a rotation connects.
@@ -166,15 +182,12 @@ export class WindowHost {
         return token;
       } } : {}),
     });
+    if (this.announced) void this.uplink.hello().catch(() => undefined);
   }
 
   private receive(push: HostPush): void {
     const event = push.event as HostEvent;
     if (typeof (event as { type?: unknown }).type !== "string") return;
-    if (event.type === "client-call") {
-      void this.answer(event.callId, event.extensionId, event.command, event.input);
-      return;
-    }
     // The host names the open workspace in every project update it publishes.
     if (event.type === "host-update" && isHostUpdate(event.update) && event.update.type === "project") {
       const project = event.update.project as { displayPath?: string; cwd?: string };
