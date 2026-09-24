@@ -134,6 +134,7 @@ const UNAVAILABLE = new Set([
   // A window half belongs to an in-process kit: an isolated one has no id the
   // window registry would trust and no way to hold the view it creates.
   "callClient",
+  "clientWindow",
   "decorateUiPrompt",
   "setPermissionLevel",
   "presentUi",
