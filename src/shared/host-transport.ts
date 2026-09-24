@@ -1,6 +1,7 @@
 import type { HostEvent, UiMessage, UiToolRun } from "./contracts.js";
 import { isHostUpdate, type HostUpdate } from "./host-protocol.js";
 import type { ToolOutputDelta } from "./tool-output-delta.js";
+import { isPairingCommitment, isPairingNonce, type HostPairReply, type HostPairRequest } from "./pairing.js";
 
 /**
  * The client-to-host protocol. Electron IPC is one transport for it, a local
@@ -121,6 +122,29 @@ export type HostPushEvent = HostEvent | HostJobEvent | HostWireEvent;
 export interface HostPush {
   seq: number;
   event: HostPushEvent;
+  /**
+   * The last push this connection was sent before this one, when that is not
+   * `seq - 1`: the pushes between were about threads or topics it does not
+   * subscribe to, so they are no gap. Only on a live push to a subscribed client.
+   */
+  prev?: number;
+}
+
+/**
+ * What a client shows, so the host sends it the live events of those threads
+ * and topics only. Everything without a thread or topic (the index, run
+ * state, catalogs, questions) still goes to every client.
+ */
+export interface HostSubscription {
+  /** Session ids whose streamed messages, tools and details this client receives. */
+  threads: string[];
+  /** Extension events published with a topic, as `<extensionId>/<topic>`. */
+  topics: string[];
+  /**
+   * New-thread requests this client awaits: the thread whose first detail
+   * answers one is sent to it from then on, before the client knows its id.
+   */
+  requests?: string[];
 }
 
 export interface HostHello {
@@ -144,6 +168,11 @@ export interface HostHello {
   windowId?: string;
   /** The extensions whose window half this connection runs; read only when `auxiliary`. */
   windowHalves?: string[];
+  /**
+   * What this connection receives from here on, and what a replay after
+   * `lastSeq` is filtered by. Absent: every push, as before subscriptions.
+   */
+  subscription?: HostSubscription;
 }
 
 /** A call from the host into one client's process: the window half of an extension (ADR 0021, ADR 0023). */
@@ -163,11 +192,17 @@ export interface HostHelloReply {
   missed: HostPush[];
   /** Sequence the next push will use, so a resyncing client can skip ahead. */
   nextSeq: number;
+  /** Set for a device paired Read only: every call that changes something is refused (ADR 0024). */
+  access?: "read-only";
 }
 
 export type HostClientFrame =
   | { type: "hello"; id: string; hello: HostHello }
   | { type: "request"; request: HostRequest }
+  /** Asks to pair before any hello; answered with one or more `pair-reply` frames of the same id (ADR 0024). */
+  | { type: "pair"; id: string; pair: HostPairRequest }
+  /** The nonce a `pair` request committed to, after the host's `challenge`. */
+  | { type: "pair-reveal"; id: string; nonce: string }
   /** A heartbeat; only after the hello was answered, and only to a host that announced `heartbeat`. */
   | { type: "ping"; id: string };
 
@@ -177,6 +212,7 @@ export type HostServerFrame =
   | { type: "push"; push: HostPush }
   /** Sent to one connection only, outside the push sequence: never replayed, never seen by another client. */
   | { type: "client-call"; call: HostClientCall }
+  | { type: "pair-reply"; id: string; reply: HostPairReply }
   | { type: "pong"; id: string };
 
 /**
@@ -216,6 +252,11 @@ export const HOST_CAPABILITY = {
   localFiles: "local-files",
   /** The host answers `ping` with `pong`, so a client can tell a live link from a half-open one. */
   heartbeat: "heartbeat",
+  /**
+   * The host reads `subscription` in the hello and answers the `subscribe`
+   * method, which replaces it (`[HostSubscription | null]`, null for every push).
+   */
+  subscriptions: "subscriptions",
 } as const;
 
 /** `host-extension` invocations are named per extension command, not per method. */
@@ -257,6 +298,27 @@ export function decodeHostResponse(value: unknown): HostResponse | undefined {
 
 const MAX_WINDOW_ID = 128;
 const MAX_WINDOW_HALVES = 256;
+const MAX_SUBSCRIBED = 512;
+const MAX_SUBSCRIPTION_KEY = 512;
+
+function isKeyList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= MAX_SUBSCRIBED
+    && value.every((entry) => nonEmptyString(entry) && entry.length <= MAX_SUBSCRIPTION_KEY);
+}
+
+export function decodeHostSubscription(value: unknown): HostSubscription | undefined {
+  const item = record(value);
+  if (!item || !isKeyList(item.threads) || !isKeyList(item.topics)) return undefined;
+  if (item.requests !== undefined && !isKeyList(item.requests)) return undefined;
+  return {
+    threads: [...item.threads],
+    topics: [...item.topics],
+    ...(Array.isArray(item.requests) && item.requests.length > 0 ? { requests: [...item.requests as string[]] } : {}),
+  };
+}
+
+/** The key a topic travels under in a subscription. */
+export const hostTopicKey = (extensionId: string, topic: string): string => `${extensionId}/${topic}`;
 
 export function decodeHostHello(value: unknown): HostHello | undefined {
   const item = record(value);
@@ -267,6 +329,8 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
   if (item.auxiliary !== undefined && typeof item.auxiliary !== "boolean") return undefined;
   if (item.windowId !== undefined && !(nonEmptyString(item.windowId) && item.windowId.length <= MAX_WINDOW_ID)) return undefined;
   if (item.windowHalves !== undefined && !isWindowHalves(item.windowHalves)) return undefined;
+  const subscription = item.subscription === undefined ? undefined : decodeHostSubscription(item.subscription);
+  if (item.subscription !== undefined && !subscription) return undefined;
   return {
     protocol: HOST_TRANSPORT_VERSION,
     ...(typeof item.token === "string" ? { token: item.token } : {}),
@@ -275,6 +339,7 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
     ...(item.auxiliary === true ? { auxiliary: true } : {}),
     ...(typeof item.windowId === "string" ? { windowId: item.windowId } : {}),
     ...(Array.isArray(item.windowHalves) ? { windowHalves: [...item.windowHalves as string[]] } : {}),
+    ...(subscription ? { subscription } : {}),
   };
 }
 
@@ -347,8 +412,10 @@ function decodePushEvent(value: unknown): HostPushEvent | undefined {
 export function decodeHostPush(value: unknown): HostPush | undefined {
   const item = record(value);
   if (!item || !Number.isSafeInteger(item.seq) || (item.seq as number) < 1) return undefined;
+  if (item.prev !== undefined && !(count(item.prev) && (item.prev as number) < (item.seq as number))) return undefined;
   const event = decodePushEvent(item.event);
-  return event ? { seq: item.seq as number, event } : undefined;
+  if (!event) return undefined;
+  return { seq: item.seq as number, event, ...(item.prev === undefined ? {} : { prev: item.prev as number }) };
 }
 
 export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined {
@@ -366,7 +433,55 @@ export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined
     resync: item.resync,
     missed: missedFrames as HostPush[],
     nextSeq: item.nextSeq as number,
+    ...(item.access === "read-only" ? { access: "read-only" as const } : {}),
   };
+}
+
+const MAX_PAIR_CODE = 256;
+const MAX_DEVICE_NAME = 200;
+
+function decodePairRequest(value: unknown): HostPairRequest | undefined {
+  const item = record(value);
+  if (!item) return undefined;
+  if (item.code !== undefined && !(nonEmptyString(item.code) && item.code.length <= MAX_PAIR_CODE)) return undefined;
+  if (item.name !== undefined && !(typeof item.name === "string" && item.name.length <= MAX_DEVICE_NAME)) return undefined;
+  if (item.commitment !== undefined && !isPairingCommitment(item.commitment)) return undefined;
+  return {
+    ...(typeof item.code === "string" ? { code: item.code } : {}),
+    ...(typeof item.name === "string" && item.name.trim() ? { name: item.name } : {}),
+    ...(typeof item.commitment === "string" ? { commitment: item.commitment } : {}),
+  };
+}
+
+const PAIR_REFUSALS = new Set(["unknown-code", "busy", "rate-limited", "invalid"]);
+
+export function decodePairReply(value: unknown): HostPairReply | undefined {
+  const item = record(value);
+  if (!item) return undefined;
+  switch (item.state) {
+    case "challenge":
+      return nonEmptyString(item.requestId) && isPairingNonce(item.hostNonce)
+        ? { state: "challenge", requestId: item.requestId, hostNonce: item.hostNonce } : undefined;
+    case "waiting":
+      return nonEmptyString(item.requestId) && /^\d{6}$/u.test(String(item.verification)) && typeof item.expiresAt === "string"
+        ? { state: "waiting", requestId: item.requestId, verification: String(item.verification), expiresAt: item.expiresAt } : undefined;
+    case "approved":
+      return nonEmptyString(item.token) && nonEmptyString(item.clientId) && (item.access === "full" || item.access === "read-only")
+        ? { state: "approved", token: item.token, clientId: item.clientId, access: item.access } : undefined;
+    case "denied":
+    case "expired":
+      return { state: item.state };
+    case "refused":
+      return typeof item.reason === "string" && PAIR_REFUSALS.has(item.reason)
+        ? {
+          state: "refused",
+          reason: item.reason as Extract<HostPairReply, { state: "refused" }>["reason"],
+          ...(count(item.retryAfterMs) ? { retryAfterMs: item.retryAfterMs as number } : {}),
+        }
+        : undefined;
+    default:
+      return undefined;
+  }
 }
 
 export function decodeHostClientFrame(value: unknown): HostClientFrame | undefined {
@@ -379,6 +494,13 @@ export function decodeHostClientFrame(value: unknown): HostClientFrame | undefin
   if (item.type === "request") {
     const request = decodeHostRequest(item.request);
     return request ? { type: "request", request } : undefined;
+  }
+  if (item.type === "pair") {
+    const pair = decodePairRequest(item.pair);
+    return pair && nonEmptyString(item.id) ? { type: "pair", id: item.id, pair } : undefined;
+  }
+  if (item.type === "pair-reveal") {
+    return nonEmptyString(item.id) && isPairingNonce(item.nonce) ? { type: "pair-reveal", id: item.id, nonce: item.nonce } : undefined;
   }
   if (item.type === "ping") return nonEmptyString(item.id) && item.id.length <= MAX_WINDOW_ID ? { type: "ping", id: item.id } : undefined;
   return undefined;
@@ -402,6 +524,10 @@ export function decodeHostServerFrame(value: unknown): HostServerFrame | undefin
   if (item.type === "client-call") {
     const call = decodeHostClientCall(item.call);
     return call ? { type: "client-call", call } : undefined;
+  }
+  if (item.type === "pair-reply") {
+    const reply = decodePairReply(item.reply);
+    return reply && nonEmptyString(item.id) ? { type: "pair-reply", id: item.id, reply } : undefined;
   }
   if (item.type === "pong") return nonEmptyString(item.id) ? { type: "pong", id: item.id } : undefined;
   return undefined;

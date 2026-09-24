@@ -67,7 +67,7 @@ export function createPiLimitsHostExtension(options: PiLimitsOptions = {}): Host
 
       context.registerCommand("usage-limits", (): { accounts: LimitAccount[] } => ({
         accounts: [...held].map(([provider, entry]) => ({ id: `pi:${provider}`, runtime: "pi", label: `Pi · ${provider}`, checkedAt: entry.at, windows: entry.windows })),
-      }), { callers: [USAGE_KIT_ID] });
+      }), { access: "read", callers: [USAGE_KIT_ID] });
 
       return async () => {
         unregister();

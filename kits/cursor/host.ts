@@ -329,8 +329,8 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
         } catch (error) {
           return { ...signed, message: errorText(error) };
         }
-      });
-      context.registerCommand("instances", () => instancesReport());
+      }, { access: "read" });
+      context.registerCommand("instances", () => instancesReport(), { access: "read" });
       context.registerCommand("save-instance", async (input) => {
         const requested = (input as { instance?: unknown } | undefined)?.instance as RuntimeInstanceConfig | undefined;
         if (!requested || typeof requested.id !== "string") throw new HostCommandError("Name the instance to save.");
@@ -376,7 +376,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           const model = entry.model ?? entry.observedModel;
           return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),
-      }), { callers: [USAGE_KIT_ID] });
+      }), { access: "read", callers: [USAGE_KIT_ID] });
       context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
 
       for (const instance of settings.list()) register(instance.id);

@@ -75,7 +75,9 @@ describe("terminal host commands", () => {
       expect(processes[0].write).toHaveBeenCalledWith("echo hi\r");
       processes[0].output("hi\r\n");
       await Promise.resolve();
-      expect(events).toContainEqual(expect.objectContaining({ name: TERMINAL_DATA_EVENT, payload: { id: session.id, data: "hi\r\n", offset: 4 } }));
+      // Only the clients drawing this shell watch its topic.
+      expect(events).toContainEqual(expect.objectContaining({ name: TERMINAL_DATA_EVENT, payload: { id: session.id, data: "hi\r\n", offset: 4 }, topic: `output/${session.id}` }));
+      expect(events.filter((event) => event.name !== TERMINAL_DATA_EVENT).every((event) => event.topic === undefined)).toBe(true);
       expect(await client.replay({ id: session.id })).toEqual({ data: "hi\r\n", offset: 4 });
 
       // Scrollback keeps the last 5,000 lines; the offset keeps counting so a client never redraws.

@@ -737,6 +737,51 @@ the comparison harness the replayed turn went from 645.6 to 345.7 KiB
 (median of three runs each, 324 messages both); `replay.wire.receivedKiB` is
 now 398.
 
+**A client that shows another thread (F12).** Every push used to go to every
+client, so a phone showing one thread was sent the tool output and answers of
+every other thread and every terminal's bytes. A client now subscribes to the
+threads and topics it shows ([host-protocol.md](host-protocol.md#which-pushes-a-client-receives));
+the index, run state, questions and extension events without a topic still go
+to everyone. The budget test plays each fixture with a second client
+subscribed to a different thread and counts what it receives, against
+`hostTransferOtherThread` in `scripts/performance-budgets.json` (the after
+column plus about 15 %). "Before" is the same client without a subscription,
+which is what every client received before:
+
+| scenario, second client | wire bytes | decoded bytes | messages |
+| --- | ---: | ---: | ---: |
+| recorded turn, before | 5,700 | 40,258 | 98 |
+| recorded turn, after | 1,490 | 5,494 | 21 |
+| heavy turn, before | 130,093 | 543,992 | 475 |
+| heavy turn, after | 161 | 376 | 3 |
+| answer turn, before | 47,250 | 178,856 | 196 |
+| answer turn, after | 160 | 379 | 3 |
+
+What remains in the recorded turn is what every client needs or reads:
+`agent-status`, `run`, two `thread-shell` updates, ten host `event-log`
+entries without a thread (the timeline extensions can read) and six kit
+events (notifications, the rail's meta, workspace checkpoints). The generated
+fixtures carry none of those. The same test checks that a client switching
+to the streaming thread in the middle of the turn gets the answer's end and
+the running tool whole and ends with the same transcript, without asking for
+a replay.
+
+In the real app (isolated instance on 127.0.0.1, headless host process, a
+headless Chromium with its own profile running the web client in the compact
+profile and showing thread A, while the desktop window streamed a GPT-5.6
+Luna turn in thread B that ran `seq 1 3000`): the compact client received 22
+messages, 6,338 decoded bytes, where a socket client without a subscription
+received 34 messages and 48,782 decoded bytes of the same turn; a raw socket
+client with the compact client's subscription measured 1,557 wire bytes
+against 7,414. A second run after merging the rest of wave F (pairing,
+network access, the touch surface) measured the same turn shape at 22
+messages, 6,312 decoded and 1,546 wire bytes against 34, 36,252 and 7,160. The turn that created thread B cost 39 messages and 101,149
+decoded bytes against 56 and 134,563: creating a thread moves the host's one
+active thread, and its catalog and project updates go to every client. 2,000
+lines in a desktop terminal sent 104 `data` pushes (41 KB) to a client without
+a subscription and none to the compact client, which received only the two
+`sessions` updates. The window's own process now subscribes to no thread.
+
 ### Metadata commands without a snapshot
 
 `setModel` and `setThinkingLevel` used to build the whole host snapshot, which

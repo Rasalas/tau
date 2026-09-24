@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { getClientStorage, HostUnavailableError, type HostExtensionClient, type PreferencesStore, type WorkbenchActions } from "tau";
 import {
-  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT,
+  createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_LIST_EVENT, terminalOutputTopic,
   type TerminalFontDefaults, type TerminalFontService, type TerminalFontServiceState, type UiTerminalSession, type WorkspaceStoreMirror,
 } from "./protocol.js";
 import { EMPTY_LAYOUT, focusPane, paneIds, parseLayout, reconcileLayout, type TerminalLayout } from "./layout.js";
@@ -19,6 +19,11 @@ export const terminalKit = createTerminalHostClient((command, input) => connecti
 
 export function onTerminalEvent(name: string, listener: (payload: unknown) => void): () => void {
   return connection?.onEvent(name, listener) ?? (() => undefined);
+}
+
+/** Asks the host for this shell's output until released; a client drawing no shell is sent none. */
+export function watchTerminalOutput(id: string): () => void {
+  return connection?.watch?.(terminalOutputTopic(id)) ?? (() => undefined);
 }
 
 /** Where the panel's layout is kept between reloads; shell ids are the host's, so one key serves every project. */

@@ -23,6 +23,7 @@ export default {
     context.registerCommand("hello", async (input) => {
       const cwd = await services.cwd();
       context.emit("greeted", { input });
+      context.emit("streamed", 1, { topic: "feed" });
       return { cwd, input, safeMode: services.safeMode };
     });
     context.registerCommand("sessions", async () => (await services.sessions.list()).length);
@@ -268,7 +269,10 @@ describe("isolated host extensions", () => {
     await expect(registry.activate(extension)).resolves.toBe(true);
     try {
       await expect(registry.invoke("acme.worker", "hello", { a: 1 })).resolves.toEqual({ cwd: "/project", input: { a: 1 }, safeMode: false });
-      expect(events).toEqual([{ type: "extension-event", extensionId: "acme.worker", name: "greeted", payload: { input: { a: 1 } } }]);
+      expect(events).toEqual([
+        { type: "extension-event", extensionId: "acme.worker", name: "greeted", payload: { input: { a: 1 } } },
+        { type: "extension-event", extensionId: "acme.worker", name: "streamed", payload: 1, topic: "feed" },
+      ]);
       await expect(registry.invoke("acme.worker", "sessions")).resolves.toBe(1);
       expect(registry.summaries()[0]).toMatchObject({ id: "acme.worker", active: true, isolation: "worker" });
       expect(registry.summaries()[0]?.commands).toContain("hello");

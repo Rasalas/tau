@@ -612,8 +612,11 @@ export interface HostBootstrap {
 export type GlobalHostEvent =
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
-  /** Published by a host extension for its desktop counterpart; core only routes it. */
-  | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; sessionId?: undefined }
+  /**
+   * Published by a host extension for its desktop counterpart; core only routes it.
+   * With a `topic` it reaches only the clients that watch that topic.
+   */
+  | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; topic?: string; sessionId?: undefined }
   /**
    * The set of installed or approved packages moved; a client re-reads its
    * desktop halves. `extensionIds` narrows that to the ones that moved, so a
@@ -631,6 +634,8 @@ export type GlobalHostEvent =
   | { type: "error"; message: string; sessionId?: undefined }
   /** How many clients are attached to this host, after one arrived or left. */
   | { type: "client-count"; count: number; sessionId?: undefined }
+  /** A device asked to pair, or paired devices or links changed; only an owner can ask what (ADR 0024). */
+  | { type: "connections-changed"; sessionId?: undefined }
   /** A runtime's catalog for new threads changed; only the one that changed is sent. */
   | { type: "runtime-catalog"; catalog: UiRuntimeCatalog; sessionId?: undefined }
   /** What a Pi extension titled the window with (`ctx.ui.setTitle`); each client applies it to its own. */
@@ -901,6 +906,8 @@ export interface TauConfig {
   prewarm?: boolean;
   /** Leave the host process running after the app quits, so its threads keep going. */
   hostBackground?: boolean;
+  /** Hold the host's machine awake while any thread runs a turn. */
+  hostKeepAwake?: boolean;
   options?: Record<string, boolean>;
   values?: Record<string, string>;
   keybindings?: Record<string, string>;

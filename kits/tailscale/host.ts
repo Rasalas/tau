@@ -290,9 +290,9 @@ export function createTailscaleHostExtension(options: TailscaleHostOptions = {})
     activate(context) {
       const kit = new TailscaleKit(context, options);
       void kit.start();
-      context.registerCommand("status", () => kit.status(), { owner: true });
-      context.registerCommand("serve-on", (input) => kit.serveOn(input), { long: true, owner: true });
-      context.registerCommand("serve-off", () => kit.serveOff(), { long: true, owner: true });
+      context.registerCommand("status", () => kit.status(), { access: "owner" });
+      context.registerCommand("serve-on", (input) => kit.serveOn(input), { long: true, access: "owner" });
+      context.registerCommand("serve-off", () => kit.serveOff(), { long: true, access: "owner" });
       return () => kit.stop();
     },
   };

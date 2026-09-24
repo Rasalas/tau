@@ -1,6 +1,9 @@
 import { networkInterfaces } from "node:os";
 import {
+  IDLE_TIMEOUT_CHOICES,
   pairingUrl,
+  type DeviceAccess,
+  type UiClientUpdate,
   type UiConnections,
   type UiCreatedPairingLink,
   type UiHostEndpoint,
@@ -47,6 +50,9 @@ export interface HostConnectionsService {
   /** Replaceable for tests; the machine's own otherwise. */
   interfaces?(): Interfaces;
   names?(interfaces: Interfaces): Promise<EndpointNames>;
+  /** Carried in a pairing link, so a device recognises the host again (and a Bonjour record can name the same one). */
+  hostId?: string;
+  hostName?: string;
 }
 
 /** The URLs a browser opens this host's own listener at: every usable address of a wildcard bind, loopback last. */
@@ -83,22 +89,54 @@ async function allEndpoints(connections: HostConnectionsService, info: HostListe
 }
 
 function forbidden(): never {
-  throw Object.assign(new Error("Only a connection with the host token manages who may connect."), { code: HOST_ERROR.forbidden });
+  throw Object.assign(new Error("Only a connection with the host token, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
 }
 
 function unavailable(message = "This host has no socket listener, so no other client can connect to it."): never {
   throw Object.assign(new Error(message), { code: HOST_ERROR.unsupported });
 }
 
-function decodeLinkInput(value: unknown): { label?: string; lifetimeMs?: number } {
+function decodeObject(method: string, value: unknown): Record<string, unknown> {
   if (value === undefined) return {};
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("connections-create-link: input must be an object.");
-  const { label, lifetimeMs } = value as { label?: unknown; lifetimeMs?: unknown };
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${method}: input must be an object.`);
+  return value as Record<string, unknown>;
+}
+
+function decodeAccess(method: string, value: unknown): DeviceAccess | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "full" && value !== "read-only") throw new Error(`${method}: access must be "full" or "read-only".`);
+  return value;
+}
+
+function decodeLinkInput(value: unknown): { label?: string; lifetimeMs?: number; access?: DeviceAccess } {
+  const { label, lifetimeMs, access } = decodeObject("connections-create-link", value);
   const text = decodeOptionalText("connections-create-link", "label", label);
   if (lifetimeMs !== undefined && (typeof lifetimeMs !== "number" || !Number.isFinite(lifetimeMs))) {
     throw new Error("connections-create-link: lifetimeMs must be a number.");
   }
-  return { ...(text ? { label: text } : {}), ...(typeof lifetimeMs === "number" ? { lifetimeMs } : {}) };
+  const preset = decodeAccess("connections-create-link", access);
+  return { ...(text ? { label: text } : {}), ...(typeof lifetimeMs === "number" ? { lifetimeMs } : {}), ...(preset ? { access: preset } : {}) };
+}
+
+function decodeApproval(value: unknown): { access?: DeviceAccess; label?: string } {
+  const { access, label } = decodeObject("connections-approve", value);
+  const preset = decodeAccess("connections-approve", access);
+  const text = decodeOptionalText("connections-approve", "label", label);
+  return { ...(preset ? { access: preset } : {}), ...(text ? { label: text } : {}) };
+}
+
+function decodeClientUpdate(value: unknown): UiClientUpdate {
+  const { label, access, idleTimeoutDays } = decodeObject("connections-update-client", value);
+  const text = decodeOptionalText("connections-update-client", "label", label);
+  const preset = decodeAccess("connections-update-client", access);
+  if (idleTimeoutDays !== undefined && !(IDLE_TIMEOUT_CHOICES as readonly unknown[]).includes(idleTimeoutDays)) {
+    throw new Error("connections-update-client: idleTimeoutDays must be 30, 90, 365 or null.");
+  }
+  return {
+    ...(label !== undefined ? { label: text ?? "" } : {}),
+    ...(preset ? { access: preset } : {}),
+    ...(idleTimeoutDays !== undefined ? { idleTimeoutDays: idleTimeoutDays as UiClientUpdate["idleTimeoutDays"] } : {}),
+  };
 }
 
 type Method = (params: readonly unknown[], context: HostMethodContext) => Promise<unknown>;
@@ -114,9 +152,10 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
     };
   return {
     "connections-list": owned(async (connections, _params, connection): Promise<UiConnections> => {
-      const { access, listen, network } = connections;
+      const { access, listen, network, hostId } = connections;
       const info = listen();
       return {
+        ...(hostId ? { hostId } : {}),
         scheme: info?.scheme ?? "ws",
         endpoints: await allEndpoints(connections, info),
         webClient: info?.webClient ?? false,
@@ -126,18 +165,42 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
         ...access.overview(connection),
       };
     }),
+    // Every link names every network address, its kind and the certificate, so a device can pick one and pin it.
+    // Also without a web client: the app pairs over the socket.
     "connections-create-link": owned(async (connections, params): Promise<UiCreatedPairingLink> => {
       const input = decodeLinkInput(params[0]);
       const info = connections.listen();
-      const endpoints = info?.webClient ? await allEndpoints(connections, info) : [];
+      const endpoints = await allEndpoints(connections, info);
       const { link, code } = connections.access.createLink(input);
-      const urls = endpoints.map((endpoint) => ({ ...endpoint, url: pairingUrl(endpoint.url, code) }));
+      // The network listeners' certificate is the one a phone meets; the host's own listener is loopback in the app.
+      const fingerprint = connections.network?.state().certificate?.fingerprint ?? info?.fingerprint;
+      // A phone that dialled loopback would reach itself; only a loopback link names loopback.
+      const network = endpoints.filter((endpoint) => endpoint.reachability === "network").map(({ url, kind }) => ({ url, ...(kind ? { kind } : {}) }));
+      const urls = endpoints.map((endpoint) => ({
+        ...endpoint,
+        url: pairingUrl({ url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}) }, {
+          code,
+          ...(fingerprint ? { fingerprint } : {}),
+          ...(connections.hostId ? { hostId: connections.hostId } : {}),
+          ...(connections.hostName ? { hostName: connections.hostName } : {}),
+          endpoints: endpoint.reachability === "network" ? network : [],
+        }),
+      }));
       return { link, code, urls };
     }),
     "connections-revoke-link": owned(({ access }, params) =>
       ({ revoked: access.revokeLink(decodeString("connections-revoke-link", "id", params[0])) })),
     "connections-revoke-client": owned(async ({ access }, params) =>
       ({ revoked: await access.revokeClient(decodeString("connections-revoke-client", "id", params[0])) })),
+    "connections-revoke-others": owned(async ({ access }) => ({ revoked: await access.revokeOtherClients() })),
+    "connections-update-client": owned(async ({ access }, params) => ({
+      updated: await access.updateClient(decodeString("connections-update-client", "id", params[0]), decodeClientUpdate(params[1])),
+    })),
+    // False when the device stopped waiting: it expired, left, or someone else answered first.
+    "connections-approve": owned(async ({ access }, params) => ({
+      approved: await access.approvePairing(decodeString("connections-approve", "id", params[0]), decodeApproval(params[1])),
+    })),
+    "connections-deny": owned(({ access }, params) => ({ denied: access.denyPairing(decodeString("connections-deny", "id", params[0])) })),
     "connections-set-network": owned(({ network }, params) => {
       if (!network) unavailable("This host opens no network listeners of its own.");
       return network.update(decodeNetworkSettingsInput(params[0]));

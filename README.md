@@ -87,7 +87,8 @@ What follows from that:
   it has no window opens one.
 - **Quitting stops the host** — unless *Settings → Defaults → "Keep the host
   running in the background"* is on, in which case it keeps going and the next
-  start adopts it.
+  start adopts it, or the host runs as a system service (below), which a
+  window never stops.
 - **The window still owns its own machine.** The clipboard, image previews and
   the workbench rebuild are answered in the window process, not in the host;
   everything else is one call over the protocol.
@@ -177,6 +178,52 @@ ln -s /Applications/Tau.app/Contents/Resources/app.asar.unpacked/bin/tau.mjs ~/.
 
 `npm run smoke:cli-app` (after `npm run build`) drives it against a headless
 host in temp folders.
+
+### Run the host as a system service
+
+The host can run as a service of the machine, so threads, terminals and paired
+devices keep working with no Tau window open and after a restart of the
+machine. Install it in *Settings → Connections → Background*, or from a
+terminal:
+
+| Task | Command |
+|---|---|
+| Install and start (again: repair) | `tau service install` |
+| Where it stands, and its log | `tau service status` |
+| Restart it | `tau service restart` |
+| Stop it and remove it from login | `tau service uninstall` |
+
+- **macOS:** a LaunchAgent, `~/Library/LaunchAgents/dev.tbuck.tau.host.plist`.
+  It starts when you log in and stops when you log out; keep the Mac logged in
+  (and, for a phone, awake) for access from elsewhere. Tau must run from
+  Applications, not from the Downloads folder macOS starts it from.
+- **Linux:** a systemd user unit, `~/.config/systemd/user/tau-host.service`.
+  Installing turns on lingering (`loginctl enable-linger`) so it starts at
+  boot and outlives your session; where that needs an administrator, the
+  status says so with the command. An AppImage cannot run as a service.
+- **Windows:** a Task Scheduler task, "Tau Host", that runs at your logon.
+
+The service runs the app's own binary on the app's own userData, so a Tau
+window adopts the host it finds in `host.json` like any other and never starts
+a second one; quitting the window leaves it running. Installing from a window
+moves that window's threads into the service host, on the same port. An
+instance with its own `TAU_USER_DATA` gets a service of its own (a suffix on
+the names). Network access (Settings → Connections) lives in
+`<userData>/network.json`, so the service host opens the same Local network,
+Tailscale and proxy listeners, on the same ports, once it has taken over.
+Uninstalling leaves threads and settings where they are.
+
+After an update the window finds the service on the old version and restarts
+it once; if the unit points at another copy of Tau, it rewrites the unit for
+this one and restarts it once more. A service that still answers with another
+version is stopped, and the window runs its own host until the next start.
+The unit restarts a host only after a crash (`KeepAlive.SuccessfulExit` false,
+`Restart=on-failure`), so a window stopping it never starts a loop.
+
+*Keep this machine awake while turns run*, beside it, holds off sleep while
+any thread works: `caffeinate` on macOS, `systemd-inhibit` on Linux,
+`SetThreadExecutionState` on Windows. It applies to a host in its own process,
+service or not.
 
 ### First start
 
@@ -285,30 +332,39 @@ npm run build && npm run build:web
 TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=127.0.0.1:7788 node dist-electron/main/headless.js
 ```
 
-Besides the socket line, the host prints a link:
+Besides the socket line, the host prints a pairing link:
 
 ```
-web client: http://127.0.0.1:7788/#pair=<code> (single use, 10 minutes)
+web client: http://127.0.0.1:7788/#pair=<code>&host=<id>&name=<machine> (single use, 10 minutes; allow the device in Settings → Connections or here)
 ```
 
-With `TAU_HOST_TLS=1` the page and the socket are served over HTTPS on the same port, and the link starts with `https://`. A browser shows a self-signed certificate as a warning; its fingerprint should match the one the host printed.
+With `TAU_HOST_TLS=1` the page and the socket are served over HTTPS on the same port, the link starts with `https://`, and it carries the certificate's fingerprint (`fp=`). A browser shows a self-signed certificate as a warning; its fingerprint should match the one the host printed.
 
 Open it. The code lives in the URL's fragment, so it reaches neither a proxy nor an
-access log, the page replaces the address before it renders anything, and the code can
-be redeemed once. The browser gets a token of its own for it, never the host token
-(`docs/adr/0023-client-tokens-and-pairing.md`), and keeps it in `localStorage`. Without
-a link, the client shows a field where the host's owner can paste the host token — the
-line in `~/.tau/host-token` on the host machine. A token the host refuses, or one whose
-access was revoked, closes the socket and brings the field back with the reason.
+access log, and the page replaces the address before it renders anything. The page does
+not get in by itself: it asks the host, shows six digits, and waits. The host's owner
+sees "<device> wants to connect" in every Tau window that holds the host token — or, for
+a host started by hand, on its terminal — with the same digits, and allows the device
+only if they match (`docs/adr/0024-pairing-allowed-on-the-host.md`). The browser then
+gets a token of its own, never the host token, and keeps it in `localStorage`. Without a
+link, "Ask to connect" sends the same request; the host's owner can also paste the host
+token — the line in `~/.tau/host-token` on the host machine. A token the host refuses,
+one whose access was revoked, or one unused past its timeout, closes the socket and
+brings the page back with the reason.
 
 **Settings → Connections** in a Tau window manages who else may connect. It shows the
-addresses the host listens on and its certificate fingerprint, makes more pairing links
-(a label, 10 minutes to a day, single use; Copy link, and a QR code when the address is
-reachable from another device), lists the clients that paired — browser, OS, address,
-when each was last active — and revokes one, which closes its open connection at once.
-"Rotate…" replaces the host token and disconnects every other connection that used it
-(a browser paired before tokens of their own, say); paired clients keep theirs. A
-paired client cannot use the page: managing access takes the host token.
+addresses the host listens on and its certificate fingerprint, the devices waiting to be
+allowed (with their digits), and makes more pairing links (a label, 10 minutes to a day,
+Full or Read only, single use; Copy link, and a QR code when the address is reachable
+from another device — the link names every address and the fingerprint, for the app).
+It lists the paired devices — browser, OS, address, when each was last active, the last
+thing it changed, when it will be signed out unused — lets you rename one, make it Read
+only (it may look, and every change is refused) or Full, pick when it is signed out
+(30, 90 or 365 days unused, or never), revoke one or all others, which closes their open
+connections at once. "Rotate…" replaces the host token and disconnects every other
+connection that used it (a browser paired before tokens of their own, say); paired
+devices keep theirs. A paired device cannot use the page: managing access takes the
+host token.
 
 **Network access** on the same page lets the app's own host take other devices, with
 no environment variables and no restart. Two switches, off by default, combine:

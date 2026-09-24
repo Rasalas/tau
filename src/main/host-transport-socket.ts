@@ -1,6 +1,6 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { Server as TlsServer } from "node:tls";
+import { Server as TlsServer, type TLSSocket } from "node:tls";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   HOST_CAPABILITY,
@@ -8,16 +8,19 @@ import {
   HOST_ERROR,
   HOST_TRANSPORT_MAX_FRAME_BYTES,
   decodeHostClientFrame,
+  decodeHostSubscription,
   hostErrorInfo,
   type HostClientCall,
   type HostPush,
   type HostServerFrame,
 } from "../shared/host-transport.js";
-import { ACCESS_CLOSE_REASON } from "../shared/connections.js";
+import { ACCESS_CLOSE_REASON, type DeviceAccess } from "../shared/connections.js";
+import type { HostPairReply, HostPairRequest } from "../shared/pairing.js";
 import { helloReply, type HostPushLog } from "./host-push-log.js";
+import { HostPushFilter, hostPushScope } from "./host-push-scope.js";
 import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
-import type { AccessPeer, HostCredential } from "./host-access.js";
+import type { AccessPeer, HostCredential, PairingChannel } from "./host-access.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
 import { isLocalPeer, peerAddress, proxyUser, socketCapabilities, type ListenerTrust } from "./host-local-files.js";
@@ -43,7 +46,18 @@ export interface SocketAccess {
   attach(credential: HostCredential, peer: AccessPeer, close: (reason: string) => void): string;
   touch(connectionId: string): void;
   detach(connectionId: string): void;
+  /** What a paired device may do right now; asked on every request, so a new preset applies at once. */
+  accessOf?(connectionId: string): DeviceAccess;
+  /** Records a change a paired device made, or was refused. */
+  audit?(connectionId: string, action: string, allowed: boolean): void;
+  /** Pairing over the socket (ADR 0024); without these a `pair` frame is refused. */
+  requestPairing?(request: HostPairRequest, peer: AccessPeer, channel: PairingChannel): { id?: string; reply: HostPairReply };
+  revealPairing?(id: string, nonce: string): Promise<HostPairReply>;
+  withdrawPairing?(id: string): void;
 }
+
+/** A pairing request ends with the socket unless the device was let in. */
+const PAIRING_DONE = 1000;
 
 /** One secret and nothing else: the shape of a host before per-client tokens. */
 function tokenOnlyAccess(token: string): SocketAccess {
@@ -88,6 +102,8 @@ export interface SocketHostTransportOptions {
   beforeReply?(): void;
   /** A client starts from a snapshot, not a replay: its first hello, or a resync. */
   onSnapshotClient?(): void;
+  /** A connection's subscription gained these threads; what it never saw must travel whole again. */
+  onThreadsSubscribed?(sessionIds: readonly string[]): void;
   /** Page origins accepted besides the listener's own and Electron's local `file://` (`hostAllowedOrigins`); a function is asked per socket. */
   allowedOrigins?: readonly string[] | (() => readonly string[]);
   /** Defaults to `SOCKET_HELLO_TIMEOUT_MS`. */
@@ -122,6 +138,18 @@ export interface SocketHostTransport {
   close(): Promise<void>;
 }
 
+/** Handled by the transport itself: replaces the connection's subscription. */
+export const SUBSCRIBE_METHOD = "subscribe";
+
+interface Session {
+  connection: string;
+  principal: HostInvocationPrincipal;
+  /** Unset: every push goes to this connection. */
+  filter?: HostPushFilter;
+  /** The newest push sent to it, or the one its hello reply named as the last. */
+  lastSent: number;
+}
+
 /**
  * The same method table over a local socket. Nothing runs before the hello is
  * accepted, so an unauthenticated peer can neither call a method nor observe
@@ -143,13 +171,18 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   if (!options.access && !options.token) throw new Error("A socket listener needs a host token or an access model.");
   const access = options.access ?? tokenOnlyAccess(options.token!);
   /** Every authenticated socket, with the principal its requests run as. */
-  const authenticated = new Map<WebSocket, { connection: string; principal: HostInvocationPrincipal }>();
+  const authenticated = new Map<WebSocket, Session>();
+  /** Sockets that asked to pair and have not been answered for good. */
+  const pairing = new Map<WebSocket, { frameId: string; requestId?: string }>();
   /** The id the client registry knows a socket by, while it is authenticated. */
   const clientIds = new Map<WebSocket, string>();
   const sockets = new Map<string, WebSocket>();
   /** The listener each socket came through, so detaching one closes its sockets. */
   const origins = new Map<WebSocket, Server>();
   const forget = (socket: WebSocket): void => {
+    const asked = pairing.get(socket);
+    pairing.delete(socket);
+    if (asked?.requestId) access.withdrawPairing?.(asked.requestId);
     const session = authenticated.get(socket);
     authenticated.delete(socket);
     if (session) {
@@ -166,10 +199,77 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const send = (socket: WebSocket, frame: HostServerFrame): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
   };
+  /** A paired device's requests carry what it may do now and a way to record what it changed. */
+  const principalFor = (session: { connection: string; principal: HostInvocationPrincipal }): HostInvocationPrincipal => {
+    if (session.principal.kind !== "workbench-client" || session.principal.pairedClient === undefined) return session.principal;
+    const readOnly = (access.accessOf?.(session.connection) ?? "read-only") === "read-only";
+    return Object.freeze({
+      ...session.principal,
+      ...(readOnly ? { readOnly: true as const } : {}),
+      ...(access.audit ? { audit: (action: string, allowed: boolean) => access.audit!(session.connection, action, allowed) } : {}),
+    });
+  };
+
+  const pairReply = (socket: WebSocket, id: string, reply: HostPairReply): boolean => {
+    if (socket.readyState !== socket.OPEN) return false;
+    send(socket, { type: "pair-reply", id, reply });
+    if (reply.state === "approved") {
+      setTimeout(() => {
+        if (!authenticated.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
+      }, options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS).unref?.();
+    // The close withdraws whatever the socket still had open.
+    } else if (reply.state !== "challenge" && reply.state !== "waiting") socket.close(PAIRING_DONE, reply.state);
+    return true;
+  };
+
+  /** A device that holds no token yet asks to be let in; the owner decides on the host (ADR 0024). */
+  const handlePairing = (socket: WebSocket, frame: { type: "pair"; id: string; pair: HostPairRequest } | { type: "pair-reveal"; id: string; nonce: string }, peer: AccessPeer, fingerprint: string | undefined): void => {
+    const asked = pairing.get(socket);
+    const invalid = () => pairReply(socket, frame.id, { state: "refused", reason: "invalid" });
+    if (!access.requestPairing || !access.revealPairing || authenticated.has(socket)) { invalid(); return; }
+    if (frame.type === "pair") {
+      if (asked) { invalid(); return; }
+      const state: { frameId: string; requestId?: string } = { frameId: frame.id };
+      pairing.set(socket, state);
+      const { id, reply } = access.requestPairing(frame.pair, peer, {
+        ...(fingerprint ? { fingerprint } : {}),
+        settle: (outcome) => pairReply(socket, frame.id, outcome),
+      });
+      if (id) state.requestId = id;
+      pairReply(socket, frame.id, reply);
+      return;
+    }
+    if (!asked?.requestId || asked.frameId !== frame.id) { invalid(); return; }
+    void access.revealPairing(asked.requestId, frame.nonce).then((reply) => { pairReply(socket, frame.id, reply); });
+  };
+
   /** A response goes after every push its method caused, even one still being coalesced. */
   const respond = (socket: WebSocket, response: HostServerFrame): void => {
     options.beforeReply?.();
     send(socket, response);
+  };
+
+  /**
+   * Answered at once, without flushing waiting pushes first: every push before
+   * the response went out under the old subscription, every push after it
+   * under the new one, so a client that loses the link knows which it has.
+   */
+  const subscribe = (socket: WebSocket, session: Session, id: string, value: unknown): void => {
+    if (value === null || value === undefined) {
+      delete session.filter;
+      send(socket, { type: "response", response: { id, result: true } });
+      return;
+    }
+    const subscription = decodeHostSubscription(value);
+    if (!subscription) {
+      send(socket, { type: "response", response: { id, error: { message: "subscribe expects { threads, topics } or null.", code: HOST_ERROR.invalidRequest } } });
+      return;
+    }
+    const filter = new HostPushFilter(subscription, session.filter);
+    const added = filter.addedThreads(session.filter);
+    session.filter = filter;
+    if (added.length > 0) options.onThreadsSubscribed?.(added);
+    send(socket, { type: "response", response: { id, result: true } });
   };
 
   /** Sockets that answered the last WebSocket ping, or sent anything since. */
@@ -192,12 +292,17 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     }
     alive.add(socket);
     socket.on("pong", () => alive.add(socket));
+    // A device waiting for its owner has until its request expires; once let in, a new deadline for its hello.
     const helloTimer = setTimeout(() => {
-      if (!authenticated.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
+      if (!authenticated.has(socket) && !pairing.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
     }, options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS);
     helloTimer.unref?.();
     // Only a peer on this machine may be told that the host's files are local.
-    const capabilities = [...socketCapabilities(options.capabilities, request.socket.remoteAddress, process.env, trust), HOST_CAPABILITY.heartbeat];
+    const capabilities = [
+      ...socketCapabilities(options.capabilities, request.socket.remoteAddress, process.env, trust),
+      HOST_CAPABILITY.heartbeat,
+      HOST_CAPABILITY.subscriptions,
+    ];
     const local = isLocalPeer(trust, request.socket.remoteAddress);
     const address = peerAddress(trust, request);
     const viaProxy = proxyUser(trust, request);
@@ -210,6 +315,15 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       if (!frame) {
         options.logger?.warn("host-transport-socket.malformed-frame");
         socket.close(UNAUTHORIZED, "malformed frame");
+        return;
+      }
+      if (frame.type === "pair" || frame.type === "pair-reveal") {
+        const userAgent = request.headers["user-agent"];
+        handlePairing(socket, frame, {
+          ...(address ? { address } : {}),
+          ...(typeof userAgent === "string" ? { userAgent } : {}),
+          trust,
+        }, ownCertificate(request));
         return;
       }
       if (frame.type === "hello") {
@@ -245,18 +359,25 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           ...(frame.hello.windowId ? { windowId: frame.hello.windowId } : {}),
           ...(frame.hello.auxiliary && frame.hello.windowHalves ? { windowHalves: frame.hello.windowHalves } : {}),
         });
-        authenticated.set(socket, {
+        const filter = frame.hello.subscription ? new HostPushFilter(frame.hello.subscription) : undefined;
+        const session: Session = {
           connection,
           principal: Object.freeze({
             kind: "workbench-client",
             connection,
             ...(credential.kind === "client" ? { pairedClient: credential.clientId } : {}),
+            // Only a connection from this machine through the loopback listener may manage access (ADR 0024).
+            ...(local ? { local: true as const } : {}),
           }),
-        });
+          ...(filter ? { filter } : {}),
+          lastSent: options.pushLog.nextSeq - 1,
+        };
+        authenticated.set(socket, session);
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
-        const reply = helloReply(options.pushLog, frame.hello, { ...options, capabilities });
-        send(socket, { type: "hello-reply", id: frame.id, reply });
+        const reply = helloReply(options.pushLog, frame.hello, { ...options, capabilities }, filter);
+        const readOnly = credential.kind === "client" && (access.accessOf?.(connection) ?? "read-only") === "read-only";
+        send(socket, { type: "hello-reply", id: frame.id, reply: readOnly ? { ...reply, access: "read-only" } : reply });
         if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
         if (options.clients && !frame.hello.auxiliary) {
           clientIds.set(socket, options.clients.attached({
@@ -276,11 +397,15 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         send(socket, { type: "pong", id: frame.id });
         return;
       }
-      access.touch(session.connection);
       const { id, method, params } = frame.request;
+      if (method === SUBSCRIBE_METHOD) {
+        subscribe(socket, session, id, params[0]);
+        return;
+      }
+      access.touch(session.connection);
       // JSON turns a missing positional argument into null; decoders expect undefined.
       const normalized = params.map((value) => (value === null ? undefined : value));
-      void invokeHostMethod(options.methods, method, normalized, session.principal)
+      void invokeHostMethod(options.methods, method, normalized, principalFor(session))
         .then((result) => respond(socket, { type: "response", response: { id, result } }))
         .catch((error: unknown) => {
           const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : HOST_ERROR.failed;
@@ -336,8 +461,20 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     ...(warning ? { warning } : {}),
     deliver: (push) => {
       if (authenticated.size === 0) return;
-      const frame = JSON.stringify({ type: "push", push } satisfies HostServerFrame);
-      for (const socket of authenticated.keys()) if (socket.readyState === socket.OPEN) socket.send(frame);
+      const scope = hostPushScope(push.event);
+      let event: string | undefined;
+      let frame: string | undefined;
+      for (const [socket, session] of authenticated) {
+        if (socket.readyState !== socket.OPEN || !(session.filter?.admits(push.event, scope) ?? true)) continue;
+        event ??= JSON.stringify(push.event);
+        // The first push after skipped ones says so, or the client would count a gap.
+        const prev = session.lastSent === push.seq - 1 ? "" : `,"prev":${session.lastSent}`;
+        const text = prev
+          ? `{"type":"push","push":{"seq":${push.seq}${prev},"event":${event}}}`
+          : (frame ??= `{"type":"push","push":{"seq":${push.seq},"event":${event}}}`);
+        socket.send(text);
+        session.lastSent = push.seq;
+      }
     },
     sendCall: (connection, call) => {
       const socket = sockets.get(connection);
@@ -366,6 +503,17 @@ const upgradeOnly = (_request: IncomingMessage, response: ServerResponse): void 
   response.writeHead(426, { "content-type": "text/plain; charset=utf-8", connection: "close" });
   response.end("This port speaks the Tau host protocol over WebSocket.");
 };
+
+/**
+ * The certificate this socket's listener presented, as a pinning device saw
+ * it; the pairing digits are bound to it. Absent on plaintext, and behind a
+ * proxy that ends TLS itself.
+ */
+function ownCertificate(request: IncomingMessage): string | undefined {
+  const socket = request.socket as Partial<TLSSocket>;
+  const certificate = typeof socket.getCertificate === "function" ? socket.getCertificate() : null;
+  return certificate && "fingerprint256" in certificate && typeof certificate.fingerprint256 === "string" ? certificate.fingerprint256 : undefined;
+}
 
 /** An HTTPS server with nothing to serve but the upgrade to the protocol. */
 function createTlsUpgradeServer(tls: { cert: string; key: string }): Server {

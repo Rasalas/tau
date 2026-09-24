@@ -4,12 +4,15 @@ import {
   HOST_CAPABILITY,
   HOST_TRANSPORT_VERSION,
   decodeHostHelloReply,
+  hostTopicKey,
   isHostJobEvent,
   jobMethodKey,
+  type HostHello,
   type HostHelloReply,
   type HostJobEvent,
   type HostPush,
   type HostResponse,
+  type HostSubscription,
 } from "../shared/host-transport";
 import type { HostLink } from "./host-link";
 import { MessageTextStream } from "./message-text-stream";
@@ -58,6 +61,11 @@ export class HostRequestError extends Error {
  * a sequence, and the recovery that follows from it. A gap in the sequence is
  * repaired by replaying the host's buffer; when the buffer no longer reaches
  * back far enough, the connection refetches the bootstrap and says so.
+ *
+ * Once `limitToWatched` is called, the host sends thread streams and topic
+ * events only for what is watched (`watchThread`, `watchNewThread`,
+ * `watchTopic`). A new subscription goes out before the next request, so a
+ * thread watched before its detail is fetched misses nothing in between.
  */
 export class HostConnection {
   private lastSeq = 0;
@@ -80,6 +88,14 @@ export class HostConnection {
   private readonly earlyJobResults = new Map<string, HostJobEvent>();
   private readonly toolOutputs = new ToolOutputStream();
   private readonly messageTexts = new MessageTextStream();
+  /** `thread:`, `request:` or `topic:` keys, with how many watchers hold each. */
+  private readonly watched = new Map<string, number>();
+  private limited = false;
+  private subscriptionQueued = false;
+  /** What the host filters this connection by, as far as it answered; undefined is every push. */
+  private confirmed: HostSubscription | undefined;
+  /** The last subscription sent on this link, answered or not. */
+  private requested: string | undefined;
 
   constructor(private readonly transport: HostTransport) {
     transport.onPush((push) => this.receive(push));
@@ -140,11 +156,14 @@ export class HostConnection {
   async start(profile?: string, windowId?: string): Promise<HostHelloReply | undefined> {
     this.profile = profile;
     this.windowId = windowId;
-    return this.hello(undefined);
+    const reply = await this.hello(undefined);
+    this.sendSubscription();
+    return reply;
   }
 
   async request<T>(method: string, params: readonly unknown[] = []): Promise<T> {
     if (this.refusal !== undefined) throw new HostRequestError("Tau refused the connection to this host.", "refused");
+    if (this.subscriptionQueued) this.sendSubscription();
     const response = await this.transport.request(method, params);
     if (response.error) throw new HostRequestError(response.error.message, response.error.code);
     return response.result as T;
@@ -191,6 +210,81 @@ export class HostConnection {
     this.transport.close?.();
   }
 
+  /** Keeps this thread's stream coming while the returned function is not called. */
+  watchThread(sessionId: string): () => void {
+    return this.watch(`thread:${sessionId}`);
+  }
+
+  /** The thread a `new-session` call with this request id creates, from its first detail on. */
+  watchNewThread(requestId: string): () => void {
+    return this.watch(`request:${requestId}`);
+  }
+
+  /** An extension's events published with this topic. */
+  watchTopic(extensionId: string, topic: string): () => void {
+    return this.watch(`topic:${hostTopicKey(extensionId, topic)}`);
+  }
+
+  /**
+   * From now on the host sends this client thread streams and topic events
+   * only for what is watched. Call it once what the client shows is watched.
+   */
+  limitToWatched(): void {
+    if (this.limited) return;
+    this.limited = true;
+    this.queueSubscription();
+  }
+
+  private watch(key: string): () => void {
+    this.watched.set(key, (this.watched.get(key) ?? 0) + 1);
+    this.queueSubscription();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const left = (this.watched.get(key) ?? 1) - 1;
+      if (left > 0) this.watched.set(key, left);
+      else this.watched.delete(key);
+      this.queueSubscription();
+    };
+  }
+
+  private wantedSubscription(): HostSubscription | undefined {
+    if (!this.limited) return undefined;
+    const subscription: Required<HostSubscription> = { threads: [], topics: [], requests: [] };
+    for (const key of [...this.watched.keys()].sort()) {
+      const split = key.indexOf(":");
+      const kind = key.slice(0, split);
+      const value = key.slice(split + 1);
+      if (kind === "thread") subscription.threads.push(value);
+      else if (kind === "topic") subscription.topics.push(value);
+      else subscription.requests.push(value);
+    }
+    const { requests, ...rest } = subscription;
+    return requests.length > 0 ? subscription : rest;
+  }
+
+  private queueSubscription(): void {
+    if (this.subscriptionQueued) return;
+    this.subscriptionQueued = true;
+    queueMicrotask(() => { if (this.subscriptionQueued) this.sendSubscription(); });
+  }
+
+  /** Tells the host what this client watches, if that changed; recovery sends it once it is done. */
+  private sendSubscription(): void {
+    this.subscriptionQueued = false;
+    const wanted = this.wantedSubscription();
+    if (!wanted || !this.capabilities.has(HOST_CAPABILITY.subscriptions)) return;
+    if (this.recovering || this.state !== "connected" || this.refusal !== undefined) return;
+    const key = JSON.stringify(wanted);
+    if (key === this.requested) return;
+    this.requested = key;
+    // Answers arrive in order, and a push after one is filtered by it: what a replay must match.
+    void this.transport.request("subscribe", [wanted]).then((response) => {
+      if (!response.error) this.confirmed = wanted;
+    }, () => undefined);
+  }
+
   /** After a rotation: this connection stays, and its next reconnect says hello with `token`. */
   updateToken(token: string): void {
     this.transport.updateToken?.(token);
@@ -201,13 +295,18 @@ export class HostConnection {
     return (event.type === "job-done" ? event.result : undefined) as T;
   }
 
+  /** Next in line: `prev` says the pushes between went to other clients. */
+  private follows(push: HostPush): boolean {
+    return push.seq === this.lastSeq + 1 || (push.prev !== undefined && push.prev <= this.lastSeq);
+  }
+
   private receive(push: HostPush): void {
     if (push.seq <= this.lastSeq) return;
     if (this.recovering) {
       this.queued.push(push);
       return;
     }
-    if (push.seq > this.lastSeq + 1) {
+    if (!this.follows(push)) {
       this.queued.push(push);
       void this.recover();
       return;
@@ -257,19 +356,32 @@ export class HostConnection {
     } finally {
       this.recovering = false;
       this.drain();
+      this.sendSubscription();
     }
     if (this.messageTexts.lost && this.state === "connected") void this.recover();
   }
 
+  /**
+   * A replay says hello with the subscription the host last confirmed, so it
+   * replays what it would have sent; a fresh start takes every push until the
+   * client has applied its snapshot and says what it watches.
+   */
   private async hello(lastSeq: number | undefined, restart = false): Promise<HostHelloReply | undefined> {
-    const reply = decodeHostHelloReply(await this.request<unknown>("hello", [{
+    const subscription = lastSeq === undefined ? undefined : this.confirmed;
+    const hello: HostHello = {
       protocol: HOST_TRANSPORT_VERSION,
       ...(lastSeq === undefined ? {} : { lastSeq }),
       ...(this.profile ? { profile: this.profile } : {}),
       ...(this.windowId ? { windowId: this.windowId } : {}),
-    }]));
+      ...(subscription ? { subscription } : {}),
+    };
+    const reply = decodeHostHelloReply(await this.request<unknown>("hello", [hello]));
     if (!reply) throw new HostRequestError("The host answered hello with a frame this client cannot read.", "invalid-hello");
     this.capabilities = new Set(reply.capabilities);
+    this.confirmed = reply.capabilities.includes(HOST_CAPABILITY.subscriptions) ? subscription : undefined;
+    this.requested = this.confirmed && JSON.stringify(this.confirmed);
+    // A snapshot of a thread this client did not follow would miss what streams until it subscribes.
+    if (reply.resync && this.confirmed) return this.hello(undefined, true);
     if (reply.hostVersion !== this.hostVersion) {
       this.hostVersion = reply.hostVersion;
       for (const listener of this.helloListeners) listener();
@@ -282,6 +394,8 @@ export class HostConnection {
       return reply;
     }
     for (const push of reply.missed) if (push.seq > this.lastSeq) this.apply(push);
+    // A filtered replay may end before the host's newest push; nothing after it was for this client.
+    if (this.confirmed && !reply.resync) this.lastSeq = Math.max(this.lastSeq, reply.nextSeq - 1);
     if (reply.resync) {
       this.lastSeq = reply.nextSeq - 1;
       await this.startOver();
@@ -310,7 +424,7 @@ export class HostConnection {
   private drain(): void {
     const queued = this.queued.sort((left, right) => left.seq - right.seq);
     this.queued = [];
-    for (const push of queued) if (push.seq === this.lastSeq + 1) this.apply(push);
+    for (const push of queued) if (push.seq > this.lastSeq && this.follows(push)) this.apply(push);
   }
 
   private setState(state: HostConnectionState): void {

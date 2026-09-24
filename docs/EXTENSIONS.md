@@ -51,11 +51,9 @@ A package has up to two halves, sharing one `id`:
   reads Workspace Kit's changes and diffs this way). Those commands belong to
   that extension's contract, not to core: an invoke fails like any other when
   it is not installed.
-  Any client that may use the host may call a host command. A command that
-  changes who can reach the host registers with `{ owner: true }` (new in API
-  1.13.0): a paired device is refused with `HostAuthorizationError`, and only a
-  connection with the host token, the window and the host itself get through.
-  Tailscale's `serve-on` and `serve-off` are such commands.
+  Who may call a host command is its `access` (below): Full devices by
+  default, Read-only devices too with `"read"`, only the host token on this
+  machine with `"owner"`.
 
 Either entry may be omitted, but not both. `id` is lowercase, dot-separated
 (`vendor.name`), and must be the same string both halves export — the
@@ -733,7 +731,7 @@ a touch screen, and the native app around the web client. There the thread list
 is a screen of its own (a sidebar on a tablet) and diffs do not split. A panel
 that claims `compact` is not docked there: its glyph sits in the title bar and
 opens the panel as a sheet over the thread, with `placement` reading `stage`.
-That is where a phone's terminal or review goes: claim `compact` on the panel. The default is `["desktop"]`, so a package that says nothing keeps
+That is where a phone's terminal or review goes: claim `compact` on the panel. A panel that draws differently there registers twice under one id, once for `compact` and once for the other profiles: each client registers only its own, and Terminal Kit does this for its key bar. The default is `["desktop"]`, so a package that says nothing keeps
 working and stays honest: it claims no client it was never tried on.
 
 A client whose profile is not in the list never registers the contribution, so
@@ -1874,6 +1872,60 @@ without asking the host what changed. `context.events.on("host-connection", …)
 (new in API 1.12.0) carries `{ state }` — `connected`, `reconnecting`,
 `resyncing` or `refused` — whenever the window's link to the host changes;
 `connected` after any other state means it is back.
+
+### Commands a Read-only device may call: `access: "read"` (new in API 1.13.0)
+
+A paired device is Full or Read only ([ADR 0024](adr/0024-pairing-allowed-on-the-host.md)).
+A Read-only device may call a host command only when it was registered as one
+that just looks:
+
+```ts
+context.registerCommand("state", () => book.state(), { access: "read" });
+context.registerCommand("apply-changes", applyChanges, { long: true }); // needs Full
+```
+
+Declare it only for a command that changes no file, thread, setting or process
+and asks no other kit to — the host cannot check that, and a Read-only device
+trusts the declaration. Every other command answers such a device `forbidden`
+before the handler runs, and the refusal does not count as a failure of the
+command. The option travels from an isolated package's worker too. An older
+host ignores it, so a package need not raise `engines.api` for it. A Read-only
+device learns what it is from its hello reply (`access: "read-only"`); a panel
+that hides its buttons there saves the user a refusal, but the host is what
+enforces it.
+
+`access: "owner"` is the other end: a command that changes who can reach the
+host — Tailscale's `serve-on` and `serve-off` — answers `forbidden` to every
+paired device and to the host token over a LAN or proxy listener, exactly like
+the `connections-*` methods (`src/main/host-method-access.ts`). Only the host
+token from this machine, the window and the host itself get through, and a
+refused call is recorded for the device like any other. A host older than
+1.13.0 ignores the value, so a package that relies on it needs `engines.api`
+`^1.13.0`.
+
+### What reaches which client: `emit(…, { topic })` and `watch` (new in API 1.13.0)
+
+A client is sent the stream of the threads it shows, not of every thread
+(`HostSubscription`, [host-protocol.md](host-protocol.md#which-pushes-a-client-receives)).
+For a desktop half this means the workbench events `tool-start`, `tool-end`,
+`user-message`, `assistant-end` and `notice` arrive for the thread on screen
+(and one being opened or created), not for threads running in the
+background. `agent-status`, `thread-index`, `client-count` and the questions
+a runtime asks still arrive for every thread: react to another thread's
+work when its turn ends (`agent-status` with `running: false`), as Workspace
+Kit and Files Kit do to reread the disk.
+
+Extension events go to every client unless the host half names a topic:
+`context.emit(name, payload, { topic })` (a string of 1 to 256 characters)
+reaches only the clients whose desktop half watches that topic with
+`context.host.watch(topic)`, until the function it returns is called or the
+package deactivates. Use a topic for output that only a mounted view draws;
+Terminal Kit emits a shell's output under `output/<id>`, and a pane watches
+it while it is on screen, so a phone showing a chat is not sent a build log.
+Watch before asking for a snapshot of what the topic streams, so nothing
+written in between is lost. A host or client older than 1.13.0 ignores the
+topic and sends such events to everyone, which is why `watch` is optional on
+`HostExtensionClient`: call it as `host.watch?.(topic)`.
 
 ### Network access: `services.network` (new in API 1.13.0)
 

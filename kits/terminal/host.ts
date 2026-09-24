@@ -5,6 +5,7 @@ import { basename } from "node:path";
 import type { HostExtension, HostExtensionContext } from "tau/host-extension";
 import {
   TERMINAL_DATA_EVENT,
+  terminalOutputTopic,
   TERMINAL_EXITED_EVENT,
   TERMINAL_HOST_EXTENSION_ID,
   TERMINAL_LIST_EVENT,
@@ -90,7 +91,7 @@ export class TerminalSessions {
 
   constructor(
     private readonly spawn: PtyFactory,
-    private readonly emit: (name: string, payload?: unknown) => void,
+    private readonly emit: (name: string, payload?: unknown, options?: { topic?: string }) => void,
     /** This machine's name, which a shell's directory report must carry to count. */
     private readonly machine: string = hostname(),
   ) {}
@@ -274,7 +275,7 @@ export class TerminalSessions {
       const session = this.sessions.get(id);
       if (!session) continue;
       const event: TerminalDataEvent = { id, data, offset: session.offset };
-      this.emit(TERMINAL_DATA_EVENT, event);
+      this.emit(TERMINAL_DATA_EVENT, event, { topic: terminalOutputTopic(id) });
     }
     this.pending.clear();
   }
@@ -435,9 +436,9 @@ export function createTerminalHostExtension(
       context.registerCommand("kill", (raw) => {
         sessions.kill(String(fields(raw).id));
       });
-      context.registerCommand("list", () => sessions.list());
-      context.registerCommand("replay", (raw) => sessions.replay(String(fields(raw).id)));
-      context.registerCommand("font", () => fontDefaults());
+      context.registerCommand("list", () => sessions.list(), { access: "read" });
+      context.registerCommand("replay", (raw) => sessions.replay(String(fields(raw).id)), { access: "read" });
+      context.registerCommand("font", () => fontDefaults(), { access: "read" });
       context.registerCommand("foreground", (raw) => {
         const process = sessions.foreground(String(fields(raw).id));
         return process ? { process } : {};

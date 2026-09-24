@@ -64,7 +64,7 @@ export function registerPublishCommands(context: HostExtensionContext, options: 
       folder: git.root.split(/[\\/]/u).filter(Boolean).at(-1) ?? "repository",
       services: answers,
     };
-  });
+  }, { access: "read" });
 
   context.registerCommand("publish-repository", async (input): Promise<PublishResult> => {
     const fields = record(input);

@@ -11,10 +11,10 @@ export function createFilesHostExtension(): WorkerHostExtension {
     id: FILES_KIT_ID,
     name: "Files",
     activate(context: WorkerHostExtensionContext) {
-      const forward = (command: string, target: string) =>
-        context.registerCommand(command, (input) => context.invokeHostExtension(WORKSPACE_KIT_ID, target, input));
-      forward("read", "read-file");
-      forward("stat", "file-stat");
+      const forward = (command: string, target: string, access?: "read") =>
+        context.registerCommand(command, (input) => context.invokeHostExtension(WORKSPACE_KIT_ID, target, input), access ? { access } : undefined);
+      forward("read", "read-file", "read");
+      forward("stat", "file-stat", "read");
       forward("write", "write-file");
     },
   };

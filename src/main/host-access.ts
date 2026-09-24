@@ -1,14 +1,29 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import {
   ACCESS_CLOSE_REASON,
+  DEFAULT_IDLE_TIMEOUT_DAYS,
+  IDLE_TIMEOUT_CHOICES,
   PAIRING_LINK_LIFETIMES_MS,
+  type DeviceAccess,
+  type IdleTimeoutDays,
   type UiClientDevice,
+  type UiClientUpdate,
   type UiOwnerConnection,
   type UiPairedClient,
   type UiPairingLink,
+  type UiPairingRequest,
 } from "../shared/connections.js";
+import {
+  PAIRING_REQUEST_LIFETIME_MS,
+  pairingCommitment,
+  pairingVerificationCode,
+  type HostPairReply,
+  type HostPairRequest,
+} from "../shared/pairing.js";
 import { describeUserAgent, deviceLabel, displayAddress } from "./client-device.js";
 import type { HostTokenFile } from "./host-token.js";
+import { createAuthRateLimiter } from "./host-rate-limit.js";
+import type { ListenerTrust } from "./host-local-files.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
 /** Who a hello authenticated as. Only the owner manages access. */
@@ -23,6 +38,23 @@ export interface AccessPeer {
   profile?: string;
   /** The window process beside a renderer, or a probe: served, closed on rotation, never listed. */
   auxiliary?: boolean;
+  /** The listener it came through; pairing attempts are counted apart per kind, strictly beyond loopback. */
+  trust?: ListenerTrust;
+}
+
+/** One line of the access log: a paired device changed something, or tried to. */
+export interface AccessAuditEntry {
+  clientId: string;
+  label: string;
+  action: string;
+  allowed: boolean;
+}
+
+/** Where a pairing request's outcome goes: the socket that asked. False when it is gone. */
+export interface PairingChannel {
+  /** SHA-256 of the certificate this listener presents; absent on plaintext. The digits are bound to it. */
+  fingerprint?: string;
+  settle(reply: HostPairReply): boolean;
 }
 
 interface StoredClient {
@@ -32,17 +64,38 @@ interface StoredClient {
   secretHash: string;
   pairedAt: string;
   device: UiClientDevice;
+  access: DeviceAccess;
+  idleTimeoutDays: IdleTimeoutDays;
   pairedFrom?: string;
   lastSeenAt?: string;
   lastAddress?: string;
+  lastAction?: { action: string; at: string };
 }
 
 interface PendingLink {
   id: string;
   label?: string;
+  access: DeviceAccess;
   codeHash: string;
   createdAt: number;
   expiresAt: number;
+}
+
+interface PendingRequest {
+  id: string;
+  name?: string;
+  device: UiClientDevice;
+  address?: string;
+  /** Set when a pairing link brought it. */
+  link?: { label?: string; access: DeviceAccess };
+  /** `challenge` waits for the device's nonce and is not shown to the owner yet. */
+  state: "challenge" | "waiting";
+  commitment?: string;
+  hostNonce?: string;
+  verification?: string;
+  createdAt: number;
+  expiresAt: number;
+  channel: PairingChannel;
 }
 
 interface LiveConnection {
@@ -59,14 +112,24 @@ export interface HostAccessOptions {
   storePath: string;
   now?(): number;
   logger?: PersistedJsonLogger;
+  /** Requests, clients or links changed; the host tells its owners' windows to look again. */
+  onChange?(): void;
+  /** Every change a paired device made, and every one it was refused. */
+  audit?(entry: AccessAuditEntry): void;
 }
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const CLIENT_TOKEN_PREFIX = "tauc";
+const DAY_MS = 24 * 60 * 60_000;
 const DEFAULT_LINK_LIFETIME_MS = PAIRING_LINK_LIFETIMES_MS[0];
 const MAX_LINK_LIFETIME_MS = PAIRING_LINK_LIFETIMES_MS[PAIRING_LINK_LIFETIMES_MS.length - 1];
 /** Unused links are cheap but not free; nobody needs more at once. */
 const MAX_PENDING_LINKS = 20;
+/** Requests the owner has not answered yet. Without a link a source gets one at a time, and a few in all. */
+const MAX_PENDING_REQUESTS = 5;
+const MAX_UNLINKED_REQUESTS = 3;
+/** After the owner said no, a request without a link from that address waits this long. */
+const DENIED_COOLDOWN_MS = 10 * 60_000;
 const MAX_LABEL = 60;
 
 const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
@@ -83,6 +146,9 @@ function cleanLabel(value: string | undefined): string | undefined {
   return label || undefined;
 }
 
+const isDeviceAccess = (value: unknown): value is DeviceAccess => value === "full" || value === "read-only";
+const isIdleTimeout = (value: unknown): value is IdleTimeoutDays => (IDLE_TIMEOUT_CHOICES as readonly unknown[]).includes(value);
+
 /** `tauc.<id>.<secret>`: the id finds the record, the secret proves the holder. */
 function parseClientToken(token: string): { id: string; secret: string } | undefined {
   const [prefix, id, secret, ...rest] = token.split(".");
@@ -91,19 +157,29 @@ function parseClientToken(token: string): { id: string; secret: string } | undef
 }
 
 /**
- * Who may connect to a listening host, beyond the owner: clients that paired
- * with a single-use link and hold a token of their own. The host token stays
- * with the owner; revoking a client or rotating the host token closes the
- * connections it opened at once (ADR 0023).
+ * Who may connect to a listening host, beyond the owner: devices that asked
+ * to pair, were allowed on the host, and hold a token of their own. A token
+ * ends when it is revoked, or after the device went unused for its idle
+ * timeout. Revoking a client or rotating the host token closes the
+ * connections it opened at once (ADR 0023, ADR 0024).
  */
 export class HostAccess {
   private readonly clients = new Map<string, StoredClient>();
   private readonly links = new Map<string, PendingLink>();
+  private readonly requests = new Map<string, PendingRequest>();
+  private readonly deniedSources = new Map<string, number>();
   private readonly live = new Map<string, LiveConnection>();
   private readonly now: () => number;
+  /** Apart, so a flood through a proxy (every peer 127.0.0.1) never locks out this machine's own browser. */
+  private readonly admit: Record<ListenerTrust, (source: string | undefined) => number>;
 
   private constructor(private readonly options: HostAccessOptions) {
     this.now = options.now ?? Date.now;
+    this.admit = {
+      loopback: createAuthRateLimiter(this.now),
+      network: createAuthRateLimiter(this.now, { strict: true }),
+      proxy: createAuthRateLimiter(this.now, { strict: true }),
+    };
   }
 
   static async open(options: HostAccessOptions): Promise<HostAccess> {
@@ -121,13 +197,18 @@ export class HostAccess {
     return this.options.tokenFile.path;
   }
 
-  /** The credential a hello's token stands for, or undefined for a refusal. */
+  /** The credential a hello's token stands for, or undefined for a refusal. An unused token past its timeout is forgotten here. */
   authenticate(token: string | undefined): HostCredential | undefined {
     if (typeof token !== "string" || token.length === 0) return undefined;
     const parsed = parseClientToken(token);
     if (parsed) {
       const client = this.clients.get(parsed.id);
-      return client && sameHash(client.secretHash, sha256(parsed.secret)) ? { kind: "client", clientId: client.id } : undefined;
+      if (!client || !sameHash(client.secretHash, sha256(parsed.secret))) return undefined;
+      if (this.expired(client)) {
+        this.forgetExpired(client);
+        return undefined;
+      }
+      return { kind: "client", clientId: client.id };
     }
     return this.options.tokenFile.matches(token) ? { kind: "owner" } : undefined;
   }
@@ -146,6 +227,23 @@ export class HostAccess {
     if (connection?.credential.kind === "client") this.seen(connection.credential.clientId, connection.peer.address, false);
   }
 
+  /** What the connection may do right now; a change of preset applies from the next call. */
+  accessOf(connectionId: string): DeviceAccess {
+    const credential = this.live.get(connectionId)?.credential;
+    if (credential?.kind !== "client") return "full";
+    return this.clients.get(credential.clientId)?.access ?? "read-only";
+  }
+
+  /** A paired device changed something, or was refused: the row shows the last change, the log every one. */
+  audit(connectionId: string, action: string, allowed: boolean): void {
+    const credential = this.live.get(connectionId)?.credential;
+    if (credential?.kind !== "client") return;
+    const client = this.clients.get(credential.clientId);
+    if (!client) return;
+    if (allowed) client.lastAction = { action, at: new Date(this.now()).toISOString() };
+    this.options.audit?.({ clientId: client.id, label: client.label, action, allowed });
+  }
+
   detach(connectionId: string): void {
     const connection = this.live.get(connectionId);
     if (!connection) return;
@@ -154,7 +252,7 @@ export class HostAccess {
   }
 
   /** A new single-use link. The code is answered once and only its hash is kept. */
-  createLink(input: { label?: string; lifetimeMs?: number } = {}): { link: UiPairingLink; code: string } {
+  createLink(input: { label?: string; lifetimeMs?: number; access?: DeviceAccess } = {}): { link: UiPairingLink; code: string } {
     this.pruneLinks();
     if (this.links.size >= MAX_PENDING_LINKS) {
       throw new Error(`There are already ${MAX_PENDING_LINKS} unused pairing links; revoke one or let it expire.`);
@@ -166,11 +264,13 @@ export class HostAccess {
     const link: PendingLink = {
       id: randomBytes(6).toString("hex"),
       ...(label ? { label } : {}),
+      access: isDeviceAccess(input.access) ? input.access : "full",
       codeHash: sha256(code),
       createdAt,
       expiresAt: createdAt + lifetime,
     };
     this.links.set(link.codeHash, link);
+    this.changed();
     return { link: linkInfo(link), code };
   }
 
@@ -178,55 +278,184 @@ export class HostAccess {
     for (const [hash, link] of this.links) {
       if (link.id !== id) continue;
       this.links.delete(hash);
+      this.changed();
       return true;
     }
     return false;
   }
 
   /**
-   * Trades a pairing code for a client token of its own. The link is spent by
-   * the attempt, whatever its outcome; an expired, spent or invented code gets
-   * the same answer.
+   * A device asks to pair. Nobody gets a token here: the request waits for
+   * the owner, who sees the same six digits as the device. A link's code is
+   * spent by the attempt, whatever its outcome; an expired, spent or invented
+   * code gets one answer. Without a code the owner is asked all the same,
+   * within tight limits, since anyone who reaches the port may ask.
    */
-  async redeem(code: string, peer: AccessPeer): Promise<string | undefined> {
-    if (typeof code !== "string" || code.length === 0 || code.length > 256) return undefined;
-    const hash = sha256(code);
-    const link = this.links.get(hash);
-    if (!link) return undefined;
-    this.links.delete(hash);
-    if (link.expiresAt <= this.now()) return undefined;
-
-    const id = randomBytes(12).toString("hex");
-    const secret = randomBytes(32).toString("base64url");
-    const device = describeUserAgent(peer.userAgent);
+  requestPairing(request: HostPairRequest, peer: AccessPeer, channel: PairingChannel): { id?: string; reply: HostPairReply } {
+    this.sweep();
+    const retryAfterMs = this.admit[peer.trust ?? "loopback"](peer.address);
+    if (retryAfterMs > 0) return { reply: { state: "refused", reason: "rate-limited", retryAfterMs } };
+    if (this.requests.size >= MAX_PENDING_REQUESTS) return { reply: { state: "refused", reason: "busy" } };
     const address = displayAddress(peer.address);
+
+    let link: PendingLink | undefined;
+    if (request.code !== undefined) {
+      const hash = sha256(request.code);
+      link = this.links.get(hash);
+      if (!link) return { reply: { state: "refused", reason: "unknown-code" } };
+      this.links.delete(hash);
+      this.changed();
+      if (link.expiresAt <= this.now()) return { reply: { state: "refused", reason: "unknown-code" } };
+    } else {
+      const unlinked = [...this.requests.values()].filter((entry) => !entry.link);
+      const cooling = address ? (this.deniedSources.get(address) ?? 0) > this.now() : false;
+      if (cooling || unlinked.length >= MAX_UNLINKED_REQUESTS || unlinked.some((entry) => entry.address === address)) {
+        return { reply: { state: "refused", reason: "busy" } };
+      }
+    }
+
+    const createdAt = this.now();
+    const name = cleanLabel(request.name);
+    const pending: PendingRequest = {
+      id: randomBytes(8).toString("hex"),
+      ...(name ? { name } : {}),
+      device: describeUserAgent(peer.userAgent),
+      ...(address ? { address } : {}),
+      ...(link ? { link: { ...(link.label ? { label: link.label } : {}), access: link.access } } : {}),
+      state: request.commitment ? "challenge" : "waiting",
+      ...(request.commitment ? { commitment: request.commitment, hostNonce: randomBytes(32).toString("base64url") } : {}),
+      // Without a commitment the host picks the digits; the device only shows them.
+      ...(request.commitment ? {} : { verification: String(randomInt(0, 1_000_000)).padStart(6, "0") }),
+      createdAt,
+      expiresAt: createdAt + PAIRING_REQUEST_LIFETIME_MS,
+      channel,
+    };
+    this.requests.set(pending.id, pending);
+    if (pending.state === "challenge") return { id: pending.id, reply: { state: "challenge", requestId: pending.id, hostNonce: pending.hostNonce! } };
+    this.changed();
+    return { id: pending.id, reply: this.waitingReply(pending) };
+  }
+
+  /** The nonce a request committed to. A wrong one ends the request. */
+  async revealPairing(id: string, nonce: string): Promise<HostPairReply> {
+    const pending = this.requests.get(id);
+    if (!pending || pending.state !== "challenge" || !pending.commitment || !pending.hostNonce) return { state: "refused", reason: "invalid" };
+    if (!sameHash(pending.commitment, await pairingCommitment(nonce))) {
+      this.requests.delete(id);
+      return { state: "refused", reason: "invalid" };
+    }
+    // Another await ran; the request may have gone meanwhile.
+    const verification = await pairingVerificationCode({
+      ...(pending.channel.fingerprint ? { fingerprint: pending.channel.fingerprint } : {}),
+      deviceNonce: nonce,
+      hostNonce: pending.hostNonce,
+    });
+    if (this.requests.get(id) !== pending) return { state: "expired" };
+    pending.state = "waiting";
+    pending.verification = verification;
+    this.changed();
+    return this.waitingReply(pending);
+  }
+
+  /** The device went away before the owner answered. */
+  withdrawPairing(id: string): void {
+    if (this.requests.delete(id)) this.changed();
+  }
+
+  /**
+   * Lets a waiting device in: its token is written down first, then answered
+   * on its socket. A device that left meanwhile gets nothing, and neither
+   * does its record survive.
+   */
+  async approvePairing(id: string, choice: { access?: DeviceAccess; label?: string } = {}): Promise<boolean> {
+    this.sweep();
+    const pending = this.requests.get(id);
+    if (!pending || pending.state !== "waiting") return false;
+    this.requests.delete(id);
+
+    const clientId = randomBytes(12).toString("hex");
+    const secret = randomBytes(32).toString("base64url");
+    const access = isDeviceAccess(choice.access) ? choice.access : pending.link?.access ?? "full";
     const client: StoredClient = {
-      id,
-      label: link.label ?? deviceLabel(device),
+      id: clientId,
+      label: cleanLabel(choice.label) ?? pending.link?.label ?? pending.name ?? deviceLabel(pending.device),
       secretHash: sha256(secret),
       pairedAt: new Date(this.now()).toISOString(),
-      device,
-      ...(address ? { pairedFrom: address, lastAddress: address } : {}),
+      device: pending.device,
+      access,
+      idleTimeoutDays: DEFAULT_IDLE_TIMEOUT_DAYS,
+      ...(pending.address ? { pairedFrom: pending.address, lastAddress: pending.address } : {}),
     };
-    this.clients.set(id, client);
+    this.clients.set(clientId, client);
     // Written before the token leaves: a token the host would forget on restart is worth nothing.
     try {
       await this.save();
     } catch (error) {
-      this.clients.delete(id);
+      this.clients.delete(clientId);
+      pending.channel.settle({ state: "denied" });
+      this.changed();
       throw error;
     }
-    return `${CLIENT_TOKEN_PREFIX}.${id}.${secret}`;
+    const delivered = pending.channel.settle({ state: "approved", token: `${CLIENT_TOKEN_PREFIX}.${clientId}.${secret}`, clientId, access });
+    if (!delivered) {
+      this.clients.delete(clientId);
+      await this.save().catch(() => undefined);
+    }
+    this.changed();
+    return delivered;
+  }
+
+  denyPairing(id: string): boolean {
+    const pending = this.requests.get(id);
+    if (!pending) return false;
+    this.requests.delete(id);
+    if (!pending.link && pending.address) this.deniedSources.set(pending.address, this.now() + DENIED_COOLDOWN_MS);
+    pending.channel.settle({ state: "denied" });
+    this.changed();
+    return true;
   }
 
   /** Forgets a client and closes every connection it has open. */
   async revokeClient(id: string): Promise<boolean> {
-    if (!this.clients.delete(id)) return false;
-    for (const connection of [...this.live.values()]) {
-      if (connection.credential.kind !== "client" || connection.credential.clientId !== id) continue;
-      this.live.delete(connection.id);
-      connection.close(ACCESS_CLOSE_REASON.revoked);
+    const client = this.clients.get(id);
+    if (!client) return false;
+    this.clients.delete(id);
+    this.closeClient(id, ACCESS_CLOSE_REASON.revoked);
+    this.changed();
+    await this.save();
+    return true;
+  }
+
+  /** Signs out every paired device but `keep`; answers how many went. */
+  async revokeOtherClients(keep?: string): Promise<number> {
+    const others = [...this.clients.keys()].filter((id) => id !== keep);
+    for (const id of others) {
+      this.clients.delete(id);
+      this.closeClient(id, ACCESS_CLOSE_REASON.revoked);
     }
+    if (others.length > 0) {
+      this.changed();
+      await this.save();
+    }
+    return others.length;
+  }
+
+  /** Renames a device, changes its preset or its idle timeout. A preset applies from its next call. */
+  async updateClient(id: string, update: UiClientUpdate): Promise<boolean> {
+    const client = this.clients.get(id);
+    if (!client) return false;
+    const label = cleanLabel(update.label);
+    if (update.label !== undefined && !label) throw new Error("A device needs a name.");
+    if (update.access !== undefined && !isDeviceAccess(update.access)) throw new Error("Access is full or read-only.");
+    if (update.idleTimeoutDays !== undefined && !isIdleTimeout(update.idleTimeoutDays)) throw new Error("The idle timeout is 30, 90 or 365 days, or never.");
+    if (label) client.label = label;
+    if (update.access !== undefined) client.access = update.access;
+    if (update.idleTimeoutDays !== undefined) {
+      client.idleTimeoutDays = update.idleTimeoutDays;
+      // The new timeout counts from now, so shortening it never ends a token on the spot.
+      client.lastSeenAt = new Date(this.now()).toISOString();
+    }
+    this.changed();
     await this.save();
     return true;
   }
@@ -250,7 +479,28 @@ export class HostAccess {
     return connectionId ? this.live.get(connectionId)?.credential : undefined;
   }
 
-  overview(current?: string): { links: UiPairingLink[]; clients: UiPairedClient[]; owners: UiOwnerConnection[] } {
+  /**
+   * Ends what ran out: requests nobody answered, and tokens unused past their
+   * timeout. A device that stays connected counts as in use. The host runs
+   * this every minute; tests call it with their own clock.
+   */
+  sweep(): void {
+    const now = this.now();
+    for (const connection of this.live.values()) {
+      if (connection.credential.kind === "client") this.seen(connection.credential.clientId, connection.peer.address, false);
+    }
+    for (const pending of [...this.requests.values()]) {
+      if (pending.expiresAt > now) continue;
+      this.requests.delete(pending.id);
+      pending.channel.settle({ state: "expired" });
+      this.changed();
+    }
+    for (const client of [...this.clients.values()]) if (this.expired(client)) this.forgetExpired(client);
+    for (const [address, until] of this.deniedSources) if (until <= now) this.deniedSources.delete(address);
+  }
+
+  overview(current?: string): { links: UiPairingLink[]; requests: UiPairingRequest[]; clients: UiPairedClient[]; owners: UiOwnerConnection[] } {
+    this.sweep();
     this.pruneLinks();
     const currentCredential = this.credentialOf(current);
     const counts = new Map<string, number>();
@@ -274,28 +524,77 @@ export class HostAccess {
         ...(connection.peer.proxyUser ? { proxyUser: connection.peer.proxyUser } : {}),
       });
     }
-    const clients = [...this.clients.values()].map((client): UiPairedClient => ({
-      id: client.id,
-      label: client.label,
-      device: client.device,
-      pairedAt: client.pairedAt,
-      connections: counts.get(client.id) ?? 0,
-      current: currentCredential?.kind === "client" && currentCredential.clientId === client.id,
-      ...(client.lastSeenAt ? { lastSeenAt: client.lastSeenAt } : {}),
-      ...(client.lastAddress ? { lastAddress: client.lastAddress } : {}),
-      ...(proxyUsers.has(client.id) ? { proxyUser: proxyUsers.get(client.id)! } : {}),
-    }));
+    const clients = [...this.clients.values()].map((client): UiPairedClient => {
+      const expiresAt = this.expiresAt(client);
+      return {
+        id: client.id,
+        label: client.label,
+        device: client.device,
+        pairedAt: client.pairedAt,
+        connections: counts.get(client.id) ?? 0,
+        current: currentCredential?.kind === "client" && currentCredential.clientId === client.id,
+        access: client.access,
+        idleTimeoutDays: client.idleTimeoutDays,
+        ...(expiresAt !== undefined ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
+        ...(client.lastSeenAt ? { lastSeenAt: client.lastSeenAt } : {}),
+        ...(client.lastAddress ? { lastAddress: client.lastAddress } : {}),
+        ...(client.lastAction ? { lastAction: client.lastAction } : {}),
+        ...(proxyUsers.has(client.id) ? { proxyUser: proxyUsers.get(client.id)! } : {}),
+      };
+    });
     clients.sort((a, b) => Number(b.current) - Number(a.current)
       || Number(b.connections > 0) - Number(a.connections > 0)
       || b.pairedAt.localeCompare(a.pairedAt));
     owners.sort((a, b) => Number(b.current) - Number(a.current) || a.since.localeCompare(b.since));
     const links = [...this.links.values()].sort((a, b) => b.createdAt - a.createdAt).map(linkInfo);
-    return { links, clients, owners };
+    const requests = [...this.requests.values()]
+      .filter((pending) => pending.state === "waiting")
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map(requestInfo);
+    return { links, requests, clients, owners };
   }
 
   /** Writes what changed since the last write, such as when clients were last seen. */
   flush(): Promise<void> {
     return this.save();
+  }
+
+  private waitingReply(pending: PendingRequest): HostPairReply {
+    return { state: "waiting", requestId: pending.id, verification: pending.verification!, expiresAt: new Date(pending.expiresAt).toISOString() };
+  }
+
+  /** When the token stops working if unused; undefined when it never does. */
+  private expiresAt(client: StoredClient): number | undefined {
+    if (client.idleTimeoutDays === null) return undefined;
+    const last = Date.parse(client.lastSeenAt ?? client.pairedAt);
+    return (Number.isFinite(last) ? last : 0) + client.idleTimeoutDays * DAY_MS;
+  }
+
+  private expired(client: StoredClient): boolean {
+    const expiresAt = this.expiresAt(client);
+    if (expiresAt === undefined || expiresAt > this.now()) return false;
+    // Connected is in use, however quiet.
+    return ![...this.live.values()].some((connection) => connection.credential.kind === "client" && connection.credential.clientId === client.id);
+  }
+
+  /** Only a device without a connection expires, so there is nothing to close. */
+  private forgetExpired(client: StoredClient): void {
+    this.clients.delete(client.id);
+    this.options.audit?.({ clientId: client.id, label: client.label, action: "token expired unused", allowed: true });
+    this.changed();
+    void this.save().catch(() => undefined);
+  }
+
+  private closeClient(id: string, reason: string): void {
+    for (const connection of [...this.live.values()]) {
+      if (connection.credential.kind !== "client" || connection.credential.clientId !== id) continue;
+      this.live.delete(connection.id);
+      connection.close(reason);
+    }
+  }
+
+  private changed(): void {
+    this.options.onChange?.();
   }
 
   private seen(clientId: string, address: string | undefined, persist: boolean): void {
@@ -323,11 +622,27 @@ function linkInfo(link: PendingLink): UiPairingLink {
   return {
     id: link.id,
     ...(link.label ? { label: link.label } : {}),
+    access: link.access,
     createdAt: new Date(link.createdAt).toISOString(),
     expiresAt: new Date(link.expiresAt).toISOString(),
   };
 }
 
+function requestInfo(pending: PendingRequest): UiPairingRequest {
+  return {
+    id: pending.id,
+    ...(pending.name ? { name: pending.name } : {}),
+    device: pending.device,
+    ...(pending.address ? { address: pending.address } : {}),
+    ...(pending.link ? { link: pending.link.label ? { label: pending.link.label } : {} } : {}),
+    verification: pending.verification!,
+    access: pending.link?.access ?? "full",
+    createdAt: new Date(pending.createdAt).toISOString(),
+    expiresAt: new Date(pending.expiresAt).toISOString(),
+  };
+}
+
+/** Version 1 records predate presets and timeouts: they are Full, with the default timeout. */
 function decodeClients(value: unknown): StoredClient[] | undefined {
   const list = (value as { clients?: unknown } | undefined)?.clients;
   if (!Array.isArray(list)) return undefined;
@@ -338,15 +653,21 @@ function decodeClients(value: unknown): StoredClient[] | undefined {
     if (typeof id !== "string" || !/^[0-9a-f]{24}$/u.test(id)) continue;
     if (typeof secretHash !== "string" || !/^[0-9a-f]{64}$/u.test(secretHash)) continue;
     const device = entry.device as UiClientDevice | undefined;
+    const lastAction = entry.lastAction as { action?: unknown; at?: unknown } | undefined;
     clients.push({
       id,
       secretHash,
       label: cleanLabel(typeof label === "string" ? label : undefined) ?? "Paired client",
       pairedAt: typeof pairedAt === "string" ? pairedAt : new Date(0).toISOString(),
       device: device && typeof device === "object" && typeof device.kind === "string" ? device : { kind: "unknown" },
+      // An unreadable preset is the narrower one.
+      access: entry.access === undefined ? "full" : isDeviceAccess(entry.access) ? entry.access : "read-only",
+      idleTimeoutDays: isIdleTimeout(entry.idleTimeoutDays) ? entry.idleTimeoutDays : DEFAULT_IDLE_TIMEOUT_DAYS,
       ...(typeof entry.pairedFrom === "string" ? { pairedFrom: entry.pairedFrom } : {}),
       ...(typeof entry.lastSeenAt === "string" ? { lastSeenAt: entry.lastSeenAt } : {}),
       ...(typeof entry.lastAddress === "string" ? { lastAddress: entry.lastAddress } : {}),
+      ...(lastAction && typeof lastAction.action === "string" && typeof lastAction.at === "string"
+        ? { lastAction: { action: lastAction.action, at: lastAction.at } } : {}),
     });
   }
   return clients;

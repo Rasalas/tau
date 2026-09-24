@@ -142,12 +142,12 @@ export function createEvidenceHostExtension(): HostExtension {
       });
       if (withdraw) disposers.push(withdraw);
 
-      context.registerCommand("list", (input) => store.list(field(input, "threadId")));
+      context.registerCommand("list", (input) => store.list(field(input, "threadId")), { access: "read" });
       context.registerCommand("image", async (input) => {
         const thumb = Boolean(input && typeof input === "object" && (input as { thumb?: unknown }).thumb === true);
         const bytes = await store.image(field(input, "threadId"), field(input, "id"), thumb);
         return bytes ? `data:image/jpeg;base64,${bytes.toString("base64")}` : null;
-      });
+      }, { access: "read" });
       context.registerCommand("delete-turn", async (input) => {
         const threadId = field(input, "threadId");
         if (await store.deleteTurn(threadId, field(input, "turnId"))) changed(threadId);
@@ -162,7 +162,7 @@ export function createEvidenceHostExtension(): HostExtension {
         capture.resume(field(input, "threadId"));
         pauses();
       }, { callers: EVIDENCE_PAUSE_CALLERS });
-      context.registerCommand("paused", () => capture.paused());
+      context.registerCommand("paused", () => capture.paused(), { access: "read" });
 
       const factory: RuntimeExtensionFactory = (pi, session) => {
         pi.registerTool(attachEvidenceTool((caption, source, threadId) => capture.attach(threadId ?? session.sessionId, session.cwd, caption, source)));

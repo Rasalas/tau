@@ -267,14 +267,14 @@ const context: WorkerHostExtensionContext = {
   registerCommand: (name, handler, options) => {
     if (commands.has(name)) throw new Error(`Host extension ${boot.id}: command "${name}" registered twice`);
     commands.set(name, handler);
-    send({ t: "command", name, long: Boolean(options?.long), callers: options?.callers ?? [], ...(options?.owner ? { owner: true } : {}) });
+    send({ t: "command", name, long: Boolean(options?.long), callers: options?.callers ?? [], ...(options?.access === "read" || options?.access === "owner" ? { access: options.access } : {}) });
     return () => {
       if (commands.get(name) !== handler) return;
       commands.delete(name);
       send({ t: "command-off", name });
     };
   },
-  emit: (name, payload) => { send({ t: "emit", name, payload }); },
+  emit: (name, payload, options) => { send({ t: "emit", name, payload, ...(options?.topic === undefined ? {} : { topic: options.topic }) }); },
 };
 
 function answer(id: number, run: () => unknown): void {

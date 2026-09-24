@@ -86,6 +86,8 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
   let probe: Probe | undefined;
   /** Set once this socket's hello was answered by a host that answers pings. */
   let heartbeat = false;
+  /** A hello went out on the current socket; the host refuses any frame before one (4401). */
+  let greeted = false;
   /** Frames the current socket delivered. */
   let received = 0;
   let stopWakes: (() => void) | undefined;
@@ -105,14 +107,31 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     helloTimer = setTimeout(() => { if (socket === current) abandon(); }, SOCKET_HELLO_TIMEOUT_MS);
   };
 
-  const write = (text: string, hello: boolean): void => {
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(text);
-      if (hello) armHello();
-      return;
+  /**
+   * Sends what waits, the hello first: a request queued while the socket was
+   * down must not reach a new socket before the hello the reconnect sends.
+   */
+  const flush = (): void => {
+    const current = socket;
+    if (current?.readyState !== WebSocket.OPEN) return;
+    if (!greeted) {
+      const index = outbox.findIndex((entry) => entry.hello);
+      if (index < 0) return;
+      const [hello] = outbox.splice(index, 1);
+      current.send(hello!.text);
+      armHello();
+      greeted = true;
     }
+    for (const { text, hello } of outbox.splice(0)) {
+      current.send(text);
+      if (hello) armHello();
+    }
+  };
+
+  const write = (text: string, hello: boolean): void => {
     if (outbox.length >= OUTBOX_LIMIT) outbox.shift();
     outbox.push({ text, hello });
+    flush();
   };
 
   const failPending = (message: string): void => {
@@ -198,6 +217,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     retryTimer = undefined;
     const current = new WebSocket(url);
     socket = current;
+    greeted = false;
     setLink({ phase: "connecting" });
     connectTimer = setTimeout(() => { if (socket === current && current.readyState !== WebSocket.OPEN) abandon(); }, SOCKET_CONNECT_TIMEOUT_MS);
     current.onopen = () => {
@@ -207,10 +227,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       // A socket that opened contradicts an `offline` that no `online` followed.
       offline = false;
       setLink({ phase: "open", attempts: 0 });
-      for (const { text, hello } of outbox.splice(0)) {
-        current.send(text);
-        if (hello) armHello();
-      }
+      flush();
       // The first open is the caller's own hello; later ones need recovery.
       if (everOpened) for (const listener of openListeners) listener();
       everOpened = true;
@@ -257,8 +274,8 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       for (const listener of pushListeners) listener(frame.push);
       return;
     }
-    // Calls into a window go to the window's own process, never to a page.
-    if (frame.type === "client-call") return;
+    // Calls into a window go to the window's own process, never to a page; pairing has its own client.
+    if (frame.type === "client-call" || frame.type === "pair-reply") return;
     if (frame.type === "pong") {
       if (probe?.id !== frame.id) return;
       clearTimeout(probe.timer);

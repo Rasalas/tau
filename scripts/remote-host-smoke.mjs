@@ -2,11 +2,13 @@
 // bootstrap, a prompt, a disconnect, and a reconnect that replays the pushes
 // missed in between — once in plaintext, once over TLS with a pinned certificate —
 // plus heartbeats, the Origin check and the close of a socket that never says hello.
-// Each run then pairs a client through a link, revokes it while it is connected
-// and rotates the host token (ADR 0023). A proxy run checks that a peer behind
-// a reverse proxy is remote though it dials from 127.0.0.1. A last run with kits
-// sends a call into a window and checks that it reaches one connection and only
-// its answer counts.
+// Each run then pairs devices over the socket, allowed by the owner after comparing
+// a code (bound to the pinned certificate over TLS), denies one, holds a Read-only
+// device to reads, revokes live connections and rotates the host token (ADR 0023,
+// ADR 0024). A last run with kits sends a call into a window and checks that it
+// reaches one connection and only its answer counts, and that a Read-only device
+// runs only the kit commands that just look. A proxy run checks that a peer behind
+// a reverse proxy is remote though it dials from 127.0.0.1.
 // Node 22 has WebSocket globally; the TLS run pins with `ws` and the host's
 // own pinning code, because a global WebSocket cannot pin a certificate.
 import { execFileSync, spawn } from "node:child_process";
@@ -126,6 +128,10 @@ if (!existsSync(HOST_ENTRY)) {
 }
 // The pinning a window uses, not a copy of it.
 const { pinnedTlsConnect, HostCertificateRefusedError } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-tls-trust.js")).href);
+// The digits a pinning device computes, from the same module the app uses.
+const { pairingCommitment, pairingVerificationCode, randomPairingNonce } = await import(pathToFileURL(join(ROOT, "dist-electron", "shared", "pairing.js")).href);
+const { parsePairingPayload } = await import(pathToFileURL(join(ROOT, "dist-electron", "shared", "connections.js")).href);
+const PHONE_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1";
 
 /** Starts a headless host; `tls` adds TAU_HOST_TLS=1. Resolves once it prints its socket. */
 async function startHost({ workspace, userData, tokenHome, tls, webClient, kits = false, proxy = false }) {
@@ -294,72 +300,208 @@ async function exerciseTls(host, userData, token) {
   step("tls: no plaintext on the TLS port");
 }
 
-/** `POST /pair` as a browser sends it; over TLS the host's own certificate is the only CA. */
-function redeem(pageUrl, code, ca, forwardedFor) {
-  const url = new URL("/pair", pageUrl);
-  const body = JSON.stringify({ code });
+/** Any request to the page's server; over TLS the host's own certificate is the only CA. */
+function httpPost(pageUrl, path, body, ca) {
+  const url = new URL(path, pageUrl);
   const send = url.protocol === "https:" ? httpsRequest : httpRequest;
   return new Promise((resolve, reject) => {
     const outgoing = send(url, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "content-length": Buffer.byteLength(body),
-        "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1",
-        ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
-      },
+      headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body) },
       ...(ca ? { ca } : {}),
     }, (response) => {
       let text = "";
       response.on("data", (chunk) => { text += String(chunk); });
-      response.on("end", () => resolve({ status: response.statusCode, body: text ? JSON.parse(text) : undefined }));
+      response.on("end", () => resolve({ status: response.statusCode, text }));
     });
     outgoing.on("error", reject);
     outgoing.end(body);
   });
 }
 
-/** Pairing, revocation of a live connection and rotation, as a client meets them. */
+/**
+ * A device asking to pair over the socket (ADR 0024). With `fingerprint` it
+ * pins the certificate and binds the digits to it, as the app does.
+ */
+async function askToPair(url, { code, fingerprint, name, forwardedFor } = {}) {
+  const socket = new PinnedWebSocket(url, {
+    headers: { "user-agent": PHONE_AGENT, ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}) },
+    ...(fingerprint ? { createConnection: pinnedTlsConnect(fingerprint) } : {}),
+  });
+  const replies = [];
+  const waiters = [];
+  let shown;
+  const closed = new Promise((resolve) => socket.on("close", (closeCode, reason) => resolve({ code: closeCode, reason: String(reason) })));
+  const nonce = fingerprint ? randomPairingNonce() : undefined;
+  socket.on("message", async (data) => {
+    const frame = JSON.parse(String(data));
+    if (frame.type !== "pair-reply") return;
+    const { reply } = frame;
+    if (reply.state === "challenge") {
+      shown = await pairingVerificationCode({ fingerprint, deviceNonce: nonce, hostNonce: reply.hostNonce });
+      socket.send(JSON.stringify({ type: "pair-reveal", id: "pair", nonce }));
+      return;
+    }
+    if (reply.state === "waiting") {
+      if (shown && shown !== reply.verification) fail(`the host's digits ${reply.verification} are not the device's ${shown}`);
+      shown ??= reply.verification;
+    }
+    replies.push(reply);
+    for (const waiter of waiters.splice(0)) waiter();
+  });
+  await new Promise((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
+  socket.send(JSON.stringify({ type: "pair", id: "pair", pair: { ...(code ? { code } : {}), ...(name ? { name } : {}), ...(nonce ? { commitment: await pairingCommitment(nonce) } : {}) } }));
+  const next = async () => {
+    while (replies.length === 0) await new Promise((resolve) => waiters.push(resolve));
+    return replies.shift();
+  };
+  return { next, closed, shown: () => shown, close: () => socket.close() };
+}
+
+/** A device asks and the owner allows it after finding the device's digits among the requests. */
+async function pairDevice(url, owner, { code, fingerprint, name, access, forwardedFor } = {}) {
+  const device = await askToPair(url, { code, fingerprint, name, forwardedFor });
+  const waiting = await device.next();
+  if (waiting.state !== "waiting") fail(`the request was not put to the owner: ${JSON.stringify(waiting)}`);
+  const { requests } = await owner.request("connections-list");
+  const request = requests.find((entry) => entry.verification === device.shown());
+  if (!request) fail(`the owner sees no request with the device's digits ${device.shown()}: ${JSON.stringify(requests)}`);
+  const { approved } = await owner.request("connections-approve", [request.id, access ? { access } : {}]);
+  if (!approved) fail("the owner could not allow a waiting device");
+  const answer = await device.next();
+  if (answer.state !== "approved" || !/^tauc\.[0-9a-f]{24}\./u.test(answer.token)) fail(`no token after the owner allowed it: ${JSON.stringify(answer)}`);
+  device.close();
+  return { token: answer.token, access: answer.access, verification: device.shown(), request };
+}
+
+/** Methods that change something; a Read-only device is refused each, whatever its input. */
+const WRITES = [
+  ["prompt", ["Say hello.", undefined, undefined, "smoke-read-only", undefined]],
+  ["steer", ["x"]], ["follow-up", ["x"]], ["queue-message", ["s", "x"]], ["new-session", []], ["abort", [undefined]],
+  ["rename-thread", ["Renamed by a Read-only device"]], ["set-model", ["p", "m"]], ["set-thinking", ["high"]], ["set-mode", ["plan"]],
+  ["run-shell-action", ["echo hi"]], ["update-config", [{}]], ["clear-config", [[]]], ["open-project", ["/"]], ["remove-project", ["/"]],
+  ["add-model-provider", [{}]], ["reload-runtime", []], ["compact-context", []], ["answer-extension-ui", ["id", {}]],
+  ["host-extension-active", ["tau.terminal", false]], ["extension-grant", ["tau.terminal", true]], ["copy-text", ["x"]],
+  ["start-job", ["prompt", ["x"]]],
+];
+
+/** A Read-only device reads, is refused every change, and a new preset applies at its next call. */
+async function exerciseReadOnly(host, owner, label) {
+  const { code } = await owner.request("connections-create-link", [{ label: "Watcher", access: "read-only" }]);
+  const watcher = await pairDevice(host.url, owner, { code, fingerprint: host.fingerprint });
+  if (watcher.access !== "read-only") fail(`a Read-only link paired ${watcher.access}`);
+  const device = createClient(host.url, watcher.token, host.fingerprint);
+  await device.opened;
+  const hello = await device.hello();
+  if (hello.access !== "read-only") fail(`the hello did not say Read only: ${JSON.stringify(hello)}`);
+  await device.request("bootstrap");
+  await device.request("host-extensions");
+  for (const [method, params] of WRITES) {
+    const outcome = await device.request(method, params).then(() => "answered", (error) => String(error.message));
+    if (!/^forbidden: .*Read only/u.test(outcome)) fail(`a Read-only device was not refused ${method}: ${outcome}`);
+  }
+  const record = (await owner.request("connections-list")).clients.find((entry) => entry.label === "Watcher");
+  if (record?.lastAction) fail(`a refused call counted as a change: ${JSON.stringify(record.lastAction)}`);
+  step(`${label}: a Read-only device reads and is refused every change`, `${WRITES.length} methods`);
+
+  await owner.request("connections-update-client", [record.id, { access: "full", label: "Watcher, now Full" }]);
+  await device.request("rename-thread", ["Renamed by a device made Full"]).catch((error) => {
+    if (String(error.message).startsWith("forbidden")) fail("a new preset did not apply at the next call");
+  });
+  const after = (await owner.request("connections-list")).clients.find((entry) => entry.id === record.id);
+  if (after?.label !== "Watcher, now Full" || after.lastAction?.action !== "rename-thread") fail(`the rename or the last change is missing: ${JSON.stringify(after)}`);
+  step(`${label}: renaming and a new preset apply at once; the row shows the last change`, after.lastAction.action);
+  await device.close();
+  await owner.request("connections-revoke-client", [record.id]);
+}
+
+/** Pairing, presets, revocation of a live connection and rotation, as a device meets them. */
 async function exerciseAccess(host, tokenPath, userData, label) {
   const ca = host.fingerprint ? readFileSync(join(userData, "tls", "host-cert.pem"), "utf8") : undefined;
-  const printed = host.output().match(/web client: (\S+)#pair=(\S+)/u);
+  const printed = host.output().match(/web client: (\S+)/u);
   if (!printed) fail(`the host printed no pairing link\n${host.output()}`);
-  const [, page, code] = printed;
-  const paired = await redeem(page, code, ca);
-  if (paired.status !== 200 || !/^tauc\.[0-9a-f]{24}\./u.test(paired.body?.token ?? "")) fail(`the startup link did not pair: ${paired.status} ${JSON.stringify(paired.body)}`);
-  const hostToken = readFileSync(tokenPath, "utf8").trim();
-  if (paired.body.token === hostToken) fail("pairing handed out the host token");
-  if ((await redeem(page, code, ca)).status !== 403) fail("a spent pairing code was redeemed twice");
-  step(`${label}: a pairing link gives a token of the client's own, once`);
+  const link = parsePairingPayload(printed[1]);
+  const page = link?.endpoints[0]?.url;
+  if (!link || !page) fail(`the printed link carries no code: ${printed[1]}`);
+  if (host.fingerprint && link.fingerprint !== host.fingerprint) fail(`the link's fingerprint ${link.fingerprint} is not the host's ${host.fingerprint}`);
+  if (!host.fingerprint && link.fingerprint) fail("a plaintext host put a fingerprint in its link");
+  if (!/^[0-9a-f]{32}$/u.test(link.hostId ?? "")) fail(`the link names no host id: ${printed[1]}`);
+  step(`${label}: the printed link carries the code, the host id${host.fingerprint ? " and the fingerprint" : ""}`);
+  const legacy = await httpPost(page, "/pair", JSON.stringify({ code: link.code }), ca);
+  if (legacy.status !== 410 || legacy.text.includes("tauc.")) fail(`POST /pair still answers: ${legacy.status} ${legacy.text}`);
+  step(`${label}: POST /pair hands out nothing`);
 
+  const hostToken = readFileSync(tokenPath, "utf8").trim();
   const owner = createClient(host.url, hostToken, host.fingerprint);
   await owner.opened;
   await owner.hello();
-  const phone = createClient(host.url, paired.body.token, host.fingerprint);
+
+  // Nobody is let in before the owner says so; over TLS the device binds the digits to the pinned certificate.
+  const asking = await askToPair(host.url, { code: link.code, fingerprint: host.fingerprint, name: "Smoke phone" });
+  const waiting = await asking.next();
+  if (waiting.state !== "waiting") fail(`the startup link was not put to the owner: ${JSON.stringify(waiting)}`);
+  const pending = (await owner.request("connections-list")).requests;
+  if (pending.length !== 1 || pending[0].verification !== asking.shown() || pending[0].name !== "Smoke phone") fail(`the owner does not see the device's digits: ${JSON.stringify(pending)}`);
+  if ((await owner.request("connections-list")).clients.length !== 0) fail("a device was let in before the owner allowed it");
+  await owner.request("connections-approve", [pending[0].id, {}]);
+  const approved = await asking.next();
+  if (approved.state !== "approved") fail(`the allowed device got no token: ${JSON.stringify(approved)}`);
+  asking.close();
+  const paired = { token: approved.token };
+  if (paired.token === hostToken) fail("pairing handed out the host token");
+  const spent = await askToPair(host.url, { code: link.code, fingerprint: host.fingerprint });
+  const refusal = await spent.next();
+  if (refusal.state !== "refused" || refusal.reason !== "unknown-code") fail(`a spent link asked again: ${JSON.stringify(refusal)}`);
+  step(`${label}: a device asks with the link and gets a token once the owner allows its code`, `code ${asking.shown()}${host.fingerprint ? ", bound to the pinned certificate" : ""}`);
+
+  // Without a link, and denied: the socket closes and nobody is added.
+  const stranger = await askToPair(host.url, { fingerprint: host.fingerprint });
+  await stranger.next();
+  const [unlinked] = (await owner.request("connections-list")).requests;
+  if (!unlinked || unlinked.link) fail(`a request without a link is not shown as such: ${JSON.stringify(unlinked)}`);
+  await owner.request("connections-deny", [unlinked.id]);
+  const denied = await stranger.next();
+  if (denied.state !== "denied" || (await stranger.closed).reason !== "denied") fail(`the denied device was not told: ${JSON.stringify(denied)}`);
+  if ((await owner.request("connections-list")).clients.length !== 1) fail("a denied device was added");
+  step(`${label}: a request without a link reaches the owner, and a denial lets nobody in`);
+
+  const phone = createClient(host.url, paired.token, host.fingerprint);
   await phone.opened;
   await phone.hello();
   const forbidden = await phone.request("connections-list").then(() => "answered", (error) => String(error.message));
   if (!forbidden.startsWith("forbidden")) fail(`a paired client could list connections: ${forbidden}`);
   const listed = await owner.request("connections-list");
   const client = listed.clients.find((entry) => entry.connections === 1);
-  if (!client || client.device.os !== "iOS") fail(`the owner does not see the paired client: ${JSON.stringify(listed.clients)}`);
+  if (!client || client.device.os !== "iOS" || client.access !== "full" || client.idleTimeoutDays !== 90 || !client.expiresAt) fail(`the owner does not see the paired client: ${JSON.stringify(listed.clients)}`);
   if (process.platform !== "win32" && (statSync(join(userData, "paired-clients.json")).mode & 0o777) !== 0o600) fail("paired-clients.json is not 0600");
-  if (readFileSync(join(userData, "paired-clients.json"), "utf8").includes(paired.body.token.split(".")[2])) fail("a client secret was written in clear");
-  step(`${label}: a paired client connects, may not manage access, is listed`, `${client.label}, ${client.lastAddress}`);
+  if (readFileSync(join(userData, "paired-clients.json"), "utf8").includes(paired.token.split(".")[2])) fail("a client secret was written in clear");
+  step(`${label}: a paired client connects, may not manage access, is listed with its preset and expiry`, `${client.label}, ${client.lastAddress}`);
 
   const created = await owner.request("connections-create-link", [{ label: "Smoke", lifetimeMs: 60_000 }]);
   if (!created.urls[0]?.url.includes(`#pair=${created.code}`)) fail(`a created link carries no code: ${JSON.stringify(created.urls)}`);
   await owner.request("connections-revoke-link", [created.link.id]);
-  if ((await redeem(page, created.code, ca)).status !== 403) fail("a revoked link was redeemed");
+  const revokedLink = await askToPair(host.url, { code: created.code, fingerprint: host.fingerprint });
+  if ((await revokedLink.next()).reason !== "unknown-code") fail("a revoked link was accepted");
   step(`${label}: a created link can be revoked before use`);
+
+  await exerciseReadOnly(host, owner, label);
 
   await owner.request("connections-revoke-client", [client.id]);
   const ended = await phone.closed;
   if (ended.code !== 4401 || ended.reason !== "revoked") fail(`revocation did not close the live connection: ${JSON.stringify(ended)}`);
-  const again = createClient(host.url, paired.body.token, host.fingerprint);
+  const again = createClient(host.url, paired.token, host.fingerprint);
   await again.opened;
   if (await again.hello().then(() => "accepted", () => "refused") !== "refused") fail("a revoked token was accepted");
   step(`${label}: revoking closes the live connection and refuses the token`);
+
+  const other = await pairDevice(host.url, owner, { code: (await owner.request("connections-create-link", [{}])).code, fingerprint: host.fingerprint });
+  const tablet = createClient(host.url, other.token, host.fingerprint);
+  await tablet.opened;
+  await tablet.hello();
+  const { revoked } = await owner.request("connections-revoke-others");
+  if (revoked < 1 || (await tablet.closed).reason !== "revoked") fail(`signing out the others left a device connected: ${revoked}`);
+  if ((await owner.request("connections-list")).clients.length !== 0) fail("a device survived signing out the others");
+  step(`${label}: signing out every other device closes their connections`, `${revoked} device(s)`);
 
   const bystander = createClient(host.url, hostToken, host.fingerprint);
   await bystander.opened;
@@ -387,11 +529,11 @@ async function exerciseAccess(host, tokenPath, userData, label) {
  * window neither sees it nor settles it; a client without a window is refused at once.
  */
 async function exerciseCalls(host, tokenPath, workspace, elsewhere) {
-  const printed = host.output().match(/web client: (\S+)#pair=(\S+)/u);
-  if (!printed) fail(`the host printed no pairing link\n${host.output()}`);
-  const paired = await redeem(printed[1], printed[2]);
-  if (paired.status !== 200) fail(`the startup link did not pair: ${paired.status}`);
   const hostToken = readFileSync(tokenPath, "utf8").trim();
+  const ownerSocket = createClient(host.url, hostToken);
+  await ownerSocket.opened;
+  await ownerSocket.hello();
+  const paired = await pairDevice(host.url, ownerSocket, { code: (await ownerSocket.request("connections-create-link", [{}])).code });
   const connect = async (token, hello) => {
     const client = createClient(host.url, token);
     await client.opened;
@@ -400,7 +542,7 @@ async function exerciseCalls(host, tokenPath, workspace, elsewhere) {
   };
   const window = await connect(hostToken, { auxiliary: true, windowId: "smoke-window", windowHalves: ["window"] });
   const page = await connect(hostToken, { windowId: "smoke-window", profile: "desktop" });
-  const phone = await connect(paired.body.token, { auxiliary: true, windowId: "smoke-window", windowHalves: ["window"] });
+  const phone = await connect(paired.token, { auxiliary: true, windowId: "smoke-window", windowHalves: ["window"] });
   await page.request("bootstrap");
 
   const picked = page.request("host-extension", ["tau.workspace", "pick-folder"]);
@@ -424,7 +566,7 @@ async function exerciseCalls(host, tokenPath, workspace, elsewhere) {
   if (window.calls.length !== 1) fail("a paired client's call reached the host's window");
   await phone.request("client-call-result", [phone.calls[0].callId, null]);
   await own;
-  const browser = await connect(paired.body.token, { profile: "web" });
+  const browser = await connect(paired.token, { profile: "web" });
   const refused = await browser.request("host-extension", ["tau.workspace", "pick-folder"]).then(() => "answered", (error) => String(error.message));
   if (!/no window that can answer/u.test(refused)) fail(`a client without a window was not refused: ${refused}`);
   if (window.calls.length !== 1) fail("a browser's folder picker opened on the host's window");
@@ -433,9 +575,29 @@ async function exerciseCalls(host, tokenPath, workspace, elsewhere) {
   await window.close();
   const started = Date.now();
   const alone = await page.request("host-extension", ["tau.workspace", "pick-folder"]).then(() => "answered", (error) => String(error.message));
-  if (!/no window that can answer/u.test(alone) || Date.now() - started > 5_000) fail(`a call without a window did not fail at once: ${alone}`);
+  // Under load the host may still be closing the window when the call arrives; that fails at once too.
+  if (!/no window that can answer|window that was asked disconnected/u.test(alone) || Date.now() - started > 5_000) fail(`a call without a window did not fail at once: ${alone}`);
   step("calls: without a window the call fails at once", `${Date.now() - started} ms`);
-  await Promise.all([page.close(), phone.close(), browser.close()]);
+
+  // Kit commands: a Read-only device runs those registered with access "read", and no other, not even as a job.
+  const watcher = await pairDevice(host.url, ownerSocket, { code: (await ownerSocket.request("connections-create-link", [{ access: "read-only" }])).code });
+  const viewer = await connect(watcher.token, { profile: "compact" });
+  for (const [kit, command, input] of [["tau.terminal", "list"], ["tau.workspace", "changes", {}], ["tau.thread-rail", "state"], ["tau.files", "stat", { path: "README.md" }]]) {
+    const outcome = await viewer.request("host-extension", [kit, command, input]).then(() => "answered", (error) => String(error.message));
+    if (outcome.startsWith("forbidden")) fail(`a Read-only device was refused ${kit}/${command}: ${outcome}`);
+  }
+  const refusedWrites = [["tau.terminal", "open", {}], ["tau.terminal", "input", { id: "x", data: "ls\n" }], ["tau.workspace", "commit", {}], ["tau.workspace", "write-file", {}], ["tau.files", "write", {}], ["tau.thread-rail", "archive", {}]];
+  for (const [kit, command, input] of refusedWrites) {
+    const outcome = await viewer.request("host-extension", [kit, command, input]).then(() => "answered", (error) => String(error.message));
+    if (!/^forbidden: .*Read only/u.test(outcome)) fail(`a Read-only device ran ${kit}/${command}: ${outcome}`);
+  }
+  // The job starts, but the registry refuses the command inside it before it runs.
+  const { jobId } = await viewer.request("start-job", ["host-extension", ["tau.workspace", "clone-start", {}]]);
+  await waitFor(() => viewer.pushes.some((push) => push.event.type === "job-done" && push.event.jobId === jobId), "the job's end");
+  const done = viewer.pushes.find((push) => push.event.type === "job-done" && push.event.jobId === jobId).event;
+  if (done.error?.code !== "forbidden") fail(`a Read-only device ran a changing kit command as a job: ${JSON.stringify(done)}`);
+  step("calls: a Read-only device runs only the kit commands that just look", `${refusedWrites.length + 1} refused`);
+  await Promise.all([page.close(), phone.close(), browser.close(), viewer.close(), ownerSocket.close()]);
 }
 
 async function scenario({ tls }) {
@@ -523,18 +685,24 @@ async function proxyScenario() {
     if (served !== "open" || foreign !== 4403) fail(`the proxy's origin check is wrong: served ${served}, foreign ${foreign}`);
     step("proxy: a page at the proxy's public name opens a socket, another site's does not");
 
-    const page = `${host.proxyUrl}/`;
+    // The host token through the proxy uses the host but manages nothing: that takes this machine (ADR 0024).
+    const fromAfar = await through.request("connections-list").then(() => "answered", (error) => String(error.message));
+    const stopFromAfar = await through.request("host.shutdown").then(() => "answered", (error) => String(error.message));
+    if (!fromAfar.startsWith("forbidden") || !stopFromAfar.startsWith("forbidden")) fail(`the host token through the proxy managed the host: ${fromAfar} / ${stopFromAfar}`);
+    await own.request("connections-list");
+    step("proxy: the host token through it may not manage access or stop the host; from this machine it may");
+
+    const attempt = async (url, forwardedFor) => (await (await askToPair(url, { code: "invented", forwardedFor })).next());
     const refusals = [];
-    for (let attempt = 0; attempt < 6; attempt += 1) refusals.push((await redeem(page, "invented", undefined, "100.101.102.103")).status);
-    if (refusals.join() !== "403,403,403,403,403,429") fail(`a tailnet peer was not held to five attempts: ${refusals.join()}`);
-    const neighbour = (await redeem(page, "invented", undefined, "100.101.102.104")).status;
-    const local = (await redeem(`${host.url.replace(/^ws:/u, "http:")}/`, "invented")).status;
-    if (neighbour !== 403 || local !== 403) fail(`the proxy's limit spilled over: another peer ${neighbour}, this machine ${local}`);
+    for (let index = 0; index < 6; index += 1) refusals.push((await attempt(proxied, "100.101.102.103")).reason);
+    if (refusals.join() !== "unknown-code,unknown-code,unknown-code,unknown-code,unknown-code,rate-limited") fail(`a tailnet peer was not held to five attempts: ${refusals.join()}`);
+    const neighbour = (await attempt(proxied, "100.101.102.104")).reason;
+    const local = (await attempt(host.url)).reason;
+    if (neighbour !== "unknown-code" || local !== "unknown-code") fail(`the proxy's limit spilled over: another peer ${neighbour}, this machine ${local}`);
     step("proxy: pairing attempts are limited per forwarded address, apart from this machine");
 
-    const printed = host.output().match(/web client: \S+#pair=(\S+)/u);
-    const paired = await redeem(page, printed[1], undefined, "100.101.102.105");
-    if (paired.status !== 200) fail(`pairing through the proxy failed: ${paired.status}`);
+    const printed = parsePairingPayload(host.output().match(/web client: (\S+)/u)[1]);
+    await pairDevice(proxied, own, { code: printed.code, forwardedFor: "100.101.102.105" });
     const listed = await own.request("connections-list");
     const phone = listed.clients.find((entry) => entry.lastAddress === "100.101.102.105");
     if (!phone) fail(`the paired client was not recorded at its forwarded address: ${JSON.stringify(listed.clients)}`);

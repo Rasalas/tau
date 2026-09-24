@@ -39,7 +39,7 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
-import type { UiConnections, UiCreatedPairingLink, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
+import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
@@ -172,6 +172,16 @@ export interface HostClient {
   /** Tries to reach the host now instead of waiting for the next attempt. */
   reconnectNow(): void;
   /**
+   * What this client shows, so the host sends it those threads' streams and
+   * those topics only (after `limitPushesToWatched`). Each returns its release.
+   */
+  watchThread(sessionId: string): () => void;
+  /** The thread a `newSession` with this request id creates, before its id is known. */
+  watchNewThread(requestId: string): () => void;
+  watchHostTopic(extensionId: string, topic: string): () => void;
+  /** Called once the thread on screen is watched; before it, every push arrives. */
+  limitPushesToWatched(): void;
+  /**
    * The Tau versions the hellos reported: the host's, and the window process's
    * when that is a process apart from the host. Either is unknown until its
    * hello was answered.
@@ -179,17 +189,28 @@ export interface HostClient {
   getVersions(): { host?: string; window?: string };
   onVersions(listener: () => void): () => void;
 
-  // Who else may connect to the host (Settings → Connections, ADR 0023). The owner's alone.
+  // Who else may connect to the host (Settings → Connections, ADR 0023, ADR 0024). The owner's alone.
   listConnections(): Promise<UiConnections>;
-  createPairingLink(input?: { label?: string; lifetimeMs?: number }): Promise<UiCreatedPairingLink>;
+  createPairingLink(input?: { label?: string; lifetimeMs?: number; access?: DeviceAccess }): Promise<UiCreatedPairingLink>;
   revokePairingLink(id: string): Promise<{ revoked: boolean }>;
   revokeClient(id: string): Promise<{ revoked: boolean }>;
+  /** Signs out every paired device; answers how many. */
+  revokeOtherClients(): Promise<{ revoked: number }>;
+  updateClient(id: string, update: UiClientUpdate): Promise<{ updated: boolean }>;
+  /** Lets a waiting device in; false when it stopped waiting. */
+  approvePairing(id: string, choice?: { access?: DeviceAccess; label?: string }): Promise<{ approved: boolean }>;
+  denyPairing(id: string): Promise<{ denied: boolean }>;
   /** Closes every other connection on the old host token; this one carries on with the new one. */
   rotateHostToken(): Promise<void>;
   /** Opens or closes the listeners beyond loopback in the running host. */
   setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
   /** Reads the served certificates again; `changed` when a listener now serves another one. */
   reloadCertificate(): Promise<{ changed: boolean }>;
+  /** The host's machine runs it as a system service; the owner's alone. */
+  serviceStatus(): Promise<UiHostService>;
+  /** Installs (or repairs) the service; the host answering may be replaced by the one it starts. */
+  installService(): Promise<UiHostService>;
+  uninstallService(): Promise<UiHostService>;
 }
 
 /**
@@ -316,6 +337,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     getConnectionLink: connection.getLink,
     onConnectionLink: (listener) => connection.onLink(listener),
     reconnectNow: () => connection.reconnectNow(),
+    watchThread: (sessionId) => connection.watchThread(sessionId),
+    watchNewThread: (requestId) => connection.watchNewThread(requestId),
+    watchHostTopic: (extensionId, topic) => connection.watchTopic(extensionId, topic),
+    limitPushesToWatched: () => connection.limitToWatched(),
     getVersions: () => ({ host: connection.getHostVersion(), window: local?.getHostVersion() }),
     onVersions: (listener) => {
       const offHost = connection.onHello(listener);
@@ -327,11 +352,18 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     createPairingLink: (input) => call<UiCreatedPairingLink>("connections-create-link", [input ?? {}]),
     revokePairingLink: (id) => call<{ revoked: boolean }>("connections-revoke-link", [id]),
     revokeClient: (id) => call<{ revoked: boolean }>("connections-revoke-client", [id]),
+    revokeOtherClients: () => call<{ revoked: number }>("connections-revoke-others"),
+    updateClient: (id, update) => call<{ updated: boolean }>("connections-update-client", [id, update]),
+    approvePairing: (id, choice) => call<{ approved: boolean }>("connections-approve", [id, choice ?? {}]),
+    denyPairing: (id) => call<{ denied: boolean }>("connections-deny", [id]),
     rotateHostToken: async () => {
       const { token } = await call<{ token: string }>("connections-rotate-host-token");
       connection.updateToken(token);
     },
     setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
     reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
+    serviceStatus: () => call<UiHostService>("service-status"),
+    installService: () => call<UiHostService>("service-install"),
+    uninstallService: () => call<UiHostService>("service-uninstall"),
   };
 }

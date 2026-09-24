@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError } from "./host-extension-errors.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionServices } from "./host-extensions.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "./host-extensions.js";
 import { WORKBENCH_CLIENT_PRINCIPAL, currentCaller } from "./host-invocation.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 
@@ -101,6 +101,16 @@ describe("HostExtensionRegistry", () => {
     await r.deactivate("demo.kit");
     emit?.("changed", { path: "b" });
     expect(events).toEqual([{ type: "extension-event", extensionId: "demo.kit", name: "changed", payload: { path: "a" } }]);
+  });
+
+  it("publishes an event under a topic for the clients that watch it", async () => {
+    const { registry: r, events } = registry();
+    let context: HostExtensionContext | undefined;
+    await r.activate({ id: "demo.kit", name: "Demo Kit", activate: (ctx) => { context = ctx; } });
+    context?.emit("data", 1, { topic: "output/7" });
+    expect(events).toEqual([{ type: "extension-event", extensionId: "demo.kit", name: "data", payload: 1, topic: "output/7" }]);
+    expect(() => context?.emit("data", 2, { topic: "" })).toThrow("a topic is a string of 1 to 256 characters");
+    expect(() => context?.emit("data", 2, { topic: "x".repeat(257) })).toThrow("a topic is a string");
   });
 
   it("records an activation failure without throwing, and runs partial cleanup", async () => {
@@ -279,24 +289,51 @@ describe("HostExtensionRegistry", () => {
     await expect(r.invoke("caller.kit", "who", undefined, WORKBENCH_CLIENT_PRINCIPAL)).resolves.toBeNull();
   });
 
-  it("keeps an owner command from a paired client, and lets the host token and the host itself call it", async () => {
-    const { registry: r, services: s } = registry();
+  it("keeps an owner command to the host token on this machine, and records the refusal", async () => {
+    const { registry: r } = registry();
     await r.activate({
       id: "owner.kit",
       name: "Owner Kit",
       permissions: [],
       activate: (ctx) => {
-        ctx.registerCommand("expose", () => "exposed", { owner: true });
+        ctx.registerCommand("expose", () => "exposed", { access: "owner" });
         ctx.registerCommand("read", () => "read");
       },
     });
-    const paired = { kind: "workbench-client", connection: "conn-9", pairedClient: "phone" } as const;
-    await expect(r.invoke("owner.kit", "expose", undefined, paired)).rejects.toMatchObject({ name: "HostAuthorizationError", expected: true });
+    const audit: Array<[string, boolean]> = [];
+    const paired = { kind: "workbench-client", connection: "conn-9", pairedClient: "phone", audit: (action: string, allowed: boolean) => audit.push([action, allowed]) } as const;
+    await expect(r.invoke("owner.kit", "expose", undefined, paired)).rejects.toMatchObject({ code: "forbidden", message: expect.stringMatching(/on this machine/u) });
     await expect(r.invoke("owner.kit", "read", undefined, paired)).resolves.toBe("read");
-    await expect(r.invoke("owner.kit", "expose", undefined, { kind: "workbench-client", connection: "conn-1" })).resolves.toBe("exposed");
+    // The host token through a LAN or proxy listener uses the host but manages nothing (ADR 0024).
+    await expect(r.invoke("owner.kit", "expose", undefined, { kind: "workbench-client", connection: "conn-2" })).rejects.toMatchObject({ code: "forbidden" });
+    await expect(r.invoke("owner.kit", "expose", undefined, { kind: "workbench-client", connection: "conn-1", local: true })).resolves.toBe("exposed");
     await expect(r.invoke("owner.kit", "expose")).resolves.toBe("exposed");
-    expect(s.logs.some((line) => line.includes("only a connection with the host token"))).toBe(true);
+    expect(audit).toEqual([["owner.kit/expose", false], ["owner.kit/read", true]]);
     expect(r.isActive("owner.kit")).toBe(true);
+  });
+
+  it("lets a Read-only device run only commands that declared they just look, and records the rest", async () => {
+    const { registry: r } = registry();
+    let ran = 0;
+    await r.activate({
+      id: "tau.terminal",
+      name: "Terminal Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("list", () => "terminals", { access: "read" });
+        ctx.registerCommand("open", () => { ran += 1; return "opened"; });
+      },
+    });
+    const audit: Array<[string, boolean]> = [];
+    const phone = { kind: "workbench-client", connection: "c1", pairedClient: "p1", readOnly: true, audit: (action: string, allowed: boolean) => audit.push([action, allowed]) } as const;
+    await expect(r.invoke("tau.terminal", "list", undefined, phone)).resolves.toBe("terminals");
+    await expect(r.invoke("tau.terminal", "open", undefined, phone)).rejects.toMatchObject({ code: "forbidden", message: expect.stringMatching(/Read only/u) });
+    expect(ran).toBe(0);
+    // Refused before it counts as a failure of the command.
+    expect(r.isActive("tau.terminal")).toBe(true);
+    const full = { ...phone, readOnly: undefined };
+    await expect(r.invoke("tau.terminal", "open", undefined, full)).resolves.toBe("opened");
+    expect(audit).toEqual([["tau.terminal/open", false], ["tau.terminal/open", true]]);
   });
 
   it("authorizes host-issued callers per declared command and rejects forged contexts", async () => {

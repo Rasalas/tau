@@ -392,8 +392,10 @@ export class SubmissionController {
         // An unchanged model chip is still a choice. Carry the shown Pi model
         // into the new runtime instead of silently falling back to host defaults.
         const { model: requestedModel, thinkingLevel, mode } = this.newThreadStart(pending);
-        const result = requestedModel || thinkingLevel || mode
-          ? await client.newSession(
+        // The host streams the new thread to this client from its first detail, before its id is known here.
+        const releaseRequest = client.watchNewThread(newThreadRequestId);
+        const result = await (requestedModel || thinkingLevel || mode
+          ? client.newSession(
             text,
             attachments,
             pending.workspaceId ?? pending.projectPath,
@@ -405,7 +407,8 @@ export class SubmissionController {
               ...(mode ? { mode } : {}),
             },
           )
-          : await client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared);
+          : client.newSession(text, attachments, pending.workspaceId ?? pending.projectPath, clientTurn, prepared)
+        ).finally(releaseRequest);
         this.settleIpc(clientMessageId, recovery);
         if (recovery?.failed) {
           this.release(clientMessageId);

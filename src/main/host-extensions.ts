@@ -26,6 +26,7 @@ import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/ext
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
 import { HOST_CORE_PRINCIPAL, isHostOwner, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
+import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
@@ -852,16 +853,26 @@ export interface HostExtensionServices {
 
 export type HostExtensionCommandHandler = (input: unknown) => unknown;
 
+/** A topic narrows an event to the clients that watch it; 1 to 256 characters. */
+export interface HostExtensionEmitOptions {
+  topic?: string;
+}
+
+const MAX_TOPIC_LENGTH = 256;
+
 export interface HostExtensionCommandOptions {
   /** Commands that may be called by these host extension IDs. */
   callers?: readonly string[];
   /** Commands that may run for minutes and therefore use the host job path. */
   long?: boolean;
   /**
-   * Only a client with the host token may call it, not a paired device: for a
-   * command that changes who can reach the host (API 1.13.0).
+   * `"read"`: the command only looks — it changes no file, thread, setting or
+   * process and calls nothing that does — so a device paired Read only may
+   * call it. Without it a command needs Full access (ADR 0024).
+   * `"owner"` (API 1.13.0): it changes who can reach the host, so only the
+   * host token from this machine may call it, like the `connections-*` methods.
    */
-  owner?: boolean;
+  access?: "read" | "owner";
 }
 
 export interface HostExtensionInvocationContext {
@@ -890,8 +901,12 @@ export interface HostExtensionContext {
    * a build): it skips the command timeout and clients run it as a host job.
    */
   registerCommand(name: string, handler: HostExtensionCommandHandler, options?: HostExtensionCommandOptions): () => void;
-  /** Publishes an `extension-event` for this extension's desktop counterpart. */
-  emit(name: string, payload?: unknown): void;
+  /**
+   * Publishes an `extension-event` for this extension's desktop counterpart.
+   * With a `topic` it goes only to the clients whose desktop half watches that
+   * topic (`HostExtensionClient.watch`); use one for output only a visible view draws.
+   */
+  emit(name: string, payload?: unknown, options?: HostExtensionEmitOptions): void;
   /**
    * Reports a failure the extension cannot recover from, after activation: the
    * registry records the reason and deactivates it. An isolated package uses
@@ -972,6 +987,9 @@ interface ActiveHostExtension {
   invocationContextId: string;
   commands: Map<string, HostExtensionCommandHandler>;
   longCommands: Set<string>;
+  /** Commands registered with `access: "read"`. */
+  readCommands: Set<string>;
+  /** Commands registered with `access: "owner"`. */
   ownerCommands: Set<string>;
   commandCallers: Map<string, ReadonlySet<string>>;
   disposers: Array<() => void | Promise<void>>;
@@ -1017,6 +1035,7 @@ export class HostExtensionRegistry {
       invocationContextId,
       commands: new Map(),
       longCommands: new Set(),
+      readCommands: new Set(),
       ownerCommands: new Set(),
       commandCallers: new Map(),
       disposers: [],
@@ -1041,21 +1060,27 @@ export class HostExtensionRegistry {
         }) ?? [];
         record.commands.set(name, handler);
         if (options?.long) record.longCommands.add(name);
-        if (options?.owner) record.ownerCommands.add(name);
+        if (options?.access === "read") record.readCommands.add(name);
+        if (options?.access === "owner") record.ownerCommands.add(name);
         record.commandCallers.set(name, new Set(callers));
         const dispose = () => {
           if (record.commands.get(name) !== handler) return;
           record.commands.delete(name);
           record.commandCallers.delete(name);
           record.longCommands.delete(name);
+          record.readCommands.delete(name);
           record.ownerCommands.delete(name);
         };
         record.disposers.push(dispose);
         return dispose;
       },
-      emit: (name, payload) => {
+      emit: (name, payload, options) => {
         if (this.active.get(extension.id) !== record) return;
-        this.publish({ type: "extension-event", extensionId: extension.id, name, payload });
+        const topic = options?.topic;
+        if (topic !== undefined && !(typeof topic === "string" && topic.length > 0 && topic.length <= MAX_TOPIC_LENGTH)) {
+          throw new Error(`Host extension ${extension.id}: a topic is a string of 1 to ${MAX_TOPIC_LENGTH} characters`);
+        }
+        this.publish({ type: "extension-event", extensionId: extension.id, name, payload, ...(topic === undefined ? {} : { topic }) });
       },
       fail: (reason) => this.reportFatal(extension, record, reason),
     };
@@ -1203,12 +1228,22 @@ export class HostExtensionRegistry {
 
   /** Checks a host-issued caller before target lookup or handler execution. */
   private authorize(record: ActiveHostExtension, extensionId: string, command: string, principal: HostInvocationPrincipal): void {
-    if (principal.kind === "workbench-client" && record.ownerCommands.has(command) && !isHostOwner(principal)) {
-      const details = { caller: "paired client", target: extensionId, command, capability: `${extensionId}/${command}`, reason: "only a connection with the host token may call it" } as const;
-      this.services.log("host-extension.denied", JSON.stringify(details));
-      throw new HostAuthorizationError(details);
+    if (principal.kind === "workbench-client") {
+      // A client may call any command; a Read-only device only those that declared they just look.
+      if (record.readCommands.has(command)) return;
+      const action = `${extensionId}/${command}`;
+      if (record.ownerCommands.has(command) && !isHostOwner(principal)) {
+        principal.audit?.(action, false);
+        throw ownerRefusal();
+      }
+      if (principal.readOnly) {
+        principal.audit?.(action, false);
+        throw readOnlyRefusal(`run ${action}`);
+      }
+      principal.audit?.(action, true);
+      return;
     }
-    if (principal.kind === "host-core" || principal.kind === "workbench-client") return;
+    if (principal.kind === "host-core") return;
     const context = principal.kind === "host-extension" ? this.invocationContexts.get(principal.contextId) : undefined;
     const caller = context?.extensionId;
     const allowed = caller === extensionId || Boolean(caller && record.commandCallers.get(command)?.has(caller));

@@ -412,8 +412,8 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
             (input) => callWorker({ t: "call", command: message.name, input }),
             {
               ...(message.long ? { long: true } : {}),
-              ...(message.owner ? { owner: true } : {}),
               ...(callers.length > 0 ? { callers } : {}),
+              ...(message.access === "read" || message.access === "owner" ? { access: message.access } : {}),
             },
           ));
         } catch (error) {
@@ -424,7 +424,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "command-off":
         return;
       case "emit":
-        context.emit(message.name, message.payload);
+        context.emit(message.name, message.payload, typeof message.topic === "string" ? { topic: message.topic } : undefined);
         return;
       case "log":
         services.log(message.label, message.detail);

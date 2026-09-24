@@ -56,6 +56,10 @@ Symlink whatever the test needs from the real dir (auth, settings, the `npm` ext
 
 `dev-instance` sets `TAU_GROK_HOME=.tau-dev/grok-home`, which the Grok kit hands the CLI as `GROK_HOME`; nothing comes from `~/.grok`. Real-app checks set `TAU_GROK_COMMAND` to `kits/grok/fixtures/fake-grok.mjs` (it speaks ACP, no account); `docs/agents/testing-the-app.md` has the recipe. Never sign in to Grok, set `XAI_API_KEY`, or start `grok` against the real `~/.grok`.
 
+### The host service runs against a fake service manager
+
+`dev-instance` sets `TAU_SERVICE_UNIT_DIR=.tau-dev/service-units` and `TAU_SERVICE_CONTROL=scripts/fake-service-manager.mjs`, so Settings → Connections → Install starts a real service host through the fake, never launchd, systemd or Task Scheduler. That host outlives `cdp stop`: uninstall the service in the instance first, or stop the pid in `.tau-dev/service-units/.fake-state.json`. Never install the service or run `tau service` outside such an instance.
+
 ### Session imports read fixtures only
 
 `dev-instance` also sets `TAU_IMPORT_ROOTS=.tau-dev/import-roots` (a caller's own value is kept): Onboarding's import then reads `<root>/<backend kind>/…` and never the user's own CLI homes. Write small synthetic sessions there to test it.
