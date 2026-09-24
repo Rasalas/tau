@@ -574,7 +574,11 @@ loopback. A pairing link carries one URL per endpoint.
 
 A package adds endpoints the host cannot see and may hold the proxy listener
 open without either switch (`services.network`, [EXTENSIONS.md](EXTENSIONS.md)).
-Tailscale (`kits/tailscale/`) does both while `tailscale serve` forwards
+A package may also keep the proxy listener across restarts
+(`<userData>/network-kept.json`): the host then opens it at start, before any
+package runs, which a service host with no client yet (and so no packages
+started) needs as much as a window's. Tailscale (`kits/tailscale/`) does all
+three while `tailscale serve` forwards
 `https://<machine>.<tailnet>.ts.net/` to the proxy listener: that endpoint has
 `kind: "magicdns"` and `trustedCertificate: true`, ranks first, and a client
 does not pin the host's fingerprint for it, because Serve answers with its own

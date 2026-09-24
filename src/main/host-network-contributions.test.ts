@@ -1,9 +1,13 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_NETWORK_SETTINGS } from "../shared/connections.js";
+import { extensionServices, type HostExtensionServices } from "./host-extensions.js";
 import { NetworkContributions, acceptedEndpoint } from "./host-network-contributions.js";
 
-function bound() {
-  const contributions = new NetworkContributions();
+function bound(storePath?: string) {
+  const contributions = new NetworkContributions(storePath ? { storePath } : {});
   const calls: string[] = [];
   contributions.bind({
     state: () => ({ settings: DEFAULT_NETWORK_SETTINGS, listeners: [], problems: [], tailscaleUp: false, ...(contributions.proxyHeld ? { proxyHeld: true } : {}) }),
@@ -56,5 +60,39 @@ describe("a package's part of network access", () => {
       .toEqual({ url: "http://a.example/x", label: "A", reachability: "network" });
     expect(acceptedEndpoint({ url: "https://a.example/#pair=1", label: "A" })).toBeUndefined();
     expect(acceptedEndpoint({ url: "https://a.example/", label: "" })).toBeUndefined();
+  });
+});
+
+describe("a package that keeps the proxy listener", () => {
+  it("keeps it across a restart, before any package runs, until it lets go", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "tau-network-kept-"));
+    try {
+      const storePath = join(directory, "network-kept.json");
+      const first = bound(storePath);
+      await first.contributions.forExtension("tau.tailscale").keepProxy(true);
+      expect(first.contributions.proxyHeld).toBe(true);
+      expect(JSON.parse(readFileSync(storePath, "utf8"))).toMatchObject({ kept: ["tau.tailscale"] });
+
+      const second = bound(storePath);
+      await second.contributions.load();
+      expect(second.contributions.proxyHeld).toBe(true);
+      await second.contributions.forExtension("acme.other").keepProxy(false);
+      expect(second.contributions.proxyHeld).toBe(true);
+      await second.contributions.forExtension("tau.tailscale").keepProxy(false);
+      expect(second.contributions.proxyHeld).toBe(false);
+      expect(second.calls).toEqual(["reconcile:false"]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("speaks only for the package whose services it came through", async () => {
+    const { contributions } = bound();
+    await expect(contributions.services.keepProxy(true)).rejects.toThrow(/one package/u);
+    const services = extensionServices({ network: contributions.services, log: () => undefined } as unknown as HostExtensionServices, { id: "tau.tailscale", permissions: ["network"] });
+    await services.network!.keepProxy(true);
+    expect(contributions.proxyHeld).toBe(true);
+    const denied = extensionServices({ network: contributions.services, log: () => undefined } as unknown as HostExtensionServices, { id: "acme.nosy", permissions: [] });
+    expect(() => denied.network).toThrow(/lacks permission network/u);
   });
 });

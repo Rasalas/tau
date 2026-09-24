@@ -169,6 +169,7 @@ export interface WorkerHostServices {
   readonly network: {
     state(): Promise<UiNetworkAccess | undefined>;
     holdProxy(): Promise<() => void>;
+    keepProxy(keep: boolean): Promise<void>;
     publishEndpoints(endpoints: readonly UiHostEndpoint[]): Promise<() => void>;
   };
   /** Follows the files the host watches; the hook receives one change at a time. */

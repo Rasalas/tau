@@ -1938,11 +1938,13 @@ in-process one.
 |---|---|
 | `state()` | The `UiNetworkAccess` Connections shows: the switches, the ports, what listens, the problems, the certificate. `proxyHeld` says a package holds the proxy listener. |
 | `holdProxy()` | Keeps the loopback proxy listener (`settings.proxyPort`, plain HTTP, every peer counted as remote, no `local-files`) open whatever the switches say, until the returned function runs. Resolves once the listeners followed; a port that would not open is in `state().problems`. For a reverse proxy the package set up on this machine. |
+| `keepProxy(keep)` | Keeps the proxy listener open for this package across restarts too, until `keepProxy(false)`: the host remembers it in `<userData>/network-kept.json` and opens the listener at start, before any package runs — a host started as a service has no client to start its packages for a while, and a proxy that outlives Tau (`tailscale serve --bg`) must find it at once. It speaks for the package it was called through. |
 | `publishEndpoints(endpoints)` | Adds addresses only the package knows — a proxy's public name — to Connections' list, to every pairing link, and to the page origins the socket accepts. Only an `http(s)` URL without credentials or fragment is taken, as `reachability: "network"`; `trustedCertificate: true` (https only) says a proxy answers there with a certificate browsers trust, so it ranks first and a client does not pin the host's fingerprint for it. The returned function withdraws the list; publish again to change it. |
 
-Everything a package asked for is dropped with it: a worker's holds and
-endpoints go when the worker stops. Tailscale (`kits/tailscale/`) is the
-shipped caller: it holds the proxy listener and publishes
+Everything a package asked for is dropped with it — a worker's holds and
+endpoints go when the worker stops — except a kept proxy listener, which stays
+until the package lets go of it. Tailscale (`kits/tailscale/`) is the
+shipped caller: it keeps the proxy listener and publishes
 `https://<machine>.<tailnet>.ts.net/` while `tailscale serve` forwards there.
 Behind the proxy listener the host also reads `Tailscale-User-Login` and shows
 it beside the client in Connections — never as a login.

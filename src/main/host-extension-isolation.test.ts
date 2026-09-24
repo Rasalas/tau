@@ -183,6 +183,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     network: {
       state: () => ({ settings: { lan: false, tailscale: false, port: 7788, proxyPort: 7789 }, listeners: [], problems: [], tailscaleUp: false, proxyHeld: recorder.proxyHolds > 0 }),
       holdProxy: async () => { recorder.proxyHolds += 1; return () => { recorder.proxyHolds -= 1; }; },
+      keepProxy: async () => undefined,
       publishEndpoints: (endpoints) => {
         const entry = [...endpoints];
         recorder.published.push(entry);

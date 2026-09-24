@@ -240,6 +240,7 @@ const services: WorkerHostServices = {
   network: {
     state: () => rpc("network.state") as ReturnType<WorkerHostServices["network"]["state"]>,
     holdProxy: () => heldHandle(rpc("network.holdProxy")),
+    keepProxy: async (keep) => { await rpc("network.keepProxy", keep); },
     publishEndpoints: (endpoints) => heldHandle(rpc("network.publishEndpoints", endpoints)),
   },
   observeConfigChanges: (listener) => registerHooks("observeConfigChanges", { changed: listener }, CONFIG_HOOKS),

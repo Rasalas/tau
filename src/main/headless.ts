@@ -164,7 +164,8 @@ async function main(): Promise<void> {
   /** The socket transport reports its clients here; the host publishes the count. */
   const clients = new HostClientRegistry();
   // What packages add to network access; it waits for the listeners below.
-  const networkContributions = new NetworkContributions();
+  const networkContributions = new NetworkContributions({ storePath: join(userData, "network-kept.json"), logger: hostLog });
+  await networkContributions.load();
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
     return new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {

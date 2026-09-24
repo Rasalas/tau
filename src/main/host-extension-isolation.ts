@@ -335,6 +335,10 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
         registrations.set(handle, release);
         return handle;
       }
+      case "network.keepProxy": {
+        if (!services.network) throw new Error("This host opens no listeners of its own.");
+        return services.network.keepProxy(args[0] === true);
+      }
       case "network.publishEndpoints": {
         if (!services.network) throw new Error("This host opens no listeners of its own.");
         const handle = nextHandle++;

@@ -30,6 +30,7 @@ import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
+import { BIND_NETWORK_EXTENSION } from "./host-network-contributions.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -418,6 +419,12 @@ export interface HostNetworkServices {
    * once the listeners follow; a port that cannot open is in `state().problems`.
    */
   holdProxy(): Promise<() => void>;
+  /**
+   * Keeps the proxy listener open for this package across restarts, until
+   * `keepProxy(false)`: the host opens it at start, before any package runs,
+   * so a proxy that outlives Tau (`tailscale serve --bg`) finds it at once.
+   */
+  keepProxy(keep: boolean): Promise<void>;
   /**
    * Adds endpoints the host cannot see itself, such as a proxy's public name.
    * They join Connections' list and every pairing link, and a page opened at
@@ -974,6 +981,10 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
         return raw instanceof TurnAttachmentRegistry ? raw.forExtension(extension.id) : raw;
       }
       if (prop === "stateDir" && stateDir) return stateDir;
+      if (prop === "network") {
+        const raw = Reflect.get(target, prop, receiver) as (HostNetworkServices & { [BIND_NETWORK_EXTENSION]?: (id: string) => HostNetworkServices }) | undefined;
+        return raw?.[BIND_NETWORK_EXTENSION]?.(extension.id) ?? raw;
+      }
       return Reflect.get(target, prop, receiver) as unknown;
     },
   });
