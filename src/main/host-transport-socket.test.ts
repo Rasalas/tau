@@ -204,7 +204,7 @@ describe("more than one listener", () => {
       const own = await (await hello(transport.port, TOKEN)).frame;
       const proxied = await (await hello(proxy.port, TOKEN)).frame;
       expect(own.type === "hello-reply" && own.reply.capabilities).toContain("local-files");
-      expect(proxied.type === "hello-reply" && proxied.reply.capabilities).toEqual(["jobs", "heartbeat"]);
+      expect(proxied.type === "hello-reply" && proxied.reply.capabilities).toEqual(["jobs", "heartbeat", "subscriptions"]);
       expect(calls.map((call) => call.local)).toEqual([true, false]);
     } finally {
       vi.unstubAllEnvs();
