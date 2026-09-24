@@ -88,6 +88,10 @@ export const PREVIEW_EXTENSION_ID = "tau.preview";
 export interface PreviewBrowserService {
   open(url: string, actions: { openPanel(id: string): void }): Promise<void>;
   jump(target: { kind: "browser" } | { kind: "app"; threadId: string }, actions: { openPanel(id: string): void }): Promise<void>;
+  /** A small live picture of the page or the driven window; returns the stop (API 1.13.0). */
+  watch?(target: { kind: "browser" } | { kind: "app"; threadId: string }, maxWidth: number, onFrame: (picture: { url: string; width: number; height: number } | undefined) => void): () => void;
+  /** This client is not on the host's machine: `jump` opens the Preview here, where the user drives it. */
+  remote?(): boolean;
 }
 
 export const PREVIEW_COOKIE_IMPORT_SERVICE = "tau.preview/cookie-import";
