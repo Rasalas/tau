@@ -1,5 +1,4 @@
 import { relative } from "node:path";
-import { configure } from "@testing-library/dom";
 import { afterAll, afterEach, beforeAll, inject, vi } from "vitest";
 import { TEST_FILE_VARIABLE, TEST_RUN_VARIABLE } from "./main/test-support/test-processes.js";
 
@@ -15,9 +14,14 @@ beforeAll((suite) => {
   if ("filepath" in suite) process.env[TEST_FILE_VARIABLE] = encodeURIComponent(relative(process.cwd(), suite.filepath));
 });
 
+// The DOM-only parts load only where there is a DOM: most files run in Node, and
+// importing Testing Library and React costs every one of them on a slow runner.
+const dom = typeof document !== "undefined";
+
 // The app loads deferred components (src/renderer/deferred-surfaces.ts) when idle;
 // a test file's are loaded before its tests run, so they draw synchronously there too.
 beforeAll(async () => {
+  if (!dom) return;
   const { preloadDeferred } = await import("./renderer/components/deferred");
   await preloadDeferred();
 });
@@ -25,7 +29,7 @@ beforeAll(async () => {
 // Integration-heavy renderer tests share the machine with Git and runtime
 // subprocess fixtures. Keep DOM polling tolerant of scheduler contention while
 // preserving each assertion's own failure output.
-configure({ asyncUtilTimeout: 5_000 });
+if (dom) (await import("@testing-library/dom")).configure({ asyncUtilTimeout: 5_000 });
 // vi.waitFor gives up after 1 s unless told otherwise, less than a spawn or a socket round trip
 // takes on a busy runner. It gets the DOM helpers' budget (expect.poll's is in vitest.config.ts).
 const waitFor = vi.waitFor;
@@ -34,7 +38,7 @@ vi.waitFor = ((callback, options) => waitFor(callback, typeof options === "numbe
 // Unmount whatever a DOM test rendered even when its file forgot to. A mounted
 // tree keeps observers and frame callbacks alive past the test that made them.
 afterEach(async () => {
-  if (typeof document === "undefined") return;
+  if (!dom) return;
   const { act, cleanup } = await import("@testing-library/react");
   cleanup();
   // Virtualized lists remeasure inside a frame callback they never cancel; let
@@ -59,6 +63,6 @@ afterEach(() => {
 // lets it lapse before the environment goes. Removing the sleep would require
 // the upstream library to cancel the timer on unmount, which it does not.
 afterAll(async () => {
-  if (typeof document === "undefined") return;
+  if (!dom) return;
   await new Promise((resolve) => setTimeout(resolve, 200));
 });
