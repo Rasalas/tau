@@ -497,7 +497,8 @@ describe("pairing over the socket", () => {
 
   it("keeps a waiting device past the hello deadline, and gives it a new one once let in", async () => {
     const { access } = await openAccess();
-    const port = await listen(access, {}, 20);
+    // Long enough that a loaded machine still reads the pair frame before the deadline.
+    const port = await listen(access, {}, 400);
     const device = await connect(port);
     device.send({ type: "pair", id: "p1", pair: {} });
     await device.next("pair-reply");

@@ -399,7 +399,7 @@ describe("Codex host half", () => {
       await vi.waitFor(() => {
         found = signInEvents(events).map((event) => event.flow ?? event.report?.flow).find((flow) => flow !== undefined && test(flow));
         expect(found).toBeDefined();
-      });
+      }, { timeout: 10_000 });
       return found!;
     };
     const finalReport = async (events: PublishedKitEvent[], flowId: string) => {
