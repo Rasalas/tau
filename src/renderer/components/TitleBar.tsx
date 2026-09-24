@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ListTree, PanelBottom, PanelBottomClose, PanelRight, PanelRightClose } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
+import { PanelIcon, type PanelIconComponent } from "./PanelIcon";
 import { Region } from "./Regions";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { tooltipProps } from "./ui/Tooltip";
@@ -16,6 +17,15 @@ export interface DrawerToggle {
   label: string;
   open: boolean;
   shortcut?: string;
+  onToggle(): void;
+}
+
+/** A panel a compact layout opens over the thread, from its glyph in the bar. */
+export interface SheetToggle {
+  id: string;
+  label: string;
+  Icon?: PanelIconComponent;
+  open: boolean;
   onToggle(): void;
 }
 
@@ -34,6 +44,7 @@ export function TitleBar({
   drawers = [],
   onToggleDock,
   onOpenThreads,
+  sheets = [],
   hasDock = true,
 }: {
   cwd?: string;
@@ -45,8 +56,10 @@ export function TitleBar({
   thread?: ReactNode;
   drawers?: readonly DrawerToggle[];
   onToggleDock(): void;
-  /** Set only where the thread list is a sheet rather than a column. */
+  /** Set only on a compact layout, where the thread list is a screen or a touch sidebar. */
   onOpenThreads?(): void;
+  /** Panels a compact layout draws over the thread; empty elsewhere. */
+  sheets?: readonly SheetToggle[];
   /** False when no extension registered a panel: there is no dock to show or hide. */
   hasDock?: boolean;
 }) {
@@ -76,6 +89,14 @@ export function TitleBar({
 
       <Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />
 
+      {sheets.map((sheet) => <button
+        key={sheet.id}
+        className="chrome-ghost glyph"
+        aria-pressed={sheet.open}
+        aria-label={sheet.label}
+        {...tooltipProps(sheet.label, { side: "bottom" })}
+        onClick={sheet.onToggle}
+      ><PanelIcon Icon={sheet.Icon} size={16} /></button>)}
       {drawers.map((drawer) => <button
         key={drawer.id}
         className="chrome-ghost glyph"
