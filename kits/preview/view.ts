@@ -8,6 +8,7 @@ import { PreviewRecorder } from "./recorder.js";
 import { previewChord } from "./viewport.js";
 import { cdpInputCommands, type PreviewPageInput } from "./remote-input.js";
 import { placePreviewView } from "./view-placement.js";
+import type { PreviewDeviceMetrics } from "./device-layout.js";
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
 const DEFAULT_PARTITION = "persist:tau-preview";
@@ -27,6 +28,24 @@ export function cropToView(image: NativeImage, viewWidth: number, rect?: Preview
   const width = Math.max(1, Math.min(size.width - x, Math.round(rect.width * scale)));
   const height = Math.max(1, Math.min(size.height - y, Math.round(rect.height * scale)));
   return image.crop({ x, y, width, height });
+}
+
+/**
+ * DevTools' device metrics for a device's layout. A view on screen shows the
+ * page scaled to fit its rectangle; a capture is always at the device's size.
+ */
+export function deviceOverride(device: PreviewDeviceMetrics, view: { width: number; height: number }): Record<string, unknown> {
+  const scale = view.width > 0 && view.height > 0 ? Math.min(1, view.width / device.width, view.height / device.height) : 1;
+  return {
+    width: device.width,
+    height: device.height,
+    deviceScaleFactor: device.dpr,
+    // A phone's browser: the page's `<meta name="viewport">` counts, scrollbars overlay.
+    mobile: device.touch,
+    screenWidth: device.width,
+    screenHeight: device.height,
+    scale: Math.round(scale * 1_000) / 1_000,
+  };
 }
 
 /** Forgets a deleted profile's cookies, storage and cache; only a preview partition is touched. */
@@ -119,15 +138,33 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
     return tools;
   };
   let focusEmulated = false;
+  // A device's layout; commands to the page wait until it is applied.
+  let device: PreviewDeviceMetrics | undefined;
+  let deviceKey = "";
+  let emulation: Promise<void> = Promise.resolve();
+  let placing = 0;
+  const emulate = async (next: PreviewDeviceMetrics | undefined, rect: PreviewRect): Promise<void> => {
+    if (contents.isDestroyed()) return;
+    if (!next) {
+      if (!contents.debugger.isAttached()) return;
+      await contents.debugger.sendCommand("Emulation.clearDeviceMetricsOverride");
+      await contents.debugger.sendCommand("Emulation.setTouchEmulationEnabled", { enabled: false });
+      return;
+    }
+    const tools = devTools();
+    await tools.sendCommand("Emulation.setDeviceMetricsOverride", deviceOverride(next, rect));
+    await tools.sendCommand("Emulation.setTouchEmulationEnabled", next.touch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
+  };
   // DevTools-protocol input is trusted and reaches a hidden view without taking the window's focus.
   const sendInput = async (input: PreviewPageInput): Promise<void> => {
+    await emulation;
     const tools = devTools();
     if (!focusEmulated) {
       // The page must think it has focus, or a field it focuses drops the typed text.
       await tools.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
       focusEmulated = true;
     }
-    for (const [method, params] of cdpInputCommands(input)) await tools.sendCommand(method, params);
+    for (const [method, params] of cdpInputCommands(input, { touch: device?.touch === true })) await tools.sendCommand(method, params);
   };
   const applyAppearance = async (): Promise<void> => {
     const tools = contents.debugger;
@@ -168,16 +205,27 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
     });
     const shot = devTools().sendCommand("Page.captureScreenshot", jpeg ? { format: "jpeg", quality: 90 } : { format: "png" }) as Promise<{ data: string }>;
     const { data } = await Promise.race([shot, timeout]).finally(() => clearTimeout(timer));
-    return cropToView(nativeImage.createFromBuffer(Buffer.from(data, "base64")), view.getBounds().width, rect);
+    return cropToView(nativeImage.createFromBuffer(Buffer.from(data, "base64")), device?.width ?? view.getBounds().width, rect);
   };
   const closeWithWindow = () => surface.destroy();
   window.once("closed", closeWithWindow);
 
   const surface: PreviewSurface = {
     zoomFactor: () => window.isDestroyed() ? 1 : window.webContents.getZoomFactor(),
-    place(rect: PreviewRect, visible: boolean) {
+    place(rect: PreviewRect, visible: boolean, next?: PreviewDeviceMetrics) {
       if (destroyed) return;
-      placement.place(rect, visible);
+      const key = next ? `${JSON.stringify(next)}@${String(rect.width)}x${String(rect.height)}` : "";
+      if (key === deviceKey) {
+        placement.place(rect, visible);
+        return;
+      }
+      deviceKey = key;
+      device = next;
+      const token = ++placing;
+      emulation = emulation.then(() => emulate(next, rect)).catch((error: unknown) => note(`device layout: ${error instanceof Error ? error.message : String(error)}`));
+      // Shown only once the page has the layout for it, so the window never draws the other one.
+      void emulation.then(() => { if (!destroyed && token === placing) placement.place(rect, visible); });
+      if (!visible) placement.place(rect, visible);
     },
     async load(url: string, timeoutMs: number) {
       const settled = new Promise<void>((resolve) => {
@@ -230,6 +278,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       };
     },
     viewport() {
+      if (device) return { width: device.width, height: device.height };
       const bounds = view.getBounds();
       const zoom = contents.isDestroyed() ? 1 : contents.getZoomFactor();
       return { width: Math.round(bounds.width / zoom), height: Math.round(bounds.height / zoom) };
@@ -238,7 +287,9 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       ? contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: expression }], true)
       : contents.executeJavaScript(expression, true),
     async capture(maxWidth: number, rect?: PreviewRect, jpeg?: boolean) {
-      const image = placement.onScreen() ? await (rect ? contents.capturePage(rect) : contents.capturePage()) : await captureHidden(rect, jpeg);
+      await emulation;
+      // A view on screen shows a device's layout scaled; the protocol's screenshot has it at its own size.
+      const image = placement.onScreen() && !device ? await (rect ? contents.capturePage(rect) : contents.capturePage()) : await captureHidden(rect, jpeg);
       const size = image.getSize();
       const scaled = size.width > maxWidth
         ? image.resize({ width: maxWidth, height: Math.max(1, Math.round(size.height * (maxWidth / size.width))), quality: jpeg ? "better" : "good" })
@@ -307,6 +358,14 @@ export async function handleCookieImport(command: string, input?: unknown): Prom
     return { set: (cookie) => cookies.set(cookie), flushStore: () => cookies.flushStore() };
   });
   return runCookieImportCommand(command, input, environment);
+}
+
+function readDevice(value: unknown): PreviewDeviceMetrics | undefined {
+  const fields = value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+  if (!fields) return undefined;
+  const [width, height, dpr] = [fields.width, fields.height, fields.dpr].map((part) => typeof part === "number" && Number.isFinite(part) && part > 0 ? part : Number.NaN);
+  if ([width, height, dpr].some(Number.isNaN)) return undefined;
+  return { width: Math.round(width!), height: Math.round(height!), dpr: dpr!, touch: fields.touch === true };
 }
 
 function readRect(value: unknown): PreviewRect | undefined {
@@ -382,7 +441,7 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
         case "open-view":
           return snapshot(open());
         case "place":
-          open().place(options.rect as PreviewRect, options.visible === true);
+          open().place(options.rect as PreviewRect, options.visible === true, readDevice(options.device));
           return snapshot(open());
         case "load":
           return open().load(String(options.url ?? ""), Number(options.timeoutMs ?? 15_000)).then(() => snapshot(surface!));

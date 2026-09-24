@@ -36,7 +36,7 @@ export interface PreviewDefaults {
 
 export type PreviewMiniCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
-/** Where the floating preview sits and how wide it is at rest, for every client. */
+/** Where the floating preview sits and how wide it is at rest; each device keeps its own. */
 export interface PreviewMiniPrefs {
   corner: PreviewMiniCorner;
   width: number;
@@ -93,7 +93,32 @@ export interface PreviewState {
   viewport: PreviewViewport;
   appearance: PreviewAppearance;
   driver?: PreviewDriver;
+  /** What older clients start the floating preview from; a device now keeps its own. */
   mini: PreviewMiniPrefs;
+  /** The page is laid out for this device's screen rather than the host window's panel. */
+  layoutFor?: PreviewLayoutFor;
+}
+
+/**
+ * A device that shows the page, as it describes itself: the CSS size of the
+ * area it draws the page in, its pixel ratio, and whether it is a touch
+ * screen. `id` stays the same on one device across reloads.
+ */
+export interface PreviewViewer {
+  id: string;
+  width: number;
+  height: number;
+  dpr: number;
+  touch: boolean;
+}
+
+/** The device the page is laid out for, as every client shows it. */
+export interface PreviewLayoutFor {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  touch: boolean;
 }
 
 /** A local server the address bar suggests. */
@@ -141,6 +166,8 @@ export interface PreviewLiveFrameRequest {
   maxWidth: number;
   /** The id of the frame the client shows; an unchanged page answers without the picture. */
   since?: string;
+  /** A device that shows the page full size; the page may be laid out for it while the host window does not show it. */
+  viewer?: PreviewViewer;
 }
 
 /** A JPEG of the page sized for one client, or word that it still shows the same. */
@@ -269,6 +296,12 @@ export interface PreviewHostCommands {
   "live-frame": { input: PreviewLiveFrameRequest; output: PreviewLiveFrame | null };
   /** Full access only: a Read-only device watches. */
   "input": { input: PreviewInput; output: PreviewInputResult };
+  /**
+   * Whose screen the page is laid out for: `viewer` lays it out for that
+   * device, `release` gives it back to the host window if that device still
+   * has it, and neither gives it back at once.
+   */
+  "layout": { input: { viewer?: PreviewViewer; release?: string }; output: PreviewState };
   /** Browsers installed on the machine the window runs on; reads no cookie. */
   "import-sources": { input: undefined; output: CookieImportSource[] };
   /** Site names and counts of one source profile; decrypts nothing. */
@@ -318,6 +351,7 @@ export function createPreviewHostClient(invoke: (command: string, input?: unknow
     "mini-dismiss": call("mini-dismiss"),
     "live-frame": call("live-frame"),
     input: call("input"),
+    layout: call("layout"),
     "import-sources": call("import-sources"),
     "import-sites": call("import-sites"),
     "import-cookies": call("import-cookies"),

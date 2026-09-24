@@ -39,6 +39,14 @@ describe("input from a device", () => {
     expect(cdpInputCommands({ kind: "key", key: "Backspace" })[0]?.[1]).toMatchObject({ type: "rawKeyDown", windowsVirtualKeyCode: 8 });
   });
 
+  it("taps with a touch on a page laid out for a touch screen", () => {
+    expect(cdpInputCommands({ kind: "click", x: 10, y: 20 }, { touch: true })).toEqual([
+      ["Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 10, y: 20 }] }],
+      ["Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }],
+    ]);
+    expect(cdpInputCommands({ kind: "text", text: "a" }, { touch: true })).toEqual([["Input.insertText", { text: "a" }]]);
+  });
+
   it("tells a secret field from a plain one and from none", () => {
     document.body.innerHTML = `<input id="user"><input id="pass" type="password"><button id="go">Go</button><div id="note" contenteditable="true"></div>`;
     const focus = (id: string) => (document.getElementById(id) as HTMLElement).focus();
