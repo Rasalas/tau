@@ -2,6 +2,7 @@ import type { ClientStorage } from "./client-storage";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { UiSharedFile } from "../shared/contracts";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu";
+import type { PlatformEnvironments } from "./environments";
 
 export type { SystemNotification, SystemNotificationOutcome };
 
@@ -58,4 +59,6 @@ export interface Platform {
   contextMenu?: {
     show(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
   };
+  /** The machines the window knows and shows threads of (ADR 0025); absent without a window process. */
+  environments?: PlatformEnvironments;
 }
