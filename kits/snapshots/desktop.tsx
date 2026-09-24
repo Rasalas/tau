@@ -158,12 +158,18 @@ const snapshots: DesktopExtension = {
     };
 
     // A capture goes to the first composer that asks for it; with none on screen it waits.
+    // The host is asked for waiting ones only when some may wait: at start, after a
+    // reconnect, or after an event found no composer. Not on every composer render.
+    let mayWait = true;
     let delivering = Promise.resolve();
     const deliver = (ids: readonly string[]) => {
       delivering = delivering.then(async () => {
         for (const id of ids) {
           const scope = store.activeScope;
-          if (!scope || disposed) return;
+          if (!scope || disposed) {
+            mayWait = true;
+            return;
+          }
           const meta = await host("claim", { id }).catch(() => null);
           if (!meta || store.activeScope !== scope) continue;
           store.add(scope, meta);
@@ -172,7 +178,9 @@ const snapshots: DesktopExtension = {
       });
     };
     const deliverPending = () => {
-      void host("pending", undefined).then((pending) => deliver(pending.map((meta) => meta.id))).catch(() => undefined);
+      if (!mayWait) return;
+      mayWait = false;
+      void host("pending", undefined).then((pending) => deliver(pending.map((meta) => meta.id))).catch(() => { mayWait = true; });
     };
     context.host.onEvent(SNAPSHOT_EVENT, (payload) => { if (isMeta(payload)) deliver([payload.id]); });
     context.host.onEvent(SNAPSHOT_FAILED_EVENT, (payload) => {
@@ -194,7 +202,13 @@ const snapshots: DesktopExtension = {
       void host("arm", next).catch(() => { armed = ""; });
     };
     const stopPreferences = context.preferences.subscribe(() => arm());
-    context.events.on("host-connection", ({ state }) => { if (state === "connected") arm(true); });
+    context.events.on("host-connection", ({ state }) => {
+      if (state !== "connected") return;
+      arm(true);
+      // An event sent while the socket was down may be lost.
+      mayWait = true;
+      if (store.activeScope) deliverPending();
+    });
     arm(true);
 
     const Strip = ({ scope, draftState }: ComposerInlineProps) => {

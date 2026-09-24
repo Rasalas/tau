@@ -73,6 +73,32 @@ describe("SnapShots desktop", () => {
     await waitFor(() => expect(kit.labels()).toEqual(["Electron — E18 test window"]));
   });
 
+  it("asks the host for waiting captures once, not every time the composer renders anew", async () => {
+    const kit = activate();
+    const pendingCalls = () => kit.invoke.mock.calls.filter(([, command]) => command === "pending").length;
+    const view = kit.mount();
+    await waitFor(() => expect(pendingCalls()).toBe(1));
+    // Core hands the strip a fresh draft handle whenever its registry changes.
+    for (let turn = 0; turn < 5; turn += 1) {
+      const draftState = { read: kit.draftState.read, write: kit.draftState.write };
+      view.rerender(<kit.Strip {...inline()} draftState={draftState} />);
+    }
+    view.rerender(<kit.Strip {...inline({ scope: "session:t2" })} draftState={kit.draftState} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(pendingCalls()).toBe(1);
+  });
+
+  it("asks again after a reconnect, since events may have been lost meanwhile", async () => {
+    const pending: SnapShotMeta[] = [];
+    const kit = activate(pending);
+    kit.mount();
+    await waitFor(() => expect(kit.invoke.mock.calls.filter(([, command]) => command === "pending")).toHaveLength(1));
+    pending.push(meta("snap-while-away"));
+    act(() => kit.registry.dispatchWorkbenchEvent({ type: "host-connection", state: "reconnecting" }));
+    act(() => kit.registry.dispatchWorkbenchEvent({ type: "host-connection", state: "connected" }));
+    await waitFor(() => expect(kit.labels()).toEqual(["Electron — E18 test window"]));
+  });
+
   it("sends the picture as an image and the tree as data, then lets the host delete them", async () => {
     const kit = activate();
     kit.mount();
