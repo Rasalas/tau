@@ -6,6 +6,7 @@ import {
   type ScreenFrame,
   type ScreenLiveFrame,
   type ScreenState,
+  type ScreenViewFrame,
 } from "./protocol.js";
 
 /** A few frames a second: enough to follow a click, cheap enough to leave on. */
@@ -53,6 +54,8 @@ export function createScreenService(host: HostExtensionClient, pause: (ms: numbe
     },
     access: async () => await host.invoke("screen-access") as ScreenAccess,
     openAccessSettings: async () => { await host.invoke("screen-access-settings"); },
+    viewFrame: async (threadId, maxWidth, since) => await host.invoke("screen-view-frame", { threadId, maxWidth, ...(since ? { since } : {}) }) as ScreenViewFrame | null,
+    input: async (threadId, input) => { await host.invoke("screen-input", { threadId, input }); },
     live(threadId, onFrame, ended) {
       let stopped = false;
       let started = false;

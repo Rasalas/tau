@@ -101,6 +101,9 @@ xcodebuild -exportArchive -archivePath build/Tau.xcarchive -exportOptionsPlist b
 On the same network the host also shows up in the app under **On this network**; a tap
 asks it without a QR code, with the same digits.
 
+Then go through `docs/mobile-device-checklist.md` once: LAN, Bonjour, QR, Tailscale,
+background and reconnect, the terminal's key bar and review, on your own phone.
+
 ## 8. Push notifications
 
 Your phone hears of a thread that finished, failed, asks you something or hands over to

@@ -134,6 +134,7 @@ const UNAVAILABLE = new Set([
   // A window half belongs to an in-process kit: an isolated one has no id the
   // window registry would trust and no way to hold the view it creates.
   "callClient",
+  "clientWindow",
   "decorateUiPrompt",
   "setPermissionLevel",
   "presentUi",
@@ -166,6 +167,16 @@ function unavailable(member: string): never {
 }
 
 /** Registers `hooks` with the host and answers its calls until the disposer runs. */
+/** A registration the host keeps under a handle; the returned function releases it once. */
+async function heldHandle(registered: Promise<unknown>): Promise<() => void> {
+  const handle = await registered as number;
+  handles.set(handle, {});
+  return () => {
+    if (!handles.delete(handle)) return;
+    send({ t: "release", handle });
+  };
+}
+
 async function registerHooks(path: string, hooks: Record<string, unknown>, names: readonly string[]): Promise<() => void> {
   const implemented: Record<string, (...args: unknown[]) => unknown> = {};
   for (const name of names) {
@@ -228,18 +239,17 @@ const services: WorkerHostServices = {
     count: () => rpc("clients.count") as Promise<number>,
     devices: () => rpc("clients.devices") as ReturnType<WorkerHostServices["clients"]["devices"]>,
   },
+  network: {
+    state: () => rpc("network.state") as ReturnType<WorkerHostServices["network"]["state"]>,
+    holdProxy: () => heldHandle(rpc("network.holdProxy")),
+    keepProxy: async (keep) => { await rpc("network.keepProxy", keep); },
+    publishEndpoints: (endpoints) => heldHandle(rpc("network.publishEndpoints", endpoints)),
+  },
   observeConfigChanges: (listener) => registerHooks("observeConfigChanges", { changed: listener }, CONFIG_HOOKS),
   registerThreadLifecycle: (lifecycle) => registerHooks("registerThreadLifecycle", lifecycle as Record<string, unknown>, LIFECYCLE_HOOKS),
   registerTurnObserver: (observer) => registerHooks("registerTurnObserver", observer as Record<string, unknown>, TURN_HOOKS),
   setPendingWork: async (sessionId, count) => { await rpc("setPendingWork", sessionId, count); },
-  pinTranscriptEntries: async (pins) => {
-    const handle = await rpc("pinTranscriptEntries", pins) as number;
-    handles.set(handle, {});
-    return () => {
-      if (!handles.delete(handle)) return;
-      send({ t: "release", handle });
-    };
-  },
+  pinTranscriptEntries: (pins) => heldHandle(rpc("pinTranscriptEntries", pins)),
 };
 
 const context: WorkerHostExtensionContext = {
@@ -260,7 +270,7 @@ const context: WorkerHostExtensionContext = {
   registerCommand: (name, handler, options) => {
     if (commands.has(name)) throw new Error(`Host extension ${boot.id}: command "${name}" registered twice`);
     commands.set(name, handler);
-    send({ t: "command", name, long: Boolean(options?.long), callers: options?.callers ?? [], ...(options?.access === "read" ? { access: "read" as const } : {}) });
+    send({ t: "command", name, long: Boolean(options?.long), callers: options?.callers ?? [], ...(options?.access === "read" || options?.access === "owner" ? { access: options.access } : {}) });
     return () => {
       if (commands.get(name) !== handler) return;
       commands.delete(name);

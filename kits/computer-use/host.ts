@@ -1,4 +1,6 @@
-import type { HostExtension, HostExtensionContext, RuntimeExtensionFactory } from "tau/host-extension";
+import { HostCommandError, type HostExtension, type HostExtensionContext, type RuntimeExtensionFactory } from "tau/host-extension";
+import { pinnedWindowCalls } from "../_host-window/pinned-calls.js";
+import { ScreenRemote, type ToolRunResult } from "./remote-control.js";
 import {
   COMPUTER_USE_EXTENSION_ID,
   COMPUTER_USE_PACKAGE,
@@ -18,11 +20,12 @@ type PiApi = Parameters<RuntimeExtensionFactory>[0];
 type PiContext = Parameters<Parameters<PiApi["on"]>[1]>[1];
 interface DriverTool {
   name: string;
-  execute(callId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: undefined, ctx: PiContext): Promise<{ content?: { type: string; text?: string }[]; isError?: boolean }>;
+  execute(callId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: undefined, ctx: PiContext): Promise<{ content?: { type: string; text?: string }[]; details?: unknown; isError?: boolean }>;
 }
 
 const BRING_TO_FRONT = `${COMPUTER_USE_TOOL_PREFIX}bring_to_front`;
 const FRONT_TIMEOUT_MS = 10_000;
+const INPUT_TIMEOUT_MS = 20_000;
 
 function packageSource(entry: PiPackageSource): string {
   return typeof entry === "string" ? entry : entry.source;
@@ -70,6 +73,14 @@ class DriverHandles {
 
   has(threadId: string): boolean {
     return this.handles.get(threadId)?.tools.has(BRING_TO_FRONT) ?? false;
+  }
+
+  /** One of the thread's own driver tools, called around Pi's hooks: the user's input, not the agent's. */
+  async run(threadId: string, name: string, params: Record<string, unknown>): Promise<ToolRunResult> {
+    const handle = this.handles.get(threadId);
+    const tool = handle?.tools.get(name);
+    if (!handle?.context || !tool) throw new Error("This thread's computer use is not running; open the thread to start it.");
+    return tool.execute(`tau-remote-${name}`, params, AbortSignal.timeout(INPUT_TIMEOUT_MS), undefined, handle.context);
   }
 
   async bringToFront(threadId: string, pid: number, windowId: number | undefined): Promise<void> {
@@ -124,8 +135,10 @@ type WindowCall = (command: string, input?: unknown) => Promise<unknown>;
  */
 function windowCalls(context: HostExtensionContext): WindowCall {
   let local: Promise<WindowCall> | undefined;
+  // The driven window is on the host's machine, and so is the one capture of it.
+  const remote = pinnedWindowCalls(context.services);
   return (command, input) => {
-    if (process.type !== "browser") return context.services.callClient(command, input);
+    if (process.type !== "browser") return remote.call(command, input);
     local ??= import("./window.js").then(({ default: activate }) => {
       const half = activate({ id: COMPUTER_USE_EXTENSION_ID, invokeHost: () => Promise.reject(new Error("No host commands from here.")), log: () => undefined });
       return async (next: string, nextInput?: unknown) => half.handle(next, nextInput);
@@ -168,11 +181,12 @@ export function createComputerUseHostExtension(): HostExtension {
         return windowId;
       };
       // Evidence Kit keeps the frames the feed lets go of after three.
-      context.registerCommand("screen-state", (input) => feed.state(threadIdOf(input)) ?? null, { callers: SCREEN_CALLERS });
+      // A Read-only device may watch the window, so looking is a read.
+      context.registerCommand("screen-state", (input) => feed.state(threadIdOf(input)) ?? null, { callers: SCREEN_CALLERS, access: "read" });
       context.registerCommand("screen-frame", (input) => {
         const seq = (input as { seq?: unknown }).seq;
         return feed.frame(threadIdOf(input), typeof seq === "number" ? seq : undefined);
-      }, { callers: SCREEN_CALLERS });
+      }, { callers: SCREEN_CALLERS, access: "read" });
       context.registerCommand("screen-front", async (input) => {
         const threadId = threadIdOf(input);
         const target = feed.target(threadId);
@@ -188,14 +202,14 @@ export function createComputerUseHostExtension(): HostExtension {
           icons.set(pid, icon);
         }
         return icon;
-      });
+      }, { access: "read" });
       context.registerCommand("screen-access", async (): Promise<ScreenAccess> => {
         try {
           return await callWindow("access") as ScreenAccess;
         } catch {
           return "unavailable";
         }
-      });
+      }, { access: "read" });
       context.registerCommand("screen-access-settings", () => callWindow("open-settings"));
       context.registerCommand("screen-live-start", (input) => callWindow("live-start", { windowId: windowOf(input) }));
       context.registerCommand("screen-live-frame", (input) => callWindow("live-frame", { windowId: windowOf(input) }));
@@ -204,7 +218,22 @@ export function createComputerUseHostExtension(): HostExtension {
         return windowId === undefined ? undefined : callWindow("live-stop", { windowId });
       });
 
+      // Decision 7: a device that shows the window may drive it, through the thread's own driver.
+      const remote = new ScreenRemote({
+        target: (threadId) => feed.target(threadId),
+        frame: (threadId) => feed.frame(threadId),
+        run: (threadId, tool, params) => drivers.run(threadId, tool, params),
+        looked: (threadId, params, result) => feed.toolResult(threadId, `${COMPUTER_USE_TOOL_PREFIX}get_window_state`, params, `tau-remote-look-${String(Date.now())}`, result),
+        callWindow,
+        now: () => Date.now(),
+      });
+      context.registerCommand("screen-view-frame", (input) => remote.frame(threadIdOf(input), (input ?? {}) as Record<string, unknown>), { access: "read" });
+      context.registerCommand("screen-input", (input) => remote.input(threadIdOf(input), (input as { input?: unknown }).input).catch((error: unknown) => {
+        throw new HostCommandError(error instanceof Error ? error.message : String(error));
+      }));
+
       return () => {
+        remote.dispose();
         releaseDriver();
         releaseObserver();
         void callWindow("live-stop").catch(() => undefined);

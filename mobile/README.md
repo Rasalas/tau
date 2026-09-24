@@ -70,7 +70,12 @@ dns-sd -P "Test host" _tau-test._tcp local <port> tau-test.local 127.0.0.1 v=1 i
 ```
 
 Run one simulator at a time, shut it down while building, and stop every process you
-started by its PID.
+started by its PID. `node scripts/sim-device.mjs up` does the create, boot, install, launch
+and bridge steps above on a simulator of its own (only while the machine's load is below
+40), `screenshot <file>` captures it, and `down` shuts down and deletes exactly that
+device. The whole test path, with a phone emulated in Chromium and a fake Tailscale Serve,
+is in `../docs/agents/testing-the-app.md` ("Remote access"); what needs a real phone is in
+`../docs/mobile-device-checklist.md`.
 
 ## What the app does not do yet
 

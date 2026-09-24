@@ -2,7 +2,7 @@ import type { HostCompletionOptions } from "./host-completion.js";
 import type { ThreadBackendKind, UiComposerCommand } from "../shared/contracts.js";
 import type { HostPackageLoadResult } from "./extension-packages.js";
 import type { HostClientRegistry } from "./host-clients.js";
-import type { HostExtension, HostPlatform } from "./host-extensions.js";
+import type { HostExtension, HostNetworkServices, HostPlatform } from "./host-extensions.js";
 import type { HostLogger } from "./host-log.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -58,6 +58,8 @@ export interface PiHostOptions {
    * a transport can outlive one host; without one the host counts nobody.
    */
   clients?: HostClientRegistry;
+  /** Network access as packages see it; only a host that opens listeners of its own has it. */
+  network?: HostNetworkServices;
   /**
    * Root of the running checkout. The host watches the kit sources under it
    * while Tau runs from a checkout; an installed app runs prebuilt kits and

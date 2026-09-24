@@ -51,6 +51,9 @@ A package has up to two halves, sharing one `id`:
   reads Workspace Kit's changes and diffs this way). Those commands belong to
   that extension's contract, not to core: an invoke fails like any other when
   it is not installed.
+  Who may call a host command is its `access` (below): Full devices by
+  default, Read-only devices too with `"read"`, only the host token on this
+  machine with `"owner"`.
 
 Either entry may be omitted, but not both. `id` is lowercase, dot-separated
 (`vendor.name`), and must be the same string both halves export — the
@@ -1020,7 +1023,12 @@ Scripts opens a script's `previewUrl` through it, and falls back to
 (new in API 1.12.0) brings forward what an agent drives: `{ kind: "browser" }`
 the Preview panel with the page, `{ kind: "app", threadId }` the window that
 thread's Computer Use driver steers, raised by the driver itself; a handover
-that asks the user to take over uses it. Preview Kit also publishes
+that asks the user to take over uses it. On a client away from the host's
+machine (a phone, a browser, a window on another computer) `jump` opens the
+Preview there instead, where the user drives the page or window by tapping and
+typing, and `remote()` (new in API 1.13.0) says so. `watch(target, maxWidth, onFrame)`
+(new in API 1.13.0) delivers a small live picture of the page or of a thread's
+driven window while the calling page is visible, until the returned stop. Preview Kit also publishes
 `tau.preview/cookie-import` (new in API 1.12.0): `importSite({ site, profile? })`
 opens its cookie import dialog with that site filtered to and ticked and that
 Preview profile as the target, and answers the import's result, or `undefined`
@@ -1049,7 +1057,14 @@ every change; `frame(threadId, seq?)` fetches the picture itself (base64; the
 host keeps the last three per thread), `bringToFront`, `icon`, `access` (the
 Screen Recording status, read without asking) and `openAccessSettings` do what
 they say, and `live(threadId, onFrame, ended?)` records that one window a few
-frames a second where the system already allows it. Preview Kit's Screen view
+frames a second where the system already allows it. For a device away from the
+host (new in API 1.13.0), `viewFrame(threadId, maxWidth, since?)` answers a
+frame at that width — the live capture where allowed, else the driver's
+screenshot scaled down — or only its id while it is unchanged, and
+`input(threadId, input)` clicks, scrolls, types or presses Enter, Tab,
+Backspace, Escape or an arrow in that window through the thread's own driver,
+at the pid and window the feed names and nowhere else; a Read-only device may
+call the first, not the second. Preview Kit's Screen view
 draws it; the types are in `kits/computer-use/protocol.ts`. Its host commands
 `screen-state` and `screen-frame` also answer Evidence Kit (`callers`), which
 fetches each new frame before the feed lets go of it after three. Evidence Kit publishes
@@ -1921,6 +1936,15 @@ device learns what it is from its hello reply (`access: "read-only"`); a panel
 that hides its buttons there saves the user a refusal, but the host is what
 enforces it.
 
+`access: "owner"` is the other end: a command that changes who can reach the
+host — Tailscale's `serve-on` and `serve-off` — answers `forbidden` to every
+paired device and to the host token over a LAN or proxy listener, exactly like
+the `connections-*` methods (`src/main/host-method-access.ts`). Only the host
+token from this machine, the window and the host itself get through, and a
+refused call is recorded for the device like any other. A host older than
+1.13.0 ignores the value, so a package that relies on it needs `engines.api`
+`^1.13.0`.
+
 ### What reaches which client: `emit(…, { topic })` and `watch` (new in API 1.13.0)
 
 A client is sent the stream of the threads it shows, not of every thread
@@ -1944,6 +1968,35 @@ Watch before asking for a snapshot of what the topic streams, so nothing
 written in between is lost. A host or client older than 1.13.0 ignores the
 topic and sends such events to everyone, which is why `watch` is optional on
 `HostExtensionClient`: call it as `host.watch?.(topic)`.
+
+### Network access: `services.network` (new in API 1.13.0)
+
+`services.network` is how a package takes part in Settings → Connections →
+Network access. It is gated by `network` and absent (in a worker: `state()`
+answers `undefined`) on a host that opens no listeners of its own, such as an
+in-process one.
+
+| Member | What it does |
+|---|---|
+| `state()` | The `UiNetworkAccess` Connections shows: the switches, the ports, what listens, the problems, the certificate. `proxyHeld` says a package holds the proxy listener. |
+| `holdProxy()` | Keeps the loopback proxy listener (`settings.proxyPort`, plain HTTP, every peer counted as remote, no `local-files`) open whatever the switches say, until the returned function runs. Resolves once the listeners followed; a port that would not open is in `state().problems`. For a reverse proxy the package set up on this machine. |
+| `keepProxy(keep)` | Keeps the proxy listener open for this package across restarts too, until `keepProxy(false)`: the host remembers it in `<userData>/network-kept.json` and opens the listener at start, before any package runs — a host started as a service has no client to start its packages for a while, and a proxy that outlives Tau (`tailscale serve --bg`) must find it at once. It speaks for the package it was called through. |
+| `publishEndpoints(endpoints)` | Adds addresses only the package knows — a proxy's public name — to Connections' list, to every pairing link, and to the page origins the socket accepts. Only an `http(s)` URL without credentials or fragment is taken, as `reachability: "network"`; `trustedCertificate: true` (https only) says a proxy answers there with a certificate browsers trust, so it ranks first and a client does not pin the host's fingerprint for it. The returned function withdraws the list; publish again to change it. |
+
+Everything a package asked for is dropped with it — a worker's holds and
+endpoints go when the worker stops — except a kept proxy listener, which stays
+until the package lets go of it. Tailscale (`kits/tailscale/`) is the
+shipped caller: it keeps the proxy listener and publishes
+`https://<machine>.<tailnet>.ts.net/` while `tailscale serve` forwards there.
+Behind the proxy listener the host also reads `Tailscale-User-Login` and shows
+it beside the client in Connections — never as a login.
+
+On the desktop side, `registerSettingsSection({ id, page, order?, Component })`
+(new in API 1.13.0) adds a section to one of core's Settings pages, below
+core's own sections; `page` is `"connections"` so far. The component gets
+`onNotify` and `onChanged`, which reads the page's own data again after the
+section changed something it shows (a new endpoint in the address list). It is
+profile-scoped like a panel.
 
 ### Reaching the user outside the window: `context.attention`
 
@@ -2040,7 +2093,7 @@ A package's `permissions` array draws from a fixed list
 | `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and provide and read turn attachments. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
-| `network` | reach the network. In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
+| `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 `services.agentDir` is ungated: it is the path of Pi's own configuration
@@ -2079,9 +2132,9 @@ and is logged as `host-extension.denied` (`guardedServices`, wraps
 `HostExtensionServices`; the same check runs for a worker's calls, dispatched
 into the identical guarded facade from the main side).
 
-`network` is the one permission not in `HOST_SERVICE_PERMISSIONS`: a package
-that dials out never asks the host for anything, so there is no member to gate.
-The worker enforces it for itself instead — see §6. `process` is enforced in
+`network` gates one facade member, `services.network` (the host's own
+listeners); dialling out asks the host for nothing, so for that the worker
+enforces the grant itself instead — see §6. `process` is enforced in
 both places: the facade members are guarded on the main side, and the worker
 refuses `child_process` for itself. For an `in-process` package neither is
 enforced, because a package running in the host process can reach everything
@@ -2129,7 +2182,21 @@ client, `callClient` asks that client's own window; otherwise, and when that
 client has no window with this half (a browser, a phone), it asks the Tau
 window on the host's machine. With neither, the call rejects at once instead
 of waiting for a timeout. A paired device is only ever asked for calls its own
-requests caused. `services.pickDirectory` is stricter: only the asking
+requests caused.
+
+Two options narrow that (new in API 1.13.0). `callClient(command, input, { window: "host" })`
+asks only a Tau window on the host's own machine — the caller's, when it is
+one, else the newest — never a window on another computer: use it for work on
+what lives on the host, like a window an agent drives. `services.clientWindow()`
+names the window such a call would reach now; pass that id as
+`{ window: id }` and every later call goes to exactly that window, whichever
+client or turn asks, or rejects at once with "The window this was pinned to
+is gone." once it closed. A kit whose half holds a view pins it where the view
+was made, so a panel on one device and an agent's tool in a turn reach the
+same view. Preview Kit and Computer Use share `kits/_host-window/pinned-calls.ts`
+for that: it pins on the first call and moves to the next window when the
+pinned one is gone. `clientWindow` is absent before 1.13.0 and in a worker; an
+older host ignores the options. `services.pickDirectory` is stricter: only the asking
 client's window shows the dialog, so a browser or a phone gets a rejection,
 not a dialog on the host's screen.
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { HostUnavailableError, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
+import { HostUnavailableError, hostHasLocalFiles, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
 import { EMPTY_PREVIEW_STATE, createPreviewHostClient, type PreviewState } from "./protocol.js";
 import { Cell, previewView, useScreenFollower } from "./screen-store.js";
 
@@ -21,6 +21,16 @@ export const previewKit = createPreviewHostClient((command, input) => connection
   : Promise.reject(new HostUnavailableError()));
 
 export const PREVIEW_PANEL = "preview";
+
+/**
+ * This client shows frames of the host's page rather than a view of its own:
+ * a browser or a phone (even on the host's machine), or a desktop window on
+ * another computer. The workbench names the client's profile on `<body>`.
+ */
+export function drawsFrames(): boolean {
+  const client = typeof document === "undefined" ? undefined : document.body.dataset.client;
+  return (client !== undefined && client !== "desktop") || !hostHasLocalFiles();
+}
 
 /**
  * Whether the Preview panel is on screen in this window: `preview.toggle`

@@ -36,8 +36,10 @@ import { defaultGlobalThemesDir } from "./user-themes.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
   HostAttachedRuntime,
+  HostClientCallOptions,
   HostClientServices,
   HostExtensionServices,
+  HostNetworkServices,
   HostExtensionSettings,
   HostMcpInstructionsProvider,
   HostMcpToolGate,
@@ -146,6 +148,7 @@ export interface ExtensionServicesPort {
   trashedThreads(): Promise<HostTrashedThread[]>;
   /** The clients attached to this host, for the seam's ungated `clients` member. */
   readonly clients: HostClientServices;
+  readonly network?: HostNetworkServices;
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   registerTurnObserver(observer: HostTurnObserver): () => void;
   pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
@@ -342,6 +345,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       }),
     },
     clients: port.clients,
+    ...(port.network ? { network: port.network } : {}),
     registerThreadLifecycle: (lifecycle) => port.registerThreadLifecycle(lifecycle),
     registerTurnObserver: (observer) => port.registerTurnObserver(observer),
     pinTranscriptEntries: (provider) => {
@@ -387,9 +391,10 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     // `extensionServices` binds the extension id in front of these three.
     turnAttachments: turnAttachments as unknown as HostExtensionServices["turnAttachments"],
     settings: ((extensionId: string, cwd?: string) => extensionSettings(port, extensionId, cwd)) as unknown as HostExtensionServices["settings"],
-    callClient: ((extensionId: string, command: string, input?: unknown) => port.platform.callClient
-      ? port.platform.callClient(extensionId, command, input)
+    callClient: ((extensionId: string, command: string, input?: unknown, options?: HostClientCallOptions) => port.platform.callClient
+      ? port.platform.callClient(extensionId, command, input, options)
       : Promise.reject(new Error("This host has no client process that can answer."))) as unknown as HostExtensionServices["callClient"],
+    clientWindow: ((extensionId: string) => port.platform.clientWindow?.(extensionId)) as unknown as HostExtensionServices["clientWindow"],
     setPermissionLevel: (provider) => { permissionLevelProvider = provider; },
     registerRuntimeBackend: (provider) => {
       if (runtimeDriver(provider.kind ?? "") === "pi" || !provider.kind) throw new Error(`Runtime backend kind "${provider.kind}" is reserved.`);

@@ -38,6 +38,37 @@ export function peerAddress(trust: ListenerTrust, request: IncomingMessage): str
 }
 
 /**
+ * Who the proxy says is behind a request: Tailscale Serve's
+ * `Tailscale-User-Login`, which Serve sets and strips from what a client sent.
+ * Read only behind the proxy listener, and only to show; never a login.
+ */
+export function proxyUser(trust: ListenerTrust, request: IncomingMessage): string | undefined {
+  if (trust !== "proxy") return undefined;
+  const header = request.headers["tailscale-user-login"];
+  const raw = (Array.isArray(header) ? header[0] : header)?.trim();
+  if (!raw || raw.length > 512) return undefined;
+  const text = [...decodeQWord(raw)].filter((char) => char >= " " && char !== "\u007f").join("").trim();
+  return text ? text.slice(0, 120) : undefined;
+}
+
+/** RFC 2047 `=?utf-8?q?…?=`, the form Serve sends a name outside ASCII in. */
+function decodeQWord(value: string): string {
+  const match = /^=\?utf-8\?q\?(.*)\?=$/iu.exec(value);
+  if (!match) return value;
+  const bytes: number[] = [];
+  const text = match[1]!;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (char === "_") bytes.push(0x20);
+    else if (char === "=" && /^[0-9a-f]{2}$/iu.test(text.slice(index + 1, index + 3))) {
+      bytes.push(Number.parseInt(text.slice(index + 1, index + 3), 16));
+      index += 2;
+    } else bytes.push(char.charCodeAt(0) & 0xff);
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+/**
  * Whether one socket client may be told `local-files`. In-process Electron IPC
  * always may; a socket client only when it is on this machine and the operator
  * asked for it, because a client that believes a path is local will show it and

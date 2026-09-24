@@ -17,6 +17,7 @@ import type {
   UiToolRun,
 } from "../shared/contracts.js";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
+import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
@@ -25,10 +26,11 @@ import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/ext
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
 import { HOST_CORE_PRINCIPAL, isHostOwner, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
-import { readOnlyRefusal } from "./host-method-access.js";
+import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
+import { BIND_NETWORK_EXTENSION } from "./host-network-contributions.js";
 
 export interface DirectoryPickerOptions {
   buttonLabel?: string;
@@ -43,7 +45,19 @@ export interface HostPlatform {
    * Calls the window half of an extension. Only a host whose client runs in
    * its own process has one; a host with a window of its own does not.
    */
-  callClient?(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  callClient?(extensionId: string, command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown>;
+  /** The id of the window on the host's machine a call with `{ window: "host" }` reaches now. */
+  clientWindow?(extensionId: string): string | undefined;
+}
+
+/**
+ * Which window `callClient` asks (API 1.13.0). `"host"`: a Tau window on the
+ * host's own machine — the caller's, when it is one, else the newest — never
+ * a window on another device. A window id from `clientWindow()`: exactly that
+ * window, whoever the caller is; the call rejects at once once it is gone.
+ */
+export interface HostClientCallOptions {
+  window?: "host" | (string & {});
 }
 
 /** A thread an external backend persisted, as the index lists it. */
@@ -410,6 +424,36 @@ export interface HostPairedDevice {
   readonly id: string;
   readonly name: string;
   readonly access: "full" | "read-only";
+}
+
+/**
+ * Network access as a package sees it (API 1.13.0): the listeners the owner
+ * turned on, the loopback proxy listener a proxy the package set up forwards
+ * to, and the addresses only the package knows. Absent on a host that opens no
+ * listeners of its own.
+ */
+export interface HostNetworkServices {
+  /** What Settings → Connections shows under Network access. */
+  state(): UiNetworkAccess | undefined;
+  /**
+   * Keeps the loopback proxy listener (`state().settings.proxyPort`, plain
+   * HTTP, every peer remote) open until the returned function runs. Resolves
+   * once the listeners follow; a port that cannot open is in `state().problems`.
+   */
+  holdProxy(): Promise<() => void>;
+  /**
+   * Keeps the proxy listener open for this package across restarts, until
+   * `keepProxy(false)`: the host opens it at start, before any package runs,
+   * so a proxy that outlives Tau (`tailscale serve --bg`) finds it at once.
+   */
+  keepProxy(keep: boolean): Promise<void>;
+  /**
+   * Adds endpoints the host cannot see itself, such as a proxy's public name.
+   * They join Connections' list and every pairing link, and a page opened at
+   * one may open its socket. Only `network` endpoints with an http(s) URL are
+   * taken. The returned function withdraws them; publish again to change them.
+   */
+  publishEndpoints(endpoints: readonly UiHostEndpoint[]): () => void;
 }
 
 /** Who is attached right now, and word when that changes. */
@@ -782,6 +826,8 @@ export interface HostExtensionServices {
    * nothing about what they see.
    */
   readonly clients: HostClientServices;
+  /** Network access and what a package adds to it; gated by `network` (API 1.13.0). */
+  readonly network?: HostNetworkServices;
   /** Steps into thread opening, forking, activation and the index sweep. */
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   /** Follows the turns of every thread the host drives. */
@@ -821,7 +867,15 @@ export interface HostExtensionServices {
    * needs the process the user's window lives in (ADR 0021). Rejects when the
    * host has no such client, so a kit can fall back or say so.
    */
-  callClient(command: string, input?: unknown): Promise<unknown>;
+  callClient(command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown>;
+  /**
+   * The id of the Tau window on the host's machine that `callClient` with
+   * `{ window: "host" }` would ask now: the caller's, when it is one, else the
+   * newest. Pass it as `window` to keep talking to that one window — the one
+   * that holds a view, say — whichever client or turn asks next. Undefined
+   * when there is none. Absent before API 1.13.0 and in a worker.
+   */
+  clientWindow?(): string | undefined;
   /**
    * Follows the files the host watches. The host re-reads none of them for a
    * kit and calls no kit by name: it reports what moved, and whoever owns those
@@ -874,8 +928,10 @@ export interface HostExtensionCommandOptions {
    * `"read"`: the command only looks — it changes no file, thread, setting or
    * process and calls nothing that does — so a device paired Read only may
    * call it. Without it a command needs Full access (ADR 0024).
+   * `"owner"` (API 1.13.0): it changes who can reach the host, so only the
+   * host token from this machine may call it, like the `connections-*` methods.
    */
-  access?: "read";
+  access?: "read" | "owner";
 }
 
 export interface HostExtensionInvocationContext {
@@ -963,20 +1019,27 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
   const stateDir = services.stateDir ? join(services.stateDir, extension.id) : undefined;
   // `callClient` reaches one extension's own window half: the id is bound
   // here, never passed by the caller, so no kit can drive another kit's.
-  const callClient = (command: string, input?: unknown): Promise<unknown> =>
-    (services.callClient as unknown as (id: string, command: string, input?: unknown) => Promise<unknown>)(extension.id, command, input);
+  const callClient = (command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown> =>
+    (services.callClient as unknown as (id: string, command: string, input?: unknown, options?: HostClientCallOptions) => Promise<unknown>)(extension.id, command, input, options);
+  const rawWindow = services.clientWindow as unknown as ((id: string) => string | undefined) | undefined;
+  const clientWindow = rawWindow ? () => rawWindow(extension.id) : undefined;
   // Settings and attachments speak for the extension that asks, never for another.
   const rawSettings = services.settings as unknown as ((id: string, cwd?: string) => Promise<HostExtensionSettings>) | undefined;
   const settings = rawSettings ? (cwd?: string) => rawSettings(extension.id, cwd) : undefined;
   return new Proxy(guarded, {
     get: (target, prop, receiver) => {
       if (prop === "callClient") return callClient;
+      if (prop === "clientWindow") return clientWindow;
       if (prop === "settings") return settings;
       if (prop === "turnAttachments") {
         const raw: unknown = Reflect.get(target, prop, receiver);
         return raw instanceof TurnAttachmentRegistry ? raw.forExtension(extension.id) : raw;
       }
       if (prop === "stateDir" && stateDir) return stateDir;
+      if (prop === "network") {
+        const raw = Reflect.get(target, prop, receiver) as (HostNetworkServices & { [BIND_NETWORK_EXTENSION]?: (id: string) => HostNetworkServices }) | undefined;
+        return raw?.[BIND_NETWORK_EXTENSION]?.(extension.id) ?? raw;
+      }
       return Reflect.get(target, prop, receiver) as unknown;
     },
   });
@@ -992,6 +1055,8 @@ interface ActiveHostExtension {
   longCommands: Set<string>;
   /** Commands registered with `access: "read"`. */
   readCommands: Set<string>;
+  /** Commands registered with `access: "owner"`. */
+  ownerCommands: Set<string>;
   commandCallers: Map<string, ReadonlySet<string>>;
   disposers: Array<() => void | Promise<void>>;
   /** Set once the extension reported a failure it cannot recover from. */
@@ -1037,6 +1102,7 @@ export class HostExtensionRegistry {
       commands: new Map(),
       longCommands: new Set(),
       readCommands: new Set(),
+      ownerCommands: new Set(),
       commandCallers: new Map(),
       disposers: [],
     };
@@ -1061,6 +1127,7 @@ export class HostExtensionRegistry {
         record.commands.set(name, handler);
         if (options?.long) record.longCommands.add(name);
         if (options?.access === "read") record.readCommands.add(name);
+        if (options?.access === "owner") record.ownerCommands.add(name);
         record.commandCallers.set(name, new Set(callers));
         const dispose = () => {
           if (record.commands.get(name) !== handler) return;
@@ -1068,6 +1135,7 @@ export class HostExtensionRegistry {
           record.commandCallers.delete(name);
           record.longCommands.delete(name);
           record.readCommands.delete(name);
+          record.ownerCommands.delete(name);
         };
         record.disposers.push(dispose);
         return dispose;
@@ -1231,6 +1299,10 @@ export class HostExtensionRegistry {
       // A client may call any command; a Read-only device only those that declared they just look.
       if (record.readCommands.has(command)) return;
       const action = `${extensionId}/${command}`;
+      if (record.ownerCommands.has(command) && !isHostOwner(principal)) {
+        principal.audit?.(action, false);
+        throw ownerRefusal();
+      }
       if (principal.readOnly) {
         principal.audit?.(action, false);
         throw readOnlyRefusal(`run ${action}`);

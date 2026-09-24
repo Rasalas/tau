@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { Link2, Plus, SlidersHorizontal, X } from "lucide-react";
 import {
   IDLE_EXPIRY_WARNING_MS,
@@ -26,6 +26,7 @@ import { LINK_LIFETIMES, describeDevice, formatAgo, formatExpiresIn, qrEndpoint 
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
 import { NearbyMachinesDialog } from "./NearbyMachines";
+import type { SettingsSectionProps } from "../extension-system";
 import { HostServiceSection } from "./HostServiceSection";
 
 type PageState =
@@ -70,7 +71,11 @@ const idleLabel = (days: IdleTimeoutDays): string => (days === null ? "Never" : 
  * for another device, and the host token's rotation (ADR 0023, ADR 0024).
  * Only a connection with the host token sees it.
  */
-export function ConnectionsPage({ onNotify }: { onNotify(message: string): void }) {
+export function ConnectionsPage({ onNotify, sections = [] }: {
+  onNotify(message: string): void;
+  /** What packages add below Network access (`registerSettingsSection`). */
+  sections?: ReadonlyArray<{ id: string; Component: ComponentType<SettingsSectionProps> }>;
+}) {
   const client = useHostClient();
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [created, setCreated] = useState<UiCreatedPairingLink>();
@@ -195,6 +200,8 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
           })}
         />
       ) : null}
+
+      {sections.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
 
       <SettingsSection
         title="Authorized clients"
@@ -337,7 +344,7 @@ function RequestRow({ request, now, busy, onReview, onDeny }: { request: UiPairi
 
 function ClientRow({ paired, now, busy, onEdit, onRevoke }: { paired: UiPairedClient; now: number; busy: boolean; onEdit(): void; onRevoke(): void }) {
   const live = paired.connections > 0;
-  const details = [describeDevice(paired.device), paired.lastAddress, `paired ${formatAgo(paired.pairedAt, now)}`,
+  const details = [describeDevice(paired.device), paired.lastAddress, paired.proxyUser ? `as ${paired.proxyUser}` : undefined, `paired ${formatAgo(paired.pairedAt, now)}`,
     live ? "connected" : paired.lastSeenAt ? `last active ${formatAgo(paired.lastSeenAt, now)}` : "not connected yet",
     paired.lastAction ? `last change ${paired.lastAction.action} ${formatAgo(paired.lastAction.at, now)}` : undefined].filter(Boolean);
   // Unused tokens run out; the owner hears of it a week ahead, the device only when it is refused.
@@ -407,7 +414,7 @@ function DeviceDialog({ paired, busy, onSave, onCancel }: { paired: UiPairedClie
 
 function OwnerRow({ owner, now }: { owner: UiOwnerConnection; now: number }) {
   const name = owner.profile === "web" || owner.profile === "compact" ? "Browser" : "Tau window";
-  const details = [describeDevice(owner.device), owner.address, `connected ${formatAgo(owner.since, now)}`, "host token"].filter(Boolean);
+  const details = [describeDevice(owner.device), owner.address, owner.proxyUser ? `as ${owner.proxyUser}` : undefined, `connected ${formatAgo(owner.since, now)}`, "host token"].filter(Boolean);
   return (
     <div className="connection-row">
       <StatusDot tone="live" label="Connected" />

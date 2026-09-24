@@ -13,6 +13,7 @@
 .takeover-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 4px; }
 
 .takeover-button {
+  display: inline-flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: var(--radius-pill);
   background: var(--raised); color: var(--ink); font: 500 12px var(--sans); cursor: pointer; white-space: nowrap;
 }
@@ -34,3 +35,14 @@
 .takeover-passwords > .takeover-password-status { color: var(--muted); }
 
 .takeover-row-mark { flex: none; display: inline-flex; align-items: center; color: var(--acid-text); }
+
+/* Away from the host's machine: what the user takes over, as it looks now; a tap opens it to drive. */
+.takeover-frame {
+  display: block; width: 100%; max-height: 220px; padding: 0; overflow: hidden;
+  border: 1px solid var(--acid-line); border-radius: var(--radius-md); background: var(--sunken); cursor: pointer;
+}
+.takeover-frame > img { display: block; width: 100%; height: auto; }
+.takeover-note { margin: 0; color: var(--muted); font: 12px var(--sans); }
+body[data-profile="compact"] .takeover-button { min-height: 44px; }
+body[data-profile="compact"] .takeover-icon-button { width: 44px; height: 44px; }
+.takeover-app-icon { width: 16px; height: 16px; flex: none; }

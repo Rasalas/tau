@@ -48,6 +48,13 @@ export default {
       const started = await services.sessions.start({ cwd: "/project", prompt: "go", title: "Child" });
       return { inside, started, unavailable: describeUnavailable(services) };
     });
+    let releases = [];
+    context.registerCommand("network", async () => {
+      releases.push(await services.network.holdProxy());
+      releases.push(await services.network.publishEndpoints([{ url: "https://box.tail0000.ts.net/", label: "Served", reachability: "network" }]));
+      return services.network.state();
+    });
+    context.registerCommand("network-release", () => { for (const release of releases.splice(0)) release(); });
   },
 };
 
@@ -108,10 +115,12 @@ interface Recorder {
   removed: string[];
   exclusiveDepth: number;
   clientCount: number;
+  proxyHolds: number;
+  published: unknown[][];
 }
 
 function services(): { services: HostExtensionServices; recorder: Recorder } {
-  const recorder: Recorder = { logs: [], lifecycles: [], pins: [], pending: [], names: [], started: [], removed: [], exclusiveDepth: 0, clientCount: 1 };
+  const recorder: Recorder = { logs: [], lifecycles: [], pins: [], pending: [], names: [], started: [], removed: [], exclusiveDepth: 0, clientCount: 1, proxyHolds: 0, published: [] };
   const facade: HostExtensionServices = {
     cwd: () => "/project",
     complete: async () => "",
@@ -172,6 +181,16 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
       refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
     },
     clients: { observe: () => () => undefined, count: () => recorder.clientCount, devices: () => [{ id: "p1", name: "iPhone", access: "full" }] },
+    network: {
+      state: () => ({ settings: { lan: false, tailscale: false, announce: false, port: 7788, proxyPort: 7789 }, listeners: [], problems: [], tailscaleUp: false, proxyHeld: recorder.proxyHolds > 0 }),
+      holdProxy: async () => { recorder.proxyHolds += 1; return () => { recorder.proxyHolds -= 1; }; },
+      keepProxy: async () => undefined,
+      publishEndpoints: (endpoints) => {
+        const entry = [...endpoints];
+        recorder.published.push(entry);
+        return () => { recorder.published.splice(recorder.published.indexOf(entry), 1); };
+      },
+    },
     registerThreadLifecycle: (lifecycle) => { recorder.lifecycles.push(lifecycle); return () => undefined; },
     registerTurnObserver: (observer) => { if (observer.pending) recorder.pending.push(observer.pending); return () => undefined; },
     pinTranscriptEntries: (provider) => { recorder.pins.push(provider); return () => undefined; },
@@ -347,6 +366,33 @@ describe("isolated host extensions", () => {
       await expect(recorder.names[0]!("/repo")).resolves.toBe("named /repo");
       await recorder.lifecycles[0]!.beforeWorkspace?.("/repo");
       expect(recorder.logs).toContain("fixture.beforeWorkspace /repo");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("holds the proxy listener and publishes endpoints until the worker releases them or stops", async () => {
+    const { registry, extension, recorder } = harness({ permissions: ["network"] });
+    await registry.activate(extension);
+    try {
+      await expect(registry.invoke("acme.worker", "network")).resolves.toMatchObject({ proxyHeld: true });
+      expect(recorder.published).toEqual([[{ url: "https://box.tail0000.ts.net/", label: "Served", reachability: "network" }]]);
+      await registry.invoke("acme.worker", "network-release");
+      await until(() => recorder.proxyHolds === 0 && recorder.published.length === 0);
+      await registry.invoke("acme.worker", "network");
+      expect(recorder.proxyHolds).toBe(1);
+    } finally {
+      await registry.dispose();
+    }
+    expect(recorder.proxyHolds).toBe(0);
+    expect(recorder.published).toEqual([]);
+  });
+
+  it("refuses network access to a worker without the grant", async () => {
+    const { registry, extension } = harness({ permissions: ["sessions"] });
+    await registry.activate(extension);
+    try {
+      await expect(registry.invoke("acme.worker", "network")).rejects.toThrow("lacks permission network");
     } finally {
       await registry.dispose();
     }
