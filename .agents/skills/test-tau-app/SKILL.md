@@ -103,10 +103,10 @@ npm run cdp -- click "byText('button', /^Do not import/)"
 
 # a new thread's draft, then the model
 npm run cdp -- press mod+n
-npm run cdp -- click "all('button').find(b => /^Select model/.test(b.getAttribute('aria-label') ?? ''))"
+npm run cdp -- click "all('button').find(b => /^Select (runtime and )?model/.test(b.getAttribute('aria-label') ?? ''))"
 npm run cdp -- click "all('[role=option]').find(o => /^GPT-5\.6 Luna, Pi\b/.test(o.getAttribute('aria-label') ?? ''))"
-npm run cdp -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select model/.test(t))"
-#   must print "Select model: GPT-5.6 Luna" — otherwise stop here
+npm run cdp -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select (runtime and )?model/.test(t))"
+#   must print "Select model: GPT-5.6 Luna" (a draft that offers runtimes says "Select runtime and model: GPT-5.6 Luna") — otherwise stop here
 
 # send, then wait for the assistant's message and the end of the stream
 npm run cdp -- type "document.querySelector('textarea')" "Reply with one word: ok"
@@ -127,9 +127,9 @@ For pairing, the compact client, reconnects, the proxy listener and the native a
 ```
 npm run cdp:mobile -- launch --fresh                  # headless Chromium as an iPhone: touch, safe areas, coarse pointer
 npm run cdp:mobile -- pair --label "Test phone"       # link → phone → same six digits on both sides → Allow in the window
-npm run cdp:mobile -- tap "all('button').find(b => /^Select model/.test(b.getAttribute('aria-label') ?? ''))"
+npm run cdp:mobile -- tap "all('button').find(b => /^Select (runtime and )?model/.test(b.getAttribute('aria-label') ?? ''))"
 npm run cdp:mobile -- tap "all('[role=option]').find(o => /^GPT-5\.6 Luna, Pi\b/.test(o.getAttribute('aria-label') ?? ''))"
-npm run cdp:mobile -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select model/.test(t))"
+npm run cdp:mobile -- eval "all('button').map(b => b.getAttribute('aria-label') ?? '').find(t => /^Select (runtime and )?model/.test(t))"
 npm run cdp:mobile -- type "document.querySelector('textarea')" "Reply with one word: ok"
 npm run cdp:mobile -- tap "document.querySelector('.send-button[aria-label=\"Send\"]')"
 npm run cdp:mobile -- wait-for "document.querySelector('.message.assistant') && !document.querySelector('.send-button.stop')" 120000
