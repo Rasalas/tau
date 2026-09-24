@@ -25,7 +25,7 @@ import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
-import { HOST_CORE_PRINCIPAL, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
+import { HOST_CORE_PRINCIPAL, isHostOwner, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
@@ -857,6 +857,11 @@ export interface HostExtensionCommandOptions {
   callers?: readonly string[];
   /** Commands that may run for minutes and therefore use the host job path. */
   long?: boolean;
+  /**
+   * Only a client with the host token may call it, not a paired device: for a
+   * command that changes who can reach the host (API 1.13.0).
+   */
+  owner?: boolean;
 }
 
 export interface HostExtensionInvocationContext {
@@ -967,6 +972,7 @@ interface ActiveHostExtension {
   invocationContextId: string;
   commands: Map<string, HostExtensionCommandHandler>;
   longCommands: Set<string>;
+  ownerCommands: Set<string>;
   commandCallers: Map<string, ReadonlySet<string>>;
   disposers: Array<() => void | Promise<void>>;
   /** Set once the extension reported a failure it cannot recover from. */
@@ -1011,6 +1017,7 @@ export class HostExtensionRegistry {
       invocationContextId,
       commands: new Map(),
       longCommands: new Set(),
+      ownerCommands: new Set(),
       commandCallers: new Map(),
       disposers: [],
     };
@@ -1034,12 +1041,14 @@ export class HostExtensionRegistry {
         }) ?? [];
         record.commands.set(name, handler);
         if (options?.long) record.longCommands.add(name);
+        if (options?.owner) record.ownerCommands.add(name);
         record.commandCallers.set(name, new Set(callers));
         const dispose = () => {
           if (record.commands.get(name) !== handler) return;
           record.commands.delete(name);
           record.commandCallers.delete(name);
           record.longCommands.delete(name);
+          record.ownerCommands.delete(name);
         };
         record.disposers.push(dispose);
         return dispose;
@@ -1194,6 +1203,11 @@ export class HostExtensionRegistry {
 
   /** Checks a host-issued caller before target lookup or handler execution. */
   private authorize(record: ActiveHostExtension, extensionId: string, command: string, principal: HostInvocationPrincipal): void {
+    if (principal.kind === "workbench-client" && record.ownerCommands.has(command) && !isHostOwner(principal)) {
+      const details = { caller: "paired client", target: extensionId, command, capability: `${extensionId}/${command}`, reason: "only a connection with the host token may call it" } as const;
+      this.services.log("host-extension.denied", JSON.stringify(details));
+      throw new HostAuthorizationError(details);
+    }
     if (principal.kind === "host-core" || principal.kind === "workbench-client") return;
     const context = principal.kind === "host-extension" ? this.invocationContexts.get(principal.contextId) : undefined;
     const caller = context?.extensionId;

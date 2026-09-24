@@ -279,6 +279,26 @@ describe("HostExtensionRegistry", () => {
     await expect(r.invoke("caller.kit", "who", undefined, WORKBENCH_CLIENT_PRINCIPAL)).resolves.toBeNull();
   });
 
+  it("keeps an owner command from a paired client, and lets the host token and the host itself call it", async () => {
+    const { registry: r, services: s } = registry();
+    await r.activate({
+      id: "owner.kit",
+      name: "Owner Kit",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("expose", () => "exposed", { owner: true });
+        ctx.registerCommand("read", () => "read");
+      },
+    });
+    const paired = { kind: "workbench-client", connection: "conn-9", pairedClient: "phone" } as const;
+    await expect(r.invoke("owner.kit", "expose", undefined, paired)).rejects.toMatchObject({ name: "HostAuthorizationError", expected: true });
+    await expect(r.invoke("owner.kit", "read", undefined, paired)).resolves.toBe("read");
+    await expect(r.invoke("owner.kit", "expose", undefined, { kind: "workbench-client", connection: "conn-1" })).resolves.toBe("exposed");
+    await expect(r.invoke("owner.kit", "expose")).resolves.toBe("exposed");
+    expect(s.logs.some((line) => line.includes("only a connection with the host token"))).toBe(true);
+    expect(r.isActive("owner.kit")).toBe(true);
+  });
+
   it("authorizes host-issued callers per declared command and rejects forged contexts", async () => {
     const { registry: r, services: s } = registry();
     let reviewContextId = "";

@@ -412,6 +412,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
             (input) => callWorker({ t: "call", command: message.name, input }),
             {
               ...(message.long ? { long: true } : {}),
+              ...(message.owner ? { owner: true } : {}),
               ...(callers.length > 0 ? { callers } : {}),
             },
           ));
