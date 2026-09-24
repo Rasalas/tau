@@ -35,6 +35,8 @@ import { selectDefaultBackend } from "./runtime-adapters.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
 import { ProjectHistory } from "./project-history.js";
 import { IdleHeapCompactor } from "./host-idle-compaction.js";
+import { defaultHostConfigManager } from "./host-config.js";
+import { KeepAwake } from "./keep-awake.js";
 import { HostServiceManager } from "./host-service.js";
 import { HOST_SERVICE_ENV } from "./host-service-units.js";
 import { hostDescriptorPath, readHostDescriptor, retireHost, writeHostDescriptor } from "./host-process-supervisor.js";
@@ -85,6 +87,7 @@ function broadcast(event: HostPushEvent): void {
 
 function publish(event: HostEvent): void {
   if (event.type === "event-log") hostLog.info(event.label, event.detail);
+  keepAwake.observe(event);
   broadcast(event);
 }
 
@@ -124,6 +127,12 @@ async function takeOverListen(): Promise<string> {
   if (port !== 0 || wanted === 0) return listen;
   return await portIsFree(bindHost, wanted) ? `${bindHost.includes(":") ? `[${bindHost}]` : bindHost}:${wanted}` : listen;
 }
+
+/** "Keep this machine awake while turns run", read from this machine's config when a turn starts. */
+const keepAwake = new KeepAwake({
+  enabled: async () => (await defaultHostConfigManager.read()).hostKeepAwake === true,
+  logger: hostLog,
+});
 
 const versions: ExtensionHostVersions = { tau: hostVersion, pi: PI_VERSION, api: EXTENSION_API_VERSION };
 /** Where the kits Tau ships are read from; a headless host runs from the same tree. */
@@ -227,6 +236,7 @@ async function main(): Promise<void> {
     void (async () => {
       clientCalls.dispose();
       compactor.dispose();
+      keepAwake.dispose();
       await socket?.close();
       // Only a service host wrote the file; a window's supervisor removes its own.
       if (serviceKind && (await readHostDescriptor(userData))?.pid === process.pid) {

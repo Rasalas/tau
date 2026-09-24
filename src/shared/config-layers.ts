@@ -39,6 +39,7 @@ export const CONFIG_DEFAULTS: Readonly<Record<string, unknown>> = {
   transcriptDetail: "focused",
   showCosts: true,
   hostBackground: false,
+  hostKeepAwake: false,
   vimMode: false,
   prewarm: true,
   "threads.continueAfterRestart": false,
