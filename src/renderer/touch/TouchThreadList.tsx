@@ -93,14 +93,15 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const refused = (command?: { access?: "read" }) => readOnly && command?.access !== "read" ? READ_ONLY_REASON : undefined;
   const trayCommand = rowCommands.find((command) => command.Icon && !command.destructive && !refused(command));
   const swipeActions = (row: ThreadSupervisionRow): SwipeAction[] => {
-    const tray: SwipeAction[] = [settleAction(row)];
+    // Settling is the rail's, which the host keeps: a Read-only device has nothing to swipe to.
+    const tray: SwipeAction[] = readOnly ? [] : [settleAction(row)];
     if (trayCommand?.Icon && !row.settled) tray.push({ id: trayCommand.id, label: shortLabel(trayCommand.label), Icon: trayCommand.Icon, tone: "secondary", run: () => runCommand(trayCommand.id, row.id) });
     return tray;
   };
   const sheetActions = (row: ThreadSupervisionRow): SheetAction[] => [
     ...(row.status === "running" ? [{ id: "stop", label: "Stop the run", Icon: Square, disabledReason: refused({}), run: () => onStop(row) }] : []),
-    { ...settleAction(row), label: row.settled ? "Un-settle" : "Settle" },
-    { id: "pin", label: row.pinned ? "Unpin" : "Pin", Icon: row.pinned ? PinOff : Pin, run: () => preferences.togglePinned(row.id) },
+    { ...settleAction(row), label: row.settled ? "Un-settle" : "Settle", disabledReason: refused({}) },
+    { id: "pin", label: row.pinned ? "Unpin" : "Pin", Icon: row.pinned ? PinOff : Pin, disabledReason: refused({}), run: () => preferences.togglePinned(row.id) },
     row.unread
       ? { id: "read", label: "Mark as read", Icon: MailOpen, run: () => store.markRead(row.id) }
       : { id: "unread", label: "Mark as unread", Icon: Mail, run: () => store.markUnread(row.id) },
@@ -122,7 +123,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
       {connection ? null : <div className="touch-thread-empty">
         <strong>No threads yet</strong>
         <span>Start a thread to work in one of your projects.</span>
-        {onNewThread ? <button type="button" onClick={onNewThread}>New thread</button> : null}
+        {onNewThread && !readOnly ? <button type="button" onClick={onNewThread}>New thread</button> : null}
       </div>}
     </>;
   }
@@ -137,7 +138,8 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
         setOpenRow={setOpenRow}
         swipeActions={swipeActions}
         onOpen={onOpen}
-        onStop={onStop}
+        // A Read-only device may not stop a run; the row's sheet says why.
+        {...(readOnly ? {} : { onStop })}
         onSheet={setSheetFor}
         onMore={() => setShown((value) => group.id === "settled"
           ? { ...value, settled: value.settled + 25 }
@@ -182,7 +184,7 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
   setOpenRow(id: string | undefined): void;
   swipeActions(row: ThreadSupervisionRow): SwipeAction[];
   onOpen(row: ThreadSupervisionRow): void;
-  onStop(row: ThreadSupervisionRow): void;
+  onStop?(row: ThreadSupervisionRow): void;
   onSheet(row: ThreadSupervisionRow): void;
   onMore(): void;
 }) {
@@ -210,7 +212,7 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
               <ProviderIconStack modelProvider={row.modelProvider} runtimeProvider={row.backendKind} className="touch-thread-provider" hint={{ side: "left" }} />
             </span>}
           </button>
-          {row.status === "running" ? <button
+          {row.status === "running" && onStop ? <button
             type="button"
             className="touch-thread-stop"
             aria-label={`Stop ${row.title}`}

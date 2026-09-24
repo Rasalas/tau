@@ -5,6 +5,7 @@ import { useClientEnvironment } from "../client-environment";
 import { Popover } from "../components/ui/Dialog";
 import { useFocusReturn, useFocusTrap } from "../components/ui/focus";
 import { tooltipProps } from "../components/ui/Tooltip";
+import { useHostCapabilities } from "../use-host-capabilities";
 import { useThreadStore } from "../workbench-context";
 import { TouchThreadList, type TouchThreadListProps } from "./TouchThreadList";
 import "./touch.css";
@@ -32,6 +33,8 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
   const [popover, setPopover] = useState<"search" | "menu">();
   const screen = variant === "screen";
   const shell = useClientEnvironment().shell;
+  // A Read-only device could never send a new thread's first message.
+  const { readOnly } = useHostCapabilities();
   useFocusReturn(screen, surface);
   useFocusTrap(surface, screen && !popover);
   // Modal, so core's own Escape binding stands down for it; closing it is this listener's job.
@@ -53,7 +56,7 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
     <span className="spacer" />
     <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={() => setPopover(popover === "search" ? undefined : "search")}><Search size={19} /></button>
     <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>
-    {screen ? null : <button type="button" className="touch-icon-button" aria-label="New thread" {...tooltipProps("New thread", { side: "bottom" })} onClick={onNewThread}><Plus size={20} /></button>}
+    {screen || readOnly ? null : <button type="button" className="touch-icon-button" aria-label="New thread" {...tooltipProps("New thread", { side: "bottom" })} onClick={onNewThread}><Plus size={20} /></button>}
   </header>;
 
   const popovers = <>
@@ -74,7 +77,7 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
       {header}
       {/* The floating button is the empty list's next step too. */}
       <TouchThreadList {...list} />
-      <button type="button" className="touch-fab" aria-label="New thread" onClick={onNewThread}><Plus size={28} /></button>
+      {readOnly ? null : <button type="button" className="touch-fab" aria-label="New thread" onClick={onNewThread}><Plus size={28} /></button>}
       {popovers}
     </section>;
   }

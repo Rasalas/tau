@@ -7,6 +7,7 @@ import { Region } from "./Regions";
 import { WindowControlsInset } from "./WindowControlsInset";
 import { HostLinkIndicator } from "../host-connection-status";
 import { tooltipProps } from "./ui/Tooltip";
+import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
 
 function workspaceName(cwd?: string): string {
   return cwd?.split(/[\\/]/u).filter(Boolean).at(-1) ?? "workspace";
@@ -65,6 +66,8 @@ export function TitleBar({
   hasDock?: boolean;
 }) {
   const project = workspaceName(cwd);
+  // A Read-only device could never send a new thread's first message.
+  const { readOnly } = useHostCapabilities();
   return (
     <header className="title-bar">
       <div className="title-lead">
@@ -81,7 +84,8 @@ export function TitleBar({
           type="button"
           className="chrome-ghost title-project"
           aria-label={`New thread in ${project}`}
-          {...tooltipProps(cwd ?? "starting host…", { side: "bottom", variant: "code" })}
+          disabled={readOnly}
+          {...tooltipProps(readOnly ? READ_ONLY_REASON : cwd ?? "starting host…", { side: "bottom", ...(readOnly ? {} : { variant: "code" as const }) })}
           onClick={() => actions.newSession(cwd ? { workspace: cwd } : undefined)}
         >{project}</button>
         {thread ? <><span className="title-separator" aria-hidden>/</span>{thread}</> : null}
