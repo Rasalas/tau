@@ -36,6 +36,12 @@ async function activate(options: { timeoutMs?: number } = {}) {
     mcp: { registerTools: (tools) => { mcp.push(tools); return () => undefined; }, gate: (gate) => { gates.push(gate); return () => undefined; }, connect: async () => undefined },
   }, (event) => events.push(event));
   await kit.activate(fakeEvidence(evidence));
+  const pushes: unknown[] = [];
+  await kit.activate({
+    id: "tau.push",
+    name: "Push",
+    activate: (context) => { context.registerCommand("notify", (input) => { pushes.push(input); }, { callers: [TAKEOVER_EXTENSION_ID] }); },
+  });
   const invoke = (command: string, input?: unknown) => kit.invoke(TAKEOVER_EXTENSION_ID, command, input);
 
   /** The kit's Pi half for one thread: its tool and its `tool_call` handler. */
@@ -57,7 +63,7 @@ async function activate(options: { timeoutMs?: number } = {}) {
     }
     throw new Error("The kit never published that.");
   };
-  return { observers, mcp, gates, events, evidence, invoke, pi, published };
+  return { observers, mcp, gates, events, evidence, pushes, invoke, pi, published };
 }
 
 describe("Takeover host extension", () => {
@@ -82,6 +88,16 @@ describe("Takeover host extension", () => {
     await published((list) => list.length === 0);
     expect(evidence.at(-1)).toEqual(["resume", { threadId: "thread" }]);
     expect(await invoke("done", { id: takeover!.id })).toBe(false);
+  });
+
+  it("asks Push to tell the phone it is the user's turn, with the agent's reason", async () => {
+    const { pi, invoke, published, pushes } = await activate();
+    const { tool } = await pi("thread");
+    const answer = tool.execute("call", { reason: "Enter the code from your phone" }, undefined, undefined, undefined);
+    const [takeover] = await published((list) => list.length === 1);
+    expect(pushes).toEqual([{ threadId: "thread", kind: "turn", text: "Enter the code from your phone" }]);
+    await invoke("done", { id: takeover!.id });
+    await answer;
   });
 
   it("stops the agent's turn when the user cancels", async () => {

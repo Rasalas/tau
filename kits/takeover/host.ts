@@ -1,6 +1,6 @@
 import type { HostExtension, HostExtensionContext, RuntimeExtensionFactory } from "tau/host-extension";
 import { TakeoverDesk } from "./desk.js";
-import { EVIDENCE_EXTENSION_ID, TAKEOVER_EXTENSION_ID, TAKEOVER_STATE_EVENT, surfaceOf } from "./protocol.js";
+import { EVIDENCE_EXTENSION_ID, PUSH_EXTENSION_ID, TAKEOVER_EXTENSION_ID, TAKEOVER_STATE_EVENT, surfaceOf } from "./protocol.js";
 import { requestTakeoverTool, resolveTarget, type TakeoverRequest } from "./tools.js";
 
 type PiApi = Parameters<RuntimeExtensionFactory>[0];
@@ -34,6 +34,10 @@ export function createTakeoverHostExtension(options: { timeoutMs?: number } = {}
           return { ...(title ? { title } : {}), ...(thread?.sessionFile ? { sessionFile: thread.sessionFile } : {}) };
         },
         log,
+        // The phone hears "your turn" when nobody is at a client; without Push Kit nothing happens.
+        started: (takeover) => {
+          void context.invokeHostExtension(PUSH_EXTENSION_ID, "notify", { threadId: takeover.threadId, kind: "turn", text: takeover.reason }).catch(() => undefined);
+        },
         now: () => Date.now(),
         ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       });
