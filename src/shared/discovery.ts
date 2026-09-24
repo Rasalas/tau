@@ -18,20 +18,26 @@ export function isServiceType(value: string): boolean {
   return /^_[a-z0-9](?:[a-z0-9-]{0,13}[a-z0-9])?\._tcp$/u.test(value);
 }
 
-/** `v=1`, `id=<host id>`, `fp=<64 hex>`: the fingerprint without colons, as in a pairing link. */
-export function tauServiceTxt(record: { hostId: string; fingerprint: string }): Record<string, string> {
+/**
+ * `v=1`, `id=<host id>`, `fp=<64 hex>` and `pk=<64 hex>`: the certificate
+ * fingerprint and the key pin without colons, as in a pairing link. A reader
+ * that predates `pk` ignores it.
+ */
+export function tauServiceTxt(record: { hostId: string; fingerprint: string; publicKey?: string }): Record<string, string> {
   const fingerprint = canonicalFingerprint(record.fingerprint);
   if (!fingerprint) throw new Error("A Bonjour record needs the SHA-256 fingerprint of the certificate.");
-  return { v: TAU_TXT_VERSION, id: record.hostId, fp: fingerprint.replace(/:/gu, "") };
+  const publicKey = record.publicKey ? canonicalFingerprint(record.publicKey) : undefined;
+  return { v: TAU_TXT_VERSION, id: record.hostId, fp: fingerprint.replace(/:/gu, ""), ...(publicKey ? { pk: publicKey.replace(/:/gu, "") } : {}) };
 }
 
-/** The host id and fingerprint of a TXT record, or undefined for anything but a version-1 Tau record. */
-export function readTauServiceTxt(txt: Readonly<Record<string, string>>): { hostId: string; fingerprint: string } | undefined {
+/** The host id, fingerprint and key pin of a TXT record, or undefined for anything but a version-1 Tau record. */
+export function readTauServiceTxt(txt: Readonly<Record<string, string>>): { hostId: string; fingerprint: string; publicKey?: string } | undefined {
   if (txt.v !== TAU_TXT_VERSION) return undefined;
   const hostId = txt.id ?? "";
   const fingerprint = canonicalFingerprint(txt.fp ?? "");
   if (!/^[A-Za-z0-9_-]{8,64}$/u.test(hostId) || !fingerprint) return undefined;
-  return { hostId, fingerprint };
+  const publicKey = canonicalFingerprint(txt.pk ?? "");
+  return { hostId, fingerprint, ...(publicKey ? { publicKey } : {}) };
 }
 
 /** A Tau host some machine on this network announces. */
@@ -39,8 +45,10 @@ export interface DiscoveredHost {
   /** The Bonjour instance name; the network may have suffixed it after a clash. */
   name: string;
   hostId: string;
-  /** `AB:CD:…`; a device pins it before it asks to pair. */
+  /** `AB:CD:…`; a device without key pins pins it before it asks to pair. */
   fingerprint: string;
+  /** SHA-256 of the host's key; pinned in place of `fingerprint` when the record carries it. */
+  publicKey?: string;
   port: number;
   /** The target the record names, `<name>.local`. */
   hostName?: string;

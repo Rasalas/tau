@@ -11,11 +11,19 @@ import type {
 } from "../shared/environments.js";
 import { environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
 import type { PairingEndpoint } from "../shared/connections.js";
-import { EnvironmentCatalog, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
+import { EnvironmentCatalog, endpointTrust, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
 import { pairEnvironment, type NearbyMachine, type PairEnvironmentOptions } from "./environment-pairing.js";
 import type { HostLogger } from "./host-log.js";
-import { CERTIFICATE_ACCEPT, CERTIFICATE_DEFAULT, CERTIFICATE_REJECT, hostEndpoint } from "./host-tls-trust.js";
+import {
+  CERTIFICATE_ACCEPT,
+  CERTIFICATE_DEFAULT,
+  CERTIFICATE_REJECT,
+  hostEndpoint,
+  pinAccepts,
+  type EndpointTrust,
+  type PresentedIdentity,
+} from "./host-tls-trust.js";
 import { fingerprintsMatch } from "./host-tls.js";
 
 /** Where the page reaches a machine: what a `WindowHost` attaches to and the page's `?host=`. */
@@ -23,7 +31,8 @@ export interface EnvironmentConnection {
   id: string;
   url: string;
   token: string;
-  fingerprint?: string;
+  /** How to trust `url`; absent for a plaintext address. */
+  trust?: EndpointTrust;
 }
 
 export interface WindowEnvironmentsOptions {
@@ -162,7 +171,7 @@ export class WindowEnvironments {
 
   /**
    * Looks for machines on this network through the window's own host. A
-   * saved machine found with the certificate it was pinned for gets the
+   * saved machine found with the key (or old certificate) it was pinned for gets the
    * addresses it has now, and is tried at them at once.
    */
   async discover(): Promise<UiDiscoveredHosts> {
@@ -172,11 +181,12 @@ export class WindowEnvironments {
       hostId: host.hostId,
       name: host.name,
       fingerprint: host.fingerprint,
+      ...(host.publicKey ? { publicKey: host.publicKey } : {}),
       endpoints: host.endpoints,
     }]));
     for (const host of result.hosts) {
       const saved = this.catalog?.get(host.hostId);
-      if (!saved?.fingerprint || !fingerprintsMatch(host.fingerprint, saved.fingerprint)) continue;
+      if (!saved || !recordMatchesPin(saved, host)) continue;
       if (await this.refreshAddresses(saved.id, host.endpoints, undefined, "bonjour")) this.retry(saved.id);
     }
     return result;
@@ -321,21 +331,37 @@ export class WindowEnvironments {
     if (!saved) return undefined;
     const address = this.watched.get(id)?.state.address;
     const url = address ?? socketUrl(orderEndpoints(saved.endpoints, saved.lastUrl)[0]!.url);
-    return { id, url, token: saved.token, ...(saved.fingerprint ? { fingerprint: saved.fingerprint } : {}) };
+    const trust = endpointTrust(saved, url);
+    return { id, url, token: saved.token, ...(trust ? { trust } : {}) };
   }
 
   /**
    * Chromium's verdict on a certificate, for the page's own sockets: a host
-   * name a saved machine was pinned for accepts that machine's certificate
-   * and no other; every other name is Chromium's to decide.
+   * name a saved machine was pinned for accepts that machine's key and no
+   * other, unless the machine also lists the name as one a CA vouches for;
+   * every other name is Chromium's to decide.
    */
-  certificateVerdict(hostname: string, presented: string): number {
+  certificateVerdict(hostname: string, presented: PresentedIdentity): number {
     const bare = hostname.replace(/^\[|\]$/gu, "").toLowerCase();
-    const pins = (this.catalog?.list() ?? []).filter((entry) => entry.fingerprint
-      && (this.resolved.get(bare) === entry.id
-        || entry.endpoints.some((endpoint) => endpoint.url.startsWith("https:") && hostEndpoint(socketUrl(endpoint.url)).hostname === bare)));
-    if (pins.length === 0) return CERTIFICATE_DEFAULT;
-    return pins.some((entry) => fingerprintsMatch(presented, entry.fingerprint!)) ? CERTIFICATE_ACCEPT : CERTIFICATE_REJECT;
+    let pinned = false;
+    let authority = false;
+    for (const entry of this.catalog?.list() ?? []) {
+      // The address this process resolved a `.local` name to stands for that name.
+      const resolved = this.resolved.get(bare) === entry.id;
+      for (const endpoint of entry.endpoints) {
+        if (!endpoint.url.startsWith("https:")) continue;
+        const url = socketUrl(endpoint.url);
+        if (hostEndpoint(url).hostname !== bare && !(resolved && endpoint.kind === "mdns")) continue;
+        const trust = endpointTrust(entry, url);
+        if (trust?.pin) {
+          if (pinAccepts(trust.pin, presented)) return CERTIFICATE_ACCEPT;
+          pinned = true;
+        }
+        if (!trust?.pin || trust.allowAuthority) authority = true;
+      }
+    }
+    // Chromium checks chain and name for an address a CA vouches for.
+    return authority || !pinned ? CERTIFICATE_DEFAULT : CERTIFICATE_REJECT;
   }
 
   /** Whether a socket URL is one of the saved machines' addresses: the page's `Origin` is dropped for exactly these. */
@@ -360,19 +386,22 @@ export class WindowEnvironments {
 
   private watchSaved(saved: SavedEnvironment): void {
     const catalog = this.catalog;
-    this.watch(saved.id, `${saved.token}\n${saved.fingerprint ?? ""}`, {
-      urls: () => {
-        const current = catalog?.get(saved.id) ?? saved;
-        return orderEndpoints(current.endpoints, current.lastUrl).map((endpoint) => socketUrl(endpoint.url));
-      },
+    const current = () => catalog?.get(saved.id) ?? saved;
+    // Pins are read at every attempt, so a migrated pin needs no new monitor.
+    this.watch(saved.id, saved.token, {
+      urls: () => orderEndpoints(current().endpoints, current().lastUrl).map((endpoint) => socketUrl(endpoint.url)),
       token: saved.token,
-      ...(saved.fingerprint ? { fingerprint: saved.fingerprint } : {}),
-      onReached: (url, reply) => {
-        const current = catalog?.get(saved.id);
-        const page = current?.endpoints.find((endpoint) => socketUrl(endpoint.url) === url)?.url;
+      trust: (url) => endpointTrust(current(), url),
+      onReached: (url, reply, certificate) => {
+        const entry = current();
+        const page = entry.endpoints.find((endpoint) => socketUrl(endpoint.url) === url)?.url;
+        // A certificate pin that just held vouches for the key it certified; from now on the key is pinned.
+        const migrate = !entry.publicKey && entry.fingerprint && certificate?.via === "pin";
+        if (migrate) this.options.logger.info("environment.pin-migrated", { id: saved.id, publicKey: certificate.presented.publicKey });
         void catalog?.update(saved.id, {
           ...(page ? { lastUrl: page } : {}),
           readOnly: reply.access === "read-only" ? true : undefined,
+          ...(migrate ? { publicKey: certificate.presented.publicKey, fingerprint: undefined } : {}),
         }).catch(() => undefined);
         if (reply.host?.id === saved.id && reply.host.endpoints?.length) {
           void this.refreshAddresses(saved.id, reply.host.endpoints, page, "hello").catch(() => undefined);
@@ -450,4 +479,10 @@ export class WindowEnvironments {
     }, 50);
     this.publishTimer.unref?.();
   }
+}
+
+/** A Bonjour record carries the pin a machine was saved with: its key, or for an old pin its certificate. */
+function recordMatchesPin(saved: Pick<SavedEnvironment, "publicKey" | "fingerprint">, record: { fingerprint: string; publicKey?: string }): boolean {
+  if (saved.publicKey) return record.publicKey !== undefined && fingerprintsMatch(record.publicKey, saved.publicKey);
+  return saved.fingerprint !== undefined && fingerprintsMatch(record.fingerprint, saved.fingerprint);
 }

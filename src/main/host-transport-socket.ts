@@ -21,6 +21,7 @@ import { helloReply, type HostPushLog } from "./host-push-log.js";
 import { HostPushFilter, hostPushScope } from "./host-push-scope.js";
 import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
+import { publicKeyPin } from "./host-tls.js";
 import type { AccessPeer, HostCredential, PairingChannel } from "./host-access.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
@@ -226,7 +227,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   };
 
   /** A device that holds no token yet asks to be let in; the owner decides on the host (ADR 0024). */
-  const handlePairing = (socket: WebSocket, frame: { type: "pair"; id: string; pair: HostPairRequest } | { type: "pair-reveal"; id: string; nonce: string }, peer: AccessPeer, fingerprint: string | undefined): void => {
+  const handlePairing = (socket: WebSocket, frame: { type: "pair"; id: string; pair: HostPairRequest } | { type: "pair-reveal"; id: string; nonce: string }, peer: AccessPeer, own: ListenerIdentity | undefined): void => {
     const asked = pairing.get(socket);
     const invalid = () => pairReply(socket, frame.id, { state: "refused", reason: "invalid" });
     if (!access.requestPairing || !access.revealPairing || authenticated.has(socket)) { invalid(); return; }
@@ -235,7 +236,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       const state: { frameId: string; requestId?: string } = { frameId: frame.id };
       pairing.set(socket, state);
       const { id, reply } = access.requestPairing(frame.pair, peer, {
-        ...(fingerprint ? { fingerprint } : {}),
+        ...(own ? { fingerprint: own.fingerprint, publicKey: own.publicKey } : {}),
         settle: (outcome) => pairReply(socket, frame.id, outcome),
       });
       if (id) state.requestId = id;
@@ -513,15 +514,20 @@ const upgradeOnly = (_request: IncomingMessage, response: ServerResponse): void 
   response.end("This port speaks the Tau host protocol over WebSocket.");
 };
 
+interface ListenerIdentity {
+  fingerprint: string;
+  publicKey: string;
+}
+
 /**
- * The certificate this socket's listener presented, as a pinning device saw
- * it; the pairing digits are bound to it. Absent on plaintext, and behind a
- * proxy that ends TLS itself.
+ * The certificate and key this socket's listener presented, as a pinning
+ * device saw them; the pairing digits are bound to one of them. Absent on
+ * plaintext, and behind a proxy that ends TLS itself.
  */
-function ownCertificate(request: IncomingMessage): string | undefined {
+function ownCertificate(request: IncomingMessage): ListenerIdentity | undefined {
   const socket = request.socket as Partial<TLSSocket>;
-  const certificate = typeof socket.getCertificate === "function" ? socket.getCertificate() : null;
-  return certificate && "fingerprint256" in certificate && typeof certificate.fingerprint256 === "string" ? certificate.fingerprint256 : undefined;
+  const certificate = typeof socket.getX509Certificate === "function" ? socket.getX509Certificate() : undefined;
+  return certificate ? { fingerprint: certificate.fingerprint256, publicKey: publicKeyPin(certificate) } : undefined;
 }
 
 /** An HTTPS server with nothing to serve but the upgrade to the protocol. */

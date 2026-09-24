@@ -8,7 +8,7 @@ import { DEFAULT_NETWORK_SETTINGS, parsePairingPayload, type UiConnections, type
 import { pairingCommitment, pairingVerificationCode, randomPairingNonce, type HostPairReply } from "../shared/pairing.js";
 import type { Interfaces } from "./host-endpoints.js";
 import { HostAccess, type AccessAuditEntry, type AccessPeer, type PairingChannel } from "./host-access.js";
-import { createConnectionsMethods, endpointOrigins, hostEndpoints, type HostConnectionsService } from "./host-connections.js";
+import { createConnectionsMethods, endpointOrigins, hostEndpoints, publishedEndpoints, type HostConnectionsService } from "./host-connections.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostTokenFile, readHostToken } from "./host-token.js";
 import { HostUplink } from "./host-uplink.js";
@@ -776,7 +776,7 @@ describe("the Connections methods", () => {
             ...state,
             settings: { ...state.settings, ...input } as UiNetworkAccess["settings"],
             listeners: [{ host: "::", port: 7788, kind: "network" }],
-            certificate: { source: "self-signed", fingerprint: "CD:".repeat(31) + "CD", validTo: "", certPath: "", warnings: [] },
+            certificate: { source: "self-signed", fingerprint: "CD:".repeat(31) + "CD", publicKey: "EF:".repeat(31) + "EF", validTo: "", certPath: "", warnings: [] },
           };
           return state;
         },
@@ -794,7 +794,9 @@ describe("the Connections methods", () => {
     expect(on.endpoints.map((endpoint) => endpoint.label)).toEqual(["LAN (en0)", "This machine"]);
     const link = await invokeHostMethod(methods, "connections-create-link", [], HOST_CORE_PRINCIPAL) as UiCreatedPairingLink;
     // The host's own listener is plaintext loopback here; a phone meets the network listeners' certificate.
-    expect(parsePairingPayload(link.urls[0]!.url)).toMatchObject({ code: link.code, fingerprint: "CD:".repeat(31) + "CD", endpoints: [{ url: "https://192.168.1.20:7788/", kind: "lan" }] });
+    expect(parsePairingPayload(link.urls[0]!.url)).toMatchObject({ code: link.code, fingerprint: "CD:".repeat(31) + "CD", publicKey: "EF:".repeat(31) + "EF", endpoints: [{ url: "https://192.168.1.20:7788/", kind: "lan" }] });
+    // What a hello names to a device that saved this host: the network addresses, never loopback.
+    expect((await publishedEndpoints(service)).network).toEqual([{ url: "https://192.168.1.20:7788/", kind: "lan" }]);
     await expect(invokeHostMethod(methods, "connections-reload-certificate", [], HOST_CORE_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
     expect(await endpointOrigins(service)).toEqual(["https://192.168.1.20:7788", "http://127.0.0.1:4100"]);
   });
@@ -812,7 +814,9 @@ describe("the Connections methods", () => {
     const list = await invokeHostMethod(methods, "connections-list", [], HOST_CORE_PRINCIPAL) as UiConnections;
     expect(list.endpoints).toEqual([served, expect.objectContaining({ label: "This machine" })]);
     const link = await invokeHostMethod(methods, "connections-create-link", [], HOST_CORE_PRINCIPAL) as UiCreatedPairingLink;
-    expect(link.urls[0]).toMatchObject({ url: `https://box.tail0000.ts.net/#pair=${encodeURIComponent(link.code)}&k=magicdns`, trustedCertificate: true });
+    expect(link.urls[0]).toMatchObject({ url: `https://box.tail0000.ts.net/#pair=${encodeURIComponent(link.code)}&k=magicdns&ca=https%3A%2F%2Fbox.tail0000.ts.net%2F`, trustedCertificate: true });
+    expect(parsePairingPayload(link.urls[0]!.url)?.endpoints).toEqual([{ url: "https://box.tail0000.ts.net/", kind: "magicdns", trustedCertificate: true }]);
+    expect((await publishedEndpoints(service)).network).toEqual([{ url: "https://box.tail0000.ts.net/", kind: "magicdns", trustedCertificate: true }]);
     expect(await endpointOrigins(service)).toEqual(["https://box.tail0000.ts.net", "http://127.0.0.1:4100"]);
   });
 });

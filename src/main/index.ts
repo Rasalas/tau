@@ -610,7 +610,7 @@ async function showEnvironment(connection: EnvironmentConnection | undefined): P
       onUrlChanged: () => undefined,
       onEvent: (event) => { if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId); },
     });
-    remote.attach(connection.url, connection.token, connection.fingerprint);
+    remote.attach(connection.url, connection.token, connection.trust);
     shownHost = remote;
   }
   hostLog.info("environments.shown", { id: connection?.id ?? localHostId, url: connection?.url });

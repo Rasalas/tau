@@ -1,6 +1,6 @@
 /** What the native side reports about one socket. */
 export type NativeSocketEvent =
-  | { id: string; type: "open"; fingerprint?: string }
+  | { id: string; type: "open"; fingerprint?: string; publicKey?: string }
   | { id: string; type: "message"; data: string }
   /** `pinMismatch`: the host presented a certificate other than the pinned one. */
   | { id: string; type: "close"; code: number; reason?: string; pinMismatch?: boolean };
@@ -8,9 +8,11 @@ export type NativeSocketEvent =
 export interface NativeSocketRequest {
   id: string;
   url: string;
-  /** SHA-256 of the certificate to accept, `AB:CD:…`; without one the platform's trust decides. */
+  /** SHA-256 of the public key (SPKI) to accept, `AB:CD:…`; decides alone when given. */
+  publicKey?: string;
+  /** SHA-256 of the one certificate to accept: an old pin, only without `publicKey`. Without either the platform's trust decides. */
   fingerprint?: string;
-  /** Accept a certificate the platform trusts for this name when it is not the pinned one (a Tailscale Serve name). */
+  /** Accept a certificate the platform trusts for this name when it is not the pinned one: old pins only. */
   allowAuthority?: boolean;
   headers?: Record<string, string>;
 }
@@ -24,6 +26,7 @@ export interface SocketBridge {
 }
 
 export interface NativeSocketOptions {
+  publicKey?: string;
   fingerprint?: string;
   allowAuthority?: boolean;
   headers?: Record<string, string>;
@@ -51,6 +54,8 @@ export class NativeSocket {
   onerror: (() => void) | null = null;
   /** SHA-256 of the certificate the host presented, once open over TLS. */
   fingerprint: string | undefined;
+  /** SHA-256 of its public key, once open over TLS. */
+  publicKey: string | undefined;
   /** The socket closed because the certificate was not the pinned one. */
   pinMismatch = false;
 
@@ -63,6 +68,7 @@ export class NativeSocket {
     bridge.open({
       id: this.id,
       url,
+      ...(options.publicKey ? { publicKey: options.publicKey } : {}),
       ...(options.fingerprint ? { fingerprint: options.fingerprint } : {}),
       ...(options.allowAuthority ? { allowAuthority: true } : {}),
       ...(options.headers ? { headers: options.headers } : {}),
@@ -96,6 +102,7 @@ export class NativeSocket {
         if (this.readyState !== NativeSocket.CONNECTING) return;
         this.readyState = NativeSocket.OPEN;
         this.fingerprint = event.fingerprint;
+        this.publicKey = event.publicKey;
         this.onopen?.();
         this.emit("open", {});
         return;

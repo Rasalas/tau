@@ -152,6 +152,8 @@ export interface UiNetworkListener {
 export interface UiNetworkCertificate {
   source: "self-signed" | "supplied";
   fingerprint: string;
+  /** SHA-256 of its public key: what a device pins. A renewal of the self-signed one keeps it. */
+  publicKey?: string;
   validTo: string;
   certPath: string;
   warnings: string[];
@@ -263,13 +265,21 @@ export const PAIRING_LINK_LIFETIMES_MS = [10 * 60_000, 60 * 60_000, 24 * 60 * 60
 export interface PairingEndpoint {
   url: string;
   kind?: UiHostEndpointKind;
+  /**
+   * A proxy answers here with a certificate a CA vouches for (Tailscale
+   * Serve): a device checks chain and name and pins nothing. Only a DNS name
+   * outside `.local` can carry it; anywhere else the host's key is pinned.
+   */
+  trustedCertificate?: boolean;
 }
 
 /** What a pairing link or QR code tells a device, besides where the link itself points. */
 export interface PairingPayload {
   code: string;
-  /** SHA-256 of the host's own certificate, `AB:CD:…`; a device pins it on every endpoint that presents a self-signed one. */
+  /** SHA-256 of the host's own certificate, `AB:CD:…`; what apps before key pins pin. */
   fingerprint?: string;
+  /** SHA-256 of the host's public key (SPKI), `AB:CD:…`; pinned on every endpoint not marked `trustedCertificate`. */
+  publicKey?: string;
   hostId?: string;
   hostName?: string;
   /** Every address the host listens on, best first; the link's own origin leads. */
@@ -287,17 +297,19 @@ export function decodePairingEndpoints(value: unknown, max = 16): PairingEndpoin
     const url = (item as { url?: unknown } | null)?.url;
     const kind = (item as { kind?: unknown } | null)?.kind;
     if (typeof url !== "string" || url.length > 2_048 || !/^https?:\/\/[^\s]+$/u.test(url) || endpoints.some((entry) => entry.url === url)) continue;
-    endpoints.push({ url, ...(typeof kind === "string" && isEndpointKind(kind) ? { kind } : {}) });
+    const trusted = (item as { trustedCertificate?: unknown }).trustedCertificate === true && authorityName(url);
+    endpoints.push({ url, ...(typeof kind === "string" && isEndpointKind(kind) ? { kind } : {}), ...(trusted ? { trustedCertificate: true } : {}) });
     if (endpoints.length === max) break;
   }
   return endpoints;
 }
 
 /**
- * `url#pair=code&k=<kind>&fp=…&host=…&name=…&e=<kind>:<url>…`: the fragment
- * never reaches a server log, and the page drops it before rendering. A
- * browser needs only `pair`; a native client reads the rest to pin the
- * certificate and pick an address. `k` is the kind of the link's own origin.
+ * `url#pair=code&k=<kind>&fp=…&pk=…&host=…&name=…&e=<kind>:<url>…&ca=<url>…`:
+ * the fragment never reaches a server log, and the page drops it before
+ * rendering. A browser needs only `pair`; a native client reads the rest to
+ * pin the key and pick an address. `k` is the kind of the link's own origin;
+ * each `ca` names an address (the link's own too) that a CA vouches for.
  */
 export function pairingUrl(endpoint: string | PairingEndpoint, payload: Omit<PairingPayload, "endpoints"> & { endpoints?: readonly PairingEndpoint[] }): string {
   const own = typeof endpoint === "string" ? { url: endpoint } : endpoint;
@@ -306,11 +318,15 @@ export function pairingUrl(endpoint: string | PairingEndpoint, payload: Omit<Pai
   if (own.kind) fields.set("k", own.kind);
   const fingerprint = payload.fingerprint ? canonicalFingerprint(payload.fingerprint) : undefined;
   if (fingerprint) fields.set("fp", fingerprint.replace(/:/gu, ""));
+  const publicKey = payload.publicKey ? canonicalFingerprint(payload.publicKey) : undefined;
+  if (publicKey) fields.set("pk", publicKey.replace(/:/gu, ""));
   if (payload.hostId) fields.set("host", payload.hostId);
   if (payload.hostName) fields.set("name", payload.hostName);
   for (const other of payload.endpoints ?? []) {
     if (other.url !== base) fields.append("e", other.kind ? `${other.kind}:${other.url}` : other.url);
   }
+  const trusted = [own, ...(payload.endpoints ?? [])].filter((entry) => entry.trustedCertificate).map((entry) => entry.url.replace(/#.*$/u, ""));
+  for (const url of new Set(trusted)) fields.append("ca", url);
   return `${base}#${fields.toString()}`;
 }
 
@@ -333,16 +349,31 @@ export function parsePairingPayload(text: string): PairingPayload | undefined {
     if (split) add(split[2]!, split[1]);
     else add(entry);
   }
+  const trusted = new Set(fields.getAll("ca"));
+  for (const endpoint of endpoints) if (trusted.has(endpoint.url) && authorityName(endpoint.url)) endpoint.trustedCertificate = true;
   const fingerprint = canonicalFingerprint(fields.get("fp") ?? "");
+  const publicKey = canonicalFingerprint(fields.get("pk") ?? "");
   const hostId = fields.get("host");
   const hostName = fields.get("name");
   return {
     code,
     endpoints,
     ...(fingerprint ? { fingerprint } : {}),
+    ...(publicKey ? { publicKey } : {}),
     ...(hostId ? { hostId } : {}),
     ...(hostName ? { hostName } : {}),
   };
+}
+
+/**
+ * A URL whose host a public CA can vouch for: a DNS name, not an IP literal
+ * and not `.local`. Only such an address may skip the host's pin.
+ */
+export function authorityName(url: string): boolean {
+  let host: string;
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return false; }
+  if (!host || host.startsWith("[") || /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(host)) return false;
+  return host.includes(".") && !host.endsWith(".local") && host !== "localhost";
 }
 
 /** `AB:CD:…` from any spelling of 32 bytes of hex; undefined for anything else. */

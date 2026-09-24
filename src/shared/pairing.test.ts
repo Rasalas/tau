@@ -24,6 +24,23 @@ describe("a pairing link", () => {
     });
   });
 
+  it("carries the key pin and marks the addresses a CA vouches for, its own too", () => {
+    const publicKey = "CD:".repeat(31) + "CD";
+    const serve = { url: "https://box.tail0000.ts.net/", kind: "magicdns" as const, trustedCertificate: true };
+    const lan = { url: "https://192.168.1.20:7788/", kind: "lan" as const };
+    const url = pairingUrl(serve, { code: "c", fingerprint, publicKey, endpoints: [serve, lan] });
+    expect(url).toContain(`&pk=${"CD".repeat(32)}`);
+    expect(url).toContain("&ca=https%3A%2F%2Fbox.tail0000.ts.net%2F");
+    expect(parsePairingPayload(url)).toEqual({ code: "c", fingerprint, publicKey, endpoints: [serve, lan] });
+    const fromLan = parsePairingPayload(pairingUrl(lan, { code: "c", publicKey, endpoints: [serve, lan] }));
+    expect(fromLan?.endpoints).toEqual([lan, serve]);
+  });
+
+  it("never lets a CA stand in for the pin on an address or a .local name", () => {
+    const text = "https://192.168.1.20:7788/#pair=c&ca=https%3A%2F%2F192.168.1.20%3A7788%2F&e=https://studio.local:7788/&ca=https://studio.local:7788/&e=https://[fd00::1]:7788/&ca=https://[fd00::1]:7788/";
+    expect(parsePairingPayload(text)?.endpoints.some((endpoint) => endpoint.trustedCertificate)).toBe(false);
+  });
+
   it("reads the plain links of before, a bare fragment, and nothing without a code", () => {
     expect(parsePairingPayload("http://127.0.0.1:1/#pair=abc")).toEqual({ code: "abc", endpoints: [{ url: "http://127.0.0.1:1/" }] });
     expect(parsePairingPayload("pair=abc&e=javascript:alert(1)&e=lan:javascript:x&e=bogus:https://h/")).toEqual({ code: "abc", endpoints: [{ url: "https://h/" }] });
@@ -52,6 +69,16 @@ describe("the digits both screens show", () => {
     // Six digits collide one time in a million; three at once never do here.
     expect(others.filter((other) => other === code).length).toBeLessThan(3);
     expect(formatVerification("482913")).toBe("482 913");
+  });
+
+  it("bound to the key differ from the certificate-bound ones, and hold across a renewal", async () => {
+    const deviceNonce = randomPairingNonce();
+    const hostNonce = randomPairingNonce();
+    const key = await pairingVerificationCode({ publicKey: fingerprint, deviceNonce, hostNonce });
+    expect(key).toMatch(/^\d{6}$/u);
+    // Same input, other binding: another domain, so one never passes for the other.
+    expect(key).not.toBe(await pairingVerificationCode({ fingerprint, deviceNonce, hostNonce }));
+    expect(await pairingVerificationCode({ publicKey: fingerprint, fingerprint: "CD:".repeat(31) + "CD", deviceNonce, hostNonce })).toBe(key);
   });
 
   it("commit to a nonce with its SHA-256", async () => {

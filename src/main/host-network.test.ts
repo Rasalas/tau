@@ -9,7 +9,7 @@ import type { Interfaces } from "./host-endpoints.js";
 import type { ListenerTrust } from "./host-local-files.js";
 import { HostNetworkAccess, applyNetworkSettings, decodeNetworkSettingsInput, planNetworkBinds, type NetworkBind } from "./host-network.js";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
-import { certificateFingerprint } from "./host-tls.js";
+import { certificateFingerprint, publicKeyPin } from "./host-tls.js";
 import type { ServiceAnnouncement } from "./host-discovery.js";
 import { readTauServiceTxt } from "../shared/discovery.js";
 
@@ -71,6 +71,14 @@ async function openAccess(options: { userData?: string; interfaces?: () => Inter
   accesses.push(access);
   return { access, attached };
 }
+
+const servedKey = (port: number) => new Promise<string>((resolve, reject) => {
+  const socket = tlsConnect({ host: "127.0.0.1", port, rejectUnauthorized: false }, () => {
+    resolve(publicKeyPin(socket.getPeerX509Certificate()!));
+    socket.end();
+  });
+  socket.once("error", reject);
+});
 
 const servedFingerprint = (port: number) => new Promise<string>((resolve, reject) => {
   const socket = tlsConnect({ host: "127.0.0.1", port, rejectUnauthorized: false }, () => {
@@ -259,7 +267,7 @@ describe("the Bonjour announcement", () => {
     const state = await access.update({ lan: true });
     const port = state.listeners[0]!.port;
     expect(bonjour.current).toEqual({ type: "_tau-test._tcp", name: "studio", port, txt: expect.any(Object) });
-    expect(readTauServiceTxt(bonjour.current!.txt)).toEqual({ hostId: "0123456789abcdef0123456789abcdef", fingerprint: await servedFingerprint(port) });
+    expect(readTauServiceTxt(bonjour.current!.txt)).toEqual({ hostId: "0123456789abcdef0123456789abcdef", fingerprint: await servedFingerprint(port), publicKey: await servedKey(port) });
     expect(state.announcement).toEqual({ state: "announced", name: "studio", serviceType: "_tau-test._tcp" });
   });
 

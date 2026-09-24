@@ -15,7 +15,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { X509Certificate } from "node:crypto";
+import { X509Certificate, createPrivateKey } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -132,6 +132,8 @@ const { pinnedTlsConnect, HostCertificateRefusedError } = await import(pathToFil
 // The digits a pinning device computes, from the same module the app uses.
 const { pairingCommitment, pairingVerificationCode, randomPairingNonce } = await import(pathToFileURL(join(ROOT, "dist-electron", "shared", "pairing.js")).href);
 const { parsePairingPayload } = await import(pathToFileURL(join(ROOT, "dist-electron", "shared", "connections.js")).href);
+const { publicKeyPin } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-tls.js")).href);
+const { createSelfSignedCertificate } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "self-signed-certificate.js")).href);
 const PHONE_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1";
 
 /** Starts a headless host; `tls` adds TAU_HOST_TLS=1. Resolves once it prints its socket. */
@@ -172,6 +174,7 @@ async function startHost({ workspace, userData, tokenHome, tls, webClient, kits 
   return {
     url: output.match(/listening on (wss?:\/\/\S+)/u)[1],
     fingerprint: output.match(/tls fingerprint: SHA256 (\S+)/u)?.[1],
+    publicKey: output.match(/tls public key: SHA256 (\S+)/u)?.[1],
     proxyUrl: output.match(/proxy listener on (http:\/\/\S+)/u)?.[1],
     output: () => output,
     stop: async () => {
@@ -289,6 +292,13 @@ async function exerciseTls(host, userData, token) {
     if ((statSync(join(userData, "tls")).mode & 0o777) !== 0o700) fail("the TLS directory is not 0700");
   }
   step(process.platform === "win32" ? "tls: certificate kept under userData (modes not checked on Windows)" : "tls: certificate kept 0600 under userData", host.fingerprint);
+  const key = publicKeyPin(readFileSync(certPath, "utf8"));
+  if (host.publicKey !== key) fail(`the printed key ${host.publicKey} is not the certificate's ${key}`);
+  const keyPinned = createClient(host.url, token, { publicKey: key });
+  await keyPinned.opened;
+  await keyPinned.hello();
+  await keyPinned.close();
+  step("tls: a client that pins the key connects", key);
 
   const impostor = `${host.fingerprint.slice(0, -2)}${host.fingerprint.endsWith("00") ? "01" : "00"}`;
   const wrongPin = createClient(host.url, token, impostor);
@@ -325,22 +335,22 @@ function httpPost(pageUrl, path, body, ca) {
  * A device asking to pair over the socket (ADR 0024). With `fingerprint` it
  * pins the certificate and binds the digits to it, as the app does.
  */
-async function askToPair(url, { code, fingerprint, name, forwardedFor } = {}) {
+async function askToPair(url, { code, fingerprint, publicKey, name, forwardedFor } = {}) {
   const socket = new PinnedWebSocket(url, {
     headers: { "user-agent": PHONE_AGENT, ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}) },
-    ...(fingerprint ? { createConnection: pinnedTlsConnect(fingerprint) } : {}),
+    ...(publicKey ? { createConnection: pinnedTlsConnect({ publicKey }) } : fingerprint ? { createConnection: pinnedTlsConnect(fingerprint) } : {}),
   });
   const replies = [];
   const waiters = [];
   let shown;
   const closed = new Promise((resolve) => socket.on("close", (closeCode, reason) => resolve({ code: closeCode, reason: String(reason) })));
-  const nonce = fingerprint ? randomPairingNonce() : undefined;
+  const nonce = fingerprint || publicKey ? randomPairingNonce() : undefined;
   socket.on("message", async (data) => {
     const frame = JSON.parse(String(data));
     if (frame.type !== "pair-reply") return;
     const { reply } = frame;
     if (reply.state === "challenge") {
-      shown = await pairingVerificationCode({ fingerprint, deviceNonce: nonce, hostNonce: reply.hostNonce });
+      shown = await pairingVerificationCode({ ...(publicKey ? { publicKey } : { fingerprint }), deviceNonce: nonce, hostNonce: reply.hostNonce });
       socket.send(JSON.stringify({ type: "pair-reveal", id: "pair", nonce }));
       return;
     }
@@ -352,7 +362,7 @@ async function askToPair(url, { code, fingerprint, name, forwardedFor } = {}) {
     for (const waiter of waiters.splice(0)) waiter();
   });
   await new Promise((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
-  socket.send(JSON.stringify({ type: "pair", id: "pair", pair: { ...(code ? { code } : {}), ...(name ? { name } : {}), ...(nonce ? { commitment: await pairingCommitment(nonce) } : {}) } }));
+  socket.send(JSON.stringify({ type: "pair", id: "pair", pair: { ...(code ? { code } : {}), ...(name ? { name } : {}), ...(nonce ? { commitment: await pairingCommitment(nonce) } : {}), ...(publicKey ? { binding: "key" } : {}) } }));
   const next = async () => {
     while (replies.length === 0) await new Promise((resolve) => waiters.push(resolve));
     return replies.shift();
@@ -427,6 +437,7 @@ async function exerciseAccess(host, tokenPath, userData, label) {
   if (!link || !page) fail(`the printed link carries no code: ${printed[1]}`);
   if (host.fingerprint && link.fingerprint !== host.fingerprint) fail(`the link's fingerprint ${link.fingerprint} is not the host's ${host.fingerprint}`);
   if (!host.fingerprint && link.fingerprint) fail("a plaintext host put a fingerprint in its link");
+  if (host.publicKey !== link.publicKey) fail(`the link's key ${link.publicKey} is not the host's ${host.publicKey}`);
   if (!/^[0-9a-f]{32}$/u.test(link.hostId ?? "")) fail(`the link names no host id: ${printed[1]}`);
   step(`${label}: the printed link carries the code, the host id${host.fingerprint ? " and the fingerprint" : ""}`);
   const legacy = await httpPost(page, "/pair", JSON.stringify({ code: link.code }), ca);
@@ -439,7 +450,7 @@ async function exerciseAccess(host, tokenPath, userData, label) {
   await owner.hello();
 
   // Nobody is let in before the owner says so; over TLS the device binds the digits to the pinned certificate.
-  const asking = await askToPair(host.url, { code: link.code, fingerprint: host.fingerprint, name: "Smoke phone" });
+  const asking = await askToPair(host.url, { code: link.code, fingerprint: host.fingerprint, publicKey: host.publicKey, name: "Smoke phone" });
   const waiting = await asking.next();
   if (waiting.state !== "waiting") fail(`the startup link was not put to the owner: ${JSON.stringify(waiting)}`);
   const pending = (await owner.request("connections-list")).requests;
@@ -454,7 +465,7 @@ async function exerciseAccess(host, tokenPath, userData, label) {
   const spent = await askToPair(host.url, { code: link.code, fingerprint: host.fingerprint });
   const refusal = await spent.next();
   if (refusal.state !== "refused" || refusal.reason !== "unknown-code") fail(`a spent link asked again: ${JSON.stringify(refusal)}`);
-  step(`${label}: a device asks with the link and gets a token once the owner allows its code`, `code ${asking.shown()}${host.fingerprint ? ", bound to the pinned certificate" : ""}`);
+  step(`${label}: a device asks with the link and gets a token once the owner allows its code`, `code ${asking.shown()}${host.publicKey ? ", bound to the pinned key" : ""}`);
 
   // Without a link, and denied: the socket closes and nobody is added.
   const stranger = await askToPair(host.url, { fingerprint: host.fingerprint });
@@ -469,7 +480,10 @@ async function exerciseAccess(host, tokenPath, userData, label) {
 
   const phone = createClient(host.url, paired.token, host.fingerprint);
   await phone.opened;
-  await phone.hello();
+  const phoneHello = await phone.hello();
+  const named = phoneHello?.host?.endpoints ?? [];
+  if (phoneHello?.host?.id !== link.hostId || named.some((endpoint) => /127\.0\.0\.1|\[::1\]/u.test(endpoint.url))) fail(`the hello named ${JSON.stringify(phoneHello?.host)}`);
+  step(`${label}: a paired device's hello names the host and where it is reachable`, `${named.length} network address(es), no loopback`);
   const forbidden = await phone.request("connections-list").then(() => "answered", (error) => String(error.message));
   if (!forbidden.startsWith("forbidden")) fail(`a paired client could list connections: ${forbidden}`);
   const listed = await owner.request("connections-list");
@@ -630,6 +644,23 @@ async function scenario({ tls }) {
       await again.hello();
       await again.close();
       step("tls: a restarted host keeps its fingerprint");
+
+      // Renewal: a certificate near its end is made anew with the same key (F19).
+      await host.stop();
+      const keyPem = readFileSync(join(userData, "tls", "host-key.pem"), "utf8");
+      const dueSoon = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 1, privateKey: createPrivateKey(keyPem) });
+      writeFileSync(join(userData, "tls", "host-cert.pem"), dueSoon.cert, { mode: 0o600 });
+      host = await startHost({ workspace, userData, tokenHome, tls, webClient });
+      if (!/created now/u.test(host.output())) fail(`a certificate due for renewal was not renewed\n${host.output()}`);
+      if (host.fingerprint === first || host.publicKey !== publicKeyPin(dueSoon.cert)) fail(`the renewal did not keep the key: ${host.fingerprint} ${host.publicKey}`);
+      const byKey = createClient(host.url, token, { publicKey: host.publicKey });
+      await byKey.opened;
+      await byKey.hello();
+      await byKey.close();
+      const byOldCertificate = createClient(host.url, token, first);
+      const refusedOld = await byOldCertificate.opened.then(() => undefined, (error) => error);
+      if (!(refusedOld instanceof HostCertificateRefusedError)) fail(`the old certificate pin was not refused after the renewal: ${refusedOld}`);
+      step("tls: a renewed certificate keeps the key", "the key pin connects, the old certificate pin is refused");
     }
     // Last: rotation replaces the token the steps above used.
     await exerciseAccess(host, join(tokenHome, ".tau", "host-token"), userData, label);

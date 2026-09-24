@@ -40,6 +40,12 @@ export interface PairWithHostOptions {
    * socket cannot pin (a browser).
    */
   fingerprint?: string;
+  /**
+   * The public key (SPKI SHA-256) this device pinned or saw; binds the
+   * digits to the key instead, which a renewal keeps. Takes precedence over
+   * `fingerprint`. Empty on a socket without TLS of the host's own.
+   */
+  publicKey?: string;
   /** The digits to show, as soon as the owner sees the request too. */
   onWaiting?(waiting: { verification: string; expiresAt: string }): void;
   createSocket?(url: string): PairingSocket;
@@ -69,7 +75,7 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
 
     socket.addEventListener("open", () => {
       void (async () => {
-        const bound = options.fingerprint !== undefined;
+        const bound = options.fingerprint !== undefined || options.publicKey !== undefined;
         if (bound) nonce = randomPairingNonce();
         send({
           type: "pair",
@@ -78,6 +84,7 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
             ...(options.code ? { code: options.code } : {}),
             ...(options.name ? { name: options.name } : {}),
             ...(nonce ? { commitment: await pairingCommitment(nonce) } : {}),
+            ...(nonce && options.publicKey !== undefined ? { binding: "key" as const } : {}),
           },
         });
       })().catch((error: unknown) => finish({ state: "failed", message: error instanceof Error ? error.message : String(error) }));
@@ -87,7 +94,11 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
       switch (reply.state) {
         case "challenge": {
           if (!nonce) { finish({ state: "failed", message: "The host asked for a nonce this device never committed to." }); return; }
-          ownCode = await pairingVerificationCode({ fingerprint: options.fingerprint ?? "", deviceNonce: nonce, hostNonce: reply.hostNonce });
+          ownCode = await pairingVerificationCode({
+            ...(options.publicKey !== undefined ? { publicKey: options.publicKey } : { fingerprint: options.fingerprint ?? "" }),
+            deviceNonce: nonce,
+            hostNonce: reply.hostNonce,
+          });
           send({ type: "pair-reveal", id, nonce });
           return;
         }

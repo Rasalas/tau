@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
-import { HostTlsReloader, certificateFingerprint, fingerprintsMatch, normalizeFingerprint, resolveHostTls } from "./host-tls.js";
+import { HostTlsReloader, certificateFingerprint, fingerprintsMatch, normalizeFingerprint, publicKeyPin, resolveHostTls } from "./host-tls.js";
 
 const directories: string[] = [];
 function scratch(): string {
@@ -49,6 +49,16 @@ describe("self-signed certificate", () => {
     expect(new Date(new X509Certificate(cert).validTo).getUTCFullYear()).toBe(2051);
   });
 
+  it("certifies a key it is given, so the key pin stays and the fingerprint does not", () => {
+    const options = { commonName: "Tau host", dnsNames: [], ipAddresses: [], days: 1 };
+    const first = createSelfSignedCertificate(options);
+    const again = createSelfSignedCertificate({ ...options, privateKey: createPrivateKey(first.key) });
+    expect(again.key).toBe(first.key);
+    expect(publicKeyPin(again.cert)).toBe(publicKeyPin(first.cert));
+    expect(certificateFingerprint(again.cert)).not.toBe(certificateFingerprint(first.cert));
+    expect(publicKeyPin(first.cert)).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/u);
+  });
+
   it("makes a new key every time", () => {
     const options = { commonName: "Tau host", dnsNames: [], ipAddresses: [], days: 1 };
     expect(certificateFingerprint(createSelfSignedCertificate(options).cert))
@@ -84,13 +94,26 @@ describe("host TLS material", () => {
     expect(statSync(first.keyPath).mode & 0o777).toBe(0o600);
   });
 
-  it("renews a self-signed certificate before it runs out", () => {
+  it("renews a self-signed certificate before it runs out, with the same key", () => {
     const userData = scratch();
     const first = resolveHostTls({ TAU_HOST_TLS: "1" }, { userData })!;
     const later = new Date(Date.now() + 820 * 86_400_000);
     const renewed = resolveHostTls({ TAU_HOST_TLS: "1" }, { userData, now: later })!;
     expect(renewed.created).toBe(true);
     expect(renewed.fingerprint).not.toBe(first.fingerprint);
+    expect(renewed.publicKey).toBe(first.publicKey);
+    expect(readFileSync(renewed.keyPath, "utf8")).toBe(first.key);
+    expect(Date.parse(renewed.validTo)).toBeGreaterThan(later.getTime());
+    expect(statSync(renewed.keyPath).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps the key when only the certificate file was lost", () => {
+    const userData = scratch();
+    const first = resolveHostTls({ TAU_HOST_TLS: "1" }, { userData })!;
+    rmSync(first.certPath);
+    const again = resolveHostTls({ TAU_HOST_TLS: "1" }, { userData })!;
+    expect(again.created).toBe(true);
+    expect(again.publicKey).toBe(first.publicKey);
   });
 
   it("replaces a damaged pair instead of failing to start", () => {
@@ -99,6 +122,7 @@ describe("host TLS material", () => {
     writeFileSync(first.keyPath, "not a key");
     const replaced = resolveHostTls({ TAU_HOST_TLS: "1" }, { userData })!;
     expect(replaced.created).toBe(true);
+    expect(replaced.publicKey).not.toBe(first.publicKey);
     expect(new X509Certificate(replaced.cert).checkPrivateKey(createPrivateKey(readFileSync(replaced.keyPath, "utf8")))).toBe(true);
   });
 

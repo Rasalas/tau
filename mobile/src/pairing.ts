@@ -7,6 +7,9 @@ import type { SavedHost } from "./hosts";
 export interface PairTarget {
   hostId: string;
   name: string;
+  /** The host's key, from a link or a Bonjour record; pinned in place of `fingerprint`. */
+  publicKey?: string;
+  /** One certificate, from a host that names no key (before key pins). */
   fingerprint?: string;
   endpoints: PairingEndpoint[];
   /** From a link; without one the owner is asked all the same. */
@@ -30,7 +33,7 @@ export interface PairDependencies {
 }
 
 export type EndpointChoice =
-  | { candidate: SocketCandidate; fingerprint?: string }
+  | { candidate: SocketCandidate; fingerprint?: string; publicKey?: string }
   | { failure: "no-address" | "unreachable" | "certificate-mismatch" };
 
 /** Races the candidates once and closes the winner: which address this phone reaches the host on right now. */
@@ -40,7 +43,7 @@ export function chooseEndpoint(candidates: readonly SocketCandidate[], open: (ca
     const socket = new RacingSocket(candidates, open, race);
     socket.onopen = () => {
       const candidate = socket.winner!;
-      resolve({ candidate, ...(socket.fingerprint ? { fingerprint: socket.fingerprint } : {}) });
+      resolve({ candidate, ...(socket.fingerprint ? { fingerprint: socket.fingerprint } : {}), ...(socket.publicKey ? { publicKey: socket.publicKey } : {}) });
       socket.onclose = null;
       socket.close();
     };
@@ -49,15 +52,17 @@ export function chooseEndpoint(candidates: readonly SocketCandidate[], open: (ca
 }
 
 /**
- * The certificate the pairing digits are bound to, as the host computes them
- * for the listener the socket came through (ADR 0024): the pinned one; the one
- * a TLS address showed when the link named none; nothing through a proxy that
- * ends TLS itself (Tailscale Serve) or on a plaintext loopback socket.
+ * What the pairing digits are bound to, as the host computes them for the
+ * listener the socket came through (ADR 0024): the pinned key; the old
+ * pinned certificate, for a host before key pins; the key a TLS address
+ * showed when nothing was pinned; nothing through a proxy that ends TLS
+ * itself (Tailscale Serve) or on a plaintext loopback socket.
  */
-export function bindingFingerprint(candidate: SocketCandidate, seen: string | undefined): string {
-  if (candidate.fingerprint) return seen === candidate.fingerprint ? candidate.fingerprint : "";
-  if (!candidate.url.startsWith("wss:") || candidate.allowAuthority) return "";
-  return seen ?? "";
+export function pairingBinding(candidate: SocketCandidate, seen: { fingerprint?: string; publicKey?: string }): { publicKey: string } | { fingerprint: string } {
+  if (candidate.publicKey) return { publicKey: seen.publicKey === candidate.publicKey ? candidate.publicKey : "" };
+  if (candidate.fingerprint) return { fingerprint: seen.fingerprint === candidate.fingerprint ? candidate.fingerprint : "" };
+  if (candidate.trust !== "authority" || candidate.proxied) return { publicKey: "" };
+  return { publicKey: seen.publicKey ?? "" };
 }
 
 export const pairingFailure = {
@@ -76,7 +81,7 @@ export async function pairDevice(target: PairTarget, dependencies: PairDependenc
   onAddress?(candidate: SocketCandidate): void;
   signal?: AbortSignal;
 } = {}): Promise<PairOutcome> {
-  const candidates = socketCandidates(target.endpoints, target.fingerprint, dependencies.device);
+  const candidates = socketCandidates(target.endpoints, targetPins(target), dependencies.device);
   const choice = await chooseEndpoint(candidates, dependencies.openSocket, dependencies.race);
   if ("failure" in choice) return { state: "failed", message: pairingFailure[choice.failure] };
   if (callbacks.signal?.aborted) return { state: "failed", message: "Pairing was cancelled." };
@@ -85,7 +90,7 @@ export async function pairDevice(target: PairTarget, dependencies: PairDependenc
     url: choice.candidate.url,
     ...(target.code ? { code: target.code } : {}),
     name: dependencies.device.name,
-    fingerprint: bindingFingerprint(choice.candidate, choice.fingerprint),
+    ...pairingBinding(choice.candidate, choice),
     ...(callbacks.onWaiting ? { onWaiting: callbacks.onWaiting } : {}),
     ...(callbacks.signal ? { signal: callbacks.signal } : {}),
     createSocket: () => dependencies.openSocket(choice.candidate),
@@ -99,7 +104,7 @@ export async function pairDevice(target: PairTarget, dependencies: PairDependenc
     host: {
       id: target.hostId,
       name: target.name,
-      ...(target.fingerprint ? { fingerprint: target.fingerprint } : {}),
+      ...targetPins(target),
       endpoints: target.endpoints,
       access: result.access,
       addedAt: at,
@@ -107,6 +112,12 @@ export async function pairDevice(target: PairTarget, dependencies: PairDependenc
       ...(endpoint ? { lastEndpoint: endpoint } : {}),
     },
   };
+}
+
+/** The key when the host named one; its certificate only when it did not. */
+export function targetPins(target: Pick<PairTarget, "publicKey" | "fingerprint">): { publicKey: string } | { fingerprint: string } | Record<string, never> {
+  if (target.publicKey) return { publicKey: target.publicKey };
+  return target.fingerprint ? { fingerprint: target.fingerprint } : {};
 }
 
 /** `https://h:1/` and `wss://h:1/` name the same listener; the Android emulator's alias aside. */

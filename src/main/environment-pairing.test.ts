@@ -6,7 +6,7 @@ import { pairingUrl } from "../shared/connections.js";
 import { pairEnvironment } from "./environment-pairing.js";
 import { HostAccess } from "./host-access.js";
 import { HostPushLog } from "./host-push-log.js";
-import { certificateFingerprint } from "./host-tls.js";
+import { certificateFingerprint, publicKeyPin } from "./host-tls.js";
 import { HostTokenFile } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
@@ -40,7 +40,7 @@ async function machine(endpoints: Array<{ url: string; kind?: "lan" | "mdns" }> 
   const request = () => new Promise<string>((resolve) => {
     onChange = () => { const waiting = access.overview().requests[0]; if (waiting) resolve(waiting.id); };
   });
-  return { access, page, fingerprint: certificateFingerprint(tls.cert), request };
+  return { access, page, fingerprint: certificateFingerprint(tls.cert), publicKey: publicKeyPin(tls.cert), request };
 }
 
 describe("adding a machine", () => {
@@ -66,8 +66,32 @@ describe("adding a machine", () => {
     expect(added.environment.token).toMatch(/\S{16,}/u);
   });
 
-  it("from a bare address reads the certificate first and binds the digits to it", async () => {
-    const { access, page, fingerprint, request } = await machine();
+  it("from a link with the host's key pins the key and binds the digits to it", async () => {
+    const { access, page, fingerprint, publicKey, request } = await machine();
+    const { code } = access.createLink();
+    const link = pairingUrl({ url: page, kind: "loopback" }, { code, fingerprint, publicKey, hostId: "host-studio" });
+    const shown: string[] = [];
+    const asked = request();
+    const result = pairEnvironment({ text: link, deviceName: "laptop", onWaiting: ({ verification }) => shown.push(verification) });
+    const id = await asked;
+    await expect.poll(() => shown).toEqual([access.overview().requests[0]!.verification]);
+    await access.approvePairing(id);
+    const added = await result;
+    expect(added.state === "approved" && added.environment).toMatchObject({ id: "host-studio", publicKey });
+    expect(added.state === "approved" && added.environment.fingerprint).toBeUndefined();
+  });
+
+  it("refuses a link whose key is not the one the address presents, and sends it nothing", async () => {
+    const { access, page } = await machine();
+    const { code } = access.createLink();
+    const otherKey = publicKeyPin(createSelfSignedCertificate({ commonName: "Relay", dnsNames: [], ipAddresses: [], days: 1 }).cert);
+    const result = await pairEnvironment({ text: pairingUrl(page, { code, publicKey: otherKey }), deviceName: "laptop" });
+    expect(result.state).toBe("failed");
+    expect(access.overview().requests).toEqual([]);
+  });
+
+  it("from a bare address reads the certificate first and binds the digits to its key", async () => {
+    const { access, page, publicKey, request } = await machine();
     const shown: string[] = [];
     const asked = request();
     const result = pairEnvironment({ text: page.replace("https://", ""), deviceName: "laptop", onWaiting: ({ verification }) => shown.push(verification) });
@@ -78,7 +102,7 @@ describe("adding a machine", () => {
     await access.approvePairing(access.overview().requests[0]!.id);
     const added = await result;
     expect(added).toMatchObject({ state: "approved", environment: { id: "host-studio", endpoints: [{ url: page }] } });
-    if (added.state === "approved") expect(added.environment.fingerprint?.replace(/:/gu, "").toLowerCase()).toBe(fingerprint.replace(/:/gu, "").toLowerCase());
+    if (added.state === "approved") expect(added.environment).toMatchObject({ publicKey });
   });
 
   it("found with Bonjour asks without a link, pinned to the record's fingerprint, and keeps the addresses its hello names", async () => {

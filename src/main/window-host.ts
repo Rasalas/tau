@@ -9,7 +9,7 @@ import { HostProcessSupervisor, type HostServiceControl, type RunningHost } from
 import { HostServiceManager } from "./host-service.js";
 import { HostUplink } from "./host-uplink.js";
 import { readHostToken } from "./host-token.js";
-import type { HostCertificateRefusedError } from "./host-tls-trust.js";
+import type { EndpointTrust, HostCertificateRefusedError } from "./host-tls-trust.js";
 import { WindowExtensionRegistry } from "./window-extensions.js";
 
 /** Compiling every kit on a cold cache takes longer than a click does. */
@@ -52,6 +52,7 @@ export class WindowHost {
   /** The supervised host's token file; a rotation rewrites it (ADR 0023). */
   private tokenPath: string | undefined;
   private fingerprint: string | undefined;
+  private trust: EndpointTrust | undefined;
   private workspace: string;
   /** Once the halves are loaded, a new uplink says hello at once so the host can reach them. */
   private announced = false;
@@ -106,12 +107,14 @@ export class WindowHost {
 
   /**
    * Attaches to a host somebody else runs (`TAU_HOST_URL`). Nothing is
-   * supervised. `fingerprint` pins a `wss:` host's certificate.
+   * supervised. A string pins a `wss:` host's certificate (`TAU_HOST_URL`);
+   * a saved machine's address comes with its own trust.
    */
-  attach(url: string, token: string | undefined, fingerprint?: string): void {
+  attach(url: string, token: string | undefined, pin?: string | EndpointTrust): void {
     this.url = url;
     this.token = token ?? "";
-    this.fingerprint = fingerprint;
+    this.fingerprint = typeof pin === "string" ? pin : undefined;
+    this.trust = typeof pin === "object" ? pin : undefined;
     this.connect();
   }
 
@@ -183,6 +186,7 @@ export class WindowHost {
       // The page shows threads and terminals; this process reads only what every client gets.
       helloFields: () => ({ windowId: this.windowId, windowHalves: this.extensions.ids, subscription: { threads: [], topics: [] } }),
       ...(this.fingerprint ? { fingerprint: this.fingerprint } : {}),
+      ...(this.trust ? { trust: this.trust } : {}),
       ...(this.options.onCertificateRefused ? { onCertificateRefused: this.options.onCertificateRefused } : {}),
       // The next page load takes the token from here, so a window reopened after a rotation connects.
       ...(tokenPath ? { refreshToken: () => {

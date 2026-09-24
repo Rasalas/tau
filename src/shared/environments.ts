@@ -134,12 +134,13 @@ export function refreshEndpoints(saved: readonly PairingEndpoint[], fresh: reado
   return [...fresh, ...kept]
     .filter((endpoint) => /^https?:\/\//u.test(endpoint.url) && !seen.has(endpoint.url) && seen.add(endpoint.url))
     .slice(0, MAX_ENDPOINTS)
-    .map((endpoint) => ({ url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}) }));
+    .map((endpoint) => ({ url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}), ...(endpoint.trustedCertificate ? { trustedCertificate: true } : {}) }));
 }
 
 /** Whether two address lists name the same addresses in the same order. */
 export function sameEndpoints(a: readonly PairingEndpoint[], b: readonly PairingEndpoint[]): boolean {
-  return a.length === b.length && a.every((endpoint, index) => endpoint.url === b[index]!.url && endpoint.kind === b[index]!.kind);
+  return a.length === b.length && a.every((endpoint, index) => endpoint.url === b[index]!.url && endpoint.kind === b[index]!.kind
+    && Boolean(endpoint.trustedCertificate) === Boolean(b[index]!.trustedCertificate));
 }
 
 /** `https://host:7788/` → `wss://host:7788/`; the socket lives on the page's own origin. */

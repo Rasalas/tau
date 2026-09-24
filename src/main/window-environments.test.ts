@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PairingEndpoint } from "../shared/connections.js";
 import type { UiEnvironments } from "../shared/environments.js";
 import type { SavedEnvironment, SecretBox } from "./environment-catalog.js";
 import type { EnvironmentMonitor, EnvironmentMonitorOptions, MonitorState } from "./environment-monitor.js";
@@ -21,6 +22,7 @@ const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
 
 const PIN = Array.from({ length: 32 }, () => "AB").join(":");
 const OTHER = Array.from({ length: 32 }, () => "CD").join(":");
+const KEY = Array.from({ length: 32 }, () => "EF").join(":");
 
 const studio: SavedEnvironment = {
   id: "host-studio",
@@ -89,7 +91,8 @@ describe("the machines of a window", () => {
     expect(environments.snapshot().pairing).toBeUndefined();
     // The LAN address first, pinned with the saved fingerprint.
     const monitor = monitors.get("wss://192.168.1.4:7788/")!;
-    expect(monitor.options).toMatchObject({ token: "tau_client_studio", fingerprint: PIN });
+    expect(monitor.options).toMatchObject({ token: "tau_client_studio" });
+    expect(monitor.options.trust!("wss://192.168.1.4:7788/")).toEqual({ pin: { fingerprint: PIN } });
     expect(monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/", "wss://100.64.0.9:7788/"]);
   });
 
@@ -106,7 +109,7 @@ describe("the machines of a window", () => {
     await expect(environments.open("host-studio", { thread: { path: "/s/x" } })).rejects.toThrow(/not reachable/u);
     monitor.set({ status: "connected", address: "wss://100.64.0.9:7788/" });
     await environments.open("host-studio", { thread: { path: "/s/x" } });
-    expect(shown.at(-1)).toEqual({ id: "host-studio", url: "wss://100.64.0.9:7788/", token: "tau_client_studio", fingerprint: PIN });
+    expect(shown.at(-1)).toEqual({ id: "host-studio", url: "wss://100.64.0.9:7788/", token: "tau_client_studio", trust: { pin: { fingerprint: PIN } } });
     expect(environments.shown).toBe("host-studio");
     expect(environments.takeArrival()).toEqual({ thread: { path: "/s/x" } });
     expect(environments.takeArrival()).toBeUndefined();
@@ -138,12 +141,49 @@ describe("the machines of a window", () => {
   it("trusts a saved machine's certificate for its names only, and drops the page's origin only on its sockets", async () => {
     const { environments } = await setup();
     await environments.pair({ text: "link" });
-    expect(environments.certificateVerdict("192.168.1.4", PIN.toLowerCase())).toBe(CERTIFICATE_ACCEPT);
-    expect(environments.certificateVerdict("192.168.1.4", OTHER)).toBe(CERTIFICATE_REJECT);
-    expect(environments.certificateVerdict("example.com", OTHER)).toBe(CERTIFICATE_DEFAULT);
+    expect(environments.certificateVerdict("192.168.1.4", { fingerprint: PIN.toLowerCase(), publicKey: OTHER })).toBe(CERTIFICATE_ACCEPT);
+    expect(environments.certificateVerdict("192.168.1.4", { fingerprint: OTHER, publicKey: PIN })).toBe(CERTIFICATE_REJECT);
+    expect(environments.certificateVerdict("example.com", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_DEFAULT);
     expect(environments.isSavedSocket("wss://100.64.0.9:7788/")).toBe(true);
     expect(environments.isSavedSocket("wss://100.64.0.9:7789/")).toBe(false);
     expect(environments.isSavedSocket("ws://127.0.0.1:5000/")).toBe(false);
+  });
+
+  it("moves a certificate pin to the key on the next hello that pin let in, and refuses a changed key from then on", async () => {
+    const { environments, monitors } = await setup();
+    await environments.pair({ text: "link" });
+    const monitor = monitors.get("wss://192.168.1.4:7788/")!;
+    const reply = { protocol: 1, hostVersion: "t", capabilities: [], resync: false, missed: [], nextSeq: 1 };
+    // A CA let this one in: it proves nothing about the host's own key.
+    monitor.options.onReached!("wss://192.168.1.4:7788/", reply, { presented: { fingerprint: OTHER, publicKey: OTHER }, via: "authority" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(monitor.options.trust!("wss://192.168.1.4:7788/")).toEqual({ pin: { fingerprint: PIN } });
+
+    monitor.options.onReached!("wss://192.168.1.4:7788/", reply, { presented: { fingerprint: PIN, publicKey: KEY }, via: "pin" });
+    await expect.poll(() => monitor.options.trust!("wss://192.168.1.4:7788/")).toEqual({ pin: { publicKey: KEY } });
+    expect(environments.connection("host-studio")?.trust).toEqual({ pin: { publicKey: KEY } });
+    // A renewed certificate with the same key passes; another key does not.
+    expect(environments.certificateVerdict("192.168.1.4", { fingerprint: OTHER, publicKey: KEY })).toBe(CERTIFICATE_ACCEPT);
+    expect(environments.certificateVerdict("192.168.1.4", { fingerprint: PIN, publicKey: OTHER })).toBe(CERTIFICATE_REJECT);
+  });
+
+  it("keeps every address the machine lists after a hello, with the Serve name checked by a CA and the rest pinned", async () => {
+    const { environments, monitors } = await setup({ state: "approved", environment: { ...studio, fingerprint: undefined, publicKey: KEY, endpoints: [studio.endpoints[0]!] } as SavedEnvironment });
+    await environments.pair({ text: "link" });
+    const monitor = monitors.get("wss://192.168.1.4:7788/")!;
+    const serve = { url: "https://studio.tail0000.ts.net/", kind: "magicdns" as const, trustedCertificate: true };
+    const hello = (id: string, endpoints: PairingEndpoint[]) => ({ protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 0, host: { id, name: "studio", endpoints } });
+    monitor.options.onReached!("wss://192.168.1.4:7788/", hello("someone-else", [serve]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/"]);
+
+    monitor.options.onReached!("wss://192.168.1.4:7788/", hello("host-studio", [{ url: "https://100.64.0.9:7788/", kind: "tailscale" }, serve]));
+    // The address in use stays though the host did not list it; the order is the window's own.
+    await expect.poll(() => monitor.options.urls()).toEqual(["wss://192.168.1.4:7788/", "wss://100.64.0.9:7788/", "wss://studio.tail0000.ts.net/"]);
+    expect(monitor.options.trust!("wss://studio.tail0000.ts.net/")).toEqual({});
+    expect(monitor.options.trust!("wss://100.64.0.9:7788/")).toEqual({ pin: { publicKey: KEY } });
+    expect(environments.certificateVerdict("studio.tail0000.ts.net", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_DEFAULT);
+    expect(environments.certificateVerdict("100.64.0.9", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_REJECT);
   });
 
   it("follows a saved machine to its new LAN address when its hello names it, keeping names and Tailscale", async () => {
@@ -185,6 +225,23 @@ describe("the machines of a window", () => {
     expect(await environments.pair({ nearby: "host-laptop" })).toMatchObject({ state: "failed", message: expect.stringMatching(/Search again/u) });
   });
 
+  it("matches a machine pinned by key to a record with its key, whatever certificate it serves now", async () => {
+    const keyed = { ...studio, fingerprint: undefined, publicKey: KEY } as SavedEnvironment;
+    const record = (publicKey: string | undefined, url: string) => ({ name: "studio", hostId: "host-studio", fingerprint: OTHER, ...(publicKey ? { publicKey } : {}), port: 7788, addresses: [], endpoints: [{ url, kind: "lan" as const }] });
+    let hosts = [record(OTHER, "https://10.6.6.6:7788/")];
+    const { environments, monitors } = await setup({ state: "approved", environment: keyed }, { discover: async () => ({ serviceType: "_tau-test._tcp", hosts }) });
+    await environments.pair({ text: "link" });
+    const monitor = monitors.get("wss://192.168.1.4:7788/")!;
+    await environments.discover();
+    expect(monitor.options.urls()).not.toContain("wss://10.6.6.6:7788/");
+    hosts = [record(undefined, "https://10.6.6.6:7788/")];
+    await environments.discover();
+    expect(monitor.options.urls()).not.toContain("wss://10.6.6.6:7788/");
+    hosts = [record(KEY, "https://10.0.0.8:7788/")];
+    await environments.discover();
+    expect(monitor.options.urls()).toContain("wss://10.0.0.8:7788/");
+  });
+
   it("does not take a found machine's addresses when its certificate is not the pinned one", async () => {
     const { environments, monitors } = await setup(undefined, {
       discover: async () => ({ serviceType: "_tau-test._tcp", hosts: [{ name: "studio", hostId: "host-studio", fingerprint: OTHER, port: 7788, addresses: [], endpoints: [{ url: "https://10.6.6.6:7788/", kind: "lan" }] }] }),
@@ -221,7 +278,7 @@ describe("the machines of a window", () => {
     opened.push(again);
     await again.start();
     expect(again.shown).toBe("host-studio");
-    expect(shown).toEqual([{ id: "host-studio", url: "wss://192.168.1.4:7788/", token: "tau_client_studio", fingerprint: PIN }]);
+    expect(shown).toEqual([{ id: "host-studio", url: "wss://192.168.1.4:7788/", token: "tau_client_studio", trust: { pin: { fingerprint: PIN } } }]);
   });
 
   it("starts on this machine when the one shown last does not answer in time", async () => {
@@ -244,8 +301,8 @@ describe("the machines of a window", () => {
     monitors.get("wss://studio.local:7788/")!.set({ status: "connected", address: "wss://studio.local:7788/" });
     await environments.open("host-studio");
     expect(shown.at(-1)?.url).toBe("wss://192.168.1.77:7788/");
-    expect(environments.certificateVerdict("192.168.1.77", PIN)).toBe(CERTIFICATE_ACCEPT);
-    expect(environments.certificateVerdict("192.168.1.77", OTHER)).toBe(CERTIFICATE_REJECT);
+    expect(environments.certificateVerdict("192.168.1.77", { fingerprint: PIN, publicKey: OTHER })).toBe(CERTIFICATE_ACCEPT);
+    expect(environments.certificateVerdict("192.168.1.77", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_REJECT);
     expect(environments.isSavedSocket("wss://192.168.1.77:7788/")).toBe(true);
     expect(environments.isSavedSocket("wss://192.168.1.77:9999/")).toBe(false);
   });
