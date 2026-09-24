@@ -1953,8 +1953,10 @@ host log records it, and Settings → Connections shows it as the device's last
 change. A desktop half that mirrors a preference into its host half on load
 therefore reads what the host holds first, with a `read` command, and sends
 nothing when it matches (Access Kit's `level`, Preview's `current-defaults`,
-the workspace's `open-request-waiting`); one that acts on the host machine
-itself, like SnapShots' global shortcut, asks `hostHasLocalFiles()` first.
+the workspace's `open-request-waiting`, SnapShots' `armed`, which answers for
+the window a call reaches now, so a restarted window is armed again); one that
+acts on the host machine itself, like SnapShots' global shortcut, also asks
+`hostHasLocalFiles()` first.
 
 `access: "owner"` is the other end: a command that changes who can reach the
 host — Tailscale's `serve-on` and `serve-off` — answers `forbidden` to every

@@ -21,7 +21,7 @@ const content = (id: string): SnapShotContent => ({
   accessibility: { imageSize: { width: 2, height: 1 }, truncated: false, nodes: 2, root: { role: "window", name: "E18 test window", children: [{ role: "button", name: "Press me", children: [] }] } },
 });
 
-function activate(pending: SnapShotMeta[] = []) {
+function activate(pending: SnapShotMeta[] = [], held: unknown = null) {
   const claimed = new Set<string>();
   const released: string[] = [];
   const armed: unknown[] = [];
@@ -29,6 +29,7 @@ function activate(pending: SnapShotMeta[] = []) {
     const fields = (input ?? {}) as Record<string, unknown>;
     switch (command) {
       case "arm": armed.push(input); return {};
+      case "armed": return held;
       case "pending": return pending.filter((entry) => !claimed.has(entry.id));
       case "claim": {
         const id = String(fields.id);
@@ -158,6 +159,14 @@ describe("SnapShots desktop", () => {
     await waitFor(() => expect(kit.armed.at(-1)).toEqual({ accelerator: DEFAULT_SHORTCUT, accessibility: true }));
     act(() => kit.preferences.setValue(ID, SETTING_SHORTCUT, "Control+Alt+F19"));
     await waitFor(() => expect(kit.armed.at(-1)).toEqual({ accelerator: "Control+Alt+F19", accessibility: true }));
+  });
+
+  it("does not arm again what the window holds already", async () => {
+    setHostClient(createFakeHostClient());
+    const kit = activate([], { accelerator: null, accessibility: true });
+    await waitFor(() => expect(kit.invoke).toHaveBeenCalledWith(ID, "armed", undefined));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(kit.armed).toEqual([]);
   });
 
   it("leaves the shortcut alone from a client on another machine", async () => {

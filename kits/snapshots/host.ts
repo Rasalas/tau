@@ -142,17 +142,23 @@ export function createSnapShotsHostExtension(): HostExtension {
       register("release", async (input) => {
         for (const id of idsOf(input)) await store.remove(id);
       });
+      // A window that came back after a restart is a new id and has no shortcut yet.
+      let armed: { input: ArmInput; window: string | undefined } | undefined;
       register("arm", async (input) => {
         const { accelerator, accessibility } = (input ?? {}) as Partial<ArmInput>;
+        const next: ArmInput = { accelerator: typeof accelerator === "string" ? accelerator : null, accessibility: accessibility !== false };
         try {
-          shortcut = await callWindow("shortcut", { accelerator: typeof accelerator === "string" ? accelerator : null, accessibility: accessibility !== false }) as ShortcutState;
+          shortcut = await callWindow("shortcut", next) as ShortcutState;
+          armed = { input: next, window: context.services.clientWindow?.() };
         } catch (error) {
           shortcut = { error: error instanceof Error ? error.message : String(error) };
+          armed = undefined;
         }
         context.emit(SHORTCUT_EVENT, shortcut);
         return shortcut;
       });
       register("shortcut-state", () => shortcut, READ);
+      register("armed", () => (armed && armed.window === context.services.clientWindow?.() ? armed.input : null), READ);
       register("access", async () => {
         try {
           return await callWindow("access") as SnapShotAccess;

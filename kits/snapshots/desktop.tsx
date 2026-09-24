@@ -202,7 +202,10 @@ const snapshots: DesktopExtension = {
       const key = JSON.stringify(next);
       if (!force && key === armed) return;
       armed = key;
-      void host("arm", next).catch(() => { armed = ""; });
+      // Arming what the window holds already would still count as a change a paired device made.
+      void host("armed", undefined).catch(() => null)
+        .then((held) => (JSON.stringify(held) === key ? undefined : host("arm", next)))
+        .catch(() => { armed = ""; });
     };
     const stopPreferences = context.preferences.subscribe(() => arm());
     context.events.on("host-connection", ({ state }) => {

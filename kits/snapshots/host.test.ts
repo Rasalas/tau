@@ -68,6 +68,7 @@ describe("SnapShots host half", () => {
     expect(calls.at(-1)).toEqual({ command: "shortcut", input: { accelerator: "CommandOrControl+Shift+2", accessibility: false } });
     expect(events.at(-1)).toMatchObject({ name: SHORTCUT_EVENT, payload: { registered: "CommandOrControl+Shift+2" } });
     expect(await invoke("shortcut-state")).toEqual({ registered: "CommandOrControl+Shift+2" });
+    expect(await invoke("armed")).toEqual({ accelerator: "CommandOrControl+Shift+2", accessibility: false });
 
     await registry.deactivate(SNAPSHOTS_EXTENSION_ID);
     expect(calls.at(-1)).toEqual({ command: "shortcut", input: { accelerator: null, accessibility: false } });
@@ -77,6 +78,7 @@ describe("SnapShots host half", () => {
     const { invoke } = await activate(() => { throw new Error("no window"); });
     expect(await invoke("access")).toEqual({ supported: false, screen: "unavailable", accessibility: "unavailable" });
     expect(await invoke("arm", { accelerator: "CommandOrControl+Shift+2", accessibility: true })).toEqual({ error: "no window" });
+    expect(await invoke("armed")).toBeNull();
     await expect(invoke("request-access", { kind: "microphone" })).rejects.toThrow(/screen or accessibility/u);
   });
 
