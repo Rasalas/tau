@@ -1,4 +1,4 @@
-import { BrowserWindow, WebContentsView, session, shell } from "electron";
+import { BrowserWindow, WebContentsView, nativeImage, session, shell, type Debugger, type NativeImage } from "electron";
 import { sep } from "node:path";
 import { EMPTY_PREVIEW_STATE, type PreviewAppearance, type PreviewChord, type PreviewState } from "./protocol.js";
 import type { WindowExtension, WindowExtensionContext } from "tau/host-extension";
@@ -7,12 +7,27 @@ import type { PreviewSnapshot } from "./remote-surface.js";
 import { PreviewRecorder } from "./recorder.js";
 import { previewChord } from "./viewport.js";
 import { cdpInputCommands, type PreviewPageInput } from "./remote-input.js";
+import { placePreviewView } from "./view-placement.js";
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
 const DEFAULT_PARTITION = "persist:tau-preview";
 const MAX_ERRORS = 50;
 /** Pick and annotate run here, apart from the page's own scripts. */
 const ISOLATED_WORLD = 1_022;
+/** A page that never answers a screenshot is a skipped frame, not a stuck device. */
+const HIDDEN_CAPTURE_TIMEOUT_MS = 5_000;
+
+/** The part of a full-view image under `rect`, which is in the view's coordinates like `capturePage`'s. */
+export function cropToView(image: NativeImage, viewWidth: number, rect?: PreviewRect): NativeImage {
+  if (!rect) return image;
+  const size = image.getSize();
+  const scale = viewWidth > 0 ? size.width / viewWidth : 1;
+  const x = Math.min(size.width - 1, Math.max(0, Math.round(rect.x * scale)));
+  const y = Math.min(size.height - 1, Math.max(0, Math.round(rect.y * scale)));
+  const width = Math.max(1, Math.min(size.width - x, Math.round(rect.width * scale)));
+  const height = Math.max(1, Math.min(size.height - y, Math.round(rect.height * scale)));
+  return image.crop({ x, y, width, height });
+}
 
 /** Forgets a deleted profile's cookies, storage and cache; only a preview partition is touched. */
 export async function clearPreviewPartition(partition: string): Promise<void> {
@@ -70,6 +85,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
   view.setBackgroundColor("#ffffff");
   view.setVisible(false);
   window.contentView.addChildView(view);
+  const placement = placePreviewView(window, view);
 
   const errors: string[] = [];
   let destroyed = false;
@@ -97,11 +113,15 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
   const applyZoom = () => {
     if (!contents.isDestroyed() && Math.abs(contents.getZoomFactor() - pageZoom) > 0.001) contents.setZoomFactor(pageZoom);
   };
+  const devTools = (): Debugger => {
+    const tools = contents.debugger;
+    if (!tools.isAttached()) tools.attach("1.3");
+    return tools;
+  };
   let focusEmulated = false;
   // DevTools-protocol input is trusted and reaches a hidden view without taking the window's focus.
   const sendInput = async (input: PreviewPageInput): Promise<void> => {
-    const tools = contents.debugger;
-    if (!tools.isAttached()) tools.attach("1.3");
+    const tools = devTools();
     if (!focusEmulated) {
       // The page must think it has focus, or a field it focuses drops the typed text.
       await tools.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
@@ -112,8 +132,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
   const applyAppearance = async (): Promise<void> => {
     const tools = contents.debugger;
     if (appearance === "system" && !tools.isAttached()) return;
-    if (!tools.isAttached()) tools.attach("1.3");
-    await tools.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: appearance === "system" ? "" : appearance }] });
+    await devTools().sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: appearance === "system" ? "" : appearance }] });
   };
   contents.on("did-navigate", () => {
     applyZoom();
@@ -140,6 +159,17 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
     note(`${isMainFrame ? "page" : "request"} failed: ${description} (${code}) ${url}`);
     changed();
   });
+  // `capturePage` rejects a view that was never on screen and lags a frame behind a hidden one;
+  // the protocol's screenshot makes the page paint for it and leaves it hidden.
+  const captureHidden = async (rect?: PreviewRect, jpeg?: boolean): Promise<NativeImage> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("The hidden page did not paint.")), HIDDEN_CAPTURE_TIMEOUT_MS);
+    });
+    const shot = devTools().sendCommand("Page.captureScreenshot", jpeg ? { format: "jpeg", quality: 90 } : { format: "png" }) as Promise<{ data: string }>;
+    const { data } = await Promise.race([shot, timeout]).finally(() => clearTimeout(timer));
+    return cropToView(nativeImage.createFromBuffer(Buffer.from(data, "base64")), view.getBounds().width, rect);
+  };
   const closeWithWindow = () => surface.destroy();
   window.once("closed", closeWithWindow);
 
@@ -147,8 +177,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
     zoomFactor: () => window.isDestroyed() ? 1 : window.webContents.getZoomFactor(),
     place(rect: PreviewRect, visible: boolean) {
       if (destroyed) return;
-      view.setBounds(rect);
-      view.setVisible(visible);
+      placement.place(rect, visible);
     },
     async load(url: string, timeoutMs: number) {
       const settled = new Promise<void>((resolve) => {
@@ -209,7 +238,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       ? contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: expression }], true)
       : contents.executeJavaScript(expression, true),
     async capture(maxWidth: number, rect?: PreviewRect, jpeg?: boolean) {
-      const image = rect ? await contents.capturePage(rect) : await contents.capturePage();
+      const image = placement.onScreen() ? await (rect ? contents.capturePage(rect) : contents.capturePage()) : await captureHidden(rect, jpeg);
       const size = image.getSize();
       const scaled = size.width > maxWidth
         ? image.resize({ width: maxWidth, height: Math.max(1, Math.round(size.height * (maxWidth / size.width))), quality: jpeg ? "better" : "good" })
@@ -250,7 +279,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       recorder = undefined;
       if (contents.debugger.isAttached()) contents.debugger.detach();
       window.off("closed", closeWithWindow);
-      if (!window.isDestroyed()) window.contentView.removeChildView(view);
+      placement.destroy();
       if (!contents.isDestroyed()) contents.close();
       options.log("preview.closed");
     },
