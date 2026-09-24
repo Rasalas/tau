@@ -342,6 +342,7 @@ async function main(): Promise<void> {
     onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
     hostVersion,
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
+    host: { id: hostId, name: hostname() },
     access,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     allowedOrigins: () => [...staticOrigins, ...publishedOrigins],

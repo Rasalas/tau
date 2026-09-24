@@ -77,6 +77,8 @@ export interface SocketHostTransportOptions {
   pushLog: HostPushLog;
   hostVersion: string;
   capabilities: string[];
+  /** Named in every hello reply, so a saved machine is recognised whatever address reached it. */
+  host?: { id: string; name: string };
   /** The secret from `~/.tau/host-token`; every client repeats it in its hello. Ignored when `access` is given. */
   token?: string;
   /** The host token and the paired clients' tokens (ADR 0023). */

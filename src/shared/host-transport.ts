@@ -194,6 +194,8 @@ export interface HostHelloReply {
   nextSeq: number;
   /** Set for a device paired Read only: every call that changes something is refused (ADR 0024). */
   access?: "read-only";
+  /** Which machine answered: its `<userData>/host-id` and name, so a client that saved it knows it again (ADR 0025). */
+  host?: { id: string; name: string };
 }
 
 export type HostClientFrame =
@@ -434,7 +436,14 @@ export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined
     missed: missedFrames as HostPush[],
     nextSeq: item.nextSeq as number,
     ...(item.access === "read-only" ? { access: "read-only" as const } : {}),
+    ...(decodeHostIdentity(item.host) ?? {}),
   };
+}
+
+function decodeHostIdentity(value: unknown): { host: { id: string; name: string } } | undefined {
+  const item = record(value);
+  if (!item || !nonEmptyString(item.id) || item.id.length > 128 || typeof item.name !== "string") return undefined;
+  return { host: { id: item.id, name: item.name.slice(0, 200) } };
 }
 
 const MAX_PAIR_CODE = 256;
