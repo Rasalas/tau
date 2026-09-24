@@ -25,7 +25,7 @@ describe("previewSecretFocus", () => {
 });
 
 describe("evidence-frame", () => {
-  async function activate(secret: unknown, url = "http://localhost:5173/") {
+  async function activate(secret: unknown, url = "http://localhost:5173/", failCapture = false) {
     const captures: number[] = [];
     const surface: PreviewSurface = {
       zoomFactor: () => 1,
@@ -37,7 +37,7 @@ describe("evidence-frame", () => {
       state: () => ({ ...EMPTY_PREVIEW_STATE, url, title: "Fixture" }),
       viewport: () => ({ width: 800, height: 600 }),
       evaluate: async () => secret,
-      capture: async (maxWidth) => { captures.push(maxWidth); return { base64: "UE5H", width: maxWidth, height: 600 }; },
+      capture: async (maxWidth) => { captures.push(maxWidth); if (failCapture) throw new Error("UnknownVizError"); return { base64: "UE5H", width: maxWidth, height: 600 }; },
       record: async () => ({ chunks: [], mimeType: "video/webm" }),
       pressKey: () => undefined,
       destroy: () => undefined,
@@ -61,6 +61,12 @@ describe("evidence-frame", () => {
     await secret.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:5173/" });
     expect(await secret.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "evidence-frame", {})).toEqual({ skipped: "secret" });
     expect(secret.captures).toEqual([]);
+  });
+
+  it("skips a frame the window cannot draw instead of failing the command", async () => {
+    const hidden = await activate(false, "http://localhost:5173/", true);
+    await hidden.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:5173/" });
+    expect(await hidden.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "evidence-frame", {})).toEqual({ skipped: "unavailable" });
   });
 
   it("answers Evidence Kit and no other extension", async () => {

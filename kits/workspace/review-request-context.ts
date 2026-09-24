@@ -89,12 +89,17 @@ export async function readReviewRequestContext(
   if (!options.detail) return context;
   const baseRef = await firstExistingRef(cwd, remoteName ? [`${remoteName}/${base}`, base] : [base], runGit);
   const range = baseRef ? `${baseRef}..HEAD` : "HEAD";
-  const log = await text(["log", "--no-merges", `--max-count=${MAX_COMMITS}`, "--format=%s%x1f%b%x1e", range]);
-  const commits = log.split("\x1e").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
-    const [subject = "", body = ""] = entry.split("\x1f");
-    return { subject: subject.trim(), body: body.trim() };
+  // `%m` marks the boundary: the commit the branch left the base at.
+  const log = await text(["log", "--no-merges", "--boundary", `--max-count=${MAX_COMMITS}`, "--format=%m%x1f%H%x1f%ct%x1f%an%x1f%s%x1f%b%x1e", range]);
+  const entries = log.split("\x1e").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+    const [mark = "", sha = "", seconds = "", author = "", subject = "", body = ""] = entry.split("\x1f");
+    return { boundary: mark === "-", sha, at: Number(seconds) * 1000, author, subject: subject.trim(), body: body.trim() };
   });
+  const commits = entries.filter((entry) => !entry.boundary).map(({ sha, at, author, subject, body }) => ({ subject, body, sha, at, ...(author ? { author } : {}) }));
+  const boundary = entries.filter((entry) => entry.boundary).map((entry) => entry.at);
+  // Without commits of its own the branch left the base where HEAD is.
+  const forkedAt = boundary.length > 0 ? Math.max(...boundary) : commits.length === 0 ? Number(await text(["log", "-1", "--format=%ct", "HEAD"])) * 1000 || undefined : undefined;
   const diffStat = baseRef ? (await text(["diff", "--stat=120", `${baseRef}...HEAD`])).slice(0, MAX_DIFF_STAT_CHARS) : "";
   const template = await readRequestTemplate(cwd, baseRef ?? "HEAD", runGit);
-  return { ...context, commits, ...(diffStat ? { diffStat } : {}), ...(template ? { template } : {}) };
+  return { ...context, commits, ...(forkedAt ? { forkedAt } : {}), ...(diffStat ? { diffStat } : {}), ...(template ? { template } : {}) };
 }

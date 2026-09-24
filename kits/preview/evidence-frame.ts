@@ -9,7 +9,7 @@ export const EVIDENCE_CALLER = "tau.evidence";
 
 export type PreviewEvidenceFrame =
   | { data: string; width: number; height: number; url: string; title: string; visible: boolean }
-  | { skipped: "closed" | "secret" | "empty" };
+  | { skipped: "closed" | "secret" | "empty" | "unavailable" };
 
 /**
  * Runs in the page's isolated world: true while focus is in a password or

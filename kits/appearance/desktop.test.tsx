@@ -56,6 +56,11 @@ describe("the Appearance Kit applies what the preferences say", () => {
 });
 
 describe("Settings → Appearance", () => {
+  function renderPageWith({ registry, preferences }: Pick<ReturnType<typeof activate>, "registry" | "preferences">) {
+    const page = registry.getSettingsPages().find((entry) => entry.id === APPEARANCE_SETTINGS_PAGE)!;
+    return render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+  }
+
   function renderPage(invoke?: (extensionId: string, command: string, input?: unknown) => Promise<unknown>) {
     const { registry, preferences } = activate(invoke);
     const page = registry.getSettingsPages().find((entry) => entry.id === APPEARANCE_SETTINGS_PAGE)!;
@@ -73,10 +78,52 @@ describe("Settings → Appearance", () => {
     const { page } = renderPage();
     expect(page.scope).toBe("both");
     expect(page.keywords).toContain("density");
-    for (const title of ["Mode", "Light theme", "Dark theme", "Theme editor", "Density", "Contrast", "Timestamps", "Interface font", "Prompt font", "Code font"]) {
+    for (const title of ["Mode", "Themes", "Density", "Contrast", "Timestamps", "Panel animations", "Interface font", "Prompt font", "Code font"]) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeTruthy();
     }
     expect(within(screen.getByRole("group", { name: "Density" })).getAllByRole("button").map((button) => button.textContent)).toEqual(["Compact", "Normal", "Comfortable"]);
+  });
+
+  it("chooses the mode from three tiles and gives a theme one scheme from its card", async () => {
+    const harness = activate();
+    const { preferences } = harness;
+    const client = createFakeHostClient({ listUserThemes: async () => [{ id: "ember", name: "Ember", css: ":root { color-scheme: dark; --shell: #1a1010; --acid: #ff7a00; }" }] });
+    preferences.bindHost(client);
+    await preferences.syncFromHost();
+    const page = renderPageWith(harness);
+
+    const tiles = within(screen.getByRole("group", { name: "Mode" })).getAllByRole("button");
+    expect(tiles.map((tile) => tile.textContent)).toEqual(["System", "Light", "Dark"]);
+    expect(tiles[0]!.getAttribute("aria-pressed")).toBe("true");
+    // System shows both schemes side by side.
+    expect(tiles[0]!.querySelectorAll(".appearance-wireframe-pane")).toHaveLength(2);
+    fireEvent.click(tiles[2]!);
+    expect(preferences.getSnapshot().theme).toBe("dark");
+
+    // Tau has both schemes; Ember only the dark one it declares.
+    expect(screen.getByRole("button", { name: "Use Tau for the light scheme" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Use Ember for the light scheme" })).toBeNull();
+    const ember = screen.getByRole("button", { name: "Use Ember for the dark scheme" });
+    expect(ember.querySelector(".appearance-swatch i")?.getAttribute("style")).toContain("rgb(255, 122, 0)");
+    fireEvent.click(ember);
+    expect(preferences.value(ID, "theme-dark")).toBe("ember");
+    expect(preferences.value(ID, "theme-light")).toBeUndefined();
+    page.unmount();
+  });
+
+  it("sets how long panels take to open, and writes it onto the window", () => {
+    const harness = activate();
+    const { preferences } = harness;
+    const page = renderPageWith(harness);
+    const slider = screen.getByRole("slider", { name: "Panel animation duration" });
+    expect(screen.getByText("0 ms")).toBeTruthy();
+    fireEvent.change(slider, { target: { value: "150" } });
+    fireEvent.keyUp(slider, { key: "ArrowRight" });
+    expect(preferences.value(ID, "panel-motion")).toBe("150");
+    expect(document.documentElement.style.getPropertyValue("--panel-motion")).toBe("150ms");
+    preferences.setValue(ID, "panel-motion", "0");
+    expect(document.documentElement.style.getPropertyValue("--panel-motion")).toBe("");
+    page.unmount();
   });
 
   it("imports a VS Code theme into the editor, previews it on the window and saves it as the dark theme", async () => {

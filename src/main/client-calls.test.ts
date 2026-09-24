@@ -60,6 +60,19 @@ describe("the window half registry", () => {
     await expect(registry().invoke("tau.absent", "place")).rejects.toThrow(/no half of tau.absent/u);
   });
 
+  it("lends a half Tau's own dependencies by package name, never by path", async () => {
+    const loaded: string[] = [];
+    const instance = new WindowExtensionRegistry({ invokeHost: async () => undefined, loadDependency: async (name) => { loaded.push(name); return { name }; } });
+    let context: Parameters<Parameters<typeof instance.register>[1]>[0] | undefined;
+    instance.register("tau.snapshots", (given) => { context = given; return { handle: () => undefined }; });
+    await expect(context?.loadDependency?.("@crowecawcaw/xa11y")).resolves.toEqual({ name: "@crowecawcaw/xa11y" });
+    expect(loaded).toEqual(["@crowecawcaw/xa11y"]);
+
+    const real = new WindowExtensionRegistry({ invokeHost: async () => undefined });
+    real.register("tau.snapshots", (given) => { context = given; return { handle: () => undefined }; });
+    await expect(context?.loadDependency?.("../secrets.js")).rejects.toThrow(/not a package name/u);
+  });
+
   it("lets every half go when the window does", () => {
     const instance = registry();
     let disposed = false;

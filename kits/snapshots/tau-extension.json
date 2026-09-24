@@ -1,0 +1,14 @@
+{
+  "id": "tau.snapshots",
+  "name": "SnapShots",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.12.0"
+  },
+  "permissions": [],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "window": "./window.ts",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}

@@ -352,6 +352,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const scope = params[1] === "project" ? "project" : "global";
       const config = await defaultHostConfigManager.update(patch, scope, await optionalWorkspace("update-config", "workspace", params[2]));
       if (patch.modelPrices) (await host()).modelPricesChanged();
+      if (patch.extensions) await (await host()).watchingChanged();
       return config;
     },
     "get-config-layers": async (params) => defaultHostConfigManager.readLayers(await optionalWorkspace("get-config-layers", "workspace", params[0])),
@@ -360,6 +361,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const scope = params[1] === "project" ? "project" : "global";
       const layers = await defaultHostConfigManager.clear(keys, scope, await optionalWorkspace("clear-config", "workspace", params[2]));
       if (keys.some((key) => key.startsWith("modelPrices"))) (await host()).modelPricesChanged();
+      if (keys.some((key) => key.startsWith("extensions"))) await (await host()).watchingChanged();
       return layers;
     },
     "get-models-config": async () => (await host()).modelsConfig(),

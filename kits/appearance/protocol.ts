@@ -13,6 +13,7 @@ export const SETTING_KEYS = {
   codeFontFamily: "code-font-family",
   codeFontSize: "code-font-size",
   timestamps: "timestamps",
+  panelMotion: "panel-motion",
 } as const;
 
 export type Appearance = "light" | "dark";

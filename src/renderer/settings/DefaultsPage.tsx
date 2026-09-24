@@ -104,6 +104,8 @@ export function DefaultsPage({
   const continueAfterRestart = useSetting<boolean>("threads.continueAfterRestart", {
     defaultValue: CONFIG_DEFAULTS["threads.continueAfterRestart"] as boolean, read: readBoolean, offline: (value) => preferences.setContinueThreadsAfterRestart(value),
   });
+  // CONFIG_DEFAULTS' value, written out: reading it here would keep the entry in the start-up chunk.
+  const watchFiles = useSetting<boolean>("extensions.watch", { defaultValue: true, read: readBoolean });
   // Unset, a nightly build stays on nightly: the updater reads it the same way.
   const versions = useHostClient()?.getVersions();
   const updateChannel = useSetting<UpdateChannel>("updates.channel", {
@@ -264,6 +266,13 @@ export function DefaultsPage({
           description="Pick a thread back up where a restart cut its turn short. Off, the thread is repaired and marked instead."
           setting={continueAfterRestart}
           control={<Switch label="Continue threads after restarts" checked={continueAfterRestart.value} onChange={continueAfterRestart.set} />}
+        />
+        <SettingRow
+          id={settingAnchor("Reload files when they change")}
+          title="Reload files when they change"
+          description="An edited package, theme, keybindings.json or config file applies at once; the host reloads only what changed. Off, edits apply at the next start."
+          setting={watchFiles}
+          control={<Switch label="Reload files when they change" checked={watchFiles.value} onChange={watchFiles.set} />}
         />
       </SettingsSection>
 

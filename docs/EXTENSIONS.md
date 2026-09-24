@@ -1781,8 +1781,10 @@ in-process only, since a provider is a live object.
 | `read(threadId, source, id)` | One attachment's bytes, from the extension that provided it. |
 | `observe((threadId, source) => …)` | Hears every `changed`. |
 
-Evidence Kit (`kits/evidence/`) provides its turn pictures this way; a local
-pull-request view reads them to show and upload what a branch's turns did.
+Evidence Kit (`kits/evidence/`) provides its turn pictures this way; Review
+Kit's local pull request (`kits/review/local-request-host.ts`) lists them for
+the threads of a checkout, gives each turn to the commit that took in its work,
+and reads the bytes back with `read` when the user uploads them with a request.
 
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 
@@ -1880,7 +1882,7 @@ of them hears of a thread nobody is looking at. That kit is the shipped caller.
 
 `engines.tau`, `engines.pi` and `engines.api` are version ranges checked
 against the running Tau, its bundled Pi, and `EXTENSION_API_VERSION`
-(`src/shared/extension-compat.ts`, currently `1.11.0`) — the version of the
+(`src/shared/extension-compat.ts`, currently `1.12.0`) — the version of the
 contribution interfaces themselves: `HostExtensionServices`,
 `WorkerHostServices`, `DesktopExtension` and the `tau` hooks. Its **major**
 moves when one of those breaks; its **minor** moves when one of them only
@@ -1988,6 +1990,13 @@ resolves with whatever `handle` returned. The extension id is bound by the
 window's registry, so a package can only call its own half. `context.invokeHost`
 goes the other way, into the package's own host commands — that is how a view
 reports that the page changed.
+
+`context.loadDependency(packageName)` (new in API 1.12.0) is `services.loadDependency`
+for this process: a module from Tau's own npm dependencies, by package name
+only, resolved where npm put it. It is for a native addon that must act on the
+machine the user sits at rather than the one the host runs on — SnapShots
+reads the accessibility tree of a window this way. A half written for an older
+Tau checks that the member exists.
 
 Two limits: an isolated (worker) package cannot use `callClient` at all, and a
 client that has no window half (the browser client, a host nobody is attached
@@ -2130,9 +2139,12 @@ The panels of a reloaded package remount, so whatever state they held is gone.
 That is the price of swapping a module in place, and it is why only the package
 you edited is swapped.
 
-**Turning it off.** `extensions.watch: false` in `~/.tau/config.json` (or
+**Turning it off.** Settings → Defaults → "Reload files when they change", or
+`extensions.watch: false` in `~/.tau/config.json` (or
 `<project>/.tau/config.json`), or `TAU_NO_WATCH=1` in the environment, stops
-the host from watching anything; `/reload` then applies changes as before.
+the host from watching anything; `/reload` then applies changes as before. The
+switch applies at once; a hand edit of the file can turn watching off, but only
+the switch (or a restart) turns it back on, since nothing watches the file then.
 Safe mode (`TAU_NO_EXTENSIONS=1`) watches nothing either — it exists so that no
 extension loads at all.
 
@@ -2608,6 +2620,7 @@ their pixels until a visual pass moves them.
 | `--code-font-family`, `--code-font-scale` | code blocks, tool output, the file view and diffs | `--mono`, `1` |
 | `data-density` | Appearance Kit's stylesheet, into `--density` | normal |
 | `data-timestamps` | message and tool timestamps: `12h`, `24h` or `locale` | 24-hour |
+| `--panel-motion` | how long the sidebar and the dock take to open or close, and the drawer to open; never while a divider is dragged or the system asks for reduced motion | `0ms` |
 
 `--project-hue` is not a token: the thread row sets it per project, and
 `--project-tint` and `--project-ink` say how deep that hue reads. The same goes

@@ -571,8 +571,9 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
    * where they are read, not after a reload. Safe mode watches nothing: it
    * exists so a broken extension cannot load at all.
    */
-  const watch = safeMode || !watchingEnabled(hostConfig) ? undefined : new WorkspaceWatch({
+  const watch = safeMode || !watchingEnabled({}) ? undefined : new WorkspaceWatch({
     cwd: () => deps.getCwd(),
+    enabled: () => watchingEnabled(defaultHostConfigManager.readSync(deps.getCwd())),
     agentDir: getAgentDir(),
     ...(options.appPath ? { appPath: options.appPath } : {}),
     refreshPackages: (ids) => packages?.refresh({ only: ids }) ?? Promise.resolve(),
@@ -580,6 +581,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       // The host re-reads nothing for anyone: it says what moved, and the kits
       // and clients that own those files decide.
       seam.notifyConfigChange({ kind: change.kind, paths: change.paths });
+      // A hand edit may have turned watching off.
+      if (change.kind === "config") void watch?.retarget().catch(() => undefined);
       pricing.reloadPrices();
       emit({ type: "config-changed", kind: change.kind, paths: [...change.paths] });
     },

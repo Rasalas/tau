@@ -176,7 +176,10 @@ export interface ReviewRequestContext {
   /** Commits not yet on the upstream; set with `upstream`. */
   ahead?: number;
   base: string;
-  commits?: Array<{ subject: string; body: string }>;
+  /** Newest first; `at` is the commit time in ms. */
+  commits?: Array<{ subject: string; body: string; sha?: string; at?: number; author?: string }>;
+  /** When the branch left its base (the merge base's commit time, ms); with `detail`. */
+  forkedAt?: number;
   diffStat?: string;
   template?: string;
 }

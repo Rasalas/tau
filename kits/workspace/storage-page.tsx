@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { FolderGit2, RefreshCw } from "lucide-react";
-import { errorMessage, useThreadStore, type SettingsPageProps, type ThreadStore } from "tau";
+import { SettingRow, SettingsSection, errorMessage, useThreadStore, type SettingsPageProps, type ThreadStore } from "tau";
 import type {
   CleanupBlocker,
   CleanupPolicy,
@@ -77,13 +77,9 @@ function Switch({ label, on, onChange }: { label: string; on: boolean; onChange(
   );
 }
 
+/** A cleanup rule: the policy is Workspace Kit's own file with its own per-repository scope, so no config level. */
 function Row({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
-  return (
-    <div className="settings-field-row">
-      <span className="settings-field-label"><strong>{title}</strong><small>{hint}</small></span>
-      {children}
-    </div>
-  );
+  return <SettingRow title={title} description={hint} control={children} />;
 }
 
 /** Days, or off: T3 Code's retention control, eight days when switched on. */
@@ -282,13 +278,12 @@ export function createStoragePage(host: StorageHost) {
           uncommitted work, unpushed commits or ignored files other than node_modules, and every branch stays.
         </p>
 
-        <div className="settings-label">Worktree cleanup</div>
-        {repository ? (
+        <SettingsSection title="Worktree cleanup" headerAction={repository ? (
           <div className="segmented workspace-storage-scope" role="group" aria-label="Rules for">
             <button type="button" className={scope === "host" ? "active" : ""} aria-pressed={scope === "host"} onClick={() => setScope("host")}>This host</button>
             <button type="button" className={scope === "project" ? "active" : ""} aria-pressed={scope === "project"} onClick={() => setScope("project")}>{repository.name}</button>
           </div>
-        ) : null}
+        ) : undefined}>
         {policy ? (
           scope === "project" && repository ? (
             <>
@@ -315,14 +310,14 @@ export function createStoragePage(host: StorageHost) {
           ) : (
             <RuleRows rules={policy.host ?? NO_CLEANUP} onChange={(rules) => void change({ rules })} />
           )
-        ) : null}
+        ) : <p className="workspace-storage-empty">Reading the rules…</p>}
+        </SettingsSection>
 
-        <div className="settings-label workspace-storage-heading">
-          <span>Worktrees{report ? ` · ${formatBytes(report.totalBytes)}` : ""}</span>
-          <button type="button" className="text-button" disabled={loading} onClick={() => void refresh()}>
+        <SettingsSection plain title={`Worktrees${report ? ` · ${formatBytes(report.totalBytes)}` : ""}`} headerAction={
+          <button type="button" className="text-button workspace-storage-measure" disabled={loading} onClick={() => void refresh()}>
             <RefreshCw size={11} /> {loading ? "Measuring…" : "Measure again"}
           </button>
-        </div>
+        }>
         {error ? <div className="settings-note" data-level="error">{error}</div> : null}
         {!report && loading ? <p className="workspace-storage-empty"><span className="spinner small" /> Measuring worktrees…</p> : null}
         {report && report.worktrees.length === 0 ? <p className="workspace-storage-empty">No worktree Tau made is on disk.</p> : null}
@@ -342,6 +337,7 @@ export function createStoragePage(host: StorageHost) {
         {report?.lastSweep ? (
           <p className="workspace-storage-empty">Last cleanup {formatAge(report.lastSweep.at, now)} removed {report.lastSweep.removed.length}.</p>
         ) : null}
+        </SettingsSection>
       </div>
     );
   };

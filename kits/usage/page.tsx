@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage, formatCost, type HostExtensionClient, type SettingsPageProps } from "tau";
+import { SettingsSection, errorMessage, formatCost, type HostExtensionClient, type SettingsPageProps } from "tau";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
 import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, type UsageLimitsSummary, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
@@ -100,8 +100,9 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
         </button>
       </div>
 
-      <div className="settings-label">Subscription limits</div>
-      <UsageLimits limits={limits} error={limitsError} rows={summary?.rows} periodLabel={periodLabel} now={clock} />
+      <SettingsSection title="Subscription limits" plain>
+        <UsageLimits limits={limits} error={limitsError} rows={summary?.rows} periodLabel={periodLabel} now={clock} />
+      </SettingsSection>
 
       {error ? <div className="settings-note" data-level="error">{error}</div> : null}
 
@@ -122,16 +123,15 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
 
       {summary ? (
         <>
-          <div className="settings-label usage-table-head">
-            <span>{periodLabel} · by</span>
-            <div className="segmented" role="group" aria-label="Group by">
+          <SettingsSection title={`${periodLabel} · by`} plain headerAction={
+            <div className="segmented usage-grouping" role="group" aria-label="Group by">
               {USAGE_GROUPINGS.map((entry) => (
                 <button key={entry.id} type="button" className={grouping === entry.id ? "active" : ""} aria-pressed={grouping === entry.id} onClick={() => setGrouping(entry.id)}>
                   {entry.label}
                 </button>
               ))}
             </div>
-          </div>
+          }>
           {groups.length > 0 ? (
             <table className="inspector-table usage-table" aria-label="Usage">
               <thead>
@@ -171,11 +171,13 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
               The sources below say what was read.
             </div>
           )}
+          </SettingsSection>
 
-          <div className="settings-label">Model prices</div>
-          <ModelPrices suggestions={suggestions} />
+          <SettingsSection title="Model prices" plain>
+            <ModelPrices suggestions={suggestions} />
+          </SettingsSection>
 
-          <div className="settings-label">Sources</div>
+          <SettingsSection title="Sources" plain>
           <ul className="usage-sources" aria-label="Sources">
             {summary.sources.map((source) => (
               <li key={source.backend} data-status={source.status}>
@@ -197,6 +199,7 @@ export function UsagePage({ host, now }: SettingsPageProps & { host: HostExtensi
             tokens would have cost over the provider&apos;s API; the plan itself was paid for already. A model without a price counts tokens
             only. Last read {new Date(summary.scannedAt).toLocaleTimeString()}.
           </div>
+          </SettingsSection>
         </>
       ) : null}
     </div>

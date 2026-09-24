@@ -10,7 +10,7 @@ import { TerminalFontLink } from "./terminal-font.js";
 /**
  * The desktop half of `tau.appearance`: Settings → Appearance, the theme
  * editor floating over the window, and what applies the values — density,
- * contrast, a theme per scheme, the prompt and code faces.
+ * contrast, a theme per scheme, the prompt and code faces, panel motion.
  */
 export const appearanceExtension: DesktopExtension = {
   id: APPEARANCE_EXTENSION_ID,
@@ -32,7 +32,7 @@ export const appearanceExtension: DesktopExtension = {
       order: 5,
       profiles: ["desktop", "web", "compact"],
       scope: "both",
-      keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "terminal", "ghostty", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour"],
+      keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "terminal", "ghostty", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour", "animation", "motion", "panels"],
       Component: (props: SettingsPageProps) => <AppearancePage {...props} preferences={plugin.preferences} editor={editor} terminalFont={terminalFont} />,
     });
     // The title bar is always there, so the editor outlives the Settings page it was opened from.

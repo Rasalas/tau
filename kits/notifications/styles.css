@@ -16,6 +16,3 @@
 .notifications-toast-text > small { font: 11px var(--sans); color: var(--muted); }
 .notifications-toast > .icon-button { flex: none; }
 
-.notifications-sound-row { display: flex; align-items: center; gap: 12px; max-width: 420px; }
-.notifications-sound-row > .segmented { flex: 1; }
-.notifications-actions { margin-top: 14px; }

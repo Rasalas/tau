@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Upload, Wand2 } from "lucide-react";
 import { SettingRow, SettingsSection, useSetting, userThemes, type PreferencesStore, type SettingHandle, type SettingsPageProps, type UserTheme } from "tau";
-import { DENSITIES, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readContrast, readDensity, readSize, readTimestamps, type Density, type TimestampFormat } from "./apply.js";
-import { currentToken, draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./editor.js";
+import { DENSITIES, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, PANEL_MOTION_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readContrast, readDensity, readPanelMotion, readSize, readTimestamps, type Density, type TimestampFormat } from "./apply.js";
+import { draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./editor.js";
+import { ModeTiles, PanelMotionPreview, ThemeCard, baseColors, themeColors, withoutOwnStyles, type Mode, type PreviewColors, type ThemeCardModel } from "./previews.js";
 import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance } from "./protocol.js";
 import { parseThemeCss } from "./theme-css.js";
 import { TerminalFontRow, type TerminalFontLink } from "./terminal-font.js";
@@ -23,22 +24,6 @@ function readText(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("Could not read the file."));
     reader.readAsText(file);
   });
-}
-
-/** The themes that carry colours for a scheme, with the three that show what they look like. */
-function themesFor(themes: readonly UserTheme[], scheme: Appearance) {
-  return themes.flatMap((theme) => {
-    const tokens = parseThemeCss(theme.css, theme.base)[scheme];
-    return Object.keys(tokens).length > 0 ? [{ theme, tokens }] : [];
-  });
-}
-
-function Swatches({ colors }: { colors: ReadonlyArray<string | undefined> }) {
-  return (
-    <span className="appearance-swatches" aria-hidden>
-      {colors.map((color, index) => <i key={index} style={color ? { background: color } : undefined} />)}
-    </span>
-  );
 }
 
 /** A text field committed on blur or Enter; empty clears the level's value. */
@@ -72,34 +57,86 @@ function SizeSetting({ label, setting, fallback }: { label: string; setting: Set
   );
 }
 
-function ThemeHalfRow({ scheme, themes, onEdit }: { scheme: Appearance; themes: readonly UserTheme[]; onEdit(draft: ThemeDraft): void }) {
-  const setting = useSetting<string>(value(scheme === "light" ? SETTING_KEYS.themeLight : SETTING_KEYS.themeDark), {
-    defaultValue: "", read: readString, format: (id) => (id ? themes.find((theme) => theme.id === id)?.name ?? id : "Tau"),
+/** What a user theme's card needs: its colours per scheme it has, and what the editor starts from. */
+function themeCards(themes: readonly UserTheme[], base: Readonly<Record<Appearance, PreviewColors>>): Array<ThemeCardModel & { tokens: Partial<Record<Appearance, Record<string, string>>> }> {
+  return themes.flatMap((theme) => {
+    const tokens: Partial<Record<Appearance, Record<string, string>>> = {};
+    const schemes: ThemeCardModel["schemes"] = {};
+    const parsed = parseThemeCss(theme.css, theme.base);
+    for (const scheme of ["light", "dark"] as const) {
+      if (Object.keys(parsed[scheme]).length === 0) continue;
+      tokens[scheme] = parsed[scheme];
+      schemes[scheme] = themeColors(parsed[scheme], base[scheme]);
+    }
+    return Object.keys(schemes).length > 0 ? [{ id: theme.id, name: theme.name, schemes, tokens }] : [];
   });
-  const choices = themesFor(themes, scheme);
-  const chosen = choices.find((entry) => entry.theme.id === setting.value);
-  const colors = chosen
-    ? [chosen.tokens["--shell"] ?? chosen.tokens["--stage"], chosen.tokens["--ink"], chosen.tokens["--acid"]]
-    : [currentToken("--shell", scheme), currentToken("--ink", scheme), currentToken("--acid", scheme)];
-  const edit = () => onEdit(chosen
-    ? { id: chosen.theme.id, name: chosen.theme.name, appearance: scheme, seed: { background: chosen.tokens["--shell"] ?? "#000000", foreground: chosen.tokens["--ink"] ?? "#ffffff", accent: chosen.tokens["--acid"] ?? "#888888" }, tokens: { ...draftFromWindow(scheme).tokens, ...Object.fromEntries(Object.entries(chosen.tokens).filter(([, token]) => token.startsWith("#"))) } }
-    : draftFromWindow(scheme, scheme === "light" ? "My light theme" : "My dark theme"));
-  return (
+}
+
+/** A draft of a saved theme for one scheme, over what Tau paints, so every token has a value. */
+function draftOf(card: { id: string; name: string; tokens: Partial<Record<Appearance, Record<string, string>>> }, scheme: Appearance): ThemeDraft {
+  const tokens = card.tokens[scheme] ?? {};
+  return {
+    id: card.id, name: card.name, appearance: scheme,
+    seed: { background: tokens["--shell"] ?? "#000000", foreground: tokens["--ink"] ?? "#ffffff", accent: tokens["--acid"] ?? "#888888" },
+    tokens: { ...withoutOwnStyles(() => draftFromWindow(scheme)).tokens, ...Object.fromEntries(Object.entries(tokens).filter(([, token]) => token.startsWith("#"))) },
+  };
+}
+
+/** Mode tiles and theme cards after T3 Code's: each tile paints with the themes it would use. */
+function ColorsAndThemes({ themes, mode, scheme, preferences, onEdit, onImport, onNew }: {
+  themes: readonly UserTheme[];
+  preferences: PreferencesStore;
+  mode: SettingHandle<string>;
+  scheme: Appearance;
+  onEdit(draft: ThemeDraft): void;
+  onImport(): void;
+  onNew(): void;
+}) {
+  const read = (raw: unknown) => (typeof raw === "string" ? raw : undefined);
+  const halfOptions = (key: string) => ({ defaultValue: "", read, format: (id: string) => (id ? themes.find((theme) => theme.id === id)?.name ?? id : "Tau"), offline: (id: string) => preferences.setValue(ID, key, id) });
+  const light = useSetting<string>(value(SETTING_KEYS.themeLight), halfOptions(SETTING_KEYS.themeLight));
+  const dark = useSetting<string>(value(SETTING_KEYS.themeDark), halfOptions(SETTING_KEYS.themeDark));
+  const halves: Record<Appearance, SettingHandle<string>> = { light, dark };
+  const base = { light: baseColors("light"), dark: baseColors("dark") };
+  const cards = themeCards(themes, base);
+  const owner = (half: Appearance) => cards.find((card) => card.id === halves[half].value && card.schemes[half]);
+  const shown = { light: owner("light")?.schemes.light ?? base.light, dark: owner("dark")?.schemes.dark ?? base.dark };
+  const activeFor = (id: string) => (["light", "dark"] as const).filter((half) => (owner(half)?.id ?? "") === id);
+  const use = (id: string, schemes: readonly Appearance[]) => {
+    for (const half of schemes) {
+      if (id) halves[half].set(id);
+      else if (halves[half].origin !== "default") halves[half].reset();
+    }
+  };
+  // A theme chosen as the preference itself (core's older way) stays reachable as a tile of its own.
+  const legacy = MODE_LABELS[mode.value] ? undefined : themes.find((theme) => theme.id === mode.value);
+  return <>
     <SettingRow
-      id={`setting-appearance-theme-${scheme}`}
-      title={scheme === "light" ? "Light theme" : "Dark theme"}
-      description={`What the window paints with in the ${scheme} scheme${scheme === "light" ? ", with System in a light OS" : ", with System in a dark OS"}.`}
-      setting={setting}
+      id="setting-appearance-mode"
+      title="Mode"
+      description="System follows this machine's light or dark setting."
+      setting={mode}
+      control={legacy ? <button type="button" className="chrome-button" aria-pressed onClick={() => mode.set("system")}>{legacy.name} · use System</button> : undefined}
+    >
+      <ModeTiles value={mode.value} colors={shown} onChange={(next: Mode) => mode.set(next)} />
+    </SettingRow>
+    <SettingRow
+      id="setting-appearance-themes"
+      title="Themes"
+      description="A swatch gives a theme that scheme; its name gives it every scheme it has. Your themes are the files in the themes folder."
       control={<>
-        <Swatches colors={colors} />
-        <select className="settings-select" aria-label={scheme === "light" ? "Light theme" : "Dark theme"} value={chosen ? setting.value : ""} onChange={(event) => (event.target.value ? setting.set(event.target.value) : setting.reset())}>
-          <option value="">Tau</option>
-          {choices.map(({ theme }) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-        </select>
-        <button type="button" className="chrome-button" onClick={edit}>{chosen ? "Edit" : "Customize"}</button>
+        <button type="button" className="chrome-button" onClick={onNew}><Wand2 size={13} /> New theme</button>
+        <button type="button" className="chrome-button" onClick={onImport}><Upload size={13} /> Import VS Code theme</button>
       </>}
-    />
-  );
+    >
+      <div className="appearance-theme-grid">
+        <ThemeCard theme={{ id: "", name: "Tau", schemes: base }} active={activeFor("")} onUse={(schemes) => use("", schemes)} editLabel="Customize" onEdit={() => onEdit(withoutOwnStyles(() => draftFromWindow(scheme, scheme === "light" ? "My light theme" : "My dark theme")))} />
+        {cards.map((card) => (
+          <ThemeCard key={card.id} theme={card} active={activeFor(card.id)} onUse={(schemes) => use(card.id, schemes)} editLabel="Edit" onEdit={() => onEdit(draftOf(card, card.schemes[scheme] ? scheme : card.schemes.light ? "light" : "dark"))} />
+        ))}
+      </div>
+    </SettingRow>
+  </>;
 }
 
 /** Settings → Appearance: themes per scheme, the editor and the importer, contrast, density and type. */
@@ -120,9 +157,12 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
   const codeSize = useSetting<number | undefined>(value(SETTING_KEYS.codeFontSize), { defaultValue: undefined, read: readSize, write: String, format: (next) => (next ? `${next}px` : `${DEFAULT_CODE_FONT_SIZE}px`) });
 
   const timestamps = useSetting<TimestampFormat>(value(SETTING_KEYS.timestamps), { defaultValue: "24h", read: readTimestamps, format: (next) => TIMESTAMP_LABELS[next] });
-  const modes = ["system", "light", "dark", ...(MODE_LABELS[mode.value] ? [] : [mode.value])];
   const [contrastDraft, setContrastDraft] = useState(contrast.value);
   useEffect(() => setContrastDraft(contrast.value), [contrast.value]);
+  const panelMotion = useSetting<number>(value(SETTING_KEYS.panelMotion), { defaultValue: 0, read: readPanelMotion, write: String, format: (next) => `${next} ms`, offline: (next) => preferences.setValue(ID, SETTING_KEYS.panelMotion, String(next)) });
+  const [motionDraft, setMotionDraft] = useState(panelMotion.value);
+  useEffect(() => setMotionDraft(panelMotion.value), [panelMotion.value]);
+  const commitMotion = () => { if (motionDraft !== panelMotion.value) panelMotion.set(motionDraft); };
 
   const importFile = async (file: File) => {
     try {
@@ -138,35 +178,12 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
     <div className="settings-page appearance-page">
       <h3>Appearance</h3>
       <SettingsSection title="Colors & themes">
-        <SettingRow
-          id="setting-appearance-mode"
-          title="Mode"
-          description="System follows this machine's light or dark setting; the two themes below say what each looks like."
-          setting={mode}
-          control={<div className="segmented" role="group" aria-label="Mode">
-            {modes.map((id) => (
-              <button key={id} type="button" className={mode.value === id ? "active" : ""} aria-pressed={mode.value === id} onClick={() => mode.set(id)}>
-                {MODE_LABELS[id] ?? themes.find((theme) => theme.id === id)?.name ?? id}
-              </button>
-            ))}
-          </div>}
-        />
-        <ThemeHalfRow scheme="light" themes={themes} onEdit={(draft) => editor.open(draft)} />
-        <ThemeHalfRow scheme="dark" themes={themes} onEdit={(draft) => editor.open(draft)} />
-        <SettingRow
-          id="setting-appearance-editor"
-          title="Theme editor"
-          description="Make a theme from three colours or token by token; the draft paints the window while you work, and Save writes it to your themes folder."
-          control={<>
-            <button type="button" className="chrome-button" onClick={() => editor.open(draftFromWindow(scheme))}><Wand2 size={13} /> New theme</button>
-            <button type="button" className="chrome-button" onClick={() => fileRef.current?.click()}><Upload size={13} /> Import VS Code theme</button>
-            <input ref={fileRef} type="file" hidden accept=".json,.jsonc,application/json" aria-label="VS Code theme file" onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void importFile(file);
-            }} />
-          </>}
-        />
+        <ColorsAndThemes themes={themes} mode={mode} scheme={scheme} preferences={preferences} onEdit={(draft) => editor.open(draft)} onNew={() => editor.open(draftFromWindow(scheme))} onImport={() => fileRef.current?.click()} />
+        <input ref={fileRef} type="file" hidden accept=".json,.jsonc,application/json" aria-label="VS Code theme file" onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void importFile(file);
+        }} />
       </SettingsSection>
 
       <SettingsSection title="Interface">
@@ -204,6 +221,23 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont }: 
               <button key={next} type="button" className={timestamps.value === next ? "active" : ""} aria-pressed={timestamps.value === next} onClick={() => timestamps.set(next)}>{TIMESTAMP_LABELS[next]}</button>
             ))}
           </div>}
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Motion">
+        <SettingRow
+          id="setting-appearance-panel-animations"
+          title="Panel animations"
+          description="How long the sidebar, the dock and the drawer take to open and close. At 0 they do so at once; a system setting for reduced motion always wins."
+          setting={panelMotion}
+          control={<span className="appearance-motion">
+            <PanelMotionPreview ms={motionDraft} />
+            <span className="appearance-slider">
+              <output htmlFor="appearance-panel-motion">{motionDraft} ms</output>
+              <input id="appearance-panel-motion" type="range" aria-label="Panel animation duration" min={PANEL_MOTION_RANGE.min} max={PANEL_MOTION_RANGE.max} step={PANEL_MOTION_RANGE.step} value={motionDraft}
+                onChange={(event) => setMotionDraft(Number(event.target.value))} onPointerUp={commitMotion} onKeyUp={commitMotion} />
+            </span>
+          </span>}
         />
       </SettingsSection>
 

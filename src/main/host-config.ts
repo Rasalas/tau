@@ -289,7 +289,7 @@ export class HostConfigManager {
     const KNOWN_KEYS = new Set<keyof TauConfig>([
       "theme", "transcriptDetail", "showCosts", "favouriteModels", "disabledExtensions",
       "prewarm", "options", "values", "keybindings", "fontFamily", "fontSize",
-      "temperature", "maxTokens", "vimMode", "hostBackground", "threads", "updates", "confirm",
+      "temperature", "maxTokens", "vimMode", "hostBackground", "threads", "updates", "confirm", "extensions",
       "modelPreferences", "modelPrices",
     ]);
     const result: Partial<TauConfig> = {};
@@ -332,6 +332,11 @@ export class HostConfigManager {
         case "threads":
           if (val && typeof val === "object" && typeof (val as { continueAfterRestart?: unknown }).continueAfterRestart === "boolean") {
             result.threads = { continueAfterRestart: (val as { continueAfterRestart: boolean }).continueAfterRestart };
+          }
+          break;
+        case "extensions":
+          if (val && typeof val === "object" && typeof (val as { watch?: unknown }).watch === "boolean") {
+            result.extensions = { watch: (val as { watch: boolean }).watch };
           }
           break;
         case "updates":

@@ -41,6 +41,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
       ["Show costs", ["cost", "money", "spend", "price"]],
       ["Keep the host running in the background", ["host", "background", "quit"]],
       ["Continue threads after restarts", ["restart", "resume", "interrupted"]],
+      ["Reload files when they change", ["watch", "hot reload", "extensions", "packages", "themes", "config"]],
       ["Composer editing mode", ["vim", "readline", "emacs", "modal"]],
       ["Send with", ["send", "enter", "submit", "shortcut"]],
       ["Model parameters", ["temperature", "max tokens", "sampling"]],

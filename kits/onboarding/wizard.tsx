@@ -1,8 +1,8 @@
 import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
-import { ArrowRight, Bot, Braces, Check, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
-import { loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
-import { backendKit, defaultProjects, defaultSessions, type AgentStatus, type FlowState, type WelcomeFlow } from "./flow.js";
-import type { ImportableSession, ProjectCandidate, ToolReport } from "./protocol.js";
+import { ArrowRight, Bot, Braces, Check, ChevronRight, Copy, FolderPlus, GitMerge, GitPullRequest, Orbit, Sparkles, SquareTerminal } from "lucide-react";
+import { MiddleTruncate, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
+import { backendKit, defaultProjects, defaultSessions, groupProjects, type AgentStatus, type FlowState, type ProjectGroup, type WelcomeFlow } from "./flow.js";
+import { WELCOME_OVERLAY, type ImportableSession, type ProjectCandidate, type ToolReport } from "./protocol.js";
 
 const STEPS = ["Agents", "Projects", "Conversations"] as const;
 const SignIn = lazy(() => loadSignInUi().then((module) => ({ default: module.SignInSetup })));
@@ -14,6 +14,28 @@ export interface TerminalRunner {
   run(request: { command: string; label?: string }, actions?: WorkbenchActions): Promise<{ id: string; exitCode?: number }>;
 }
 const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some projects or conversations may be missing.";
+
+/** Runs a command in a terminal the user sees, then asks `recheck` what changed. */
+export type RunAside = (request: { command: string; label: string }, recheck?: () => void) => Promise<{ exitCode?: number }>;
+
+/**
+ * The wizard covers the workbench, terminal included, so it stands aside
+ * while the command runs and comes back when the shell ends, as T3 Code's
+ * inline terminal would.
+ */
+export function createRunAside(flow: WelcomeFlow, runner: TerminalRunner, actions: WorkbenchActions, close: () => void): RunAside {
+  return async (request, recheck) => {
+    flow.setTerminal(request.label);
+    close();
+    try {
+      return await runner.run(request, actions);
+    } finally {
+      flow.setTerminal(undefined);
+      recheck?.();
+      actions.openOverlay(WELCOME_OVERLAY);
+    }
+  };
+}
 
 type RowState = "checking" | "ready" | "signIn" | "install" | "update" | "settings";
 type Icon = ComponentType<{ size?: number; "aria-label"?: string }>;
@@ -151,13 +173,18 @@ function CommandBlock({ command, actions }: { command: string; actions: Workbenc
   );
 }
 
-function AgentCard({ row, actions, flow, runner }: { row: AgentRow; actions: WorkbenchActions; flow?: WelcomeFlow; runner?: () => TerminalRunner | undefined }) {
-  const [open, setOpen] = useState(false);
+function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; actions: WorkbenchActions; flow: WelcomeFlow; aside?: RunAside; recheck(): void }) {
+  const open = flow.get().expanded === row.id;
   const Glyph = iconOf(row.id);
-  const inPlace = Boolean(row.signIn && flow);
+  const inPlace = Boolean(row.signIn);
   const label = inPlace || (row.command && row.state === "signIn") ? "Sign in" : !row.command ? "Open Settings" : row.state === "install" ? "Install" : row.state === "update" ? "Update" : "Sign in";
-  const act = () => row.command || inPlace ? setOpen(!open) : actions.openSettings(row.settings);
-  const run = runner?.();
+  // An install or a login may ask things, so it runs where the user can answer; an update is only shown.
+  const inTerminal = aside && row.command && !inPlace && (row.state === "install" || row.state === "signIn") ? row.command : undefined;
+  const act = () => {
+    if (inTerminal) void aside!({ command: inTerminal, label: label === "Sign in" ? `Sign in to ${row.label}` : `${label} ${row.label}` }, recheck).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+    else if (row.command || inPlace) flow.expand(open ? undefined : row.id);
+    else actions.openSettings(row.settings);
+  };
   const place = useRef<HTMLDivElement>(null);
   // The list scrolls; a row near its end would open its sign-in below the fold.
   useEffect(() => { if (open) place.current?.scrollIntoView?.({ block: "nearest" }); }, [open]);
@@ -170,10 +197,12 @@ function AgentCard({ row, actions, flow, runner }: { row: AgentRow; actions: Wor
           ? <span className="onboarding-ready"><Check size={13} /> Ready</span>
           : row.state === "checking"
             ? null
-            : <button type="button" className="onboarding-button ghost small" aria-expanded={row.command || inPlace ? open : undefined} onClick={act}>{label}</button>}
+            : <button type="button" className="onboarding-button ghost small" aria-expanded={!inTerminal && (row.command || inPlace) ? open : undefined} data-tooltip={inTerminal ? `Runs ${inTerminal} in a terminal` : undefined} onClick={act}>
+              {inTerminal ? <SquareTerminal size={12} /> : null}{label}
+            </button>}
       </div>
-      {open && row.command ? <CommandBlock command={row.command} actions={actions} /> : null}
-      {open && row.signIn && flow ? (
+      {open && row.command && !inTerminal ? <CommandBlock command={row.command} actions={actions} /> : null}
+      {open && row.signIn ? (
         <div className="onboarding-sign-in" ref={place}>
           <Suspense fallback={null}>
             <SignIn
@@ -181,7 +210,7 @@ function AgentCard({ row, actions, flow, runner }: { row: AgentRow; actions: Wor
               target={row.signIn.target}
               program={row.label}
               showAccount={false}
-              {...(run ? { runInTerminal: (command: string) => run.run({ command, label: `Sign in to ${row.label}` }, actions) } : {})}
+              {...(aside ? { runInTerminal: (command: string) => aside({ command, label: `Sign in to ${row.label}` }, recheck) } : {})}
               openExternal={(url) => actions.openExternal(url)}
               copyText={(text) => actions.copyText(text)}
               onNotify={(message) => actions.notify(message)}
@@ -231,7 +260,7 @@ function Looking({ onSkip, what }: { onSkip(): void; what: string }) {
   </>;
 }
 
-function AgentsStep({ state, flow, actions, runner }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions; runner?: () => TerminalRunner | undefined }) {
+function AgentsStep({ state, flow, actions, aside }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions; aside?: RunAside }) {
   const snapshot = useWorkbenchShell().snapshot;
   const backends = (snapshot?.runtimeBackends ?? []).filter((backend) => backend.kind !== "pi");
   const kinds = backends.map((backend) => backend.kind);
@@ -239,11 +268,12 @@ function AgentsStep({ state, flow, actions, runner }: { state: FlowState; flow: 
   const rows = agentRows(state, snapshot ? (snapshot.completionModels ?? snapshot.models).length : undefined, backends);
   return (
     <StepShell title="Your agents" description="Agents available on this computer. Install or sign in to the ones you want to use; Settings → Providers has them later too.">
-      <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(runner ? { runner } : {})} />)}</div>
+      <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(aside ? { aside } : {})} recheck={() => flow.recheckAgent(row.id)} />)}</div>
+      {state.error ? <p className="onboarding-error" role="alert">Could not check the tools. {state.error}</p> : null}
       <section className="onboarding-optional" aria-labelledby="onboarding-pr-tools">
         <h3 id="onboarding-pr-tools" className="onboarding-subtitle">Tools for pull requests <span className="onboarding-badge">Optional</span></h3>
         <p className="onboarding-note">Tau uses them to open pull and merge requests and show their checks. Your agents work without them.</p>
-        <div className="onboarding-list compact">{toolRows(state).map((row) => <AgentCard key={row.id} row={row} actions={actions} />)}</div>
+        <div className="onboarding-list compact">{toolRows(state).map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(aside ? { aside } : {})} recheck={() => flow.checkTools()} />)}</div>
       </section>
       <div className="onboarding-actions">
         <button type="button" className="onboarding-button ghost" onClick={() => flow.checkAgents()}>Check again</button>
@@ -261,7 +291,6 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
   const selected = new Set(state.projects ?? defaultProjects(candidates, now));
   const chosen = candidates.filter((project) => selected.has(project.path));
   const busy = state.busy === "projects";
-  const toggle = (project: ProjectCandidate, on: boolean) => flow.select("projects", on ? [...selected, project.path] : [...selected].filter((path) => path !== project.path));
   return (
     <StepShell title="Choose your projects" description="Folders Claude Code, Codex, OpenCode and Pi have worked in. The ones you choose are added to Tau.">
       {state.discoverError ? <p className="onboarding-error" role="alert">Could not check projects. {state.discoverError} <button type="button" className="onboarding-button ghost small" onClick={() => flow.discover()}>Retry</button></p> : null}
@@ -271,13 +300,7 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
         {candidates.length === 0 && state.discovery
           ? <p className="onboarding-empty">{state.discovery.projects.length ? "Every folder found is a project in Tau already." : "No existing Claude Code or Codex projects found."}</p>
           : null}
-        {candidates.map((project) => (
-          <label key={project.path} className="onboarding-row" title={project.path}>
-            <input type="checkbox" checked={selected.has(project.path)} onChange={(event) => toggle(project, event.target.checked)} />
-            <span className="onboarding-row-text"><strong>{project.name}</strong><small>{project.path}</small></span>
-            <span className="onboarding-meta"><SourceMarks sources={project.sources} /><span>{project.threadCount}</span><span>{age(project.lastActiveAt, now)}</span></span>
-          </label>
-        ))}
+        <ProjectList candidates={candidates} selected={selected} now={now} onToggle={(paths, on) => flow.select("projects", on ? [...selected, ...paths] : [...selected].filter((path) => !paths.includes(path)))} />
       </fieldset>
       <Notes state={state} />
       {state.error ? <p className="onboarding-error" role="alert">{state.error}</p> : null}
@@ -290,6 +313,66 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
       </div>
     </StepShell>
   );
+}
+
+function ProjectRow({ project, label, detail, nested, selected, now, onToggle }: { project: ProjectCandidate; label: string; detail?: string; nested?: boolean; selected: ReadonlySet<string>; now: number; onToggle(paths: readonly string[], on: boolean): void }) {
+  return (
+    <label className={nested ? "onboarding-row nested" : "onboarding-row"} title={project.path}>
+      <input type="checkbox" checked={selected.has(project.path)} onChange={(event) => onToggle([project.path], event.target.checked)} />
+      <span className="onboarding-row-text">{nested ? <MiddleTruncate className="onboarding-path" value={label} /> : <strong>{label}</strong>}{detail ? <MiddleTruncate className="onboarding-path detail" value={detail} /> : null}</span>
+      <span className="onboarding-meta"><SourceMarks sources={nested ? [] : project.sources} /><span>{project.threadCount}</span><span>{age(project.lastActiveAt, now)}</span></span>
+    </label>
+  );
+}
+
+/** A group's own row: a checkbox for all of it, a fold, and what its folders add up to. */
+function GroupRow({ label, paths, open, selected, meta, onFold, onToggle, quiet }: {
+  label: string; paths: readonly string[]; open: boolean; selected: ReadonlySet<string>; meta: ReactNode; quiet?: boolean;
+  onFold(): void; onToggle(paths: readonly string[], on: boolean): void;
+}) {
+  const count = paths.filter((path) => selected.has(path)).length;
+  return (
+    <div className="onboarding-row onboarding-group-row">
+      <input type="checkbox" aria-label={`Add every folder of ${label}`} checked={count === paths.length} ref={(input) => { if (input) input.indeterminate = count > 0 && count < paths.length; }} onChange={(event) => onToggle(paths, event.target.checked)} />
+      <button type="button" className="onboarding-fold" aria-expanded={open} onClick={onFold}>
+        <ChevronRight size={13} aria-hidden />
+        <span className="onboarding-row-text">{quiet ? <span>{label}</span> : <strong>{label}</strong>}</span>
+        {meta}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Repositories first, newest on top; clones of one remote as a group with a
+ * checkbox for all of them. Folders that are not repositories fold away at
+ * the bottom, as in T3 Code.
+ */
+export function ProjectList({ candidates, selected, now, onToggle }: { candidates: readonly ProjectCandidate[]; selected: ReadonlySet<string>; now: number; onToggle(paths: readonly string[], on: boolean): void }) {
+  const { repositories, other } = groupProjects(candidates);
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set(["other"]));
+  const fold = (key: string) => setFolded((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  const nested = (project: ProjectCandidate) => <ProjectRow key={project.path} project={project} selected={selected} now={now} onToggle={onToggle} label={project.path} nested />;
+  const single = (group: ProjectGroup) => {
+    const project = group.projects[0]!;
+    return <ProjectRow key={group.key} project={project} selected={selected} now={now} onToggle={onToggle} label={group.label} detail={project.path} />;
+  };
+  return <>
+    {repositories.map((group) => group.projects.length === 1 ? single(group) : (
+      <div key={group.key} className="onboarding-group">
+        <GroupRow label={group.label} paths={group.projects.map((project) => project.path)} open={!folded.has(group.key)} selected={selected} onFold={() => fold(group.key)} onToggle={onToggle}
+          meta={<span className="onboarding-meta"><SourceMarks sources={group.sources} /><span>{group.threadCount}</span><span>{age(group.lastActiveAt, now)}</span></span>} />
+        {folded.has(group.key) ? null : group.projects.map(nested)}
+      </div>
+    ))}
+    {other.length > 0 ? (
+      <div className="onboarding-group">
+        <GroupRow label="Other folders" quiet paths={other.map((project) => project.path)} open={!folded.has("other")} selected={selected} onFold={() => fold("other")} onToggle={onToggle}
+          meta={<span className="onboarding-count">{plural(other.length, "folder")}</span>} />
+        {folded.has("other") ? null : other.map(nested)}
+      </div>
+    ) : null}
+  </>;
 }
 
 function ConversationsStep({ state, flow, actions, known, finish }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions; known: ReadonlySet<string>; finish(): void }) {
@@ -362,6 +445,8 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
       if (pending?.length) void flow.addProjects(actions, pending);
     }, []);
     const finish = () => { void flow.finish().then(onClose); };
+    const run = runner?.();
+    const aside = run ? createRunAside(flow, run, actions, onClose) : undefined;
     // The dialog, not a button, takes focus: the Enter that opened the wizard would press it.
     const dialog = useRef<HTMLElement>(null);
     useEffect(() => { dialog.current?.focus(); }, [state.step]);
@@ -378,8 +463,14 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
             <div className="onboarding-identity" aria-hidden="true"><span className="onboarding-mark">τ</span>Tau</div>
             <Steps current={state.step} disabled={Boolean(state.busy)} onStep={(step) => flow.goTo(step)} />
           </header>
+          {state.terminal ? (
+            <div className="onboarding-terminal-note" role="status">
+              <SquareTerminal size={13} /><span>{state.terminal} runs in a terminal. Setup comes back when it ends.</span>
+              <button type="button" className="onboarding-button ghost small" onClick={onClose}>Show the terminal</button>
+            </div>
+          ) : null}
           <div className="onboarding-panel">
-            {state.step === 0 ? <AgentsStep state={state} flow={flow} actions={actions} {...(runner ? { runner } : {})} />
+            {state.step === 0 ? <AgentsStep state={state} flow={flow} actions={actions} {...(aside ? { aside } : {})} />
               : state.step === 1 ? <ProjectsStep state={state} flow={flow} actions={actions} known={known} />
                 : <ConversationsStep state={state} flow={flow} actions={actions} known={known} finish={finish} />}
           </div>

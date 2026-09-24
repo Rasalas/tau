@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { loadDependencyModule } from "./dependency-loader.js";
 import type { HostLogger } from "./host-log.js";
 
 const requireModule = createRequire(import.meta.url);
@@ -16,6 +17,13 @@ export interface WindowExtensionContext {
   /** Calls a command of this extension's own host half. */
   invokeHost(command: string, input?: unknown): Promise<unknown>;
   log(label: string, detail?: string): void;
+  /**
+   * A module from Tau's own npm dependencies, resolved in the window's process
+   * the way `services.loadDependency` resolves one in the host's: a native addon
+   * that must act on this machine (its windows, its accessibility) loads here.
+   * Absent before API 1.12.0.
+   */
+  loadDependency?(packageName: string): Promise<unknown>;
 }
 
 /** The window half itself: one command handler and a way to let go. */
@@ -30,6 +38,8 @@ export interface WindowExtensionPorts {
   /** Reaches the host half of an extension over this window's own connection. */
   invokeHost(extensionId: string, command: string, input?: unknown): Promise<unknown>;
   logger?: HostLogger;
+  /** Stands in for resolving from Tau's own modules, for tests. */
+  loadDependency?(packageName: string): Promise<unknown>;
 }
 
 /**
@@ -53,6 +63,7 @@ export class WindowExtensionRegistry {
       id,
       invokeHost: (command, input) => this.ports.invokeHost(id, command, input),
       log: (label, detail) => this.ports.logger?.info(`window-extension.${id}.${label}`, detail),
+      loadDependency: (packageName) => (this.ports.loadDependency ?? loadDependencyModule)(packageName),
     }));
   }
 
