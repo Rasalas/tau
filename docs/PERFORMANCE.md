@@ -576,6 +576,30 @@ Verification in an isolated instance: the network log of a reload showed the def
 
 The renderer benchmark ran twice per side under a load average of 17 to 57. The Markdown streaming scenarios were as fast or faster (update p95 9.4 and 5.8 ms → 5.5 and 5.2 for the 150 KB code stream, 11.8 and 10.9 → 8.4 and 7.1 fenced, 10.6 and 7.4 → 6.6 and 7.7 plain). The other scenarios scattered by a factor of two in both directions between runs of the same build; `--check` failed on both sides on the same scenarios, `long-user-message` among them.
 
+### Total script headroom
+
+After F06 the total JavaScript was 500,073 bytes of gzip, 73 over its 500,000 budget, with F07, F13 and F14 still to bring UI. Ticket F17 (2026-09-24) won back 33 KB without raising a budget. Moving code into a lazy chunk does not help here, since the total counts every chunk; the bytes have to go. Desktop build, from `reports/build-report.json`:
+
+| tree | initial JavaScript | total JavaScript | files |
+| --- | ---: | ---: | ---: |
+| `t3/wave-f` (`1b652f0c`) | 772,049 (240,763 gzip) | 1,594,716 (500,073 gzip) | 84 |
+| `t3/wave-f` (`13f17a36`, F14 merged) | 773,950 (241,408) | 1,597,011 (500,820) | 84 |
+| merged with the packed icon set | 773,061 (240,932) | 1,436,200 (467,016) | 70 |
+
+The browser client on the same merged tree went from 778,606 to 777,641 bytes of initial JavaScript (243,664 to 243,217 gzip) and from 496,055 to 462,224 bytes of total gzip. The stylesheets did not change.
+
+- **Packed icon set.** Extensions get `lucide-react` from the renderer, so its chunk holds all 1,790 icons. As 1,790 modules it was 416,869 bytes (106,752 gzip): per icon a variable for its element list, a `createLucideIcon` call and an entry in the `icons` namespace. `packIconSet` (`vite.icon-set.ts`) replaces `src/renderer/icon-set.ts` in production builds with one string: the distinct tag and attribute-name combinations, the icon names, then each icon's elements as a combination index and the attribute values. `decodeIconSet` (`icon-set-codec.ts`) turns it back into components with lucide's own `createLucideIcon` when the chunk loads. The chunk is now 258,734 bytes (74,856 gzip). The small shared chunks that held icons used by both the set and a lazy surface merged into their surfaces, 14 files fewer, and the initial script lost their export bindings.
+- **Names apart.** All names first, then all element lists, is 1.9 KB of gzip smaller than name and elements per icon.
+- **Checks.** `vite.icon-set.test.ts` decodes the packed installed set and requires lucide's own names in namespace order and, per icon, the same markup as lucide's component. In an isolated instance, a digest over all 6,137 names of the shared `lucide-react` module (component name, class names and element list of every icon) was identical for the packed build and a build without the plugin on the same tree. Loading the chunk anew and calling `sharedIconModule()` took 8.4 to 11.8 ms after the first run (19.0) against 10.4 to 13.6 ms (18.7) before.
+
+Checked and left alone:
+
+- The 97 icons core imports on its own are in the packed set a second time, 2.4 KB of gzip. Importing them into the set instead would need the list of core's icons before Rollup has seen the whole graph.
+- No package is bundled twice; the only nested copy is still `escape-string-regexp` (449 bytes).
+- `RendererBenchmark` (7 KB gzip) ships because `npm run benchmark:renderer` runs against `dist/`.
+
+`npm run start:budget` passes; its fixture never loads the icon chunk. First paint with the packed set measured 976, 280, 260, 92, 124 and 200 ms, without it 220, 244 and 188 ms, under a load average of 10 to 28.
+
 ### Deferred extension binding
 
 `session.bindExtensions()` emits `session_start` to every configured extension

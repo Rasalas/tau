@@ -1,0 +1,30 @@
+/* Tailscale: its section on Settings → Connections and the consent step. */
+.tailscale-loading { padding: var(--space-5) var(--space-6); }
+.tailscale-notice {
+  margin: 0; padding: var(--space-5) var(--space-6); font-size: 12px; line-height: 1.45; color: var(--ink-2);
+  background: color-mix(in srgb, var(--info) 8%, transparent); border-bottom: 1px solid var(--line-card);
+}
+.tailscale-warning-line { margin: 4px 0 0; font-size: 12px; line-height: 1.45; color: var(--warn); }
+.tailscale-name { font: 12px/1.4 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+
+.tailscale-consent { max-width: 520px; }
+.tailscale-public {
+  display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm);
+  background: var(--warn-chip); color: var(--ink-2); font-size: 12px; line-height: 1.5;
+}
+.tailscale-public strong { color: var(--ink); font-size: 13px; }
+.tailscale-public p { margin: 0; }
+.tailscale-public code, .tailscale-agree code, .tailscale-address code { overflow-wrap: anywhere; }
+.tailscale-public-links { display: flex; flex-wrap: wrap; gap: 12px; }
+.tailscale-address { margin: 8px 0 0; font-size: 12px; color: var(--ink-3); }
+.tailscale-agree { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 0; font-size: 12px; line-height: 1.45; color: var(--ink-2); cursor: pointer; }
+.tailscale-agree input { margin-top: 2px; }
+.tailscale-recheck {
+  width: 28px; height: 28px; display: grid; place-items: center; padding: 0;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer;
+}
+.tailscale-recheck:hover:not(:disabled) { color: var(--ink); border-color: var(--line-control); }
+.tailscale-recheck:disabled { opacity: .5; cursor: default; }
+.tailscale-consent > footer > button.primary:disabled { opacity: .45; cursor: default; }
+.tailscale-consent .connection-field .settings-input { width: 120px; }

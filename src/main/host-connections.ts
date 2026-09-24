@@ -47,6 +47,8 @@ export interface HostConnectionsService {
   network?: HostNetworkService;
   /** Reads every listener's certificate again; answers whether one changed. */
   reloadCertificates?(): Promise<{ changed: boolean }>;
+  /** Endpoints packages published (`services.network.publishEndpoints`). */
+  published?(): UiHostEndpoint[];
   /** Replaceable for tests; the machine's own otherwise. */
   interfaces?(): Interfaces;
   names?(interfaces: Interfaces): Promise<EndpointNames>;
@@ -102,7 +104,7 @@ async function allEndpoints(connections: HostConnectionsService, info: HostListe
   const interfaces = connections.interfaces?.() ?? networkInterfaces();
   const beyondLoopback = (info !== undefined && !isLoopbackHost(info.host)) || (connections.network?.state().listeners.length ?? 0) > 0;
   const names = beyondLoopback ? await (connections.names ?? machineNames)(interfaces) : {};
-  return mergeEndpoints([info ? hostEndpoints(info, interfaces, names) : [], connections.network?.endpoints(names) ?? []]);
+  return mergeEndpoints([connections.published?.() ?? [], info ? hostEndpoints(info, interfaces, names) : [], connections.network?.endpoints(names) ?? []]);
 }
 
 function forbidden(): never {

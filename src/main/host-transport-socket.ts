@@ -24,7 +24,7 @@ import { hostTokenMatches } from "./host-token.js";
 import type { AccessPeer, HostCredential, PairingChannel } from "./host-access.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
-import { isLocalPeer, peerAddress, socketCapabilities, type ListenerTrust } from "./host-local-files.js";
+import { isLocalPeer, peerAddress, proxyUser, socketCapabilities, type ListenerTrust } from "./host-local-files.js";
 import { forwardedHost, originAllowed } from "./host-origin.js";
 import type { ClientPeer } from "./client-calls.js";
 import type { HostClientSink } from "./host-transport-clients.js";
@@ -308,6 +308,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     ];
     const local = isLocalPeer(trust, request.socket.remoteAddress);
     const address = peerAddress(trust, request);
+    const viaProxy = proxyUser(trust, request);
     socket.on("message", (data) => {
       alive.add(socket);
       let payload: unknown;
@@ -343,6 +344,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         const userAgent = request.headers["user-agent"];
         const connection = access.attach(credential, {
           ...(address ? { address } : {}),
+          ...(viaProxy ? { proxyUser: viaProxy } : {}),
           ...(typeof userAgent === "string" ? { userAgent } : {}),
           ...(frame.hello.profile ? { profile: frame.hello.profile } : {}),
           ...(frame.hello.auxiliary ? { auxiliary: true } : {}),

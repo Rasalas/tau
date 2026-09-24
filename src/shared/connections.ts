@@ -41,6 +41,8 @@ export interface UiPairedClient {
   lastSeenAt?: string;
   /** The address it last connected from; behind a proxy, the one the proxy forwarded. */
   lastAddress?: string;
+  /** Who the proxy in front of an open connection named (Tailscale Serve's user login). Shown, never trusted. */
+  proxyUser?: string;
   /** Open connections with this client's token right now. */
   connections: number;
   /** The connection asking is this client. */
@@ -78,6 +80,8 @@ export interface UiOwnerConnection {
   profile?: string;
   device: UiClientDevice;
   address?: string;
+  /** Who the proxy in front of it named; see `UiPairedClient.proxyUser`. */
+  proxyUser?: string;
   since: string;
   current: boolean;
 }
@@ -108,6 +112,12 @@ export interface UiHostEndpoint {
   /** The interface it sits on, `en0` or `utun4`, when it is an address. */
   interface?: string;
   ipv6?: boolean;
+  /**
+   * A proxy in front of the host answers here with a certificate browsers
+   * trust (Tailscale Serve's), not the host's own: a client does not pin the
+   * host's fingerprint for it.
+   */
+  trustedCertificate?: boolean;
 }
 
 /**
@@ -167,6 +177,8 @@ export interface UiNetworkAccess {
   problems: string[];
   /** This machine has a Tailscale address right now. */
   tailscaleUp: boolean;
+  /** A package keeps the proxy listener open for a proxy it set up, whatever the switches say. */
+  proxyHeld?: boolean;
   /** The certificate the network listeners serve, once one is needed. */
   certificate?: UiNetworkCertificate;
 }

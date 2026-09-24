@@ -128,8 +128,8 @@ calls `reconnectNow()`.
 
 The host looks at the `Origin` header of the upgrade before anything else and
 closes a refused socket with 4403 (`src/main/host-origin.ts`). No `Origin` is a
-client that is not a browser page (the window's own process, a native HTTP
-stack, the smokes) and passes. A page passes when its origin is the listener's
+client that is not a browser page (the window's own process, the native app's
+pinned sockets, the smokes) and passes. A page passes when its origin is the listener's
 own (the `Host` it was reached by), when it is Electron's `file://` window on
 loopback, or when it is listed in `TAU_HOST_ALLOWED_ORIGINS` (comma-separated,
 for a native shell's scheme or a proxy that rewrites `Host`); a development
@@ -526,7 +526,7 @@ default and combine:
 |---|---|---|
 | Local network | `[::]:<port>`, dual-stack; `0.0.0.0` on a machine without IPv6 | TLS |
 | Tailscale | each Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) on `<port>`, so the LAN sees no open port; not needed while Local network covers them | TLS |
-| Tailscale | `127.0.0.1:<proxyPort>`, for a reverse proxy such as `tailscale serve` | plain HTTP |
+| Tailscale, or a package's hold | `127.0.0.1:<proxyPort>`, for a reverse proxy such as `tailscale serve` | plain HTTP |
 
 `port` (default 7788) and `proxyPort` (default 7789) are fixed, so a paired
 device and a `tailscale serve --bg` mapping find the host again after a
@@ -547,7 +547,10 @@ the transport what it may conclude about a peer:
 - `proxy`: bound on loopback, yet every peer is remote, because a proxy
   delivers them all from 127.0.0.1. No `local-files`, no local window, a
   strict pairing limit of its own, and the peer's address is the last
-  `X-Forwarded-For` hop, the one the proxy added.
+  `X-Forwarded-For` hop, the one the proxy added. `Tailscale-User-Login`,
+  which Tailscale Serve sets (Q-encoded outside ASCII) and strips from what a
+  client sent, is read here alone and listed as the client's `proxyUser` in
+  Connections: shown, never a login.
 
 The origin check at the upgrade follows the same trust. `file://` counts as
 a window on this machine only on the loopback listener. A proxy listener also
@@ -609,6 +612,25 @@ Link-local addresses are left out. The MagicDNS name comes from a reverse
 lookup of the machine's own Tailscale address at 100.100.100.100, so nothing
 runs the Tailscale CLI; names are looked up only once a listener is beyond
 loopback. A pairing link carries one URL per endpoint.
+
+A package adds endpoints the host cannot see and may hold the proxy listener
+open without either switch (`services.network`, [EXTENSIONS.md](EXTENSIONS.md)).
+A package may also keep the proxy listener across restarts
+(`<userData>/network-kept.json`): the host then opens it at start, before any
+package runs, which a service host with no client yet (and so no packages
+started) needs as much as a window's. Tailscale (`kits/tailscale/`) does all
+three while `tailscale serve` forwards
+`https://<machine>.<tailnet>.ts.net/` to the proxy listener: that endpoint has
+`kind: "magicdns"` and `trustedCertificate: true`, ranks first, and a client
+does not pin the host's fingerprint for it, because Serve answers with its own
+Let's Encrypt certificate. Serve keeps the `Host` header and sets
+`X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-For` afresh, so a page
+opened there passes the origin check either way.
+
+The direct Tailscale listener stays beside Serve: it needs no HTTPS
+certificates in the tailnet and publishes no name, and a client that pins the
+fingerprint (the native app, another desktop) reaches it. A browser on a
+phone wants Serve's certificate.
 
 ## The window is always a client
 

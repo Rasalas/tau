@@ -38,6 +38,7 @@ import type {
   HostAttachedRuntime,
   HostClientServices,
   HostExtensionServices,
+  HostNetworkServices,
   HostExtensionSettings,
   HostMcpInstructionsProvider,
   HostMcpToolGate,
@@ -146,6 +147,7 @@ export interface ExtensionServicesPort {
   trashedThreads(): Promise<HostTrashedThread[]>;
   /** The clients attached to this host, for the seam's ungated `clients` member. */
   readonly clients: HostClientServices;
+  readonly network?: HostNetworkServices;
   registerThreadLifecycle(lifecycle: HostThreadLifecycle): () => void;
   registerTurnObserver(observer: HostTurnObserver): () => void;
   pinTranscriptEntries(provider: (thread: HostThread) => Iterable<string>): () => void;
@@ -342,6 +344,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       }),
     },
     clients: port.clients,
+    ...(port.network ? { network: port.network } : {}),
     registerThreadLifecycle: (lifecycle) => port.registerThreadLifecycle(lifecycle),
     registerTurnObserver: (observer) => port.registerTurnObserver(observer),
     pinTranscriptEntries: (provider) => {

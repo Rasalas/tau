@@ -127,6 +127,11 @@ export function readOnlyRefusal(action: string): Error {
   return Object.assign(new Error(`This device is paired Read only, so it may not ${action}.`), { code: HOST_ERROR.forbidden });
 }
 
+/** The refusal of an `owner` method or kit command to anyone but the host token on this machine. */
+export function ownerRefusal(): Error {
+  return Object.assign(new Error("Only a connection with the host token, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
+}
+
 /**
  * Lets a call through or refuses it, before its handler runs. A Read-only
  * device may call only `read` methods, no paired device an `owner` one; every
@@ -139,7 +144,7 @@ export function authorizeMethod(principal: HostInvocationPrincipal, method: stri
   if (access === "owner") {
     if (isHostOwner(principal)) return;
     principal.audit?.(method, false);
-    throw Object.assign(new Error("Only a connection with the host token, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
+    throw ownerRefusal();
   }
   if (principal.readOnly) {
     principal.audit?.(method, false);

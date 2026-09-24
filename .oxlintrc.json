@@ -7,10 +7,10 @@
     "perf": "warn"
   },
   "rules": {},
-  "ignorePatterns": ["dist/", "dist-electron/", "node_modules/"],
+  "ignorePatterns": ["dist/", "dist-electron/", "node_modules/", "mobile/ios/App/App/public/", "mobile/android/app/src/main/assets/public/", "mobile/.build/"],
   "overrides": [
     {
-      "files": ["kits/**", "scripts/**", "src/main/**", ".pi/**"],
+      "files": ["kits/**", "scripts/**", "mobile/scripts/**", "src/main/**", ".pi/**"],
       "rules": {
         "eslint/no-await-in-loop": "off",
         "oxc/no-map-spread": "off"
