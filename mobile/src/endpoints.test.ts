@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RacingSocket, socketCandidates, type AttemptSocket, type RaceTimers, type SocketCandidate } from "./endpoints";
+import { RacingSocket, listAddresses, socketCandidates, type AttemptSocket, type RaceFailure, type RaceTimers, type SocketCandidate } from "./endpoints";
 
 const FP = "AB:".repeat(31) + "AB";
 const KEY = "EF:".repeat(31) + "EF";
@@ -70,6 +70,7 @@ class FakeAttempt implements AttemptSocket {
   readyState = 0;
   fingerprint: string | undefined;
   pinMismatch = false;
+  untrustedCertificate = false;
   closed = false;
   readonly sent: string[] = [];
   private readonly listeners: Record<string, Array<(event: never) => void>> = {};
@@ -78,7 +79,12 @@ class FakeAttempt implements AttemptSocket {
   send(data: string): void { this.sent.push(data); }
   close(): void { if (this.closed) return; this.closed = true; this.fire("close", { code: 1000 }); }
   open(fingerprint?: string): void { this.readyState = 1; this.fingerprint = fingerprint; this.fire("open", {}); }
-  fail(pinMismatch = false): void { this.pinMismatch = pinMismatch; this.readyState = 3; this.fire("close", { code: 1006 }); }
+  fail(why?: "mismatch" | "untrusted"): void {
+    this.pinMismatch = why === "mismatch";
+    this.untrustedCertificate = why === "untrusted";
+    this.readyState = 3;
+    this.fire("close", { code: 1006 });
+  }
   message(data: string): void { this.fire("message", { data }); }
   private fire(type: string, event: object): void { for (const listener of this.listeners[type] ?? []) (listener as (event: object) => void)(event); }
 }
@@ -161,17 +167,46 @@ describe("RacingSocket", () => {
     expect(socket.readyState).toBe(3);
   });
 
-  it("fails when nothing answers, and says when every address showed another certificate", () => {
+  it("fails when nothing answers, and names the addresses that showed another key or an untrusted certificate", () => {
     const unreachable = race(["wss://a/", "wss://b/"]);
-    unreachable.attempts[0]!.fail(true);
+    unreachable.attempts[0]!.fail();
     unreachable.attempts[1]!.fail();
     expect(unreachable.events).toEqual(["close 1006 unreachable"]);
+    expect(unreachable.socket.failure).toEqual({ reason: "unreachable" });
 
-    const mismatch = race(["wss://a/", "wss://b/"]);
-    mismatch.attempts[0]!.fail(true);
-    mismatch.attempts[1]!.fail(true);
-    expect(mismatch.socket.pinMismatch).toBe(true);
+    const mismatch = race(["wss://a:7788/", "wss://b/"]);
+    mismatch.attempts[0]!.fail("mismatch");
+    mismatch.attempts[1]!.fail("mismatch");
+    expect(mismatch.socket.failure).toEqual({ reason: "certificate-mismatch", addresses: ["a:7788", "b"] });
     expect(mismatch.events).toEqual(["close 1006 certificate-mismatch"]);
+
+    const untrusted = race(["wss://lan/", "wss://mac.tail0000.ts.net/"]);
+    untrusted.attempts[0]!.fail();
+    untrusted.attempts[1]!.fail("untrusted");
+    expect(untrusted.socket.failure).toEqual({ reason: "untrusted-certificate", addresses: ["mac.tail0000.ts.net"] });
+    expect(untrusted.events).toEqual(["close 1006 untrusted-certificate"]);
+  });
+
+  it("refuses when only some addresses show another key and none other answers, and the key outranks a CA problem", () => {
+    const failures: RaceFailure[] = [];
+    const attempts: FakeAttempt[] = [];
+    const candidates = ["wss://192.168.1.2:7788/", "wss://100.64.1.2:7788/", "wss://mac.tail0000.ts.net/"].map((url, rank) => ({ url, rank, trust: "pin" as const, allowAuthority: false }));
+    const socket = new RacingSocket(candidates, (candidate) => { const attempt = new FakeAttempt(candidate); attempts.push(attempt); return attempt; }, {
+      timers: manualTimers(),
+      onFailure: (failure) => failures.push(failure),
+    });
+    attempts[0]!.fail();
+    attempts[2]!.fail("untrusted");
+    expect(failures).toEqual([]);
+    attempts[1]!.fail("mismatch");
+    expect(failures).toEqual([{ reason: "certificate-mismatch", addresses: ["100.64.1.2:7788"] }]);
+    expect(socket.readyState).toBe(3);
+  });
+
+  it("lists addresses the way a sentence reads", () => {
+    expect(listAddresses(["a"])).toBe("a");
+    expect(listAddresses(["a", "b"])).toBe("a and b");
+    expect(listAddresses(["a", "b", "c"])).toBe("a, b and c");
   });
 
   it("closes every attempt when closed before one won", () => {

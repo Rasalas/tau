@@ -3,7 +3,7 @@ import { createSocketHostClient } from "../../src/workbench/host-connection-sock
 import type { HostClient } from "../../src/workbench/host-client";
 import type { HostConnection } from "../../src/workbench/host-connection";
 import type { HostWakeSource } from "../../src/workbench/host-link";
-import { RacingSocket, socketCandidates, type DeviceNetwork, type SocketCandidate } from "./endpoints";
+import { RacingSocket, listAddresses, socketCandidates, type CertificateRefusal, type DeviceNetwork, type SocketCandidate } from "./endpoints";
 import type { SavedHost, WonAddress } from "./hosts";
 import { NativeSocket, type SocketBridge } from "./native-socket";
 
@@ -20,10 +20,22 @@ export interface ConnectCallbacks {
   onAddress?(candidate: SocketCandidate): void;
   /** The host refused the token: revoked, or it ran out unused. `reason` is the close reason. */
   onUnauthorized(reason: string): void;
-  /** Every address showed another certificate than the pinned one. */
-  onCertificateMismatch(): void;
+  /**
+   * No address let the phone in, and at least one showed a wrong key or a
+   * certificate the phone does not trust. The rest may just be out of reach;
+   * reconnecting would meet the same certificate.
+   */
+  onCertificateRefused(refusal: CertificateRefusal): void;
   /** The host answered a hello with this token, on the address that won; after every reconnect too. */
   onHello?(won: WonAddress, reply: HostHelloReply): void;
+}
+
+/** What the host list says after a workbench left because of a certificate. */
+export function certificateRefusalNotice(hostName: string, refusal: CertificateRefusal): string {
+  const addresses = listAddresses(refusal.addresses);
+  return refusal.reason === "certificate-mismatch"
+    ? `${addresses} answered for ${hostName} with another key than the one this phone pinned, so the phone sent it nothing. A renewed certificate keeps the key; if the host's key was replaced on purpose, remove it here and scan a new pairing code.`
+    : `${addresses} showed a certificate this phone does not trust, so the phone did not connect to ${hostName}. Something on this network may be in between; try another network.`;
 }
 
 /** A pinned native socket for one candidate address. */
@@ -59,7 +71,7 @@ export function connectHost(host: () => SavedHost, token: string, dependencies: 
         lastAddress = candidate.url;
         callbacks.onAddress?.(candidate);
       },
-      onFailure: (reason) => { if (reason === "certificate-mismatch") callbacks.onCertificateMismatch(); },
+      onFailure: (failure) => { if (failure.reason !== "unreachable") callbacks.onCertificateRefused(failure); },
       onMessage: (data) => {
         if (!callbacks.onHello || !won || typeof data !== "string" || !data.includes("\"hello-reply\"")) return;
         const address = won;

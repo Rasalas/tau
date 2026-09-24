@@ -2,8 +2,11 @@
 export type NativeSocketEvent =
   | { id: string; type: "open"; fingerprint?: string; publicKey?: string }
   | { id: string; type: "message"; data: string }
-  /** `pinMismatch`: the host presented a certificate other than the pinned one. */
-  | { id: string; type: "close"; code: number; reason?: string; pinMismatch?: boolean };
+  /**
+   * `pinMismatch`: the host presented a certificate other than the pinned one.
+   * `untrusted`: nothing was pinned and the platform did not trust the certificate.
+   */
+  | { id: string; type: "close"; code: number; reason?: string; pinMismatch?: boolean; untrusted?: boolean };
 
 export interface NativeSocketRequest {
   id: string;
@@ -58,6 +61,8 @@ export class NativeSocket {
   publicKey: string | undefined;
   /** The socket closed because the certificate was not the pinned one. */
   pinMismatch = false;
+  /** The socket closed because the platform did not trust the certificate, with no pin to decide. */
+  untrustedCertificate = false;
 
   private readonly id = `s${(counter += 1)}-${Math.random().toString(36).slice(2, 8)}`;
   private readonly listeners = new Map<string, Set<Listener>>();
@@ -116,6 +121,7 @@ export class NativeSocket {
         const opened = this.readyState !== NativeSocket.CONNECTING;
         this.readyState = NativeSocket.CLOSED;
         this.pinMismatch = event.pinMismatch === true;
+        this.untrustedCertificate = event.untrusted === true && !this.pinMismatch;
         this.unsubscribe();
         const detail = { code: event.code, ...(event.reason ? { reason: event.reason } : {}) };
         if (!opened) {

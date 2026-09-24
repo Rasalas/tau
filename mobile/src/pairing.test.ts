@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { pairingVerificationCode } from "../../src/shared/pairing";
 import type { SocketCandidate } from "./endpoints";
-import { pairDevice, pairingBinding, pairingFailure, sameAddress } from "./pairing";
+import { pairDevice, pairingBinding, pairingFailureMessage, sameAddress } from "./pairing";
 
 const FP = "AB:".repeat(31) + "AB";
 const KEY = "EF:".repeat(31) + "EF";
 const DEVICE = { platform: "ios" as const, virtual: false, name: "iPhone" };
 const HOST_NONCE = "h".repeat(43);
 
-type Behaviour = "host" | "unreachable" | "mismatch";
+type Behaviour = "host" | "unreachable" | "mismatch" | "untrusted";
 
 /**
  * A socket per address that behaves like a host for pairing: challenge,
@@ -27,6 +27,7 @@ function hostSockets(behaviour: Record<string, Behaviour>, served = FP, servedKe
       fingerprint: undefined as string | undefined,
       publicKey: undefined as string | undefined,
       pinMismatch: false,
+      untrustedCertificate: false,
       addEventListener: (type: string, listener: (event: never) => void) => { (listeners[type] ??= []).push(listener); },
       close: () => { if (socket.readyState === 3) return; socket.readyState = 3; fire("close", { code: 1000 }); },
       send: (text: string) => {
@@ -59,6 +60,7 @@ function hostSockets(behaviour: Record<string, Behaviour>, served = FP, servedKe
         return;
       }
       socket.pinMismatch = kind === "mismatch";
+      socket.untrustedCertificate = kind === "untrusted";
       socket.readyState = 3;
       fire("error");
       fire("close", { code: 1006 });
@@ -122,14 +124,25 @@ describe("pairDevice", () => {
 
   it("says why nothing was sent: no address for a phone, nothing answered, another certificate", async () => {
     const none = await pairDevice({ hostId: "h", name: "Mac", endpoints: [{ url: "http://127.0.0.1:1/", kind: "loopback" }] }, { device: DEVICE, openSocket: hostSockets({}).openSocket });
-    expect(none).toEqual({ state: "failed", message: pairingFailure["no-address"] });
+    expect(none).toEqual({ state: "failed", message: pairingFailureMessage({ reason: "no-address" }) });
     const silent = await pairDevice({ hostId: "h", name: "Mac", fingerprint: FP, endpoints: [{ url: "https://10.0.0.2:7788/" }] }, { device: DEVICE, openSocket: hostSockets({}).openSocket });
-    expect(silent).toEqual({ state: "failed", message: pairingFailure.unreachable });
+    expect(silent).toEqual({ state: "failed", message: pairingFailureMessage({ reason: "unreachable" }) });
+    expect(silent.state === "failed" && silent.message).toMatch(/did not answer/u);
     const sockets = hostSockets({ "wss://10.0.0.2:7788/": "mismatch" });
     const mismatch = await pairDevice({ hostId: "h", name: "Mac", fingerprint: FP, endpoints: [{ url: "https://10.0.0.2:7788/" }] }, { device: DEVICE, openSocket: sockets.openSocket });
-    expect(mismatch).toEqual({ state: "failed", message: pairingFailure["certificate-mismatch"] });
+    expect(mismatch).toEqual({ state: "failed", message: "10.0.0.2:7788 answered with another certificate than the one in the code. This phone did not send it anything." });
     // One probe, and no pairing socket after it: the phone sent that host nothing.
     expect(sockets.opened).toEqual(["wss://10.0.0.2:7788/"]);
+  });
+
+  it("names the address whose certificate the phone does not trust, instead of saying nothing answered", async () => {
+    const sockets = hostSockets({ "wss://mac.tail0000.ts.net/": "untrusted" });
+    const outcome = await pairDevice({
+      hostId: "h", name: "Mac", publicKey: KEY,
+      endpoints: [{ url: "https://192.168.1.2:7788/", kind: "lan" }, { url: "https://mac.tail0000.ts.net/", kind: "magicdns", trustedCertificate: true }],
+    }, { device: DEVICE, openSocket: sockets.openSocket, race: { graceMs: 0 } });
+    expect(outcome.state === "failed" && outcome.message).toMatch(/^mac\.tail0000\.ts\.net showed a certificate this phone does not trust/u);
+    expect(sockets.opened).toHaveLength(2);
   });
 
   it("pairs with a loopback host from a simulator, digits bound to no certificate", async () => {

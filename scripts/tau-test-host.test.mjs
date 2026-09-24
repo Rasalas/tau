@@ -40,15 +40,17 @@ describe("parseHostOutput", () => {
   const printed = [
     "tau-host listening on wss://127.0.0.1:58960",
     "token: /d/host-token (copy it to the client machine, or pass it as TAU_HOST_TOKEN)",
-    "tls fingerprint: SHA256 AA:BB (a client pins it as TAU_HOST_FINGERPRINT)",
+    "tls fingerprint: SHA256 AA:BB (browsers show it; a renewal changes it)",
+    "tls public key: SHA256 CC:DD (a client pins it as TAU_HOST_PUBLIC_KEY; a renewal keeps it)",
     "web client: https://127.0.0.1:58960/#pair=code&fp=AA (single use, 10 minutes; allow the device in Settings → Connections)",
     "tau-host proxy listener on http://127.0.0.1:58961",
   ].join("\n");
 
-  it("reads the socket, fingerprint, proxy listener and link", () => {
+  it("reads the socket, fingerprint, key, proxy listener and link", () => {
     expect(parseHostOutput(printed, { proxy: true, tls: true })).toEqual({
       url: "wss://127.0.0.1:58960",
       fingerprint: "AA:BB",
+      publicKey: "CC:DD",
       proxyUrl: "http://127.0.0.1:58961",
       link: "https://127.0.0.1:58960/#pair=code&fp=AA",
     });

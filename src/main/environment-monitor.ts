@@ -10,13 +10,9 @@ import {
   type HostIdentity,
 } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
-import { HostCertificateRefusedError, hostTlsConnect, type EndpointTrust, type PresentedIdentity } from "./host-tls-trust.js";
+import { HostCertificateRefusedError, hostTlsConnect, type EndpointTrust, type ReachedCertificate } from "./host-tls-trust.js";
 
-/** What the TLS handshake of a connection showed, and whether a pin or a CA let it in. */
-export interface ReachedCertificate {
-  presented: PresentedIdentity;
-  via: "pin" | "authority";
-}
+export type { ReachedCertificate } from "./host-tls-trust.js";
 
 /** What the window knows about one machine from its own connection to it. */
 export interface MonitorState {

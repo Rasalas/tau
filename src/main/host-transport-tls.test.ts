@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash, createPrivateKey, X509Certificate } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { get as httpsGet } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,11 +17,15 @@ import {
   KnownHosts,
   certificateRefusalMessage,
   certificateVerdict,
+  environmentPin,
   establishHostTrust,
   hostEndpoint,
+  migratedKnownHostPin,
+  normalizeKeyPin,
   pinnedTlsConnect,
   probeHostCertificate,
   type PresentedCertificate,
+  type ReachedCertificate,
 } from "./host-tls-trust.js";
 import { assertListenAllowed } from "./host-listen.js";
 import { HostClientRegistry } from "./host-clients.js";
@@ -34,7 +39,12 @@ const TOKEN = "c".repeat(64);
 const methods: HostMethodTable = { ping: async (params) => ({ echo: params[0] }) };
 const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
 const FINGERPRINT = certificateFingerprint(tls.cert);
-const OTHER = certificateFingerprint(createSelfSignedCertificate({ commonName: "Impostor", dnsNames: [], ipAddresses: [], days: 1 }).cert);
+const KEY = publicKeyPin(tls.cert);
+const impostor = createSelfSignedCertificate({ commonName: "Impostor", dnsNames: [], ipAddresses: [], days: 1 });
+const OTHER = certificateFingerprint(impostor.cert);
+const OTHER_KEY = publicKeyPin(impostor.cert);
+// A renewal: another certificate for the same key.
+const renewed = { ...createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30, privateKey: createPrivateKey(tls.key) }), key: tls.key };
 
 let transport: SocketHostTransport | undefined;
 const sockets: WebSocket[] = [];
@@ -50,7 +60,7 @@ afterEach(async () => {
 });
 
 // Only ever 127.0.0.1: a test never binds beyond loopback.
-async function listenTls(options: { clients?: HostClientRegistry; pushLog?: HostPushLog } = {}) {
+async function listenTls(options: { clients?: HostClientRegistry; pushLog?: HostPushLog; certificate?: typeof tls } = {}) {
   const pushLog = options.pushLog ?? new HostPushLog();
   transport = await startSocketHostTransport({
     listen: "127.0.0.1:0",
@@ -59,7 +69,7 @@ async function listenTls(options: { clients?: HostClientRegistry; pushLog?: Host
     hostVersion: "test",
     capabilities: ["jobs", "replay"],
     token: TOKEN,
-    tls,
+    tls: options.certificate ?? tls,
     ...(options.clients ? { clients: options.clients } : {}),
   });
   return { transport, pushLog, url: `wss://127.0.0.1:${transport.port}` };
@@ -154,16 +164,35 @@ describe("the socket transport over TLS", () => {
 
   it("carries the window process's uplink with a pin, and stops it for good on a mismatch", async () => {
     const { url } = await listenTls();
-    const good = new HostUplink({ url, token: TOKEN, fingerprint: FINGERPRINT });
+    const good = new HostUplink({ url, token: TOKEN, trust: { pin: { fingerprint: FINGERPRINT } } });
     uplinks.push(good);
     expect(await good.request("ping", ["uplink"])).toEqual({ echo: "uplink" });
 
     const refusals: HostCertificateRefusedError[] = [];
-    const bad = new HostUplink({ url, token: TOKEN, fingerprint: OTHER, onCertificateRefused: (error) => refusals.push(error) });
+    const bad = new HostUplink({ url, token: TOKEN, trust: { pin: { fingerprint: OTHER } }, onCertificateRefused: (error) => refusals.push(error) });
     uplinks.push(bad);
     await expect(bad.request("ping", ["never"])).rejects.toThrow(/dropped/u);
     expect(refusals).toHaveLength(1);
     expect(refusals[0]!.presented).toBe(FINGERPRINT);
+    // A hello asked for after the refusal fails at once instead of waiting out its timeout.
+    await expect(bad.hello()).rejects.toThrow(/closed/u);
+  });
+
+  it("keeps an uplink pinned to the key through a renewal, and says which certificate let each hello in", async () => {
+    const { url } = await listenTls({ certificate: renewed });
+    const reached: Array<ReachedCertificate | undefined> = [];
+    const uplink = new HostUplink({ url, token: TOKEN, trust: { pin: { publicKey: KEY } }, onHello: (_reply, certificate) => reached.push(certificate) });
+    uplinks.push(uplink);
+    expect(await uplink.request("ping", ["renewed"])).toEqual({ echo: "renewed" });
+    expect(reached.length).toBeGreaterThan(0);
+    for (const certificate of reached) expect(certificate).toEqual({ via: "pin", presented: { fingerprint: certificateFingerprint(renewed.cert), publicKey: KEY } });
+
+    // The certificate pin the window kept before key pins does not survive it.
+    const refusals: HostCertificateRefusedError[] = [];
+    const old = new HostUplink({ url, token: TOKEN, trust: { pin: { fingerprint: FINGERPRINT } }, onCertificateRefused: (error) => refusals.push(error) });
+    uplinks.push(old);
+    await expect(old.request("ping", ["never"])).rejects.toThrow(/dropped/u);
+    expect(refusals[0]).toMatchObject({ kind: "certificate", presented: certificateFingerprint(renewed.cert) });
   });
 
   it("serves the web client over HTTPS on the same port as the protocol", async () => {
@@ -240,25 +269,61 @@ describe("trusting a remote host", () => {
     const trust = await establishHostTrust("wss://Box.example:7788", {
       knownHosts: known(), confirm: neverAsked, fingerprint: FINGERPRINT.replace(/:/gu, "").toLowerCase(),
     });
-    expect(trust).toEqual({ kind: "pinned", hostname: "box.example", fingerprint: FINGERPRINT, source: "environment" });
+    expect(trust).toEqual({ kind: "pinned", hostname: "box.example", pin: { fingerprint: FINGERPRINT }, source: "environment" });
     await expect(establishHostTrust("wss://box.example:7788", { knownHosts: known(), confirm: neverAsked, fingerprint: "abc" }))
       .rejects.toBeInstanceOf(HostTrustError);
   });
 
-  it("asks once for an unknown self-signed host, remembers a yes 0o600, and pins it", async () => {
+  it("pins the key TAU_HOST_PUBLIC_KEY names, in hex or as sha256/<base64>, and over a certificate pin", async () => {
+    const base64 = `sha256/${createHash("sha256").update(new X509Certificate(tls.cert).publicKey.export({ type: "spki", format: "der" })).digest("base64")}`;
+    expect(normalizeKeyPin(base64)).toBe(KEY);
+    expect(normalizeKeyPin(`sha256//${base64.slice(7)}`)).toBe(KEY);
+    expect(normalizeKeyPin(KEY.replace(/:/gu, "").toLowerCase())).toBe(KEY);
+    expect(environmentPin({ publicKey: KEY })).toEqual({ publicKey: KEY });
+    expect(environmentPin({ publicKey: base64, fingerprint: FINGERPRINT })).toEqual({ publicKey: KEY });
+    // `sha256/<base64>` names a key in either variable; hex in TAU_HOST_FINGERPRINT stays a certificate.
+    expect(environmentPin({ fingerprint: base64 })).toEqual({ publicKey: KEY });
+    expect(environmentPin({ fingerprint: `sha256/${FINGERPRINT}` })).toEqual({ fingerprint: FINGERPRINT });
+    expect(environmentPin({})).toBeUndefined();
+    expect(() => environmentPin({ publicKey: "sha256/short=" })).toThrow(/TAU_HOST_PUBLIC_KEY/u);
+
+    const trust = await establishHostTrust("wss://box.example:7788", { knownHosts: known(), confirm: neverAsked, publicKey: KEY });
+    expect(trust).toEqual({ kind: "pinned", hostname: "box.example", pin: { publicKey: KEY }, source: "environment" });
+  });
+
+  it("asks once for an unknown self-signed host, remembers its key 0o600, and pins it", async () => {
     const knownHosts = known();
     const asked: string[] = [];
     const trust = await establishHostTrust("wss://127.0.0.1:7788", {
       knownHosts,
       probe: async () => presented(),
-      confirm: async ({ endpoint, presented: certificate }) => { asked.push(`${endpoint.key} ${certificate.fingerprint}`); return true; },
+      confirm: async ({ endpoint, presented: certificate }) => { asked.push(`${endpoint.key} ${certificate.publicKey}`); return true; },
     });
-    expect(asked).toEqual([`127.0.0.1:7788 ${FINGERPRINT}`]);
-    expect(trust).toMatchObject({ kind: "pinned", fingerprint: FINGERPRINT, source: "confirmed" });
+    expect(asked).toEqual([`127.0.0.1:7788 ${KEY}`]);
+    expect(trust).toMatchObject({ kind: "pinned", pin: { publicKey: KEY }, source: "confirmed" });
     expect(statSync(knownHosts.path).mode & 0o777).toBe(0o600);
 
     const again = await establishHostTrust("wss://127.0.0.1:7788", { knownHosts, probe: neverAsked, confirm: neverAsked });
-    expect(again).toMatchObject({ kind: "pinned", fingerprint: FINGERPRINT, source: "known-host" });
+    expect(again).toMatchObject({ kind: "pinned", pin: { publicKey: KEY }, source: "known-host" });
+  });
+
+  it("reads a known host's certificate pin from before key pins, and moves it to the key a hello went through", async () => {
+    const knownHosts = known();
+    writeFileSync(knownHosts.path, JSON.stringify({ version: 1, hosts: { "127.0.0.1:7788": { fingerprint: FINGERPRINT, trustedAt: "2026-01-01T00:00:00.000Z" } } }));
+    const trust = await establishHostTrust("wss://127.0.0.1:7788", { knownHosts, probe: neverAsked, confirm: neverAsked });
+    expect(trust).toMatchObject({ pin: { fingerprint: FINGERPRINT }, source: "known-host" });
+
+    const viaPin: ReachedCertificate = { via: "pin", presented: { fingerprint: FINGERPRINT, publicKey: KEY } };
+    expect(migratedKnownHostPin(trust, viaPin)).toEqual({ publicKey: KEY });
+    // A CA, no certificate at all, an environment pin or a key pin teach nothing.
+    expect(migratedKnownHostPin(trust, { ...viaPin, via: "authority" })).toBeUndefined();
+    expect(migratedKnownHostPin(trust, undefined)).toBeUndefined();
+    expect(migratedKnownHostPin({ ...trust, source: "environment" } as typeof trust, viaPin)).toBeUndefined();
+    expect(migratedKnownHostPin({ ...trust, pin: { publicKey: KEY } } as typeof trust, viaPin)).toBeUndefined();
+
+    await knownHosts.remember("127.0.0.1:7788", { publicKey: KEY });
+    expect(await knownHosts.get("127.0.0.1:7788")).toEqual({ publicKey: KEY });
+    expect(readFileSync(knownHosts.path, "utf8")).not.toContain(FINGERPRINT);
   });
 
   it("does not connect when the user declines, and remembers nothing", async () => {
@@ -281,23 +346,34 @@ describe("trusting a remote host", () => {
     })).rejects.toMatchObject({ reason: "unreachable" });
   });
 
-  it("decides Chromium's verdict for the pinned host only", () => {
-    const trust = { kind: "pinned", hostname: "127.0.0.1", fingerprint: FINGERPRINT, source: "known-host" } as const;
-    expect(certificateVerdict(trust, "127.0.0.1", FINGERPRINT)).toBe(CERTIFICATE_ACCEPT);
-    expect(certificateVerdict(trust, "127.0.0.1", OTHER)).toBe(CERTIFICATE_REJECT);
-    expect(certificateVerdict(trust, "example.com", OTHER)).toBe(CERTIFICATE_DEFAULT);
-    expect(certificateVerdict({ kind: "authority", hostname: "127.0.0.1" }, "127.0.0.1", OTHER)).toBe(CERTIFICATE_DEFAULT);
-    expect(certificateVerdict({ ...trust, hostname: "::1" }, "[::1]", FINGERPRINT)).toBe(CERTIFICATE_ACCEPT);
+  it("decides Chromium's verdict for the pinned host only, by key when it has one", () => {
+    const shown = { fingerprint: FINGERPRINT, publicKey: KEY };
+    const other = { fingerprint: OTHER, publicKey: OTHER_KEY };
+    const trust = { kind: "pinned", hostname: "127.0.0.1", pin: { fingerprint: FINGERPRINT }, source: "known-host" } as const;
+    expect(certificateVerdict(trust, "127.0.0.1", shown)).toBe(CERTIFICATE_ACCEPT);
+    expect(certificateVerdict(trust, "127.0.0.1", other)).toBe(CERTIFICATE_REJECT);
+    expect(certificateVerdict(trust, "example.com", other)).toBe(CERTIFICATE_DEFAULT);
+    expect(certificateVerdict({ kind: "authority", hostname: "127.0.0.1" }, "127.0.0.1", other)).toBe(CERTIFICATE_DEFAULT);
+    expect(certificateVerdict({ ...trust, hostname: "::1" }, "[::1]", shown)).toBe(CERTIFICATE_ACCEPT);
+    const byKey = { ...trust, pin: { publicKey: KEY } };
+    expect(certificateVerdict(byKey, "127.0.0.1", { fingerprint: certificateFingerprint(renewed.cert), publicKey: KEY })).toBe(CERTIFICATE_ACCEPT);
+    expect(certificateVerdict(byKey, "127.0.0.1", { fingerprint: FINGERPRINT, publicKey: OTHER_KEY })).toBe(CERTIFICATE_REJECT);
   });
 
   it("explains a refusal with both fingerprints and the way to repair it", () => {
-    const trust = { kind: "pinned", hostname: "127.0.0.1", fingerprint: FINGERPRINT, source: "known-host" } as const;
+    const trust = { kind: "pinned", hostname: "127.0.0.1", pin: { fingerprint: FINGERPRINT }, source: "known-host" } as const;
     const message = certificateRefusalMessage("wss://127.0.0.1:7788", trust, OTHER, "/data/known-hosts.json");
     expect(message).toContain(`Expected SHA-256: ${FINGERPRINT}`);
     expect(message).toContain(`Presented SHA-256: ${OTHER}`);
     expect(message).toContain("did not send the host token");
     expect(message).toContain("remove the entry for 127.0.0.1:7788 from /data/known-hosts.json");
-    expect(certificateRefusalMessage("wss://h:1", { ...trust, source: "environment" }, OTHER, "x")).toContain("update TAU_HOST_FINGERPRINT");
+    expect(certificateRefusalMessage("wss://h:1", { ...trust, source: "environment" }, OTHER, "x")).toMatch(/update TAU_HOST_FINGERPRINT.*TAU_HOST_PUBLIC_KEY/u);
+
+    const byKey = { ...trust, pin: { publicKey: KEY }, source: "environment" } as const;
+    const keyMessage = certificateRefusalMessage("wss://h:1", byKey, { fingerprint: OTHER, publicKey: OTHER_KEY }, "x");
+    expect(keyMessage).toContain(`Expected key SHA-256: ${KEY}`);
+    expect(keyMessage).toContain(`Presented key SHA-256: ${OTHER_KEY}`);
+    expect(keyMessage).toContain("update TAU_HOST_PUBLIC_KEY");
   });
 
   it("keys a host by name and port", () => {

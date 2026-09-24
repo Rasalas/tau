@@ -519,10 +519,12 @@ async function startHostProcess(): Promise<void> {
       if (event.type === "config-changed") onConfigChanged();
     },
     onCertificateRefused: (error) => remoteTrust?.refuse(error.presented),
+    onHello: (certificate) => remoteTrust?.reached(certificate),
   });
   if (remoteHostUrl) {
     remoteTrust = await trustRemoteHost(remoteHostUrl, {
       userData: app.getPath("userData"),
+      ...(process.env.TAU_HOST_PUBLIC_KEY ? { publicKey: process.env.TAU_HOST_PUBLIC_KEY } : {}),
       ...(process.env.TAU_HOST_FINGERPRINT ? { fingerprint: process.env.TAU_HOST_FINGERPRINT } : {}),
       session: session.defaultSession,
       logger: hostLog,
@@ -530,7 +532,7 @@ async function startHostProcess(): Promise<void> {
       onRefused: refuseRemoteHost,
     });
     if (!remoteTrust) return;
-    windowHost.attach(remoteHostUrl, clientHostToken(), remoteTrust.fingerprint);
+    windowHost.attach(remoteHostUrl, clientHostToken(), remoteTrust.endpoint);
     await loadWindowHalves();
     return;
   }

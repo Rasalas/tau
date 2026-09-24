@@ -9,7 +9,7 @@ import { HostProcessSupervisor, type HostServiceControl, type RunningHost } from
 import { HostServiceManager } from "./host-service.js";
 import { HostUplink } from "./host-uplink.js";
 import { readHostToken } from "./host-token.js";
-import type { EndpointTrust, HostCertificateRefusedError } from "./host-tls-trust.js";
+import type { EndpointTrust, HostCertificateRefusedError, ReachedCertificate } from "./host-tls-trust.js";
 import { WindowExtensionRegistry } from "./window-extensions.js";
 
 /** Compiling every kit on a cold cache takes longer than a click does. */
@@ -33,6 +33,8 @@ export interface WindowHostOptions {
   onEvent?(event: HostEvent): void;
   /** An attached host's certificate is not the pinned one; the uplink has stopped. */
   onCertificateRefused?(error: HostCertificateRefusedError): void;
+  /** This process's connection said hello; `certificate` is what a `wss:` host's handshake showed. */
+  onHello?(certificate: ReachedCertificate | undefined): void;
   /** The machine's service for this userData; `host-service.ts` by default. */
   service?: HostServiceControl | null;
 }
@@ -51,7 +53,6 @@ export class WindowHost {
   private token = "";
   /** The supervised host's token file; a rotation rewrites it (ADR 0023). */
   private tokenPath: string | undefined;
-  private fingerprint: string | undefined;
   private trust: EndpointTrust | undefined;
   private workspace: string;
   /** Once the halves are loaded, a new uplink says hello at once so the host can reach them. */
@@ -106,15 +107,13 @@ export class WindowHost {
   }
 
   /**
-   * Attaches to a host somebody else runs (`TAU_HOST_URL`). Nothing is
-   * supervised. A string pins a `wss:` host's certificate (`TAU_HOST_URL`);
-   * a saved machine's address comes with its own trust.
+   * Attaches to a host somebody else runs (`TAU_HOST_URL`, or a saved
+   * machine). Nothing is supervised. `trust` is read at every reconnect.
    */
-  attach(url: string, token: string | undefined, pin?: string | EndpointTrust): void {
+  attach(url: string, token: string | undefined, trust?: EndpointTrust): void {
     this.url = url;
     this.token = token ?? "";
-    this.fingerprint = typeof pin === "string" ? pin : undefined;
-    this.trust = typeof pin === "object" ? pin : undefined;
+    this.trust = trust;
     this.connect();
   }
 
@@ -185,8 +184,8 @@ export class WindowHost {
       onCall: (call) => void this.answer(call.callId, call.extensionId, call.command, call.input),
       // The page shows threads and terminals; this process reads only what every client gets.
       helloFields: () => ({ windowId: this.windowId, windowHalves: this.extensions.ids, subscription: { threads: [], topics: [] } }),
-      ...(this.fingerprint ? { fingerprint: this.fingerprint } : {}),
       ...(this.trust ? { trust: this.trust } : {}),
+      ...(this.options.onHello ? { onHello: (_reply: unknown, certificate?: ReachedCertificate) => this.options.onHello?.(certificate) } : {}),
       ...(this.options.onCertificateRefused ? { onCertificateRefused: this.options.onCertificateRefused } : {}),
       // The next page load takes the token from here, so a window reopened after a rotation connects.
       ...(tokenPath ? { refreshToken: () => {

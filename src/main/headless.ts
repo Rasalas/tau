@@ -391,8 +391,8 @@ async function main(): Promise<void> {
   if (tls) {
     const origin = tls.source === "self-signed" ? `self-signed, ${tls.created ? "created now" : "kept"} in ${tls.certPath}` : `from ${tls.certPath}`;
     console.log(`tls: certificate ${origin}`);
-    console.log(`tls fingerprint: SHA256 ${tls.fingerprint} (a client pins it as TAU_HOST_FINGERPRINT)`);
-    console.log(`tls public key: SHA256 ${tls.publicKey} (the app pins it; a renewal keeps it)`);
+    console.log(`tls fingerprint: SHA256 ${tls.fingerprint} (browsers show it; a renewal changes it)`);
+    console.log(`tls public key: SHA256 ${tls.publicKey} (a client pins it as TAU_HOST_PUBLIC_KEY; a renewal keeps it)`);
     for (const warning of tls.warnings) console.warn(`tls warning: ${warning}`);
     hostLog.info("host.tls", { source: tls.source, fingerprint: tls.fingerprint, publicKey: tls.publicKey, created: tls.created });
   }

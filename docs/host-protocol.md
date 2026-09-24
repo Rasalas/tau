@@ -481,7 +481,7 @@ headless host prints `tau-host listening on wss://…` and
 `tls fingerprint: SHA256 AB:CD:…`, the SHA-256 of the leaf certificate in the
 form browsers and `openssl x509 -fingerprint -sha256` show, and
 `tls public key: SHA256 AB:CD:…`, the SHA-256 of its SubjectPublicKeyInfo,
-which the app and saved machines pin. The web client
+which the app, saved machines and `TAU_HOST_PUBLIC_KEY` pin. The web client
 server upgrades on the same TLS port, and the pairing link becomes `https://`.
 
 The listen rule (`src/main/host-listen.ts`): TLS may bind any interface;
@@ -503,31 +503,41 @@ weeks before it runs out; `tailscale cert`, for one, lasts 90 days.
 **Client side.** `TAU_HOST_URL=wss://machine:port` is trusted in this order
 (`src/main/host-tls-trust.ts`):
 
-1. `TAU_HOST_FINGERPRINT`, when set: that certificate and no other. Colons,
-   case and a `sha256:` prefix are optional.
-2. An entry for `host:port` in `<userData>/known-hosts.json` (version 1,
-   `{ hosts: { "host:port": { fingerprint, trustedAt } } }`, 0o600).
-3. A certificate a CA verifies for that name needs no pin (Node's CA store
+1. `TAU_HOST_PUBLIC_KEY`, when set: that key and no other, whatever
+   certificate carries it, so a renewal keeps working. Colons, case and a
+   `sha256:` prefix are optional; `sha256/<base64>` (curl's
+   `--pinnedpubkey` form) works too.
+2. `TAU_HOST_FINGERPRINT`, when set: that certificate and no other. A
+   `sha256/<base64>` value there names the key instead, as in 1. A key from
+   1 wins over a certificate from here.
+3. An entry for `host:port` in `<userData>/known-hosts.json` (version 1,
+   `{ hosts: { "host:port": { publicKey, trustedAt } } }`, 0o600). An entry
+   written before key pins holds `fingerprint` instead; it is read as a
+   certificate pin, and once a hello succeeds on a connection that pin let
+   in, the entry is rewritten with that certificate's key. An environment
+   pin never migrates: it is the operator's.
+4. A certificate a CA verifies for that name needs no pin (Node's CA store
    answers the probe; Chromium then verifies it as it would any site).
-4. Anything else is trust on first use: the window opens, reads the
+5. Anything else is trust on first use: the window opens, reads the
    certificate without sending anything, and asks on a sheet whether to trust
-   that fingerprint. A yes is written to known-hosts; a no connects to nothing.
+   that key. A yes writes the key to known-hosts; a no connects to nothing.
 
-A pinned certificate is enforced in both of the window's connections.
-Chromium's (the renderer's socket) goes through `setCertificateVerifyProc`,
-which accepts exactly the pinned fingerprint for that host name and leaves
-every other name to Chromium's own verification. The window process's uplink
-(`ws`) connects through `pinnedTlsConnect`, which destroys the socket in its
+A pin is enforced in both of the window's connections. Chromium's (the
+renderer's socket) goes through `setCertificateVerifyProc`, which accepts
+exactly the pinned key (or certificate) for that host name and leaves every
+other name to Chromium's own verification. The window process's uplink (`ws`)
+connects through `pinnedTlsConnect`, which destroys the socket in its
 `secureConnect` handler, before the WebSocket opens. Either way the token is
-never sent to a certificate that does not match.
+never sent to a certificate that does not match. A migration applies to both
+at once, so a renewal later in the same session is kept too.
 
 A mismatch is final. The workbench loads (or reloads) with `?hostRefused=`,
 its `HostConnection` enters the `refused` state, every request fails at once,
-nothing reconnects, and the status line shows both fingerprints and how to
-repair a certificate that was replaced on purpose (update
-`TAU_HOST_FINGERPRINT`, or delete the known-hosts entry). A declined or
-unreadable certificate and a malformed `TAU_HOST_FINGERPRINT` end the same
-way. A refused page carries no token.
+nothing reconnects, and the status line shows both keys (or fingerprints) and
+how to repair a key that was replaced on purpose (update
+`TAU_HOST_PUBLIC_KEY` or `TAU_HOST_FINGERPRINT`, or delete the known-hosts
+entry). A declined or unreadable certificate and a malformed pin variable end
+the same way. A refused page carries no token.
 
 The browser client has no pin of its own: it meets a self-signed host's
 certificate as a browser warning, and its fingerprint is what the host

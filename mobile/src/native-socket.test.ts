@@ -49,8 +49,17 @@ describe("NativeSocket", () => {
     fake.emit({ type: "close", code: 1006, pinMismatch: true });
     expect(seen).toEqual(["error", "close 1006"]);
     expect(socket.pinMismatch).toBe(true);
+    expect(socket.untrustedCertificate).toBe(false);
     // Unsubscribed: nothing more arrives for a closed socket.
     expect(fake.listeners.size).toBe(0);
+  });
+
+  it("reports a certificate the platform did not trust when nothing was pinned", () => {
+    const fake = fakeBridge();
+    const socket = new NativeSocket(fake.bridge, "wss://mac.tail0000.ts.net/");
+    fake.emit({ type: "close", code: 1006, untrusted: true });
+    expect(socket.untrustedCertificate).toBe(true);
+    expect(socket.pinMismatch).toBe(false);
   });
 
   it("carries the host's close code, so a refused token stays final", () => {

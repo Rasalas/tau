@@ -302,20 +302,21 @@ A host with TLS may listen on any interface, such as its Tailscale address:
 TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=100.64.0.7:7788 TAU_HOST_TLS=1 node dist-electron/main/headless.js
 ```
 
-On first start it creates a self-signed certificate under its userData (`~/.tau/headless/tls/`, key 0600) and keeps it across restarts. Besides the socket and token lines it prints the certificate's fingerprint:
+On first start it creates a self-signed certificate under its userData (`~/.tau/headless/tls/`, key 0600) and keeps it across restarts. When the certificate nears its end, the host renews it with the same key. Besides the socket and token lines it prints the certificate's fingerprint and its public key:
 
 ```
 tau-host listening on wss://100.64.0.7:7788
-tls fingerprint: SHA256 6F:AB:DF:…:10:E9:1E (a client pins it as TAU_HOST_FINGERPRINT)
+tls fingerprint: SHA256 6F:AB:DF:…:10:E9:1E (browsers show it; a renewal changes it)
+tls public key: SHA256 9A:38:0C:…:7D:21:B4 (a client pins it as TAU_HOST_PUBLIC_KEY; a renewal keeps it)
 ```
 
-`TAU_HOST_TLS_CERT` and `TAU_HOST_TLS_KEY` use a certificate of your own instead. On the client, copy the token as above and pin the fingerprint:
+`TAU_HOST_TLS_CERT` and `TAU_HOST_TLS_KEY` use a certificate of your own instead. On the client, copy the token as above and pin the key:
 
 ```bash
-TAU_HOST_URL=wss://100.64.0.7:7788 TAU_HOST_FINGERPRINT=6F:AB:DF:…:10:E9:1E npm run start:existing
+TAU_HOST_URL=wss://100.64.0.7:7788 TAU_HOST_PUBLIC_KEY=9A:38:0C:…:7D:21:B4 npm run start:existing
 ```
 
-Without `TAU_HOST_FINGERPRINT` the window shows the certificate's fingerprint on first connect and asks whether to trust it; compare it with the line the host printed. A yes is remembered in the client's `known-hosts.json`. A host whose certificate a CA vouches for needs neither. If the host ever presents another certificate, the window refuses it before sending the token, and the status line shows both fingerprints. If you replaced the certificate yourself, update the pin or delete the known-hosts entry. `docs/host-protocol.md` has the details.
+`TAU_HOST_PUBLIC_KEY` also takes the `sha256/<base64>` form that curl's `--pinnedpubkey` uses, and so does `TAU_HOST_FINGERPRINT`. A hex `TAU_HOST_FINGERPRINT` still pins one certificate, and a renewal breaks that pin. Without either variable the window shows the host's key on first connect and asks whether to trust it; compare it with the line the host printed. A yes saves the key in the client's `known-hosts.json`. An entry saved before key pins holds a certificate; the first connection it lets in replaces it with that certificate's key. A host whose certificate a CA vouches for needs no pin. If the host ever presents another key (or, for a certificate pin, another certificate), the window refuses it before sending the token, and the status line shows both values. If you replaced the key yourself, update the pin or delete the known-hosts entry. `docs/host-protocol.md` has the details.
 
 A dropped link (a suspended machine, a restarted tunnel, a phone that slept or changed networks) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. Heartbeats find a link that died without a close, and coming back to the page or to a network tries again at once. A strip above the status line reads `Reconnecting to the host…` (with "Retry now" while it waits), then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. For a host on another machine, a dot in the title bar shows the link and its round trip. Nothing has to be restarted by hand.
 
