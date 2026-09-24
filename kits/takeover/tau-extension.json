@@ -2,7 +2,7 @@
   "id": "tau.takeover",
   "name": "Takeover",
   "version": "1.0.0",
-  "engines": { "api": "^1.12.0" },
+  "engines": { "api": "^1.13.0" },
   "permissions": ["sessions", "runtime:extend"],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
