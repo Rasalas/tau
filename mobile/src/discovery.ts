@@ -37,7 +37,8 @@ export function discoveredHost(service: DiscoveredService): DiscoveredHost | und
   const hostId = first(service.txt, ["host", "id", "hostId"]);
   const fingerprint = canonicalFingerprint(first(service.txt, ["fp", "fingerprint", "sha256"]) ?? "");
   if (!hostId || !fingerprint || !service.host || !(service.port > 0 && service.port < 65_536)) return undefined;
-  const address = service.host.replace(/\.$/u, "");
+  // Neither a trailing dot nor an interface zone ("%en0") belongs in a URL.
+  const address = service.host.replace(/\.$/u, "").replace(/%[^\]]*/u, "");
   const bracketed = address.includes(":") && !address.startsWith("[") ? `[${address}]` : address;
   return {
     hostId,

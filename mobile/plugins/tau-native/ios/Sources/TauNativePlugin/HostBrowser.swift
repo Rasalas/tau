@@ -108,16 +108,19 @@ final class HostBrowser {
     }
 
     private static func text(_ host: NWEndpoint.Host) -> String {
+        // An address prints with its interface ("127.0.0.1%lo0"), which a URL cannot carry.
+        let bare = { (text: String) in String(text.split(separator: "%", maxSplits: 1).first ?? Substring(text)) }
         switch host {
-        case .ipv4(let address): return "\(address)"
-        case .ipv6(let address): return "[\(address)]"
+        case .ipv4(let address): return bare("\(address)")
+        case .ipv6(let address): return "[\(bare("\(address)"))]"
         case .name(let name, _): return name
         @unknown default: return "\(host)"
         }
     }
 
     private static func describe(_ error: NWError) -> String {
-        if case let .dns(code) = error, code == -65570 { return "denied" } // kDNSServiceErr_PolicyDenied: Local Network is off for the app
+        // PolicyDenied: Local Network is off for the app; NoAuth: the type is not in NSBonjourServices.
+        if case let .dns(code) = error, code == -65570 || code == -65555 { return "denied" }
         return error.localizedDescription
     }
 }

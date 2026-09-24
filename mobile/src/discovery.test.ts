@@ -18,6 +18,8 @@ describe("Bonjour records", () => {
       endpoint: { url: "https://Mac-mini.local:7788/", kind: "mdns" },
     });
     expect(discoveredHost({ name: "x", host: "fe80::1", port: 7788, txt: { host: "h", fp: FP_HEX } })?.endpoint.url).toBe("https://[fe80::1]:7788/");
+    expect(discoveredHost({ name: "x", host: "127.0.0.1%lo0", port: 7788, txt: { host: "h", fp: FP_HEX } })?.endpoint.url).toBe("https://127.0.0.1:7788/");
+    expect(discoveredHost({ name: "x", host: "[fe80::1%en0]", port: 7788, txt: { host: "h", fp: FP_HEX } })?.endpoint.url).toBe("https://[fe80::1]:7788/");
   });
 
   it("skips a record the app could not pin or place", () => {

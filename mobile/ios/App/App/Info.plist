@@ -45,6 +45,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_tau._tcp</string>
+		<string>_tau-test._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Tau scans the pairing code a computer running Tau shows in Settings → Connections.</string>
