@@ -10,7 +10,7 @@ import type { HostWakeSource } from "../../src/workbench/host-link";
 import { pairingNotice } from "../../src/web/host-token";
 import { WebWorkbench } from "../../src/web/WebWorkbench";
 import { connectHost, openCandidate } from "./connect";
-import { discoveredHosts, withDiscoveredEndpoint, type DiscoveredHost, type DiscoveredService } from "./discovery";
+import { nearbyHosts, withDiscoveredEndpoints, type DiscoveredHost, type NativeService } from "./discovery";
 import type { SocketCandidate } from "./endpoints";
 import { fallbackHostId, sortHosts, type HostBook, type SavedHost } from "./hosts";
 import type { DeviceInfo, ScanResult } from "./native";
@@ -32,7 +32,7 @@ export interface AppContext {
   environment: ClientEnvironment;
   wakes?: HostWakeSource;
   scan(): Promise<ScanResult>;
-  browse(listener: (services: DiscoveredService[], error?: string) => void): () => void;
+  browse(listener: (services: NativeService[], error?: string) => void): () => void;
   /** Loads the app afresh at `search`; leaving a workbench always does. */
   navigate(search: string): void;
   subscribeToLinks(listener: (route: AppRoute) => void): () => void;
@@ -65,8 +65,8 @@ export function payloadTarget(payload: PairingPayload): PairTarget {
   };
 }
 
-function nearbyState(services: DiscoveredService[], error: string | undefined): NearbyState {
-  if (!error) return { state: "searching", hosts: discoveredHosts(services) };
+function nearbyState(services: NativeService[], error: string | undefined, virtual: boolean): NearbyState {
+  if (!error) return { state: "searching", hosts: nearbyHosts(services, virtual) };
   if (error === "denied") return { state: "denied" };
   if (error === "unavailable") return { state: "unavailable" };
   return { state: "failed", message: error };
@@ -222,14 +222,14 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   useEffect(() => {
     if (view.name !== "hosts") return undefined;
     return context.browse((services, error) => {
-      const next = nearbyState(services, error);
+      const next = nearbyState(services, error, device.virtual);
       setNearby(next);
       if (next.state !== "searching") return;
       // A saved host seen at a new address keeps it, first.
       void book.list().then(async (saved) => {
         const moves = next.hosts.flatMap((found) => {
           const host = saved.find((entry) => entry.id === found.hostId);
-          const endpoints = host ? withDiscoveredEndpoint(host, found) : undefined;
+          const endpoints = host ? withDiscoveredEndpoints(host, found) : undefined;
           return host && endpoints ? [{ id: host.id, endpoints }] : [];
         });
         if (moves.length === 0) return;
@@ -237,7 +237,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         await refresh();
       });
     });
-  }, [book, context, refresh, view.name]);
+  }, [book, context, device.virtual, refresh, view.name]);
 
   switch (view.name) {
     case "loading": return null;
@@ -272,7 +272,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         onRemove={(host) => void book.remove(host.id).then(() => { clearHostStorage(storage, host.id); return refresh(); })}
         onAdd={() => setView({ name: "add" })}
         onScan={() => void scan("hosts")}
-        onAsk={(found: DiscoveredHost) => startPairing({ hostId: found.hostId, name: found.name, fingerprint: found.fingerprint, endpoints: [found.endpoint] }, "hosts")}
+        onAsk={(found: DiscoveredHost) => startPairing({ hostId: found.hostId, name: found.name, fingerprint: found.fingerprint, endpoints: found.endpoints }, "hosts")}
       />;
     }
   }

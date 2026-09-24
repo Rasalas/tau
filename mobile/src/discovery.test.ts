@@ -1,44 +1,54 @@
 import { describe, expect, it } from "vitest";
-import { discoveredHost, discoveredHosts, withDiscoveredEndpoint } from "./discovery";
+import { nearbyHosts, resolvedService, withDiscoveredEndpoints, type DiscoveredHost } from "./discovery";
 import type { SavedHost } from "./hosts";
 
 const FP_HEX = "ab".repeat(32);
 const FP = "AB:".repeat(31) + "AB";
+const TXT = { v: "1", id: "host-0001", fp: FP_HEX };
 
 describe("Bonjour records", () => {
-  it("reads the host id, the fingerprint and the address a record resolved to", () => {
-    expect(discoveredHost({ name: "Tau on Mac mini", host: "192.168.1.47", port: 7788, txt: { host: "h-1", fp: FP_HEX } })).toEqual({
-      hostId: "h-1",
-      name: "Tau on Mac mini",
-      fingerprint: FP,
-      endpoint: { url: "https://192.168.1.47:7788/", kind: "lan" },
-    });
-    expect(discoveredHost({ name: "x", host: "Mac-mini.local.", port: 7788, txt: { id: "h-2", fingerprint: FP, name: "Studio" } })).toMatchObject({
-      name: "Studio",
-      endpoint: { url: "https://Mac-mini.local:7788/", kind: "mdns" },
-    });
-    expect(discoveredHost({ name: "x", host: "fe80::1", port: 7788, txt: { host: "h", fp: FP_HEX } })?.endpoint.url).toBe("https://[fe80::1]:7788/");
-    expect(discoveredHost({ name: "x", host: "127.0.0.1%lo0", port: 7788, txt: { host: "h", fp: FP_HEX } })?.endpoint.url).toBe("https://127.0.0.1:7788/");
-    expect(discoveredHost({ name: "x", host: "[fe80::1%en0]", port: 7788, txt: { host: "h", fp: FP_HEX } })?.endpoint.url).toBe("https://[fe80::1]:7788/");
+  it("reads F06's record and the address the native side resolved it to", () => {
+    const [host] = nearbyHosts([{ name: "Mac mini von Alex", host: "192.168.1.47", port: 7788, txt: TXT }], false);
+    expect(host).toMatchObject({ hostId: "host-0001", name: "Mac mini von Alex", fingerprint: FP, endpoints: [{ url: "https://192.168.1.47:7788/", kind: "lan" }] });
   });
 
-  it("skips a record the app could not pin or place", () => {
-    expect(discoveredHost({ name: "x", host: "10.0.0.2", port: 7788, txt: { host: "h" } })).toBeUndefined();
-    expect(discoveredHost({ name: "x", host: "10.0.0.2", port: 7788, txt: { fp: FP_HEX } })).toBeUndefined();
-    expect(discoveredHost({ name: "x", host: "10.0.0.2", port: 0, txt: { host: "h", fp: FP_HEX } })).toBeUndefined();
-    expect(discoveredHost({ name: "x", host: "10.0.0.2", port: 7788, txt: { host: "h", fp: "short" } })).toBeUndefined();
+  it("merges a host seen on two addresses, and keeps an address without its zone", () => {
+    const hosts = nearbyHosts([
+      { name: "Mac", host: "192.168.1.2", port: 7788, txt: TXT },
+      { name: "Mac", host: "[fd00::5%en0]", port: 7788, txt: TXT },
+      { name: "Mac", host: "Mac-mini.local.", port: 7788, txt: TXT },
+    ], false);
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]!.endpoints.map((endpoint) => endpoint.url)).toEqual(["https://192.168.1.2:7788/", "https://[fd00::5]:7788/", "https://mac-mini.local:7788/"]);
   });
 
-  it("lists a host seen on two interfaces once", () => {
-    const record = { name: "x", port: 7788, txt: { host: "h", fp: FP_HEX } };
-    expect(discoveredHosts([{ ...record, host: "192.168.1.2" }, { ...record, host: "192.168.1.3" }])).toHaveLength(1);
+  it("skips what is not a version-1 Tau record, and what a phone cannot reach", () => {
+    expect(nearbyHosts([{ name: "x", host: "10.0.0.2", port: 7788, txt: { id: "host-0001", fp: FP_HEX } }], false)).toEqual([]);
+    expect(nearbyHosts([{ name: "x", host: "10.0.0.2", port: 7788, txt: { v: "1", id: "host-0001" } }], false)).toEqual([]);
+    expect(nearbyHosts([{ name: "x", host: "127.0.0.1", port: 7788, txt: TXT }], false)).toEqual([]);
   });
 
-  it("moves a saved host's new address first only when the record has the pinned certificate", () => {
-    const saved: SavedHost = { id: "h", name: "Mac", fingerprint: FP, endpoints: [{ url: "https://192.168.1.2:7788/", kind: "lan" }], access: "full", addedAt: "" };
-    const moved = { hostId: "h", name: "Mac", fingerprint: FP, endpoint: { url: "https://192.168.1.9:7788/", kind: "lan" as const } };
-    expect(withDiscoveredEndpoint(saved, moved)?.map((entry) => entry.url)).toEqual(["https://192.168.1.9:7788/", "https://192.168.1.2:7788/"]);
-    expect(withDiscoveredEndpoint(saved, { ...moved, fingerprint: "CD:".repeat(31) + "CD" })).toBeUndefined();
-    expect(withDiscoveredEndpoint(saved, { ...moved, endpoint: saved.endpoints[0]! })).toBeUndefined();
+  it("reaches a host on the development machine's loopback from a simulator only", () => {
+    const [host] = nearbyHosts([{ name: "Test", host: "127.0.0.1%lo0", port: 60664, txt: TXT }], true);
+    expect(host?.endpoints).toEqual([{ url: "https://127.0.0.1:60664/", kind: "loopback" }]);
+  });
+
+  it("reads a name as a name and an address as an address", () => {
+    expect(resolvedService({ name: "x", host: "Mac.local.", port: 1, txt: {} })).toMatchObject({ addresses: [], hostName: "Mac.local" });
+    expect(resolvedService({ name: "x", host: "[fe80::1%en0]", port: 1, txt: {} }).addresses).toEqual(["fe80::1"]);
+  });
+});
+
+describe("withDiscoveredEndpoints", () => {
+  const saved: SavedHost = { id: "host-0001", name: "Mac", fingerprint: FP, endpoints: [{ url: "https://192.168.1.2:7788/", kind: "lan" }, { url: "https://100.64.0.2:7788/", kind: "tailscale" }], access: "full", addedAt: "" };
+  const found = (url: string, fingerprint = FP): DiscoveredHost => ({ name: "Mac", hostId: "host-0001", fingerprint, port: 7788, addresses: [], endpoints: [{ url, kind: "lan" }] });
+
+  it("puts a saved host's new address first when the record has the pinned certificate", () => {
+    expect(withDiscoveredEndpoints(saved, found("https://192.168.1.9:7788/"))?.map((entry) => entry.url)).toEqual(["https://192.168.1.9:7788/", "https://192.168.1.2:7788/", "https://100.64.0.2:7788/"]);
+  });
+
+  it("changes nothing for another certificate or an address it already leads with", () => {
+    expect(withDiscoveredEndpoints(saved, found("https://192.168.1.9:7788/", "CD:".repeat(31) + "CD"))).toBeUndefined();
+    expect(withDiscoveredEndpoints(saved, found("https://192.168.1.2:7788/"))).toBeUndefined();
   });
 });

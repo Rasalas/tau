@@ -1,5 +1,5 @@
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
-import type { DiscoveredService } from "./discovery";
+import type { NativeService } from "./discovery";
 import type { SecureStore } from "./hosts";
 import type { NativeSocketEvent, NativeSocketRequest, SocketBridge } from "./native-socket";
 
@@ -25,7 +25,7 @@ interface TauNativePlugin {
   discoveryStop(): Promise<void>;
   deviceInfo(): Promise<DeviceInfo>;
   addListener(event: "socket", listener: (event: NativeSocketEvent) => void): Promise<PluginListenerHandle>;
-  addListener(event: "discovery", listener: (event: { services: DiscoveredService[]; error?: string }) => void): Promise<PluginListenerHandle>;
+  addListener(event: "discovery", listener: (event: { services: NativeService[]; error?: string }) => void): Promise<PluginListenerHandle>;
 }
 
 const TauNative = registerPlugin<TauNativePlugin>("TauNative");
@@ -64,7 +64,7 @@ export async function scanQrCode(): Promise<ScanResult> {
 }
 
 /** Browses for hosts until the returned function is called. */
-export function browseHosts(type: string, listener: (services: DiscoveredService[], error?: string) => void): () => void {
+export function browseHosts(type: string, listener: (services: NativeService[], error?: string) => void): () => void {
   let stopped = false;
   let handle: PluginListenerHandle | undefined;
   void TauNative.addListener("discovery", (event) => { if (!stopped) listener(event.services, event.error); }).then((next) => {

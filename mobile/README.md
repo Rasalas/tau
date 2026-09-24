@@ -11,7 +11,7 @@ package adds the shell around it and the native plugin.
 | `src/pairing.ts` | pairing over the best address, digits bound to the pinned certificate |
 | `src/native-socket.ts` | a `WebSocket`-shaped socket over the plugin |
 | `src/hosts.ts` | saved hosts and tokens in the secure store |
-| `src/discovery.ts` | Bonjour records (`host`, `fp` in TXT) to hosts |
+| `src/discovery.ts` | Bonjour records to hosts, read with F06's `src/shared/discovery.ts` (`v=1`, `id`, `fp`) |
 | `src/wakes.ts` | foreground and network changes as wakes for the socket transport |
 | `src/routes.ts` | `?host=`, `?view=`, and `tau://thread?host=&thread=` links |
 | `src/push.ts` | where push notifications plug in (not built) |
@@ -66,7 +66,7 @@ loopback address only in a simulator or emulator. A development build browses fo
 `_tau-test._tcp` instead of `_tau._tcp`; a test record for a TLS host on loopback:
 
 ```bash
-dns-sd -P "Test host" _tau-test._tcp local <port> tau-test.local 127.0.0.1 host=<host-id> fp=<fingerprint hex>
+dns-sd -P "Test host" _tau-test._tcp local <port> tau-test.local 127.0.0.1 v=1 id=<host-id> fp=<fingerprint hex>
 ```
 
 Run one simulator at a time, shut it down while building, and stop every process you

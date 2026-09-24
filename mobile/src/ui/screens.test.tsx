@@ -51,7 +51,7 @@ describe("HostsScreen", () => {
 
   it("lists hosts on the network that are not paired yet, to ask", () => {
     const asked: string[] = [];
-    const nearby = { hostId: "h-2", name: "Laptop", fingerprint: FP, endpoint: { url: "https://10.0.0.3:7788/" } };
+    const nearby = { hostId: "h-2", name: "Laptop", fingerprint: FP, port: 7788, addresses: ["10.0.0.3"], endpoints: [{ url: "https://10.0.0.3:7788/" }] };
     render(<HostsScreen rows={[{ host: host(), signedOut: false, nearby: false }]} nearby={{ state: "searching", hosts: [nearby, { ...nearby, hostId: "h-1" }] }} onOpen={() => {}} onRemove={() => {}} onAdd={() => {}} onScan={() => {}} onAsk={(found) => asked.push(found.hostId)} now={NOW} />);
     const list = screen.getByRole("list", { name: "Hosts on this network" });
     expect(within(list).getAllByRole("button")).toHaveLength(1);

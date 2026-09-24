@@ -1,70 +1,55 @@
 import { canonicalFingerprint, type PairingEndpoint } from "../../src/shared/connections";
+import { discoveredHosts, readTauServiceTxt, type DiscoveredHost, type ResolvedService } from "../../src/shared/discovery";
 import type { SavedHost } from "./hosts";
 
-/** A Bonjour service the native side found and resolved. */
-export interface DiscoveredService {
-  /** The service instance name, what the host advertises itself as. */
+export type { DiscoveredHost };
+
+/** A Bonjour service as the native side resolved it: one address or name per report. */
+export interface NativeService {
+  /** The service instance name, what the host announces itself as. */
   name: string;
-  /** An address or a name, as resolved; IPv6 in brackets. */
+  /** An address or a name; IPv6 may come in brackets, an address with its interface zone. */
   host: string;
   port: number;
   txt: Record<string, string>;
 }
 
-/** A Tau host on this network, from its Bonjour record. */
-export interface DiscoveredHost {
-  hostId: string;
-  name: string;
-  fingerprint: string;
-  endpoint: PairingEndpoint;
-}
+const isLoopback = (address: string): boolean => address === "::1" || address.startsWith("127.");
 
-const first = (txt: Record<string, string>, keys: readonly string[]): string | undefined => {
-  for (const key of keys) {
-    const value = txt[key]?.trim();
-    if (value) return value;
-  }
-  return undefined;
-};
-
-/**
- * What a record says, when it says enough: the host id and the fingerprint of
- * the certificate its LAN listener serves (F06). A record without a
- * fingerprint is skipped — the app never talks to a network host it cannot pin.
- * The record is not authenticated; the digits both screens show are.
- */
-export function discoveredHost(service: DiscoveredService): DiscoveredHost | undefined {
-  const hostId = first(service.txt, ["host", "id", "hostId"]);
-  const fingerprint = canonicalFingerprint(first(service.txt, ["fp", "fingerprint", "sha256"]) ?? "");
-  if (!hostId || !fingerprint || !service.host || !(service.port > 0 && service.port < 65_536)) return undefined;
-  // Neither a trailing dot nor an interface zone ("%en0") belongs in a URL.
-  const address = service.host.replace(/\.$/u, "").replace(/%[^\]]*/u, "");
-  const bracketed = address.includes(":") && !address.startsWith("[") ? `[${address}]` : address;
-  return {
-    hostId,
-    fingerprint,
-    name: first(service.txt, ["name"]) ?? service.name,
-    endpoint: { url: `https://${bracketed}:${service.port}/`, kind: address.endsWith(".local") ? "mdns" : "lan" },
-  };
-}
-
-/** One entry per host id; a host advertised on two interfaces is still one. */
-export function discoveredHosts(services: readonly DiscoveredService[]): DiscoveredHost[] {
-  const hosts = new Map<string, DiscoveredHost>();
-  for (const service of services) {
-    const host = discoveredHost(service);
-    if (host && !hosts.has(host.hostId)) hosts.set(host.hostId, host);
-  }
-  return [...hosts.values()];
+/** The shared shape F06 reads records in (`src/shared/discovery.ts`). */
+export function resolvedService(service: NativeService): ResolvedService {
+  // Neither a trailing dot, brackets nor an interface zone ("%en0") belongs in an address.
+  const host = service.host.replace(/\.$/u, "").replace(/%[^\]]*/u, "").replace(/^\[|\]$/gu, "");
+  const isName = !host.includes(":") && /[a-z]/iu.test(host);
+  return { name: service.name, port: service.port, txt: service.txt, addresses: isName ? [] : [host], ...(isName ? { hostName: host } : {}) };
 }
 
 /**
- * A saved host seen on the network with the pin it was paired with: its
- * address goes first, so a changed DHCP lease does not strand it. A record
- * with another fingerprint changes nothing; that is not proof of anything.
+ * Tau hosts on this network, by F06's reading of the record (`v=1`, `id`,
+ * `fp`). A record without a fingerprint is not Tau's: the app never talks to
+ * a network host it cannot pin. The record is not authenticated; the digits
+ * both screens show are. A simulator also reaches a host announced on the
+ * development machine's loopback, which a phone never could.
  */
-export function withDiscoveredEndpoint(host: SavedHost, found: DiscoveredHost): PairingEndpoint[] | undefined {
+export function nearbyHosts(services: readonly NativeService[], virtual: boolean): DiscoveredHost[] {
+  const resolved = services.map(resolvedService);
+  const hosts = discoveredHosts(resolved);
+  if (!virtual) return hosts.filter((host) => host.endpoints.length > 0);
+  return hosts.map((host) => {
+    if (host.endpoints.length > 0) return host;
+    const loopback = resolved.find((service) => readTauServiceTxt(service.txt)?.hostId === host.hostId && service.addresses.some(isLoopback));
+    return loopback ? Object.assign({}, host, { endpoints: [{ url: `https://127.0.0.1:${loopback.port}/`, kind: "loopback" as const }] }) : host;
+  }).filter((host) => host.endpoints.length > 0);
+}
+
+/**
+ * A saved host seen on the network with the pin it was paired with: the
+ * addresses it announces now go first, so a changed DHCP lease does not strand
+ * it. A record with another fingerprint changes nothing; that proves nothing.
+ */
+export function withDiscoveredEndpoints(host: SavedHost, found: DiscoveredHost): PairingEndpoint[] | undefined {
   if (!host.fingerprint || canonicalFingerprint(host.fingerprint) !== found.fingerprint) return undefined;
-  if (host.endpoints[0]?.url === found.endpoint.url) return undefined;
-  return [found.endpoint, ...host.endpoints.filter((endpoint) => endpoint.url !== found.endpoint.url)];
+  const fresh = found.endpoints.filter((endpoint) => endpoint.kind !== "loopback");
+  if (fresh.length === 0 || fresh.every((endpoint, index) => host.endpoints[index]?.url === endpoint.url)) return undefined;
+  return [...fresh, ...host.endpoints.filter((endpoint) => !fresh.some((entry) => entry.url === endpoint.url))];
 }
