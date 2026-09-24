@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CodexAppServer } from "../../kits/codex/app-server.ts";
 import { parseCodexSession } from "../../kits/codex/history-import.ts";
-import { APPS } from "./apps.mjs";
+import { APPS, resetRunFromTemplate } from "./apps.mjs";
 import { codexNotifications } from "./fake-codex.mjs";
 import { assertEnvUnder, forbiddenPaths, openForbiddenFiles, parseLsofNames } from "./isolation.mjs";
 import { descendants, parseFootprint, parsePs, processRole } from "./processes.mjs";
@@ -57,6 +58,50 @@ describe("the fake Codex app-server", () => {
     expect(completed.sort()).toEqual(started.sort());
     const times = notifications.map((entry) => entry.at);
     expect(times).toEqual([...times].sort((a, b) => a - b));
+  });
+});
+
+describe("the stand-in behind a seeded root", () => {
+  const policy = { approvalPolicy: "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
+
+  it("runs this checkout's stand-in although another checkout seeded the root, and plays a turn to the Codex kit's client", async () => {
+    const root = mkdtempSync(join(realpathSync(tmpdir()), "compare-shim-"));
+    mkdirSync(APPS.tau.paths(root).template, { recursive: true });
+    mkdirSync(join(root, "bin"));
+    // What a root seeded from a since-removed worktree carries.
+    writeFileSync(join(root, "bin", "codex"), `#!/bin/sh\nexec "${process.execPath}" /gone/worktree/scripts/compare/fake-codex.mjs "$@"\n`, { mode: 0o755 });
+    const turn = buildTurn({ answerBytes: 2_000, codeBlocks: 1, bigOutputBytes: 10_000, smallCommands: 1, intervalMs: 1 });
+    writeFileSync(join(root, "turn.json"), JSON.stringify(turn));
+    resetRunFromTemplate(APPS.tau, root);
+
+    const env = APPS.tau.env(root);
+    const deltas = [];
+    let completed;
+    const turnCompleted = new Promise((resolvePromise) => { completed = resolvePromise; });
+    const server = await CodexAppServer.open({
+      command: env.TAU_CODEX_COMMAND,
+      cwd: root,
+      env,
+      clientVersion: "0",
+      onNotification: (method, params) => {
+        if (method === "item/agentMessage/delta") deltas.push(params.delta);
+        if (method === "turn/completed") completed(params);
+      },
+      onRequest: async () => ({}),
+    });
+    try {
+      expect(await server.account()).toEqual({ type: "apiKey" });
+      const [model] = await server.models();
+      const started = await server.startThread({ cwd: root, model: model.id, policy });
+      const resumed = await server.resumeThread({ threadId: started.thread.id, cwd: root, policy });
+      expect(resumed.thread.id).toBe(started.thread.id);
+      await server.startTurn({ threadId: started.thread.id, input: [{ type: "text", text: "go", text_elements: [] }], policy, model: model.id });
+      expect((await turnCompleted).turn.status).toBe("completed");
+      expect(deltas.join("")).toBe(turn.events.filter((event) => event.kind === "text").map((event) => event.delta).join(""));
+    } finally {
+      await server.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
