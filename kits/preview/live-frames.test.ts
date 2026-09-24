@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { FRAME_TIERS, INTERVAL_MS, frameWidth, pace } from "./live-frames.js";
+import { describe, expect, it, vi } from "vitest";
+import { FRAME_REQUEST_TIMEOUT_MS, FRAME_TIERS, INTERVAL_MS, askForFrame, frameWidth, pace } from "./live-frames.js";
 
 describe("frames paced to the client", () => {
   it("asks for what the view draws in device pixels, at most twice its CSS width", () => {
@@ -30,5 +30,19 @@ describe("frames paced to the client", () => {
     expect(pace({ tier: 1, fastFrames: 2 }, { elapsedMs: 1_500, picture: false, interacting: true })).toEqual({ state: { tier: 1, fastFrames: 2 }, delayMs: INTERVAL_MS.interacting });
     // A caret that blinks on a page nobody touched for a while is not worth a frame a second.
     expect(pace({ tier: 0, fastFrames: 0 }, { elapsedMs: 50, picture: true, interacting: false, idle: true }).delayMs).toBe(INTERVAL_MS.idle);
+  });
+});
+
+describe("a frame request", () => {
+  it("ends as no picture when the host never answers, so the view asks again", async () => {
+    vi.useFakeTimers();
+    try {
+      const answer = askForFrame(() => new Promise(() => undefined), 390, undefined);
+      await vi.advanceTimersByTimeAsync(FRAME_REQUEST_TIMEOUT_MS);
+      await expect(answer).resolves.toBeNull();
+      await expect(askForFrame(async () => { throw new Error("gone"); }, 390, undefined)).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

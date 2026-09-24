@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { AppWindow, ArrowUpToLine, Bot, Globe, PanelRight, X } from "lucide-react";
-import { errorMessage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useThreadStore, type PreferencesStore, type RegionProps, type WorkbenchActions } from "tau";
+import { errorMessage, READ_ONLY_REASON, tooltipProps, useClientStorage, useCommandAllowed, useThreadStore, type PreferencesStore, type RegionProps, type WorkbenchActions } from "tau";
 import { AgentCursorLayer } from "./agent-cursor.js";
 import { PREVIEW_HOST_EXTENSION_ID, type PreviewDriver, type PreviewMiniCorner, type PreviewMiniPrefs, type PreviewState } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenState } from "./screen-protocol.js";
@@ -8,6 +8,7 @@ import { previewView, screenService } from "./screen-store.js";
 import { PREVIEW_PANEL, drawsFrames, panelShown, previewKit, usePreviewState } from "./store.js";
 import { floatingEnabled } from "./settings.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
+import { loadDeviceMiniPrefs, saveDeviceMiniPrefs } from "./mini-prefs.js";
 
 /** How much a hover enlarges the player, before the room around it caps it. */
 const HOVER_SCALE = 2.5;
@@ -127,20 +128,24 @@ type Gesture = { kind: "move" | "resize"; pointerId: number; x: number; y: numbe
  * while the Preview panel is out of sight. It only shows: a click on the
  * picture opens the Preview, never the page under it. Hover enlarges it;
  * dragging the header moves it to another corner, its inner edge resizes
- * it, and the host remembers both for every client.
+ * it, and this device remembers both for itself (a phone and a laptop have
+ * different room for it).
  */
 function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver; state: PreviewState; insets: MiniInsets; actions: WorkbenchActions }) {
   const service = screenService.use();
   const screen = driver.source === "screen";
-  const [prefs, setPrefs] = useState<PreviewMiniPrefs>(state.mini);
-  // Where the card sits is the host's to keep; a Read-only device moves it for itself only.
-  const mayKeep = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "mini-prefs");
+  const storage = useClientStorage();
+  // A device that never moved the player starts where the host kept it for every client before.
+  const [prefs, setPrefs] = useState<PreviewMiniPrefs>(() => loadDeviceMiniPrefs(storage, state.mini));
+  const keep = (next: PreviewMiniPrefs) => {
+    setPrefs(next);
+    saveDeviceMiniPrefs(storage, next);
+  };
   const mayDismiss = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "mini-dismiss");
   const [drag, setDrag] = useState<{ dx: number; dy: number } | undefined>();
   const [resizing, setResizing] = useState(false);
   const [error, setError] = useState("");
   const gesture = useRef<Gesture | undefined>(undefined);
-  useEffect(() => setPrefs(state.mini), [state.mini]);
 
   const body = useRef<HTMLButtonElement>(null);
   // Sized to what the player draws, so the hover's larger picture asks for a larger frame.
@@ -200,10 +205,9 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
       // Where the header is let go says the corner; a tall card's centre barely moves.
       const corner = nearestCorner({ x: event.clientX, y: event.clientY }, { ...insets, width: window.innerWidth, height: window.innerHeight });
       setDrag(undefined);
-      setPrefs((value) => ({ ...value, corner }));
-      if (mayKeep) run(() => previewKit["mini-prefs"]({ corner }));
-    } else if (mayKeep) {
-      run(() => previewKit["mini-prefs"]({ width: prefs.width }));
+      keep({ ...prefs, corner });
+    } else {
+      keep(prefs);
     }
   };
 

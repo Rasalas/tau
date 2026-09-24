@@ -77,11 +77,19 @@ export type CdpCommand = [method: string, params: Record<string, unknown>];
  * The DevTools protocol's input commands for one input. They are trusted
  * events and need neither a visible view nor the window's focus, so the
  * page on the host takes a phone's tap while the host's user works elsewhere.
+ * `touch` when the page is laid out for a touch screen.
  */
-export function cdpInputCommands(input: PreviewPageInput): CdpCommand[] {
+export function cdpInputCommands(input: PreviewPageInput, options: { touch?: boolean } = {}): CdpCommand[] {
   switch (input.kind) {
     case "click": {
       const at = { x: input.x, y: input.y };
+      // On a touch layout a tap is a touch, so the page's touch handlers see it; the page makes the click.
+      if (options.touch) {
+        return [
+          ["Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [at] }],
+          ["Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }],
+        ];
+      }
       return [
         ["Input.dispatchMouseEvent", { type: "mouseMoved", ...at }],
         ["Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", buttons: 1, clickCount: 1 }],

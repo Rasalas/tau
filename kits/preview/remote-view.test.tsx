@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { HostClientProvider, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
-import { EMPTY_PREVIEW_STATE } from "./protocol.js";
-import RemotePreview, { fit } from "./remote-view.js";
+import { EMPTY_PREVIEW_STATE, type PreviewState } from "./protocol.js";
+import RemotePreview, { fit, layoutOwner } from "./remote-view.js";
+import { viewerId } from "./viewer.js";
 import { windowName } from "./screen-store.js";
 import { connectPreviewHost, drawsFrames, previewStore } from "./store.js";
 
@@ -28,18 +29,18 @@ afterEach(() => {
   previewStore.set(EMPTY_PREVIEW_STATE);
 });
 
-function setup(options: { readOnly?: boolean; focus?: "secret" | "field" | "none"; url?: string } = {}) {
+function setup(options: { readOnly?: boolean; focus?: "secret" | "field" | "none"; url?: string; state?: Partial<PreviewState> } = {}) {
   const invoke = vi.fn(async (command: string, _input?: unknown) => {
     if (command === "live-frame") return { id: "f1", data: "SlBFRw==", width: 400, height: 200, url: "http://localhost:18727/" };
     if (command === "input") return { focus: options.focus ?? "field" };
     return undefined;
   });
   disconnect = connectPreviewHost({ invoke, onEvent: () => () => undefined });
-  previewStore.set({ ...EMPTY_PREVIEW_STATE, url: options.url ?? "http://localhost:18727/", title: "Sign in" });
+  previewStore.set({ ...EMPTY_PREVIEW_STATE, url: options.url ?? "http://localhost:18727/", title: "Sign in", ...options.state });
   const actions = { activeThread: () => ({ sessionId: "s1", cwd: "/p" }) } as unknown as WorkbenchActions;
   const client = createFakeHostClient({ isReadOnly: () => options.readOnly === true });
-  render(<HostClientProvider client={client}><RemotePreview active actions={actions} compact /></HostClientProvider>);
-  return { invoke };
+  const view = render(<HostClientProvider client={client}><RemotePreview active actions={actions} compact /></HostClientProvider>);
+  return { invoke, view };
 }
 
 const inputs = (invoke: ReturnType<typeof setup>["invoke"]) => invoke.mock.calls.filter(([command]) => command === "input").map(([, input]) => input);
@@ -130,5 +131,52 @@ describe("the Preview on another device", () => {
     const { invoke } = setup({ url: "" });
     expect(await screen.findByText("Nothing open")).toBeTruthy();
     expect(invoke.mock.calls.some(([command]) => command === "live-frame")).toBe(false);
+  });
+});
+
+describe("the page laid out for this device", () => {
+  /** jsdom lays nothing out: the stage gets a size and a ResizeObserver that measures once. */
+  function withStage(width: number, height: number): () => void {
+    const client = { width: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"), height: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight") };
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => width });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => height });
+    const observer = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { observe() {} disconnect() {} };
+    return () => {
+      if (client.width) Object.defineProperty(HTMLElement.prototype, "clientWidth", client.width);
+      if (client.height) Object.defineProperty(HTMLElement.prototype, "clientHeight", client.height);
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = observer;
+    };
+  }
+  const id = viewerId(undefined);
+
+  it("reads whose screen the page is laid out for", () => {
+    const state = { ...EMPTY_PREVIEW_STATE, url: "http://x/" };
+    expect(layoutOwner(state, id)).toBe("host");
+    expect(layoutOwner({ ...state, layoutFor: { id, name: "Phone", width: 390, height: 600, touch: true } }, id)).toBe("this");
+    expect(layoutOwner({ ...state, layoutFor: { id: "other", name: "Tablet", width: 800, height: 1_000, touch: true } }, id)).toBe("other");
+    expect(layoutOwner({ ...state, viewport: { mode: "fixed", width: 1_280, height: 800 } }, id)).toBe("fixed");
+  });
+
+  it("asks for frames as this screen and lays the page out for it on request", async () => {
+    const restore = withStage(393, 616);
+    try {
+      const { invoke, view } = setup();
+      await picture();
+      expect(invoke).toHaveBeenCalledWith("live-frame", expect.objectContaining({ viewer: { id, width: 393, height: 616, dpr: 1, touch: false } }));
+      fireEvent.click(screen.getByRole("button", { name: /Laid out for the host's window/u }));
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith("layout", { viewer: expect.objectContaining({ id, width: 393 }) }));
+      // Closing the view gives the page back at once.
+      view.unmount();
+      expect(invoke).toHaveBeenCalledWith("layout", { release: id });
+    } finally {
+      restore();
+    }
+  });
+
+  it("says when the page already fits this screen", async () => {
+    setup({ state: { layoutFor: { id, name: "Phone", width: 377, height: 600, touch: true } } });
+    expect(await screen.findByText("This screen")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Lay it out for this screen/u })).toBeNull();
   });
 });
