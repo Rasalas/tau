@@ -225,7 +225,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         await services.sessions.purge(threadId(input));
         await publishTrash();
       }, { long: true });
-      context.registerCommand("trash", () => services.sessions.trash());
+      context.registerCommand("trash", () => services.sessions.trash(), { access: "read" });
       context.registerCommand("start", async (input) => {
         const fields = record(input);
         const cwd = typeof fields.cwd === "string" ? fields.cwd : "";

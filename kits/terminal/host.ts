@@ -442,7 +442,7 @@ export function createTerminalHostExtension(
       context.registerCommand("foreground", (raw) => {
         const process = sessions.foreground(String(fields(raw).id));
         return process ? { process } : {};
-      });
+      }, { access: "read" });
 
       // Terminals die with the workspace they belong to, and with the thread
       // that opened them — both are the host's own word, not a guess from the
