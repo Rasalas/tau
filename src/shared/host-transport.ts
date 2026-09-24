@@ -37,6 +37,15 @@ export const CLIENT_SIDE_METHODS = [
   "set-badge",
   "context-menu",
   "window-action",
+  // The machines this window knows (ADR 0025): the window's list, not the host's.
+  "environments-list",
+  "environments-pair",
+  "environments-cancel-pairing",
+  "environments-rename",
+  "environments-remove",
+  "environments-retry",
+  "environments-open",
+  "environments-take-arrival",
 ] as const;
 
 export const isClientSideMethod = (method: string): boolean =>

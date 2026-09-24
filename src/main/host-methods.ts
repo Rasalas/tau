@@ -19,6 +19,7 @@ import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
 import { authorizeMethod } from "./host-method-access.js";
+import { createEnvironmentMethods, type EnvironmentsService } from "./environment-methods.js";
 import {
   decodeBoolean,
   decodeCommandName,
@@ -96,6 +97,8 @@ export interface ClientHostPlatform {
   setBadge(count: number): void;
   showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
   windowAction?(action: WindowAction): Promise<unknown>;
+  /** The machines this window knows (ADR 0025); only a window beside a supervised host has them. */
+  environments?(): EnvironmentsService | undefined;
 }
 
 function shareFile(platform: { shareFile?(path: string): Promise<UiSharedFile> }, path: string): Promise<UiSharedFile> {
@@ -138,6 +141,7 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
     "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
     "context-menu": async (params) => contextMenu(platform, params),
     "window-action": async (params) => windowAction(platform, params),
+    ...createEnvironmentMethods(() => platform.environments?.()),
   };
 }
 
@@ -309,6 +313,8 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
     "context-menu": async (params) => contextMenu(platform, params),
     "window-action": async (params) => windowAction(platform, params),
+    // A host has no list of machines; its table names the methods so a page learns that plainly.
+    ...createEnvironmentMethods(() => undefined),
     "read-tool-output": async (params) => (await host()).readToolOutput(
       decodeString("read-tool-output", "sessionId", params[0]),
       decodeString("read-tool-output", "toolCallId", params[1]),

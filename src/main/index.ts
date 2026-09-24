@@ -1,5 +1,6 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, session, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
@@ -50,6 +51,8 @@ import { createAppShell } from "./app-shell.js";
 import { createQuitShortcut } from "./quit-shortcut.js";
 import { ReleaseNotesStore, fileReleaseNotes, githubReleaseNotes } from "./release-notes.js";
 import { DEFAULT_QUIT_CONFIRMATION, type QuitConfirmation, type WindowShellEvent } from "../shared/window-shell.js";
+import { WindowEnvironments, type EnvironmentConnection } from "./window-environments.js";
+import { installEnvironmentSession } from "./environment-session.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 /** The packaged launcher sets this when it hands execution to a built checkout. */
@@ -110,7 +113,8 @@ process.on("unhandledRejection", (reason) => {
 /** What a package's `engines` is checked against. */
 const extensionVersions: ExtensionHostVersions = { tau: app.getVersion(), pi: PI_VERSION, api: EXTENSION_API_VERSION };
 // Clients name workspaces by an id of this host, never by one of its paths.
-const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(app.getPath("userData"), "host-id")));
+const localHostId = readOrCreateHostId(join(app.getPath("userData"), "host-id"));
+const workspaceIdentity = new WorkspaceIdentity(localHostId);
 /** Where the kits Tau ships are read from and where their compiled halves are cached. */
 const kitOptions = {
   appPath: workbenchRoot,
@@ -206,6 +210,10 @@ let windowHost: WindowHost | undefined;
 let remoteTrust: RemoteHostTrust | undefined;
 /** Why this window will not talk to that host; the workbench shows it in place of the link state. */
 let hostRefusal: string | undefined;
+/** The machines this window knows (ADR 0025); only beside a supervised host. */
+let environments: WindowEnvironments | undefined;
+/** Another machine's host the page shows instead of this machine's; its uplink serves that host's kits. */
+let shownHost: WindowHost | undefined;
 let workbenchLoading = false;
 /** Set when the last window closed: quitting then leaves the host running. */
 let quitAfterWindowClosed = false;
@@ -263,7 +271,7 @@ const windowContextMenu = (entries: NativeMenuEntry[], point: MenuPoint): Promis
   },
 }, entries, point);
 /** Workspace files the page loads by URL; only a host on this machine has files here to serve. */
-const sharedFiles = new SharedFileStore(() => remoteHostUrl ? undefined : windowHost?.activeWorkspace || host?.activeWorkspacePath());
+const sharedFiles = new SharedFileStore(() => remoteHostUrl || shownHost ? undefined : windowHost?.activeWorkspace || host?.activeWorkspacePath());
 /** The notes of the version that just started, shown once; created with the update feed. */
 let releaseNotes: ReleaseNotesStore | undefined;
 /** How ⌘Q quits, from this machine's config; read again when the config changes. */
@@ -333,6 +341,16 @@ function broadcast(event: HostPushEvent): void {
 
 /** What the renderer is told: which host to speak to, and as which client. */
 function workbenchQuery(): Record<string, string> {
+  if (shownHost && environments) {
+    return {
+      ...(safeMode ? { safeMode: "1" } : {}),
+      ...(process.env.TAU_CLIENT_PROFILE ? { profile: process.env.TAU_CLIENT_PROFILE } : {}),
+      host: shownHost.hostUrl,
+      windowId: shownHost.windowId,
+      token: shownHost.hostToken,
+      environment: environments.shown,
+    };
+  }
   return {
     ...(safeMode ? { safeMode: "1" } : {}),
     // Which client this window claims to be (ADR 0016). Unset is `desktop`;
@@ -490,7 +508,10 @@ async function startHostProcess(): Promise<void> {
     },
     // A restarted host may have landed on another port; the window's client
     // only learns the new one by being pointed at it again.
-    onUrlChanged: () => { void pointWindowAtHost(); },
+    onUrlChanged: () => {
+      if (windowHost) environments?.setLocalHost(windowHost.hostUrl, windowHost.hostToken);
+      if (!shownHost) void pointWindowAtHost();
+    },
     onEvent: (event) => {
       // Drop a deactivated extension's bundle so tau-ext: returns 404 for it
       // rather than serving code the user switched off.
@@ -516,6 +537,7 @@ async function startHostProcess(): Promise<void> {
   try {
     const running = await windowHost.startSupervised();
     await loadWindowHalves();
+    await startEnvironments(windowHost);
     hostLog.info("host-process.ready", { pid: running.pid, url: running.url, adopted: running.adopted });
   } catch (error: unknown) {
     hostLog.error("host-process.start.failed", error);
@@ -545,6 +567,52 @@ async function loadWindowHalves(): Promise<void> {
   if (loaded) windowHost.extensions.load(loaded.halves);
   // The host only calls halves a connection named in its hello.
   await windowHost.announceHalves().catch((error: unknown) => hostLog.warn("window-extension.announce.failed", error));
+}
+
+/** The machine list, a connection to each machine, and the page's trust in their certificates (ADR 0025). */
+async function startEnvironments(local: WindowHost): Promise<void> {
+  const name = hostname().replace(/\.local$/u, "");
+  environments = new WindowEnvironments({
+    catalogPath: join(app.getPath("userData"), "environments.json"),
+    box: {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (text) => safeStorage.encryptString(text).toString("base64"),
+      decrypt: (data) => safeStorage.decryptString(Buffer.from(data, "base64")),
+    },
+    logger: hostLog,
+    deviceName: name,
+    local: { id: localHostId, name },
+    publish: (list) => publish({ type: "environments", environments: list }),
+    show: showEnvironment,
+  });
+  environments.setLocalHost(local.hostUrl, local.hostToken);
+  installEnvironmentSession(session.defaultSession, environments, () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : undefined);
+  await environments.start().catch((error: unknown) => hostLog.error("environments.start.failed", error));
+}
+
+/** Points the page at another machine's host, or back at this one's. */
+async function showEnvironment(connection: EnvironmentConnection | undefined): Promise<void> {
+  const previous = shownHost;
+  shownHost = undefined;
+  if (connection) {
+    // No window halves: a folder picked here or a view over this window means nothing to another machine.
+    const remote = new WindowHost({
+      userData: app.getPath("userData"),
+      version: app.getVersion(),
+      mainDirectory: currentDir,
+      execPath: process.execPath,
+      logger: hostLog,
+      service: null,
+      onFatal: () => undefined,
+      onUrlChanged: () => undefined,
+      onEvent: (event) => { if (event.type === "extension-deactivated") desktopBundles.remove(event.extensionId); },
+    });
+    remote.attach(connection.url, connection.token, connection.fingerprint);
+    shownHost = remote;
+  }
+  hostLog.info("environments.shown", { id: connection?.id ?? localHostId, url: connection?.url });
+  await previous?.stop(true);
+  await pointWindowAtHost();
 }
 
 /** Points the open window at the host's current URL; used when a restart moved it. */
@@ -635,7 +703,7 @@ function createWindowPlatform(): ClientHostPlatform {
     readImagePreview: rendererImagePreview,
     shareFile: (path) => sharedFiles.share(path),
     loadDesktopExtensions: async (cwd, sharedExports, only) =>
-      windowHost!.loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only)),
+      (shownHost ?? windowHost!).loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only)),
     rebuildWorkbench: async (context) => runRebuild(context, windowHost?.activeWorkspace ?? requestedWorkspace ?? ""),
     workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
     relaunchWorkbench: () => workbenchReloader.relaunch(),
@@ -644,6 +712,7 @@ function createWindowPlatform(): ClientHostPlatform {
     setBadge: windowAttention.setBadge,
     showContextMenu: windowContextMenu,
     windowAction: appShell.act,
+    environments: () => environments,
   };
 }
 
@@ -806,6 +875,8 @@ if (primaryInstance) app.on("before-quit", (event) => {
       return;
     }
     try {
+      environments?.close();
+      await shownHost?.stop(true);
       if (host) await host.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
       if (windowHost) await windowHost.stop(hostStays);
     } catch (error: unknown) {
