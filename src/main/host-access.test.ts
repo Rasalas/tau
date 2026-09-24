@@ -353,7 +353,7 @@ describe("the owner's changes to a device", () => {
 });
 
 // A host behind a real socket, so pairing, revocation and rotation are seen as a client sees them.
-async function listen(access: HostAccess, methods: HostMethodTable = {}) {
+async function listen(access: HostAccess, methods: HostMethodTable = {}, helloTimeoutMs?: number) {
   transport = await startSocketHostTransport({
     listen: "127.0.0.1:0",
     methods: { ping: async () => "pong", ...methods },
@@ -361,6 +361,7 @@ async function listen(access: HostAccess, methods: HostMethodTable = {}) {
     hostVersion: "test",
     capabilities: [],
     access,
+    ...(helloTimeoutMs ? { helloTimeoutMs } : {}),
   });
   return transport.port;
 }
@@ -489,6 +490,20 @@ describe("pairing over the socket", () => {
     device.socket.close();
     await device.closed;
     await expect.poll(() => access.overview().requests).toEqual([]);
+  });
+
+  it("keeps a waiting device past the hello deadline, and gives it a new one once let in", async () => {
+    const { access } = await openAccess();
+    const port = await listen(access, {}, 20);
+    const device = await connect(port);
+    device.send({ type: "pair", id: "p1", pair: {} });
+    await device.next("pair-reply");
+    // A socket that neither pairs nor says hello is closed by the same deadline; by then the device's has passed too.
+    const idle = await connect(port);
+    expect(await idle.closed).toMatchObject({ code: 4408 });
+    expect(device.socket.readyState).toBe(WebSocket.OPEN);
+    await access.approvePairing(access.overview().requests[0]!.id);
+    expect(await device.closed).toMatchObject({ code: 4408 });
   });
 
   it("refuses a pair frame from a socket that already said hello", async () => {

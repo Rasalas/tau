@@ -191,8 +191,12 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const pairReply = (socket: WebSocket, id: string, reply: HostPairReply): boolean => {
     if (socket.readyState !== socket.OPEN) return false;
     send(socket, { type: "pair-reply", id, reply });
+    if (reply.state === "approved") {
+      setTimeout(() => {
+        if (!authenticated.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
+      }, options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS).unref?.();
     // The close withdraws whatever the socket still had open.
-    if (reply.state !== "approved" && reply.state !== "challenge" && reply.state !== "waiting") socket.close(PAIRING_DONE, reply.state);
+    } else if (reply.state !== "challenge" && reply.state !== "waiting") socket.close(PAIRING_DONE, reply.state);
     return true;
   };
 
@@ -235,8 +239,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     }
     alive.add(socket);
     socket.on("pong", () => alive.add(socket));
+    // A device waiting for its owner has until its request expires; once let in, a new deadline for its hello.
     const helloTimer = setTimeout(() => {
-      if (!authenticated.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
+      if (!authenticated.has(socket) && !pairing.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
     }, options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS);
     helloTimer.unref?.();
     // Only a peer on this machine may be told that the host's files are local.
