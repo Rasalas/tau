@@ -845,14 +845,16 @@ export interface HostCommandCall {
   readonly device?: string;
   /** The caller may manage this host (ADR 0024): the host itself, its own window, or the host token from this machine. */
   readonly owner: boolean;
+  /** The kit whose host half called, through `invokeHostExtension`; absent for a client and the host. */
+  readonly extension?: string;
 }
 
 export type HostExtensionCommandHandler = (input: unknown, call: HostCommandCall) => unknown;
 
-/** What a command learns of the principal behind it. */
-export function commandCall(principal: HostInvocationPrincipal): HostCommandCall {
+/** What a command learns of the principal behind it; `extension` is the calling kit, resolved by the registry. */
+export function commandCall(principal: HostInvocationPrincipal, extension?: string): HostCommandCall {
   if (principal.kind === "host-core") return { owner: true };
-  if (principal.kind !== "workbench-client") return { owner: false };
+  if (principal.kind !== "workbench-client") return { owner: false, ...(extension ? { extension } : {}) };
   return { ...(principal.pairedClient ? { device: principal.pairedClient } : {}), owner: isHostOwner(principal) };
 }
 
@@ -1194,7 +1196,7 @@ export class HostExtensionRegistry {
     // the extension, not three of any command.
     const commandKey = `${extensionId}/${command}`;
     try {
-      const call = commandCall(principal);
+      const call = commandCall(principal, principal.kind === "host-extension" ? this.invocationContexts.get(principal.contextId)?.extensionId : undefined);
       const result = await runAsCaller(principal, async () => record.longCommands.has(command)
         ? await handler(input, call)
         : await this.runWithTimeout(() => handler(input, call), timeoutMs, command));

@@ -338,7 +338,7 @@ describe("HostExtensionRegistry", () => {
       { owner: false },
       { owner: true },
       { owner: true },
-      { owner: false },
+      { owner: false, extension: "tau.push" },
     ]);
   });
 
