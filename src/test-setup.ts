@@ -26,6 +26,10 @@ beforeAll(async () => {
 // subprocess fixtures. Keep DOM polling tolerant of scheduler contention while
 // preserving each assertion's own failure output.
 configure({ asyncUtilTimeout: 5_000 });
+// vi.waitFor gives up after 1 s unless told otherwise, less than a spawn or a socket round trip
+// takes on a busy runner. It gets the DOM helpers' budget (expect.poll's is in vitest.config.ts).
+const waitFor = vi.waitFor;
+vi.waitFor = ((callback, options) => waitFor(callback, typeof options === "number" ? options : { timeout: 5_000, ...options })) as typeof vi.waitFor;
 
 // Unmount whatever a DOM test rendered even when its file forgot to. A mounted
 // tree keeps observers and frame callbacks alive past the test that made them.

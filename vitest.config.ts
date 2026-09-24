@@ -34,5 +34,7 @@ export default defineConfig({
     // .github/workflows/performance.yml.
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    // 1 s by default; the same wait as src/test-setup.ts gives the DOM helpers and vi.waitFor.
+    expect: { poll: { timeout: 5_000 } },
   },
 });
