@@ -174,6 +174,31 @@ describe("WorkbenchStore", () => {
     expect(view.getSnapshot()?.cwd).toBe("/w/two");
   });
 
+  // The renderer resyncs every kit when the workspace id changes, so a detail must not drop it.
+  it("keeps the workspace id from the bootstrap through the details that follow", () => {
+    const { history, store, view } = build();
+    store.applyBootstrap({
+      version: HOST_PROTOCOL_VERSION,
+      threadIndex,
+      detail: { sessionId: "one", messages: snapshot.messages, isStreaming: false, activeTools: [] },
+      catalog: { models: [], thinkingLevel: "medium", thinkingLevels: [], allTools: [], extensionCount: 0 },
+      project: { cwd: "/w/one", workspaceId: "ws1_one", displayPath: "~/w/one", label: "main" },
+    }, history.beginBootstrap());
+    expect(view.getSnapshot()?.workspaceId).toBe("ws1_one");
+    store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: { sessionId: "one", messages: [], isStreaming: false, activeTools: [] } });
+    expect(view.getSnapshot()?.workspaceId).toBe("ws1_one");
+    expect(view.getSnapshot()?.displayPath).toBe("~/w/one");
+  });
+
+  it("keeps a project update's workspace id when the next detail arrives", () => {
+    const { history, store, view } = build();
+    store.applySnapshot(snapshot);
+    store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "project", project: { cwd: "/w/one", workspaceId: "ws1_one" } });
+    store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: { sessionId: "one", messages: [], isStreaming: false, activeTools: [] } });
+    expect(view.getSnapshot()?.workspaceId).toBe("ws1_one");
+    expect(history.getCurrentSnapshot()?.workspaceId).toBe("ws1_one");
+  });
+
   it("refuses an action result whose thread transition is no longer the current one", () => {
     const { history, store } = build();
     store.applySnapshot(snapshot);

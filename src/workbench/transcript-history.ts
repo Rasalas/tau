@@ -1,5 +1,5 @@
 import type { HostSnapshot, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
-import { hostSnapshotFromThreadDetail, hostSnapshotWithCatalog, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot, type HostCatalog, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
+import { hostSnapshotFromThreadDetail, hostSnapshotWithCatalog, normalizeTranscriptCursorBoundaries, threadDetailFromHostSnapshot, type HostCatalog, type ProjectMetadata, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import type { ThreadDetailStore } from "../shared/thread-detail-store";
 import { TranscriptHistoryCache } from "./transcript-history-cache";
@@ -158,6 +158,14 @@ export class TranscriptHistoryController {
     this.cache.setSnapshot(next);
     this.persistCache();
     return next;
+  }
+
+  /** Moves the merge base with the active project, as `applyCatalog` does with the catalog. */
+  applyProject(project: ProjectMetadata): void {
+    const current = this.cache.getSnapshot();
+    if (!current) return;
+    this.cache.setSnapshot({ ...current, ...project });
+    this.persistCache();
   }
 
   applyDetail(detail: ThreadDetail, snapshot?: HostSnapshot): TranscriptDetailApplication | undefined {
