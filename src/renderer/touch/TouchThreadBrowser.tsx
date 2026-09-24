@@ -49,10 +49,7 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
 
   const header = <header className="touch-browser-header">
     {screen && onClose ? <button type="button" className="touch-icon-button" aria-label="Close threads" onClick={onClose}><ChevronLeft size={22} /></button> : null}
-    {shell?.hostLabel ? <div className="touch-browser-title">
-      <strong>Threads</strong>
-      <small title={shell.hostLabel}>{shell.hostLabel}</small>
-    </div> : <strong>Threads</strong>}
+    <strong>Threads{shell?.hostLabel ? <small>{shell.hostLabel}</small> : null}</strong>
     <span className="spacer" />
     <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={() => setPopover(popover === "search" ? undefined : "search")}><Search size={19} /></button>
     <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>
@@ -67,9 +64,7 @@ export function TouchThreadBrowser({ variant, onClose, onNewThread, onOpenSettin
       <div role="menu" aria-label="More">
         <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings(); }}><Settings size={17} />Settings</button>
         <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings("connections"); }}><MonitorSmartphone size={17} />Connections</button>
-        {shell?.actions?.map(({ id, label, Icon, run }) => <button key={id} type="button" role="menuitem" onClick={() => { setPopover(undefined); run(); }}>
-          {Icon ? <Icon size={17} /> : null}{label}
-        </button>)}
+        {shell?.actions?.map((action) => <button key={action.id} type="button" role="menuitem" onClick={() => { setPopover(undefined); action.run(); }}>{action.Icon ? <action.Icon size={17} /> : null}{action.label}</button>)}
       </div>
     </Popover> : null}
   </>;
