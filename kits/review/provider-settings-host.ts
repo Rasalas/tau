@@ -16,9 +16,9 @@ export function registerProviderSettings(context: HostExtensionContext, sources:
     const missing = provider.missing();
     if (missing) return { ...base, installed: false, hint: missing };
     return { ...base, installed: true, ...await provider.status().catch(() => ({})) };
-  })), { long: true });
+  })), { access: "read", long: true });
 
-  context.registerCommand("source-hosts", (): Promise<SourceHosts> => sources.hosts());
+  context.registerCommand("source-hosts", (): Promise<SourceHosts> => sources.hosts(), { access: "read" });
 
   context.registerCommand("set-source-host", async (input): Promise<SourceHosts> => {
     const fields = record(input);

@@ -187,20 +187,20 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
         } finally {
           if (running.get(channel) === cancel) running.delete(channel);
         }
-      }, { long: true });
+      }, { access: "read", long: true });
 
       context.registerCommand("files", async (raw): Promise<FileSearchResult> => {
         const fields = record(raw);
         const cwd = await projectRoot(fields.cwd);
         const files = await projectFiles(cwd);
         return { files: rankFuzzy(files, text(fields.query), count(fields.limit, 50, 200)), total: files.length };
-      }, { long: true });
+      }, { access: "read", long: true });
 
       context.registerCommand("invalidate", async (raw) => {
         const cwd = text(record(raw).cwd);
         if (cwd) fileLists.delete(cwd);
         else fileLists.clear();
-      });
+      }, { access: "read" });
 
       const textsOf = async (path: string, mtimeMs: number, size: number): Promise<ThreadText[]> => {
         const cached = threadTexts.get(path);
@@ -264,7 +264,7 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
           }
         }
         return matches;
-      }, { long: true });
+      }, { access: "read", long: true });
 
       return () => {
         for (const cancel of running.values()) cancel();

@@ -101,23 +101,23 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     services.log(log, noun(ref, provider));
   };
 
-  context.registerCommand("pr-view", (input) => detail(target(input).ref, fresh(input)), { long: true });
+  context.registerCommand("pr-view", (input) => detail(target(input).ref, fresh(input)), { access: "read", long: true });
 
   context.registerCommand("pr-checks", async (input): Promise<PullRequestCheck[]> => {
     const { ref, provider } = target(input);
     // Checks move on their own, so they are never served from the cache.
     return provider.info.capabilities.checks ? provider.checks(ref) : [];
-  });
+  }, { access: "read" });
 
   context.registerCommand("pr-comments", (input) => {
     const { ref, provider } = target(input);
     return threads(ref, provider, fresh(input));
-  }, { long: true });
+  }, { access: "read", long: true });
 
   context.registerCommand("pr-files", (input) => {
     const { ref, provider } = target(input);
     return files(ref, provider, fresh(input));
-  }, { long: true });
+  }, { access: "read", long: true });
 
   context.registerCommand("pr-comment", async (input) => {
     const { ref, provider } = target(input);
@@ -247,7 +247,7 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     const read = provider.candidates;
     if (!read) return { labels: [], reviewers: [] };
     return tools.cached("candidates", ref, fresh(input), () => read(ref));
-  }, { long: true });
+  }, { access: "read", long: true });
 
   const methodOf = (value: unknown): MergeMethod | undefined => (["squash", "merge", "rebase"] as const).find((candidate) => candidate === value);
 
@@ -302,7 +302,7 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     const read = provider.stack;
     if (!read || !provider.info.capabilities.stacks) return null;
     return await read(ref, fresh(input)) ?? null;
-  }, { long: true });
+  }, { access: "read", long: true });
 
   context.registerCommand("pr-stack-action", async (input): Promise<PullRequestDetail> => {
     const { ref, provider } = target(input);

@@ -67,7 +67,7 @@ export function createTakeoverHostExtension(options: { timeoutMs?: number } = {}
       ]));
       disposers.push(services.mcp.gate((call) => desk.hold(call.toolName)));
 
-      context.registerCommand("state", () => desk.list());
+      context.registerCommand("state", () => desk.list(), { access: "read" });
       context.registerCommand("done", (input) => desk.finish(idOf(input), "done"));
       context.registerCommand("cancel", (input) => desk.finish(idOf(input), "cancelled"));
 

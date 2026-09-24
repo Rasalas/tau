@@ -76,11 +76,11 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
         const change = book.report(presence.clientKey, presence);
         if (change.changed) context.emit(ATTENTION_EVENT, { items: book.list() });
         return { items: book.list(), ...(change.delivery ? { delivery: change.delivery } : {}) };
-      });
+      }, { access: "read" });
       context.registerCommand("leave", (input) => {
         const clientKey = (input as { clientKey?: unknown } | null)?.clientKey;
         if (typeof clientKey === "string") book.leave(clientKey);
-      });
+      }, { access: "read" });
       return () => { for (const stop of stops) stop(); };
     },
   };

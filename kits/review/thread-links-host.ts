@@ -121,14 +121,14 @@ export function registerThreadLinks(
     const mode = record(input).refresh;
     if (mode === true || mode === "force") await refresh(threadId, mode === "force");
     return store.list(threadId);
-  }, { long: true });
+  }, { access: "read", long: true });
 
   // The threads that link a request, for "linked from" in its view.
   context.registerCommand("pr-linked-threads", async (input) => {
     const ref = parseRequestUrl(text(record(input).url) ?? "");
     if (!ref) throw new HostCommandError("Name the request by its URL.");
     return store.threadsLinking(ref);
-  });
+  }, { access: "read" });
 
   /**
    * Thread Rail's question before it settles threads: each named thread's
@@ -150,7 +150,7 @@ export function registerThreadLinks(
     };
     await Promise.all(Array.from({ length: SETTLE_READS }, worker));
     return answer;
-  }, { long: true, callers: [THREAD_RAIL_EXTENSION_ID] });
+  }, { access: "read", long: true, callers: [THREAD_RAIL_EXTENSION_ID] });
 
   context.registerCommand("link-pr", async (input) => {
     const threadId = threadOf(input);

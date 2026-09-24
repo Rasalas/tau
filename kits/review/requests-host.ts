@@ -197,7 +197,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     // A rail row asks about any thread's checkout and only wants the request.
     if (named) return { request: await rowRequest(named) };
     return status(record(input).fresh === true);
-  }, { callers: [THREAD_RAIL_EXTENSION_ID] }); // a merged or closed request settles a Thread Rail thread
+  }, { access: "read", callers: [THREAD_RAIL_EXTENSION_ID] }); // a merged or closed request settles a Thread Rail thread
 
   // Workspace Kit bases a branch diff on the request and counts a merged one for its cleanup; it names the Git facts.
   context.registerCommand("branch-request", async (input) => {
