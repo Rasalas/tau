@@ -174,6 +174,8 @@ describe("the socket transport over TLS", () => {
     await expect(bad.request("ping", ["never"])).rejects.toThrow(/dropped/u);
     expect(refusals).toHaveLength(1);
     expect(refusals[0]!.presented).toBe(FINGERPRINT);
+    // A hello asked for after the refusal fails at once instead of waiting out its timeout.
+    await expect(bad.hello()).rejects.toThrow(/closed/u);
   });
 
   it("keeps an uplink pinned to the key through a renewal, and says which certificate let each hello in", async () => {

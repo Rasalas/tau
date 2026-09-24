@@ -109,6 +109,8 @@ export class HostUplink {
   }
 
   private send(method: string, params: readonly unknown[]): Promise<unknown> {
+    // Closed for good (by the caller, a refused certificate or token): nothing would ever answer.
+    if (this.closed) return Promise.reject(new Error("The uplink to the host was closed."));
     this.counter += 1;
     const id = `w${this.counter}`;
     return new Promise((resolve, reject) => {
