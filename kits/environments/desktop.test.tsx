@@ -2,9 +2,9 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiscoveredHost, EnvironmentPairResult, PlatformEnvironments, UiDiscoveredHosts, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { environmentsExtension } from "./desktop.js";
-import { followArrival, otherMachines, statusText, unavailableReason } from "./machines.js";
+import { createKitHarness, createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
+import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
 import { createMachinesRailSection, createShownMachine } from "./rail.js";
 import { createRunOnControl } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
@@ -264,6 +264,55 @@ describe("arriving on a machine", () => {
     expect(newSession).toHaveBeenCalledWith({ workspace: "ws-api" });
     expect(setComposerDraft).toHaveBeenCalledTimes(2);
     expect(text).toBe("hello");
+  });
+});
+
+describe("a draft sent to a machine that shows its first-start setup", () => {
+  afterEach(() => setClientStorage(undefined));
+
+  it("stops while the workbench is away and does not start a thread behind the setup", async () => {
+    const newSession = vi.fn();
+    const actions = fakeActions({ newSession, activeThread: () => undefined });
+    expect(await followArrival({ newThread: { draft: "hello" } }, { actions, wait: async () => undefined, shown: () => false })).toBe(false);
+    expect(newSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps the draft through the setup and puts it in the composer after", async () => {
+    const storage = createMemoryStorage();
+    setClientStorage(storage);
+    const { environments } = fakeEnvironments({ shown: "studio", environments: [laptop, studio], secureStorage: true });
+    environments.takeArrival.mockResolvedValueOnce({ newThread: { draft: "hello", workspaceId: "ws-api" } } as never);
+    let setupDone = false;
+    let pending = false;
+    let text = "";
+    const actions = fakeActions({
+      newSession: vi.fn(() => { if (setupDone) pending = true; }),
+      activeThread: () => pending ? { draftPending: true, workspaceId: "ws-api" } as never : undefined,
+      setComposerDraft: vi.fn((value: string) => { text = value; }),
+      composerDraft: () => text,
+      focusComposer: vi.fn(),
+    });
+    let release: () => void = () => undefined;
+    const pause = () => new Promise<void>((resolve) => { release = resolve; });
+    const Rail = createRailSection(environments, pause);
+    const first = render(<Rail actions={actions} />);
+    await vi.waitFor(() => expect(storage.get(ARRIVAL_KEY)).toBeTruthy());
+    // The setup takes the window: the workbench and its rail go.
+    first.unmount();
+    await act(async () => { release(); });
+    expect(readPendingArrival(storage.get(ARRIVAL_KEY))?.target).toEqual({ newThread: { draft: "hello", workspaceId: "ws-api" } });
+
+    setupDone = true;
+    render(<Rail actions={actions} />);
+    await vi.waitFor(() => { release(); expect(text).toBe("hello"); });
+    await vi.waitFor(() => { release(); expect(storage.get(ARRIVAL_KEY)).toBeNull(); });
+    expect(environments.takeArrival).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads back only what it wrote", () => {
+    expect(readPendingArrival(JSON.stringify({ machine: "m", target: { thread: { path: "/p" } } }))).toEqual({ machine: "m", target: { thread: { path: "/p" } } });
+    expect(readPendingArrival("{")).toBeUndefined();
+    expect(readPendingArrival(JSON.stringify({ target: { thread: { path: "/p" } } }))).toBeUndefined();
   });
 });
 
