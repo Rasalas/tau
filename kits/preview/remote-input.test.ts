@@ -10,7 +10,8 @@ afterEach(() => { document.body.innerHTML = ""; });
 describe("input from a device", () => {
   it("takes a tap, a scroll, text and the keys a login needs", () => {
     expect(readPreviewInput({ kind: "click", x: 0.25, y: 1 })).toEqual({ kind: "click", x: 0.25, y: 1 });
-    expect(readPreviewInput({ kind: "scroll", dy: 120 })).toEqual({ kind: "scroll", x: 0.5, y: 0.5, dx: 0, dy: 120 });
+    expect(readPreviewInput({ kind: "scroll", dy: 0.5 })).toEqual({ kind: "scroll", x: 0.5, y: 0.5, dx: 0, dy: 0.5 });
+    expect(readPreviewInput({ kind: "scroll", dy: 1_000 })).toMatchObject({ dy: 10 });
     expect(readPreviewInput({ kind: "text", text: "tester" })).toEqual({ kind: "text", text: "tester" });
     expect(readPreviewInput({ kind: "key", key: "Enter" })).toEqual({ kind: "key", key: "Enter" });
   });
@@ -25,6 +26,7 @@ describe("input from a device", () => {
 
   it("puts a tap where it landed in the page's own pixels", () => {
     expect(pageInput({ kind: "click", x: 0.5, y: 0.25 }, { width: 1280, height: 800 })).toEqual({ kind: "click", x: 640, y: 200 });
+    expect(pageInput({ kind: "scroll", x: 0.5, y: 0.5, dx: 0, dy: -0.5 }, { width: 1280, height: 800 })).toEqual({ kind: "scroll", x: 640, y: 400, dx: 0, dy: -400 });
     expect(pageInput({ kind: "text", text: "a" }, { width: 1, height: 1 })).toEqual({ kind: "text", text: "a" });
   });
 

@@ -9,7 +9,8 @@ export type PreviewPageInput =
 
 /** A paste of a long token is fine; a novel is not what a phone sends into a login form. */
 export const MAX_INPUT_TEXT = 4_000;
-const MAX_SCROLL = 5_000;
+/** A scroll moves at most this many frames' heights at once. */
+const MAX_SCROLL = 10;
 
 const fraction = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : undefined;
@@ -47,9 +48,10 @@ export function readPreviewInput(value: unknown): PreviewInput {
 /** A tap at a fraction of the frame, as a point in the page's viewport. */
 export function pageInput(input: PreviewInput, viewport: { width: number; height: number }): PreviewPageInput {
   if (input.kind !== "click" && input.kind !== "scroll") return input;
-  const x = Math.round(input.x * Math.max(0, viewport.width));
-  const y = Math.round(input.y * Math.max(0, viewport.height));
-  return input.kind === "click" ? { kind: "click", x, y } : { kind: "scroll", x, y, dx: input.dx, dy: input.dy };
+  const width = Math.max(0, viewport.width), height = Math.max(0, viewport.height);
+  const x = Math.round(input.x * width);
+  const y = Math.round(input.y * height);
+  return input.kind === "click" ? { kind: "click", x, y } : { kind: "scroll", x, y, dx: Math.round(input.dx * width), dy: Math.round(input.dy * height) };
 }
 
 /** `code` and the Windows virtual key code Chromium wants for each key. */

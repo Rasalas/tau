@@ -163,6 +163,7 @@ export type PreviewInputKey = typeof PREVIEW_INPUT_KEYS[number];
  */
 export type PreviewInput =
   | { kind: "click"; x: number; y: number }
+  /** `dx` and `dy` are fractions of the frame too: 0.5 scrolls half a screen. */
   | { kind: "scroll"; x: number; y: number; dx: number; dy: number }
   | { kind: "text"; text: string }
   | { kind: "key"; key: PreviewInputKey };
@@ -353,6 +354,14 @@ export interface PreviewBrowserService {
    * (`app`). A handover asking the user to take over uses these.
    */
   jump(target: { kind: "browser" } | { kind: "app"; threadId: string }, actions: { openPanel(id: string): void }): Promise<void>;
+  /**
+   * A small live picture of the page or of the window `threadId`'s agent
+   * drives, at `maxWidth`, while the calling view is on screen; `undefined`
+   * while there is nothing to show. Returns the stop. Absent before API 1.13.0.
+   */
+  watch?(target: { kind: "browser" } | { kind: "app"; threadId: string }, maxWidth: number, onFrame: (picture: { url: string; width: number; height: number } | undefined) => void): () => void;
+  /** This client is not on the host's machine: `jump` opens the Preview here, where the user can drive it. */
+  remote?(): boolean;
 }
 
 /**
