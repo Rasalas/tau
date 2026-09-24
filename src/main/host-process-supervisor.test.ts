@@ -111,7 +111,7 @@ describe("the host process supervisor", () => {
     const userData = workingDirectory();
     let childEnv: NodeJS.ProcessEnv = {};
     const running = await supervisor(userData, {
-      extraEnv: { TAU_HOST_TLS: "1", TAU_HOST_TLS_CERT: "/nowhere/cert.pem", TAU_HOST_TLS_KEY: "/nowhere/key.pem" },
+      extraEnv: { TAU_HOST_TLS: "1", TAU_HOST_TLS_CERT: "/nowhere/cert.pem", TAU_HOST_TLS_KEY: "/nowhere/key.pem", TAU_HOST_PROXY_LISTEN: "127.0.0.1:7789" },
       spawnProcess: (command, args, env) => {
         childEnv = env;
         return spawnStub(command, args, env);
@@ -123,6 +123,8 @@ describe("the host process supervisor", () => {
     expect(childEnv).not.toHaveProperty("TAU_HOST_TLS");
     expect(childEnv).not.toHaveProperty("TAU_HOST_TLS_CERT");
     expect(childEnv).not.toHaveProperty("TAU_HOST_TLS_KEY");
+    // Network access is the host's own setting (Settings → Connections), not the window's environment.
+    expect(childEnv).not.toHaveProperty("TAU_HOST_PROXY_LISTEN");
   }, 30_000);
 
   it("adopts a host that is already running instead of starting a second one", async () => {

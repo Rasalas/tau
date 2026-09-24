@@ -158,7 +158,7 @@ export function createKeybindingsHostExtension(): HostExtension {
       context.registerCommand("pi-keybindings", async (): Promise<PiKeybindingsState> => ({
         bindings: await readUserKeybindings(agentDir()),
         path: displayPath(join(agentDir(), "keybindings.json")),
-      }));
+      }), { access: "read" });
       // Said at once, so every window rebinds even where the watcher is off.
       const edited = () => context.emit("changed", { paths: [join(agentDir(), "keybindings.json")] });
       context.registerCommand("set-chords", async (input) => {
@@ -174,7 +174,7 @@ export function createKeybindingsHostExtension(): HostExtension {
         const thread = context.services.thread(optionalString(input, "sessionId"));
         if (!thread) return { shortcuts: [] };
         return { sessionId: thread.sessionId, shortcuts: thread.shortcuts(await readPiUserKeybindings(agentDir())) };
-      });
+      }, { access: "read" });
       context.registerCommand("run-shortcut", async (input) => {
         const keys = optionalString(input, "keys");
         if (!keys) throw new Error('Keybindings command needs "keys".');

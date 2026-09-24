@@ -185,6 +185,8 @@ export class HostUplink {
       this.options.onCall?.(frame.call);
       return;
     }
+    // Pairing has its own client (`host-pairing.ts`); a connected uplink never asked.
+    if (frame.type === "pair-reply") return;
     if (frame.type === "pong") return;
     const id = frame.type === "response" ? frame.response.id : frame.id;
     const request = this.pending.get(id);

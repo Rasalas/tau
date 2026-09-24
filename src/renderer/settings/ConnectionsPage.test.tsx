@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiConnections, UiCreatedPairingLink } from "../../shared/connections";
+import { DEFAULT_NETWORK_SETTINGS, type UiConnections, type UiCreatedPairingLink, type UiNetworkAccess } from "../../shared/connections";
 import type { HostClient } from "../../workbench/host-client";
 import { HostClientProvider } from "../host-client-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
@@ -23,7 +23,9 @@ function connections(overrides: Partial<UiConnections> = {}): UiConnections {
     clients: [{
       id: "c1", label: "Kitchen iPad", device: { kind: "tablet", browser: "Safari", os: "iPadOS" },
       pairedAt: soon(-3_600_000), lastAddress: "192.0.2.7", connections: 1, current: false,
+      access: "full", idleTimeoutDays: 90, expiresAt: soon(90 * 86_400_000),
     }],
+    requests: [],
     owners: [{ id: "o1", profile: "desktop", device: { kind: "desktop", browser: "Tau window", os: "macOS" }, address: "127.0.0.1", since: soon(-60_000), current: true }],
     ...overrides,
   };
@@ -51,7 +53,7 @@ describe("Settings → Connections", () => {
 
   it("shows a new link once, without a QR code for loopback, and copies it", async () => {
     const created: UiCreatedPairingLink = {
-      link: { id: "l1", label: "Laptop", createdAt: soon(0), expiresAt: soon(10 * 60_000) },
+      link: { id: "l1", label: "Laptop", access: "full", createdAt: soon(0), expiresAt: soon(10 * 60_000) },
       code: "abc",
       urls: [{ url: "http://127.0.0.1:4100/#pair=abc", label: "This machine", reachability: "loopback" }],
     };
@@ -61,8 +63,9 @@ describe("Settings → Connections", () => {
     renderPage({ listConnections: async () => listed, createPairingLink, copyText });
     fireEvent.click(await screen.findByRole("button", { name: /Create link/u }));
     fireEvent.change(screen.getByPlaceholderText("e.g. Kitchen iPad"), { target: { value: "Laptop" } });
+    fireEvent.click(screen.getByRole("button", { name: "Read only" }));
     fireEvent.click(screen.getByRole("button", { name: "Create Link" }));
-    await waitFor(() => expect(createPairingLink).toHaveBeenCalledWith({ label: "Laptop", lifetimeMs: 600_000 }));
+    await waitFor(() => expect(createPairingLink).toHaveBeenCalledWith({ label: "Laptop", lifetimeMs: 600_000, access: "read-only" }));
     expect(await screen.findByText("Laptop is ready")).toBeTruthy();
     expect(screen.getByText(/No QR code for a loopback address/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
@@ -80,12 +83,151 @@ describe("Settings → Connections", () => {
 
   it("tells a paired client that the owner manages connections", async () => {
     renderPage({ listConnections: async () => { throw Object.assign(new Error("no"), { code: "forbidden" }); } });
-    expect(await screen.findByText("Only the host’s owner manages connections")).toBeTruthy();
+    expect(await screen.findByText("Connections are managed on the host’s machine")).toBeTruthy();
   });
 
-  it("offers no link where no web client is served", async () => {
+  it("still offers a link where no web client is served: the app pairs over the socket", async () => {
     renderPage({ listConnections: async () => connections({ webClient: false }) });
-    expect((await screen.findByRole("button", { name: /Create link/u }) as HTMLButtonElement).disabled).toBe(true);
+    expect((await screen.findByRole("button", { name: /Create link/u }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows a device waiting with its code and lets it in with the access picked", async () => {
+    const request = {
+      id: "r1", name: "Alex’s iPhone", device: { kind: "phone" as const, browser: "Safari", os: "iOS" }, address: "192.0.2.9",
+      verification: "482913", access: "full" as const, createdAt: soon(0), expiresAt: soon(120_000),
+    };
+    const approvePairing = vi.fn(async () => ({ approved: true }));
+    const { notify } = renderPage({ listConnections: async () => connections({ requests: [request] }), approvePairing });
+    expect(await screen.findByText("482 913")).toBeTruthy();
+    expect(screen.getByText(/without a pairing link/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Allow…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Alex’s iPhone wants to connect" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Read only" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(approvePairing).toHaveBeenCalledWith("r1", { access: "read-only" }));
+    expect(notify).toHaveBeenCalledWith("Alex’s iPhone can connect now");
+  });
+
+  it("denies a waiting device from its row", async () => {
+    const request = { id: "r1", device: { kind: "desktop" as const, browser: "Firefox", os: "Linux" }, link: { label: "Laptop" }, verification: "000001", access: "read-only" as const, createdAt: soon(0), expiresAt: soon(120_000) };
+    const denyPairing = vi.fn(async () => ({ denied: true }));
+    renderPage({ listConnections: async () => connections({ requests: [request] }), denyPairing });
+    fireEvent.click(await screen.findByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(denyPairing).toHaveBeenCalledWith("r1"));
+  });
+
+  it("renames a device, narrows its access and changes when it is signed out", async () => {
+    const updateClient = vi.fn(async () => ({ updated: true }));
+    renderPage({ listConnections: async () => connections(), updateClient });
+    fireEvent.click(await screen.findByRole("button", { name: "Settings for Kitchen iPad" }));
+    const dialog = await screen.findByRole("dialog", { name: "Settings for Kitchen iPad" });
+    fireEvent.change(within(dialog).getByDisplayValue("Kitchen iPad"), { target: { value: "Hall iPad" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Read only" }));
+    fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "never" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateClient).toHaveBeenCalledWith("c1", { label: "Hall iPad", access: "read-only", idleTimeoutDays: null }));
+  });
+
+  it("shows the last change, and warns a week before an unused device is signed out", async () => {
+    const idle = {
+      id: "c2", label: "Old phone", device: { kind: "phone" as const }, pairedAt: soon(-100 * 86_400_000), connections: 0, current: false,
+      access: "read-only" as const, idleTimeoutDays: 90 as const, expiresAt: soon(3 * 86_400_000), lastSeenAt: soon(-87 * 86_400_000),
+      lastAction: { action: "prompt", at: soon(-87 * 86_400_000) },
+    };
+    renderPage({ listConnections: async () => connections({ clients: [idle] }) });
+    expect(await screen.findByText(/Signed out in 3 days unless it connects/u)).toBeTruthy();
+    expect(screen.getByText(/last change prompt 87 days ago/u)).toBeTruthy();
+    expect(screen.getByText("Read only")).toBeTruthy();
+  });
+
+  it("signs out every other device only after asking", async () => {
+    const revokeOtherClients = vi.fn(async () => ({ revoked: 1 }));
+    const { notify } = renderPage({ listConnections: async () => connections(), revokeOtherClients });
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke others" }));
+    expect(revokeOtherClients).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke Others" }));
+    await waitFor(() => expect(revokeOtherClients).toHaveBeenCalledOnce());
+    expect(notify).toHaveBeenCalledWith("1 device signed out");
+  });
+});
+
+describe("Settings → Connections → Network access", () => {
+  const off: UiNetworkAccess = { settings: DEFAULT_NETWORK_SETTINGS, listeners: [], problems: [], tailscaleUp: true };
+
+  it("is not offered by a host that opens no listeners of its own", async () => {
+    renderPage({ listConnections: async () => connections() });
+    await screen.findByText("Kitchen iPad");
+    expect(screen.queryByText("Network access")).toBeNull();
+  });
+
+  it("turns the local network on only after asking, and lists what the host is reachable at", async () => {
+    let network = off;
+    let endpoints = connections().endpoints;
+    const setNetworkAccess = vi.fn(async (input: { lan?: boolean }) => {
+      network = { ...network, settings: { ...network.settings, lan: input.lan ?? false }, listeners: [{ host: "::", port: 7788, kind: "network" }],
+        certificate: { source: "self-signed", fingerprint: "AB:CD", validTo: "2028-12-01T00:00:00.000Z", certPath: "/u/tls/host-cert.pem", warnings: [] } };
+      endpoints = [{ url: "https://192.168.1.20:7788/", label: "LAN (en0)", reachability: "network", kind: "lan" }, ...endpoints];
+      return network;
+    });
+    const { notify } = renderPage({ listConnections: async () => connections({ network, endpoints }), setNetworkAccess });
+    expect(await screen.findByText("Only this machine can connect.")).toBeTruthy();
+    expect(screen.getByText("Tailscale runs on this machine. Turn this on to let your tailnet’s devices connect.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Local network" }));
+    expect(setNetworkAccess).not.toHaveBeenCalled();
+    expect(screen.getByText("Let devices on your network connect?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Turn On" }));
+    await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ lan: true }));
+    expect(notify).toHaveBeenCalledWith("Local network on");
+    expect(await screen.findByText("https://192.168.1.20:7788/")).toBeTruthy();
+    expect(screen.getByText("LAN (en0)")).toBeTruthy();
+    expect(screen.getByText("AB:CD")).toBeTruthy();
+    expect(screen.getByText(/Devices on the same network reach Tau over HTTPS on port 7788\./u)).toBeTruthy();
+  });
+
+  it("shows why a listener did not open and the proxy port Tailscale serve forwards to", async () => {
+    const network: UiNetworkAccess = {
+      ...off,
+      settings: { ...DEFAULT_NETWORK_SETTINGS, tailscale: true },
+      listeners: [{ host: "127.0.0.1", port: 7789, kind: "proxy" }],
+      problems: ["The listener on 100.96.0.12, port 7788, did not open: another program uses port 7788."],
+    };
+    renderPage({ listConnections: async () => connections({ network }) });
+    expect(await screen.findByText(/another program uses port 7788/u)).toBeTruthy();
+    expect(screen.getByText("http://127.0.0.1:7789")).toBeTruthy();
+  });
+
+  it("changes the port only to one in range that is not the proxy's", async () => {
+    const setNetworkAccess = vi.fn(async () => off);
+    renderPage({ listConnections: async () => connections({ network: off }), setNetworkAccess });
+    const port = await screen.findByRole("textbox", { name: "Port" });
+    const apply = screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    for (const refused of ["80", "7789"]) {
+      fireEvent.change(port, { target: { value: refused } });
+      expect(apply.disabled).toBe(true);
+    }
+    fireEvent.change(port, { target: { value: "8443" } });
+    fireEvent.click(apply);
+    await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ port: 8443 }));
+  });
+
+  it("takes a certificate of the user's own, keeps the dialog open when it does not load, and reloads it", async () => {
+    const setNetworkAccess = vi.fn(async () => { throw new Error("/c.pem holds no PEM certificate"); });
+    const reloadCertificate = vi.fn(async () => ({ changed: true }));
+    const network: UiNetworkAccess = { ...off, certificate: { source: "self-signed", fingerprint: "AB:CD", validTo: "2028-12-01T00:00:00.000Z", certPath: "/u/tls/host-cert.pem", warnings: [] } };
+    const { notify } = renderPage({ listConnections: async () => connections({ network }), setNetworkAccess, reloadCertificate });
+    fireEvent.click(await screen.findByRole("button", { name: "Use Own…" }));
+    fireEvent.change(screen.getByPlaceholderText("/path/to/machine.crt"), { target: { value: "/c.pem" } });
+    fireEvent.change(screen.getByPlaceholderText("/path/to/machine.key"), { target: { value: "/k.pem" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use Certificate" }));
+    await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ certificate: { certPath: "/c.pem", keyPath: "/k.pem" } }));
+    expect(notify).toHaveBeenCalledWith("/c.pem holds no PEM certificate");
+    expect(screen.getByText("Use your own certificate")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("Tau now serves the renewed certificate"));
   });
 });
 

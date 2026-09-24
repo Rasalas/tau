@@ -499,8 +499,8 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         } catch (error) {
           return { ...report, message: error instanceof Error ? error.message : String(error) };
         }
-      });
-      context.registerCommand("instances", () => instancesReport());
+      }, { access: "read" });
+      context.registerCommand("instances", () => instancesReport(), { access: "read" });
       // Adds or edits an instance from the Providers page; its backend is registered anew.
       context.registerCommand("save-instance", async (input) => {
         const requested = (input as { instance?: unknown } | undefined)?.instance as RuntimeInstanceConfig | undefined;
@@ -557,7 +557,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             ...(entry.usageTurns ? { turns: entry.usageTurns } : {}),
           };
         }),
-      }), { callers: [USAGE_KIT_ID] });
+      }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
       context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
       // The account's quota windows, for the Usage kit: read at most every few minutes, fresher when a turn reported them.
@@ -570,7 +570,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           await Promise.race([readLimits(id), new Promise<void>((resolve) => setTimeout(resolve, 20_000).unref?.())]);
         }));
         return { accounts: ids.map(limitAccount) };
-      }, { long: true, callers: [USAGE_KIT_ID] });
+      }, { access: "read", long: true, callers: [USAGE_KIT_ID] });
       // Sessions the default instance's CLI ran on its own, for Onboarding to list and import as threads.
       context.registerCommand("import-scan", async () => {
         const held = await store.codexThreadIds();

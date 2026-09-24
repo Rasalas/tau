@@ -73,7 +73,7 @@ export function registerWorktreeStorage(
     },
   });
 
-  context.registerCommand("storage-report", (input) => storage.report({ sizes: fields(input).sizes !== false }), { long: true });
+  context.registerCommand("storage-report", (input) => storage.report({ sizes: fields(input).sizes !== false }), { access: "read", long: true });
   context.registerCommand("cleanup-policy", (input) => input === undefined ? storage.getPolicy() : storage.setPolicy(input));
   context.registerCommand("cleanup-run", async (input) => {
     const paths = fields(input).paths;

@@ -109,11 +109,17 @@ function defaults(): HostClient {
     reconnectNow: () => undefined,
     getVersions: () => ({}),
     onVersions: () => () => undefined,
-    listConnections: async () => ({ scheme: "ws", endpoints: [], webClient: false, tokenPath: "", links: [], clients: [], owners: [] }),
+    listConnections: async () => ({ scheme: "ws", endpoints: [], webClient: false, tokenPath: "", links: [], requests: [], clients: [], owners: [] }),
     createPairingLink: async () => { throw Object.assign(new Error("No pairing in tests."), { code: "unsupported" }); },
     revokePairingLink: async () => ({ revoked: false }),
     revokeClient: async () => ({ revoked: false }),
+    revokeOtherClients: async () => ({ revoked: 0 }),
+    updateClient: async () => ({ updated: false }),
+    approvePairing: async () => ({ approved: false }),
+    denyPairing: async () => ({ denied: false }),
     rotateHostToken: async () => undefined,
+    setNetworkAccess: async () => { throw Object.assign(new Error("No network access in tests."), { code: "unsupported" }); },
+    reloadCertificate: async () => ({ changed: false }),
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),

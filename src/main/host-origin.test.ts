@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostAllowedOrigins, originAllowed } from "./host-origin.js";
+import { forwardedHost, hostAllowedOrigins, originAllowed } from "./host-origin.js";
 
 describe("socket origin check", () => {
   it("lets a client without an Origin header through: it is not a browser page", () => {
@@ -30,6 +30,14 @@ describe("socket origin check", () => {
     expect(originAllowed({ origin: "capacitor://localhost", host: "10.0.0.2:7788" }, allowed)).toBe(true);
     expect(originAllowed({ origin: "http://localhost:5173", host: "127.0.0.1:7788" }, allowed)).toBe(true);
     expect(originAllowed({ origin: "capacitor://elsewhere", host: "10.0.0.2:7788" }, allowed)).toBe(false);
+  });
+
+  it("accepts the host a proxy was reached at, as the proxy forwarded it", () => {
+    expect(originAllowed({ origin: "https://mac.tailnet.ts.net", host: "127.0.0.1:7789", forwardedHost: "mac.tailnet.ts.net" })).toBe(true);
+    expect(originAllowed({ origin: "https://mac.tailnet.ts.net:8443", host: "127.0.0.1:7789", forwardedHost: "Mac.tailnet.ts.net:8443" })).toBe(true);
+    expect(originAllowed({ origin: "https://evil.example", host: "127.0.0.1:7789", forwardedHost: "mac.tailnet.ts.net" })).toBe(false);
+    expect(forwardedHost("evil.example, mac.tailnet.ts.net")).toBe("mac.tailnet.ts.net");
+    expect(forwardedHost(undefined)).toBeUndefined();
   });
 
   it("reads the allowed origins from the environment, the dev server's included", () => {

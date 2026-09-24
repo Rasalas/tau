@@ -30,7 +30,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
       // Tau's own tools reach other runtimes over MCP; the same decision gates them there.
       const releaseMcpGate = services.mcp.gate((call) => gateToolCall(levelFor(call.threadId), call.toolName, call.input, call.confirm, onBlocked));
       services.setPermissionLevel(() => level);
-      context.registerCommand("level", () => level);
+      context.registerCommand("level", () => level, { access: "read" });
       context.registerCommand("set-level", (input) => {
         const requested = input && typeof input === "object" ? (input as { level?: unknown }).level : undefined;
         if (!isAccessLevel(requested)) throw new Error("Access level must be read-only, ask or full.");

@@ -314,8 +314,8 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
         } catch (error) {
           return { ...report, message: errorText(error) };
         }
-      });
-      context.registerCommand("instances", () => instancesReport());
+      }, { access: "read" });
+      context.registerCommand("instances", () => instancesReport(), { access: "read" });
       context.registerCommand("save-instance", async (input) => {
         const requested = (input as { instance?: unknown } | undefined)?.instance as RuntimeInstanceConfig | undefined;
         if (!requested || typeof requested.id !== "string") throw new HostCommandError("Name the instance to save.");
@@ -368,7 +368,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
             ...(entry.usageTurns ? { turns: entry.usageTurns.map((turn) => ({ ...turn })) } : {}),
           };
         }),
-      }), { callers: [USAGE_KIT_ID] });
+      }), { access: "read", callers: [USAGE_KIT_ID] });
       // The plan window of each signed-in instance; it reads the account and changes nothing.
       context.registerCommand("usage-limits", async (input) => {
         const refresh = Boolean(input && typeof input === "object" && (input as { refresh?: unknown }).refresh);
@@ -382,7 +382,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           return { id: `grok:${id}`, runtime: settings.kind(id), label: settings.label(id), checkedAt: at, windows: "windows" in value ? value.windows : [], ...("unavailable" in value ? { unavailable: value.unavailable } : {}) };
         }));
         return { accounts };
-      }, { long: true, callers: [USAGE_KIT_ID] });
+      }, { access: "read", long: true, callers: [USAGE_KIT_ID] });
       context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
 
       for (const instance of settings.list()) register(instance.id);

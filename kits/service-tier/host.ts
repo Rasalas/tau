@@ -31,7 +31,7 @@ export function createServiceTierHostExtension(): HostExtension {
           services.log("service-tier.applied", `priority · ${scope.slice(0, 8)}${scope.slice(36)}`);
         },
       }));
-      context.registerCommand("state", () => state());
+      context.registerCommand("state", () => state(), { access: "read" });
       context.registerCommand("set-tier", (input) => {
         const requested = input && typeof input === "object" ? (input as { tier?: unknown }).tier : undefined;
         if (!isServiceTier(requested)) throw new Error("Service tier must be standard or fast.");

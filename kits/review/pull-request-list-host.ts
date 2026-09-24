@@ -64,7 +64,7 @@ export function registerPullRequestListCommands(
     const fields = record(input);
     const project = typeof fields.workspace === "string" && fields.workspace ? fields.workspace : undefined;
     return list(await projectRepository(workspace, sources, project), question(fields));
-  }, { long: true });
+  }, { access: "read", long: true });
 
   /**
    * The page across projects: every named project's repository once, however
@@ -102,5 +102,5 @@ export function registerPullRequestListCommands(
     await Promise.all(Array.from({ length: PARALLEL_LISTS }, worker));
     lists.sort((left, right) => `${left.host}/${left.repo}`.localeCompare(`${right.host}/${right.repo}`));
     return { lists, failures };
-  }, { long: true });
+  }, { access: "read", long: true });
 }
