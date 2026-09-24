@@ -60,6 +60,7 @@ import type { ChipLayerApi } from "./ComposerChipLayer";
 import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls } from "./ComposerFooterControls";
 import { composerEnter, sendHint } from "./composer-send-keys";
+import { primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
@@ -714,7 +715,9 @@ export function Composer({
 
   const prefSnapshot = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
   const isVimEnabled = Boolean(prefSnapshot.vimMode);
-  const sendShortcut = prefSnapshot.sendShortcut ?? "enter";
+  // On-screen keyboards have one return key and no ⇧: it writes a newline, the button sends.
+  const [touchKeyboard] = useState(primaryPointerIsTouch);
+  const sendShortcut = touchKeyboard ? "mod-enter" : prefSnapshot.sendShortcut ?? "enter";
   const streamingBase = registry?.streamingDelivery() ?? "followUp";
   const inlineKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const { key, shiftKey, altKey, metaKey, ctrlKey, currentTarget } = event;
@@ -942,7 +945,7 @@ export function Composer({
                 ? text.trimStart().startsWith("!!")
                   ? "Silent shell mode — runs command without LLM context"
                   : "Shell mode — runs command and shares output with agent"
-                : sendHint(sendShortcut, streaming, streamingBase)
+                : sendHint(sendShortcut, streaming, streamingBase, touchKeyboard)
           }
         />
         <Suspense fallback={null}>
