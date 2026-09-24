@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { PreferencesStore } from "./preferences";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { createMemoryStorage, setClientStorage, type ClientStorage } from "../workbench/client-storage";
-import { followThemePreference, nextTheme } from "./theme";
+import { applyTheme, followThemePreference, nextTheme, registerUserThemes } from "./theme";
 
 let storage: ClientStorage;
 
@@ -103,5 +103,19 @@ describe("the theme preference", () => {
     expect(document.documentElement.style.getPropertyValue("--font-size-override")).toBe("14px");
 
     stop();
+  });
+
+  it("gives the browser's bar the chosen theme's colour and the system's back for system", () => {
+    document.head.innerHTML = '<meta name="theme-color" content="#fff" data-scheme="light" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#000" data-scheme="dark" media="(prefers-color-scheme: dark)">';
+    const media = () => [...document.head.querySelectorAll("meta")].map((meta) => meta.media);
+    applyTheme("light");
+    expect(media()).toEqual(["all", "not all"]);
+    registerUserThemes([{ id: "night", name: "Night", css: "", base: "dark" }]);
+    applyTheme("night");
+    expect(media()).toEqual(["not all", "all"]);
+    applyTheme("system");
+    expect(media()).toEqual(["(prefers-color-scheme: light)", "(prefers-color-scheme: dark)"]);
+    registerUserThemes([]);
+    document.head.innerHTML = "";
   });
 });

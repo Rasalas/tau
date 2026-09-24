@@ -9,6 +9,7 @@ import { setHostClient } from "../renderer/host-client-context";
 import { createFakeHostClient, type FakeHostClient } from "../renderer/test-support/fake-host-client";
 import { createRendererServices } from "../renderer/renderer-services";
 import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
+import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { WebWorkbench, webClientEnvironment } from "./WebWorkbench";
 
 /** A phone-sized viewport, which is what makes the layout compact. */
@@ -79,6 +80,21 @@ describe("the web client at 400 px", () => {
     renderCompactClient();
     await waitFor(() => expect(document.body.dataset.profile).toBe("compact"));
     expect(document.body.dataset.client).toBe("compact");
+  });
+
+  it("follows the theme the user picks, from the stored one on, and hands the rest back to the system", async () => {
+    const storage = createMemoryStorage();
+    storage.set(STORAGE_KEYS.preferences, JSON.stringify({ theme: "light" }));
+    setClientStorage(storage);
+    const client = createFakeHostClient({ bootstrap: bootstrapWith(THREADS) });
+    setHostClient(client);
+    const services = createRendererServices();
+    render(<WebWorkbench client={client} storage={storage} services={services} environment={webClientEnvironment("compact")} />);
+    expect(document.documentElement.dataset.theme).toBe("light");
+    act(() => services.preferences.setTheme("dark"));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    act(() => services.preferences.setTheme("system"));
+    expect(document.documentElement.dataset.theme).toBe("system");
   });
 
   it("opens on the threads it is supervising, worst first", async () => {
