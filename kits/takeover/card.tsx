@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Hand, KeyRound, X } from "lucide-react";
+import { AppWindow, Hand, KeyRound, X } from "lucide-react";
 import { errorMessage, tooltipProps, useHostCapabilities, type HostExtensionClient, type RegionProps, type WorkbenchActions } from "tau";
 import { PREVIEW_PANEL, webUrl, type Takeover } from "./protocol.js";
 import { services, takeovers, workbench } from "./store.js";
@@ -12,14 +12,33 @@ export interface TakeoverHosts {
 }
 
 /**
+ * Programs that report the runtime they run in as their app: every Electron
+ * app is "Electron", a Swing tool "java", a script "Python" or "node".
+ */
+const GENERIC_RUNTIMES = /^(?:electron(?: helper)?|java|javaw|jre|python(?:\d+(?:\.\d+)*)?w?|python launcher|node|nodejs|deno|bun|ruby|perl|php|mono|dotnet|wine(?:64)?|tclsh|wish)$/iu;
+
+export function isGenericRuntime(app: string | undefined): boolean {
+  return Boolean(app && GENERIC_RUNTIMES.test(app.trim()));
+}
+
+/** The jump button's tooltip for a driven window: the app's name, or the window's title where the app is only a runtime. */
+export function windowTooltip(driven: { app?: string; title?: string } | undefined): string {
+  const app = driven?.app?.trim();
+  const title = driven?.title?.trim();
+  if (app && !isGenericRuntime(app)) return `Show ${app}`;
+  return title ? `Show “${title}”` : "Show the window the agent drives";
+}
+
+/**
  * The label of the one button that brings the target forward; none when there
  * is nothing to show. Away from the host's machine the Preview opens here
- * instead, where the user takes over by tapping and typing.
+ * instead, where the user takes over by tapping and typing. A window's app is
+ * the button's icon and tooltip, never its text.
  */
-export function jumpLabel(takeover: Takeover, app?: string, remote = false): string | undefined {
+export function jumpLabel(takeover: Takeover, remote = false): string | undefined {
   switch (takeover.target.kind) {
     case "preview": return remote ? "Take over here" : "Show the page";
-    case "window": return remote ? "Take over here" : app ? `Show ${app}` : "Show the app";
+    case "window": return remote ? "Take over here" : "Show window";
     case "browser": return "Open in browser";
     default: return undefined;
   }
@@ -179,15 +198,21 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
   const [passwords, setPasswords] = useState(false);
   const [busy, setBusy] = useState(false);
   const [driven, setDriven] = useState<{ app?: string; title?: string }>();
+  const [appIcon, setAppIcon] = useState<string | null>(null);
   useEffect(() => {
     if (takeover.target.kind !== "window" || !screen) return;
     let live = true;
-    void screen.load(takeover.threadId).then((state) => { if (live) setDriven(state?.window); }, () => undefined);
+    void screen.load(takeover.threadId).then((state) => {
+      if (!live) return;
+      setDriven(state?.window);
+      // A runtime's icon (Electron's, Java's) would name the wrong app.
+      if (!isGenericRuntime(state?.window?.app)) void screen.icon?.(takeover.threadId).then((url) => { if (live) setAppIcon(url); }, () => undefined);
+    }, () => undefined);
     return () => { live = false; };
   }, [screen, takeover]);
-  const label = jumpLabel(takeover, driven?.app, remote);
+  const label = jumpLabel(takeover, remote);
   const showsFrame = remote && (takeover.target.kind === "preview" || takeover.target.kind === "window");
-  const where = takeover.target.kind === "browser" ? takeover.target.url : driven?.title;
+  const where = takeover.target.kind === "browser" ? takeover.target.url : takeover.target.kind === "window" ? windowTooltip(driven) : undefined;
   const passwordsApply = takeover.target.kind === "preview";
   const finish = (command: "done" | "cancel") => {
     setBusy(true);
@@ -219,6 +244,9 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
           ) : null}
           {label ? (
             <button type="button" className="takeover-button" onClick={jump} {...(where ? tooltipProps(where, takeover.target.kind === "browser" ? { variant: "code" } : {}) : {})}>
+              {takeover.target.kind === "window"
+                ? appIcon ? <img className="takeover-app-icon" src={appIcon} alt="" draggable={false} /> : <AppWindow size={14} aria-hidden="true" />
+                : null}
               {label}
             </button>
           ) : null}

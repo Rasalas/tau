@@ -114,6 +114,8 @@ export const COMPUTER_USE_SCREEN_SERVICE = "tau.computer-use/screen";
 export interface ComputerUseScreenService {
   load(threadId: string): Promise<{ window?: { app?: string; title?: string } } | undefined>;
   bringToFront(threadId: string): Promise<void>;
+  /** The driven app's icon as a data URL, where the host's window can draw one. */
+  icon?(threadId: string): Promise<string | null>;
 }
 
 /** Workspace Kit's store, the part this kit uses: a mark on the rail's rows. */

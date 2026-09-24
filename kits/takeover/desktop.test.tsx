@@ -5,6 +5,7 @@ import type { HostSnapshot, WorkbenchActions } from "tau";
 import { HostClientProvider, createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import takeoverKit from "./desktop.js";
+import { isGenericRuntime, jumpLabel, windowTooltip } from "./card.js";
 import {
   COMPUTER_USE_SCREEN_SERVICE,
   PREVIEW_BROWSER_SERVICE,
@@ -40,7 +41,7 @@ function setup(initial: Takeover[] = [], platform: Record<string, unknown> = {},
   const { registry } = createKitHarness(invoke, undefined, platform);
   const preview = { open: vi.fn(async () => undefined), jump: vi.fn(async () => undefined), ...previewExtras } satisfies PreviewBrowserService;
   const cookies = { importSite: vi.fn<PreviewCookieImportService["importSite"]>(async () => ({ imported: 2, skipped: 0, skippedSites: [], profile: "default", reloaded: true })) };
-  const screen = { load: async () => ({ window: { app: "TextEdit" } }), bringToFront: vi.fn(async () => undefined) } satisfies ComputerUseScreenService;
+  const screen = { load: async () => ({ window: { app: "TextEdit" } }), bringToFront: vi.fn(async () => undefined), icon: vi.fn(async () => "data:image/png;base64,SUNPTg==") } satisfies ComputerUseScreenService;
   let rowMark: ((props: { session: { id: string } }) => unknown) | undefined;
   registry.activate({
     id: "test.services",
@@ -159,13 +160,27 @@ describe("Takeover card", () => {
     const { card, publish, preview, actions } = setup();
     const view = card();
     publish([takeover({ kind: "window" })]);
-    fireEvent.click(await waitFor(() => view.getByRole("button", { name: "Show TextEdit" })));
+    // The app is the button's icon and tooltip; the text says what happens.
+    const show = await waitFor(() => view.getByRole("button", { name: "Show window" }));
+    await waitFor(() => expect(show.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,SUNPTg=="));
+    fireEvent.click(show);
     await waitFor(() => expect(preview.jump).toHaveBeenCalledWith({ kind: "app", threadId: "s1" }, actions));
 
     publish([takeover({ kind: "browser", url: "https://example.test/device" })]);
     expect(view.queryByRole("button", { name: "Your passwords" })).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "Open in browser" }));
     expect(actions.openExternal).toHaveBeenCalledWith("https://example.test/device");
+  });
+
+  it("names a window by its title, not by the runtime it runs in", () => {
+    expect(windowTooltip({ app: "TextEdit", title: "notes.txt" })).toBe("Show TextEdit");
+    for (const runtime of ["Electron", "java", "Python", "python3.12", "node", "Electron Helper"]) {
+      expect(isGenericRuntime(runtime)).toBe(true);
+      expect(windowTooltip({ app: runtime, title: "F13 test window" })).toBe("Show “F13 test window”");
+    }
+    expect(windowTooltip({ app: "Electron" })).toBe("Show the window the agent drives");
+    expect(isGenericRuntime("Visual Studio Code")).toBe(false);
+    expect(jumpLabel(takeover({ kind: "window" }))).toBe("Show window");
   });
 
   it("offers the ways to a password only on a click, and imports only the page's site", async () => {

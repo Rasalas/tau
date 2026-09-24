@@ -13,6 +13,7 @@
 .takeover-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 4px; }
 
 .takeover-button {
+  display: inline-flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 12px; border: 1px solid var(--line-control); border-radius: var(--radius-pill);
   background: var(--raised); color: var(--ink); font: 500 12px var(--sans); cursor: pointer; white-space: nowrap;
 }
@@ -44,3 +45,4 @@
 .takeover-note { margin: 0; color: var(--muted); font: 12px var(--sans); }
 body[data-profile="compact"] .takeover-button { min-height: 44px; }
 body[data-profile="compact"] .takeover-icon-button { width: 44px; height: 44px; }
+.takeover-app-icon { width: 16px; height: 16px; flex: none; }
