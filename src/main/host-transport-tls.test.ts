@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket, type ClientOptions } from "ws";
 import { HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostServerFrame } from "../shared/host-transport.js";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
-import { certificateFingerprint } from "./host-tls.js";
+import { certificateFingerprint, publicKeyPin } from "./host-tls.js";
 import {
   CERTIFICATE_ACCEPT,
   CERTIFICATE_DEFAULT,
@@ -222,14 +222,14 @@ describe("trusting a remote host", () => {
     return new KnownHosts(join(directory, "known-hosts.json"));
   };
   const presented = (overrides: Partial<PresentedCertificate> = {}): PresentedCertificate => ({
-    fingerprint: FINGERPRINT, authorized: false, subject: "CN=Tau host", validTo: "", ...overrides,
+    fingerprint: FINGERPRINT, publicKey: publicKeyPin(tls.cert), authorized: false, subject: "CN=Tau host", validTo: "", ...overrides,
   });
   const neverAsked = async () => { throw new Error("the user should not have been asked"); };
 
   it("reads the certificate a host presents without saying anything", async () => {
     const { url } = await listenTls();
     const certificate = await probeHostCertificate(url);
-    expect(certificate).toMatchObject({ fingerprint: FINGERPRINT, authorized: false, subject: "CN=Tau host" });
+    expect(certificate).toMatchObject({ fingerprint: FINGERPRINT, publicKey: publicKeyPin(tls.cert), authorized: false, subject: "CN=Tau host" });
   });
 
   it("treats ws: as plaintext and asks nobody", async () => {

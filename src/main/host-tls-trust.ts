@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import { connect as tlsConnect, type ConnectionOptions, type TLSSocket } from "node:tls";
-import { fingerprintsMatch, normalizeFingerprint } from "./host-tls.js";
+import type { X509Certificate } from "node:crypto";
+import { fingerprintsMatch, normalizeFingerprint, publicKeyPin } from "./host-tls.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
 /**
@@ -31,21 +32,59 @@ function bareHost(host: string): string {
   return host.replace(/^\[|\]$/gu, "").toLowerCase();
 }
 
+/**
+ * What a client accepts from one address. `publicKey` pins the key (SPKI
+ * SHA-256) and survives the host renewing its certificate; `fingerprint`
+ * pins one certificate, as clients did before key pins. With neither the
+ * address needs a certificate a CA the machine trusts vouches for.
+ */
+export interface HostPin {
+  publicKey?: string;
+  fingerprint?: string;
+}
+
+/** A certificate as a pin compares it. */
+export interface PresentedIdentity {
+  fingerprint: string;
+  publicKey: string;
+}
+
+export function presentedIdentity(certificate: X509Certificate): PresentedIdentity {
+  return { fingerprint: certificate.fingerprint256, publicKey: publicKeyPin(certificate) };
+}
+
+/** A key pin decides when there is one; a certificate pin only without it. */
+export function pinAccepts(pin: HostPin, presented: PresentedIdentity): boolean {
+  if (pin.publicKey) return fingerprintsMatch(presented.publicKey, pin.publicKey);
+  return pin.fingerprint !== undefined && fingerprintsMatch(presented.fingerprint, pin.fingerprint);
+}
+
+export function isPinned(pin: HostPin | undefined): pin is HostPin {
+  return Boolean(pin?.publicKey || pin?.fingerprint);
+}
+
 /** A pinned host presented another certificate. Never retried: a reconnect would meet the same one. */
 export class HostCertificateRefusedError extends Error {
-  constructor(readonly presented: string, readonly expected: string) {
-    super(`The host presented a certificate with SHA-256 fingerprint ${presented}, not the pinned ${expected}.`);
+  constructor(readonly presented: string, readonly expected: string, readonly kind: "certificate" | "key" = "certificate") {
+    super(kind === "key"
+      ? `The host presented a certificate whose key has SHA-256 ${presented}, not the pinned ${expected}.`
+      : `The host presented a certificate with SHA-256 fingerprint ${presented}, not the pinned ${expected}.`);
     this.name = "HostCertificateRefusedError";
   }
 }
 
 /**
- * A `createConnection` for `ws` that accepts exactly one certificate. The chain
- * is not checked — a self-signed host has none — but the fingerprint is, and a
- * mismatch destroys the socket before the WebSocket opens, so no hello and no
- * token ever reach it.
+ * A `createConnection` for `ws` that accepts exactly one key (or, for an old
+ * pin, one certificate). The chain is not checked — a self-signed host has
+ * none — but the pin is, and a mismatch destroys the socket before the
+ * WebSocket opens, so no hello and no token ever reach it. `onPresented`
+ * hears what an accepted connection showed.
  */
-export function pinnedTlsConnect(expected: string): (options: ConnectionOptions & { path?: string }) => TLSSocket {
+export function pinnedTlsConnect(
+  expected: string | HostPin,
+  onPresented?: (presented: PresentedIdentity) => void,
+): (options: ConnectionOptions & { path?: string }) => TLSSocket {
+  const pin: HostPin = typeof expected === "string" ? { fingerprint: expected } : expected;
   return (options) => {
     const host = options.host ?? "";
     const socket = tlsConnect({
@@ -57,16 +96,49 @@ export function pinnedTlsConnect(expected: string): (options: ConnectionOptions 
       rejectUnauthorized: false,
     } as ConnectionOptions);
     socket.once("secureConnect", () => {
-      const presented = socket.getPeerX509Certificate()?.fingerprint256 ?? "(none)";
-      if (!fingerprintsMatch(presented, expected)) socket.destroy(new HostCertificateRefusedError(presented, normalizeFingerprint(expected) ?? expected));
+      const certificate = socket.getPeerX509Certificate();
+      const presented = certificate ? presentedIdentity(certificate) : undefined;
+      if (presented && pinAccepts(pin, presented)) {
+        onPresented?.(presented);
+        return;
+      }
+      socket.destroy(pin.publicKey
+        ? new HostCertificateRefusedError(presented?.publicKey ?? "(none)", normalizeFingerprint(pin.publicKey) ?? pin.publicKey, "key")
+        : new HostCertificateRefusedError(presented?.fingerprint ?? "(none)", normalizeFingerprint(pin.fingerprint ?? "") ?? pin.fingerprint ?? "", "certificate"));
     });
     return socket;
   };
 }
 
+/**
+ * A `createConnection` for an address whose certificate a CA vouches for
+ * (Tailscale Serve): the chain and the name are checked, nothing is pinned.
+ * `ca` replaces the machine's authorities; tests pass their own.
+ */
+export function authorityTlsConnect(ca?: string | string[]): (options: ConnectionOptions & { path?: string }) => TLSSocket {
+  return (options) => {
+    const host = options.host ?? "";
+    return tlsConnect({
+      ...options,
+      path: undefined,
+      servername: options.servername ?? (isIP(host) ? "" : host),
+      minVersion: "TLSv1.2",
+      rejectUnauthorized: true,
+      ...(ca ? { ca } : {}),
+    } as ConnectionOptions);
+  };
+}
+
+/** The connection factory one address needs: pinned, or verified by a CA. */
+export function hostTlsConnect(pin: HostPin | undefined, onPresented?: (presented: PresentedIdentity) => void): (options: ConnectionOptions & { path?: string }) => TLSSocket {
+  return isPinned(pin) ? pinnedTlsConnect(pin, onPresented) : authorityTlsConnect();
+}
+
 /** What a host shows before anything is sent: enough to ask the user about it. */
 export interface PresentedCertificate {
   fingerprint: string;
+  /** SHA-256 of its public key, the pin a client keeps. */
+  publicKey: string;
   /** Valid for this name under a CA the machine trusts. */
   authorized: boolean;
   authorizationError?: string;
@@ -87,7 +159,7 @@ export function probeHostCertificate(url: string, timeoutMs = 5_000): Promise<Pr
       socket.end();
       if (!certificate) { reject(new Error(`${hostname}:${port} presented no certificate.`)); return; }
       resolve({
-        fingerprint: certificate.fingerprint256,
+        ...presentedIdentity(certificate),
         authorized: socket.authorized,
         ...(authorizationError ? { authorizationError } : {}),
         subject: certificate.subject,
