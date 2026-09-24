@@ -17,13 +17,15 @@ export function pairingTextProblem(text: string): string | undefined {
  * link. Either way the host's owner then allows the phone after comparing
  * the digits.
  */
-export function AddHostScreen({ error, onBack, onScan, onSubmit }: {
+export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmit }: {
   error?: string;
+  /** What was pasted before a failed attempt; a failure never throws the link away. */
+  initialText?: string;
   onBack(): void;
   onScan(): void;
-  onSubmit(payload: PairingPayload): void;
+  onSubmit(payload: PairingPayload, text: string): void;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const problem = pairingTextProblem(text);
   const payload = text.trim() && !problem ? parsePairingPayload(text) : undefined;
   return <main className="shell-screen" aria-labelledby="add-title">
@@ -35,7 +37,7 @@ export function AddHostScreen({ error, onBack, onScan, onSubmit }: {
       <p>On the computer running Tau, open Settings → Connections and create a pairing link. Scan its code, or paste the link here.</p>
       {error ? <p className="shell-notice" role="alert">{error}</p> : null}
       <button type="button" className="shell-primary" onClick={onScan}><QrCode size={20} />Scan QR code</button>
-      <form onSubmit={(event) => { event.preventDefault(); if (payload) onSubmit(payload); }}>
+      <form onSubmit={(event) => { event.preventDefault(); if (payload) onSubmit(payload, text); }}>
         <label className="shell-field">
           <span>Pairing link</span>
           <textarea

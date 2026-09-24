@@ -42,8 +42,8 @@ export interface AppContext {
 type View =
   | { name: "loading" }
   | { name: "hosts"; notice?: string }
-  | { name: "add"; error?: string }
-  | { name: "pairing"; hostName: string; verification?: string; address?: string; abort: AbortController; from: "hosts" | "add" }
+  | { name: "add"; error?: string; text?: string }
+  | { name: "pairing"; hostName: string; verification?: string; address?: string; abort: AbortController; from: "hosts" | "add"; text?: string }
   | { name: "workbench"; host: SavedHost; client: HostClient; storage: ClientStorage; services: RendererServices };
 
 /** A notice that must survive the reload a workbench leaves with. */
@@ -91,6 +91,8 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   const [nearby, setNearby] = useState<NearbyState>({ state: "searching", hosts: [] });
   const viewRef = useRef(view);
   viewRef.current = view;
+  /** The pairing attempt on screen; set at once, since a refused address can fail before the next render. */
+  const pairingRef = useRef<AbortController>(undefined);
   const now = () => context.now?.() ?? new Date();
 
   const refresh = useCallback(async () => {
@@ -137,9 +139,10 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     setView({ name: "workbench", host, client, storage: scoped, services: createRendererServices() });
   }, [book, context, device, leaveTo, storage]);
 
-  const startPairing = useCallback((target: PairTarget, from: "hosts" | "add") => {
+  const startPairing = useCallback((target: PairTarget, from: "hosts" | "add", text?: string) => {
     const abort = new AbortController();
-    setView({ name: "pairing", hostName: target.name, abort, from });
+    pairingRef.current = abort;
+    setView({ name: "pairing", hostName: target.name, abort, from, ...(text ? { text } : {}) });
     const update = (change: Partial<Extract<View, { name: "pairing" }>>) =>
       setView((current) => current.name === "pairing" && current.abort === abort ? { ...current, ...change } : current);
     void pairDevice(target, {
@@ -150,16 +153,17 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       signal: abort.signal,
       onAddress: (candidate) => update({ address: ADDRESS_LABEL[candidate.kind ?? ""] ?? new URL(candidate.url).hostname }),
       onWaiting: ({ verification }) => update({ verification }),
-    }).then(async (outcome) => {
+    }).catch((error: unknown) => ({ state: "failed" as const, message: error instanceof Error ? error.message : String(error) })).then(async (outcome) => {
+      if (pairingRef.current !== abort) return;
+      pairingRef.current = undefined;
       if (outcome.state === "approved") {
         await book.save(outcome.host, outcome.token);
         openWorkbench(outcome.host, outcome.token);
         return;
       }
-      if (viewRef.current.name !== "pairing" || viewRef.current.abort !== abort) return;
       const message = abort.signal.aborted ? undefined : outcome.state === "failed" ? outcome.message : pairingNotice(outcome);
       await refresh();
-      setView(from === "add" ? { name: "add", ...(message ? { error: message } : {}) } : { name: "hosts", ...(message ? { notice: message } : {}) });
+      setView(from === "add" ? { name: "add", ...(message ? { error: message } : {}), ...(text ? { text } : {}) } : { name: "hosts", ...(message ? { notice: message } : {}) });
     });
   }, [book, context.bridge, device, openWorkbench, refresh]);
 
@@ -245,13 +249,14 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       hostName={view.hostName}
       {...(view.verification ? { verification: view.verification } : {})}
       {...(view.address ? { address: view.address } : {})}
-      onCancel={() => { view.abort.abort(); setView(view.from === "add" ? { name: "add" } : { name: "hosts" }); }}
+      onCancel={() => { view.abort.abort(); pairingRef.current = undefined; setView(view.from === "add" ? { name: "add", ...(view.text ? { text: view.text } : {}) } : { name: "hosts" }); }}
     />;
     case "add": return <AddHostScreen
       {...(view.error ? { error: view.error } : {})}
+      {...(view.text ? { initialText: view.text } : {})}
       onBack={() => setView({ name: "hosts" })}
       onScan={() => void scan("add")}
-      onSubmit={(payload) => startPairing(payloadTarget(payload), "add")}
+      onSubmit={(payload, text) => startPairing(payloadTarget(payload), "add", text)}
     />;
     case "hosts": {
       const seen = new Set(nearby.state === "searching" ? nearby.hosts.map((host) => host.hostId) : []);
