@@ -1,4 +1,4 @@
-import { errorMessage, type WorkbenchActions } from "tau";
+import { errorMessage, hostIsReadOnly, type WorkbenchActions } from "tau";
 import {
   addGroup, detachPane, focusedPane, focusNext, groupOf, isStaged, moveToStage, paneIds, replacePane, returnFromStage, splitAt,
   type SplitDirection, type TerminalGroup,
@@ -50,10 +50,18 @@ function placeFor(actions: TerminalRunActions | undefined, beside?: UiTerminalSe
  * (the shell with the keyboard by default) when a split asked for it, in the
  * panel or on the stage; the keyboard goes to it.
  */
+/** What a Read-only device is told when a chord or another kit asks for a shell. */
+export const TERMINAL_READ_ONLY = "This device is paired Read only: it can watch shells, not open, type in or close them.";
+
+function refuseReadOnly(): void {
+  if (hostIsReadOnly()) throw new Error(TERMINAL_READ_ONLY);
+}
+
 export async function openTerminal(
   actions: WorkbenchActions | undefined,
   options: { target?: string; direction?: SplitDirection } = {},
 ): Promise<UiTerminalSession> {
+  refuseReadOnly();
   const beside = options.direction ? session(options.target ?? targetShell()) : undefined;
   const release = terminalStore.hold();
   try {
@@ -100,6 +108,7 @@ export function shellEnded(id: string): Promise<number | undefined> {
  * status is the command's and the output stays to read.
  */
 export async function runInTerminal(actions: TerminalRunActions | undefined, request: TerminalRunRequest): Promise<TerminalRunResult> {
+  refuseReadOnly();
   const release = terminalStore.hold();
   let opened: UiTerminalSession;
   try {
@@ -119,6 +128,7 @@ export async function runInTerminal(actions: TerminalRunActions | undefined, req
 
 /** A fresh shell where an ended one was: same pane, in the panel or in its stage tab. */
 export async function restartTerminal(id: string): Promise<UiTerminalSession> {
+  refuseReadOnly();
   const release = terminalStore.hold();
   try {
     const restarted = await terminalKit.restart({ id });
@@ -144,6 +154,7 @@ export async function confirmClose(ids: readonly string[], confirm: (message: st
 
 /** Ends shells, asking first when a program in one of them would be interrupted. */
 export async function closeTerminals(ids: readonly string[], confirm?: (message: string) => boolean): Promise<boolean> {
+  refuseReadOnly();
   if (ids.length === 0 || !(await confirmClose(ids, confirm))) return false;
   const before = groupOf(terminalStore.getSnapshot().layout, ids[0]!);
   for (const id of ids) {
@@ -225,7 +236,8 @@ export async function toggleTerminal(actions: WorkbenchActions): Promise<void> {
   }
   actions.openPanel(TERMINAL_PANEL);
   if (inPanel) terminalStore.requestFocus(inPanel);
-  else await openTerminal(actions);
+  // A Read-only device opens the panel to watch; it says why it has no shell to offer.
+  else if (!hostIsReadOnly()) await openTerminal(actions);
 }
 
 /** Hands selected output to the composer as an excerpt chip, naming the shell and where it started. */

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode, type SyntheticEvent } from "react";
 import { AArrowDown, AArrowUp, ClipboardPaste, Ellipsis, Keyboard, KeyboardOff, Plus, RotateCcw, Terminal as TerminalIcon, X } from "lucide-react";
 import type { Terminal } from "@xterm/xterm";
-import { Empty, errorMessage, getClientStorage, Popover, tooltipProps, type PanelProps } from "tau";
+import { Empty, errorMessage, getClientStorage, Popover, tooltipProps, useHostCapabilities, type PanelProps } from "tau";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { focusedPane, focusPane, isStaged, paneIds, type TerminalLayout } from "./layout.js";
-import { closeTerminals, openTerminal, restartTerminal } from "./controller.js";
+import { closeTerminals, openTerminal, restartTerminal, TERMINAL_READ_ONLY } from "./controller.js";
 import { PLACE_LABEL, placeOf, shellDirectory } from "./panes.js";
 import { TerminalView, type TerminalTouchBinding } from "./view.js";
 import {
@@ -146,6 +146,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
   const [menu, setMenu] = useState(false);
   const [pasting, setPasting] = useState(false);
   const [typing, setTyping] = useState(false);
+  const { readOnly } = useHostCapabilities();
   const keyboardUp = useKeyboardUp();
   const [armed, setArmed] = useState<ReadonlySet<TouchModifier>>(new Set());
   const [fontSize, setFontSize] = useCompactFontSize();
@@ -309,7 +310,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
           </button>;
         })}
       </div>
-      <IconButton label="New terminal" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={20} /></IconButton>
+      {readOnly ? null : <IconButton label="New terminal" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={20} /></IconButton>}
       <button
         ref={more}
         type="button"
@@ -328,7 +329,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
         <output aria-live="polite">{fontSize} px</output>
         <IconButton label="Larger text" disabled={fontSize >= MAX_COMPACT_FONT_SIZE} onClick={() => setFontSize(stepCompactFontSize(fontSize, 1))}><AArrowUp size={20} /></IconButton>
       </div>
-      {shown ? <button
+      {shown && !readOnly ? <button
         type="button"
         className="terminal-compact-menu-item destructive"
         disabled={busy}
@@ -336,9 +337,10 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
       ><X size={18} aria-hidden="true" />Close {names.get(shown.id)}</button> : null}
     </Popover> : null}
     {error ? <p role="alert" className="terminal-error">{error}</p> : null}
+    {readOnly ? <p className="terminal-note" role="note">{TERMINAL_READ_ONLY}</p> : null}
     {shown && exited ? <p className="terminal-compact-exit" role="status">
       <span>The shell exited with {shown.exitCode}.</span>
-      <button type="button" className="terminal-compact-button" disabled={busy} onClick={() => run(() => restartTerminal(shown.id))}><RotateCcw size={16} aria-hidden="true" />Restart</button>
+      {readOnly ? null : <button type="button" className="terminal-compact-button" disabled={busy} onClick={() => run(() => restartTerminal(shown.id))}><RotateCcw size={16} aria-hidden="true" />Restart</button>}
     </p> : null}
     <div
       className="terminal-compact-surface"
@@ -348,12 +350,12 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
     >
       {shown
         ? <TerminalView key={shown.id} session={shown} place={isStaged(layout, shown.id) ? "stage" : "panel"} fontSize={fontSize} touch={binding} />
-        : <Empty icon={<TerminalIcon size={20} />} title="No terminal open" description="Open a shell to run commands in this workspace.">
-          <button type="button" className="terminal-compact-button" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={16} aria-hidden="true" />New terminal</button>
+        : <Empty icon={<TerminalIcon size={20} />} title="No terminal open" description={readOnly ? "No shell is open on the host." : "Open a shell to run commands in this workspace."}>
+          {readOnly ? null : <button type="button" className="terminal-compact-button" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={16} aria-hidden="true" />New terminal</button>}
         </Empty>}
     </div>
     {pasting ? <PasteField onPaste={(text) => { setPasting(false); terminal.current?.paste(text); }} onCancel={() => setPasting(false)} /> : null}
-    {shown ? bar : null}
+    {shown && !readOnly ? bar : null}
   </section>;
 }
 

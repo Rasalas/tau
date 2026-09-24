@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent } from "react";
 import { FolderOpen } from "lucide-react";
-import type { WorkbenchActions } from "tau";
+import { useHostCapabilities, type WorkbenchActions } from "tau";
 import { TerminalView } from "./view.js";
 import { terminalServices, terminalStore } from "./store.js";
 import { moveDivider, paneIds, resizeGroupSplit, splitShares, type PaneNode, type TerminalGroup } from "./layout.js";
@@ -88,13 +88,14 @@ function Pane({ session, split, group, place, actions, run, activeSessionId }: O
   const exited = session.exitCode !== undefined;
   const directory = shellDirectory(session);
   const workspace = terminalServices.workspace;
+  const { readOnly } = useHostCapabilities();
   return <section className="terminal-pane" aria-label={session.label}>
     <header className="terminal-pane-header">
       <span className="terminal-pane-title" title={directory ?? session.label}>{split ? session.label : directory ?? session.label}</span>
       {where === "elsewhere" && <span className="terminal-tab-place">{PLACE_LABEL[where]}</span>}
       {exited && <>
         <span className="terminal-pane-exit">shell exited with {session.exitCode}</span>
-        <button type="button" className="text-button" onClick={() => run(() => restartTerminal(session.id))}>Restart shell</button>
+        {readOnly ? null : <button type="button" className="text-button" onClick={() => run(() => restartTerminal(session.id))}>Restart shell</button>}
       </>}
       <span className="terminal-pane-actions">
         {workspace ? <OpenFolderButton session={session} workspace={workspace} /> : null}
@@ -105,7 +106,7 @@ function Pane({ session, split, group, place, actions, run, activeSessionId }: O
           title="Move this shell to the stage; it keeps running"
           onClick={() => run(() => moveTerminalToStage(actions, session.id))}
         >↗</button> : null}
-        <button type="button" className="text-button" aria-label={`Close ${session.label}`} title={place === "panel" ? "Close this shell (⌘W)" : "Close this shell"} onClick={() => run(() => closeTerminals([session.id]))}>×</button>
+        {readOnly ? null : <button type="button" className="text-button" aria-label={`Close ${session.label}`} title={place === "panel" ? "Close this shell (⌘W)" : "Close this shell"} onClick={() => run(() => closeTerminals([session.id]))}>×</button>}
       </span>
     </header>
     <TerminalView session={session} place={place} focused={split && group.focused === session.id} />

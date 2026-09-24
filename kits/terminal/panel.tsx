@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Columns2, Plus, Rows2 } from "lucide-react";
-import { errorMessage, type PanelProps } from "tau";
+import { errorMessage, useHostCapabilities, type PanelProps } from "tau";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { focusedPane, paneIds } from "./layout.js";
-import { closeTerminals, groupPanes, openTerminal, syncStageTabs } from "./controller.js";
+import { closeTerminals, groupPanes, openTerminal, syncStageTabs, TERMINAL_READ_ONLY } from "./controller.js";
 import { groupLabel, PaneTree, PLACE_LABEL, placeOf, type Run } from "./panes.js";
 
 export { placeOf, type TerminalPlace } from "./panes.js";
@@ -15,6 +15,7 @@ export function TerminalPanel({ actions, active }: PanelProps) {
   const activeSessionId = actions.activeThread()?.sessionId ?? switched;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const { readOnly } = useHostCapabilities();
 
   useEffect(() => { terminalServices.actions = actions; }, [actions]);
   useEffect(() => {
@@ -38,12 +39,13 @@ export function TerminalPanel({ actions, active }: PanelProps) {
   return <section className="panel-body terminal-panel">
     <header className="panel-header">
       <h2>Terminal</h2>
-      <span className="terminal-panel-actions">
+      {readOnly ? null : <span className="terminal-panel-actions">
         <button className="icon-button" aria-label="New terminal" title="New terminal (⌘N in a terminal)" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={14} /></button>
         <button className="icon-button" aria-label="Split right" title="Split right (⌘D in a terminal)" disabled={busy || !target} onClick={() => run(() => openTerminal(actions, { direction: "right", ...(target ? { target } : {}) }))}><Columns2 size={14} /></button>
         <button className="icon-button" aria-label="Split down" title="Split down (⌘⇧D in a terminal)" disabled={busy || !target} onClick={() => run(() => openTerminal(actions, { direction: "down", ...(target ? { target } : {}) }))}><Rows2 size={14} /></button>
-      </span>
+      </span>}
     </header>
+    {readOnly && <p className="terminal-note" role="note">{TERMINAL_READ_ONLY}</p>}
     {running > 0 && <p className="terminal-note" role="status">{running === 1 ? "A shell is still running in another thread." : `${running} shells are still running in other threads.`}</p>}
     <div className="terminal-tabs" role="tablist" aria-label="Terminals">
       {layout.groups.map((group) => {
@@ -70,7 +72,7 @@ export function TerminalPanel({ actions, active }: PanelProps) {
             {place !== "thread" && <span className="terminal-tab-place">{PLACE_LABEL[place]}</span>}
             {exited && <span className="terminal-tab-place">exited</span>}
           </button>
-          <button type="button" className="text-button" aria-label={`Close tab ${label}`} onClick={() => run(() => closeTerminals(groupPanes(group.id)))}>×</button>
+          {readOnly ? null : <button type="button" className="text-button" aria-label={`Close tab ${label}`} onClick={() => run(() => closeTerminals(groupPanes(group.id)))}>×</button>}
         </div>;
       })}
     </div>
@@ -79,7 +81,7 @@ export function TerminalPanel({ actions, active }: PanelProps) {
     <div className="terminal-surface">
       {current
         ? <PaneTree group={current} sessions={sessions} place="panel" actions={actions} run={run} activeSessionId={activeSessionId} />
-        : <p className="empty-copy">{onStage > 0 ? "Every shell is on the stage." : "Open a terminal to run commands in this workspace."}</p>}
+        : <p className="empty-copy">{onStage > 0 ? "Every shell is on the stage." : readOnly ? "No shell is open." : "Open a terminal to run commands in this workspace."}</p>}
     </div>
   </section>;
 }
