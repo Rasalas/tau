@@ -7,6 +7,8 @@ import { placeFloating, viewportSize, type FloatingSide } from "./floating";
 export const TOOLTIP_DELAY_MS = 600;
 /** A tooltip closed less than this long ago lets the next one open at once, so a row of icons reads like one. */
 export const TOOLTIP_GROUP_MS = 400;
+/** A finger that rests this long on a trigger shows its tooltip: a touch screen has no hover. */
+export const TOOLTIP_LONG_PRESS_MS = 450;
 
 export interface TooltipOptions {
   side?: FloatingSide | undefined;
@@ -74,6 +76,7 @@ const triggerOf = (node: EventTarget | null): HTMLElement | undefined =>
  * on the document, so a list of a thousand rows costs no component per row.
  * Opens after a rest, at once while another one was just open, on keyboard
  * focus without a wait, and closes on Escape, a press, a scroll or leaving.
+ * On a touch screen a long press shows it, and the press does not also click.
  */
 export function TooltipLayer() {
   const [shown, setShown] = useState<Shown>();
@@ -127,6 +130,34 @@ export function TooltipLayer() {
       schedule(target, 0);
     };
     const onDown = (event: Event) => { pressed = triggerOf(event.target); hide(); };
+    let longPress: { timer: number; x: number; y: number } | undefined;
+    // The trigger a long press labelled: the click its finger lifts into is swallowed.
+    let labelled: HTMLElement | undefined;
+    const endPress = () => { if (longPress) window.clearTimeout(longPress.timer); longPress = undefined; };
+    const onTouchDown = (event: PointerEvent) => {
+      endPress();
+      labelled = undefined;
+      const target = event.pointerType === "touch" ? triggerOf(event.target) : undefined;
+      if (!target) return;
+      longPress = {
+        x: event.clientX,
+        y: event.clientY,
+        timer: window.setTimeout(() => {
+          longPress = undefined;
+          const next = read(target);
+          if (next && target.isConnected) { set(next); labelled = target; }
+        }, TOOLTIP_LONG_PRESS_MS),
+      };
+    };
+    const onTouchMove = (event: PointerEvent) => {
+      if (longPress && Math.hypot(event.clientX - longPress.x, event.clientY - longPress.y) > 8) endPress();
+    };
+    const onClick = (event: MouseEvent) => {
+      if (!labelled || !(event.target instanceof Node) || !labelled.contains(event.target)) return;
+      labelled = undefined;
+      event.preventDefault();
+      event.stopPropagation();
+    };
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && shownRef.current) hide(); };
     // Only a scroll that moves the trigger; a transcript following its stream leaves the rail's tooltip alone.
     const onScroll = (event: Event) => {
@@ -139,11 +170,22 @@ export function TooltipLayer() {
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", hide);
     document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("pointerdown", onTouchDown, true);
+    document.addEventListener("pointermove", onTouchMove, true);
+    document.addEventListener("pointerup", endPress, true);
+    document.addEventListener("pointercancel", endPress, true);
+    document.addEventListener("click", onClick, true);
     document.addEventListener("keydown", onKey, true);
     document.addEventListener("scroll", onScroll, true);
     window.addEventListener("blur", hide);
     return () => {
       cancel();
+      endPress();
+      document.removeEventListener("pointerdown", onTouchDown, true);
+      document.removeEventListener("pointermove", onTouchMove, true);
+      document.removeEventListener("pointerup", endPress, true);
+      document.removeEventListener("pointercancel", endPress, true);
+      document.removeEventListener("click", onClick, true);
       document.removeEventListener("pointerover", onOver);
       document.removeEventListener("pointerout", onOut);
       document.removeEventListener("focusin", onFocusIn);
