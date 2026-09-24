@@ -418,6 +418,12 @@
 .pairing-qr > rect { fill: var(--qr-paper); }
 .pairing-qr > path { fill: var(--qr-ink); }
 .pairing-qr.pending { background: var(--well); }
+.host-service-status { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.host-service-summary { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); }
+.host-service-status small { font-size: 11px; color: var(--faint); overflow-wrap: anywhere; }
+.host-service-status small code, .host-service-problem code { font: 11px var(--mono); color: var(--muted); }
+.host-service-problem { display: flex; flex-direction: column; gap: 3px; margin: 0; color: var(--warn); line-height: 1.45; }
+.host-service-actions { display: flex; gap: 6px; }
 .connection-field { display: flex; flex-direction: column; gap: 5px; font: 500 12px var(--sans); color: var(--ink-2); }
 .connection-field > .settings-input, .connection-field > .settings-select { width: 100%; }
 .network-problems { margin: 0; padding: var(--space-5) var(--space-6); list-style: none; display: flex; flex-direction: column; gap: 4px; background: color-mix(in srgb, var(--warn) 9%, transparent); border-bottom: 1px solid var(--line-card); font-size: 12px; line-height: 1.45; color: var(--ink-2); }

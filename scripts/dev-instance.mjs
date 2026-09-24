@@ -271,6 +271,10 @@ async function main() {
     TAU_IMPORT_ROOTS: importRoots,
     // An update toast clicked in a test instance must never update the machine's real CLIs.
     TAU_RUNTIME_UPDATE_COMMAND: process.env.TAU_RUNTIME_UPDATE_COMMAND ?? JSON.stringify({ "*": "echo 'Tau test instance: this update was not run.'" }),
+    // Installing the host "as a service" in an instance writes its unit here and runs the fake
+    // service manager: never a real LaunchAgent, systemd unit or scheduled task.
+    TAU_SERVICE_UNIT_DIR: join(DEV_DIR, "service-units"),
+    TAU_SERVICE_CONTROL: join(ROOT, "scripts", "fake-service-manager.mjs"),
     ...(options.safe ? { TAU_NO_EXTENSIONS: "1" } : {}),
     ...(sessionsDir ? { PI_CODING_AGENT_SESSION_DIR: sessionsDir } : {}),
     ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),

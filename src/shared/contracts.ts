@@ -903,6 +903,8 @@ export interface TauConfig {
   prewarm?: boolean;
   /** Leave the host process running after the app quits, so its threads keep going. */
   hostBackground?: boolean;
+  /** Hold the host's machine awake while any thread runs a turn. */
+  hostKeepAwake?: boolean;
   options?: Record<string, boolean>;
   values?: Record<string, string>;
   keybindings?: Record<string, string>;

@@ -95,6 +95,10 @@ export const HOST_METHOD_ACCESS = {
   "connections-set-network": "owner",
   "connections-reload-certificate": "owner",
   "host.shutdown": "owner",
+  // The host's machine running it as a service: whether it does is anyone's to see, changing it the owner's.
+  "service-status": "read",
+  "service-install": "owner",
+  "service-uninstall": "owner",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
   // The job's own method is checked when it starts.
