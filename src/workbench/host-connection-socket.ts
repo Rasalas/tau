@@ -25,6 +25,21 @@ export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const HEARTBEAT_TIMEOUT_MS = 10_000;
 /** Shorter after a wake: the user is looking, and a dead link should be replaced quickly. */
 export const WAKE_PROBE_TIMEOUT_MS = 3_000;
+/** `WebSocket.OPEN`, without reading a browser global. */
+const SOCKET_OPEN = 1;
+
+/**
+ * What the transport uses of a browser `WebSocket`. A native shell passes a
+ * socket of its own that pins the host's certificate, which a web view cannot.
+ */
+export interface HostSocket {
+  readonly readyState: number;
+  onopen: (() => void) | null;
+  onclose: ((event?: { code?: number; reason?: string }) => void) | null;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  send(data: string): void;
+  close(): void;
+}
 
 export interface SocketTransportOptions {
   /**
@@ -39,6 +54,8 @@ export interface SocketTransportOptions {
   onTokenChanged?(token: string): void;
   /** When the socket may have died silently. Without one, only heartbeats notice. */
   wakes?: HostWakeSource;
+  /** Opens each socket; the browser's `WebSocket` without one. Called again for every reconnect. */
+  createSocket?(url: string): HostSocket;
 }
 
 interface Pending {
@@ -72,7 +89,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
   const closeListeners = new Set<() => void>();
   const linkListeners = new Set<(link: HostLink) => void>();
   const outbox: Array<{ text: string; hello: boolean }> = [];
-  let socket: WebSocket | undefined;
+  let socket: HostSocket | undefined;
   let counter = 0;
   let everOpened = false;
   let closed = false;
@@ -106,7 +123,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
   };
 
   const write = (text: string, hello: boolean): void => {
-    if (socket?.readyState === WebSocket.OPEN) {
+    if (socket?.readyState === SOCKET_OPEN) {
       socket.send(text);
       if (hello) armHello();
       return;
@@ -196,10 +213,10 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     if (closed) return;
     clearTimeout(retryTimer);
     retryTimer = undefined;
-    const current = new WebSocket(url);
+    const current: HostSocket = options?.createSocket?.(url) ?? (new WebSocket(url) as unknown as HostSocket);
     socket = current;
     setLink({ phase: "connecting" });
-    connectTimer = setTimeout(() => { if (socket === current && current.readyState !== WebSocket.OPEN) abandon(); }, SOCKET_CONNECT_TIMEOUT_MS);
+    connectTimer = setTimeout(() => { if (socket === current && current.readyState !== SOCKET_OPEN) abandon(); }, SOCKET_CONNECT_TIMEOUT_MS);
     current.onopen = () => {
       clearTimeout(connectTimer);
       delayMs = RECONNECT_MIN_MS;
@@ -216,9 +233,9 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       everOpened = true;
     };
     current.onclose = (event?: { code?: number; reason?: string }) => lost(event?.code, event?.reason);
-    current.onmessage = (event: MessageEvent<string>) => {
+    current.onmessage = (event) => {
       received += 1;
-      receive(event.data);
+      receive(String(event.data));
     };
   };
 
@@ -297,7 +314,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       return;
     }
     // A handshake begun on the network the device just left will not finish.
-    if (socket.readyState !== WebSocket.OPEN && kind !== "foreground") {
+    if (socket.readyState !== SOCKET_OPEN && kind !== "foreground") {
       abandon();
       clearTimeout(retryTimer);
       retryTimer = undefined;
