@@ -27,7 +27,9 @@ function methods() {
 const audit = vi.fn();
 const readOnly: HostInvocationPrincipal = { kind: "workbench-client", connection: "c1", pairedClient: "p1", readOnly: true, audit };
 const full: HostInvocationPrincipal = { kind: "workbench-client", connection: "c2", pairedClient: "p2", audit };
-const owner: HostInvocationPrincipal = { kind: "workbench-client", connection: "c3" };
+const owner: HostInvocationPrincipal = { kind: "workbench-client", connection: "c3", local: true };
+// The host token through a LAN or proxy listener: it uses the host but manages nothing.
+const remoteOwner: HostInvocationPrincipal = { kind: "workbench-client", connection: "c4" };
 
 describe("the access every host method needs", () => {
   it("is declared for every method the host has, and nothing else", () => {
@@ -66,6 +68,12 @@ describe("the access every host method needs", () => {
     audit.mockClear();
     expect(() => authorizeMethod(full, "connections-approve")).toThrow(/host token/u);
     expect(() => authorizeMethod(owner, "connections-approve")).not.toThrow();
+    for (const method of ["connections-approve", "connections-set-network", "connections-rotate-host-token", "host.shutdown"]) {
+      expect(() => authorizeMethod(remoteOwner, method), method).toThrow(/on this machine/u);
+    }
+    expect(() => authorizeMethod(remoteOwner, "prompt")).not.toThrow();
+    // The in-process window has no socket connection and is on this machine by construction.
+    expect(() => authorizeMethod({ kind: "workbench-client" }, "connections-list")).not.toThrow();
     expect(() => authorizeMethod(full, "prompt")).not.toThrow();
     expect(() => authorizeMethod(full, "bootstrap")).not.toThrow();
     expect(() => authorizeMethod(readOnly, "prompt")).toThrow(/Read only/u);

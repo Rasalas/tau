@@ -420,6 +420,11 @@
 .pairing-qr.pending { background: var(--well); }
 .connection-field { display: flex; flex-direction: column; gap: 5px; font: 500 12px var(--sans); color: var(--ink-2); }
 .connection-field > .settings-input, .connection-field > .settings-select { width: 100%; }
+.network-problems { margin: 0; padding: var(--space-5) var(--space-6); list-style: none; display: flex; flex-direction: column; gap: 4px; background: color-mix(in srgb, var(--warn) 9%, transparent); border-bottom: 1px solid var(--line-card); font-size: 12px; line-height: 1.45; color: var(--ink-2); }
+.network-port { display: flex; align-items: center; gap: 6px; }
+.network-port > .settings-input[aria-invalid="true"] { border-color: var(--danger-line); }
+.network-certificate-actions { display: flex; gap: 6px; }
+.network-warning { margin: 4px 0 0; font-size: 12px; color: var(--warn); }
 
 /* Stacked, as on a phone: the section list is one screen and a page the next (T3 Code's settings). */
 .settings-screen.stacked { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }

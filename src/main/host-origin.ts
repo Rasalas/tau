@@ -10,6 +10,8 @@ export interface SocketOrigin {
   /** The `Host` header: the name the page used to reach this listener. */
   host?: string;
   peerAddress?: string;
+  /** Behind a proxy, the host the page reached the proxy at (`X-Forwarded-Host`); only a proxy listener sets it. */
+  forwardedHost?: string;
 }
 
 /**
@@ -25,8 +27,16 @@ export function originAllowed(request: SocketOrigin, allowed: readonly string[] 
   const normalized = normalizeOrigin(origin);
   if (normalized && allowed.some((entry) => normalizeOrigin(entry) === normalized)) return true;
   if (origin === "file://") return isLoopbackPeer(request.peerAddress);
-  if (!normalized || !request.host || !/^https?:/u.test(normalized)) return false;
-  return new URL(normalized).host === request.host.trim().toLowerCase();
+  if (!normalized || !/^https?:/u.test(normalized)) return false;
+  const host = new URL(normalized).host;
+  if (request.forwardedHost && host === request.forwardedHost.trim().toLowerCase()) return true;
+  return request.host !== undefined && host === request.host.trim().toLowerCase();
+}
+
+/** The last `X-Forwarded-Host` hop, the one the proxy itself added. */
+export function forwardedHost(header: string | string[] | undefined): string | undefined {
+  const hops = (Array.isArray(header) ? header.join(",") : header ?? "").split(",").map((hop) => hop.trim()).filter(Boolean);
+  return hops.at(-1);
 }
 
 /** `TAU_HOST_ALLOWED_ORIGINS`, plus the dev server a development window loads from. */

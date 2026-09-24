@@ -6,27 +6,27 @@ import { formatVerification, pairingCommitment, pairingVerificationCode, randomP
 const fingerprint = "AB:".repeat(31) + "AB";
 
 describe("a pairing link", () => {
-  it("carries the code, the fingerprint, the host and every other address in its fragment", () => {
-    const url = pairingUrl("https://192.168.1.20:7788/", {
+  it("carries the code, the fingerprint, the host and every other address with its kind", () => {
+    const url = pairingUrl({ url: "https://192.168.1.20:7788/", kind: "lan" }, {
       code: "c0de_-x",
       fingerprint: fingerprint.toLowerCase(),
       hostId: "f".repeat(32),
       hostName: "Studio Mac",
-      endpoints: ["https://192.168.1.20:7788/", "https://100.101.102.103:7788/"],
+      endpoints: [{ url: "https://192.168.1.20:7788/", kind: "lan" }, { url: "https://100.101.102.103:7788/", kind: "tailscale" }],
     });
-    expect(url).toBe(`https://192.168.1.20:7788/#pair=c0de_-x&fp=${"AB".repeat(32)}&host=${"f".repeat(32)}&name=Studio+Mac&e=https%3A%2F%2F100.101.102.103%3A7788%2F`);
+    expect(url).toBe(`https://192.168.1.20:7788/#pair=c0de_-x&k=lan&fp=${"AB".repeat(32)}&host=${"f".repeat(32)}&name=Studio+Mac&e=tailscale%3Ahttps%3A%2F%2F100.101.102.103%3A7788%2F`);
     expect(parsePairingPayload(url)).toEqual({
       code: "c0de_-x",
       fingerprint,
       hostId: "f".repeat(32),
       hostName: "Studio Mac",
-      endpoints: ["https://192.168.1.20:7788/", "https://100.101.102.103:7788/"],
+      endpoints: [{ url: "https://192.168.1.20:7788/", kind: "lan" }, { url: "https://100.101.102.103:7788/", kind: "tailscale" }],
     });
   });
 
   it("reads the plain links of before, a bare fragment, and nothing without a code", () => {
-    expect(parsePairingPayload("http://127.0.0.1:1/#pair=abc")).toEqual({ code: "abc", endpoints: ["http://127.0.0.1:1/"] });
-    expect(parsePairingPayload("pair=abc&e=javascript:alert(1)")).toEqual({ code: "abc", endpoints: [] });
+    expect(parsePairingPayload("http://127.0.0.1:1/#pair=abc")).toEqual({ code: "abc", endpoints: [{ url: "http://127.0.0.1:1/" }] });
+    expect(parsePairingPayload("pair=abc&e=javascript:alert(1)&e=lan:javascript:x&e=bogus:https://h/")).toEqual({ code: "abc", endpoints: [{ url: "https://h/" }] });
     expect(parsePairingPayload("https://host/#fp=AB")).toBeUndefined();
   });
 

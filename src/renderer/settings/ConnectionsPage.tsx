@@ -8,6 +8,7 @@ import {
   type UiClientUpdate,
   type UiConnections,
   type UiCreatedPairingLink,
+  type UiNetworkSettingsInput,
   type UiOwnerConnection,
   type UiPairedClient,
   type UiPairingLink,
@@ -23,6 +24,7 @@ import { ACCESS_CHOICES, requestTitle } from "../pairing/pairing-format";
 import { SettingRow, SettingsSection } from "./settings-layout";
 import { LINK_LIFETIMES, describeDevice, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
 import { PairingQrCode } from "./PairingQrCode";
+import { NetworkAccessSection } from "./NetworkAccessSection";
 
 type PageState =
   | { status: "loading" }
@@ -106,6 +108,21 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
     }
   };
 
+  const changeNetwork = async (input: UiNetworkSettingsInput, done: string): Promise<boolean> => {
+    setBusy("network");
+    try {
+      await client!.setNetworkAccess(input);
+      onNotify(done);
+      return true;
+    } catch (error: unknown) {
+      onNotify(errorOf(error).message);
+      return false;
+    } finally {
+      setBusy(undefined);
+      await refresh();
+    }
+  };
+
   const copy = (text: string, what: string) => {
     void client?.copyText(text).then(() => onNotify(`${what} copied`), (error: unknown) => onNotify(errorOf(error).message));
   };
@@ -135,11 +152,13 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
         <SettingRow
           title="Address"
           description={data.endpoints.some((endpoint) => endpoint.reachability === "network")
-            ? "Other devices on these networks can open the host in a browser."
-            : "Reachable from this machine only. To pair another device, start the host with TAU_HOST_LISTEN=0.0.0.0:<port> and TAU_HOST_TLS=1."}
+            ? "Other devices on these networks can open the host in a browser. A device picks whichever it reaches."
+            : data.network
+              ? "Reachable from this machine only. Turn on Local network or Tailscale below to pair another device."
+              : "Reachable from this machine only. To pair another device, start the host with TAU_HOST_LISTEN=0.0.0.0:<port> and TAU_HOST_TLS=1."}
           status={<ul className="connection-endpoints">
             {data.endpoints.map((endpoint) => (
-              <li key={endpoint.url}><code>{endpoint.url}</code><small>{endpoint.label}</small></li>
+              <li key={endpoint.url} data-kind={endpoint.kind}><code>{endpoint.url}</code><small>{endpoint.label}</small></li>
             ))}
           </ul>}
         />
@@ -156,6 +175,18 @@ export function ConnectionsPage({ onNotify }: { onNotify(message: string): void 
           control={<button type="button" className="chrome-button" disabled={busy === "rotate"} onClick={() => setConfirmRotate(true)}>{busy === "rotate" ? "Rotating…" : "Rotate…"}</button>}
         />
       </SettingsSection>
+
+      {data.network ? (
+        <NetworkAccessSection
+          network={data.network}
+          busy={busy === "network" || busy === "reload"}
+          onChange={changeNetwork}
+          onReload={() => void act("reload", async () => {
+            const { changed } = await client!.reloadCertificate();
+            onNotify(changed ? "Tau now serves the renewed certificate" : "The certificate on disk is the one Tau serves");
+          })}
+        />
+      ) : null}
 
       <SettingsSection
         title="Authorized clients"

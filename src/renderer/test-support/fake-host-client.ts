@@ -118,6 +118,8 @@ function defaults(): HostClient {
     approvePairing: async () => ({ approved: false }),
     denyPairing: async () => ({ denied: false }),
     rotateHostToken: async () => undefined,
+    setNetworkAccess: async () => { throw Object.assign(new Error("No network access in tests."), { code: "unsupported" }); },
+    reloadCertificate: async () => ({ changed: false }),
     // Exposed only through the FakeHostClient wrapper below; kept here so
     // `emit` shares the same listener set as the default `onHostEvent`.
     __emit: (event: HostEvent) => listeners.forEach((listener) => listener(event)),

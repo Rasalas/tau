@@ -2,12 +2,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
+import { WebSocket, type ClientOptions } from "ws";
 import { pairWithHost, type PairingSocket } from "../workbench/host-pairing.js";
 import { HostAccess } from "./host-access.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostTokenFile } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createSelfSignedCertificate } from "./self-signed-certificate.js";
+import { certificateFingerprint } from "./host-tls.js";
+import { pinnedTlsConnect } from "./host-tls-trust.js";
 
 // The device's half of pairing against the host's real socket: what the browser client and the app run.
 let transport: SocketHostTransport | undefined;
@@ -19,7 +22,7 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-async function host() {
+async function host(tls?: { cert: string; key: string }) {
   const directory = mkdtempSync(join(tmpdir(), "tau-pairing-"));
   directories.push(directory);
   let onChange = () => undefined as void;
@@ -28,12 +31,12 @@ async function host() {
     storePath: join(directory, "paired-clients.json"),
     onChange: () => onChange(),
   });
-  transport = await startSocketHostTransport({ listen: "127.0.0.1:0", methods: {}, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], access });
+  transport = await startSocketHostTransport({ listen: "127.0.0.1:0", methods: {}, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], access, ...(tls ? { tls } : {}) });
   /** Resolves with the request once the owner could see it. */
   const request = () => new Promise<string>((resolve) => {
     onChange = () => { const waiting = access.overview().requests[0]; if (waiting) resolve(waiting.id); };
   });
-  return { access, url: `ws://127.0.0.1:${transport.port}`, request };
+  return { access, url: `${tls ? "wss" : "ws"}://127.0.0.1:${transport.port}`, request };
 }
 
 const socket = (url: string) => new WebSocket(url) as unknown as PairingSocket;
@@ -64,6 +67,25 @@ describe("a device pairing with a host", () => {
     expect(access.overview().requests[0]!.verification).toBe(shown[0]);
     access.denyPairing(access.overview().requests[0]!.id);
     expect(await result).toEqual({ state: "denied" });
+  });
+
+  it("binds the digits to the certificate of the TLS listener the device pinned", async () => {
+    const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
+    const fingerprint = certificateFingerprint(tls.cert);
+    const { access, url, request } = await host(tls);
+    const shown: string[] = [];
+    const asked = request();
+    const result = pairWithHost({
+      url,
+      fingerprint,
+      createSocket: (target) => new WebSocket(target, { createConnection: pinnedTlsConnect(fingerprint) as unknown as ClientOptions["createConnection"] }) as unknown as PairingSocket,
+      onWaiting: ({ verification }) => shown.push(verification),
+    });
+    const id = await asked;
+    await expect.poll(() => shown.length).toBe(1);
+    expect(access.overview().requests[0]!.verification).toBe(shown[0]);
+    await access.approvePairing(id);
+    expect(await result).toMatchObject({ state: "approved" });
   });
 
   it("gives up when the host's digits are not its own: something in between is not the host", async () => {

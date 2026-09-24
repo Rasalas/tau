@@ -4,14 +4,15 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { HOST_ERROR, HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostServerFrame } from "../shared/host-transport.js";
-import { parsePairingPayload, type UiConnections, type UiCreatedPairingLink } from "../shared/connections.js";
+import { DEFAULT_NETWORK_SETTINGS, parsePairingPayload, type UiConnections, type UiCreatedPairingLink, type UiNetworkAccess } from "../shared/connections.js";
 import { pairingCommitment, pairingVerificationCode, randomPairingNonce, type HostPairReply } from "../shared/pairing.js";
+import type { Interfaces } from "./host-endpoints.js";
 import { HostAccess, type AccessAuditEntry, type AccessPeer, type PairingChannel } from "./host-access.js";
-import { createConnectionsMethods, hostEndpoints } from "./host-connections.js";
+import { createConnectionsMethods, endpointOrigins, hostEndpoints, type HostConnectionsService } from "./host-connections.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostTokenFile, readHostToken } from "./host-token.js";
 import { HostUplink } from "./host-uplink.js";
-import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createProtocolServer, startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import type { HostMethodTable } from "./host-methods.js";
 import { invokeHostMethod } from "./host-methods.js";
 import { HOST_CORE_PRINCIPAL } from "./host-invocation.js";
@@ -376,8 +377,8 @@ interface TestClient {
   request(method: string, params?: unknown[]): Promise<{ result?: unknown; error?: { code: string; message: string } }>;
 }
 
-async function connect(port: number): Promise<TestClient> {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+async function connect(port: number, headers?: Record<string, string>): Promise<TestClient> {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`, headers ? { headers } : undefined);
   sockets.push(socket);
   const closed = new Promise<{ code: number; reason: string }>((resolve) => socket.once("close", (code, reason) => resolve({ code, reason: String(reason) })));
   await new Promise<void>((resolve, reject) => { socket.once("open", () => resolve()); socket.once("error", reject); });
@@ -530,6 +531,61 @@ describe("pairing over the socket", () => {
   });
 });
 
+describe("listeners beyond this machine", () => {
+  /** A listener a reverse proxy feeds: every peer dials from 127.0.0.1 and none of them is this machine. */
+  async function proxyListener() {
+    const server = createProtocolServer();
+    transport!.attach(server, "proxy");
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    return { server, port: typeof address === "object" && address ? address.port : 0 };
+  }
+
+  it("let the host token use the host but not manage access or stop it", async () => {
+    const { access, tokenFile } = await openAccess();
+    const port = await listen(access, { ...connectionsOf(access), "bootstrap": async () => "state", "host.shutdown": async () => "stopping" });
+    const proxy = await proxyListener();
+    try {
+      const remote = await client(proxy.port, tokenFile.current());
+      expect((await remote.request("bootstrap")).result).toBe("state");
+      for (const method of ["connections-list", "connections-approve", "connections-rotate-host-token", "connections-set-network", "host.shutdown"]) {
+        expect((await remote.request(method)).error, method).toMatchObject({ code: HOST_ERROR.forbidden });
+      }
+      const local = await client(port, tokenFile.current());
+      expect((await local.request("connections-list")).result).toMatchObject({ requests: [] });
+    } finally {
+      proxy.server.close();
+    }
+  });
+
+  it("count pairing attempts through a proxy apart and strictly, by the address it forwarded", async () => {
+    const { access, tokenFile } = await openAccess();
+    const port = await listen(access, connectionsOf(access));
+    const proxy = await proxyListener();
+    try {
+      const ask = async (target: number, forwarded?: string, request: object = { code: "invented" }) => {
+        const device = await connect(target, forwarded ? { "x-forwarded-for": forwarded } : undefined);
+        device.send({ type: "pair", id: "p", pair: request });
+        return { device, reply: (await device.next("pair-reply") as { reply: HostPairReply }).reply };
+      };
+      const replies = [];
+      for (let attempt = 0; attempt < 6; attempt += 1) replies.push((await ask(proxy.port, "100.64.0.9")).reply);
+      expect(replies.map((reply) => (reply.state === "refused" ? reply.reason : reply.state))).toEqual(["unknown-code", "unknown-code", "unknown-code", "unknown-code", "unknown-code", "rate-limited"]);
+      expect((await ask(proxy.port, "100.64.0.10")).reply).toMatchObject({ reason: "unknown-code" });
+      // This machine's own browser on the loopback listener is untouched by all of it.
+      expect((await ask(port)).reply).toMatchObject({ reason: "unknown-code" });
+
+      const { reply } = await ask(proxy.port, "100.101.102.103", { name: "Phone over the tailnet" });
+      expect(reply.state).toBe("waiting");
+      const owner = await client(port, tokenFile.current());
+      const [request] = ((await owner.request("connections-list")).result as UiConnections).requests;
+      expect(request).toMatchObject({ name: "Phone over the tailnet", address: "100.101.102.103" });
+    } finally {
+      proxy.server.close();
+    }
+  });
+});
+
 describe("a Read-only device", () => {
   it("is told so at hello, and a change of preset applies at its next call", async () => {
     const { access, tokenFile } = await openAccess();
@@ -650,11 +706,11 @@ describe("the Connections methods", () => {
     const port = await listen(access, methods);
     const owner = await client(port, tokenFile.current());
     const created = (await owner.request("connections-create-link", [{ label: "Laptop" }])).result as UiCreatedPairingLink;
-    expect(created.urls).toEqual([{ url: `http://127.0.0.1:4100/#pair=${encodeURIComponent(created.code)}`, label: "This machine", reachability: "loopback" }]);
+    expect(created.urls).toEqual([{ url: `http://127.0.0.1:4100/#pair=${encodeURIComponent(created.code)}&k=loopback`, label: "This machine", reachability: "loopback", kind: "loopback" }]);
 
     const token = await pair(access, { code: created.code });
     const phone = await client(port, token);
-    for (const method of ["connections-list", "connections-create-link", "connections-rotate-host-token", "connections-approve", "connections-update-client", "connections-revoke-others"]) {
+    for (const method of ["connections-list", "connections-create-link", "connections-rotate-host-token", "connections-set-network", "connections-reload-certificate", "connections-approve", "connections-update-client", "connections-revoke-others"]) {
       expect((await phone.request(method)).error?.code).toBe(HOST_ERROR.forbidden);
     }
     expect((await phone.request("start-job", ["connections-revoke-client", [token.split(".")[1]]])).error?.code).toBe(HOST_ERROR.forbidden);
@@ -677,13 +733,54 @@ describe("the Connections methods", () => {
       fingerprint: "AB:".repeat(31) + "AB",
       hostId: "f".repeat(32),
       hostName: "studio",
-      endpoints: ["https://192.0.2.5:4100/"],
+      endpoints: [{ url: "https://192.0.2.5:4100/", kind: "lan" }],
     });
   });
 
   it("say so on a host without a listener", async () => {
     const methods = createConnectionsMethods(() => undefined) as HostMethodTable;
     await expect(invokeHostMethod(methods, "connections-list", [], HOST_CORE_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
+  });
+
+  it("list network access with its endpoints after the host's own, and change it for the owner", async () => {
+    const { access } = await openAccess();
+    const updates: unknown[] = [];
+    let state: UiNetworkAccess = { settings: DEFAULT_NETWORK_SETTINGS, listeners: [], problems: [], tailscaleUp: false };
+    const service: HostConnectionsService = {
+      access,
+      listen: () => ({ scheme: "ws", host: "127.0.0.1", port: 4100, webClient: true }),
+      interfaces: () => ({ en0: [{ address: "192.168.1.20", family: "IPv4", internal: false }] }) as unknown as Interfaces,
+      names: async () => ({ localName: "box.local" }),
+      network: {
+        state: () => state,
+        endpoints: () => state.listeners.length ? [{ url: "https://192.168.1.20:7788/", label: "LAN (en0)", reachability: "network", kind: "lan" }] : [],
+        update: async (input) => {
+          updates.push(input);
+          state = {
+            ...state,
+            settings: { ...state.settings, ...input } as UiNetworkAccess["settings"],
+            listeners: [{ host: "::", port: 7788, kind: "network" }],
+            certificate: { source: "self-signed", fingerprint: "CD:".repeat(31) + "CD", validTo: "", certPath: "", warnings: [] },
+          };
+          return state;
+        },
+      },
+    };
+    const methods = createConnectionsMethods(() => service) as HostMethodTable;
+    const off = await invokeHostMethod(methods, "connections-list", [], HOST_CORE_PRINCIPAL) as UiConnections;
+    expect(off.endpoints.map((endpoint) => endpoint.label)).toEqual(["This machine"]);
+    expect(off.network?.settings.lan).toBe(false);
+
+    await expect(invokeHostMethod(methods, "connections-set-network", [{ port: 22 }], HOST_CORE_PRINCIPAL)).rejects.toThrow(/1024/u);
+    await invokeHostMethod(methods, "connections-set-network", [{ lan: true }], HOST_CORE_PRINCIPAL);
+    expect(updates).toEqual([{ lan: true }]);
+    const on = await invokeHostMethod(methods, "connections-list", [], HOST_CORE_PRINCIPAL) as UiConnections;
+    expect(on.endpoints.map((endpoint) => endpoint.label)).toEqual(["LAN (en0)", "This machine"]);
+    const link = await invokeHostMethod(methods, "connections-create-link", [], HOST_CORE_PRINCIPAL) as UiCreatedPairingLink;
+    // The host's own listener is plaintext loopback here; a phone meets the network listeners' certificate.
+    expect(parsePairingPayload(link.urls[0]!.url)).toMatchObject({ code: link.code, fingerprint: "CD:".repeat(31) + "CD", endpoints: [{ url: "https://192.168.1.20:7788/", kind: "lan" }] });
+    await expect(invokeHostMethod(methods, "connections-reload-certificate", [], HOST_CORE_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
+    expect(await endpointOrigins(service)).toEqual(["https://192.168.1.20:7788", "http://127.0.0.1:4100"]);
   });
 });
 
@@ -693,16 +790,16 @@ describe("host endpoints", () => {
     en0: [{ address: "192.168.1.20", family: "IPv4", internal: false }, { address: "fe80::1", family: "IPv6", internal: false }],
   } as unknown as Parameters<typeof hostEndpoints>[1];
 
-  it("name one URL per external interface of a wildcard bind, and loopback last", () => {
+  it("name one URL per usable address of a wildcard bind, and loopback last", () => {
     expect(hostEndpoints({ scheme: "wss", host: "0.0.0.0", port: 7788, webClient: true }, interfaces)).toEqual([
-      { url: "https://192.168.1.20:7788/", label: "en0", reachability: "network" },
-      { url: "https://127.0.0.1:7788/", label: "This machine", reachability: "loopback" },
+      { url: "https://192.168.1.20:7788/", label: "LAN (en0)", reachability: "network", kind: "lan", interface: "en0" },
+      { url: "https://127.0.0.1:7788/", label: "This machine", reachability: "loopback", kind: "loopback" },
     ]);
   });
 
   it("keep a loopback bind on this machine", () => {
     expect(hostEndpoints({ scheme: "ws", host: "127.0.0.1", port: 1, webClient: true }, interfaces)).toEqual([
-      { url: "http://127.0.0.1:1/", label: "This machine", reachability: "loopback" },
+      { url: "http://127.0.0.1:1/", label: "This machine", reachability: "loopback", kind: "loopback" },
     ]);
   });
 });

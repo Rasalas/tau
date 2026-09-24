@@ -7,7 +7,8 @@
 // device to reads, revokes live connections and rotates the host token (ADR 0023,
 // ADR 0024). A last run with kits sends a call into a window and checks that it
 // reaches one connection and only its answer counts, and that a Read-only device
-// runs only the kit commands that just look.
+// runs only the kit commands that just look. A proxy run checks that a peer behind
+// a reverse proxy is remote though it dials from 127.0.0.1.
 // Node 22 has WebSocket globally; the TLS run pins with `ws` and the host's
 // own pinning code, because a global WebSocket cannot pin a certificate.
 import { execFileSync, spawn } from "node:child_process";
@@ -133,7 +134,7 @@ const { parsePairingPayload } = await import(pathToFileURL(join(ROOT, "dist-elec
 const PHONE_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1";
 
 /** Starts a headless host; `tls` adds TAU_HOST_TLS=1. Resolves once it prints its socket. */
-async function startHost({ workspace, userData, tokenHome, tls, webClient, kits = false }) {
+async function startHost({ workspace, userData, tokenHome, tls, webClient, kits = false, proxy = false }) {
   const host = spawn(process.execPath, [HOST_ENTRY], {
     cwd: ROOT,
     env: {
@@ -147,6 +148,8 @@ async function startHost({ workspace, userData, tokenHome, tls, webClient, kits 
       ...(kits ? {} : { TAU_NO_EXTENSIONS: "1" }),
       TAU_WEB_CLIENT: webClient,
       ...(tls ? { TAU_HOST_TLS: "1" } : {}),
+      // A proxy listener beside the loopback one, which here may tell a peer its files are local.
+      ...(proxy ? { TAU_HOST_PROXY_LISTEN: "127.0.0.1:0", TAU_HOST_LOCAL_FILES: "1" } : {}),
       // HOME is a fresh temp dir already, so ~/.pi/agent/sessions never touches
       // the real store, but the override is pinned explicitly anyway: it is
       // the same contract dev-instance.mjs relies on, and it keeps this smoke
@@ -159,13 +162,15 @@ async function startHost({ workspace, userData, tokenHome, tls, webClient, kits 
   host.stdout.on("data", (chunk) => { output += String(chunk); });
   host.stderr.on("data", (chunk) => { output += String(chunk); });
   host.on("exit", (code) => { if (code !== 0 && code !== null && !host.stopping) fail(`the host exited with ${code}\n${output}`); });
-  const ready = tls
+  const listening = tls
     ? () => /listening on wss:\/\/\S+/u.test(output) && /tls fingerprint: SHA256 (\S+)/u.test(output)
     : () => /listening on ws:\/\/\S+/u.test(output);
+  const ready = proxy ? () => listening() && /proxy listener on http:\/\/\S+/u.test(output) : listening;
   await waitFor(ready, "the host to listen");
   return {
     url: output.match(/listening on (wss?:\/\/\S+)/u)[1],
     fingerprint: output.match(/tls fingerprint: SHA256 (\S+)/u)?.[1],
+    proxyUrl: output.match(/proxy listener on (http:\/\/\S+)/u)?.[1],
     output: () => output,
     stop: async () => {
       host.stopping = true;
@@ -318,9 +323,9 @@ function httpPost(pageUrl, path, body, ca) {
  * A device asking to pair over the socket (ADR 0024). With `fingerprint` it
  * pins the certificate and binds the digits to it, as the app does.
  */
-async function askToPair(url, { code, fingerprint, name } = {}) {
+async function askToPair(url, { code, fingerprint, name, forwardedFor } = {}) {
   const socket = new PinnedWebSocket(url, {
-    headers: { "user-agent": PHONE_AGENT },
+    headers: { "user-agent": PHONE_AGENT, ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}) },
     ...(fingerprint ? { createConnection: pinnedTlsConnect(fingerprint) } : {}),
   });
   const replies = [];
@@ -354,8 +359,8 @@ async function askToPair(url, { code, fingerprint, name } = {}) {
 }
 
 /** A device asks and the owner allows it after finding the device's digits among the requests. */
-async function pairDevice(url, owner, { code, fingerprint, name, access } = {}) {
-  const device = await askToPair(url, { code, fingerprint, name });
+async function pairDevice(url, owner, { code, fingerprint, name, access, forwardedFor } = {}) {
+  const device = await askToPair(url, { code, fingerprint, name, forwardedFor });
   const waiting = await device.next();
   if (waiting.state !== "waiting") fail(`the request was not put to the owner: ${JSON.stringify(waiting)}`);
   const { requests } = await owner.request("connections-list");
@@ -637,6 +642,85 @@ async function scenario({ tls }) {
   }
 }
 
+/**
+ * What arrives through a reverse proxy (tailscale serve) comes from 127.0.0.1,
+ * yet it is a remote device: no local files, a strict pairing limit of its
+ * own, and the address the proxy forwarded. Nothing here binds beyond loopback.
+ */
+async function proxyScenario() {
+  const workspace = await mkdtemp(join(tmpdir(), "tau-remote-smoke-"));
+  const userData = mkdtempSync(join(tmpdir(), "tau-remote-userdata-"));
+  const tokenHome = mkdtempSync(join(tmpdir(), "tau-remote-home-"));
+  const webClient = mkdtempSync(join(tmpdir(), "tau-remote-web-"));
+  writeFileSync(join(webClient, "index.html"), "<!doctype html><title>Tau</title>");
+  execFileSync("git", ["init", "-b", "main", workspace], { stdio: "ignore" });
+  let host;
+  try {
+    host = await startHost({ workspace, userData, tokenHome, tls: false, webClient, proxy: true });
+    if (!host.proxyUrl?.startsWith("http://127.0.0.1:")) fail(`the proxy listener is not on loopback: ${host.proxyUrl}`);
+    step("proxy: host started with a proxy listener", host.proxyUrl);
+    const hostToken = readFileSync(join(tokenHome, ".tau", "host-token"), "utf8").trim();
+    const proxied = host.proxyUrl.replace(/^http:/u, "ws:");
+
+    const own = createClient(host.url, hostToken);
+    await own.opened;
+    const ownHello = await own.hello();
+    const through = createClient(proxied, hostToken);
+    await through.opened;
+    const throughHello = await through.hello();
+    if (!ownHello.capabilities.includes("local-files")) fail("the loopback listener did not grant local files although the operator asked for them");
+    if (throughHello.capabilities.includes("local-files")) fail("a peer behind the proxy was told the host's files are local");
+    step("proxy: local files for this machine's loopback listener, never through the proxy");
+
+    // tailscale serve forwards the page's host; the Host header names the loopback listener.
+    const opens = (headers) => new Promise((resolve) => {
+      const socket = new PinnedWebSocket(proxied, { headers });
+      socket.on("open", () => socket.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: PROTOCOL, token: hostToken } })));
+      socket.on("message", () => { socket.close(); resolve("open"); });
+      socket.on("close", (code) => resolve(code));
+      socket.on("error", () => resolve("error"));
+    });
+    const served = await opens({ origin: "https://box.tailnet.ts.net", "x-forwarded-host": "box.tailnet.ts.net" });
+    const foreign = await opens({ origin: "https://evil.example", "x-forwarded-host": "box.tailnet.ts.net" });
+    if (served !== "open" || foreign !== 4403) fail(`the proxy's origin check is wrong: served ${served}, foreign ${foreign}`);
+    step("proxy: a page at the proxy's public name opens a socket, another site's does not");
+
+    // The host token through the proxy uses the host but manages nothing: that takes this machine (ADR 0024).
+    const fromAfar = await through.request("connections-list").then(() => "answered", (error) => String(error.message));
+    const stopFromAfar = await through.request("host.shutdown").then(() => "answered", (error) => String(error.message));
+    if (!fromAfar.startsWith("forbidden") || !stopFromAfar.startsWith("forbidden")) fail(`the host token through the proxy managed the host: ${fromAfar} / ${stopFromAfar}`);
+    await own.request("connections-list");
+    step("proxy: the host token through it may not manage access or stop the host; from this machine it may");
+
+    const attempt = async (url, forwardedFor) => (await (await askToPair(url, { code: "invented", forwardedFor })).next());
+    const refusals = [];
+    for (let index = 0; index < 6; index += 1) refusals.push((await attempt(proxied, "100.101.102.103")).reason);
+    if (refusals.join() !== "unknown-code,unknown-code,unknown-code,unknown-code,unknown-code,rate-limited") fail(`a tailnet peer was not held to five attempts: ${refusals.join()}`);
+    const neighbour = (await attempt(proxied, "100.101.102.104")).reason;
+    const local = (await attempt(host.url)).reason;
+    if (neighbour !== "unknown-code" || local !== "unknown-code") fail(`the proxy's limit spilled over: another peer ${neighbour}, this machine ${local}`);
+    step("proxy: pairing attempts are limited per forwarded address, apart from this machine");
+
+    const printed = parsePairingPayload(host.output().match(/web client: (\S+)/u)[1]);
+    await pairDevice(proxied, own, { code: printed.code, forwardedFor: "100.101.102.105" });
+    const listed = await own.request("connections-list");
+    const phone = listed.clients.find((entry) => entry.lastAddress === "100.101.102.105");
+    if (!phone) fail(`the paired client was not recorded at its forwarded address: ${JSON.stringify(listed.clients)}`);
+    if (!listed.network || listed.network.settings.lan || listed.network.settings.tailscale || listed.network.listeners.length) {
+      fail(`network access is not off by default: ${JSON.stringify(listed.network)}`);
+    }
+    step("proxy: a client paired through it is listed at the forwarded address; network access is off", phone.lastAddress);
+    await Promise.all([own.close(), through.close()]);
+  } finally {
+    await host?.stop();
+    const removal = { recursive: true, force: true, maxRetries: 10, retryDelay: 200 };
+    await rm(workspace, removal);
+    await rm(userData, removal);
+    await rm(tokenHome, removal);
+    await rm(webClient, removal);
+  }
+}
+
 async function callsScenario() {
   const workspace = await mkdtemp(join(tmpdir(), "tau-remote-smoke-"));
   const userData = mkdtempSync(join(tmpdir(), "tau-remote-userdata-"));
@@ -661,5 +745,6 @@ async function callsScenario() {
 
 await scenario({ tls: false });
 await scenario({ tls: true });
+await proxyScenario();
 await callsScenario();
 console.log(`\nremote host smoke passed: ${steps.length} steps`);

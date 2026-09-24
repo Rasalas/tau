@@ -39,7 +39,7 @@ export interface UiPairedClient {
   pairedAt: string;
   /** The last hello or request, as of the last time the host wrote it down. */
   lastSeenAt?: string;
-  /** The address it last connected from; behind a proxy this is the proxy. */
+  /** The address it last connected from; behind a proxy, the one the proxy forwarded. */
   lastAddress?: string;
   /** Open connections with this client's token right now. */
   connections: number;
@@ -82,13 +82,83 @@ export interface UiOwnerConnection {
   current: boolean;
 }
 
+/**
+ * How a device reaches an endpoint. A device that knows several picks the best
+ * one it can reach itself, so the host lists every one it has.
+ */
+export type UiHostEndpointKind =
+  /** 127.0.0.1: this machine only. */
+  | "loopback"
+  /** An address on the local network, IPv4 or IPv6. */
+  | "lan"
+  /** `<name>.local`, resolved over multicast DNS in the local network. */
+  | "mdns"
+  /** A Tailscale address: 100.64.0.0/10 or fd7a:115c:a1e0::/48. */
+  | "tailscale"
+  /** The Tailscale MagicDNS name, `<machine>.<tailnet>.ts.net`. */
+  | "magicdns";
+
 /** Where a client can reach this host, as a URL a browser opens. */
 export interface UiHostEndpoint {
   url: string;
   label: string;
   /** Loopback is reachable only from this machine, so it is never offered as a QR code. */
   reachability: "loopback" | "network";
+  kind?: UiHostEndpointKind;
+  /** The interface it sits on, `en0` or `utun4`, when it is an address. */
+  interface?: string;
+  ipv6?: boolean;
 }
+
+/**
+ * Network access, Settings → Connections: the listeners a host opens beside
+ * its own loopback one. Off by default; the two switches combine.
+ */
+export interface UiNetworkSettings {
+  /** Every interface on `port`, TLS only. */
+  lan: boolean;
+  /** The Tailscale addresses on `port`, TLS only, and the loopback proxy listener on `proxyPort`. */
+  tailscale: boolean;
+  port: number;
+  /** Where a reverse proxy on this machine (`tailscale serve`) sends its traffic. Plain HTTP, loopback only. */
+  proxyPort: number;
+  /** A certificate of the user's own instead of the self-signed one; re-read when it changes. */
+  certificate?: { certPath: string; keyPath: string };
+}
+
+export interface UiNetworkListener {
+  host: string;
+  port: number;
+  /** `network` speaks TLS; `proxy` is plain HTTP on loopback and treats every peer as remote. */
+  kind: "network" | "proxy";
+}
+
+export interface UiNetworkCertificate {
+  source: "self-signed" | "supplied";
+  fingerprint: string;
+  validTo: string;
+  certPath: string;
+  warnings: string[];
+}
+
+export interface UiNetworkAccess {
+  settings: UiNetworkSettings;
+  /** What listens right now. */
+  listeners: UiNetworkListener[];
+  /** Why something that was asked for does not listen: a port in use, no Tailscale address, a certificate that does not load. */
+  problems: string[];
+  /** This machine has a Tailscale address right now. */
+  tailscaleUp: boolean;
+  /** The certificate the network listeners serve, once one is needed. */
+  certificate?: UiNetworkCertificate;
+}
+
+/** A change to network access; `certificate: null` goes back to the self-signed one. */
+export type UiNetworkSettingsInput = Partial<Omit<UiNetworkSettings, "certificate">> & {
+  certificate?: UiNetworkSettings["certificate"] | null;
+};
+
+export const DEFAULT_NETWORK_SETTINGS: UiNetworkSettings = { lan: false, tailscale: false, port: 7788, proxyPort: 7789 };
 
 export interface UiConnections {
   /** This host's stable id, the same in a pairing link and (later) a Bonjour record. */
@@ -100,6 +170,8 @@ export interface UiConnections {
   /** SHA-256 of the TLS certificate, for comparing with the browser's warning. */
   fingerprint?: string;
   tokenPath: string;
+  /** Absent on a host that cannot open listeners of its own. */
+  network?: UiNetworkAccess;
   links: UiPairingLink[];
   requests: UiPairingRequest[];
   clients: UiPairedClient[];
@@ -124,6 +196,12 @@ export interface UiClientUpdate {
 /** How long a new pairing link may be redeemed; the host clamps anything else. */
 export const PAIRING_LINK_LIFETIMES_MS = [10 * 60_000, 60 * 60_000, 24 * 60 * 60_000] as const;
 
+/** One address in a pairing link, with its kind so a device can choose (a phone on cellular skips `lan`). */
+export interface PairingEndpoint {
+  url: string;
+  kind?: UiHostEndpointKind;
+}
+
 /** What a pairing link or QR code tells a device, besides where the link itself points. */
 export interface PairingPayload {
   code: string;
@@ -132,22 +210,30 @@ export interface PairingPayload {
   hostId?: string;
   hostName?: string;
   /** Every address the host listens on, best first; the link's own origin leads. */
-  endpoints: string[];
+  endpoints: PairingEndpoint[];
 }
 
+const ENDPOINT_KINDS: ReadonlySet<string> = new Set<UiHostEndpointKind>(["loopback", "lan", "mdns", "tailscale", "magicdns"]);
+const isEndpointKind = (value: string | null | undefined): value is UiHostEndpointKind => typeof value === "string" && ENDPOINT_KINDS.has(value);
+
 /**
- * `url#pair=code&fp=…&host=…&name=…&e=…`: the fragment never reaches a server
- * log, and the page drops it before rendering. A browser needs only `pair`;
- * a native client reads the rest to pin the certificate and pick an address.
+ * `url#pair=code&k=<kind>&fp=…&host=…&name=…&e=<kind>:<url>…`: the fragment
+ * never reaches a server log, and the page drops it before rendering. A
+ * browser needs only `pair`; a native client reads the rest to pin the
+ * certificate and pick an address. `k` is the kind of the link's own origin.
  */
-export function pairingUrl(endpointUrl: string, payload: Omit<PairingPayload, "endpoints"> & { endpoints?: readonly string[] }): string {
-  const base = endpointUrl.replace(/#.*$/u, "");
+export function pairingUrl(endpoint: string | PairingEndpoint, payload: Omit<PairingPayload, "endpoints"> & { endpoints?: readonly PairingEndpoint[] }): string {
+  const own = typeof endpoint === "string" ? { url: endpoint } : endpoint;
+  const base = own.url.replace(/#.*$/u, "");
   const fields = new URLSearchParams({ pair: payload.code });
+  if (own.kind) fields.set("k", own.kind);
   const fingerprint = payload.fingerprint ? canonicalFingerprint(payload.fingerprint) : undefined;
   if (fingerprint) fields.set("fp", fingerprint.replace(/:/gu, ""));
   if (payload.hostId) fields.set("host", payload.hostId);
   if (payload.hostName) fields.set("name", payload.hostName);
-  for (const endpoint of payload.endpoints ?? []) if (endpoint !== base) fields.append("e", endpoint);
+  for (const other of payload.endpoints ?? []) {
+    if (other.url !== base) fields.append("e", other.kind ? `${other.kind}:${other.url}` : other.url);
+  }
   return `${base}#${fields.toString()}`;
 }
 
@@ -159,11 +245,16 @@ export function parsePairingPayload(text: string): PairingPayload | undefined {
   const fields = new URLSearchParams(fragment);
   const code = fields.get("pair");
   if (!code) return undefined;
-  const endpoints: string[] = [];
-  const origin = hash > 0 ? trimmed.slice(0, hash) : "";
-  if (/^https?:\/\//u.test(origin)) endpoints.push(origin);
-  for (const endpoint of fields.getAll("e")) {
-    if (/^https?:\/\//u.test(endpoint) && !endpoints.includes(endpoint)) endpoints.push(endpoint);
+  const endpoints: PairingEndpoint[] = [];
+  const add = (url: string, kind?: string | null): void => {
+    if (!/^https?:\/\//u.test(url) || endpoints.some((entry) => entry.url === url)) return;
+    endpoints.push({ url, ...(isEndpointKind(kind) ? { kind } : {}) });
+  };
+  if (hash > 0) add(trimmed.slice(0, hash), fields.get("k"));
+  for (const entry of fields.getAll("e")) {
+    const split = /^([a-z0-9-]+):(https?:\/\/.*)$/u.exec(entry);
+    if (split) add(split[2]!, split[1]);
+    else add(entry);
   }
   const fingerprint = canonicalFingerprint(fields.get("fp") ?? "");
   const hostId = fields.get("host");

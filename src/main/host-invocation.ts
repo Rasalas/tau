@@ -15,6 +15,8 @@ export type HostInvocationPrincipal =
     readonly readOnly?: true;
     /** Records a change the device made, or was refused; the transport sets it for paired clients. */
     readonly audit?: (action: string, allowed: boolean) => void;
+    /** The socket came from this machine through the loopback listener. */
+    readonly local?: true;
   }
   | { readonly kind: "host-core" }
   | { readonly kind: "host-extension"; readonly contextId: string };
@@ -26,12 +28,16 @@ export const WORKBENCH_CLIENT_PRINCIPAL: HostInvocationPrincipal = Object.freeze
 export const HOST_CORE_PRINCIPAL: HostInvocationPrincipal = Object.freeze({ kind: "host-core" });
 
 /**
- * Whether a caller may manage who reaches the host: a connection with the
- * host token, the in-process window, or the host itself. A paired client may
- * use the host but not hand out or take away access.
+ * Whether a caller may manage who reaches the host: the host itself, the
+ * in-process window, or a socket connection with the host token from this
+ * machine through the loopback listener. The host token over a LAN or proxy
+ * listener uses the host but manages nothing (ADR 0024); neither does a
+ * paired device.
  */
 export function isHostOwner(principal: HostInvocationPrincipal): boolean {
-  return principal.kind === "host-core" || (principal.kind === "workbench-client" && principal.pairedClient === undefined);
+  if (principal.kind === "host-core") return true;
+  if (principal.kind !== "workbench-client" || principal.pairedClient !== undefined) return false;
+  return principal.connection === undefined || principal.local === true;
 }
 
 /** The connection whose request is running; `active` ends with the request, not with its async leftovers. */

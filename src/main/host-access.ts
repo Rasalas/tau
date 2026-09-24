@@ -23,6 +23,7 @@ import {
 import { describeUserAgent, deviceLabel, displayAddress } from "./client-device.js";
 import type { HostTokenFile } from "./host-token.js";
 import { createAuthRateLimiter } from "./host-rate-limit.js";
+import type { ListenerTrust } from "./host-local-files.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
 /** Who a hello authenticated as. Only the owner manages access. */
@@ -35,6 +36,8 @@ export interface AccessPeer {
   profile?: string;
   /** The window process beside a renderer, or a probe: served, closed on rotation, never listed. */
   auxiliary?: boolean;
+  /** The listener it came through; pairing attempts are counted apart per kind, strictly beyond loopback. */
+  trust?: ListenerTrust;
 }
 
 /** One line of the access log: a paired device changed something, or tried to. */
@@ -165,11 +168,16 @@ export class HostAccess {
   private readonly deniedSources = new Map<string, number>();
   private readonly live = new Map<string, LiveConnection>();
   private readonly now: () => number;
-  private readonly admit: (source: string | undefined) => number;
+  /** Apart, so a flood through a proxy (every peer 127.0.0.1) never locks out this machine's own browser. */
+  private readonly admit: Record<ListenerTrust, (source: string | undefined) => number>;
 
   private constructor(private readonly options: HostAccessOptions) {
     this.now = options.now ?? Date.now;
-    this.admit = createAuthRateLimiter(this.now);
+    this.admit = {
+      loopback: createAuthRateLimiter(this.now),
+      network: createAuthRateLimiter(this.now, { strict: true }),
+      proxy: createAuthRateLimiter(this.now, { strict: true }),
+    };
   }
 
   static async open(options: HostAccessOptions): Promise<HostAccess> {
@@ -283,7 +291,7 @@ export class HostAccess {
    */
   requestPairing(request: HostPairRequest, peer: AccessPeer, channel: PairingChannel): { id?: string; reply: HostPairReply } {
     this.sweep();
-    const retryAfterMs = this.admit(peer.address);
+    const retryAfterMs = this.admit[peer.trust ?? "loopback"](peer.address);
     if (retryAfterMs > 0) return { reply: { state: "refused", reason: "rate-limited", retryAfterMs } };
     if (this.requests.size >= MAX_PENDING_REQUESTS) return { reply: { state: "refused", reason: "busy" } };
     const address = displayAddress(peer.address);

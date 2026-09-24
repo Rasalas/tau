@@ -1,11 +1,12 @@
 import { HOST_ERROR } from "../shared/host-transport.js";
-import type { HostInvocationPrincipal } from "./host-invocation.js";
+import { isHostOwner, type HostInvocationPrincipal } from "./host-invocation.js";
 
 /**
  * What each host method does, for a device paired Read only (ADR 0024).
  * `read` only looks; `write` changes something on the host, runs something,
  * or reaches the host machine's own screen or clipboard; `owner` manages
- * access and is refused to every paired device. A method missing here counts
+ * access and is refused to every paired device and to the host token over a
+ * LAN or proxy listener. A method missing here counts
  * as `write`, and a test fails until it is classified.
  */
 export type MethodAccess = "read" | "write" | "owner";
@@ -91,6 +92,8 @@ export const HOST_METHOD_ACCESS = {
   "connections-approve": "owner",
   "connections-deny": "owner",
   "connections-rotate-host-token": "owner",
+  "connections-set-network": "owner",
+  "connections-reload-certificate": "owner",
   "host.shutdown": "owner",
   // Only the connection a call went to may answer it; the answer changes nothing else.
   "client-call-result": "read",
@@ -117,9 +120,10 @@ export function readOnlyRefusal(action: string): Error {
 export function authorizeMethod(principal: HostInvocationPrincipal, method: string): void {
   const access = methodAccess(method);
   if (principal.kind !== "workbench-client" || access === "read") return;
-  if (access === "owner" && principal.pairedClient !== undefined) {
+  if (access === "owner") {
+    if (isHostOwner(principal)) return;
     principal.audit?.(method, false);
-    throw Object.assign(new Error("Only a connection with the host token manages who may connect."), { code: HOST_ERROR.forbidden });
+    throw Object.assign(new Error("Only a connection with the host token, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
   }
   if (principal.readOnly) {
     principal.audit?.(method, false);

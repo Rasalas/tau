@@ -1,7 +1,8 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
+import type { ListenerTrust } from "./host-local-files.js";
 
 /** Everything the built client is made of; anything else is not served at all. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -24,11 +25,15 @@ export interface WebClientServerOptions {
   dir: string;
   /** Serve over HTTPS; the socket transport then upgrades on the same TLS port. */
   tls?: { cert: string; key: string };
+  /** What the server this builds may conclude about its peers; `loopback` by default. */
+  trust?: ListenerTrust;
 }
 
 export interface WebClientServer {
   /** The socket transport attaches to this, so client and protocol share one port. */
   server: Server;
+  /** The same client for another listener. The trust is kept for the signature; nothing here depends on it any more. */
+  handler(trust: ListenerTrust): RequestListener;
 }
 
 /**
@@ -40,9 +45,10 @@ export interface WebClientServer {
 export function createWebClientServer(options: WebClientServerOptions): WebClientServer {
   const root = resolve(options.dir);
 
-  const listener = (request: IncomingMessage, response: ServerResponse): void => {
+  const handler = (_trust: ListenerTrust): RequestListener => (request, response) => {
     void handle(request, response).catch(() => send(response, 500, "text/plain; charset=utf-8", "internal error"));
   };
+  const listener = handler(options.trust ?? "loopback");
   const server: Server = options.tls
     ? createHttpsServer({ cert: options.tls.cert, key: options.tls.key, minVersion: "TLSv1.2" }, listener)
     : createServer(listener);
@@ -69,7 +75,7 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
     response.end(request.method === "HEAD" ? undefined : content);
   }
 
-  return { server };
+  return { server, handler };
 }
 
 function send(response: ServerResponse, status: number, type: string, body: string): void {
