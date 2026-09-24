@@ -13,6 +13,14 @@ describe("the Bonjour TXT record", () => {
     expect(tauServiceTxt({ hostId: HOST_ID, fingerprint: FP })).toEqual({ v: "1", id: HOST_ID, fp: FP.replace(/:/gu, "") });
   });
 
+  it("adds the key pin, which a reader of before ignores", () => {
+    const publicKey = "CD:".repeat(31) + "CD";
+    const txt = tauServiceTxt({ hostId: HOST_ID, fingerprint: FP, publicKey });
+    expect(txt.pk).toBe("CD".repeat(32));
+    expect(readTauServiceTxt(txt)).toEqual({ hostId: HOST_ID, fingerprint: FP, publicKey });
+    expect(readTauServiceTxt({ ...txt, pk: "zz" })).toEqual({ hostId: HOST_ID, fingerprint: FP });
+  });
+
   it("reads back to the same host and a pinnable fingerprint", () => {
     expect(readTauServiceTxt(tauServiceTxt({ hostId: HOST_ID, fingerprint: FP }))).toEqual({ hostId: HOST_ID, fingerprint: FP });
   });

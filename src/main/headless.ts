@@ -235,7 +235,7 @@ async function main(): Promise<void> {
   const reloadCertificates = async (): Promise<{ changed: boolean }> => {
     const own = mainTls?.reload() ?? false;
     const fromNetwork = network ? (await network.reloadCertificate()).changed : false;
-    if (listening && mainTls) listening = { ...listening, fingerprint: mainTls.current.fingerprint };
+    if (listening && mainTls) listening = { ...listening, fingerprint: mainTls.current.fingerprint, publicKey: mainTls.current.publicKey };
     return { changed: own || fromNetwork };
   };
   const staticOrigins = hostAllowedOrigins();
@@ -366,7 +366,7 @@ async function main(): Promise<void> {
   });
   if (mainTls) mainTls.track(socket.server as unknown as TlsServer);
   // The smoke test reads this line to learn the port when it asked for 0.
-  listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint } : {}) };
+  listening = { scheme: socket.scheme, host: boundHost, port: socket.port, webClient: web !== undefined, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}) };
   console.log(`tau-host listening on ${socket.scheme}://${boundHost}:${socket.port}`);
   if (serviceKind) {
     // Nobody supervises a service host: it tells a window where it is itself.
@@ -385,8 +385,9 @@ async function main(): Promise<void> {
     const origin = tls.source === "self-signed" ? `self-signed, ${tls.created ? "created now" : "kept"} in ${tls.certPath}` : `from ${tls.certPath}`;
     console.log(`tls: certificate ${origin}`);
     console.log(`tls fingerprint: SHA256 ${tls.fingerprint} (a client pins it as TAU_HOST_FINGERPRINT)`);
+    console.log(`tls public key: SHA256 ${tls.publicKey} (the app pins it; a renewal keeps it)`);
     for (const warning of tls.warnings) console.warn(`tls warning: ${warning}`);
-    hostLog.info("host.tls", { source: tls.source, fingerprint: tls.fingerprint, created: tls.created });
+    hostLog.info("host.tls", { source: tls.source, fingerprint: tls.fingerprint, publicKey: tls.publicKey, created: tls.created });
   }
   if (socket.warning) console.warn(`\nWARNING: ${socket.warning}\n`);
   // The code lives in the fragment: no proxy, no access log and no Referer
@@ -394,7 +395,7 @@ async function main(): Promise<void> {
   // only asks: the owner still allows the device (ADR 0024).
   const { code } = access.createLink();
   const page = `${tls ? "https" : "http"}://${boundHost}:${socket.port}/`;
-  const link = pairingUrl(page, { code, ...(tls ? { fingerprint: tls.fingerprint } : {}), hostId, hostName: hostname() });
+  const link = pairingUrl(page, { code, ...(tls ? { fingerprint: tls.fingerprint, publicKey: tls.publicKey } : {}), hostId, hostName: hostname() });
   console.log(`${web ? "web client" : "pairing link"}: ${link} (single use, 10 minutes; allow the device in Settings → Connections${process.stdin.isTTY ? " or here" : ""})`);
   if (!web) console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
   // A host started by hand in a terminal asks there; a supervised one has a window to ask in.
@@ -433,7 +434,7 @@ async function main(): Promise<void> {
   networkPoll = setInterval(() => {
     void network?.poll().then(refreshOrigins).catch((error: unknown) => hostLog.warn("host-network.poll-failed", error));
     try {
-      if (mainTls?.refresh() && listening) listening = { ...listening, fingerprint: mainTls.current.fingerprint };
+      if (mainTls?.refresh() && listening) listening = { ...listening, fingerprint: mainTls.current.fingerprint, publicKey: mainTls.current.publicKey };
     } catch (error: unknown) {
       hostLog.warn("host.tls.reload-failed", error);
     }

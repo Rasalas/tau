@@ -9,7 +9,7 @@ import { HostPushLog } from "./host-push-log.js";
 import { HostTokenFile } from "./host-token.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
-import { certificateFingerprint } from "./host-tls.js";
+import { certificateFingerprint, publicKeyPin } from "./host-tls.js";
 import { pinnedTlsConnect } from "./host-tls-trust.js";
 
 // The device's half of pairing against the host's real socket: what the browser client and the app run.
@@ -86,6 +86,38 @@ describe("a device pairing with a host", () => {
     expect(access.overview().requests[0]!.verification).toBe(shown[0]);
     await access.approvePairing(id);
     expect(await result).toMatchObject({ state: "approved" });
+  });
+
+  it("binds the digits to the listener's key when the device pinned the key", async () => {
+    const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
+    const publicKey = publicKeyPin(tls.cert);
+    const { access, url, request } = await host(tls);
+    const shown: string[] = [];
+    const asked = request();
+    const result = pairWithHost({
+      url,
+      publicKey,
+      createSocket: (target) => new WebSocket(target, { createConnection: pinnedTlsConnect({ publicKey }) as unknown as ClientOptions["createConnection"] }) as unknown as PairingSocket,
+      onWaiting: ({ verification }) => shown.push(verification),
+    });
+    await asked;
+    await expect.poll(() => shown.length).toBe(1);
+    expect(access.overview().requests[0]!.verification).toBe(shown[0]);
+    access.denyPairing(access.overview().requests[0]!.id);
+    expect(await result).toEqual({ state: "denied" });
+  });
+
+  it("gives up when its key-bound digits differ: the listener's key is not the one it saw", async () => {
+    const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
+    const { url } = await host(tls);
+    // What a relay with a key of its own would make the device compute.
+    const relayKey = publicKeyPin(createSelfSignedCertificate({ commonName: "Relay", dnsNames: [], ipAddresses: [], days: 1 }).cert);
+    const result = await pairWithHost({
+      url,
+      publicKey: relayKey,
+      createSocket: (target) => new WebSocket(target, { createConnection: pinnedTlsConnect(certificateFingerprint(tls.cert)) as unknown as ClientOptions["createConnection"] }) as unknown as PairingSocket,
+    });
+    expect(result).toMatchObject({ state: "failed", message: expect.stringMatching(/not the host/u) });
   });
 
   it("gives up when the host's digits are not its own: something in between is not the host", async () => {

@@ -3,11 +3,13 @@ import {
   IDLE_TIMEOUT_CHOICES,
   pairingUrl,
   type DeviceAccess,
+  type PairingEndpoint,
   type UiClientUpdate,
   type UiConnections,
   type UiCreatedPairingLink,
   type UiHostEndpoint,
   type UiNetworkAccess,
+  type UiHostReach,
   type UiNetworkSettingsInput,
 } from "../shared/connections.js";
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
@@ -29,6 +31,7 @@ export interface HostListenInfo {
   /** The browser client is built and served on the same port. */
   webClient: boolean;
   fingerprint?: string;
+  publicKey?: string;
 }
 
 /** The listeners network access opens beside the host's own (`HostNetworkAccess`). */
@@ -84,6 +87,11 @@ export async function endpointOrigins(connections: HostConnectionsService): Prom
 }
 
 /** Every endpoint of the host's own listener and of network access, best first. */
+/** What a pairing link or a device keeps of an endpoint: the address, its kind, and whether a CA vouches for it. */
+function pairingEndpoint(endpoint: UiHostEndpoint): PairingEndpoint {
+  return { url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}), ...(endpoint.trustedCertificate ? { trustedCertificate: true } : {}) };
+}
+
 async function allEndpoints(connections: HostConnectionsService, info: HostListenInfo | undefined): Promise<UiHostEndpoint[]> {
   const interfaces = connections.interfaces?.() ?? networkInterfaces();
   const beyondLoopback = (info !== undefined && !isLoopbackHost(info.host)) || (connections.network?.state().listeners.length ?? 0) > 0;
@@ -176,14 +184,17 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
       const endpoints = await allEndpoints(connections, info);
       const { link, code } = connections.access.createLink(input);
       // The network listeners' certificate is the one a phone meets; the host's own listener is loopback in the app.
-      const fingerprint = connections.network?.state().certificate?.fingerprint ?? info?.fingerprint;
+      const certificate = connections.network?.state().certificate;
+      const fingerprint = certificate?.fingerprint ?? info?.fingerprint;
+      const publicKey = certificate ? certificate.publicKey : info?.publicKey;
       // A phone that dialled loopback would reach itself; only a loopback link names loopback.
-      const network = endpoints.filter((endpoint) => endpoint.reachability === "network").map(({ url, kind }) => ({ url, ...(kind ? { kind } : {}) }));
+      const network = endpoints.filter((endpoint) => endpoint.reachability === "network").map(pairingEndpoint);
       const urls = endpoints.map((endpoint) => ({
         ...endpoint,
-        url: pairingUrl({ url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}) }, {
+        url: pairingUrl(pairingEndpoint(endpoint), {
           code,
           ...(fingerprint ? { fingerprint } : {}),
+          ...(publicKey ? { publicKey } : {}),
           ...(connections.hostId ? { hostId: connections.hostId } : {}),
           ...(connections.hostName ? { hostName: connections.hostName } : {}),
           endpoints: endpoint.reachability === "network" ? network : [],
@@ -191,6 +202,15 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
       }));
       return { link, code, urls };
     }),
+    // Any paired device, Read only too: where else it may reach this host (F19). No secret, no owner check.
+    "connections-reach": async (): Promise<UiHostReach> => {
+      const connections = service() ?? unavailable();
+      const endpoints = await allEndpoints(connections, connections.listen());
+      return {
+        ...(connections.hostId ? { hostId: connections.hostId } : {}),
+        endpoints: endpoints.filter((endpoint) => endpoint.reachability === "network").map(pairingEndpoint),
+      };
+    },
     "connections-revoke-link": owned(({ access }, params) =>
       ({ revoked: access.revokeLink(decodeString("connections-revoke-link", "id", params[0])) })),
     "connections-revoke-client": owned(async ({ access }, params) =>

@@ -17,10 +17,12 @@ export interface HostPairRequest {
   name?: string;
   /**
    * SHA-256 (hex) of a random nonce the device reveals once the host sent its
-   * own. With it the digits depend on both nonces and the pinned fingerprint;
+   * own. With it the digits depend on both nonces and what the device pinned;
    * without it the host picks the digits.
    */
   commitment?: string;
+  /** `key`: the digits are bound to the listener's public key. Absent: to its certificate, as older devices bind them. */
+  binding?: "key";
 }
 
 export type PairRefusal = "unknown-code" | "busy" | "rate-limited" | "invalid";
@@ -69,14 +71,17 @@ export async function pairingCommitment(deviceNonce: string): Promise<string> {
 }
 
 /**
- * Six digits from the certificate the device pinned and both nonces. The host
- * computes them with its own certificate; a device that reached it through a
- * relay with another certificate computes different ones. `fingerprint` is
- * empty on a plaintext loopback socket.
+ * Six digits from what the device pinned and both nonces. The host computes
+ * them with its own key (or certificate); a device that reached it through a
+ * relay with another key computes different ones. With `publicKey` given,
+ * even empty, the digits are bound to the key; else to the certificate
+ * `fingerprint`. Either is empty on a plaintext loopback socket.
  */
-export async function pairingVerificationCode(input: { fingerprint?: string; deviceNonce: string; hostNonce: string }): Promise<string> {
-  const fingerprint = input.fingerprint ? canonicalFingerprint(input.fingerprint) ?? "" : "";
-  const digest = await sha256(`tau-pair-v1\n${fingerprint}\n${input.deviceNonce}\n${input.hostNonce}`);
+export async function pairingVerificationCode(input: { fingerprint?: string; publicKey?: string; deviceNonce: string; hostNonce: string }): Promise<string> {
+  const key = input.publicKey !== undefined;
+  const pinned = key ? input.publicKey : input.fingerprint;
+  const bound = pinned ? canonicalFingerprint(pinned) ?? "" : "";
+  const digest = await sha256(`${key ? "tau-pair-v2" : "tau-pair-v1"}\n${bound}\n${input.deviceNonce}\n${input.hostNonce}`);
   const value = ((digest[0]! << 24) | (digest[1]! << 16) | (digest[2]! << 8) | digest[3]!) >>> 0;
   return String(value % 1_000_000).padStart(6, "0");
 }

@@ -464,10 +464,12 @@ function decodePairRequest(value: unknown): HostPairRequest | undefined {
   if (item.code !== undefined && !(nonEmptyString(item.code) && item.code.length <= MAX_PAIR_CODE)) return undefined;
   if (item.name !== undefined && !(typeof item.name === "string" && item.name.length <= MAX_DEVICE_NAME)) return undefined;
   if (item.commitment !== undefined && !isPairingCommitment(item.commitment)) return undefined;
+  if (item.binding !== undefined && item.binding !== "key") return undefined;
   return {
     ...(typeof item.code === "string" ? { code: item.code } : {}),
     ...(typeof item.name === "string" && item.name.trim() ? { name: item.name } : {}),
     ...(typeof item.commitment === "string" ? { commitment: item.commitment } : {}),
+    ...(item.binding === "key" ? { binding: "key" as const } : {}),
   };
 }
 
