@@ -2,8 +2,6 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
-import { isLoopbackHost } from "./host-listen.js";
-import type { AccessPeer } from "./host-access.js";
 
 /** Everything the built client is made of; anything else is not served at all. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -21,46 +19,9 @@ const CONTENT_TYPES: Record<string, string> = {
   ".map": "application/json; charset=utf-8",
 };
 
-const MAX_BODY_BYTES = 4096;
-const AUTH_MAX_SOURCES = 1024;
-const AUTH_IDLE_MS = 10 * 60 * 1000;
-const AUTH_MAX_BACKOFF_MS = 60 * 1000;
-
-export function createAuthRateLimiter(now: () => number = Date.now): (source: string | undefined) => number {
-  const sources = new Map<string, { attempts: number; retryAt: number; expiresAt: number }>();
-  return (source) => {
-    const key = (source ?? "unknown").toLowerCase().replace(/^::ffff:/u, "");
-    const time = now();
-    let entry = sources.get(key);
-    if (entry && entry.expiresAt <= time) {
-      sources.delete(key);
-      entry = undefined;
-    }
-    if (!entry) {
-      if (sources.size >= AUTH_MAX_SOURCES) {
-        for (const [address, state] of sources) {
-          if (state.expiresAt <= time) sources.delete(address);
-        }
-        if (sources.size >= AUTH_MAX_SOURCES) return AUTH_MAX_BACKOFF_MS;
-      }
-      entry = { attempts: 0, retryAt: time, expiresAt: time + AUTH_IDLE_MS };
-      sources.set(key, entry);
-    }
-    if (entry.retryAt > time) return entry.retryAt - time;
-    const burst = isLoopbackHost(key) ? 20 : 5;
-    entry.attempts = Math.min(entry.attempts + 1, burst + 6);
-    entry.retryAt = time + (entry.attempts < burst ? 0 : Math.min(1000 * 2 ** (entry.attempts - burst), AUTH_MAX_BACKOFF_MS));
-    entry.expiresAt = time + AUTH_IDLE_MS;
-    return 0;
-  };
-}
-
 export interface WebClientServerOptions {
   /** The built client, normally `dist-web/`. */
   dir: string;
-  /** Trades a single-use pairing code for a token of the client's own (`HostAccess.redeem`). */
-  pairing: { redeem(code: string, peer: AccessPeer): Promise<string | undefined> };
-  now?(): number;
   /** Serve over HTTPS; the socket transport then upgrades on the same TLS port. */
   tls?: { cert: string; key: string };
 }
@@ -72,15 +33,12 @@ export interface WebClientServer {
 
 /**
  * The static half of a listening host: it serves the built web client on the
- * same port its socket listens on, and it trades a single-use pairing code for
- * a token of the browser's own. The code travels in the link's fragment, which
- * no proxy and no server log ever sees, and the page drops it from its URL
- * before it does anything else. The host token is never handed out here; the
- * owner can still paste it by hand.
+ * same port its socket listens on. Nothing here authenticates or hands out a
+ * credential: a browser pairs over the socket like every other client, and
+ * the owner still allows it on the host (ADR 0024).
  */
 export function createWebClientServer(options: WebClientServerOptions): WebClientServer {
   const root = resolve(options.dir);
-  const admitPair = createAuthRateLimiter(options.now ?? Date.now);
 
   const listener = (request: IncomingMessage, response: ServerResponse): void => {
     void handle(request, response).catch(() => send(response, 500, "text/plain; charset=utf-8", "internal error"));
@@ -91,29 +49,8 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (url.pathname === "/pair") {
-      if (request.method !== "POST") { send(response, 405, "text/plain; charset=utf-8", "use POST"); return; }
-      const retryAfterMs = admitPair(request.socket.remoteAddress);
-      if (retryAfterMs > 0) {
-        request.resume();
-        response.setHeader("retry-after", Math.ceil(retryAfterMs / 1000));
-        send(response, 429, "application/json; charset=utf-8", JSON.stringify({ error: "too many pairing attempts" }));
-        return;
-      }
-      const body = await readBody(request);
-      const code = typeof body?.code === "string" ? body.code : "";
-      const userAgent = request.headers["user-agent"];
-      const token = code ? await options.pairing.redeem(code, {
-        ...(request.socket.remoteAddress ? { address: request.socket.remoteAddress } : {}),
-        ...(typeof userAgent === "string" ? { userAgent } : {}),
-      }) : undefined;
-      // A refused code says nothing about why: expired, spent and invented are one answer.
-      if (!token) { send(response, 403, "application/json; charset=utf-8", JSON.stringify({ error: "unknown pairing code" })); return; }
-      // No store: the answer is a credential.
-      response.setHeader("cache-control", "no-store");
-      send(response, 200, "application/json; charset=utf-8", JSON.stringify({ token }));
-      return;
-    }
+    // Pairing moved to the socket, where the owner allows each device (ADR 0024).
+    if (url.pathname === "/pair") { request.resume(); send(response, 410, "text/plain; charset=utf-8", "pair over the host socket"); return; }
     if (request.method !== "GET" && request.method !== "HEAD") { send(response, 405, "text/plain; charset=utf-8", "use GET"); return; }
     const file = resolveAsset(root, url.pathname);
     if (!file) { send(response, 404, "text/plain; charset=utf-8", "not found"); return; }
@@ -154,21 +91,4 @@ export function resolveAsset(root: string, pathname: string): string | undefined
   if (!relative || relative === "." || relative.startsWith("..")) return undefined;
   const file = resolve(root, relative);
   return file === root || file.startsWith(root + sep) ? file : undefined;
-}
-
-async function readBody(request: IncomingMessage): Promise<Record<string, unknown> | undefined> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    const buffer = chunk as Buffer;
-    size += buffer.byteLength;
-    if (size > MAX_BODY_BYTES) return undefined;
-    chunks.push(buffer);
-  }
-  try {
-    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : undefined;
-  } catch {
-    return undefined;
-  }
 }

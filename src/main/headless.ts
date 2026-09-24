@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import type { HostEvent } from "../shared/contracts.js";
 import { HOST_CAPABILITY, HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
+import { pairingUrl } from "../shared/connections.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
@@ -14,6 +15,7 @@ import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods } from "./host-methods.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
+import { promptPairingsOnTerminal } from "./host-pairing-terminal.js";
 import type { HostListenInfo } from "./host-connections.js";
 import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
@@ -52,7 +54,8 @@ const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
 // Its own file: the window process writes host.log in the same directory.
 const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
-const workspaceIdentity = new WorkspaceIdentity(readOrCreateHostId(join(userData, "host-id")));
+const hostId = readOrCreateHostId(join(userData, "host-id"));
+const workspaceIdentity = new WorkspaceIdentity(hostId);
 const pushLog = new HostPushLog();
 const compactor = new IdleHeapCompactor({
   onCompacted: ({ beforeBytes, afterBytes, ms }) =>
@@ -123,11 +126,21 @@ async function main(): Promise<void> {
     });
   });
   const tokenFile = new HostTokenFile(hostTokenPath());
-  const access = await HostAccess.open({ tokenFile, storePath: join(userData, "paired-clients.json"), logger: hostLog });
+  let terminalPairing: (() => void) | undefined;
+  const access = await HostAccess.open({
+    tokenFile,
+    storePath: join(userData, "paired-clients.json"),
+    logger: hostLog,
+    // No details on the wire: only an owner may ask connections-list what changed.
+    onChange: () => { publish({ type: "connections-changed" }); terminalPairing?.(); },
+    audit: (entry) => (entry.allowed ? hostLog.info("access.action", entry) : hostLog.warn("access.refused", entry)),
+  });
+  // Requests nobody answered and tokens unused past their timeout end here, not only at the next hello.
+  setInterval(() => access.sweep(), 60_000).unref();
   let listening: HostListenInfo | undefined;
   const methods = createHostMethods({
     clientCalls,
-    connections: () => ({ access, listen: () => listening }),
+    connections: () => ({ access, listen: () => listening, hostId, hostName: hostname() }),
     ...started.methodDeps(),
     jobs,
     platform: {
@@ -188,7 +201,7 @@ async function main(): Promise<void> {
   // A built client turns this host into something a browser can open. Without
   // one the host is exactly what it was: a socket and nothing else.
   const web = existsSync(join(webRoot, "index.html"))
-    ? createWebClientServer({ dir: webRoot, pairing: access, ...(tls ? { tls } : {}) })
+    ? createWebClientServer({ dir: webRoot, ...(tls ? { tls } : {}) })
     : undefined;
   socket = await startSocketHostTransport({
     listen,
@@ -218,15 +231,16 @@ async function main(): Promise<void> {
     hostLog.info("host.tls", { source: tls.source, fingerprint: tls.fingerprint, created: tls.created });
   }
   if (socket.warning) console.warn(`\nWARNING: ${socket.warning}\n`);
-  if (web) {
-    // The code lives in the fragment: no proxy, no access log and no Referer
-    // ever carries it, and the page drops it before it renders anything.
-    // A token of the browser's own, not the host token (ADR 0023).
-    const { code } = access.createLink();
-    console.log(`web client: ${tls ? "https" : "http"}://${boundHost}:${socket.port}/#pair=${code} (single use, 10 minutes)`);
-  } else {
-    console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
-  }
+  // The code lives in the fragment: no proxy, no access log and no Referer
+  // ever carries it, and the page drops it before it renders anything. It
+  // only asks: the owner still allows the device (ADR 0024).
+  const { code } = access.createLink();
+  const page = `${tls ? "https" : "http"}://${boundHost}:${socket.port}/`;
+  const link = pairingUrl(page, { code, ...(tls ? { fingerprint: tls.fingerprint } : {}), hostId, hostName: hostname() });
+  console.log(`${web ? "web client" : "pairing link"}: ${link} (single use, 10 minutes; allow the device in Settings → Connections${process.stdin.isTTY ? " or here" : ""})`);
+  if (!web) console.log(`web client: not built (run npm run build:web, or point TAU_WEB_CLIENT at a build)`);
+  // A host started by hand in a terminal asks there; a supervised one has a window to ask in.
+  if (process.stdin.isTTY) terminalPairing = promptPairingsOnTerminal(access, { input: process.stdin, output: process.stdout });
 
   compactor.start();
   process.on("SIGINT", shutdown);

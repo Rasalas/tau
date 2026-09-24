@@ -25,6 +25,7 @@ import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/ext
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, isExpectedCommandError } from "./host-extension-errors.js";
 import { HOST_CORE_PRINCIPAL, runAsCaller, type HostInvocationPrincipal } from "./host-invocation.js";
+import { readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
@@ -830,6 +831,12 @@ export interface HostExtensionCommandOptions {
   callers?: readonly string[];
   /** Commands that may run for minutes and therefore use the host job path. */
   long?: boolean;
+  /**
+   * `"read"`: the command only looks — it changes no file, thread, setting or
+   * process and calls nothing that does — so a device paired Read only may
+   * call it. Without it a command needs Full access (ADR 0024).
+   */
+  access?: "read";
 }
 
 export interface HostExtensionInvocationContext {
@@ -940,6 +947,8 @@ interface ActiveHostExtension {
   invocationContextId: string;
   commands: Map<string, HostExtensionCommandHandler>;
   longCommands: Set<string>;
+  /** Commands registered with `access: "read"`. */
+  readCommands: Set<string>;
   commandCallers: Map<string, ReadonlySet<string>>;
   disposers: Array<() => void | Promise<void>>;
   /** Set once the extension reported a failure it cannot recover from. */
@@ -984,6 +993,7 @@ export class HostExtensionRegistry {
       invocationContextId,
       commands: new Map(),
       longCommands: new Set(),
+      readCommands: new Set(),
       commandCallers: new Map(),
       disposers: [],
     };
@@ -1007,12 +1017,14 @@ export class HostExtensionRegistry {
         }) ?? [];
         record.commands.set(name, handler);
         if (options?.long) record.longCommands.add(name);
+        if (options?.access === "read") record.readCommands.add(name);
         record.commandCallers.set(name, new Set(callers));
         const dispose = () => {
           if (record.commands.get(name) !== handler) return;
           record.commands.delete(name);
           record.commandCallers.delete(name);
           record.longCommands.delete(name);
+          record.readCommands.delete(name);
         };
         record.disposers.push(dispose);
         return dispose;
@@ -1167,7 +1179,18 @@ export class HostExtensionRegistry {
 
   /** Checks a host-issued caller before target lookup or handler execution. */
   private authorize(record: ActiveHostExtension, extensionId: string, command: string, principal: HostInvocationPrincipal): void {
-    if (principal.kind === "host-core" || principal.kind === "workbench-client") return;
+    if (principal.kind === "workbench-client") {
+      // A client may call any command; a Read-only device only those that declared they just look.
+      if (record.readCommands.has(command)) return;
+      const action = `${extensionId}/${command}`;
+      if (principal.readOnly) {
+        principal.audit?.(action, false);
+        throw readOnlyRefusal(`run ${action}`);
+      }
+      principal.audit?.(action, true);
+      return;
+    }
+    if (principal.kind === "host-core") return;
     const context = principal.kind === "host-extension" ? this.invocationContexts.get(principal.contextId) : undefined;
     const caller = context?.extensionId;
     const allowed = caller === extensionId || Boolean(caller && record.commandCallers.get(command)?.has(caller));

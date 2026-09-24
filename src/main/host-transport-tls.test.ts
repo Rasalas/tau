@@ -31,7 +31,6 @@ import { startSocketHostTransport, type SocketHostTransport } from "./host-trans
 import type { HostMethodTable } from "./host-methods.js";
 
 const TOKEN = "c".repeat(64);
-const NO_PAIRING = { redeem: async () => undefined };
 const methods: HostMethodTable = { ping: async (params) => ({ echo: params[0] }) };
 const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
 const FINGERPRINT = certificateFingerprint(tls.cert);
@@ -171,7 +170,7 @@ describe("the socket transport over TLS", () => {
     const dir = mkdtempSync(join(tmpdir(), "tau-web-tls-"));
     directories.push(dir);
     writeFileSync(join(dir, "index.html"), "<!doctype html><title>Tau</title>");
-    const web = createWebClientServer({ dir, pairing: NO_PAIRING, tls });
+    const web = createWebClientServer({ dir, tls });
     transport = await startSocketHostTransport({
       listen: "127.0.0.1:0", methods, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], token: TOKEN, tls, attachTo: web.server,
     });
@@ -191,7 +190,7 @@ describe("the socket transport over TLS", () => {
   it("refuses to attach TLS to a plain HTTP server", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tau-web-plain-"));
     directories.push(dir);
-    const web = createWebClientServer({ dir, pairing: NO_PAIRING });
+    const web = createWebClientServer({ dir });
     await expect(startSocketHostTransport({
       listen: "127.0.0.1:0", methods, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], token: TOKEN, tls, attachTo: web.server,
     })).rejects.toThrow(/plain HTTP server/u);

@@ -17,6 +17,7 @@ import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
 import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
+import { authorizeMethod } from "./host-method-access.js";
 import {
   decodeBoolean,
   decodeCommandName,
@@ -402,6 +403,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       if (JOB_CONTROL_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       const target = methods[method];
       if (!target) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
+      authorizeMethod(context.principal, method);
       const jobParams = params[1] === undefined ? [] : params[1];
       if (!Array.isArray(jobParams)) throw new Error("start-job: params must be an array");
       return { jobId: deps.jobs.start((jobContext) => target(jobParams as unknown[], jobContext), context.principal) };
@@ -451,7 +453,7 @@ export function createUnsupportedHostMethods(reason: string): HostMethodTable {
   return Object.fromEntries(names.map((name) => [name, async () => refuse()]));
 }
 
-/** Runs one method outside a job; used by the request path of every transport. */
+/** Runs one method outside a job; used by the request path of every transport. A Read-only device is refused every change here. */
 export async function invokeHostMethod(
   methods: HostMethodTable,
   method: string,
@@ -460,5 +462,6 @@ export async function invokeHostMethod(
 ): Promise<unknown> {
   const handler = methods[method];
   if (!handler) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
+  authorizeMethod(principal, method);
   return handler(params, { ...NO_JOB_CONTEXT, principal });
 }

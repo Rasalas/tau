@@ -11,6 +11,10 @@ export type HostInvocationPrincipal =
     readonly connection?: string;
     /** Set when the hello carried a paired client's token rather than the host token. */
     readonly pairedClient?: string;
+    /** The device is paired Read only: every call that changes something is refused (ADR 0024). Set per request. */
+    readonly readOnly?: true;
+    /** Records a change the device made, or was refused; the transport sets it for paired clients. */
+    readonly audit?: (action: string, allowed: boolean) => void;
   }
   | { readonly kind: "host-core" }
   | { readonly kind: "host-extension"; readonly contextId: string };

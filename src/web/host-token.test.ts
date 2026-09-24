@@ -1,13 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { createMemoryStorage } from "../workbench/client-storage";
-import {
-  WEB_TOKEN_KEY,
-  hostSocketUrl,
-  redeemPairingCode,
-  resolveHostToken,
-  takePairingCode,
-  type PairingPage,
-} from "./host-token";
+import { describe, expect, it } from "vitest";
+import { hostSocketUrl, pairingNotice, takePairingCode, type PairingPage } from "./host-token";
 
 function page(hash: string): PairingPage & { replaced: string[] } {
   const replaced: string[] = [];
@@ -18,12 +10,15 @@ function page(hash: string): PairingPage & { replaced: string[] } {
   };
 }
 
-const ok = (token: string) => async () => new Response(JSON.stringify({ token }), { status: 200 });
-const refused = async () => new Response(JSON.stringify({ error: "unknown pairing code" }), { status: 403 });
-
 describe("how a browser learns the host token", () => {
   it("takes the pairing code out of the address bar as it reads it", () => {
     const current = page("#pair=abc123");
+    expect(takePairingCode(current)).toBe("abc123");
+    expect(current.replaced).toEqual(["/"]);
+  });
+
+  it("reads the code from a link that also carries the fingerprint and the addresses", () => {
+    const current = page(`#pair=abc123&fp=${"AB".repeat(32)}&e=https%3A%2F%2F100.64.0.1%3A7788%2F`);
     expect(takePairingCode(current)).toBe("abc123");
     expect(current.replaced).toEqual(["/"]);
   });
@@ -39,28 +34,11 @@ describe("how a browser learns the host token", () => {
     expect(hostSocketUrl({ protocol: "https:", host: "tau.example:443" })).toBe("wss://tau.example:443/");
   });
 
-  it("redeems a code, and treats a refusal as no token rather than an error", async () => {
-    expect(await redeemPairingCode("abc", ok("t0ken") as unknown as typeof fetch)).toBe("t0ken");
-    expect(await redeemPairingCode("abc", refused as unknown as typeof fetch)).toBeUndefined();
-    const offline = vi.fn().mockRejectedValue(new Error("offline"));
-    expect(await redeemPairingCode("abc", offline as unknown as typeof fetch)).toBeUndefined();
-  });
-
-  it("keeps a redeemed token for the next visit", async () => {
-    const storage = createMemoryStorage();
-    expect(await resolveHostToken(storage, "abc", ok("t0ken") as unknown as typeof fetch)).toBe("t0ken");
-    expect(storage.get(WEB_TOKEN_KEY)).toBe("t0ken");
-    // A second visit brings no code and needs none.
-    expect(await resolveHostToken(storage, undefined)).toBe("t0ken");
-  });
-
-  it("falls back to the stored token when the link was already used", async () => {
-    const storage = createMemoryStorage();
-    storage.set(WEB_TOKEN_KEY, "older");
-    expect(await resolveHostToken(storage, "spent", refused as unknown as typeof fetch)).toBe("older");
-  });
-
-  it("has no token at all for a first visit without a link", async () => {
-    expect(await resolveHostToken(createMemoryStorage(), undefined)).toBeUndefined();
+  it("says why pairing did not let it in", () => {
+    expect(pairingNotice({ state: "denied" })).toMatch(/declined/u);
+    expect(pairingNotice({ state: "expired" })).toMatch(/in time/u);
+    expect(pairingNotice({ state: "refused", reason: "unknown-code" })).toMatch(/already used or has expired/u);
+    expect(pairingNotice({ state: "refused", reason: "busy" })).toMatch(/other requests/u);
+    expect(pairingNotice({ state: "failed", message: "offline" })).toBe("offline");
   });
 });
