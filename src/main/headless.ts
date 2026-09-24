@@ -16,9 +16,10 @@ import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods } from "./host-methods.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
-import type { HostListenInfo } from "./host-connections.js";
+import { endpointOrigins, type HostConnectionsService, type HostListenInfo } from "./host-connections.js";
 import { isHostOwner } from "./host-invocation.js";
 import { HostClientRegistry } from "./host-clients.js";
+import { hostAllowedOrigins } from "./host-origin.js";
 import { createProtocolServer, startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
@@ -141,9 +142,34 @@ async function main(): Promise<void> {
     if (listening && mainTls) listening = { ...listening, fingerprint: mainTls.current.fingerprint };
     return { changed: own || fromNetwork };
   };
+  const staticOrigins = hostAllowedOrigins();
+  /** Origins of the published endpoints; the socket accepts pages opened at any of them. */
+  let publishedOrigins: string[] = [];
+  const connectionsService = (): HostConnectionsService => ({
+    access,
+    listen: () => listening,
+    ...(network ? {
+      network: {
+        state: () => network!.state(),
+        endpoints: (names) => network!.endpoints(names),
+        update: async (input) => {
+          const state = await network!.update(input);
+          await refreshOrigins();
+          return state;
+        },
+      },
+    } : {}),
+    reloadCertificates,
+  });
+  const refreshOrigins = async (): Promise<void> => {
+    publishedOrigins = await endpointOrigins(connectionsService()).catch((error: unknown) => {
+      hostLog.warn("host-network.origins-failed", error);
+      return publishedOrigins;
+    });
+  };
   const methods = createHostMethods({
     clientCalls,
-    connections: () => ({ access, listen: () => listening, ...(network ? { network } : {}), reloadCertificates }),
+    connections: () => connectionsService(),
     ...started.methodDeps(),
     jobs,
     platform: {
@@ -221,6 +247,7 @@ async function main(): Promise<void> {
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     access,
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
+    allowedOrigins: () => [...staticOrigins, ...publishedOrigins],
     ...(tls ? { tls } : {}),
     ...(web ? { attachTo: web.server } : {}),
     clients,
@@ -264,9 +291,10 @@ async function main(): Promise<void> {
   }
   // Settings → Connections: the listeners beyond loopback, off until the owner turns them on.
   network = await HostNetworkAccess.open({ userData, attach: socket.attach, ...(web ? { web: web.handler } : {}), logger: hostLog });
+  await refreshOrigins();
   for (const listener of network.state().listeners) hostLog.info("host-network.open-at-start", listener);
   networkPoll = setInterval(() => {
-    void network?.poll().catch((error: unknown) => hostLog.warn("host-network.poll-failed", error));
+    void network?.poll().then(refreshOrigins).catch((error: unknown) => hostLog.warn("host-network.poll-failed", error));
     try {
       if (mainTls?.refresh() && listening) listening = { ...listening, fingerprint: mainTls.current.fingerprint };
     } catch (error: unknown) {

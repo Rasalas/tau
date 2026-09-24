@@ -63,6 +63,15 @@ async function machineNames(interfaces: Interfaces): Promise<EndpointNames> {
   return { ...(localName ? { localName } : {}), ...(name ? { magicDns: name } : {}) };
 }
 
+/**
+ * The page origins of every endpoint, for the socket's origin check: a page
+ * opened at the `.local` name or the MagicDNS name opens its socket from there.
+ */
+export async function endpointOrigins(connections: HostConnectionsService): Promise<string[]> {
+  const endpoints = await allEndpoints(connections, connections.listen());
+  return [...new Set(endpoints.map((endpoint) => new URL(endpoint.url).origin.toLowerCase()))];
+}
+
 /** Every endpoint of the host's own listener and of network access, best first. */
 async function allEndpoints(connections: HostConnectionsService, info: HostListenInfo | undefined): Promise<UiHostEndpoint[]> {
   const interfaces = connections.interfaces?.() ?? networkInterfaces();

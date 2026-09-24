@@ -270,7 +270,9 @@ TAU_HOST_URL=wss://100.64.0.7:7788 TAU_HOST_FINGERPRINT=6F:AB:DF:…:10:E9:1E np
 
 Without `TAU_HOST_FINGERPRINT` the window shows the certificate's fingerprint on first connect and asks whether to trust it; compare it with the line the host printed. A yes is remembered in the client's `known-hosts.json`. A host whose certificate a CA vouches for needs neither. If the host ever presents another certificate, the window refuses it before sending the token, and the status line shows both fingerprints. If you replaced the certificate yourself, update the pin or delete the known-hosts entry. `docs/host-protocol.md` has the details.
 
-A dropped link (a suspended machine, a restarted tunnel) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. A strip above the status line reads `Reconnecting to the host…`, then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. Nothing has to be restarted by hand.
+A dropped link (a suspended machine, a restarted tunnel, a phone that slept or changed networks) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. Heartbeats find a link that died without a close, and coming back to the page or to a network tries again at once. A strip above the status line reads `Reconnecting to the host…` (with "Retry now" while it waits), then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. For a host on another machine, a dot in the title bar shows the link and its round trip. Nothing has to be restarted by hand.
+
+The host accepts sockets only from pages it served itself and from clients that are not pages; a native shell or a proxy that changes the host name is added with `TAU_HOST_ALLOWED_ORIGINS=capacitor://localhost,https://…`.
 
 ### The web client
 

@@ -7,7 +7,7 @@ import { HOST_ERROR, HOST_TRANSPORT_VERSION, decodeHostServerFrame, type HostSer
 import { DEFAULT_NETWORK_SETTINGS, type UiConnections, type UiCreatedPairingLink, type UiNetworkAccess } from "../shared/connections.js";
 import type { Interfaces } from "./host-endpoints.js";
 import { HostAccess } from "./host-access.js";
-import { createConnectionsMethods, hostEndpoints } from "./host-connections.js";
+import { createConnectionsMethods, endpointOrigins, hostEndpoints, type HostConnectionsService } from "./host-connections.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostTokenFile, readHostToken } from "./host-token.js";
 import { HostUplink } from "./host-uplink.js";
@@ -286,7 +286,7 @@ describe("the Connections methods", () => {
     const { access } = await openAccess();
     const updates: unknown[] = [];
     let state: UiNetworkAccess = { settings: DEFAULT_NETWORK_SETTINGS, listeners: [], problems: [], tailscaleUp: false };
-    const methods = createConnectionsMethods(() => ({
+    const service: HostConnectionsService = {
       access,
       listen: () => ({ scheme: "ws", host: "127.0.0.1", port: 4100, webClient: true }),
       interfaces: () => ({ en0: [{ address: "192.168.1.20", family: "IPv4", internal: false }] }) as unknown as Interfaces,
@@ -300,7 +300,8 @@ describe("the Connections methods", () => {
           return state;
         },
       },
-    })) as HostMethodTable;
+    };
+    const methods = createConnectionsMethods(() => service) as HostMethodTable;
     const off = await invokeHostMethod(methods, "connections-list", [], HOST_CORE_PRINCIPAL) as UiConnections;
     expect(off.endpoints.map((endpoint) => endpoint.label)).toEqual(["This machine"]);
     expect(off.network?.settings.lan).toBe(false);
@@ -313,6 +314,7 @@ describe("the Connections methods", () => {
     const link = await invokeHostMethod(methods, "connections-create-link", [], HOST_CORE_PRINCIPAL) as UiCreatedPairingLink;
     expect(link.urls[0]!.url).toBe(`https://192.168.1.20:7788/#pair=${encodeURIComponent(link.code)}`);
     await expect(invokeHostMethod(methods, "connections-reload-certificate", [], HOST_CORE_PRINCIPAL)).rejects.toMatchObject({ code: HOST_ERROR.unsupported });
+    expect(await endpointOrigins(service)).toEqual(["https://192.168.1.20:7788", "http://127.0.0.1:4100"]);
   });
 });
 

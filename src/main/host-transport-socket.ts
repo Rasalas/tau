@@ -3,6 +3,8 @@ import { createServer as createHttpsServer } from "node:https";
 import { Server as TlsServer } from "node:tls";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
+  HOST_CAPABILITY,
+  HOST_CLOSE_CODE,
   HOST_ERROR,
   HOST_TRANSPORT_MAX_FRAME_BYTES,
   decodeHostClientFrame,
@@ -19,12 +21,20 @@ import type { AccessPeer, HostCredential } from "./host-access.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
 import { isLocalPeer, peerAddress, socketCapabilities, type ListenerTrust } from "./host-local-files.js";
+import { forwardedHost, originAllowed } from "./host-origin.js";
 import type { ClientPeer } from "./client-calls.js";
 import type { HostClientSink } from "./host-transport-clients.js";
 import type { HostLogger } from "./host-log.js";
 
-/** Closed with this when the hello carried no token or the wrong one, or its access was taken away. */
-const UNAUTHORIZED = 4401;
+const UNAUTHORIZED = HOST_CLOSE_CODE.unauthorized;
+/** A socket that has not said hello by then is closed. */
+export const SOCKET_HELLO_TIMEOUT_MS = 10_000;
+/**
+ * How often the host pings every socket at the WebSocket level. A peer that
+ * has not answered the previous ping by the next one is gone (a phone that
+ * slept or changed networks) and is dropped, so it stops counting as a client.
+ */
+export const SOCKET_PING_INTERVAL_MS = 30_000;
 
 /** What the transport asks of the host's access model; `HostAccess` implements it. */
 export interface SocketAccess {
@@ -78,6 +88,12 @@ export interface SocketHostTransportOptions {
   beforeReply?(): void;
   /** A client starts from a snapshot, not a replay: its first hello, or a resync. */
   onSnapshotClient?(): void;
+  /** Page origins accepted besides the listener's own and Electron's local `file://` (`hostAllowedOrigins`); a function is asked per socket. */
+  allowedOrigins?: readonly string[] | (() => readonly string[]);
+  /** Defaults to `SOCKET_HELLO_TIMEOUT_MS`. */
+  helloTimeoutMs?: number;
+  /** Runs `tick` every `SOCKET_PING_INTERVAL_MS` by default; answers a stop. Tests tick by hand. */
+  schedulePings?(tick: () => void): () => void;
   logger?: HostLogger;
 }
 
@@ -156,12 +172,36 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     send(socket, response);
   };
 
+  /** Sockets that answered the last WebSocket ping, or sent anything since. */
+  const alive = new WeakSet<WebSocket>();
+
   const accept = (socket: WebSocket, request: IncomingMessage, trust: ListenerTrust): void => {
+    const origin = request.headers.origin;
+    const allowed = typeof options.allowedOrigins === "function" ? options.allowedOrigins() : options.allowedOrigins;
+    if (!originAllowed({
+      origin,
+      host: request.headers.host,
+      // `file://` is a window on this machine only where the listener can tell.
+      ...(trust === "loopback" && request.socket.remoteAddress ? { peerAddress: request.socket.remoteAddress } : {}),
+      // Behind a proxy the page's host is the one the proxy was reached at.
+      ...(trust === "proxy" ? { forwardedHost: forwardedHost(request.headers["x-forwarded-host"]) } : {}),
+    }, allowed)) {
+      options.logger?.warn("host-transport-socket.origin-refused", { origin });
+      socket.close(HOST_CLOSE_CODE.forbiddenOrigin, "origin not allowed");
+      return;
+    }
+    alive.add(socket);
+    socket.on("pong", () => alive.add(socket));
+    const helloTimer = setTimeout(() => {
+      if (!authenticated.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
+    }, options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS);
+    helloTimer.unref?.();
     // Only a peer on this machine may be told that the host's files are local.
-    const capabilities = socketCapabilities(options.capabilities, request.socket.remoteAddress, process.env, trust);
+    const capabilities = [...socketCapabilities(options.capabilities, request.socket.remoteAddress, process.env, trust), HOST_CAPABILITY.heartbeat];
     const local = isLocalPeer(trust, request.socket.remoteAddress);
     const address = peerAddress(trust, request);
     socket.on("message", (data) => {
+      alive.add(socket);
       let payload: unknown;
       try { payload = JSON.parse(String(data)) as unknown; }
       catch { socket.close(UNAUTHORIZED, "malformed frame"); return; }
@@ -194,6 +234,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           forget(socket);
           socket.close(UNAUTHORIZED, reason);
         });
+        clearTimeout(helloTimer);
         sockets.set(connection, socket);
         // Only a window's own process runs halves; a renderer names the window it sits in.
         options.calls?.attach(connection, {
@@ -228,6 +269,11 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         socket.close(UNAUTHORIZED, ACCESS_CLOSE_REASON.unauthorized);
         return;
       }
+      // Not activity of the user's: a heartbeat leaves "last seen" alone.
+      if (frame.type === "ping") {
+        send(socket, { type: "pong", id: frame.id });
+        return;
+      }
       access.touch(session.connection);
       const { id, method, params } = frame.request;
       // JSON turns a missing positional argument into null; decoders expect undefined.
@@ -239,8 +285,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           respond(socket, { type: "response", response: { id, error: hostErrorInfo(error, code) } });
         });
     });
-    socket.on("close", () => { origins.delete(socket); forget(socket); });
-    socket.on("error", () => forget(socket));
+    socket.on("close", () => { clearTimeout(helloTimer); origins.delete(socket); forget(socket); });
+    socket.on("error", () => { clearTimeout(helloTimer); forget(socket); });
   };
 
   const attach = (target: Server, trust: ListenerTrust): (() => void) => {
@@ -267,6 +313,14 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     http.once("error", reject);
     http.listen(port, host, () => { http.off("error", reject); resolve(); });
   });
+  const pingAll = (): void => {
+    for (const socket of server.clients) {
+      if (!alive.has(socket)) { socket.terminate(); continue; }
+      alive.delete(socket);
+      socket.ping();
+    }
+  };
+  const stopPings = options.schedulePings?.(pingAll) ?? everyInterval(pingAll, SOCKET_PING_INTERVAL_MS);
   const address = http.address();
   const boundPort = typeof address === "object" && address ? address.port : port;
   const scheme = options.tls ? "wss" : "ws";
@@ -290,6 +344,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       return true;
     },
     close: async () => {
+      stopPings();
       // One that never said hello would otherwise hold the port open.
       for (const socket of server.clients) if (!authenticated.has(socket)) socket.terminate();
       for (const socket of [...authenticated.keys()]) { forget(socket); socket.close(); }
@@ -297,6 +352,12 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       await new Promise<void>((resolve) => http.close(() => resolve()));
     },
   };
+}
+
+function everyInterval(tick: () => void, ms: number): () => void {
+  const timer = setInterval(tick, ms);
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
 
 const upgradeOnly = (_request: IncomingMessage, response: ServerResponse): void => {
