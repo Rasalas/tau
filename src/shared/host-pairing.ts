@@ -1,12 +1,12 @@
-import type { DeviceAccess } from "../shared/connections.js";
-import { decodeHostServerFrame, type HostClientFrame } from "../shared/host-transport.js";
+import type { DeviceAccess } from "./connections.js";
+import { decodeHostServerFrame, type HostClientFrame } from "./host-transport.js";
 import {
   pairingCommitment,
   pairingVerificationCode,
   randomPairingNonce,
   type HostPairReply,
   type PairRefusal,
-} from "../shared/pairing.js";
+} from "./pairing.js";
 
 /** What a socket must offer; a browser's `WebSocket` does, and so does `ws` with a pinned connection. */
 export interface PairingSocket {
