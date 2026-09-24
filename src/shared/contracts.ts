@@ -612,8 +612,11 @@ export interface HostBootstrap {
 export type GlobalHostEvent =
   | { type: "host-update"; update: import("./host-protocol.js").HostUpdate }
   | { type: "thread-index"; threadIndex: ThreadIndexSnapshot }
-  /** Published by a host extension for its desktop counterpart; core only routes it. */
-  | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; sessionId?: undefined }
+  /**
+   * Published by a host extension for its desktop counterpart; core only routes it.
+   * With a `topic` it reaches only the clients that watch that topic.
+   */
+  | { type: "extension-event"; extensionId: string; name: string; payload?: unknown; topic?: string; sessionId?: undefined }
   /**
    * The set of installed or approved packages moved; a client re-reads its
    * desktop halves. `extensionIds` narrows that to the ones that moved, so a

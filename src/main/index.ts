@@ -684,6 +684,7 @@ function installTransport(): void {
     pushLog,
     beforeReply: () => pushes.flush(),
     onSnapshotClient: () => pushes.resendWholeOutputs(),
+    onThreadsSubscribed: (sessionIds) => pushes.resendWholeOutputs(sessionIds),
     hostVersion: app.getVersion(),
     capabilities: [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay],
     token: readOrCreateHostToken(),

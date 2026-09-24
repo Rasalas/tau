@@ -121,6 +121,29 @@ export type HostPushEvent = HostEvent | HostJobEvent | HostWireEvent;
 export interface HostPush {
   seq: number;
   event: HostPushEvent;
+  /**
+   * The last push this connection was sent before this one, when that is not
+   * `seq - 1`: the pushes between were about threads or topics it does not
+   * subscribe to, so they are no gap. Only on a live push to a subscribed client.
+   */
+  prev?: number;
+}
+
+/**
+ * What a client shows, so the host sends it the live events of those threads
+ * and topics only. Everything without a thread or topic (the index, run
+ * state, catalogs, questions) still goes to every client.
+ */
+export interface HostSubscription {
+  /** Session ids whose streamed messages, tools and details this client receives. */
+  threads: string[];
+  /** Extension events published with a topic, as `<extensionId>/<topic>`. */
+  topics: string[];
+  /**
+   * New-thread requests this client awaits: the thread whose first detail
+   * answers one is sent to it from then on, before the client knows its id.
+   */
+  requests?: string[];
 }
 
 export interface HostHello {
@@ -144,6 +167,11 @@ export interface HostHello {
   windowId?: string;
   /** The extensions whose window half this connection runs; read only when `auxiliary`. */
   windowHalves?: string[];
+  /**
+   * What this connection receives from here on, and what a replay after
+   * `lastSeq` is filtered by. Absent: every push, as before subscriptions.
+   */
+  subscription?: HostSubscription;
 }
 
 /** A call from the host into one client's process: the window half of an extension (ADR 0021, ADR 0023). */
@@ -216,6 +244,11 @@ export const HOST_CAPABILITY = {
   localFiles: "local-files",
   /** The host answers `ping` with `pong`, so a client can tell a live link from a half-open one. */
   heartbeat: "heartbeat",
+  /**
+   * The host reads `subscription` in the hello and answers the `subscribe`
+   * method, which replaces it (`[HostSubscription | null]`, null for every push).
+   */
+  subscriptions: "subscriptions",
 } as const;
 
 /** `host-extension` invocations are named per extension command, not per method. */
@@ -257,6 +290,27 @@ export function decodeHostResponse(value: unknown): HostResponse | undefined {
 
 const MAX_WINDOW_ID = 128;
 const MAX_WINDOW_HALVES = 256;
+const MAX_SUBSCRIBED = 512;
+const MAX_SUBSCRIPTION_KEY = 512;
+
+function isKeyList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= MAX_SUBSCRIBED
+    && value.every((entry) => nonEmptyString(entry) && entry.length <= MAX_SUBSCRIPTION_KEY);
+}
+
+export function decodeHostSubscription(value: unknown): HostSubscription | undefined {
+  const item = record(value);
+  if (!item || !isKeyList(item.threads) || !isKeyList(item.topics)) return undefined;
+  if (item.requests !== undefined && !isKeyList(item.requests)) return undefined;
+  return {
+    threads: [...item.threads],
+    topics: [...item.topics],
+    ...(Array.isArray(item.requests) && item.requests.length > 0 ? { requests: [...item.requests as string[]] } : {}),
+  };
+}
+
+/** The key a topic travels under in a subscription. */
+export const hostTopicKey = (extensionId: string, topic: string): string => `${extensionId}/${topic}`;
 
 export function decodeHostHello(value: unknown): HostHello | undefined {
   const item = record(value);
@@ -267,6 +321,8 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
   if (item.auxiliary !== undefined && typeof item.auxiliary !== "boolean") return undefined;
   if (item.windowId !== undefined && !(nonEmptyString(item.windowId) && item.windowId.length <= MAX_WINDOW_ID)) return undefined;
   if (item.windowHalves !== undefined && !isWindowHalves(item.windowHalves)) return undefined;
+  const subscription = item.subscription === undefined ? undefined : decodeHostSubscription(item.subscription);
+  if (item.subscription !== undefined && !subscription) return undefined;
   return {
     protocol: HOST_TRANSPORT_VERSION,
     ...(typeof item.token === "string" ? { token: item.token } : {}),
@@ -275,6 +331,7 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
     ...(item.auxiliary === true ? { auxiliary: true } : {}),
     ...(typeof item.windowId === "string" ? { windowId: item.windowId } : {}),
     ...(Array.isArray(item.windowHalves) ? { windowHalves: [...item.windowHalves as string[]] } : {}),
+    ...(subscription ? { subscription } : {}),
   };
 }
 
@@ -347,8 +404,10 @@ function decodePushEvent(value: unknown): HostPushEvent | undefined {
 export function decodeHostPush(value: unknown): HostPush | undefined {
   const item = record(value);
   if (!item || !Number.isSafeInteger(item.seq) || (item.seq as number) < 1) return undefined;
+  if (item.prev !== undefined && !(count(item.prev) && (item.prev as number) < (item.seq as number))) return undefined;
   const event = decodePushEvent(item.event);
-  return event ? { seq: item.seq as number, event } : undefined;
+  if (!event) return undefined;
+  return { seq: item.seq as number, event, ...(item.prev === undefined ? {} : { prev: item.prev as number }) };
 }
 
 export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined {
