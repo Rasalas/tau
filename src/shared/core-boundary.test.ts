@@ -67,7 +67,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",   "./host-origin.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
   "./host-process-supervisor.js",   "./host-start.js",
-  "./host-push-coalescer.js",   "./host-push-log.js",   "./host-report.js",   "./host-text.js",   "./host-tls.js",   "./host-tls-trust.js",   "./host-token.js",   "./host-uplink.js",
+  "./host-push-coalescer.js",   "./host-push-log.js",   "./host-push-scope.js",   "./host-report.js",   "./host-text.js",   "./host-tls.js",   "./host-tls-trust.js",   "./host-token.js",   "./host-uplink.js",
   "./host-transcript.js",   "./host-transport-clients.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./live-turn-state.js",
