@@ -81,7 +81,7 @@ reads the port from `.tau-dev/instance.json` automatically; pass one explicitly 
 - `rightclick <expr>` — a right-click at the element's center. Where the page asks for the OS's menu, that menu is a native window CDP cannot drive; capture it with `screencapture -l <id>` of a window your instance's PID owns and stop the instance to close it.
 - `type <expr> <text>` — sets a textarea's value through its native setter and fires `input`, the way React's controlled composer expects.
 - `press <key>` — dispatches a real key event: `Enter`, `Escape`, `Tab`, `Backspace`, an arrow, `Home`, `End`, `F6`, or any single character. Also takes a chord — `mod+shift+d`, `mod+k`, `ctrl+enter` — with the same spelling as the workbench's own keybindings; `mod` resolves to the platform's primary modifier (⌘ on macOS, Ctrl elsewhere). Use this to fire a keybinding instead of clicking.
-- `wait-for <expr> [timeoutMs]` — polls `expr` until truthy (default 15 s timeout).
+- `wait-for <expr> [timeoutMs]` — polls `expr` until truthy (default 15 s timeout). The value crosses CDP by value, so an expression that ends in a DOM element never counts as truthy: write `!!document.querySelector(…)`.
 - `screenshot <file.png>` — writes a PNG via `Page.captureScreenshot`.
 - `toasts` — the current toast list as JSON.
 - `pid` — the instance's own Electron PID, found by cross-checking the port's devtools endpoint against `ps`. Kill only this PID.
