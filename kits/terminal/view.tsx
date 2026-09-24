@@ -151,7 +151,8 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
         lineHeight: 1,
         scrollback: SCROLLBACK_LINES,
         theme: themeFrom(element),
-        screenReaderMode: true,
+        // xterm's screen reader mode ignores text an on-screen keyboard inserts without key events (predictions, dictation).
+        screenReaderMode: !touchRef.current,
         // OSC 8 hyperlinks a program prints go the same way as a URL in the text.
         linkHandler: {
           activate: (event, text) => { if (activatesLink(event)) void openTerminalLink(text); },

@@ -110,7 +110,8 @@
 .terminal-compact-paste-actions { display: flex; justify-content: flex-end; gap: 8px; }
 /* The last row of the sheet, so it rides on the on-screen keyboard. */
 .terminal-touch-keys { display: flex; align-items: center; gap: 2px; flex: none; min-height: 52px; padding: 4px 4px 4px 6px; border-top: 1px solid var(--line); background: var(--stage); }
-.terminal-touch-keys-scroll { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+/* The row scrolls sideways; the fade says there is more of it. */
+.terminal-touch-keys-scroll { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding-right: 16px; mask-image: linear-gradient(to right, black calc(100% - 20px), transparent); }
 .terminal-touch-keys-scroll::-webkit-scrollbar { display: none; }
 .terminal-touch-key { flex: none; min-width: 44px; height: 44px; display: grid; place-items: center; padding: 0 10px; border: 1px solid var(--line-control); border-radius: 10px; background: var(--raised); color: var(--ink); font: 500 15px var(--mono); cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 .terminal-touch-key:active:not(:disabled) { background: var(--hover-strong); }

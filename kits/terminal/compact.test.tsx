@@ -96,7 +96,12 @@ function fakeHost() {
       return () => { set.delete(listener); };
     },
   };
-  return { host, typed, invoke };
+  const exit = (id: string, exitCode: number) => {
+    const session = sessions.find((entry) => entry.id === id);
+    if (session) session.exitCode = exitCode;
+    publish();
+  };
+  return { host, typed, invoke, exit };
 }
 
 function panelProps(): PanelProps {
@@ -117,7 +122,7 @@ async function withShell() {
   fireEvent.click(screen.getAllByRole("button", { name: "New terminal" })[0]!);
   await screen.findByRole("tab", { name: /shell 1/u });
   await waitFor(() => expect(drawn.length).toBe(1));
-  await waitFor(() => expect((screen.getByRole("button", { name: "Escape" }) as HTMLButtonElement).disabled).toBe(false));
+  await screen.findByRole("button", { name: "Escape" });
   // The bar drives the xterm once the view has replayed and handed it over.
   await waitFor(() => expect(drawn[0]!.textarea.getAttribute("autocomplete")).toBe("off"));
   return { ...fake, xterm: drawn[0]!, disconnect };
@@ -176,7 +181,8 @@ describe("the terminal on a compact client", () => {
     const disconnect = connectTerminalHost(fake.host);
     render(<CompactTerminalPanel {...panelProps()} />);
     expect(screen.getByText("No terminal open")).toBeTruthy();
-    expect((key("Escape") as HTMLButtonElement).disabled).toBe(true);
+    // No keys without a shell to send them to.
+    expect(screen.queryByRole("toolbar", { name: "Terminal keys" })).toBeNull();
     disconnect();
   });
 
@@ -238,6 +244,8 @@ describe("the terminal on a compact client", () => {
     const { xterm, disconnect } = await withShell();
     const attributes = Object.fromEntries(["autocomplete", "autocorrect", "autocapitalize", "spellcheck", "writingsuggestions"].map((name) => [name, xterm.textarea.getAttribute(name)]));
     expect(attributes).toEqual({ autocomplete: "off", autocorrect: "off", autocapitalize: "none", spellcheck: "false", writingsuggestions: "false" });
+    // Screen reader mode would drop what a keyboard inserts without key events.
+    expect(xterm.options.screenReaderMode).toBe(false);
     disconnect();
   });
 
@@ -283,6 +291,16 @@ describe("the terminal on a compact client", () => {
     room.rows = 24;
     act(() => observers.forEach((observe) => observe()));
     await waitFor(() => expect(resizes().at(-1)).toEqual({ id: "t1", cols: 80, rows: 24 }));
+    disconnect();
+  });
+
+  it("says why the keys stop when the shell exited, and restarts it", async () => {
+    const { exit, invoke, disconnect } = await withShell();
+    act(() => exit("t1", 130));
+    expect((await screen.findByRole("status")).textContent).toContain("The shell exited with 130.");
+    expect((key("Escape") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("restart", { id: "t1" }));
     disconnect();
   });
 

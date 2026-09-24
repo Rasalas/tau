@@ -193,7 +193,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
           className={`terminal-touch-key${on ? " armed" : ""}`}
           aria-label={key.title}
           {...(key.kind === "modifier" ? { "aria-pressed": on } : {})}
-          disabled={!shown || exited}
+          disabled={exited}
           onPointerDown={keepFocus}
           onMouseDown={keepFocus}
           onClick={() => press(key)}
@@ -205,7 +205,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
       className="terminal-touch-key interrupt"
       aria-label="Send Ctrl-C"
       {...tooltipProps("Send Ctrl-C: stops what runs in the shell")}
-      disabled={!shown || exited}
+      disabled={exited}
       onPointerDown={keepFocus}
       onMouseDown={keepFocus}
       onClick={interrupt}
@@ -215,7 +215,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
       className="terminal-touch-icon"
       aria-label={keyboardShown ? "Hide keyboard" : "Show keyboard"}
       {...tooltipProps(keyboardShown ? "Hide keyboard" : "Show keyboard")}
-      disabled={!shown || exited}
+      disabled={exited}
       onPointerDown={keepFocus}
       onMouseDown={keepFocus}
       onClick={toggleKeyboard}
@@ -287,7 +287,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
         </Empty>}
     </div>
     {pasting ? <PasteField onPaste={(text) => { setPasting(false); terminal.current?.paste(text); }} onCancel={() => setPasting(false)} /> : null}
-    {bar}
+    {shown ? bar : null}
   </section>;
 }
 
