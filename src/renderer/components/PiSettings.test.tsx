@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { TauConfig } from "../../shared/contracts";
 import { setHostClient } from "../host-client-context";
 import { setClientStorage } from "../../workbench/client-storage";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { renderApp } from "../test-support/render-app";
 import { workspaceHostStub } from "../test-support/workspace-host-stub";
+
+// The Workbench loads the Settings screen as a chunk of its own. Loaded here, outside the tests,
+// its first import on a busy machine does not count against findByRole's wait.
+beforeAll(async () => { await import("../settings/SettingsScreen"); });
 
 afterEach(() => {
   cleanup();

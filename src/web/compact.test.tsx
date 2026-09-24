@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Archive, Bot } from "lucide-react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, UiSession } from "../shared/contracts";
 import type { DesktopExtension } from "../renderer/extension-system";
 import { installPointerEvents } from "../renderer/test-support/pointer-events";
@@ -72,6 +72,9 @@ const rowNamed = (title: string) => screen.getByRole("button", { name: `Open thr
 
 const running = (sessionId: string): HostEvent => ({ type: "agent-status", sessionId, running: true });
 
+// The Workbench loads the Settings screen as a chunk of its own. Loaded here, outside the tests,
+// its first import on a busy machine does not count against findByRole's wait.
+beforeAll(async () => { await import("../renderer/settings/SettingsScreen"); });
 beforeEach(() => { installPointerEvents(); setViewport(400); archived.length = 0; });
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); setViewport(1024); window.history.replaceState(null, "", "/"); });
 
