@@ -39,7 +39,7 @@ import type { HostTranscriptCursor } from "../shared/transcript-cursor";
 import { isClientSideMethod } from "../shared/host-transport";
 import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
 import type { WindowAction } from "../shared/window-shell";
-import type { UiConnections, UiCreatedPairingLink } from "../shared/connections";
+import type { UiConnections, UiCreatedPairingLink, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 
 /**
@@ -180,6 +180,10 @@ export interface HostClient {
   revokeClient(id: string): Promise<{ revoked: boolean }>;
   /** Closes every other connection on the old host token; this one carries on with the new one. */
   rotateHostToken(): Promise<void>;
+  /** Opens or closes the listeners beyond loopback in the running host. */
+  setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
+  /** Reads the served certificates again; `changed` when a listener now serves another one. */
+  reloadCertificate(): Promise<{ changed: boolean }>;
 }
 
 /**
@@ -318,5 +322,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       const { token } = await call<{ token: string }>("connections-rotate-host-token");
       connection.updateToken(token);
     },
+    setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
+    reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
   };
 }
