@@ -46,18 +46,21 @@ export const appearanceExtension: DesktopExtension = {
       id: "appearance.open",
       label: "Open Appearance settings",
       group: "Appearance",
+      access: "read",
       run: (app) => app.openSettings(APPEARANCE_SETTINGS_PAGE),
     });
     plugin.registerCommand({
       id: "appearance.new-theme",
       label: "New theme…",
       group: "Appearance",
+      access: "write",
       run: () => editor.open(draftFromWindow(document.documentElement.dataset.theme === "light" ? "light" : "dark")),
     });
     plugin.registerCommand({
       id: "appearance.toggle-theme-editor",
       label: "Toggle theme editor",
       group: "Appearance",
+      access: "write",
       run: () => {
         if (editor.getSnapshot().draft) editor.close();
         else editor.open(draftFromWindow(document.documentElement.dataset.theme === "light" ? "light" : "dark"));

@@ -1,12 +1,14 @@
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import type { ExtensionRegistry, PaletteItem, PaletteMenu, PaletteSearchContext, WorkbenchActions } from "../extension-system";
-import { menuRows, paletteRows, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
+import { menuRows, paletteRows, readOnlyCommands, readOnlySources, rowEntry, stepRow, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
 import { searchSettings, settingsSearchEntries } from "../settings/settings-search";
+import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
 import { ThreadStoreContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
 import { VirtualList } from "./VirtualList";
 import { Spinner } from "./ui/Feedback";
+import { tooltipProps } from "./ui/Tooltip";
 import { useFocusReturn, useFocusTrap } from "./ui/focus";
 import "./command-palette.css";
 
@@ -49,6 +51,7 @@ function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem
     id: entry.id,
     label: entry.label,
     detail: entry.section,
+    access: "read",
     run: (actions) => actions.openSettings(entry.page),
   }));
 }
@@ -84,6 +87,7 @@ export function CommandPalette({
   const input = useRef<HTMLInputElement>(null);
   const surface = useRef<HTMLElement>(null);
   const threads = useContext(ThreadStoreContext);
+  const { readOnly } = useHostCapabilities();
   // The workbench hands a new actions object on some renders; that is no reason to search again.
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -174,13 +178,20 @@ export function CommandPalette({
   const rows = useMemo(
     () => level
       ? menuRows(levelAnswer?.items ?? [], needle, level.menu.searches)
-      : paletteRows(commands, needle, results),
-    [commands, level, levelAnswer, needle, results],
+      : readOnly
+        ? paletteRows(readOnlyCommands(commands), needle, readOnlySources(results))
+        : paletteRows(commands, needle, results),
+    [commands, level, levelAnswer, needle, readOnly, results],
   );
+  const refusal = (row: PaletteRow | undefined) => (row ? commandRefusal(rowEntry(row), readOnly) : undefined);
+  const usable = (index: number) => Boolean(rows[index]) && !refusal(rows[index]);
+  // The cursor never rests on a row this device may not run.
+  const next = usable(cursor) ? cursor : stepRow(rows.length, cursor - 1, 1, usable);
+  const current = usable(next) ? next : -1;
 
   useEffect(() => {
     if (!open) return;
-    const start = menu ? commands.find((command) => command.id === menu)?.submenu : undefined;
+    const start = menu ? commands.find((command) => command.id === menu && !commandRefusal(command, readOnly))?.submenu : undefined;
     setQuery("");
     setCursor(0);
     setFound({ needle: "", results: [] });
@@ -209,6 +220,7 @@ export function CommandPalette({
   };
 
   const run = (row: PaletteRow) => {
+    if (refusal(row)) return;
     const submenu = row.kind === "command" ? row.command.submenu : row.item.submenu;
     if (submenu) { enter(submenu); return; }
     const done = row.kind === "command" ? row.command.run(actions) : row.item.run?.(actions);
@@ -217,18 +229,14 @@ export function CommandPalette({
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      setCursor((value) => (rows.length ? (value + 1) % rows.length : 0));
+      if (current >= 0) setCursor(stepRow(rows.length, current, event.key === "ArrowDown" ? 1 : -1, usable));
     }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setCursor((value) => (rows.length ? (value - 1 + rows.length) % rows.length : 0));
-    }
-    if (event.key === "Enter" && rows[cursor]) {
+    if (event.key === "Enter" && rows[current]) {
       // Cancelling the keydown drops its keypress, which would submit a dialog the command opens.
       event.preventDefault();
-      run(rows[cursor]);
+      run(rows[current]);
     }
     if (event.key === "Backspace" && level && query === "") {
       event.preventDefault();
@@ -248,10 +256,19 @@ export function CommandPalette({
     const submenu = row.kind === "command" ? row.command.submenu : item?.submenu;
     const shortcut = row.kind === "command" ? shortcutFor?.(row.command.id) : undefined;
     return <>
+      {refusal(row) ? <small className="palette-locked">Read only</small> : null}
       {item?.current ? <small className="palette-current">Current</small> : null}
       {shortcut ? <kbd>{shortcut}</kbd> : null}
       {submenu ? <ChevronRight className="palette-chevron" size={14} aria-hidden /> : null}
     </>;
+  };
+
+  // A tap on a row it may not run shows why, as on any disabled control.
+  const lockProps = (row: PaletteRow, index: number) => {
+    const reason = refusal(row);
+    return reason
+      ? { "aria-disabled": true as const, ...tooltipProps(reason, { side: "left" }) }
+      : { onMouseMove: () => setCursor(index) };
   };
 
   return (
@@ -297,21 +314,21 @@ export function CommandPalette({
           items={rows}
           itemHeight={38}
           className="palette-results"
-          scrollToIndex={cursor}
+          scrollToIndex={Math.max(current, 0)}
           empty={emptyLine}
           renderItem={(row, index) => row.kind === "command" ? <button
             key={row.key}
-            className={index === cursor ? "selected" : ""}
+            className={index === current ? "selected" : ""}
             data-group={row.command.group}
-            onMouseMove={() => setCursor(index)}
+            {...lockProps(row, index)}
             onClick={() => run(row)}
           >
             <span>{highlight(row.command.label, needle)}</span><small>{row.command.extensionName.toLowerCase()}</small>{trailing(row)}
           </button> : <button
             key={row.key}
-            className={index === cursor ? "selected" : ""}
+            className={index === current ? "selected" : ""}
             data-source={row.source || undefined}
-            onMouseMove={() => setCursor(index)}
+            {...lockProps(row, index)}
             onClick={() => run(row)}
           >
             {row.item.icon ? <i className="palette-icon">{row.item.icon}</i> : null}

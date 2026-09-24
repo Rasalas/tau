@@ -114,14 +114,14 @@ export const previewExtension: DesktopExtension = {
     plugin.provideService<PreviewCookieImportService>(PREVIEW_COOKIE_IMPORT_SERVICE, {
       importSite: (request) => cookieImportDialogs.open({ site: request.site, ...(request.profile ? { profile: request.profile } : {}) }),
     });
-    plugin.registerCommand({ id: "preview.import-cookies", label: "Import cookies from a browser", group: "Extensions", run: () => { void cookieImportDialogs.open(); } });
+    plugin.registerCommand({ id: "preview.import-cookies", label: "Import cookies from a browser", group: "Extensions", access: "write", run: () => { void cookieImportDialogs.open(); } });
     // Picks, annotations and recordings go to the composer as Composer Context's chips.
     plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, holdChipService);
     // The Screen view draws the window Computer Use's agent drives, while that kit is on.
     plugin.useService<ComputerUseScreenService>(COMPUTER_USE_SCREEN_SERVICE, holdScreenService);
     const stopFollowing = plugin.events.on("active-thread-changed", (event) => activeThread.set(event.sessionId));
-    plugin.registerCommand({ id: "preview.open", label: "Open preview panel", group: "Extensions", run: (app) => { void open("", app); } });
-    plugin.registerCommand({ id: "preview.toggle", label: "Toggle preview panel", group: "Extensions", run: (app) => togglePreviewPanel(app) });
+    plugin.registerCommand({ id: "preview.open", label: "Open preview panel", group: "Extensions", access: "read", run: (app) => { void open("", app); } });
+    plugin.registerCommand({ id: "preview.toggle", label: "Toggle preview panel", group: "Extensions", access: "read", run: (app) => togglePreviewPanel(app) });
     plugin.registerSlashCommand({
       name: "preview",
       description: "Open a URL in the preview panel",
@@ -131,14 +131,14 @@ export const previewExtension: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+shift+b", commandId: "preview.open" });
     // T3 Code's chord for the same panel.
     plugin.registerKeybinding({ keys: "mod+shift+j", commandId: "preview.toggle" });
-    plugin.registerCommand({ id: "preview.focus-url", label: "Focus the preview address", group: "Extensions", run: (app) => focusAddress(app) });
+    plugin.registerCommand({ id: "preview.focus-url", label: "Focus the preview address", group: "Extensions", access: "write", run: (app) => focusAddress(app) });
     plugin.registerKeybinding({ keys: "mod+l", commandId: "preview.focus-url", when: "previewFocus" });
     // T3 Code's preview.refresh and zoom commands. Their chords are the app menu's; the page takes them while it has the keyboard.
     const report = (app: Pick<WorkbenchActions, "notify">) => (error: unknown) => app.notify(errorMessage(error));
-    plugin.registerCommand({ id: "preview.refresh", label: "Reload the preview", group: "Extensions", run: (app) => { void previewKit.navigate({ action: "reload" }).catch(report(app)); } });
-    plugin.registerCommand({ id: "preview.zoom-in", label: "Zoom the preview in", group: "Extensions", run: (app) => { void previewKit.zoom({ step: "in" }).catch(report(app)); } });
-    plugin.registerCommand({ id: "preview.zoom-out", label: "Zoom the preview out", group: "Extensions", run: (app) => { void previewKit.zoom({ step: "out" }).catch(report(app)); } });
-    plugin.registerCommand({ id: "preview.reset-zoom", label: "Reset the preview's zoom", group: "Extensions", run: (app) => { void previewKit.zoom({ step: "reset" }).catch(report(app)); } });
+    plugin.registerCommand({ id: "preview.refresh", label: "Reload the preview", group: "Extensions", access: "write", run: (app) => { void previewKit.navigate({ action: "reload" }).catch(report(app)); } });
+    plugin.registerCommand({ id: "preview.zoom-in", label: "Zoom the preview in", group: "Extensions", access: "write", run: (app) => { void previewKit.zoom({ step: "in" }).catch(report(app)); } });
+    plugin.registerCommand({ id: "preview.zoom-out", label: "Zoom the preview out", group: "Extensions", access: "write", run: (app) => { void previewKit.zoom({ step: "out" }).catch(report(app)); } });
+    plugin.registerCommand({ id: "preview.reset-zoom", label: "Reset the preview's zoom", group: "Extensions", access: "write", run: (app) => { void previewKit.zoom({ step: "reset" }).catch(report(app)); } });
     return () => {
       cookieImportDialogs.close();
       stopFollowing();

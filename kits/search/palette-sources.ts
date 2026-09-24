@@ -33,6 +33,7 @@ export function threadTitleItems(query: string, context: PaletteSearchContext): 
       id: thread.id,
       label: thread.title || "Untitled thread",
       detail: `${thread.projectName}${onScreen(context, thread.id)}`,
+      access: "read",
       run: (actions) => { void actions.switchSession(thread.path); },
     }));
 }
@@ -48,6 +49,8 @@ export function projectItems(query: string, context: PaletteSearchContext): Pale
       id: project.workspaceId ?? project.path,
       label: project.name,
       detail: project.displayPath ?? project.path,
+      // Opening a project adds it to the host's list.
+      access: "write",
       run: (actions) => { void actions.openWorkspace(project.workspaceId ?? project.path); },
     }));
 }
@@ -62,6 +65,7 @@ export function threadContentItems(matches: readonly ThreadMatch[], context: Pal
       id: thread.id,
       label: thread.title || "Untitled thread",
       detail: match.snippet,
+      access: "read",
       run: (actions) => { void actions.switchSession(thread.path); },
     });
   }

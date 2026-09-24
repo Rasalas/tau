@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { MenuSection } from "./Menu";
 import { Menu } from "../deferred-surfaces";
-import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
+import { commandRefusal, READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
 
 export function ThreadTitleMenu({
   title,
@@ -37,7 +37,7 @@ export function ThreadTitleMenu({
   onToggleSettled(): void;
   onRename(title: string): Promise<boolean>;
   /** Extension commands offered on the thread-title surface. */
-  commands?: ReadonlyArray<{ id: string; label: string; destructive?: boolean; access?: "read" }>;
+  commands?: ReadonlyArray<{ id: string; label: string; destructive?: boolean; access?: "read" | "write" }>;
   onCommand?(id: string): void;
   onMarkUnread(): void;
   onCopy(value: "chat" | "path" | "thread-id"): void;
@@ -64,6 +64,7 @@ export function ThreadTitleMenu({
   // Copying, marking and looking stay this device's; the host refuses the rest (ADR 0024).
   // Pin and settle are the rail's, which the host keeps; a new thread could never be sent.
   const locked = readOnly ? { disabled: true, description: READ_ONLY_REASON } : {};
+  const refused = (command: { access?: "read" | "write" }) => (commandRefusal(command, readOnly) ? locked : {});
   const sections: MenuSection[] = [
     {
       items: [
@@ -78,7 +79,7 @@ export function ThreadTitleMenu({
     {
       items: [
         { id: "rename", label: "Rename thread", ...locked },
-        ...commands.filter((command) => !command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label, ...(command.access === "read" ? {} : locked) })),
+        ...commands.filter((command) => !command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label, ...refused(command) })),
         { id: "unread", label: "Mark unread" },
       ],
     },
@@ -90,7 +91,7 @@ export function ThreadTitleMenu({
       ],
     },
     ...(commands.some((command) => command.destructive)
-      ? [{ items: commands.filter((command) => command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label, destructive: true, ...locked })) }]
+      ? [{ items: commands.filter((command) => command.destructive).map((command) => ({ id: `command:${command.id}`, label: command.label, destructive: true, ...refused(command) })) }]
       : []),
   ];
 

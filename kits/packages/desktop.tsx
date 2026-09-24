@@ -226,6 +226,7 @@ export const packagesExtension: DesktopExtension = {
       id: "packages.install",
       label: "Install extension…",
       group: "Extensions",
+      access: "write",
       run: (app) => app.openSettings(PACKAGES_SETTINGS_PAGE),
     });
 

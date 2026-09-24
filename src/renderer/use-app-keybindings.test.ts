@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
+import { setHostClient } from "./host-client-context";
+import { createFakeHostClient } from "./test-support/fake-host-client";
+import { READ_ONLY_REASON } from "./use-host-capabilities";
 import { useAppKeybindings } from "./use-app-keybindings";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 
@@ -80,5 +83,32 @@ describe("useAppKeybindings", () => {
     for (const key of ["d", "k"]) recorder.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: isMac, ctrlKey: !isMac, bubbles: true }));
     expect(run).not.toHaveBeenCalled();
     shell.remove();
+  });
+
+  it("says why instead of running a chord's command that writes on a Read-only device", async () => {
+    const registry = new ExtensionRegistry();
+    const pin = vi.fn();
+    const next = vi.fn();
+    await registry.activate({ id: "test", name: "Test", activate(context) {
+      context.registerCommand({ id: "pin", label: "Pin", group: "Test", run: pin });
+      context.registerCommand({ id: "next", label: "Next", group: "Test", access: "read", run: next });
+      context.registerKeybinding({ keys: "mod+shift+u", commandId: "pin" });
+      context.registerKeybinding({ keys: "mod+shift+y", commandId: "next" });
+    } });
+    setHostClient(createFakeHostClient({ isReadOnly: () => true }));
+    const onNotice = vi.fn();
+    const { unmount } = renderHook(() => useAppKeybindings(registry, {} as WorkbenchActions, onNotice));
+    try {
+      const isMac = /mac|iphone|ipad/iu.test(navigator.platform);
+      const press = (key: string) => window.dispatchEvent(new KeyboardEvent("keydown", { key, shiftKey: true, metaKey: isMac, ctrlKey: !isMac, bubbles: true, cancelable: true }));
+      press("u");
+      expect(pin).not.toHaveBeenCalled();
+      expect(onNotice).toHaveBeenCalledWith(READ_ONLY_REASON);
+      press("y");
+      expect(next).toHaveBeenCalledOnce();
+    } finally {
+      unmount();
+      setHostClient(undefined);
+    }
   });
 });

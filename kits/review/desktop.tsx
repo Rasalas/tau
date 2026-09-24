@@ -94,7 +94,7 @@ export const reviewExtension: DesktopExtension = {
       chips = service;
       return () => { if (chips === service) chips = undefined; };
     });
-    plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
+    plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", access: "read", run: (app) => app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // A phone or a tablet reads diffs in a sheet from the title bar; the desktop's overlay and Changes panel are not drawn there.
     plugin.registerPanel({
       id: REVIEW_COMPACT_PANEL,
@@ -138,11 +138,11 @@ export const reviewExtension: DesktopExtension = {
       workspaceStore = store;
       const disposers = [
         plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store, comments, () => chips) }),
-        plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", run: () => store.openReview() }),
+        plugin.registerCommand({ id: "review.open", label: "Review changes", group: "Project", access: "read", run: () => store.openReview() }),
         plugin.registerSlashCommand({ name: "review", description: "Open the full Git review overlay", run: () => { store.openReview(); return undefined; } }),
         plugin.registerKeybinding({ keys: "mod+shift+d", commandId: "review.open" }),
         // T3 Code's diff toggle; in a terminal `mod+d` splits it.
-        plugin.registerCommand({ id: "review.toggle", label: "Toggle the review", group: "Project", run: () => { if (store.getSnapshot().review) store.closeReview(); else store.openReview(); } }),
+        plugin.registerCommand({ id: "review.toggle", label: "Toggle the review", group: "Project", access: "read", run: () => { if (store.getSnapshot().review) store.closeReview(); else store.openReview(); } }),
         plugin.registerKeybinding({ keys: "mod+d", commandId: "review.toggle", when: "!terminalFocus" }),
         registerCommitMessages(plugin, store),
         store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),

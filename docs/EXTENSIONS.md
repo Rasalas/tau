@@ -256,10 +256,17 @@ command gets no id and acts on the open one. A long press on a row lists every
 and the first non-destructive `thread-row` command that brings an `Icon` (new in
 API 1.13.0, a component like a panel's). Thread Rail's Snooze, Archive and
 Delete are the shipped callers, with Snooze in the tray as in T3 Code.
-On a device paired Read only, the thread surfaces (the title menu, the compact
-list's sheet and tray) disable a command with the reason unless it declares
-`access: "read"` (new in API 1.13.0): running it changes nothing on the host.
-Workspace Kit's "Copy branch" declares it.
+On a device paired Read only, every place that offers a command (the palette,
+the title menu, the compact list's sheet and tray, a file tab's header) shows
+it disabled with the reason unless it declares `access: "read"` (new in API
+1.13.0), and its chord shows the reason instead of running it. `"read"` means
+the command changes nothing on the host: it only looks, or acts in this window
+alone — opens a panel, moves focus, copies to the device's clipboard, changes a
+preference, which a Read-only device keeps to itself. A command that only runs
+in the client declares it too; core cannot tell by itself. `access: "write"`
+says the opposite out loud and is what a missing `access` means. Every command
+of core and the shipped kits declares one or the other, and
+`kits/kit-lifecycle.test.tsx` fails for one that does not.
 
 `registerPanel` takes `Icon`, a component of your own (`{ size?: number }`) —
 `lucide-react` is a shared module, so a package draws its glyph from the set
@@ -658,7 +665,12 @@ thread index this window holds (`projects`, `threads`, `activeThreadId`), and
 that arrives after that is dropped, so a slow source never paints rows for a
 query the user already left; a source that talks to its host half should wait
 a moment on the signal before it asks. A row is `{ id, label, detail?, run }`:
-`detail` is shown after the label, the source's `label` beside it.
+`detail` is shown after the label, the source's `label` beside it. A row takes
+`access` like a command (new in API 1.13.0): on a Read-only device a row
+without `"read"` is shown disabled, with "Read only" and the reason in its
+tooltip, which a tap shows on a touch screen; the cursor passes over it. A
+group of commands of which none declares `"read"` is left out there, as is a
+source none of whose rows does, so the list holds no section of dead rows.
 
 What the list shows, in order: commands whose label matches, then every
 source's rows in `order` (eight at most each), then core's own Settings rows —
@@ -705,7 +717,9 @@ the data does. The breadcrumb above the field names them and goes back to any;
 the back button and Backspace in an empty field go back one, and the level
 below gets its query back. A row may carry an `icon` (a node; name it with
 `aria-label` when it means something, as a runtime drawn only as its logo) and
-`current: true`, which the row shows as "Current". An `items` that throws
+`current: true`, which the row shows as "Current", and `access` as on a source's
+row; a level under a command that writes does not open on a Read-only device.
+An `items` that throws
 shows its message in place of the rows. `run` on a row is optional when it has
 a `submenu`; on a command it stays what a chord or a `surfaces` entry does,
 and `actions.openCommandPalette({ menu: id })` opens the palette on the
@@ -1003,7 +1017,7 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. |
-| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Defaults page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
+| `useHostCapabilities`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced; the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Defaults page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
 | `readCachedTurnActivity`, `changesSinceTurn`, `changesTouchedByTools` | what a turn touched, from the cache core writes. |
