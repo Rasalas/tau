@@ -82,12 +82,14 @@ export const agentsExtension: DesktopExtension = {
       id: "agents.open",
       label: "Show spawned agents",
       group: "Extensions",
+      access: "read",
       run: (app) => app.openPanel("agents"),
     });
     context.registerCommand({
       id: "agents.definitions.reload",
       label: "Read agent definitions again",
       group: "Extensions",
+      access: "read",
       run: (app) => {
         const active = app.activeThread();
         loadDefinitions(definitionsStore.load(active?.draftPending ? undefined : active?.sessionId));

@@ -84,7 +84,7 @@ export function ProjectSourcesModal({
               ))}
               {visibleSources.length === 0 ? <p>No matching project sources.</p> : null}
             </div>
-            <footer className="project-modal-help"><kbd>↑↓</kbd> Navigate <kbd>Enter</kbd> Select <kbd>Esc</kbd> Close</footer>
+            <footer className="project-modal-help keyboard-hint"><kbd>↑↓</kbd> Navigate <kbd>Enter</kbd> Select <kbd>Esc</kbd> Close</footer>
           </>
         )}
       </section>

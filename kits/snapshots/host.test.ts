@@ -16,7 +16,9 @@ const capture: SnapShotCapture = {
   accessibility: { imageSize: { width: 2, height: 1 }, truncated: false, nodes: 1, root: { role: "window", children: [] } },
 };
 
-async function activate(window: (command: string, input?: unknown) => unknown = () => undefined) {
+type ConfigListener = (change: { kind: string; paths: readonly string[] }) => void;
+
+async function activate(window: (command: string, input?: unknown) => unknown = () => undefined, config?: { settings: { options: Record<string, boolean>; values: Record<string, string> }; changed?: ConfigListener }) {
   const stateDir = await mkdtemp(join(tmpdir(), "tau-snapshots-host-"));
   directories.push(stateDir);
   const events: PublishedKitEvent[] = [];
@@ -25,7 +27,14 @@ async function activate(window: (command: string, input?: unknown) => unknown = 
     calls.push({ command, input });
     return window(command, input);
   });
-  const registry = await activateHostKit(createSnapShotsHostExtension(), { stateDir, callClient: callClient as never }, (event) => events.push(event));
+  const registry = await activateHostKit(createSnapShotsHostExtension(), {
+    stateDir,
+    callClient: callClient as never,
+    ...(config ? {
+      settings: (async () => config.settings) as never,
+      observeConfigChanges: (listener: ConfigListener) => { config.changed = listener; return () => { config.changed = undefined; }; },
+    } : {}),
+  }, (event) => events.push(event));
   const invoke = (command: string, input?: unknown) => registry.invoke(SNAPSHOTS_EXTENSION_ID, command, input);
   return { registry, invoke, events, calls, stateDir };
 }
@@ -72,6 +81,28 @@ describe("SnapShots host half", () => {
 
     await registry.deactivate(SNAPSHOTS_EXTENSION_ID);
     expect(calls.at(-1)).toEqual({ command: "shortcut", input: { accelerator: null, accessibility: false } });
+  });
+
+  it("arms from its own settings when a client asks without any, and follows them as they change", async () => {
+    const config: { settings: { options: Record<string, boolean>; values: Record<string, string> }; changed?: ConfigListener } = {
+      settings: { options: { "shortcut-enabled": true }, values: { shortcut: "Control+Alt+F19" } },
+    };
+    const { invoke, calls } = await activate(() => ({}), config);
+    // Nothing is armed before a window asks.
+    config.changed?.({ kind: "config", paths: [] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual([]);
+
+    await invoke("arm");
+    expect(calls).toEqual([{ command: "shortcut", input: { accelerator: "Control+Alt+F19", accessibility: true } }]);
+    expect(await invoke("armed")).toEqual({ accelerator: "Control+Alt+F19", accessibility: true });
+
+    config.changed?.({ kind: "config", paths: [] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toHaveLength(1);
+    config.settings = { options: { "shortcut-enabled": false, accessibility: false }, values: {} };
+    config.changed?.({ kind: "config", paths: [] });
+    await vi.waitFor(() => expect(calls.at(-1)).toEqual({ command: "shortcut", input: { accelerator: null, accessibility: false } }));
   });
 
   it("says SnapShots are unavailable where no window half answers", async () => {

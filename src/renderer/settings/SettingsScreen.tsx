@@ -297,7 +297,7 @@ export function SettingsScreen({
             />
             {search ? (
               <button type="button" className="settings-nav-search-clear" aria-label="Clear settings search" onClick={() => { clearSearch(); searchRef.current?.focus(); }}><X size={12} /></button>
-            ) : <kbd>/</kbd>}
+            ) : <kbd className="keyboard-hint">/</kbd>}
           </label>
           <div className="settings-nav-list">
             {search.trim() ? <>

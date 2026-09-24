@@ -13,7 +13,7 @@ import {
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 import { useHostClient } from "../host-client-context";
-import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
+import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
 import { usePreferences } from "../renderer-services-context";
 import { useThreadStore } from "../workbench-context";
 import { ActionSheet, type SheetAction } from "./ActionSheet";
@@ -90,7 +90,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   // The tray holds settle and the first kit action that brings a glyph (Thread Rail's Snooze).
   const { readOnly } = useHostCapabilities();
   // The host refuses a Read-only device's changes (ADR 0024); the sheet says so rather than offering them.
-  const refused = (command?: { access?: "read" }) => readOnly && command?.access !== "read" ? READ_ONLY_REASON : undefined;
+  const refused = (command: { access?: "read" | "write" }) => commandRefusal(command, readOnly);
   const trayCommand = rowCommands.find((command) => command.Icon && !command.destructive && !refused(command));
   const swipeActions = (row: ThreadSupervisionRow): SwipeAction[] => {
     // Settling is the rail's, which the host keeps: a Read-only device has nothing to swipe to.

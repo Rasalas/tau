@@ -224,6 +224,7 @@ export const planKitExtension: DesktopExtension = {
       id: "plan.toggle",
       label: "Toggle plan mode",
       group: "Composer",
+      access: "write",
       run: async (actions) => {
         const active = actions.activeThread();
         if (!active?.modes?.includes(PLAN_MODE) || !actions.setMode) {

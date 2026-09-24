@@ -74,6 +74,7 @@ export const serviceTierKitExtension: DesktopExtension = {
         id: `service-tier.${tier}`,
         label: `Service tier: ${tier}`,
         group: "Runtime",
+        access: "write",
         run: async (actions) => {
           notify = actions.notify;
           try { await plugin.host.invoke("set-tier", { tier }); }

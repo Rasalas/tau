@@ -114,6 +114,19 @@ describe("client profiles", () => {
     });
   }
 
+  // A Read-only device offers a command only when it says it just looks, so an
+  // undeclared one of ours would be disabled there for no reason, or a write shown.
+  it("says for every command of core and the kits Tau ships whether it writes to the host", async () => {
+    const { registry } = createKitHarness(workspaceHostStub());
+    registry.activateCore(runtimeControls);
+    for (const extension of kits) registry.activate(extension);
+    await Promise.resolve();
+    const undeclared = registry.getCommands().filter((command) => command.access !== "read" && command.access !== "write");
+    expect(undeclared.map((command) => `${command.extensionId}: ${command.id}`)).toEqual([]);
+    expect(registry.getCommands().length).toBeGreaterThan(80);
+    for (const extension of kits) registry.deactivate(extension.id);
+  });
+
   // The app menu takes its accelerators before the page sees them; Settings is
   // the one chord both bind, to the same command. A preview that wants the zoom
   // chords for its own page takes them in that view (`src/main/app-menu.ts`).

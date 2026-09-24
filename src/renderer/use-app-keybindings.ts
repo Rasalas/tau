@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { errorMessage } from "../workbench/error-message";
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "./keybinding-context";
+import { commandRefusal, hostIsReadOnly } from "./use-host-capabilities";
 
 /**
  * Window keydown to commands. A binding whose `when` needs a context (the
@@ -24,6 +25,8 @@ export function useAppKeybindings(
       if (!match.modified && document.querySelector('[aria-modal="true"]')) return;
       event.preventDefault();
       if (capture) event.stopPropagation();
+      const refused = commandRefusal(match.command, hostIsReadOnly());
+      if (refused) { onNotice(refused); return; }
       Promise.resolve(match.command.run(actions)).catch((error) => onNotice(`${match.command.id}: ${errorMessage(error)}`));
     };
     const early = (event: KeyboardEvent) => dispatch(event, true);

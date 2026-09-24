@@ -99,7 +99,9 @@ read: it still sees every thread, diff and file the workbench shows.
 `connections-revoke-others` revokes every paired device. Every change a
 paired device makes, and every refusal, is recorded: the last change on its
 record (the method or `<extension>/<command>`, never the input), each one in
-the host log.
+the host log. The record reads as a person would say it ("sent a prompt in
+“Fix the queue”"); what a client does on its own after a prompt, such as titling
+the thread, is logged but does not replace it (0.5.1).
 
 **Where the owner answers.** Every window that holds the host token asks as
 soon as a request arrives (`PairingRequestWatcher`), with the device's name,

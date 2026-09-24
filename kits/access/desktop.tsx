@@ -2,9 +2,7 @@ import { useState, useSyncExternalStore } from "react";
 import { ChevronDown, Lock, LockOpen } from "lucide-react";
 import { HostUnavailableError, hostIsReadOnly, Menu, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
 import type { AccessLevel } from "./protocol.js";
-import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
-
-const LEVEL_KEY = "level";
+import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_KEY as LEVEL_KEY, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
 
 function storedLevel(preferences: PreferencesStore): AccessLevel {
   const value = preferences.value(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY);
@@ -12,7 +10,7 @@ function storedLevel(preferences: PreferencesStore): AccessLevel {
 }
 
 /** The chip and menu that used to be hard-wired into the composer. */
-function createControl(preferences: PreferencesStore) {
+function createControl(preferences: PreferencesStore, choose: (level: string) => void) {
   return function AccessControl({ snapshot }: ComposerControlProps) {
     const readLevel = () => storedLevel(preferences);
     const level = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
@@ -39,7 +37,7 @@ function createControl(preferences: PreferencesStore) {
                 ? "This runtime cannot stop for an approval; choose read-only or full access."
                 : undefined,
             }))}
-            onSelect={(id) => preferences.setValue(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY, id)}
+            onSelect={choose}
             onClose={() => setOpen(false)}
           />
         ) : null}
@@ -49,37 +47,32 @@ function createControl(preferences: PreferencesStore) {
 }
 
 /**
- * Keeps the host gate at the level the person chose. The preference is the
- * source of truth; the host is told on activation and after every change,
- * unless it holds that level already: a paired device's log counts every
- * `set-level` as a change it made.
+ * The person's choice on this client: stored, and told to the host at once so
+ * the next turn runs at it. Nothing is sent on load; the host reads its level
+ * from its own config, which the stored value lands in too.
  */
-function syncLevel(host: HostExtensionClient, preferences: PreferencesStore): () => void {
-  let pushed: AccessLevel | undefined;
-  const push = () => {
-    const level = storedLevel(preferences);
+function chooser(host: HostExtensionClient, preferences: PreferencesStore): (level: string) => void {
+  return (level) => {
+    if (!isAccessLevel(level)) return;
+    preferences.setValue(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY, level);
+    // Sent even when this client shows that level already: its copy may be older than the host's.
     // The host refuses a Read-only device's level; the owner's clients set it.
-    if (level === pushed || hostIsReadOnly()) return;
-    pushed = level;
-    void host.invoke("level").catch(() => undefined)
-      .then((held) => (held === level ? undefined : host.invoke("set-level", { level })))
-      .catch((error: unknown) => {
-        pushed = undefined;
-        if (error instanceof HostUnavailableError) return;
-        console.warn("Access Kit could not apply the access level", error);
-      });
+    if (hostIsReadOnly()) return;
+    void host.invoke("set-level", { level }).catch((error: unknown) => {
+      if (error instanceof HostUnavailableError) return;
+      console.warn("Access Kit could not apply the access level", error);
+    });
   };
-  push();
-  return preferences.subscribe(push);
 }
 
 export const accessKitExtension: DesktopExtension = {
   id: ACCESS_HOST_EXTENSION_ID,
   name: "Access Kit",
   activate(plugin) {
-    plugin.registerComposerControl({ id: "access.level", order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences) });
+    const choose = chooser(plugin.host, plugin.preferences);
+    plugin.registerComposerControl({ id: "access.level", order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences, choose) });
     // T3 Code's `composer.mode` opens the access menu, its runtime mode.
-    plugin.registerCommand({ id: "composer.mode", label: "Choose the access level", group: "Composer", run: (app) => {
+    plugin.registerCommand({ id: "composer.mode", label: "Choose the access level", group: "Composer", access: "write", run: (app) => {
       const control = document.querySelector<HTMLElement>('[data-composer-shortcut~="composer.mode"]');
       if (control) control.click();
       else app.notify("The composer shows no access control here.");
@@ -90,10 +83,10 @@ export const accessKitExtension: DesktopExtension = {
         id: `access.${entry.id}`,
         label: `Access: ${entry.label}`,
         group: "Runtime",
-        run: () => { plugin.preferences.setValue(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY, entry.id); },
+        access: "write",
+        run: () => choose(entry.id),
       });
     }
-    return syncLevel(plugin.host, plugin.preferences);
   },
 };
 

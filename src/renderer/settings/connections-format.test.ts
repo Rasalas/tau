@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LINK_LIFETIMES, describeDevice, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
+import { LINK_LIFETIMES, describeDevice, describeLastChange, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
 
 const now = Date.parse("2026-09-23T12:00:00Z");
 
@@ -12,6 +12,16 @@ describe("connections formatting", () => {
     expect(formatAgo("2026-09-21T12:00:00Z", now)).toBe("2 days ago");
     expect(formatExpiresIn("2026-09-23T12:09:10Z", now)).toBe("Expires in 9 min");
     expect(formatExpiresIn("2026-09-23T12:00:00Z", now)).toBe("Expired");
+  });
+
+  it("says what a device changed last the way a person reads it", () => {
+    const at = "2026-09-23T11:55:00Z";
+    expect(describeLastChange({ action: "prompt", label: "sent a prompt", thread: "Fix the queue", at }, now)).toBe("last change: sent a prompt in “Fix the queue”, 5 min ago");
+    expect(describeLastChange({ action: "tau.workspace/commit", label: "committed changes", at }, now)).toBe("last change: committed changes, 5 min ago");
+    // A record from before the labels.
+    expect(describeLastChange({ action: "rename-thread", at }, now)).toBe("last change: rename-thread, 5 min ago");
+    expect(describeLastChange({ action: "prompt", label: "sent a prompt", thread: "A very long thread title that keeps going and going", at }, now))
+      .toBe("last change: sent a prompt in “A very long thread title that keeps goi…”, 5 min ago");
   });
 
   it("names a device by what is known of it", () => {

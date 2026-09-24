@@ -23,7 +23,7 @@ import { invokeHostMethod, type HostMethodTable } from "./host-methods.js";
 import { hostTokenMatches } from "./host-token.js";
 import { publicKeyPin } from "./host-tls.js";
 import type { AccessPeer, HostCredential, PairingChannel } from "./host-access.js";
-import { isHostOwner, type HostInvocationPrincipal } from "./host-invocation.js";
+import { isHostOwner, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
 import { assertListenAllowed, parseListen } from "./host-listen.js";
 import { isLocalPeer, peerAddress, proxyUser, socketCapabilities, type ListenerTrust } from "./host-local-files.js";
 import { forwardedHost, originAllowed } from "./host-origin.js";
@@ -51,7 +51,7 @@ export interface SocketAccess {
   /** What a paired device may do right now; asked on every request, so a new preset applies at once. */
   accessOf?(connectionId: string): DeviceAccess;
   /** Records a change a paired device made, or was refused. */
-  audit?(connectionId: string, action: string, allowed: boolean): void;
+  audit?(connectionId: string, call: AuditedCall, allowed: boolean): void;
   /** Pairing over the socket (ADR 0024); without these a `pair` frame is refused. */
   requestPairing?(request: HostPairRequest, peer: AccessPeer, channel: PairingChannel): { id?: string; reply: HostPairReply };
   revealPairing?(id: string, nonce: string): Promise<HostPairReply>;
@@ -210,7 +210,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     return Object.freeze({
       ...session.principal,
       ...(readOnly ? { readOnly: true as const } : {}),
-      ...(access.audit ? { audit: (action: string, allowed: boolean) => access.audit!(session.connection, action, allowed) } : {}),
+      ...(access.audit ? { audit: (call: AuditedCall, allowed: boolean) => access.audit!(session.connection, call, allowed) } : {}),
     });
   };
 

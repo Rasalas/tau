@@ -807,6 +807,8 @@ export class PiHost {
     return this.cwd;
   }
 
+  threadTitle(sessionId: string): string | undefined { return this.index.byId(sessionId)?.title; }
+
   async bootstrap(): Promise<HostBootstrap> {
     // The project list is withheld while a checkout is unclassified. Bootstrap
     // is the one publication the client cannot miss, so settle it here.
@@ -2174,6 +2176,8 @@ export class PiHost {
   modelPricesChanged(): void { this.pricing.reloadPrices(); }
   /** `extensions.watch` changed: follow Tau's files again, or stop. */
   async watchingChanged(): Promise<void> { await this.watch?.retarget(); }
+  /** Tau wrote its config: kits that read it hear so even while watching is off. */
+  configWritten(paths: readonly string[]): void { this.seam.notifyConfigChange({ kind: "config", paths }); }
 
   async modelsConfig(): Promise<CustomProviderConfig[]> {
     return loadModelsConfig(this.agentDir);

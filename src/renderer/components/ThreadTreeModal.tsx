@@ -87,7 +87,7 @@ export function ThreadTreeModal({
             </label>
           ) : null}
           <span className="spacer" />
-          <span><kbd>Esc</kbd> Close</span>
+          <span className="keyboard-hint"><kbd>Esc</kbd> Close</span>
         </footer>
       </section>
     </>

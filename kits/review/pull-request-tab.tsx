@@ -64,6 +64,7 @@ export function registerPullRequestTab(
       id: "review.pull-request.open",
       label: "Open the thread's pull request",
       group: "Project",
+      access: "read",
       run: async (actions) => {
         const cwd = actions.activeThread()?.cwd;
         if (!cwd) { actions.notify("Open a thread in a project first."); return; }
@@ -77,6 +78,7 @@ export function registerPullRequestTab(
       id: "review.pull-requests.open",
       label: "Pull requests",
       group: "Project",
+      access: "read",
       run: (actions) => {
         const thread = actions.activeThread();
         openPullRequests(actions, thread?.workspaceId ?? thread?.cwd);
@@ -86,12 +88,14 @@ export function registerPullRequestTab(
       id: "review.pull-requests.all",
       label: "Pull requests in all projects",
       group: "Project",
+      access: "read",
       run: (actions) => { openPullRequests(actions, "all"); },
     }),
     plugin.registerCommand({
       id: "review.pull-request.link",
       label: "Link pull request…",
       group: "Project",
+      access: "write",
       // The palette picks from the open requests; a chord opens the dialog.
       submenu: linkPullRequestMenu(client, shared.links),
       run: (actions) => {

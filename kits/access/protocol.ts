@@ -18,6 +18,9 @@ export const ACCESS_LEVELS: ReadonlyArray<{ id: AccessLevel; label: string }> = 
 
 export const DEFAULT_ACCESS_LEVEL: AccessLevel = "full";
 
+/** The level's key under `values.tau.access` in the host's config. */
+export const ACCESS_LEVEL_KEY = "level";
+
 export function isAccessLevel(value: unknown): value is AccessLevel {
   return ACCESS_LEVELS.some((level) => level.id === value);
 }

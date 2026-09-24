@@ -27,6 +27,7 @@ export default {
       return { cwd, input, safeMode: services.safeMode };
     });
     context.registerCommand("sessions", async () => (await services.sessions.list()).length);
+    context.registerCommand("tidy", () => "tidied", { audit: { label: "tidied up", automatic: true } });
     context.registerCommand("caller", async (_input, call) => ({ call, devices: await services.clients.devices() }));
     context.registerCommand("proxy-read", (input) => context.invokeHostExtension("acme.target", "read", input));
     context.registerCommand("proxy-restricted", (input) => context.invokeHostExtension("acme.target", "restricted", input));
@@ -291,6 +292,19 @@ describe("isolated host extensions", () => {
         call: { device: "p1", owner: false },
         devices: [{ id: "p1", name: "iPhone", access: "full" }],
       });
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("records a worker's command the way it declared", async () => {
+    const { registry, extension } = harness();
+    await registry.activate(extension);
+    try {
+      const calls: unknown[] = [];
+      const phone = { kind: "workbench-client", connection: "c1", pairedClient: "p1", audit: (call: unknown) => calls.push(call) } as const;
+      await expect(registry.invoke("acme.worker", "tidy", { threadId: "t-1" }, phone)).resolves.toBe("tidied");
+      expect(calls).toEqual([{ action: "acme.worker/tidy", label: "tidied up", threadId: "t-1", automatic: true }]);
     } finally {
       await registry.dispose();
     }

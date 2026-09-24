@@ -22,6 +22,7 @@ import {
 import type { ComponentType } from "react";
 import { CloneToasts } from "./clone-toasts.js";
 import {
+  AUTO_PULL_OPTION,
   isWorktreeSubmodules,
   WORKSPACE_HOST_EXTENSION_ID,
   WORKSPACE_REVIEW_OVERLAY,
@@ -77,8 +78,7 @@ export const START_FROM_ORIGIN_OPTION = "start-from-origin";
 export const WORKTREE_SUBMODULES_KEY = "worktree-submodules";
 /** Where new projects start: the folder browser and the clone's destination. */
 export const PROJECT_BASE_DIRECTORY_KEY = "project-base-directory";
-/** Keep the default branch current by fast-forward; off by default, as in T3 Code. */
-export const AUTO_PULL_OPTION = "auto-pull-default-branch";
+export { AUTO_PULL_OPTION };
 
 /** A project's own override of the global default, kept per checkout. */
 export function projectWorkspaceModeKey(root: string): string {

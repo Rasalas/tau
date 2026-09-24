@@ -421,6 +421,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
               ...(message.long ? { long: true } : {}),
               ...(callers.length > 0 ? { callers } : {}),
               ...(message.access === "read" || message.access === "owner" ? { access: message.access } : {}),
+              ...(message.audit && typeof message.audit === "object" ? { audit: message.audit } : {}),
             },
           ));
         } catch (error) {

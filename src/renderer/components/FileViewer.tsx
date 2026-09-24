@@ -7,6 +7,8 @@ import { errorMessage } from "../../workbench/error-message";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
 import { DiffPane } from "./DiffPane";
 import { formatBytes } from "../format-bytes";
+import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
+import { tooltipProps } from "./ui/Tooltip";
 
 /** Past this, highlighting a whole file stalls the renderer; plain text still reads fine. */
 const HIGHLIGHT_LIMIT_BYTES = 200 * 1024;
@@ -84,6 +86,7 @@ export function FileViewer({ tab, relativePath, changed, editor, commands = [], 
   const [content, setContent] = useState<UiFileContent>();
   const [error, setError] = useState<string>();
   const [mode, setMode] = useState<"unified" | "split">("unified");
+  const { readOnly } = useHostCapabilities();
   const view: StageView = tab.view === "diff" && !changed ? "source" : tab.view;
 
   useEffect(() => {
@@ -118,13 +121,16 @@ export function FileViewer({ tab, relativePath, changed, editor, commands = [], 
           <button className={mode === "split" ? "active" : ""} onClick={() => setMode("split")}>Split</button>
         </div>
       ) : null}
-      {actions ? commands.map((command) => (
-        <button
+      {actions ? commands.map((command) => {
+        const refused = commandRefusal(command, readOnly);
+        return <button
           key={command.id}
           className="text-button"
+          disabled={Boolean(refused)}
+          {...tooltipProps(refused)}
           onClick={() => { Promise.resolve(command.run(actions)).catch((reason: unknown) => actions.notify(errorMessage(reason))); }}
-        >{command.label}</button>
-      )) : null}
+        >{command.label}</button>;
+      }) : null}
       {editor ? (
         <button className="text-button" title={`Open in ${editor.name}`} onClick={() => onOpenInEditor(tab.path)}>
           <span>Open in {editor.name}</span> <ExternalLink size={11} />

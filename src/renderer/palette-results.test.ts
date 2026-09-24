@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { menuRows, paletteRows, type PaletteCommand, type PaletteRow } from "./palette-results";
+import { menuRows, paletteRows, readOnlyCommands, readOnlySources, stepRow, type PaletteCommand, type PaletteRow } from "./palette-results";
 
 const command = (id: string, label: string, group = "Runtime", extensionName = "Runtime Controls"): PaletteCommand =>
   ({ id, label, group, extensionId: "core", extensionName, run: () => undefined });
@@ -68,5 +68,36 @@ describe("menu rows", () => {
 
   it("shows a level that searches itself as it answered", () => {
     expect(keys(menuRows(rows, "nothing like it", true))).toEqual(["menu:dark", "menu:codex", "menu:light"]);
+  });
+});
+
+describe("palette results on a Read-only device", () => {
+  const read = (entry: PaletteCommand): PaletteCommand => ({ ...entry, access: "read" });
+
+  it("leaves out a group whose every command writes and keeps the writes of a group that also looks", () => {
+    const listed = readOnlyCommands([
+      read(command("thread.next", "Next thread", "Thread")),
+      command("thread.pin", "Pin thread", "Thread"),
+      command("composer.mode", "Choose the access level", "Composer"),
+      { ...command("composer.effort", "Choose the reasoning effort", "Composer"), access: "write" },
+    ]);
+    expect(listed.map((entry) => entry.id)).toEqual(["thread.next", "thread.pin"]);
+  });
+
+  it("leaves out a source whose every row writes", () => {
+    const sources = readOnlySources([
+      { id: "threads", label: "Threads", items: [{ ...item("t1"), access: "read" as const }, item("t2")] },
+      { id: "projects", label: "Projects", items: [item("p1"), { ...item("p2"), access: "write" as const }] },
+    ]);
+    expect(sources.map((source) => source.id)).toEqual(["threads"]);
+  });
+
+  it("steps over rows the device may not run, wrapping, and stays put when none is left", () => {
+    const usable = (index: number) => index !== 1 && index !== 2;
+    expect(stepRow(4, 0, 1, usable)).toBe(3);
+    expect(stepRow(4, 3, 1, usable)).toBe(0);
+    expect(stepRow(4, 0, -1, usable)).toBe(3);
+    expect(stepRow(4, 2, 1, () => false)).toBe(2);
+    expect(stepRow(0, -1, 1, () => true)).toBe(-1);
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { READ_ONLY_REASON } from "../shared/host-method-access";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { getHostClient, useHostClient } from "./host-client-context";
 
@@ -18,7 +19,7 @@ export interface HostCapabilities {
 }
 
 /** The reason a write control of a Read-only device gives, where it is disabled rather than left out (API 1.13.0). */
-export { READ_ONLY_REASON } from "../shared/host-method-access";
+export { READ_ONLY_REASON };
 
 /** What the connected host announced in its hello. */
 export function useHostCapabilities(): HostCapabilities {
@@ -69,4 +70,12 @@ export function useCommandAllowed(extensionId: string, command: string): boolean
 export function hostCommandAllowed(extensionId: string, command: string, client: CommandGate | undefined = getHostClient()): boolean {
   if (!client) return true;
   return client.mayInvokeHostExtension?.(extensionId, command) ?? !client.isReadOnly();
+}
+
+/**
+ * Why a Read-only device may not run this command or palette row, or nothing
+ * when it may: only what declares `access: "read"` runs there.
+ */
+export function commandRefusal(entry: { access?: "read" | "write" }, readOnly: boolean): string | undefined {
+  return readOnly && entry.access !== "read" ? READ_ONLY_REASON : undefined;
 }

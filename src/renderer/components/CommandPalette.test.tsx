@@ -3,6 +3,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type PaletteItem, type PaletteSearchContext, type WorkbenchActions } from "../extension-system";
 import { CommandPalette } from "./CommandPalette";
+import { HostClientProvider } from "../host-client-context";
+import { createFakeHostClient } from "../test-support/fake-host-client";
+import { READ_ONLY_REASON } from "../use-host-capabilities";
 import type { PaletteCommand } from "../palette-results";
 
 afterEach(cleanup);
@@ -208,5 +211,89 @@ describe("command palette levels", () => {
     expect(screen.getByRole("textbox", { name: "Broken" })).toBeTruthy();
     await act(async () => undefined);
     expect(screen.getByRole("alert").textContent).toBe("The host went away.");
+  });
+});
+
+describe("command palette on a Read-only device", () => {
+  const entry = (id: string, label: string, group: string, access?: "read" | "write"): PaletteCommand => ({
+    id, label, group, extensionId: "fixture", extensionName: "Fixture", run: vi.fn(), ...(access ? { access } : {}),
+  });
+  const buttons = () => [...document.querySelectorAll<HTMLButtonElement>(".palette-results button")];
+  const labels = () => buttons().map((row) => row.querySelector("span")!.textContent);
+
+  function setupReadOnly(commands: PaletteCommand[], registry?: ExtensionRegistry, menu?: string) {
+    const actions = { notify: vi.fn(), openSettings: vi.fn(), focusComposer: vi.fn() } as unknown as WorkbenchActions;
+    const onClose = vi.fn();
+    render(
+      <HostClientProvider client={createFakeHostClient({ isReadOnly: () => true })}>
+        <CommandPalette open commands={commands} extensionCount={1} actions={actions} registry={registry} menu={menu} onClose={onClose} />
+      </HostClientProvider>,
+    );
+    return { actions, onClose, input: screen.getByRole("textbox") };
+  }
+
+  it("shows a write disabled with the reason, keeps the cursor off it and never runs it", () => {
+    const next = entry("thread.next", "Next thread", "Thread", "read");
+    const pin = entry("thread.pin", "Pin thread", "Thread");
+    const { input, onClose } = setupReadOnly([pin, next]);
+    expect(labels()).toEqual(["Pin thread", "Next thread"]);
+    const [locked, open] = buttons();
+    expect(locked!.getAttribute("aria-disabled")).toBe("true");
+    expect(locked!.getAttribute("data-tooltip")).toBe(READ_ONLY_REASON);
+    expect(locked!.textContent).toContain("Read only");
+    expect(open!.className).toBe("selected");
+
+    fireEvent.click(locked!);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(open!.className).toBe("selected");
+    expect(pin.run).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(next.run).toHaveBeenCalled();
+  });
+
+  it("leaves out a group that only writes and a source whose rows all do", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({
+      id: "fixture.sources",
+      name: "Sources",
+      activate(context) {
+        context.registerPaletteSource({ id: "fixture.projects", label: "Projects", search: () => [{ id: "p", label: "Composer project", run: vi.fn() }] });
+        context.registerPaletteSource({ id: "fixture.threads", label: "Threads", search: () => [{ id: "t", label: "Composer thread", access: "read", run: vi.fn() }] });
+      },
+    });
+    const { input } = setupReadOnly([
+      entry("composer.mode", "Composer access level", "Composer", "write"),
+      entry("composer.effort", "Composer effort", "Composer"),
+      entry("workbench.focus-composer", "Focus composer", "Workbench", "read"),
+    ], registry);
+    fireEvent.change(input, { target: { value: "composer" } });
+    // Core's Settings rows only look; the matching command ranks first.
+    expect(labels()).toEqual(["Focus composer", "Composer thread", "Composer editing modeDefaults"]);
+  });
+
+  it("disables a level's rows that write and does not open on a level whose command writes", () => {
+    const chosen = vi.fn();
+    const theme = { ...entry("fixture.theme", "Change theme…", "Look", "read"), submenu: { title: "Change theme", items: () => [
+      { id: "dark", label: "Dark", access: "read" as const, run: () => chosen("dark") },
+      { id: "shared", label: "Save as the host's theme", run: () => chosen("shared") },
+    ] } };
+    const { input } = setupReadOnly([theme, { ...entry("fixture.model", "Set model…", "Look"), submenu: { title: "Set model", items: () => [] } }], undefined, "fixture.model");
+    expect(screen.getByRole("textbox", { name: "Command" })).toBe(input);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(labels()).toEqual(["Dark", "Save as the host's theme"]);
+    expect(buttons()[1]!.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(buttons()[1]!);
+    expect(chosen).not.toHaveBeenCalled();
+    fireEvent.click(buttons()[0]!);
+    expect(chosen).toHaveBeenCalledWith("dark");
+  });
+});
+
+describe("command palette shortcuts", () => {
+  it("marks a row's chord as a keyboard hint, which a touch screen leaves out", () => {
+    const command: PaletteCommand = { id: "fixture.pin", label: "Pin thread", group: "Thread", extensionId: "fixture", extensionName: "Fixture", run: vi.fn() };
+    render(<CommandPalette open commands={[command]} extensionCount={1} actions={{ notify: vi.fn() } as unknown as WorkbenchActions} shortcutFor={() => "⌘⇧P"} onClose={() => undefined} />);
+    expect(screen.getByText("⌘⇧P").classList.contains("keyboard-hint")).toBe(true);
   });
 });

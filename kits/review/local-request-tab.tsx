@@ -31,6 +31,7 @@ export function registerLocalRequestTab(plugin: DesktopExtensionContext, parts: 
       id: "review.local-pull-request.open",
       label: "Local pull request",
       group: "Project",
+      access: "read",
       run: (actions) => { openLocalPullRequest(actions); },
     }),
   ];

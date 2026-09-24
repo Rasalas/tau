@@ -22,7 +22,7 @@ import { Empty, Skeleton } from "../components/ui/Feedback";
 import { PairingRequestDialog } from "../pairing/PairingRequestDialog";
 import { ACCESS_CHOICES, requestTitle } from "../pairing/pairing-format";
 import { SettingRow, SettingsSection } from "./settings-layout";
-import { LINK_LIFETIMES, describeDevice, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
+import { LINK_LIFETIMES, describeDevice, describeLastChange, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
 import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
 import { NearbyMachinesDialog } from "./NearbyMachines";
@@ -351,7 +351,7 @@ function ClientRow({ paired, now, busy, onEdit, onRevoke }: { paired: UiPairedCl
   const live = paired.connections > 0;
   const details = [describeDevice(paired.device), paired.lastAddress, paired.proxyUser ? `as ${paired.proxyUser}` : undefined, `paired ${formatAgo(paired.pairedAt, now)}`,
     live ? "connected" : paired.lastSeenAt ? `last active ${formatAgo(paired.lastSeenAt, now)}` : "not connected yet",
-    paired.lastAction ? `last change ${paired.lastAction.action} ${formatAgo(paired.lastAction.at, now)}` : undefined].filter(Boolean);
+    paired.lastAction ? describeLastChange(paired.lastAction, now) : undefined].filter(Boolean);
   // Unused tokens run out; the owner hears of it a week ahead, the device only when it is refused.
   const expiring = !live && paired.expiresAt !== undefined && Date.parse(paired.expiresAt) - now < IDLE_EXPIRY_WARNING_MS;
   return (

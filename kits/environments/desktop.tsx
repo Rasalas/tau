@@ -79,6 +79,7 @@ export const environmentsExtension: DesktopExtension = {
       id: "environments.add",
       label: "Add a machine…",
       group: "Machines",
+      access: "read",
       run: (actions) => actions.openSettings(MACHINES_SETTINGS_PAGE),
     });
     context.registerRegion({ id: "environments.shown", placement: "title-bar", order: 0, profiles: ["desktop"], Component: createShownMachine(environments) });

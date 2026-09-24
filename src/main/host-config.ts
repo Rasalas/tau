@@ -224,6 +224,11 @@ export class HostConfigManager {
     return result;
   }
 
+  /** The file `update` and `clear` write for a level. */
+  filePath(scope: "global" | "project", cwd?: string): string {
+    return scope === "project" && cwd ? this.projectPathResolver(cwd) : this.globalPath;
+  }
+
   async update(patch: Partial<TauConfig>, scope: "global" | "project" = "global", cwd?: string): Promise<TauConfig> {
     const tauPatch: Partial<TauConfig> = {};
     const piPatch: Partial<TauConfig> = {};
@@ -234,7 +239,7 @@ export class HostConfigManager {
     }
 
     if (Object.keys(tauPatch).length > 0) {
-      const targetPath = scope === "project" && cwd ? this.projectPathResolver(cwd) : this.globalPath;
+      const targetPath = this.filePath(scope, cwd);
       const existing = (await readJson<TauConfig>(targetPath)) ?? {};
       await writeJson(targetPath, this.merge(existing, this.sanitizePatch(tauPatch)));
     }
@@ -258,7 +263,7 @@ export class HostConfigManager {
    * A key Pi owns is never cleared here: its levels are Pi's files.
    */
   async clear(keys: readonly string[], scope: "global" | "project" = "global", cwd?: string): Promise<ConfigLayers> {
-    const targetPath = scope === "project" && cwd ? this.projectPathResolver(cwd) : this.globalPath;
+    const targetPath = this.filePath(scope, cwd);
     const existing = await readJson<TauConfig>(targetPath);
     if (existing) {
       const next = keys.filter((key) => !isPiOwnedSetting(key)).reduce(withoutSetting, existing);

@@ -20,7 +20,7 @@ import * as workspaceGit from "./workspace-git.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
-import { CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
+import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createBranchRequests } from "./branch-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
@@ -341,7 +341,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      });
+      }, { audit: { label: "committed changes" } });
       context.registerCommand("pull", async () => {
         const project = cwd();
         try {
@@ -353,7 +353,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      });
+      }, { audit: { label: "pulled" } });
       context.registerCommand("push", async () => {
         const project = cwd();
         try {
@@ -365,7 +365,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      }, { callers: [REVIEW_KIT_ID] });
+      }, { callers: [REVIEW_KIT_ID], audit: { label: "pushed" } });
       // Review Kit publishes a repository that has no remote; the remote itself is Git's and set here.
       context.registerCommand("add-remote", async (input) => {
         const project = cwd();
@@ -440,7 +440,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           if (setupId) await setupCall("worktree-setup-failed", { setupId, error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
           throw error;
         }
-      }, { long: true });
+      }, { long: true, audit: { label: "created a worktree" } });
       context.registerCommand("worktree-removal-preview", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const path = requiredString(input, "path");
@@ -485,10 +485,13 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (!branch) defaultBranches.set(project, branch = workspaceGit.readDefaultBranch(project));
         return branch;
       }, { access: "read" });
-      // Keeps the default branch current, fast-forward only; the client says when and whether.
+      // Keeps the default branch current, fast-forward only; the client says when, the host's config whether.
       const puller = new DefaultBranchPuller();
       context.registerCommand("auto-pull", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
+        // A client's own copy of the setting may predate the host's answer.
+        const settings = await services.settings?.(project).catch(() => undefined);
+        if (settings && settings.options[AUTO_PULL_OPTION] !== true) return [];
         const info = await git.getWorkspaceInfo(project);
         if (!info.isRepo) return [];
         // A thread in a worktree leaves the default branch in the main checkout.

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { HostCommandError } from "./host-extension-errors.js";
 import { HostExtensionRegistry, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "./host-extensions.js";
-import { WORKBENCH_CLIENT_PRINCIPAL, currentCaller } from "./host-invocation.js";
+import { WORKBENCH_CLIENT_PRINCIPAL, currentCaller, type AuditedCall } from "./host-invocation.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 
 function services(): HostExtensionServices & { logs: string[] } {
@@ -301,7 +301,7 @@ describe("HostExtensionRegistry", () => {
       },
     });
     const audit: Array<[string, boolean]> = [];
-    const paired = { kind: "workbench-client", connection: "conn-9", pairedClient: "phone", audit: (action: string, allowed: boolean) => audit.push([action, allowed]) } as const;
+    const paired = { kind: "workbench-client", connection: "conn-9", pairedClient: "phone", audit: (call: AuditedCall, allowed: boolean) => audit.push([call.action, allowed]) } as const;
     await expect(r.invoke("owner.kit", "expose", undefined, paired)).rejects.toMatchObject({ code: "forbidden", message: expect.stringMatching(/on this machine/u) });
     await expect(r.invoke("owner.kit", "read", undefined, paired)).resolves.toBe("read");
     // The host token through a LAN or proxy listener uses the host but manages nothing (ADR 0024).
@@ -325,7 +325,7 @@ describe("HostExtensionRegistry", () => {
       },
     });
     const audit: Array<[string, boolean]> = [];
-    const phone = { kind: "workbench-client", connection: "c1", pairedClient: "p1", readOnly: true, audit: (action: string, allowed: boolean) => audit.push([action, allowed]) } as const;
+    const phone = { kind: "workbench-client", connection: "c1", pairedClient: "p1", readOnly: true, audit: (call: AuditedCall, allowed: boolean) => audit.push([call.action, allowed]) } as const;
     await expect(r.invoke("tau.terminal", "list", undefined, phone)).resolves.toBe("terminals");
     await expect(r.invoke("tau.terminal", "open", undefined, phone)).rejects.toMatchObject({ code: "forbidden", message: expect.stringMatching(/Read only/u) });
     expect(ran).toBe(0);
@@ -336,6 +336,30 @@ describe("HostExtensionRegistry", () => {
     expect(audit).toEqual([["tau.terminal/open", false], ["tau.terminal/open", true]]);
     // A client learns which commands only look from the summary, so it can refuse the rest itself.
     expect(r.summaries()[0]).toMatchObject({ commands: ["list", "open"], readCommands: ["list"] });
+  });
+
+  it("records a device's change with the command's label and thread, and marks what a client calls on its own", async () => {
+    const { registry: r } = registry();
+    await r.activate({
+      id: "tau.titles",
+      name: "Title Generator",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("generate", () => "titled", { audit: { label: "  titled a thread  ", automatic: true } });
+        ctx.registerCommand("regenerate", () => "titled", { audit: { label: "regenerated a thread title" } });
+        ctx.registerCommand("plain", () => "done");
+      },
+    });
+    const calls: AuditedCall[] = [];
+    const phone = { kind: "workbench-client", connection: "c1", pairedClient: "p1", audit: (call: AuditedCall) => calls.push(call) } as const;
+    await r.invoke("tau.titles", "generate", { sessionId: "s-1", prompt: "never kept" }, phone);
+    await r.invoke("tau.titles", "regenerate", { threadId: "t-2" }, phone);
+    await r.invoke("tau.titles", "plain", "a string input", phone);
+    expect(calls).toEqual([
+      { action: "tau.titles/generate", label: "titled a thread", threadId: "s-1", automatic: true },
+      { action: "tau.titles/regenerate", label: "regenerated a thread title", threadId: "t-2" },
+      { action: "tau.titles/plain", label: "Title Generator: plain" },
+    ]);
   });
 
   it("tells a command which paired device called it and whether the caller may manage the host", async () => {

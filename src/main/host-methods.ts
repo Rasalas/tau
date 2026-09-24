@@ -360,18 +360,22 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "update-config": async (params) => {
       const patch = decodeConfigPatch("update-config", "patch", params[0]);
       const scope = params[1] === "project" ? "project" : "global";
-      const config = await defaultHostConfigManager.update(patch, scope, await optionalWorkspace("update-config", "workspace", params[2]));
+      const cwd = await optionalWorkspace("update-config", "workspace", params[2]);
+      const config = await defaultHostConfigManager.update(patch, scope, cwd);
       if (patch.modelPrices) (await host()).modelPricesChanged();
       if (patch.extensions) await (await host()).watchingChanged();
+      (await host()).configWritten([defaultHostConfigManager.filePath(scope, cwd)]);
       return config;
     },
     "get-config-layers": async (params) => defaultHostConfigManager.readLayers(await optionalWorkspace("get-config-layers", "workspace", params[0])),
     "clear-config": async (params) => {
       const keys = decodeSettingKeys("clear-config", "keys", params[0]);
       const scope = params[1] === "project" ? "project" : "global";
-      const layers = await defaultHostConfigManager.clear(keys, scope, await optionalWorkspace("clear-config", "workspace", params[2]));
+      const cwd = await optionalWorkspace("clear-config", "workspace", params[2]);
+      const layers = await defaultHostConfigManager.clear(keys, scope, cwd);
       if (keys.some((key) => key.startsWith("modelPrices"))) (await host()).modelPricesChanged();
       if (keys.some((key) => key.startsWith("extensions"))) await (await host()).watchingChanged();
+      (await host()).configWritten([defaultHostConfigManager.filePath(scope, cwd)]);
       return layers;
     },
     "get-models-config": async () => (await host()).modelsConfig(),
@@ -413,9 +417,9 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       if (JOB_CONTROL_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       const target = methods[method];
       if (!target) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
-      authorizeMethod(context.principal, method);
       const jobParams = params[1] === undefined ? [] : params[1];
       if (!Array.isArray(jobParams)) throw new Error("start-job: params must be an array");
+      authorizeMethod(context.principal, method, jobParams);
       return { jobId: deps.jobs.start((jobContext) => target(jobParams as unknown[], jobContext), context.principal) };
     },
     "cancel-job": async (params) => ({ cancelled: deps.jobs.cancel(decodeString("cancel-job", "jobId", params[0])) }),
@@ -472,6 +476,6 @@ export async function invokeHostMethod(
 ): Promise<unknown> {
   const handler = methods[method];
   if (!handler) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
-  authorizeMethod(principal, method);
+  authorizeMethod(principal, method, params);
   return handler(params, { ...NO_JOB_CONTEXT, principal });
 }
