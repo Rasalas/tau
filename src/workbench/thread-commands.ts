@@ -62,6 +62,7 @@ export class ThreadCommands {
 
   /** Says why an action is unavailable rather than failing silently without a host. */
   requireHost = (what: string): boolean => {
+    if (this.readOnly(what)) return false;
     if (this.client) return true;
     this.notify(`${what} requires the Electron host`);
     return false;
@@ -69,7 +70,16 @@ export class ThreadCommands {
 
   // Shared by the composer and the activity rail's stop button, so neither
   // recreates it every render and defeats a downstream memo.
-  abort = (sessionId?: string): void => { void this.client?.abort(sessionId); };
+  abort = (sessionId?: string): void => {
+    if (!this.readOnly("Stopping a run")) void this.client?.abort(sessionId);
+  };
+
+  /** A Read-only device is refused every change (ADR 0024); true after saying so. */
+  private readOnly(what: string): boolean {
+    if (!this.client?.isReadOnly()) return false;
+    this.notify(`${what} needs Full access; this device is paired Read only.`);
+    return true;
+  }
 
   loadThread = async (sessionId: string): Promise<UiMessage[]> => {
     const client = this.client;
@@ -170,6 +180,8 @@ export class ThreadCommands {
   };
 
   answerUiPrompt = (id: string, answer: ExtensionUiAnswer): void => {
+    // Left on screen: the host keeps waiting for a device that may answer.
+    if (this.readOnly("Answering")) return;
     const prompt = this.ports.view.getUiPrompts().find((entry) => entry.id === id);
     if (prompt) this.ports.registry.notifyPromptAnswered(prompt, answer);
     this.ports.view.setUiPrompts((current) => current.filter((entry) => entry.id !== id));

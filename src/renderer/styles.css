@@ -1084,6 +1084,11 @@ body.resizing-col .app-shell { transition: none; }
 
 .composer-zone { flex: none; padding: 14px 32px 16px; }
 .composer-surface { width: 100%; max-width: 780px; margin: 0 auto; }
+.composer-read-only {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); color: var(--muted); font-size: 12.5px; line-height: 1.45;
+}
+.composer-read-only svg { flex: none; }
 
 .composer-frame {
   max-width: 780px; margin: 0 auto; position: relative;

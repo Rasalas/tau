@@ -4,6 +4,7 @@ import type { HostSnapshot, UiProject } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
 import { useHostClient } from "../host-client-context";
+import { useHostCapabilities } from "../use-host-capabilities";
 import { Menu } from "../components/Menu";
 import { PanelIcon } from "../components/PanelIcon";
 import { PiSettingsPage } from "../components/PiSettingsPage";
@@ -131,6 +132,7 @@ export function SettingsScreen({
 }) {
   const preferences = usePreferences();
   const client = useHostClient();
+  const { readOnly } = useHostCapabilities();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const [levels] = useState(() => new ConfigLayersStore(client, () => void preferences.syncFromHost()));
@@ -374,6 +376,7 @@ export function SettingsScreen({
           </header>
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>
+              {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the host keeps its settings as they are. Theme and layout stay on this device.</p> : null}
               {page === "defaults" ? (
                 <DefaultsPage snapshot={snapshot} onSetModel={onSetModel} onSetThinking={onSetThinking} />
               ) : page === "keybindings" ? (

@@ -380,9 +380,11 @@ export class PreferencesStore {
     } catch {
       // Preferences are a convenience; a full or blocked store is not worth surfacing.
     }
-    if (syncHost && this.hostClient && explicitHostPatch) {
-      void this.hostClient.updateConfig(explicitHostPatch, "global", this.activeWorkspaceId).catch(() => {});
-    } else if (syncHost && this.hostClient) {
+    // A Read-only device keeps its choices here; the host would refuse them (ADR 0024).
+    const host = syncHost && this.hostClient && !this.hostClient.isReadOnly() ? this.hostClient : undefined;
+    if (host && explicitHostPatch) {
+      void host.updateConfig(explicitHostPatch, "global", this.activeWorkspaceId).catch(() => {});
+    } else if (host) {
       const hostPatch: Partial<TauConfig> = {};
       for (const key of SCALARS) if (patch[key] !== undefined) (hostPatch as Record<string, unknown>)[key] = patch[key];
       if (patch.continueThreadsAfterRestart !== undefined) hostPatch.threads = { continueAfterRestart: patch.continueThreadsAfterRestart };
@@ -392,7 +394,7 @@ export class PreferencesStore {
       if (patch.extensionOptions) hostPatch.options = { ...patch.extensionOptions };
       if (patch.extensionValues) hostPatch.values = { ...patch.extensionValues };
       if (patch.keybindings) hostPatch.keybindings = { ...patch.keybindings };
-      void this.hostClient.updateConfig(hostPatch, "global", this.activeWorkspaceId).catch(() => {});
+      if (Object.keys(hostPatch).length > 0) void host.updateConfig(hostPatch, "global", this.activeWorkspaceId).catch(() => {});
     }
     this.listeners.forEach((listener) => listener());
   }

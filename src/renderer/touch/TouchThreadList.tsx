@@ -13,6 +13,7 @@ import {
 import type { ExtensionRegistry, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 import { useHostClient } from "../host-client-context";
+import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
 import { usePreferences } from "../renderer-services-context";
 import { useThreadStore } from "../workbench-context";
 import { ActionSheet, type SheetAction } from "./ActionSheet";
@@ -87,14 +88,17 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     ? { id: "unsettle", label: "Un-settle", Icon: RotateCcw, tone: "primary", run: () => preferences.toggleSettled(row.id) }
     : { id: "settle", label: "Settle", Icon: Check, tone: "primary", run: () => preferences.toggleSettled(row.id) };
   // The tray holds settle and the first kit action that brings a glyph (Thread Rail's Snooze).
-  const trayCommand = rowCommands.find((command) => command.Icon && !command.destructive);
+  const { readOnly } = useHostCapabilities();
+  // The host refuses a Read-only device's changes (ADR 0024); the sheet says so rather than offering them.
+  const refused = (command?: { access?: "read" }) => readOnly && command?.access !== "read" ? READ_ONLY_REASON : undefined;
+  const trayCommand = rowCommands.find((command) => command.Icon && !command.destructive && !refused(command));
   const swipeActions = (row: ThreadSupervisionRow): SwipeAction[] => {
     const tray: SwipeAction[] = [settleAction(row)];
     if (trayCommand?.Icon && !row.settled) tray.push({ id: trayCommand.id, label: shortLabel(trayCommand.label), Icon: trayCommand.Icon, tone: "secondary", run: () => runCommand(trayCommand.id, row.id) });
     return tray;
   };
   const sheetActions = (row: ThreadSupervisionRow): SheetAction[] => [
-    ...(row.status === "running" ? [{ id: "stop", label: "Stop the run", Icon: Square, run: () => onStop(row) }] : []),
+    ...(row.status === "running" ? [{ id: "stop", label: "Stop the run", Icon: Square, disabledReason: refused({}), run: () => onStop(row) }] : []),
     { ...settleAction(row), label: row.settled ? "Un-settle" : "Settle" },
     { id: "pin", label: row.pinned ? "Unpin" : "Pin", Icon: row.pinned ? PinOff : Pin, run: () => preferences.togglePinned(row.id) },
     row.unread
@@ -105,6 +109,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
       label: command.label,
       Icon: command.Icon,
       destructive: command.destructive,
+      disabledReason: refused(command),
       run: () => runCommand(command.id, row.id),
     })),
   ];
