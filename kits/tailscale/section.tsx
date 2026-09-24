@@ -119,7 +119,7 @@ export function createTailscaleSection(host: HostExtensionClient): ComponentType
     };
 
     const recheck = (
-      <button type="button" className="icon-button" aria-label="Check Tailscale again" {...tooltipProps("Check Tailscale again")} disabled={busy} onClick={() => void look()}>
+      <button type="button" className="tailscale-recheck" aria-label="Check Tailscale again" {...tooltipProps("Check Tailscale again")} disabled={busy} onClick={() => void look()}>
         <RefreshCw size={13} />
       </button>
     );
@@ -212,8 +212,8 @@ function ConsentDialog({ view, dnsName, busy, onOpen, onCancel, onConfirm }: {
         </p>
         <p>If the name says more than you want (your name, your employer, a project), rename the machine in the Tailscale admin console first, then check again here.</p>
         <div className="tailscale-public-links">
-          <button type="button" className="text-button" onClick={() => onOpen(ADMIN_MACHINES_URL)}>Rename in the admin console</button>
-          <button type="button" className="text-button" onClick={() => onOpen(HTTPS_DOCS_URL)}>Tailscale on HTTPS certificates</button>
+          <button type="button" className="chrome-button" onClick={() => onOpen(ADMIN_MACHINES_URL)}>Rename Machine…</button>
+          <button type="button" className="chrome-button" onClick={() => onOpen(HTTPS_DOCS_URL)}>About Certificates</button>
         </div>
       </section>
       <label className="connection-field">
