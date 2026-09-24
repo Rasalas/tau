@@ -28,5 +28,7 @@ describe("frames paced to the client", () => {
     expect(pace({ tier: 0, fastFrames: 0 }, { elapsedMs: 50, picture: true, interacting: true }).delayMs).toBe(INTERVAL_MS.interacting);
     expect(pace({ tier: 0, fastFrames: 0 }, { elapsedMs: 50, picture: true, interacting: false }).delayMs).toBe(INTERVAL_MS.watching);
     expect(pace({ tier: 1, fastFrames: 2 }, { elapsedMs: 1_500, picture: false, interacting: true })).toEqual({ state: { tier: 1, fastFrames: 2 }, delayMs: INTERVAL_MS.interacting });
+    // A caret that blinks on a page nobody touched for a while is not worth a frame a second.
+    expect(pace({ tier: 0, fastFrames: 0 }, { elapsedMs: 50, picture: true, interacting: false, idle: true }).delayMs).toBe(INTERVAL_MS.idle);
   });
 });

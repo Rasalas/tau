@@ -19,10 +19,12 @@ export interface LivePicture {
 /** Fractions of the width a client would draw at; a slow link steps down, a fast one back up. */
 export const FRAME_TIERS = [1, 0.75, 0.5, 0.35] as const;
 export const FRAME_WIDTH = { min: 120, max: 1_600 } as const;
-/** Between frames: quick while the user acts on the page, calm while they watch. */
-export const INTERVAL_MS = { interacting: 250, watching: 1_000 } as const;
+/** Between frames: quick while the user acts on the page, calm while they watch, calmer once they only watch. */
+export const INTERVAL_MS = { interacting: 250, watching: 1_000, idle: 2_500 } as const;
 /** How long after an input the view counts as interacting. */
 export const INTERACTING_MS = 3_000;
+/** After this long without an input, a page that keeps changing (a blinking caret, an animation) is fetched less often. */
+export const IDLE_AFTER_MS = 15_000;
 const SLOW_MS = 900;
 const FAST_MS = 300;
 const FAST_FRAMES_TO_STEP_UP = 3;
@@ -44,7 +46,7 @@ export interface PaceState {
  * took long to arrive means the link is the limit, so the next is smaller and
  * waits at least as long again — the view never takes more than half the link.
  */
-export function pace(state: PaceState, answer: { elapsedMs: number; picture: boolean; interacting: boolean; tiers?: number }): { state: PaceState; delayMs: number } {
+export function pace(state: PaceState, answer: { elapsedMs: number; picture: boolean; interacting: boolean; idle?: boolean; tiers?: number }): { state: PaceState; delayMs: number } {
   const tiers = answer.tiers ?? FRAME_TIERS.length;
   let { tier, fastFrames } = state;
   if (answer.picture && answer.elapsedMs > SLOW_MS) {
@@ -59,7 +61,7 @@ export function pace(state: PaceState, answer: { elapsedMs: number; picture: boo
   } else if (answer.picture) {
     fastFrames = 0;
   }
-  const base = answer.interacting ? INTERVAL_MS.interacting : INTERVAL_MS.watching;
+  const base = answer.interacting ? INTERVAL_MS.interacting : answer.idle ? INTERVAL_MS.idle : INTERVAL_MS.watching;
   return { state: { tier, fastFrames }, delayMs: Math.max(base, answer.picture ? answer.elapsedMs : 0) };
 }
 
@@ -102,7 +104,8 @@ export function useLiveFrames(source: LiveFrameSource | undefined, element: RefO
   const running = Boolean(source) && options.active && onScreen;
   const [picture, setPicture] = useState<LivePicture | undefined>();
   const [tier, setTier] = useState(0);
-  const interactedAt = useRef(0);
+  // Opening the view counts as an input: the first seconds come at the watching pace.
+  const interactedAt = useRef(Date.now());
   const wake = useRef<(() => void) | undefined>(undefined);
 
   useEffect(() => { setPicture(undefined); }, [source]);
@@ -133,8 +136,8 @@ export function useLiveFrames(source: LiveFrameSource | undefined, element: RefO
         since = undefined;
         setPicture(undefined);
       }
-      const interacting = Date.now() - interactedAt.current < INTERACTING_MS;
-      const paced = pace(paceState, { elapsedMs: performance.now() - started, picture: got, interacting });
+      const sinceInput = Date.now() - interactedAt.current;
+      const paced = pace(paceState, { elapsedMs: performance.now() - started, picture: got, interacting: sinceInput < INTERACTING_MS, idle: sinceInput >= IDLE_AFTER_MS });
       paceState = paced.state;
       setTier(paceState.tier);
       timer = setTimeout(() => void next(), paced.delayMs);
@@ -172,6 +175,7 @@ export function watchFrames(source: LiveFrameSource, maxWidth: number, onFrame: 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let since: string | undefined;
   let paceState: PaceState = { tier: 0, fastFrames: 0 };
+  const watchedSince = Date.now();
   const next = async () => {
     if (!live) return;
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
@@ -188,7 +192,7 @@ export function watchFrames(source: LiveFrameSource, maxWidth: number, onFrame: 
       since = undefined;
       onFrame(undefined);
     }
-    const paced = pace(paceState, { elapsedMs: Date.now() - started, picture: Boolean(answer && "data" in answer), interacting: false });
+    const paced = pace(paceState, { elapsedMs: Date.now() - started, picture: Boolean(answer && "data" in answer), interacting: false, idle: Date.now() - watchedSince >= IDLE_AFTER_MS });
     paceState = paced.state;
     timer = setTimeout(() => void next(), paced.delayMs);
   };
