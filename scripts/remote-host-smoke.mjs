@@ -438,8 +438,10 @@ async function exerciseReadOnly(host, owner, label) {
     if (String(error.message).startsWith("forbidden")) fail("a new preset did not apply at the next call");
   });
   const after = (await owner.request("connections-list")).clients.find((entry) => entry.id === record.id);
-  if (after?.label !== "Watcher, now Full" || after.lastAction?.action !== "rename-thread") fail(`the rename or the last change is missing: ${JSON.stringify(after)}`);
-  step(`${label}: renaming and a new preset apply at once; the row shows the last change`, after.lastAction.action);
+  if (after?.label !== "Watcher, now Full" || after.lastAction?.action !== "rename-thread" || after.lastAction.label !== "renamed a thread") {
+    fail(`the rename or the last change is missing: ${JSON.stringify(after)}`);
+  }
+  step(`${label}: renaming and a new preset apply at once; the row shows the last change`, after.lastAction.label);
   await device.close();
   await owner.request("connections-revoke-client", [record.id]);
 }

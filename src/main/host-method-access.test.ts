@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { HOST_ERROR } from "../shared/host-transport.js";
-import { HOST_METHOD_ACCESS, authorizeMethod, methodAccess } from "./host-method-access.js";
+import { HOST_METHOD_ACCESS, HOST_METHOD_AUDIT, auditedMethodCall, authorizeMethod, methodAccess } from "./host-method-access.js";
 import { createHostMethods, createUnsupportedHostMethods, invokeHostMethod } from "./host-methods.js";
 import { HostJobRunner } from "./host-jobs.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
@@ -77,7 +77,24 @@ describe("the access every host method needs", () => {
     expect(() => authorizeMethod(full, "prompt")).not.toThrow();
     expect(() => authorizeMethod(full, "bootstrap")).not.toThrow();
     expect(() => authorizeMethod(readOnly, "prompt")).toThrow(/Read only/u);
-    expect(audit.mock.calls).toEqual([["connections-approve", false], ["prompt", true], ["prompt", false]]);
+    expect(audit.mock.calls.map(([call, allowed]) => [call.action, allowed])).toEqual([["connections-approve", false], ["prompt", true], ["prompt", false]]);
+  });
+
+  it("names every change a device can make the way a person reads it", () => {
+    const changes = Object.entries(HOST_METHOD_ACCESS).filter(([, access]) => access === "write").map(([name]) => name).sort();
+    expect(Object.keys(HOST_METHOD_AUDIT).sort()).toEqual(changes);
+    expect(auditedMethodCall("prompt", ["the text", [], "s-1"])).toEqual({ action: "prompt", label: "sent a prompt", threadId: "s-1" });
+    expect(auditedMethodCall("rename-thread", ["New title", "s-2"])).toEqual({ action: "rename-thread", label: "renamed a thread", threadId: "s-2" });
+    // Sent on the way to a prompt, not a change of its own.
+    expect(auditedMethodCall("prepare-prompt", ["text", "s-1"])).toMatchObject({ automatic: true, threadId: "s-1" });
+    expect(auditedMethodCall("a-method-added-later")).toEqual({ action: "a-method-added-later" });
+  });
+
+  it("records the thread a call names, also through a job", async () => {
+    const { table } = methods();
+    audit.mockClear();
+    await invokeHostMethod(table, "start-job", ["abort", ["s-3"]], full).catch(() => undefined);
+    expect(audit.mock.calls).toEqual([[{ action: "abort", label: "stopped a run", threadId: "s-3" }, true]]);
   });
 
   it("leaves the host's own calls alone", () => {

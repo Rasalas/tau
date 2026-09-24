@@ -207,7 +207,7 @@ export interface WorkerHostExtensionContext {
   readonly services: WorkerHostServices;
   /** Calls another host entry through the supervisor-bound worker identity. */
   readonly invokeHostExtension: (extensionId: string, command: string, input?: unknown) => Promise<unknown>;
-  registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean; callers?: readonly string[]; access?: "read" | "owner" }): () => void;
+  registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean; callers?: readonly string[]; access?: "read" | "owner"; audit?: { label?: string; automatic?: boolean } }): () => void;
   emit(name: string, payload?: unknown, options?: HostExtensionEmitOptions): void;
 }
 
@@ -238,7 +238,7 @@ export type HostToWorkerMessage =
 export type WorkerToHostMessage =
   | { t: "ready" }
   | { t: "fatal"; error: SerializedError }
-  | { t: "command"; name: string; long: boolean; callers: readonly string[]; access?: "read" | "owner" }
+  | { t: "command"; name: string; long: boolean; callers: readonly string[]; access?: "read" | "owner"; audit?: { label?: string; automatic?: boolean } }
   | { t: "command-off"; name: string }
   | { t: "emit"; name: string; payload: unknown; topic?: string }
   | { t: "log"; label: string; detail?: string }

@@ -36,7 +36,8 @@ async function generate(
   const model = titleModel(preferences);
   const prefer = model ? undefined : threadModel(thread);
   try {
-    await host.invoke("generate", { provider: model?.provider, modelId: model?.id, ...(prefer ? { prefer } : {}), force, sessionId: thread?.sessionId, prompt });
+    // Two commands, so the host tells a title the user asked for from one that followed a prompt.
+    await host.invoke(force ? "regenerate" : "generate", { provider: model?.provider, modelId: model?.id, ...(prefer ? { prefer } : {}), force, sessionId: thread?.sessionId, prompt });
   } catch (error) {
     actions.notify(errorMessage(error));
   }

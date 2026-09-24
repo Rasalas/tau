@@ -1964,7 +1964,24 @@ tooltip at once, and `SettingRow` does the same for an inert row.
 
 Every other command a paired Full device runs counts as a change it made: the
 host log records it, and Settings → Connections shows it as the device's last
-change. A desktop half that mirrors a preference into its host half on load
+change. The `audit` option (new in API 1.13.0) says how that reads:
+
+```ts
+context.registerCommand("commit", commit, { audit: { label: "committed changes" } });
+// Sent by the desktop half after a prompt, not by the user: logged, never the last change.
+context.registerCommand("generate", title, { audit: { label: "titled a thread", automatic: true } });
+```
+
+`label` is past tense and follows "last change:"; without one the row shows
+the kit's name and the command ("Workspace Kit: pull"). A `threadId` or
+`sessionId` string in the input names the thread, shown by its current title;
+nothing else of the input is kept. Mark a command `automatic` when a client
+calls it on its own as part of something the user did (Thread Title
+Generator's `generate` after a first prompt, Worktree Names' `suggest`,
+Handoff's `bind-transfer`, Terminal's `resize`), and give a deliberate variant
+its own command (`regenerate`), so the owner sees the prompt and not its
+consequences. The option travels from a worker too; an older host ignores it.
+A desktop half that mirrors a preference into its host half on load
 therefore reads what the host holds first, with a `read` command, and sends
 nothing when it matches (Access Kit's `level`, Preview's `current-defaults`,
 the workspace's `open-request-waiting`, SnapShots' `armed`, which answers for

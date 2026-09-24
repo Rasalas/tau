@@ -419,7 +419,7 @@ export function createTerminalHostExtension(
         return session;
       };
 
-      context.registerCommand("open", (raw) => open(fields(raw)));
+      context.registerCommand("open", (raw) => open(fields(raw)), { audit: { label: "opened a terminal" } });
       context.registerCommand("restart", async (raw) => {
         const session = sessions.restart(String(fields(raw).id));
         context.services.noteSubprocess();
@@ -428,11 +428,11 @@ export function createTerminalHostExtension(
       context.registerCommand("input", (raw) => {
         const input = fields(raw);
         sessions.write(String(input.id), String(input.data ?? ""));
-      });
+      }, { audit: { label: "typed in a terminal" } });
       context.registerCommand("resize", (raw) => {
         const input = fields(raw);
         sessions.resize({ id: String(input.id), cols: Number(input.cols), rows: Number(input.rows) });
-      });
+      }, { audit: { label: "resized a terminal", automatic: true } });
       context.registerCommand("kill", (raw) => {
         sessions.kill(String(fields(raw).id));
       });

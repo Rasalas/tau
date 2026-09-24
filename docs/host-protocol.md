@@ -419,9 +419,14 @@ device carries `access: "read-only"`, and every hello reply says `owner: true`
 or `owner: false`: whether the connection may call the `owner` methods (API
 1.13.0; absent from an older host), so a window that is not the owner never
 asks for the Connections list only to be refused. Every change a paired device makes, and
-every refusal, is recorded: the last one on its record (`lastAction`: the
-method or `<extension>/<command>`, never the input), each one in the host log
-(`access.action`, `access.refused`).
+every refusal, is recorded: the last one on its record, each one in the host log
+(`access.action`, `access.refused`). `lastAction` in `connections-list` carries
+`action` (the method or `<extension>/<command>`), `label` (how it reads: "sent a
+prompt"; absent from records written before 0.5.1) and `thread` (the current
+title of the thread the call named), never the input. A call the client sends
+on its own after something the user did (`prepare-prompt`, a thread's title
+after its prompt) is logged with `automatic: true` and leaves the last change as
+it was. The labels of core methods live in `src/main/host-method-access.ts`.
 
 ### Connections methods
 
