@@ -343,13 +343,37 @@ describe("the owner's changes to a device", () => {
     const { access } = await openAccess(Date.now, undefined, (entry) => entries.push(entry));
     const clientId = (await pair(access, { name: "Phone" })).split(".")[1]!;
     const connection = access.attach({ kind: "client", clientId }, peer, () => undefined);
-    access.audit(connection, "prompt", true);
-    access.audit(connection, "tau.terminal/open", false);
+    access.audit(connection, { action: "prompt" }, true);
+    access.audit(connection, { action: "tau.terminal/open" }, false);
     expect(access.overview().clients[0]!.lastAction).toMatchObject({ action: "prompt" });
     expect(entries).toEqual([
       { clientId, label: "Phone", action: "prompt", allowed: true },
       { clientId, label: "Phone", action: "tau.terminal/open", allowed: false },
     ]);
+  });
+
+  it("see what the user did last, not what the client did on its own after it, with the thread's title as it is now", async () => {
+    const entries: AccessAuditEntry[] = [];
+    const titles = new Map([["s-1", "Fix the queue"]]);
+    const directory = mkdtempSync(join(tmpdir(), "tau-access-"));
+    directories.push(directory);
+    const tokenFile = new HostTokenFile(join(directory, "host.token"));
+    const storePath = join(directory, "paired-clients.json");
+    const access = await HostAccess.open({ tokenFile, storePath, audit: (entry) => entries.push(entry), threadTitle: (id) => titles.get(id) });
+    const clientId = (await pair(access, { name: "Phone" })).split(".")[1]!;
+    const connection = access.attach({ kind: "client", clientId }, peer, () => undefined);
+    access.audit(connection, { action: "prompt", label: "sent a prompt", threadId: "s-1" }, true);
+    access.audit(connection, { action: "tau.thread-titles/generate", label: "titled a thread", threadId: "s-1", automatic: true }, true);
+    titles.set("s-1", "Queue drains twice");
+    expect(access.overview().clients[0]!.lastAction).toEqual({ action: "prompt", label: "sent a prompt", thread: "Queue drains twice", at: expect.any(String) });
+    // The log keeps every call, the automatic one marked.
+    expect(entries.map((entry) => [entry.action, entry.automatic ?? false])).toEqual([["prompt", false], ["tau.thread-titles/generate", true]]);
+    // The record keeps the thread's id, never its title, and a thread that is gone is left out.
+    await access.updateClient(clientId, { label: "Phone" });
+    const stored = JSON.parse(readFileSync(storePath, "utf8")) as { clients: Array<{ lastAction?: unknown }> };
+    expect(stored.clients[0]!.lastAction).toEqual({ action: "prompt", label: "sent a prompt", threadId: "s-1", at: expect.any(String) });
+    const reopened = await HostAccess.open({ tokenFile, storePath, threadTitle: () => undefined });
+    expect(reopened.overview().clients[0]!.lastAction).toEqual({ action: "prompt", label: "sent a prompt", at: expect.any(String) });
   });
 });
 

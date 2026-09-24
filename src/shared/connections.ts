@@ -51,8 +51,13 @@ export interface UiPairedClient {
   idleTimeoutDays: IdleTimeoutDays;
   /** When the token stops working unless the device connects before; absent when it never does. */
   expiresAt?: string;
-  /** The last thing it changed on the host: a method or `<extension>/<command>`, never its input. */
-  lastAction?: { action: string; at: string };
+  /**
+   * The last thing it changed on the host, never its input: `action` is the
+   * method or `<extension>/<command>`, `label` how it reads ("sent a prompt"),
+   * `thread` the current title of the thread it acted on. A call the client
+   * made on its own after that (a title after a prompt) does not replace it.
+   */
+  lastAction?: { action: string; label?: string; thread?: string; at: string };
 }
 
 /**

@@ -413,9 +413,9 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       if (JOB_CONTROL_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       const target = methods[method];
       if (!target) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
-      authorizeMethod(context.principal, method);
       const jobParams = params[1] === undefined ? [] : params[1];
       if (!Array.isArray(jobParams)) throw new Error("start-job: params must be an array");
+      authorizeMethod(context.principal, method, jobParams);
       return { jobId: deps.jobs.start((jobContext) => target(jobParams as unknown[], jobContext), context.principal) };
     },
     "cancel-job": async (params) => ({ cancelled: deps.jobs.cancel(decodeString("cancel-job", "jobId", params[0])) }),
@@ -472,6 +472,6 @@ export async function invokeHostMethod(
 ): Promise<unknown> {
   const handler = methods[method];
   if (!handler) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
-  authorizeMethod(principal, method);
+  authorizeMethod(principal, method, params);
   return handler(params, { ...NO_JOB_CONTEXT, principal });
 }

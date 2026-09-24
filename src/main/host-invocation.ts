@@ -1,5 +1,17 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
+/** A call a paired device made, as its audit records it; never the input. */
+export interface AuditedCall {
+  /** The method, or `<extension>/<command>`. */
+  readonly action: string;
+  /** How it reads for a person: "sent a prompt". */
+  readonly label?: string;
+  /** The thread it acted on, when the call names one. */
+  readonly threadId?: string;
+  /** Sent by the client on its own after something the user did (a title after a prompt): logged, never the last change. */
+  readonly automatic?: boolean;
+}
+
 /**
  * Provenance the main process can actually distinguish for a host command.
  * Desktop extensions share one renderer, so their names never appear here.
@@ -14,7 +26,7 @@ export type HostInvocationPrincipal =
     /** The device is paired Read only: every call that changes something is refused (ADR 0024). Set per request. */
     readonly readOnly?: true;
     /** Records a change the device made, or was refused; the transport sets it for paired clients. */
-    readonly audit?: (action: string, allowed: boolean) => void;
+    readonly audit?: (call: AuditedCall, allowed: boolean) => void;
     /** The socket came from this machine through the loopback listener. */
     readonly local?: true;
   }

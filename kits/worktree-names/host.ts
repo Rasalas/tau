@@ -78,7 +78,7 @@ export function createWorktreeNamesHostExtension(): HostExtension {
         if (!branch) throw new Error("The model did not answer with a usable branch name.");
         services.log("worktree-name.suggested", branch);
         return { branch };
-      });
+      }, { audit: { label: "suggested a branch name", automatic: true } });
     },
   };
 }

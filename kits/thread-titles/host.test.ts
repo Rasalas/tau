@@ -127,6 +127,24 @@ describe("Thread Title Generator host extension", () => {
     await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider: "openai", modelId: "gpt-5.6" })).resolves.toBeUndefined();
   });
 
+  it("renames a named thread when the user asks again, and tells a paired device's host which title followed a prompt", async () => {
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau",
+      thread: () => piThread({ sessionName: () => "Named already" }),
+      complete: async () => "Another title",
+      setThreadTitle: async () => undefined,
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { provider: "openai", modelId: "gpt-5.6" })).resolves.toEqual({ title: "Another title" });
+    const calls: unknown[] = [];
+    const phone = { kind: "workbench-client", connection: "c1", pairedClient: "p1", audit: (call: unknown) => calls.push(call) } as const;
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { sessionId: "s1" }, phone);
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { sessionId: "s1" }, phone);
+    expect(calls).toEqual([
+      { action: "tau.thread-titles/generate", label: "titled a thread", threadId: "s1", automatic: true },
+      { action: "tau.thread-titles/regenerate", label: "regenerated a thread title", threadId: "s1" },
+    ]);
+  });
+
   it("hands the attached Pi a small model, else the thread's own", async () => {
     const invoke = vi.fn(async () => ({ title: "Attached title" }));
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {

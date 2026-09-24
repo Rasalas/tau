@@ -341,7 +341,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      });
+      }, { audit: { label: "committed changes" } });
       context.registerCommand("pull", async () => {
         const project = cwd();
         try {
@@ -353,7 +353,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      });
+      }, { audit: { label: "pulled" } });
       context.registerCommand("push", async () => {
         const project = cwd();
         try {
@@ -365,7 +365,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           git.invalidate(project);
           throw error;
         }
-      }, { callers: [REVIEW_KIT_ID] });
+      }, { callers: [REVIEW_KIT_ID], audit: { label: "pushed" } });
       // Review Kit publishes a repository that has no remote; the remote itself is Git's and set here.
       context.registerCommand("add-remote", async (input) => {
         const project = cwd();
@@ -440,7 +440,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           if (setupId) await setupCall("worktree-setup-failed", { setupId, error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
           throw error;
         }
-      }, { long: true });
+      }, { long: true, audit: { label: "created a worktree" } });
       context.registerCommand("worktree-removal-preview", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const path = requiredString(input, "path");
