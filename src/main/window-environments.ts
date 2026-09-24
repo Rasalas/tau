@@ -7,7 +7,8 @@ import type {
   UiEnvironments,
 } from "../shared/environments.js";
 import { environmentProjects, environmentThreads, orderEndpoints, socketUrl } from "../shared/environments.js";
-import { EnvironmentCatalog, endpointTrust, reachedEndpoints, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
+import { reachedEndpoints } from "../shared/connections.js";
+import { EnvironmentCatalog, endpointTrust, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
 import { pairEnvironment, type PairEnvironmentOptions } from "./environment-pairing.js";
 import type { HostLogger } from "./host-log.js";

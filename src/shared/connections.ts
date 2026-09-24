@@ -372,6 +372,23 @@ export interface UiHostReach {
   endpoints: PairingEndpoint[];
 }
 
+const REACH_KINDS: ReadonlySet<string> = new Set<UiHostEndpointKind>(["loopback", "lan", "mdns", "tailscale", "magicdns"]);
+
+/**
+ * The addresses a host listed after a hello (`connections-reach`), in its
+ * order, with the one this connection used kept when the host did not list
+ * it: a tunnel, a simulator's loopback, the emulator's alias.
+ */
+export function reachedEndpoints(listed: readonly PairingEndpoint[], current: PairingEndpoint | undefined): PairingEndpoint[] {
+  const endpoints: PairingEndpoint[] = listed.filter((endpoint) => typeof endpoint?.url === "string" && /^https?:\/\//u.test(endpoint.url)).map((endpoint) => ({
+    url: endpoint.url,
+    ...(endpoint.kind && REACH_KINDS.has(endpoint.kind) ? { kind: endpoint.kind } : {}),
+    ...(endpoint.trustedCertificate === true && authorityName(endpoint.url) ? { trustedCertificate: true } : {}),
+  }));
+  if (current && !endpoints.some((endpoint) => endpoint.url === current.url)) endpoints.push(current);
+  return endpoints;
+}
+
 /** `AB:CD:…` from any spelling of 32 bytes of hex; undefined for anything else. */
 export function canonicalFingerprint(value: string): string | undefined {
   const hex = value.trim().replace(/^sha-?256[:/=\s]*/iu, "").replace(/[\s:]/gu, "").toUpperCase();

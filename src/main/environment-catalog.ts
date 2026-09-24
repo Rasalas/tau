@@ -166,18 +166,3 @@ export function endpointTrust(saved: Pick<SavedEnvironment, "endpoints" | "publi
   if (saved.fingerprint) return { pin: { fingerprint: saved.fingerprint }, ...(authorityName(url.replace(/^wss:/u, "https:")) ? { allowAuthority: true } : {}) };
   return {};
 }
-
-/**
- * The addresses a host listed after a hello (`connections-reach`), with the
- * one this connection used kept when the host did not list it: a tunnel, or
- * the loopback address a test host binds.
- */
-export function reachedEndpoints(listed: readonly PairingEndpoint[], current: PairingEndpoint | undefined): PairingEndpoint[] {
-  const endpoints = listed.filter((endpoint) => /^https?:\/\//u.test(endpoint.url)).map((endpoint) => ({
-    url: endpoint.url,
-    ...(endpoint.kind && KINDS.has(endpoint.kind) ? { kind: endpoint.kind } : {}),
-    ...(endpoint.trustedCertificate && authorityName(endpoint.url) ? { trustedCertificate: true } : {}),
-  }));
-  if (current && !endpoints.some((endpoint) => endpoint.url === current.url)) endpoints.push(current);
-  return endpoints;
-}
