@@ -1166,6 +1166,8 @@ After ticket E31 a turn receives 284 messages and sends 10 (medians over five ru
 - **SnapShots asked for waiting captures about ten times per turn.** Core hands a composer strip a fresh draft handle whenever its registry changes, and each time the kit asked the host for `pending`. New captures arrive as events; the kit now asks only at start, after a reconnect, or after an event found no composer on screen.
 - **A missing themes folder reported changes it did not have.** The harness has no `run/themes`, so the watcher waited on `run/`, and every write there (logs, sessions) came out as "themes changed", twice per turn, each followed by `list-user-themes` and `get-config`. A watch on an ancestor now reports only the missing path appearing.
 
+Seeding a new root (ticket E32) stopped at the wizard's first step. Wave E's runtimes and the pull-request tools made that step taller than the 705 px window the app opened in, so Continue sat below the fold, and the harness clicked at coordinates outside the viewport, where nothing received the click. The harness now scrolls a match into view before it clicks, and gives up on one it cannot bring into view. The wizard keeps its buttons at the window's bottom edge while a step is taller than the window. With both, `--seed` on a new root imports all five conversations again, and `--apps tau --check` on that root passes: 285 messages received and 10 sent per turn.
+
 ### Screen by screen
 
 `scripts/compare/screens/` reuses the harness above for a visual comparison (gap analysis §2.3, ticket D09): the same launch, isolation checks, onboarding import and stand-in `codex`, with roots of their own (`/tmp/compare-screens-tau`, `/tmp/compare-screens-t3`), so a screen pass never shares a profile with a benchmark run.
