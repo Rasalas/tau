@@ -49,6 +49,7 @@ import type { ScreenAction } from "./screen-protocol.js";
 import { PreviewHistory } from "./history.js";
 import { PreviewMiniState } from "./mini-state.js";
 import { previewTools, type PreviewToolController } from "./agent-tools.js";
+import { defaultsFromSettings } from "./settings.js";
 import { DEFAULT_PREVIEW_DEFAULTS, fitViewport, readAppearance, readDefaults, readViewport, readZoom, stepZoom } from "./viewport.js";
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
 import { pageInput, previewFocusKind, readPreviewInput, type PreviewPageInput } from "./remote-input.js";
@@ -910,8 +911,19 @@ export function createPreviewHostExtension(
     id: PREVIEW_HOST_EXTENSION_ID,
     name: "Preview",
     permissions: ["runtime:extend", "process", "network", "sessions"],
-    activate(context: HostExtensionContext) {
+    async activate(context: HostExtensionContext) {
       const controller = new PreviewController(createSurface, clearPartition, context);
+      // The defaults are the host's config for its workspace; no client sends them on load.
+      let generation = 0;
+      let workspace: string | undefined;
+      const loadDefaults = async () => {
+        const started = ++generation;
+        const settings = await context.services.settings?.(workspace).catch(() => undefined);
+        if (settings && started === generation) await controller.setDefaults(defaultsFromSettings(settings));
+      };
+      await loadDefaults();
+      const stopConfig = context.services.observeConfigChanges((change) => { if (change.kind === "config") void loadDefaults().catch(() => undefined); });
+      const stopLifecycle = context.services.registerThreadLifecycle({ beforeWorkspace: async (cwd) => { workspace = cwd; await loadDefaults().catch(() => undefined); } });
       context.registerCommand("open", (input) => controller.open((input as { url?: unknown } | undefined)?.url));
       context.registerCommand("navigate", (input) => controller.navigate(input));
       context.registerCommand("close", () => controller.close());
@@ -948,7 +960,7 @@ export function createPreviewHostExtension(
         if (!appearance) throw new Error("Appearance is system, light or dark.");
         return controller.setAppearance(appearance);
       });
-      context.registerCommand("defaults", (input) => controller.setDefaults(input));
+      context.registerCommand("defaults", (input) => { generation++; return controller.setDefaults(input); });
       context.registerCommand("current-defaults", () => controller.currentDefaults(), { access: "read" });
       context.registerCommand("history", () => controller.historyList(), { access: "read" });
       context.registerCommand("forget", (input) => controller.forget(input));
@@ -994,7 +1006,7 @@ export function createPreviewHostExtension(
         ended: async (sessionId) => controller.releaseDriver(sessionId),
         closed: async (sessionId) => controller.releaseDriver(sessionId),
       });
-      return () => { release(); releaseMcp(); releaseObserver(); cookies.dispose(); controller.dispose(); };
+      return () => { stopConfig(); stopLifecycle(); release(); releaseMcp(); releaseObserver(); cookies.dispose(); controller.dispose(); };
     },
   };
 }

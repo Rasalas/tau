@@ -119,6 +119,37 @@ describe("Access Kit host extension", () => {
     expect(gates).toEqual([]);
   });
 
+  it("starts at the level the host's config holds and follows the config, not a client's defaults", async () => {
+    let held: Record<string, string> = { level: "read-only" };
+    let changed: ((change: { kind: string; paths: readonly string[] }) => void) | undefined;
+    let policy: (() => AccessLevel) | undefined;
+    const settings = vi.fn(async (id: string) => ({ options: {}, values: id === ACCESS_HOST_EXTENSION_ID ? held : {} }));
+    const registry = await activateHostKit(createAccessHostExtension(), {
+      log: vi.fn(),
+      registerRuntimeExtension: () => () => undefined,
+      setPermissionLevel: (provider) => { policy = provider as () => AccessLevel; },
+      settings: settings as never,
+      observeConfigChanges: (listener) => { changed = listener; return () => { changed = undefined; }; },
+    });
+    await expect(registry.invoke(ACCESS_HOST_EXTENSION_ID, "level")).resolves.toBe("read-only");
+    expect(policy?.()).toBe("read-only");
+
+    held = { level: "ask" };
+    changed?.({ kind: "keybindings", paths: [] });
+    changed?.({ kind: "config", paths: ["/home/.tau/config.json"] });
+    await vi.waitFor(() => expect(policy?.()).toBe("ask"));
+
+    // A read that started before a choice arrived does not put the old level back.
+    held = { level: "read-only" };
+    changed?.({ kind: "config", paths: [] });
+    await registry.invoke(ACCESS_HOST_EXTENSION_ID, "set-level", { level: "full" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(policy?.()).toBe("full");
+
+    await registry.deactivate(ACCESS_HOST_EXTENSION_ID);
+    expect(changed).toBeUndefined();
+  });
+
   it("does not activate without the runtime permission its manifest declares", async () => {
     const registry = await activateHostKit({ ...createAccessHostExtension(), permissions: [] });
     expect(registry.isActive(ACCESS_HOST_EXTENSION_ID)).toBe(false);

@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { followLinkTarget, resolveLinkTarget } from "./link-target.js";
 import { EMPTY_PREVIEW_STATE } from "./protocol.js";
 import { enlargedWidth, miniPlayerShown, nearestCorner } from "./mini-player.js";
-import { defaultsFromPreferences, syncDefaults } from "./settings.js";
+import { defaultsFromSettings } from "./settings.js";
+import { DEFAULT_PREVIEW_DEFAULTS } from "./viewport.js";
 
 afterEach(() => { document.body.innerHTML = ""; });
 
@@ -75,46 +76,9 @@ describe("the floating preview", () => {
 });
 
 describe("Settings → Preview", () => {
-  it("hands the host the defaults, and again only when they change", () => {
-    let values: Record<string, string> = { "default-viewport": "iphone-se", "default-zoom": "1.5" };
-    let options: Record<string, boolean> = { "recording-keys": true };
-    const listeners = new Set<() => void>();
-    const preferences = {
-      value: (_id: string, key: string) => values[key],
-      optionValue: (_id: string, key: string, fallback: boolean) => options[key] ?? fallback,
-      subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    };
-    expect(defaultsFromPreferences(preferences)).toMatchObject({ viewport: { mode: "fixed", width: 375 }, zoom: 1.5, recording: { showKeys: true, showClicks: false } });
-    const send = vi.fn(async (_defaults: unknown) => undefined);
-    const stop = syncDefaults(preferences as never, send);
-    expect(send).toHaveBeenCalledTimes(1);
-    listeners.forEach((listener) => listener());
-    expect(send).toHaveBeenCalledTimes(1);
-    values = { ...values, "default-appearance": "dark" };
-    options = {};
-    listeners.forEach((listener) => listener());
-    expect(send).toHaveBeenCalledTimes(2);
-    expect(send.mock.calls[1]![0]).toMatchObject({ appearance: "dark", recording: { showKeys: false } });
-    stop();
-    expect(listeners.size).toBe(0);
-  });
-
-  it("sends nothing when the host holds the same defaults already", async () => {
-    let values: Record<string, string> = { "default-zoom": "1.5" };
-    const listeners = new Set<() => void>();
-    const preferences = {
-      value: (_id: string, key: string) => values[key],
-      optionValue: (_id: string, _key: string, fallback: boolean) => fallback,
-      subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    };
-    let held: unknown = defaultsFromPreferences(preferences);
-    const send = vi.fn(async (defaults: unknown) => { held = defaults; });
-    syncDefaults(preferences as never, send, async () => held);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(send).not.toHaveBeenCalled();
-    values = { "default-zoom": "2" };
-    listeners.forEach((listener) => listener());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(send).toHaveBeenCalledTimes(1);
+  it("reads the defaults from the kit's own settings, as the host answers them", () => {
+    expect(defaultsFromSettings({ values: { "default-viewport": "iphone-se", "default-zoom": "1.5" }, options: { "recording-keys": true } }))
+      .toMatchObject({ viewport: { mode: "fixed", width: 375 }, zoom: 1.5, recording: { showKeys: true, showClicks: false } });
+    expect(defaultsFromSettings({ values: {}, options: {} })).toEqual(DEFAULT_PREVIEW_DEFAULTS);
   });
 });

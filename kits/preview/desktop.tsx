@@ -4,7 +4,7 @@ import { errorMessage, type DesktopExtension, type WorkbenchActions } from "tau"
 import { holdChipService } from "./attach.js";
 import { followLinkTarget } from "./link-target.js";
 import { createMiniPlayerRegion } from "./mini-player.js";
-import { PREVIEW_SETTINGS, readLinkTarget, syncDefaults } from "./settings.js";
+import { PREVIEW_SETTINGS, readLinkTarget } from "./settings.js";
 import { PreviewSettingsPage } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
@@ -61,7 +61,6 @@ export const previewExtension: DesktopExtension = {
       Component: PreviewSettingsPage,
     });
     plugin.host.onEvent(PREVIEW_STATE_EVENT, (payload) => { if (isPreviewState(payload)) previewStore.set(readPreviewState(payload)); });
-    const stopDefaults = syncDefaults(plugin.preferences, (defaults) => previewKit.defaults(defaults), () => previewKit["current-defaults"]());
     const open = async (url: string, app: Pick<WorkbenchActions, "openPanel">): Promise<string | undefined> => {
       app.openPanel(PREVIEW_PANEL);
       if (!url) return undefined;
@@ -143,7 +142,6 @@ export const previewExtension: DesktopExtension = {
     return () => {
       cookieImportDialogs.close();
       stopFollowing();
-      stopDefaults();
       stopLinks();
       disconnect();
     };

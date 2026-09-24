@@ -43,7 +43,13 @@ function surface() {
   return { fake, placed, zooms, appearances, evaluated, records, captures, navigations };
 }
 
-async function activate(made = surface()) {
+interface FakeConfig {
+  settings: (cwd?: string) => { options: Record<string, boolean>; values: Record<string, string> };
+  changed?: (change: { kind: string; paths: readonly string[] }) => void;
+  workspace?: (cwd: string) => Promise<void>;
+}
+
+async function activate(made = surface(), config?: FakeConfig) {
   const stateDir = await mkdtemp(join(tmpdir(), "tau-preview-extras-"));
   directories.push(stateDir);
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
@@ -58,6 +64,11 @@ async function activate(made = surface()) {
       runtimeExtensions.push({ name, factory });
       return () => undefined;
     },
+    ...(config ? {
+      settings: (async (_id: string, cwd?: string) => config.settings(cwd)) as never,
+      observeConfigChanges: (listener) => { config.changed = listener; return () => undefined; },
+      registerThreadLifecycle: (lifecycle) => { config.workspace = lifecycle.beforeWorkspace; return () => undefined; },
+    } : {}),
   });
   const toolsOf = (sessionId: string) => {
     const tools: ToolDefinition[] = [];
@@ -114,6 +125,23 @@ describe("the page's zoom, viewport and appearance", () => {
     await expect(kit.state()).resolves.toMatchObject({ zoom: 1.75, appearance: "dark" });
     await kit.invoke("record-start");
     expect(kit.records[0]).toEqual({ action: "start", frameRate: 30 });
+  });
+});
+
+describe("defaults from the host's config", () => {
+  it("reads them itself at start, per workspace and after a change, so no client has to send its own", async () => {
+    let zoom = "1.5";
+    const config: FakeConfig = { settings: (cwd) => ({ values: { "default-zoom": cwd === "/other" ? "2" : zoom, "default-appearance": "dark" }, options: { "recording-keys": true } }) };
+    const kit = await activate(surface(), config);
+    await expect(kit.invoke("current-defaults")).resolves.toMatchObject({ zoom: 1.5, appearance: "dark", recording: { showKeys: true } });
+    await expect(kit.state()).resolves.toMatchObject({ zoom: 1.5 });
+
+    zoom = "1.25";
+    config.changed?.({ kind: "config", paths: [] });
+    await vi.waitFor(() => expect(kit.invoke("current-defaults")).resolves.toMatchObject({ zoom: 1.25 }));
+
+    await config.workspace?.("/other");
+    await expect(kit.invoke("current-defaults")).resolves.toMatchObject({ zoom: 2 });
   });
 });
 

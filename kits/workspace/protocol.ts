@@ -28,6 +28,9 @@ import type {
 import type { ComponentType, ReactNode } from "react";
 import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 
+/** Keep the default branch current by fast-forward; off by default, as in T3 Code. */
+export const AUTO_PULL_OPTION = "auto-pull-default-branch";
+
 /** The changes of a thread's last turn that changed files, as its checkpoint counted them. */
 export interface TurnStat {
   added: number;

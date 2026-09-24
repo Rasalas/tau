@@ -6,6 +6,7 @@ import {
   SNAPSHOTS_EXTENSION_ID,
   SNAPSHOT_EVENT,
   SNAPSHOT_FAILED_EVENT,
+  armFromSettings,
   type ArmInput,
   type PermissionKind,
   type ShortcutState,
@@ -144,9 +145,8 @@ export function createSnapShotsHostExtension(): HostExtension {
       });
       // A window that came back after a restart is a new id and has no shortcut yet.
       let armed: { input: ArmInput; window: string | undefined } | undefined;
-      register("arm", async (input) => {
-        const { accelerator, accessibility } = (input ?? {}) as Partial<ArmInput>;
-        const next: ArmInput = { accelerator: typeof accelerator === "string" ? accelerator : null, accessibility: accessibility !== false };
+      const configured = async () => armFromSettings(await context.services.settings?.().catch(() => undefined));
+      const armWindow = async (next: ArmInput) => {
         try {
           shortcut = await callWindow("shortcut", next) as ShortcutState;
           armed = { input: next, window: context.services.clientWindow?.() };
@@ -156,6 +156,16 @@ export function createSnapShotsHostExtension(): HostExtension {
         }
         context.emit(SHORTCUT_EVENT, shortcut);
         return shortcut;
+      };
+      register("arm", async (input) => {
+        if (input === undefined || input === null) return armWindow(await configured());
+        const { accelerator, accessibility } = input as Partial<ArmInput>;
+        return armWindow({ accelerator: typeof accelerator === "string" ? accelerator : null, accessibility: accessibility !== false });
+      });
+      // The settings are the host's: a change re-arms the window that holds the shortcut.
+      const stopConfig = context.services.observeConfigChanges((change) => {
+        if (change.kind !== "config" || !armed) return;
+        void configured().then((next) => (armed && JSON.stringify(next) !== JSON.stringify(armed.input) ? armWindow(next) : undefined)).catch(() => undefined);
       });
       register("shortcut-state", () => shortcut, READ);
       register("armed", () => (armed && armed.window === context.services.clientWindow?.() ? armed.input : null), READ);
@@ -170,6 +180,7 @@ export function createSnapShotsHostExtension(): HostExtension {
       register("open-settings", (input) => callWindow("open-settings", { kind: kindOf(input) }));
 
       return () => {
+        stopConfig();
         // A shortcut must not outlive the kit that owns it.
         void callWindow("shortcut", { accelerator: null, accessibility: false }).catch(() => undefined);
       };
