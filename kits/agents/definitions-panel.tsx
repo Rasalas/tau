@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { errorMessage, READ_ONLY_REASON, useHostCapabilities, type WorkbenchActions } from "tau";
+import { errorMessage, READ_ONLY_REASON, tooltipProps, useHostCapabilities, type WorkbenchActions } from "tau";
 import type { AgentsState } from "./protocol.js";
 import { definitionRows, type DefinitionRow } from "./model.js";
 import { agentsHost, definitionsStore } from "./store.js";
@@ -39,7 +39,7 @@ function DefinitionItem({ row, parentThreadId, actions }: {
           type="button"
           className="text-button"
           disabled={!parentThreadId || readOnly}
-          title={readOnly ? READ_ONLY_REASON : parentThreadId ? `Start ${definition.name} from this thread` : "Open a thread to start an agent from it"}
+          {...tooltipProps(readOnly ? READ_ONLY_REASON : parentThreadId ? `Start ${definition.name} from this thread` : "Open a thread to start an agent from it")}
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >Start</button>

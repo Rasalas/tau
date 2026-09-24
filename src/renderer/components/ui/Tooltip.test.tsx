@@ -120,6 +120,18 @@ describe("TooltipLayer", () => {
     expect(clicked).toHaveBeenCalledTimes(1);
   });
 
+  it("tells a finger at once why a disabled control does nothing", () => {
+    render(<>
+      <TooltipLayer />
+      <button type="button" disabled {...tooltipProps("Read only: this needs a device with Full access.")}>Merge</button>
+      <div data-inert="" {...tooltipProps("Read only: it can see settings")}><div inert><button type="button">Model</button></div></div>
+    </>);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Merge" }), { pointerType: "touch", clientX: 5, clientY: 5 });
+    expect(screen.getByRole("tooltip").textContent).toContain("Full access");
+    fireEvent.pointerDown(screen.getByText("Model").closest("[data-inert]")!, { pointerType: "touch", clientX: 5, clientY: 5 });
+    expect(screen.getByRole("tooltip").textContent).toContain("can see settings");
+  });
+
   it("lets a finger that moves scroll instead of labelling", () => {
     const { panel } = renderToolbar();
     fireEvent.pointerDown(panel, { pointerType: "touch", clientX: 5, clientY: 5 });

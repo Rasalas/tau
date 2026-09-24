@@ -1943,7 +1943,18 @@ new in API 1.13.0). The client refuses every other command, and every core
 method the host would refuse, before sending it, with `READ_ONLY_REASON`
 instead of a host error. A control asks `useCommandAllowed(extensionId,
 command)` and is disabled with that reason, or left out when its whole surface
-only writes; the host still enforces it.
+only writes; the host still enforces it. Put the reason on the control with
+`tooltipProps`, not `title`: a touch screen has no hover, so a tap on a
+disabled control (`disabled`, `aria-disabled="true"` or `data-inert`) shows its
+tooltip at once, and `SettingRow` does the same for an inert row.
+
+Every other command a paired Full device runs counts as a change it made: the
+host log records it, and Settings → Connections shows it as the device's last
+change. A desktop half that mirrors a preference into its host half on load
+therefore reads what the host holds first, with a `read` command, and sends
+nothing when it matches (Access Kit's `level`, Preview's `current-defaults`,
+the workspace's `open-request-waiting`); one that acts on the host machine
+itself, like SnapShots' global shortcut, asks `hostHasLocalFiles()` first.
 
 `access: "owner"` is the other end: a command that changes who can reach the
 host — Tailscale's `serve-on` and `serve-off` — answers `forbidden` to every

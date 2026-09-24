@@ -70,13 +70,18 @@ function read(target: HTMLElement): Shown | undefined {
 const triggerOf = (node: EventTarget | null): HTMLElement | undefined =>
   node instanceof Element ? node.closest<HTMLElement>("[data-tooltip]") ?? undefined : undefined;
 
+/** A control that does nothing when pressed; its tooltip is usually the reason why. */
+const isDisabled = (target: HTMLElement): boolean => target.matches(":disabled, [aria-disabled='true'], [data-inert]");
+
 /**
  * The one tooltip of the window, for every element that carries
  * `data-tooltip`. It follows the pointer and keyboard focus through listeners
  * on the document, so a list of a thousand rows costs no component per row.
  * Opens after a rest, at once while another one was just open, on keyboard
  * focus without a wait, and closes on Escape, a press, a scroll or leaving.
- * On a touch screen a long press shows it, and the press does not also click.
+ * On a touch screen a long press shows it, and the press does not also click;
+ * a tap on a disabled control shows it at once, since a touch screen has no
+ * hover to tell why the control does nothing.
  */
 export function TooltipLayer() {
   const [shown, setShown] = useState<Shown>();
@@ -139,6 +144,11 @@ export function TooltipLayer() {
       labelled = undefined;
       const target = event.pointerType === "touch" ? triggerOf(event.target) : undefined;
       if (!target) return;
+      if (isDisabled(target)) {
+        const next = read(target);
+        if (next) set(next);
+        return;
+      }
       longPress = {
         x: event.clientX,
         y: event.clientY,

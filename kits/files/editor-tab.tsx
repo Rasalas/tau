@@ -1,6 +1,6 @@
 import { Code2, Eye, Save, Table2, WrapText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { errorMessage, getClientStorage, Markdown, READ_ONLY_REASON, useCommandAllowed, type StageTabHandle, type UiSharedFile, type WorkbenchActions } from "tau";
+import { errorMessage, getClientStorage, Markdown, READ_ONLY_REASON, tooltipProps, useCommandAllowed, type StageTabHandle, type UiSharedFile, type WorkbenchActions } from "tau";
 import { CodeEditor } from "./code-editor.js";
 import { parseDelimited } from "./delimited.js";
 import type { FileDocument } from "./document.js";
@@ -279,7 +279,7 @@ export function FileEditorTab({ params, handle, actions, document }: {
         type="button"
         className="text-button files-save"
         disabled={!mayWrite || !state.dirty || state.saving || Boolean(state.conflict)}
-        title={!mayWrite ? READ_ONLY_REASON : isMac() ? "Save (⌘S)" : "Save (Ctrl+S)"}
+        {...tooltipProps(!mayWrite ? READ_ONLY_REASON : isMac() ? "Save (⌘S)" : "Save (Ctrl+S)")}
         onClick={() => void save()}
       ><Save size={12} /> Save</button> : null}
       {workspace ? <OpenInPicker store={workspace} relPath={params.path} line={() => caretLine.current} /> : null}
