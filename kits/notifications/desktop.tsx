@@ -23,6 +23,7 @@ import {
 } from "./present.js";
 import {
   ATTENTION_EVENT,
+  IDLE_AFTER_MS,
   NOTIFICATIONS_EXTENSION_ID as ID,
   NOTIFY_EVENT,
   PRESENCE_REQUEST_EVENT,
@@ -97,9 +98,12 @@ function coordinate(context: DesktopExtensionContext) {
   let eventThread: string | undefined;
   let badge: number | undefined;
   let reported = "";
+  let lastUsed = Date.now();
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   const settings = () => readSettings(context.preferences);
   const focused = () => document.visibilityState !== "hidden" && document.hasFocus();
+  const idle = () => focused() && Date.now() - lastUsed >= IDLE_AFTER_MS;
   const onScreen = () => {
     const active = actions?.activeThread();
     if (active) return active.draftPending ? undefined : active.sessionId;
@@ -135,8 +139,8 @@ function coordinate(context: DesktopExtensionContext) {
 
   const report = (force = false) => {
     const threadId = onScreen();
-    const presence: PresenceInput = { clientKey, focused: focused(), ...(threadId ? { threadId } : {}) };
-    const key = `${presence.focused}:${threadId ?? ""}`;
+    const presence: PresenceInput = { clientKey, focused: focused(), ...(threadId ? { threadId } : {}), ...(idle() ? { idle: true } : {}) };
+    const key = `${presence.focused}:${threadId ?? ""}:${presence.idle === true}`;
     if (!force && key === reported) return;
     reported = key;
     context.host.invoke("presence", presence).then((reply) => {
@@ -161,8 +165,21 @@ function coordinate(context: DesktopExtensionContext) {
   });
 
   const changed = () => report();
-  const gesture = () => { if (settings().mode === "sound" || settings().mode === "both") unlockSound(); };
-  window.addEventListener("focus", changed);
+  // A touch, a key or a click; a focused window nobody used for a while stops counting as attended.
+  const used = () => {
+    const wasIdle = idle();
+    lastUsed = Date.now();
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => report(), IDLE_AFTER_MS);
+    if (wasIdle) report();
+  };
+  const gesture = () => {
+    used();
+    if (settings().mode === "sound" || settings().mode === "both") unlockSound();
+  };
+  const onFocus = () => { used(); report(); };
+  idleTimer = setTimeout(() => report(), IDLE_AFTER_MS);
+  window.addEventListener("focus", onFocus);
   window.addEventListener("blur", changed);
   document.addEventListener("visibilitychange", changed);
   document.addEventListener("pointerdown", gesture, true);
@@ -178,7 +195,8 @@ function coordinate(context: DesktopExtensionContext) {
       report();
     },
     dispose() {
-      window.removeEventListener("focus", changed);
+      clearTimeout(idleTimer);
+      window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", changed);
       document.removeEventListener("visibilitychange", changed);
       document.removeEventListener("pointerdown", gesture, true);

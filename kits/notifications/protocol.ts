@@ -8,6 +8,10 @@ export const ATTENTION_EVENT = "attention";
 export const NOTIFY_EVENT = "notify";
 /** A client left; the others say again what they show, so the host knows who is still looking. */
 export const PRESENCE_REQUEST_EVENT = "presence-request";
+/** Host command for other kits (Push): `{ attended }`, whether someone is at a client right now. */
+export const ATTENDED_COMMAND = "attended";
+/** A focused client without a touch, a key or a click for this long no longer counts as attended. */
+export const IDLE_AFTER_MS = 3 * 60_000;
 
 /** `approval` is a question that asks for permission, as the rail's status tells them apart. */
 export type AttentionReason = "completed" | "failed" | "question" | "approval";
@@ -42,6 +46,8 @@ export interface PresenceInput {
   clientKey: string;
   focused: boolean;
   threadId?: string;
+  /** Focused, but nobody used it for `IDLE_AFTER_MS`: the user may have walked away. */
+  idle?: boolean;
 }
 
 /** News for one client to show. */

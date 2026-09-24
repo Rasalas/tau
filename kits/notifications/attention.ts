@@ -3,6 +3,7 @@ import type { AttentionItem, Delivery } from "./protocol.js";
 interface Presence {
   focused: boolean;
   threadId?: string;
+  idle?: boolean;
   /** When this client last gained focus; 0 when it never had it. */
   focusedAt: number;
   reportedAt: number;
@@ -73,16 +74,28 @@ export class AttentionBook {
   }
 
   /** A client says what it shows; the thread it has on screen with focus is seen. */
-  report(clientKey: string, presence: { focused: boolean; threadId?: string }): AttentionChange {
+  report(clientKey: string, presence: { focused: boolean; threadId?: string; idle?: boolean }): AttentionChange {
     const now = this.options.now();
     const prior = this.clients.get(clientKey);
     const focusedAt = presence.focused ? (prior?.focused ? prior.focusedAt : now) : (prior?.focusedAt ?? 0);
-    this.clients.set(clientKey, { focused: presence.focused, ...(presence.threadId ? { threadId: presence.threadId } : {}), focusedAt, reportedAt: now });
+    this.clients.set(clientKey, {
+      focused: presence.focused,
+      ...(presence.threadId ? { threadId: presence.threadId } : {}),
+      ...(presence.idle ? { idle: true } : {}),
+      focusedAt,
+      reportedAt: now,
+    });
     const changed = presence.focused && presence.threadId !== undefined && this.items.delete(presence.threadId);
     // What waited and is still unseen goes to whoever turned up first.
     const waiting = this.held.filter((entry) => this.items.get(entry.threadId) === entry);
     this.held = [];
     return { changed, ...(waiting.length ? { delivery: { clientKey, items: waiting.reverse() } } : {}) };
+  }
+
+  /** Someone is at a client: its window has focus and was used lately. News reaches them there, so a phone need not buzz. */
+  attended(): boolean {
+    for (const client of this.clients.values()) if (client.focused && !client.idle) return true;
+    return false;
   }
 
   leave(clientKey: string): void {

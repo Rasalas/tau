@@ -109,6 +109,19 @@ describe("which thread needs the user, and who tells them", () => {
     expect(attention.report("a", { focused: false }).delivery).toBeUndefined();
   });
 
+  it("counts someone as attending only at a focused client that is not idle", () => {
+    const { book: attention } = book();
+    expect(attention.attended()).toBe(false);
+    attention.report("phone", { focused: false, threadId: "t1" });
+    expect(attention.attended()).toBe(false);
+    attention.report("window", { focused: true, threadId: "t2", idle: true });
+    expect(attention.attended()).toBe(false);
+    attention.report("window", { focused: true, threadId: "t2" });
+    expect(attention.attended()).toBe(true);
+    attention.leave("window");
+    expect(attention.attended()).toBe(false);
+  });
+
   it("stops asking a client that left", () => {
     const { book: attention } = book();
     attention.report("a", { focused: true, threadId: "t1" });
