@@ -5,7 +5,7 @@ import { AgentCursorLayer } from "./agent-cursor.js";
 import type { PreviewDriver, PreviewMiniCorner, PreviewMiniPrefs, PreviewState } from "./protocol.js";
 import type { ComputerUseScreenService, ScreenState } from "./screen-protocol.js";
 import { previewView, screenService } from "./screen-store.js";
-import { PREVIEW_PANEL, panelShown, previewKit, usePreviewState } from "./store.js";
+import { PREVIEW_PANEL, drawsFrames, panelShown, previewKit, usePreviewState } from "./store.js";
 import { floatingEnabled } from "./settings.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 
@@ -235,7 +235,8 @@ function MiniPlayer({ driver, state, insets, actions }: { driver: PreviewDriver;
         onClick={() => { if (thread) void actions.switchSession(thread.path); }}
       ><Bot size={12} /></button>
       <span className="spacer" />
-      {screen ? <button
+      {/* Raising the window on the host's screen helps nobody at another computer. */}
+      {screen && !drawsFrames() ? <button
         type="button"
         className="icon-button compact"
         aria-label="Jump to the app"
