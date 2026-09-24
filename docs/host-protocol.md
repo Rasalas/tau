@@ -361,7 +361,8 @@ Only the owner's connections may call these; a paired device gets `forbidden`:
 | `connections-revoke-client` | `id` | `{ revoked }`; its open connections close with 4401 `revoked` |
 | `connections-revoke-others` | – | `{ revoked }`: how many devices were signed out |
 | `connections-rotate-host-token` | – | `{ token }`; every other host-token connection closes with 4401 `token-rotated` |
-| `connections-set-network` | `{ lan?, tailscale?, port?, proxyPort?, certificate?: { certPath, keyPath } \| null }` | `UiNetworkAccess`; opens and closes the listeners of [network access](#network-access) in the running host |
+| `connections-set-network` | `{ lan?, tailscale?, announce?, port?, proxyPort?, certificate?: { certPath, keyPath } \| null }` | `UiNetworkAccess`; opens and closes the listeners of [network access](#network-access) in the running host, and its [Bonjour](#bonjour) announcement |
+| `connections-discover` | `{ timeoutMs? }` (default 3000, 500–10000) | `UiDiscoveredHosts`: `{ hosts, serviceType, problem? }`, the Tau hosts that answered while this host looked ([Bonjour](#bonjour)) |
 | `connections-reload-certificate` | – | `{ changed }`; every listener re-reads its certificate |
 
 A host without a socket answers them with `unsupported`. Any change to
@@ -502,6 +503,46 @@ when network access changes and every minute.
 A hand-started host opens a proxy listener of its own with
 `TAU_HOST_PROXY_LISTEN=127.0.0.1:<port>` (loopback only) and prints
 `tau-host proxy listener on http://…`.
+
+### Bonjour
+
+While the Local network listener is open and `announce` is on (the default),
+the host announces it as a DNS-SD service (`src/main/host-discovery.ts`):
+
+| Field | Value |
+|---|---|
+| Type | `_tau._tcp` (`TAU_BONJOUR_SERVICE_TYPE` overrides it; isolated instances use `_tau-test._tcp`) |
+| Instance | the machine's host name without `.local`; the network may suffix it after a clash |
+| Port | the Local network listener's, TLS |
+| TXT | `v=1`, `id=<host id>`, `fp=<SHA-256 of the certificate, 64 hex>` |
+
+Nothing in it is secret: the id and the fingerprint are in every pairing link
+too. A device that found the host pins `fp`, asks to pair over the socket
+without a code, and waits for the owner like any other request (`pairWithHost`,
+[Pairing over the socket](#pairing-over-the-socket)). `readTauServiceTxt`,
+`discoveredHosts` and `discoveredEndpoints` in `src/shared/discovery.ts` read a
+record the same way on every client.
+
+The host uses the system's responder, never a multicast socket of its own:
+`dns-sd -R` on macOS, `avahi-publish -s` on Linux (it needs `avahi-daemon`; without
+Avahi the state is `unavailable`), and `DnsServiceRegister` of `dnsapi.dll`
+through Windows PowerShell on Windows 10 1809 and later. On POSIX the tool runs
+under a small `sh` wrapper that ends it when its stdin closes, so the
+announcement goes when the host stops or dies. A changed port or certificate
+withdraws the old announcement before the new one goes up; one that stopped
+is started again at the next minute's look. `UiNetworkAccess.announcement`
+reports `starting`, `announced` (with the name the network settled on),
+`failed` or `unavailable`, and a change pushes `connections-changed`.
+
+Registering and browsing are local network operations that macOS 15 and later
+asks the user about once per app (Apple TN3179). The question comes when the
+owner turns on Local network or presses **Find Machines…**, never at start: a
+`network.json` written before Bonjour existed reads `announce` as off, and
+browsing runs only on `connections-discover`. It lists for three seconds with
+`dns-sd -Z` (then looks up the `.local` name's addresses), `avahi-browse
+--parsable --resolve --terminate`, or `DnsServiceBrowse` and `DnsServiceResolve`,
+and marks the host's own record `self`. The macOS app declares
+`NSLocalNetworkUsageDescription` and `NSBonjourServices` (`electron-builder.yml`).
 
 **Endpoints.** `connections-list` names every URL a device may use, best
 first, each with a `kind` a device can choose by: `lan` (with its
