@@ -92,6 +92,8 @@ export class WindowEnvironments {
   private readonly connectedWaiters = new Map<string, Set<() => void>>();
   /** Addresses a `.local` name resolved to for the page, by machine id; trusted like the name. */
   private readonly resolved = new Map<string, string>();
+  /** Catalog writes nobody awaits: a remembered machine, a migrated pin, fresh addresses. */
+  private readonly writes = new Set<Promise<void>>();
 
   constructor(private readonly options: WindowEnvironmentsOptions) {
     this.shownId = options.local.id;
@@ -315,7 +317,7 @@ export class WindowEnvironments {
 
   private rememberShown(): void {
     if (!this.catalog?.preferences.reopenShown) return;
-    void this.catalog.setPreferences({ lastShown: this.shownId }).catch(() => undefined);
+    this.inBackground(this.catalog.setPreferences({ lastShown: this.shownId }));
   }
 
   /** What the page was sent here to show; handed out once. */
@@ -376,6 +378,16 @@ export class WindowEnvironments {
     }));
   }
 
+  /** Resolves once the catalog writes started in the background are on disk. */
+  async settled(): Promise<void> {
+    while (this.writes.size > 0) await Promise.all(this.writes);
+  }
+
+  private inBackground(write: Promise<unknown>): void {
+    const settled = write.then(() => undefined, () => undefined).finally(() => this.writes.delete(settled));
+    this.writes.add(settled);
+  }
+
   close(): void {
     this.closed = true;
     this.pairingAbort?.abort();
@@ -398,13 +410,15 @@ export class WindowEnvironments {
         // A certificate pin that just held vouches for the key it certified; from now on the key is pinned.
         const migrate = !entry.publicKey && entry.fingerprint && certificate?.via === "pin";
         if (migrate) this.options.logger.info("environment.pin-migrated", { id: saved.id, publicKey: certificate.presented.publicKey });
-        void catalog?.update(saved.id, {
-          ...(page ? { lastUrl: page } : {}),
-          readOnly: reply.access === "read-only" ? true : undefined,
-          ...(migrate ? { publicKey: certificate.presented.publicKey, fingerprint: undefined } : {}),
-        }).catch(() => undefined);
+        if (catalog) {
+          this.inBackground(catalog.update(saved.id, {
+            ...(page ? { lastUrl: page } : {}),
+            readOnly: reply.access === "read-only" ? true : undefined,
+            ...(migrate ? { publicKey: certificate.presented.publicKey, fingerprint: undefined } : {}),
+          }));
+        }
         if (reply.host?.id === saved.id && reply.host.endpoints?.length) {
-          void this.refreshAddresses(saved.id, reply.host.endpoints, page, "hello").catch(() => undefined);
+          this.inBackground(this.refreshAddresses(saved.id, reply.host.endpoints, page, "hello"));
         }
       },
     });
