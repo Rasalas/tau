@@ -44,3 +44,27 @@
 .toast-icon-button:hover { background: var(--chip-hover); color: var(--ink-2); }
 .toast-icon-button.copied { color: var(--ready); }
 
+/*
+ * A touch layout: the stack sits at the bottom, over the docked composer
+ * (`ToastViewport` sets `bottom` from it) or over the keyboard and home
+ * indicator, and under every sheet, dialog and Settings (z-index 50 and up),
+ * so a toast never takes a tap meant for one. Swiped sideways, it goes.
+ */
+.toast-stack[data-placement="bottom"] {
+  top: auto; z-index: 45; margin-inline: auto; width: auto; max-width: 480px;
+  left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: calc(var(--tau-keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px) + 12px);
+}
+.toast-stack[data-placement="bottom"] .toast-item {
+  transform-origin: bottom center; touch-action: pan-y;
+  transition: transform var(--motion) var(--ease), height var(--motion) var(--ease), opacity var(--motion) var(--ease);
+  animation-name: toast-enter-up;
+}
+@keyframes toast-enter-up { from { opacity: 0; translate: 0 8px; } }
+@media (prefers-reduced-motion: reduce) { .toast-stack[data-placement="bottom"] .toast-item { animation: none; } }
+.toast-stack[data-placement="bottom"] .toast-card { padding: 4px 4px 4px 14px; }
+.toast-stack[data-placement="bottom"] .toast-type { height: 20px; margin-top: 10px; }
+.toast-stack[data-placement="bottom"] .toast-body { padding-block: 10px 8px; font-size: 14px; line-height: 20px; }
+.toast-stack[data-placement="bottom"] .toast-icon-button { width: 44px; height: 44px; }
+.toast-stack[data-placement="bottom"] .toast-icon-button > svg { width: 18px; height: 18px; }
+.toast-stack[data-placement="bottom"] .toast-actions > button { min-height: 44px; padding: 0 16px; font-size: 14px; }

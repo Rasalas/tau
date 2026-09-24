@@ -7,16 +7,18 @@ import { ThreadViewStore } from "../../../workbench/thread-view-store";
 import { ToastStore } from "../../../workbench/toast-store";
 import { PlatformProvider } from "../../platform-context";
 import { showNoticesAsToasts } from "../../use-workbench-toasts";
-import { ToastViewport } from "./Toasts";
+import { ToastViewport, layoutToasts, toastSwipeDismisses, type ToastPlacement } from "./Toasts";
 
 afterEach(cleanup);
 
-function setup(writeText = vi.fn(async () => undefined)) {
-  const cancels: Array<() => void> = [];
-  const store = new ToastStore({ schedule: () => { const cancel = vi.fn(); cancels.push(cancel); return cancel; } });
+function setup(writeText = vi.fn(async () => undefined), placement?: ToastPlacement) {
+  const timers: Array<{ run: () => void; cancelled: boolean }> = [];
+  const store = new ToastStore({ schedule: (run) => { const timer = { run, cancelled: false }; timers.push(timer); return () => { timer.cancelled = true; }; } });
   const platform: Platform = { clipboard: { writeText }, openExternal: () => undefined, storage: createMemoryStorage(), importModule: async () => ({}) };
-  render(<PlatformProvider platform={platform}><ToastViewport store={store} /></PlatformProvider>);
-  return { store, writeText };
+  render(<PlatformProvider platform={platform}><ToastViewport store={store} {...(placement ? { placement } : {})} /></PlatformProvider>);
+  /** Runs every clock that is still set, as if its time ran out. */
+  const expire = () => act(() => { for (const timer of timers.splice(0)) if (!timer.cancelled) timer.run(); });
+  return { store, writeText, expire };
 }
 
 describe("ToastViewport", () => {
@@ -66,6 +68,99 @@ describe("ToastViewport", () => {
     act(() => { store.show({ description: "Saved" }); });
     fireEvent.keyDown(document, { key: "F6" });
     expect(document.activeElement?.className).toContain("toast-item");
+  });
+});
+
+describe("ToastViewport on a touch layout", () => {
+  it("stacks from the bottom, the newest nearest the thumb and the older ones peeking above it", () => {
+    const toasts = [{ id: "new", type: "info" as const }, { id: "old", type: "info" as const }];
+    const heights = new Map([["new", 60], ["old", 80]]);
+    const collapsed = layoutToasts(toasts, heights, false, "bottom");
+    expect(collapsed.height).toBe(68);
+    expect(collapsed.items[0]!.style.transform).toContain("translateY(8px) scale(1)");
+    // The older one's top edge peeks 8 px above the newest.
+    expect(collapsed.items[1]!.style.transform).toMatch(/translateY\(-3(\.0+\d*)?px\) scale\(0\.95\)/u);
+    const expanded = layoutToasts(toasts, heights, true, "bottom");
+    expect(expanded.height).toBe(148);
+    expect(expanded.items.map((item) => item.style.transform)).toEqual([
+      "translateX(var(--toast-swipe-x, 0px)) translateY(88px) scale(1)",
+      "translateX(var(--toast-swipe-x, 0px)) translateY(0px) scale(1)",
+    ]);
+    expect(layoutToasts(toasts, heights, true, "top").items[1]!.style.transform).toContain("translateY(68px)");
+  });
+
+  it("keeps a toast a sheet is drawn over until it can be seen", () => {
+    const { store, expire } = setup(undefined, "bottom");
+    act(() => { store.show({ id: "update", title: "Update available" }); });
+    const item = document.querySelector<HTMLElement>(".toast-item")!;
+    item.getBoundingClientRect = () => ({ left: 0, top: 700, width: 360, height: 80, right: 360, bottom: 780, x: 0, y: 700, toJSON: () => ({}) });
+    const sheet = document.createElement("section");
+    document.body.append(sheet);
+    const elementFromPoint = vi.fn(() => sheet as Element);
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: elementFromPoint });
+    try {
+      expire();
+      expect(store.getToasts().map((toast) => toast.id)).toEqual(["update"]);
+      elementFromPoint.mockReturnValue(item.querySelector(".toast-body")!);
+      expire();
+      expect(store.getToasts()).toEqual([]);
+    } finally {
+      Reflect.deleteProperty(document, "elementFromPoint");
+      sheet.remove();
+    }
+  });
+
+  it("is dismissed by a long or fast sideways swipe, not a short or slow one", () => {
+    expect(toastSwipeDismisses(140, 360, 0.1)).toBe(true);
+    expect(toastSwipeDismisses(-140, 360, -0.1)).toBe(true);
+    expect(toastSwipeDismisses(40, 360, 0.8)).toBe(true);
+    expect(toastSwipeDismisses(40, 360, -0.8)).toBe(false);
+    expect(toastSwipeDismisses(40, 360, 0.2)).toBe(false);
+    expect(toastSwipeDismisses(10, 360, 2)).toBe(false);
+  });
+
+  it("slides a toast out under a finger that swipes it sideways", () => {
+    vi.useFakeTimers();
+    try {
+      const { store } = setup(undefined, "bottom");
+      act(() => { store.show({ id: "a", title: "Saved", actions: [{ label: "Undo", run: vi.fn() }] }); });
+      const item = document.querySelector<HTMLElement>(".toast-item")!;
+      Object.defineProperty(item, "offsetWidth", { configurable: true, value: 360 });
+      const touch = (type: string, clientX: number, timeStamp: number) => {
+        const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 700 });
+        Object.defineProperties(event, { pointerType: { value: "touch" }, pointerId: { value: 1 }, isPrimary: { value: true }, timeStamp: { value: timeStamp } });
+        fireEvent(item, event);
+      };
+      touch("pointerdown", 100, 1);
+      touch("pointermove", 110, 16);
+      touch("pointermove", 180, 32);
+      expect(item.style.getPropertyValue("--toast-swipe-x")).toBe("80px");
+      expect(store.isHeld()).toBe(true);
+      touch("pointermove", 260, 48);
+      touch("pointerup", 260, 64);
+      expect(store.isHeld()).toBe(false);
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(store.getToasts()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("springs back after a short swipe and keeps the toast", () => {
+    const { store } = setup(undefined, "bottom");
+    act(() => { store.show({ id: "a", title: "Saved" }); });
+    const item = document.querySelector<HTMLElement>(".toast-item")!;
+    Object.defineProperty(item, "offsetWidth", { configurable: true, value: 360 });
+    const touch = (type: string, clientX: number, timeStamp: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 700 });
+      Object.defineProperties(event, { pointerType: { value: "touch" }, pointerId: { value: 1 }, isPrimary: { value: true }, timeStamp: { value: timeStamp } });
+      fireEvent(item, event);
+    };
+    touch("pointerdown", 100, 1);
+    touch("pointermove", 130, 200);
+    touch("pointerup", 130, 400);
+    expect(item.style.getPropertyValue("--toast-swipe-x")).toBe("0px");
+    expect(store.getToasts().map((toast) => toast.id)).toEqual(["a"]);
   });
 });
 
