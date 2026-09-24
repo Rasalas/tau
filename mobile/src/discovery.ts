@@ -45,10 +45,14 @@ export function nearbyHosts(services: readonly NativeService[], virtual: boolean
 /**
  * A saved host seen on the network with the pin it was paired with: the
  * addresses it announces now go first, so a changed DHCP lease does not strand
- * it. A record with another fingerprint changes nothing; that proves nothing.
+ * it. A record with another key (or, for an old pin, certificate) changes
+ * nothing; that proves nothing.
  */
 export function withDiscoveredEndpoints(host: SavedHost, found: DiscoveredHost): PairingEndpoint[] | undefined {
-  if (!host.fingerprint || canonicalFingerprint(host.fingerprint) !== found.fingerprint) return undefined;
+  const samePin = host.publicKey
+    ? found.publicKey !== undefined && canonicalFingerprint(host.publicKey) === found.publicKey
+    : host.fingerprint !== undefined && canonicalFingerprint(host.fingerprint) === found.fingerprint;
+  if (!samePin) return undefined;
   const fresh = found.endpoints.filter((endpoint) => endpoint.kind !== "loopback");
   if (fresh.length === 0 || fresh.every((endpoint, index) => host.endpoints[index]?.url === endpoint.url)) return undefined;
   return [...fresh, ...host.endpoints.filter((endpoint) => !fresh.some((entry) => entry.url === endpoint.url))];

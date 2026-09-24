@@ -1,4 +1,6 @@
-import type { PairingEndpoint, UiHostEndpointKind } from "../shared/connections.js";
+import { authorityName, type PairingEndpoint, type UiHostEndpointKind } from "../shared/connections.js";
+import { socketUrl } from "../shared/environments.js";
+import type { EndpointTrust } from "./host-tls-trust.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
 /**
@@ -18,7 +20,9 @@ export interface SavedEnvironment {
   id: string;
   name: string;
   endpoints: PairingEndpoint[];
-  /** SHA-256 of the certificate its TLS listeners present; absent for a plaintext loopback or tunnel address. */
+  /** SHA-256 of its listeners' public key: the pin. A renewed certificate keeps it. */
+  publicKey?: string;
+  /** SHA-256 of one certificate: the pin of a machine added before key pins, until its next hello. */
   fingerprint?: string;
   token: string;
   addedAt: string;
@@ -104,7 +108,7 @@ export class EnvironmentCatalog {
     return true;
   }
 
-  async update(id: string, patch: Partial<Pick<SavedEnvironment, "name" | "lastUrl" | "readOnly" | "endpoints">>): Promise<boolean> {
+  async update(id: string, patch: Partial<Pick<SavedEnvironment, "name" | "lastUrl" | "readOnly" | "endpoints" | "publicKey" | "fingerprint">>): Promise<boolean> {
     const entry = this.get(id);
     if (!entry) return false;
     const next = { ...entry, ...patch };
@@ -157,7 +161,8 @@ function decodeStored(value: unknown): StoredCatalog | undefined {
         const url = (endpoint as { url?: unknown })?.url;
         const kind = (endpoint as { kind?: unknown })?.kind;
         if (typeof url !== "string" || !/^https?:\/\//u.test(url)) return [];
-        return [{ url, ...(typeof kind === "string" && KINDS.has(kind) ? { kind: kind as UiHostEndpointKind } : {}) }];
+        const trusted = (endpoint as { trustedCertificate?: unknown })?.trustedCertificate === true && authorityName(url);
+        return [{ url, ...(typeof kind === "string" && KINDS.has(kind) ? { kind: kind as UiHostEndpointKind } : {}), ...(trusted ? { trustedCertificate: true } : {}) }];
       })
       : [];
     if (endpoints.length === 0) continue;
@@ -165,6 +170,7 @@ function decodeStored(value: unknown): StoredCatalog | undefined {
       id: item.id,
       name: typeof item.name === "string" && item.name ? item.name : item.id.slice(0, 8),
       endpoints,
+      ...(typeof item.publicKey === "string" && item.publicKey ? { publicKey: item.publicKey } : {}),
       ...(typeof item.fingerprint === "string" && item.fingerprint ? { fingerprint: item.fingerprint } : {}),
       token: item.token,
       addedAt: typeof item.addedAt === "string" ? item.addedAt : "",
@@ -173,4 +179,20 @@ function decodeStored(value: unknown): StoredCatalog | undefined {
     });
   }
   return { environments: entries, preferences };
+}
+
+/**
+ * How the window trusts one of a machine's socket URLs (F19): an address a
+ * CA vouches for is checked by chain and name, any other `wss:` address is
+ * pinned to the machine's key. A machine still on a certificate pin keeps
+ * the old CA fallback for names a CA could vouch for, which Tailscale Serve
+ * needed before addresses carried the flag.
+ */
+export function endpointTrust(saved: Pick<SavedEnvironment, "endpoints" | "publicKey" | "fingerprint">, url: string): EndpointTrust | undefined {
+  if (!url.startsWith("wss:")) return undefined;
+  const endpoint = saved.endpoints.find((entry) => socketUrl(entry.url) === url);
+  if (endpoint?.trustedCertificate && authorityName(endpoint.url)) return {};
+  if (saved.publicKey) return { pin: { publicKey: saved.publicKey } };
+  if (saved.fingerprint) return { pin: { fingerprint: saved.fingerprint }, ...(authorityName(url.replace(/^wss:/u, "https:")) ? { allowAuthority: true } : {}) };
+  return {};
 }

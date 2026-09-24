@@ -302,20 +302,21 @@ A host with TLS may listen on any interface, such as its Tailscale address:
 TAU_WORKSPACE=/path/to/project TAU_HOST_LISTEN=100.64.0.7:7788 TAU_HOST_TLS=1 node dist-electron/main/headless.js
 ```
 
-On first start it creates a self-signed certificate under its userData (`~/.tau/headless/tls/`, key 0600) and keeps it across restarts. Besides the socket and token lines it prints the certificate's fingerprint:
+On first start it creates a self-signed certificate under its userData (`~/.tau/headless/tls/`, key 0600) and keeps it across restarts. When the certificate nears its end, the host renews it with the same key. Besides the socket and token lines it prints the certificate's fingerprint and its public key:
 
 ```
 tau-host listening on wss://100.64.0.7:7788
-tls fingerprint: SHA256 6F:AB:DF:…:10:E9:1E (a client pins it as TAU_HOST_FINGERPRINT)
+tls fingerprint: SHA256 6F:AB:DF:…:10:E9:1E (browsers show it; a renewal changes it)
+tls public key: SHA256 9A:38:0C:…:7D:21:B4 (a client pins it as TAU_HOST_PUBLIC_KEY; a renewal keeps it)
 ```
 
-`TAU_HOST_TLS_CERT` and `TAU_HOST_TLS_KEY` use a certificate of your own instead. On the client, copy the token as above and pin the fingerprint:
+`TAU_HOST_TLS_CERT` and `TAU_HOST_TLS_KEY` use a certificate of your own instead. On the client, copy the token as above and pin the key:
 
 ```bash
-TAU_HOST_URL=wss://100.64.0.7:7788 TAU_HOST_FINGERPRINT=6F:AB:DF:…:10:E9:1E npm run start:existing
+TAU_HOST_URL=wss://100.64.0.7:7788 TAU_HOST_PUBLIC_KEY=9A:38:0C:…:7D:21:B4 npm run start:existing
 ```
 
-Without `TAU_HOST_FINGERPRINT` the window shows the certificate's fingerprint on first connect and asks whether to trust it; compare it with the line the host printed. A yes is remembered in the client's `known-hosts.json`. A host whose certificate a CA vouches for needs neither. If the host ever presents another certificate, the window refuses it before sending the token, and the status line shows both fingerprints. If you replaced the certificate yourself, update the pin or delete the known-hosts entry. `docs/host-protocol.md` has the details.
+`TAU_HOST_PUBLIC_KEY` also takes the `sha256/<base64>` form that curl's `--pinnedpubkey` uses, and so does `TAU_HOST_FINGERPRINT`. A hex `TAU_HOST_FINGERPRINT` still pins one certificate, and a renewal breaks that pin. Without either variable the window shows the host's key on first connect and asks whether to trust it; compare it with the line the host printed. A yes saves the key in the client's `known-hosts.json`. An entry saved before key pins holds a certificate; the first connection it lets in replaces it with that certificate's key. A host whose certificate a CA vouches for needs no pin. If the host ever presents another key (or, for a certificate pin, another certificate), the window refuses it before sending the token, and the status line shows both values. If you replaced the key yourself, update the pin or delete the known-hosts entry. `docs/host-protocol.md` has the details.
 
 A dropped link (a suspended machine, a restarted tunnel, a phone that slept or changed networks) is expected: the client reconnects with backoff, says hello again with the sequence it last saw and replays what it missed. Heartbeats find a link that died without a close, and coming back to the page or to a network tries again at once. A strip above the status line reads `Reconnecting to the host…` (with "Retry now" while it waits), then `Refetching the workbench state…` if the host's buffer no longer reaches back far enough. For a host on another machine, a dot in the title bar shows the link and its round trip. Nothing has to be restarted by hand.
 
@@ -389,7 +390,7 @@ that came through it. A host you start by hand opens a proxy listener with
 
 While Local network is on, Tau also **announces itself with Bonjour** (`_tau._tcp`), so
 the Tau app on a phone and other machines on the same network find it without a link.
-The record carries the host's id and certificate fingerprint and nothing secret; a
+The record carries the host's id, its key and certificate fingerprints and nothing secret; a
 device found this way still waits until you allow it with matching digits. Turn off
 **Announce on this network** to be found only by link or QR code. **Find Machines…**
 lists the Tau hosts nearby; it looks only when you ask. macOS may ask once whether Tau
@@ -432,16 +433,20 @@ with `TAU_HOST_TLS=1`, or forward the port over SSH or a tunnel you trust;
 
 `mobile/` is a native app built with Capacitor around the same compact client. It keeps
 several hosts, finds hosts on the local network over Bonjour, and talks to each over a
-socket of its own native side (URLSession on iOS, OkHttp on Android) that pins the host's
-self-signed certificate — a web view cannot. Tokens live in the Keychain or behind a
-Keystore key.
+socket of its own native side (URLSession on iOS, OkHttp on Android) that pins the key of
+the host's self-signed certificate — a web view cannot. The host keeps that key when it
+renews the certificate, so a renewal needs no new pairing. The Tailscale Serve address
+has a certificate a public CA issued; the link marks it, and the app checks it the way a
+browser would instead of pinning. Tokens live in the Keychain or behind a Keystore key.
 
 Add a host by scanning the QR code in Settings → Connections (or pasting its link), or
 tap a host listed under "On this network". Either way the host's window asks
 "<phone> wants to connect" with six digits; allow it only if the phone shows the same
-ones. With a pinned certificate the digits depend on it, so something between the two
-that presents another certificate cannot make them agree (ADR 0024). The link names every
-address of the host; the app races them each time it connects — local network first,
+ones. With a pinned key the digits depend on it, so something between the two that
+presents another key cannot make them agree (ADR 0024, ADR 0026). The link names every
+address of the host, and every connection's hello names the host's current ones, so a
+host added over Bonjour becomes reachable over Tailscale too; the app races
+them each time it connects — local network first,
 then `.local`, then Tailscale — so it follows a phone from home Wi-Fi to cellular on its
 own. Coming back to the foreground or to a network makes it check the link at once. More
 → Hosts in the thread list goes back to the host list. `tau://thread?host=<id>&thread=<id>`

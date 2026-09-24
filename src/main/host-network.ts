@@ -240,7 +240,7 @@ export class HostNetworkAccess {
       tailscaleUp: tailscaleAddresses(this.interfaces()).length > 0,
       ...(this.options.proxyHeld?.() ? { proxyHeld: true } : {}),
       ...(material ? {
-        certificate: { source: material.source, fingerprint: material.fingerprint, validTo: material.validTo, certPath: material.certPath, warnings: material.warnings },
+        certificate: { source: material.source, fingerprint: material.fingerprint, publicKey: material.publicKey, validTo: material.validTo, certPath: material.certPath, warnings: material.warnings },
       } : {}),
     };
   }
@@ -327,7 +327,7 @@ export class HostNetworkAccess {
       type: bonjour.serviceType,
       name: instanceName(bonjour.name),
       port: portOf(lan.server) ?? lan.bind.port,
-      txt: tauServiceTxt({ hostId: bonjour.hostId, fingerprint }),
+      txt: tauServiceTxt({ hostId: bonjour.hostId, fingerprint, publicKey: this.tls!.current.publicKey }),
     };
   }
 

@@ -345,15 +345,18 @@ token on the same socket; every other end closes the socket (1000, the state).
 A socket that asked is kept past the hello deadline until its request ends,
 and gets a new deadline once it is let in.
 
-A device that pinned the host's self-signed certificate sends `commitment`,
-the SHA-256 (hex) of a random 32-byte nonce, and reveals the nonce after the
-host's challenge. Both sides then compute the digits from the certificate's
-fingerprint and both nonces (`pairingVerificationCode`, `src/shared/pairing.ts`),
-and the device shows its own. The host takes the fingerprint from the
+A device that pinned the host's key sends `commitment`, the SHA-256 (hex) of
+a random 32-byte nonce, and `binding: "key"`, and reveals the nonce after the
+host's challenge. Both sides then compute the digits from the key's SPKI hash
+and both nonces (`pairingVerificationCode`, `src/shared/pairing.ts`,
+`tau-pair-v2`), and the device shows its own. The host takes the key from the
 certificate the socket's own listener presented, so it matches what the
-device pinned on any TLS listener. A relay presenting another certificate cannot
-make the two screens agree, since it had to pick the host's nonce before it
-learned the device's. A device that cannot pin (a browser) sends no
+device pinned on any TLS listener; through a proxy that ends TLS it is empty
+on both sides. A relay presenting another key cannot make the two screens
+agree, since it had to pick the host's nonce before it learned the device's.
+A device from before key pins sends no `binding` and binds the digits to the
+certificate fingerprint instead (`tau-pair-v1`); the host follows it
+([ADR 0026](adr/0026-devices-pin-the-hosts-key.md)). A device that cannot pin (a browser) sends no
 commitment, and the host picks the digits. The device-side client is
 `pairWithHost` in `src/workbench/host-pairing.ts`.
 
@@ -367,16 +370,29 @@ apart, and behind a proxy the address is the one it forwarded.
 
 ### Pairing links
 
-`https://<address>:<port>/#pair=<code>&k=<kind>&fp=<hex>&host=<id>&name=<host name>&e=<kind>:<url>…`
+`https://<address>:<port>/#pair=<code>&k=<kind>&fp=<hex>&pk=<hex>&host=<id>&name=<host name>&e=<kind>:<url>…&ca=<url>…`
 (`pairingUrl`, `parsePairingPayload` in `src/shared/connections.ts`). The origin
 is the address the link was made for and `k` its kind; `e` repeats every other
 network address with its kind (`lan`, `mdns`, `tailscale`, `magicdns`), so a
-device picks one it reaches; `fp` is the SHA-256 of the certificate the
-network listeners present (network access's, else the host's own listener's;
-absent in plaintext), which a device pins on each address that presents it;
-`host` is the id in `<userData>/host-id`. A link made for loopback names no
-other address. The page takes the fragment out of the address bar before it
-renders.
+device picks one it reaches; `pk` is the SHA-256 of the public key (SPKI) of
+the certificate the network listeners present (network access's, else the
+host's own listener's; absent in plaintext), which a device pins on every
+address not named by a `ca`; `fp` is that certificate's own SHA-256, for
+devices from before key pins; each `ca` names an address (the link's own
+too) where a proxy answers with a certificate a CA vouches for (Tailscale
+Serve), which a device checks by chain and name instead, and only on a DNS
+name outside `.local`; `host` is the id in `<userData>/host-id`. A link made
+for loopback names no other address. The page takes the fragment out of the
+address bar before it renders.
+
+### Where a paired device reaches the host
+
+Every hello reply names the host's network addresses (`host.endpoints`, see
+[Several machines in one window](#several-machines-in-one-window)), each with
+its kind and `trustedCertificate` as a link carries them, never loopback. The
+app and a desktop window take them after every hello (`refreshEndpoints`), so
+a device paired over Bonjour learns the Tailscale and Serve addresses and a
+host that moved is not lost.
 
 ### Presets
 
@@ -445,7 +461,7 @@ only for a network that is trusted for its own reasons.
 A host can offer itself on a network without a tunnel. TLS changes the
 transport, not the protocol: the same frames, the same token in every hello,
 the same replay and resync. Pairing and tokens are handled exactly as without
-TLS; a link then starts with `https://` and carries the fingerprint.
+TLS; a link then starts with `https://` and carries the key and the fingerprint.
 
 **Host side.** `TAU_HOST_TLS=1` makes the socket an HTTPS server (`wss:`),
 minimum TLS 1.2. On first start the host creates a self-signed ECDSA P-256
@@ -454,14 +470,18 @@ DER builder, no dependency) valid for 825 days, and keeps it in
 `<userData>/tls/host-cert.pem` and `host-key.pem`, both 0o600 in a 0o700
 directory; a headless host's userData is `~/.tau/headless` unless
 `TAU_USER_DATA` moves it. A restart reuses the pair, so the fingerprint stays
-the same; a week before it expires, or when the pair is unreadable, a new one
-is made, and every client that pinned the old one refuses it. A certificate
+the same; a week before it expires, or when the certificate is unreadable, a
+new certificate is made for the same key, so a device that pins the key keeps
+working and one that pinned the old certificate refuses it. Only an
+unreadable key file makes a new key, and then every device must pair again. A certificate
 of the operator's own replaces all of that: `TAU_HOST_TLS_CERT` and
 `TAU_HOST_TLS_KEY` name PEM files (both or neither; the key must belong to
 the certificate, and one readable by other users draws a warning). The
 headless host prints `tau-host listening on wss://…` and
 `tls fingerprint: SHA256 AB:CD:…`, the SHA-256 of the leaf certificate in the
-form browsers and `openssl x509 -fingerprint -sha256` show. The web client
+form browsers and `openssl x509 -fingerprint -sha256` show, and
+`tls public key: SHA256 AB:CD:…`, the SHA-256 of its SubjectPublicKeyInfo,
+which the app, saved machines and `TAU_HOST_PUBLIC_KEY` pin. The web client
 server upgrades on the same TLS port, and the pairing link becomes `https://`.
 
 The listen rule (`src/main/host-listen.ts`): TLS may bind any interface;
@@ -483,31 +503,41 @@ weeks before it runs out; `tailscale cert`, for one, lasts 90 days.
 **Client side.** `TAU_HOST_URL=wss://machine:port` is trusted in this order
 (`src/main/host-tls-trust.ts`):
 
-1. `TAU_HOST_FINGERPRINT`, when set: that certificate and no other. Colons,
-   case and a `sha256:` prefix are optional.
-2. An entry for `host:port` in `<userData>/known-hosts.json` (version 1,
-   `{ hosts: { "host:port": { fingerprint, trustedAt } } }`, 0o600).
-3. A certificate a CA verifies for that name needs no pin (Node's CA store
+1. `TAU_HOST_PUBLIC_KEY`, when set: that key and no other, whatever
+   certificate carries it, so a renewal keeps working. Colons, case and a
+   `sha256:` prefix are optional; `sha256/<base64>` (curl's
+   `--pinnedpubkey` form) works too.
+2. `TAU_HOST_FINGERPRINT`, when set: that certificate and no other. A
+   `sha256/<base64>` value there names the key instead, as in 1. A key from
+   1 wins over a certificate from here.
+3. An entry for `host:port` in `<userData>/known-hosts.json` (version 1,
+   `{ hosts: { "host:port": { publicKey, trustedAt } } }`, 0o600). An entry
+   written before key pins holds `fingerprint` instead; it is read as a
+   certificate pin, and once a hello succeeds on a connection that pin let
+   in, the entry is rewritten with that certificate's key. An environment
+   pin never migrates: it is the operator's.
+4. A certificate a CA verifies for that name needs no pin (Node's CA store
    answers the probe; Chromium then verifies it as it would any site).
-4. Anything else is trust on first use: the window opens, reads the
+5. Anything else is trust on first use: the window opens, reads the
    certificate without sending anything, and asks on a sheet whether to trust
-   that fingerprint. A yes is written to known-hosts; a no connects to nothing.
+   that key. A yes writes the key to known-hosts; a no connects to nothing.
 
-A pinned certificate is enforced in both of the window's connections.
-Chromium's (the renderer's socket) goes through `setCertificateVerifyProc`,
-which accepts exactly the pinned fingerprint for that host name and leaves
-every other name to Chromium's own verification. The window process's uplink
-(`ws`) connects through `pinnedTlsConnect`, which destroys the socket in its
+A pin is enforced in both of the window's connections. Chromium's (the
+renderer's socket) goes through `setCertificateVerifyProc`, which accepts
+exactly the pinned key (or certificate) for that host name and leaves every
+other name to Chromium's own verification. The window process's uplink (`ws`)
+connects through `pinnedTlsConnect`, which destroys the socket in its
 `secureConnect` handler, before the WebSocket opens. Either way the token is
-never sent to a certificate that does not match.
+never sent to a certificate that does not match. A migration applies to both
+at once, so a renewal later in the same session is kept too.
 
 A mismatch is final. The workbench loads (or reloads) with `?hostRefused=`,
 its `HostConnection` enters the `refused` state, every request fails at once,
-nothing reconnects, and the status line shows both fingerprints and how to
-repair a certificate that was replaced on purpose (update
-`TAU_HOST_FINGERPRINT`, or delete the known-hosts entry). A declined or
-unreadable certificate and a malformed `TAU_HOST_FINGERPRINT` end the same
-way. A refused page carries no token.
+nothing reconnects, and the status line shows both keys (or fingerprints) and
+how to repair a key that was replaced on purpose (update
+`TAU_HOST_PUBLIC_KEY` or `TAU_HOST_FINGERPRINT`, or delete the known-hosts
+entry). A declined or unreadable certificate and a malformed pin variable end
+the same way. A refused page carries no token.
 
 The browser client has no pin of its own: it meets a self-signed host's
 certificate as a browser warning, and its fingerprint is what the host
@@ -574,10 +604,11 @@ the host announces it as a DNS-SD service (`src/main/host-discovery.ts`):
 | Type | `_tau._tcp` (`TAU_BONJOUR_SERVICE_TYPE` overrides it; isolated instances use `_tau-test._tcp`) |
 | Instance | the machine's host name without `.local`; the network may suffix it after a clash |
 | Port | the Local network listener's, TLS |
-| TXT | `v=1`, `id=<host id>`, `fp=<SHA-256 of the certificate, 64 hex>` |
+| TXT | `v=1`, `id=<host id>`, `fp=<SHA-256 of the certificate, 64 hex>`, `pk=<SHA-256 of its public key, 64 hex>` |
 
-Nothing in it is secret: the id and the fingerprint are in every pairing link
-too. A device that found the host pins `fp`, asks to pair over the socket
+Nothing in it is secret: the id, the fingerprint and the key are in every
+pairing link too. A device that found the host pins `pk` (a record from before
+key pins: `fp`), asks to pair over the socket
 without a code, and waits for the owner like any other request (`pairWithHost`,
 [Pairing over the socket](#pairing-over-the-socket)). `readTauServiceTxt`,
 `discoveredHosts` and `discoveredEndpoints` in `src/shared/discovery.ts` read a
@@ -622,14 +653,15 @@ started) needs as much as a window's. Tailscale (`kits/tailscale/`) does all
 three while `tailscale serve` forwards
 `https://<machine>.<tailnet>.ts.net/` to the proxy listener: that endpoint has
 `kind: "magicdns"` and `trustedCertificate: true`, ranks first, and a client
-does not pin the host's fingerprint for it, because Serve answers with its own
-Let's Encrypt certificate. Serve keeps the `Host` header and sets
+does not pin the host's key for it, because Serve answers with its own
+Let's Encrypt certificate: pairing links name it with `ca=`, and the app and
+a desktop window check it by chain and name. Serve keeps the `Host` header and sets
 `X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-For` afresh, so a page
 opened there passes the origin check either way.
 
 The direct Tailscale listener stays beside Serve: it needs no HTTPS
 certificates in the tailnet and publishes no name, and a client that pins the
-fingerprint (the native app, another desktop) reaches it. A browser on a
+key (the native app, another desktop) reaches it, under its MagicDNS name too. A browser on a
 phone wants Serve's certificate.
 
 ## The window is always a client
@@ -708,23 +740,27 @@ still speaks to one host at a time, the one it was loaded for; the window's
 process keeps the rest:
 
 - **The catalog**, `<userData>/environments.json` (0600): per machine its host
-  id, name, addresses with their kinds, the pinned fingerprint and the client
-  token, encrypted with `safeStorage`.
+  id, name, addresses with their kinds and CA flags, the pinned key (a machine
+  saved before key pins: its certificate fingerprint, until its next hello)
+  and the client token, encrypted with `safeStorage`.
 - **One connection per machine and one to its own host**: an auxiliary hello
   with `subscription: { threads: [], topics: [] }`, a `bootstrap` for the thread
   index, then only `thread-index` and `agent-status` pushes, and `ping` every
   20 seconds where the host offers `heartbeat`. Its addresses are tried in turn,
   the one that answered last first, then loopback, LAN, `.local`, Tailscale and
   MagicDNS; an unreachable machine is tried after 1, 2, 5, 10, then every 30 s.
-  4401 is final (the token was revoked or expired there), and so is a
-  certificate other than the pinned one.
+  4401 is final (the token was revoked or expired there), and so is a key
+  other than the pinned one. Each address is trusted on its own: pinned to the
+  key, or checked by chain and name where the host flagged a CA. After a hello
+  that a certificate pin let in, that pin becomes a key pin.
 - **Pairing** through [Pairing over the socket](#pairing-over-the-socket): with a
-  link's code and fingerprint, from a bare address with the certificate it
-  presents pinned for the attempt, or without a link from a machine a
-  [Bonjour](#bonjour) search found, pinned to its record's `fp`
-  (`environments-discover` runs `connections-discover` on the window's own host,
-  then `environments-pair [{ nearby: <host id> }]`). The digits are bound to that
-  certificate either way.
+  link's code and key, from a bare address with the key it presents pinned
+  for the attempt, or without a link from a machine a [Bonjour](#bonjour)
+  search found, pinned to its record's `pk` (a record from before key pins:
+  `fp`; `environments-discover` runs `connections-discover` on the window's own
+  host, then `environments-pair [{ nearby: <host id> }]`). The digits are bound
+  to that key either way; an address the link names with `ca=` is checked by a
+  CA and binds none.
 - **Moving the page**: `environments-open [id, target?]` attaches a second
   `WindowHost` (uplink only, no window halves) to the machine and loads the page
   with `?host=<its socket>&token=<its client token>&environment=<id>`; `target`
@@ -736,17 +772,18 @@ The page reads the list with `environments-list` and hears every change as the
 `environments` push of its local connection (forwarded like `app-update` and
 `window-shell`). These methods are client-side; a host refuses all of them with
 `unsupported`. For the page's own sockets the window's session accepts a saved
-machine's pinned certificate for its host names only, and drops `Origin` on
+machine's pinned key for its host names only, leaves a name the machine flagged
+for a CA to Chromium's own verification, and drops `Origin` on
 sockets to saved machines, because a host lets a `file://` page in over loopback
 only.
 
 A hello reply now names the machine: `host: { id, name, endpoints? }`, its
 `<userData>/host-id`, host name, and the addresses its network listeners have
-now (`{ url, kind }`, nothing on loopback; refreshed with the minute's network
-poll). A client that saved the machine knows it again whatever address reached
+now (`{ url, kind, trustedCertificate? }`, nothing on loopback; refreshed with
+the minute's network poll; the flag counts only on a DNS name outside `.local`). A client that saved the machine knows it again whatever address reached
 it, and follows it: the saved LAN addresses become the ones named, while names,
 Tailscale addresses, typed ones and the one that just answered stay. A Bonjour
-record with the pinned fingerprint does the same.
+record with the pinned key (or, for an old pin, fingerprint) does the same.
 
 `environments-set-preferences [{ reopenShown }]` keeps whether the window shows
 the machine it showed last again at start; the catalog remembers which one.

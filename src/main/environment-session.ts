@@ -1,22 +1,23 @@
+import { X509Certificate } from "node:crypto";
 import type { Session } from "electron";
-import { certificateFingerprint } from "./host-tls.js";
+import { CERTIFICATE_REJECT, presentedIdentity, type PresentedIdentity } from "./host-tls-trust.js";
 
 /** What the page's session needs to know about the saved machines; `WindowEnvironments` answers. */
 export interface EnvironmentSessionPolicy {
-  certificateVerdict(hostname: string, presentedFingerprint: string): number;
+  certificateVerdict(hostname: string, presented: PresentedIdentity): number;
   isSavedSocket(url: string): boolean;
 }
 
 /**
  * Lets the workbench page reach saved machines from Chromium (ADR 0025): their
- * pinned certificates are accepted for their host names, and the page's own
+ * pinned keys are accepted for their host names, and the page's own
  * sockets to them carry no `Origin`, which a host lets in over loopback only.
  */
 export function installEnvironmentSession(session: Session, policy: EnvironmentSessionPolicy, pageId: () => number | undefined): void {
   session.setCertificateVerifyProc((request, callback) => {
-    let presented: string;
-    try { presented = certificateFingerprint(request.certificate.data); }
-    catch { presented = "(unreadable)"; }
+    let presented: PresentedIdentity;
+    try { presented = presentedIdentity(new X509Certificate(request.certificate.data)); }
+    catch { callback(CERTIFICATE_REJECT); return; }
     callback(policy.certificateVerdict(request.hostname, presented));
   });
   session.webRequest.onBeforeSendHeaders({ urls: ["ws://*/*", "wss://*/*"] }, (details, callback) => {

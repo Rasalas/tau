@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { RacingSocket, socketCandidates, type AttemptSocket, type RaceTimers, type SocketCandidate } from "./endpoints";
+import { RacingSocket, listAddresses, socketCandidates, type AttemptSocket, type RaceFailure, type RaceTimers, type SocketCandidate } from "./endpoints";
 
 const FP = "AB:".repeat(31) + "AB";
+const KEY = "EF:".repeat(31) + "EF";
 const PHONE = { platform: "ios" as const, virtual: false };
 
 describe("socketCandidates", () => {
-  it("prefers the local network, then Tailscale, and pins every TLS address", () => {
+  it("prefers the local network, then Tailscale, and pins every TLS address (an old certificate pin)", () => {
     const candidates = socketCandidates([
       { url: "https://mac.tail5e6f7a.ts.net:7788/", kind: "magicdns" },
       { url: "https://100.96.0.12:7788/", kind: "tailscale" },
       { url: "https://[fd00::5]:7788/", kind: "lan" },
       { url: "https://Mac-mini.local:7788/", kind: "mdns" },
       { url: "https://192.168.1.47:7788/", kind: "lan" },
-    ], FP, PHONE);
+    ], { fingerprint: FP }, PHONE);
     expect(candidates.map((candidate) => candidate.url)).toEqual([
       "wss://192.168.1.47:7788/",
       "wss://mac-mini.local:7788/",
@@ -25,21 +26,41 @@ describe("socketCandidates", () => {
     expect(candidates.filter((candidate) => candidate.allowAuthority).map((candidate) => candidate.kind)).toEqual(["magicdns"]);
   });
 
+  it("pins the key strictly, and checks a CA-vouched address by chain and name without the pin", () => {
+    const candidates = socketCandidates([
+      { url: "https://192.168.1.47:7788/", kind: "lan" },
+      { url: "https://mac.tail5e6f7a.ts.net:7788/", kind: "magicdns" },
+      { url: "https://mac.tail5e6f7a.ts.net/", kind: "magicdns", trustedCertificate: true },
+      // A flag on an address or a .local name is not honoured: those are pinned.
+      { url: "https://100.96.0.12:7788/", kind: "tailscale", trustedCertificate: true },
+      { url: "https://mac.local:7788/", kind: "mdns", trustedCertificate: true },
+    ], { publicKey: KEY, fingerprint: FP }, PHONE);
+    const byUrl = Object.fromEntries(candidates.map((candidate) => [candidate.url, candidate]));
+    expect(byUrl["wss://192.168.1.47:7788/"]).toMatchObject({ trust: "pin", publicKey: KEY, allowAuthority: false });
+    expect(byUrl["wss://192.168.1.47:7788/"]!.fingerprint).toBeUndefined();
+    // The direct Tailscale bind under its MagicDNS name is self-signed: pinned, no CA fallback.
+    expect(byUrl["wss://mac.tail5e6f7a.ts.net:7788/"]).toMatchObject({ trust: "pin", publicKey: KEY, allowAuthority: false });
+    expect(byUrl["wss://mac.tail5e6f7a.ts.net/"]).toMatchObject({ trust: "authority", proxied: true, allowAuthority: false });
+    expect(byUrl["wss://mac.tail5e6f7a.ts.net/"]!.publicKey).toBeUndefined();
+    expect(byUrl["wss://100.96.0.12:7788/"]).toMatchObject({ trust: "pin", publicKey: KEY });
+    expect(byUrl["wss://mac.local:7788/"]).toMatchObject({ trust: "pin", publicKey: KEY });
+  });
+
   it("never offers plaintext beyond loopback, and loopback only in a simulator", () => {
     const endpoints = [{ url: "http://192.168.1.47:7788/", kind: "lan" as const }, { url: "http://127.0.0.1:60303/", kind: "loopback" as const }];
-    expect(socketCandidates(endpoints, undefined, PHONE)).toEqual([]);
-    expect(socketCandidates(endpoints, undefined, { platform: "ios", virtual: true }).map((candidate) => candidate.url)).toEqual(["ws://127.0.0.1:60303/"]);
+    expect(socketCandidates(endpoints, {}, PHONE)).toEqual([]);
+    expect(socketCandidates(endpoints, {}, { platform: "ios", virtual: true }).map((candidate) => [candidate.url, candidate.trust])).toEqual([["ws://127.0.0.1:60303/", "plain"]]);
   });
 
   it("reaches the development machine from the Android emulator by its alias", () => {
-    const [candidate] = socketCandidates([{ url: "http://127.0.0.1:60303/" }], undefined, { platform: "android", virtual: true });
+    const [candidate] = socketCandidates([{ url: "http://127.0.0.1:60303/" }], {}, { platform: "android", virtual: true });
     expect(candidate).toMatchObject({ url: "ws://10.0.2.2:60303/", kind: "loopback" });
   });
 
   it("skips what is not an address and lists one address once", () => {
-    const candidates = socketCandidates([{ url: "not a url" }, { url: "ftp://host/" }, { url: "https://host.example:1/" }, { url: "https://host.example:1/" }], undefined, PHONE);
+    const candidates = socketCandidates([{ url: "not a url" }, { url: "ftp://host/" }, { url: "https://host.example:1/" }, { url: "https://host.example:1/" }], {}, PHONE);
     expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({ url: "wss://host.example:1/", allowAuthority: true });
+    expect(candidates[0]).toMatchObject({ url: "wss://host.example:1/", trust: "authority", allowAuthority: false });
     expect(candidates[0]!.fingerprint).toBeUndefined();
   });
 });
@@ -49,6 +70,7 @@ class FakeAttempt implements AttemptSocket {
   readyState = 0;
   fingerprint: string | undefined;
   pinMismatch = false;
+  untrustedCertificate = false;
   closed = false;
   readonly sent: string[] = [];
   private readonly listeners: Record<string, Array<(event: never) => void>> = {};
@@ -57,7 +79,12 @@ class FakeAttempt implements AttemptSocket {
   send(data: string): void { this.sent.push(data); }
   close(): void { if (this.closed) return; this.closed = true; this.fire("close", { code: 1000 }); }
   open(fingerprint?: string): void { this.readyState = 1; this.fingerprint = fingerprint; this.fire("open", {}); }
-  fail(pinMismatch = false): void { this.pinMismatch = pinMismatch; this.readyState = 3; this.fire("close", { code: 1006 }); }
+  fail(why?: "mismatch" | "untrusted"): void {
+    this.pinMismatch = why === "mismatch";
+    this.untrustedCertificate = why === "untrusted";
+    this.readyState = 3;
+    this.fire("close", { code: 1006 });
+  }
   message(data: string): void { this.fire("message", { data }); }
   private fire(type: string, event: object): void { for (const listener of this.listeners[type] ?? []) (listener as (event: object) => void)(event); }
 }
@@ -75,7 +102,7 @@ function manualTimers(): RaceTimers & { fire(): void } {
 function race(urls: string[]) {
   const attempts: FakeAttempt[] = [];
   const timers = manualTimers();
-  const candidates = urls.map((url, rank) => ({ url, rank, allowAuthority: false }));
+  const candidates = urls.map((url, rank) => ({ url, rank, trust: "pin" as const, allowAuthority: false }));
   const socket = new RacingSocket(candidates, (candidate) => { const attempt = new FakeAttempt(candidate); attempts.push(attempt); return attempt; }, { timers });
   const events: string[] = [];
   socket.onopen = () => events.push(`open ${socket.winner?.url}`);
@@ -85,6 +112,19 @@ function race(urls: string[]) {
 }
 
 describe("RacingSocket", () => {
+  it("hands every frame of the chosen socket to onMessage before its own handler", () => {
+    const attempts: FakeAttempt[] = [];
+    const seen: unknown[] = [];
+    const socket = new RacingSocket([{ url: "wss://lan/", rank: 0, trust: "pin", allowAuthority: false }], (candidate) => { const attempt = new FakeAttempt(candidate); attempts.push(attempt); return attempt; }, {
+      timers: manualTimers(),
+      onMessage: (data) => seen.push(`hook ${String(data)}`),
+    });
+    socket.onmessage = (event) => seen.push(`socket ${String(event.data)}`);
+    attempts[0]!.open();
+    attempts[0]!.message("{\"type\":\"hello-reply\"}");
+    expect(seen).toEqual(["hook {\"type\":\"hello-reply\"}", "socket {\"type\":\"hello-reply\"}"]);
+  });
+
   it("takes the best address at once when it opens first, and closes the rest", () => {
     const { attempts, events } = race(["wss://lan/", "wss://tailscale/"]);
     attempts[0]!.open();
@@ -127,17 +167,46 @@ describe("RacingSocket", () => {
     expect(socket.readyState).toBe(3);
   });
 
-  it("fails when nothing answers, and says when every address showed another certificate", () => {
+  it("fails when nothing answers, and names the addresses that showed another key or an untrusted certificate", () => {
     const unreachable = race(["wss://a/", "wss://b/"]);
-    unreachable.attempts[0]!.fail(true);
+    unreachable.attempts[0]!.fail();
     unreachable.attempts[1]!.fail();
     expect(unreachable.events).toEqual(["close 1006 unreachable"]);
+    expect(unreachable.socket.failure).toEqual({ reason: "unreachable" });
 
-    const mismatch = race(["wss://a/", "wss://b/"]);
-    mismatch.attempts[0]!.fail(true);
-    mismatch.attempts[1]!.fail(true);
-    expect(mismatch.socket.pinMismatch).toBe(true);
+    const mismatch = race(["wss://a:7788/", "wss://b/"]);
+    mismatch.attempts[0]!.fail("mismatch");
+    mismatch.attempts[1]!.fail("mismatch");
+    expect(mismatch.socket.failure).toEqual({ reason: "certificate-mismatch", addresses: ["a:7788", "b"] });
     expect(mismatch.events).toEqual(["close 1006 certificate-mismatch"]);
+
+    const untrusted = race(["wss://lan/", "wss://mac.tail0000.ts.net/"]);
+    untrusted.attempts[0]!.fail();
+    untrusted.attempts[1]!.fail("untrusted");
+    expect(untrusted.socket.failure).toEqual({ reason: "untrusted-certificate", addresses: ["mac.tail0000.ts.net"] });
+    expect(untrusted.events).toEqual(["close 1006 untrusted-certificate"]);
+  });
+
+  it("refuses when only some addresses show another key and none other answers, and the key outranks a CA problem", () => {
+    const failures: RaceFailure[] = [];
+    const attempts: FakeAttempt[] = [];
+    const candidates = ["wss://192.168.1.2:7788/", "wss://100.64.1.2:7788/", "wss://mac.tail0000.ts.net/"].map((url, rank) => ({ url, rank, trust: "pin" as const, allowAuthority: false }));
+    const socket = new RacingSocket(candidates, (candidate) => { const attempt = new FakeAttempt(candidate); attempts.push(attempt); return attempt; }, {
+      timers: manualTimers(),
+      onFailure: (failure) => failures.push(failure),
+    });
+    attempts[0]!.fail();
+    attempts[2]!.fail("untrusted");
+    expect(failures).toEqual([]);
+    attempts[1]!.fail("mismatch");
+    expect(failures).toEqual([{ reason: "certificate-mismatch", addresses: ["100.64.1.2:7788"] }]);
+    expect(socket.readyState).toBe(3);
+  });
+
+  it("lists addresses the way a sentence reads", () => {
+    expect(listAddresses(["a"])).toBe("a");
+    expect(listAddresses(["a", "b"])).toBe("a and b");
+    expect(listAddresses(["a", "b", "c"])).toBe("a, b and c");
   });
 
   it("closes every attempt when closed before one won", () => {

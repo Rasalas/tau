@@ -20,15 +20,16 @@ function fakeBridge(options: { refuseOpen?: boolean; forgetOnClose?: boolean } =
 describe("NativeSocket", () => {
   it("opens through the plugin with the pin and reports what the host presented", () => {
     const fake = fakeBridge();
-    const socket = new NativeSocket(fake.bridge, "wss://host:7788/", { fingerprint: "AB:CD", headers: { "User-Agent": "phone" } });
-    expect(fake.opened[0]).toMatchObject({ url: "wss://host:7788/", fingerprint: "AB:CD", headers: { "User-Agent": "phone" } });
+    const socket = new NativeSocket(fake.bridge, "wss://host:7788/", { publicKey: "EF:01", fingerprint: "AB:CD", headers: { "User-Agent": "phone" } });
+    expect(fake.opened[0]).toMatchObject({ url: "wss://host:7788/", publicKey: "EF:01", fingerprint: "AB:CD", headers: { "User-Agent": "phone" } });
     const seen: string[] = [];
     socket.addEventListener("open", () => seen.push("open"));
     socket.onmessage = (event) => seen.push(`message ${String(event.data)}`);
-    fake.emit({ type: "open", fingerprint: "AB:CD" });
+    fake.emit({ type: "open", fingerprint: "AB:CD", publicKey: "EF:01" });
     fake.emit({ type: "message", data: "frame" });
     expect(socket.readyState).toBe(NativeSocket.OPEN);
     expect(socket.fingerprint).toBe("AB:CD");
+    expect(socket.publicKey).toBe("EF:01");
     socket.send("hello");
     expect(fake.sent).toEqual([[fake.opened[0]!.id, "hello"]]);
     expect(seen).toEqual(["open", "message frame"]);
@@ -48,8 +49,17 @@ describe("NativeSocket", () => {
     fake.emit({ type: "close", code: 1006, pinMismatch: true });
     expect(seen).toEqual(["error", "close 1006"]);
     expect(socket.pinMismatch).toBe(true);
+    expect(socket.untrustedCertificate).toBe(false);
     // Unsubscribed: nothing more arrives for a closed socket.
     expect(fake.listeners.size).toBe(0);
+  });
+
+  it("reports a certificate the platform did not trust when nothing was pinned", () => {
+    const fake = fakeBridge();
+    const socket = new NativeSocket(fake.bridge, "wss://mac.tail0000.ts.net/");
+    fake.emit({ type: "close", code: 1006, untrusted: true });
+    expect(socket.untrustedCertificate).toBe(true);
+    expect(socket.pinMismatch).toBe(false);
   });
 
   it("carries the host's close code, so a refused token stays final", () => {

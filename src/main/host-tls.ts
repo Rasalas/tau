@@ -1,4 +1,4 @@
-import { X509Certificate, createPrivateKey } from "node:crypto";
+import { X509Certificate, createHash, createPrivateKey, type KeyObject } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import type { Server as TlsServer } from "node:tls";
 import { hostname } from "node:os";
@@ -10,14 +10,16 @@ import { createSelfSignedCertificate } from "./self-signed-certificate.js";
 export interface HostTlsMaterial {
   cert: string;
   key: string;
-  /** SHA-256 of the leaf certificate, `AB:CD:…` — what a client pins. */
+  /** SHA-256 of the leaf certificate, `AB:CD:…`; what clients before key pins pinned. */
   fingerprint: string;
+  /** SHA-256 of the leaf's public key (SPKI), `AB:CD:…`: what a client pins. A renewal keeps it. */
+  publicKey: string;
   /** When the leaf certificate runs out, as ISO 8601. */
   validTo: string;
   source: "self-signed" | "supplied";
   certPath: string;
   keyPath: string;
-  /** A self-signed certificate was made during this call; clients that pinned the old one will refuse it. */
+  /** A self-signed certificate was made during this call. Its key is the old one's when there was one. */
   created: boolean;
   /** Things the operator should hear about, such as a key others may read. */
   warnings: string[];
@@ -73,7 +75,7 @@ function loadSuppliedTls(certPath: string, keyPath: string): HostTlsMaterial {
   const left = Date.parse(leaf.validTo) - Date.now();
   if (left < 0) warnings.push(`The certificate in ${certPath} expired on ${leaf.validTo}.`);
   else if (left < EXPIRY_WARNING_MS) warnings.push(`The certificate in ${certPath} expires on ${leaf.validTo}; renew it and Tau picks the new one up.`);
-  return { cert, key, fingerprint: leaf.fingerprint256, validTo: isoDate(leaf.validTo), source: "supplied", certPath, keyPath, created: false, warnings };
+  return { cert, key, fingerprint: leaf.fingerprint256, publicKey: publicKeyPin(leaf), validTo: isoDate(leaf.validTo), source: "supplied", certPath, keyPath, created: false, warnings };
 }
 
 function loadOrCreateSelfSignedTls(directory: string, options: ResolveHostTlsOptions): HostTlsMaterial {
@@ -83,21 +85,36 @@ function loadOrCreateSelfSignedTls(directory: string, options: ResolveHostTlsOpt
   const existing = readSelfSigned(certPath, keyPath, now);
   if (existing) return { ...existing, source: "self-signed", certPath, keyPath, created: false, warnings: [] };
 
+  // Renewing keeps the key, so devices that pinned it need nothing new.
+  const kept = readOwnKey(keyPath);
   const { cert, key } = createSelfSignedCertificate({
     commonName: "Tau host",
     ...subjectNames(options.bindHost),
     days: SELF_SIGNED_DAYS,
     now,
+    ...(kept ? { privateKey: kept } : {}),
   });
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
-  writePrivate(keyPath, key);
+  if (!kept) writePrivate(keyPath, key);
   writePrivate(certPath, cert);
   const leaf = new X509Certificate(cert);
-  return { cert, key, fingerprint: leaf.fingerprint256, validTo: isoDate(leaf.validTo), source: "self-signed", certPath, keyPath, created: true, warnings: [] };
+  return { cert, key, fingerprint: leaf.fingerprint256, publicKey: publicKeyPin(leaf), validTo: isoDate(leaf.validTo), source: "self-signed", certPath, keyPath, created: true, warnings: [] };
 }
 
-function readSelfSigned(certPath: string, keyPath: string, now: Date): { cert: string; key: string; fingerprint: string; validTo: string } | undefined {
+/** The P-256 key a self-signed certificate was made with, when it is still readable. */
+function readOwnKey(keyPath: string): KeyObject | undefined {
+  try {
+    const key = createPrivateKey(readFileSync(keyPath, "utf8"));
+    if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") return undefined;
+    chmodSync(keyPath, 0o600);
+    return key;
+  } catch {
+    return undefined;
+  }
+}
+
+function readSelfSigned(certPath: string, keyPath: string, now: Date): { cert: string; key: string; fingerprint: string; publicKey: string; validTo: string } | undefined {
   try {
     const cert = readFileSync(certPath, "utf8");
     const key = readFileSync(keyPath, "utf8");
@@ -106,7 +123,7 @@ function readSelfSigned(certPath: string, keyPath: string, now: Date): { cert: s
     if (!leaf.checkPrivateKey(createPrivateKey(key))) return undefined;
     // Tau wrote it 0o600; a copy restored with looser bits is tightened again.
     chmodSync(keyPath, 0o600);
-    return { cert, key, fingerprint: leaf.fingerprint256, validTo: isoDate(leaf.validTo) };
+    return { cert, key, fingerprint: leaf.fingerprint256, publicKey: publicKeyPin(leaf), validTo: isoDate(leaf.validTo) };
   } catch {
     return undefined;
   }
@@ -166,6 +183,16 @@ export function fingerprintsMatch(left: string, right: string): boolean {
 /** The pinnable fingerprint of a PEM certificate (the first, when it is a chain). */
 export function certificateFingerprint(pem: string): string {
   return new X509Certificate(pem).fingerprint256;
+}
+
+/**
+ * SHA-256 of a certificate's SubjectPublicKeyInfo, `AB:CD:…`: the key pin.
+ * It survives a renewal that keeps the key; the fingerprint does not.
+ */
+export function publicKeyPin(certificate: X509Certificate | string): string {
+  const leaf = typeof certificate === "string" ? new X509Certificate(certificate) : certificate;
+  const digest = createHash("sha256").update(leaf.publicKey.export({ type: "spki", format: "der" })).digest("hex").toUpperCase();
+  return digest.match(/.{2}/gu)!.join(":");
 }
 
 /**

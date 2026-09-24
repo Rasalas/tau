@@ -8,9 +8,10 @@ import {
   environmentThreads,
   orderEndpoints,
   refreshEndpoints,
+  sameEndpoints,
   socketUrl,
 } from "./environments.js";
-import { decodeHostServerFrame } from "./host-transport.js";
+import { decodeHostHelloReply, decodeHostServerFrame } from "./host-transport.js";
 
 const session = (id: string, modifiedAt: number, extra: Partial<UiSession> = {}): UiSession => ({
   id, path: `/s/${id}.jsonl`, title: `Thread ${id}`, modifiedAt, projectPath: "/p", projectName: "p", messageCount: 1, ...extra,
@@ -42,6 +43,19 @@ describe("a machine's addresses", () => {
     ]);
     // A machine that names no address beyond loopback changes nothing.
     expect(refreshEndpoints(saved, [])).toEqual(saved);
+  });
+
+  it("keep the flag of an address a CA vouches for, from the hello and from what was saved", () => {
+    const serve = { url: "https://studio.tail0000.ts.net/", kind: "magicdns" as const, trustedCertificate: true };
+    const kept = { url: "https://old.tail0000.ts.net/", kind: "magicdns" as const, trustedCertificate: true };
+    const refreshed = refreshEndpoints([{ url: "https://studio.tail0000.ts.net/", kind: "magicdns" }, kept], [serve]);
+    expect(refreshed).toEqual([serve, kept]);
+    expect(sameEndpoints([serve], [{ ...serve, trustedCertificate: undefined } as never])).toBe(false);
+    // Over the wire only a DNS name outside .local may carry it.
+    const reply = decodeHostHelloReply({ protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 0, host: { id: "h", name: "n", endpoints: [
+      serve, { url: "https://192.168.1.4:7788/", kind: "lan", trustedCertificate: true }, { url: "https://studio.local:7788/", kind: "mdns", trustedCertificate: true },
+    ] } });
+    expect(reply?.host?.endpoints).toEqual([serve, { url: "https://192.168.1.4:7788/", kind: "lan" }, { url: "https://studio.local:7788/", kind: "mdns" }]);
   });
 
   it("travel in a hello only as http(s) URLs of a known kind", () => {

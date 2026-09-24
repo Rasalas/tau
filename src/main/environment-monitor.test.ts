@@ -4,6 +4,11 @@ import { HOST_TRANSPORT_VERSION } from "../shared/host-transport.js";
 import { EnvironmentMonitor, type MonitorSocket, type MonitorState } from "./environment-monitor.js";
 import { HostPushLog } from "./host-push-log.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { certificateFingerprint, publicKeyPin } from "./host-tls.js";
+import { createSelfSignedCertificate } from "./self-signed-certificate.js";
+import type { PairingEndpoint } from "../shared/connections.js";
+import type { HostHelloReply } from "../shared/host-transport.js";
+import type { ReachedCertificate } from "./environment-monitor.js";
 
 let transport: SocketHostTransport | undefined;
 const monitors: EnvironmentMonitor[] = [];
@@ -65,6 +70,40 @@ describe("the window's connection to a machine", () => {
     await expect.poll(() => last().index?.sessions.map((session) => session.id)).toEqual(["a", "c"]);
     push({ type: "host-update", update: { version: 1, type: "thread-shell", update: { sessionId: "d", shell: index(["d"]).sessions[0] } } });
     await expect.poll(() => last().index?.sessions.map((session) => session.id)).toEqual(["d", "a", "c"]);
+  });
+
+  it("tells which key a certificate pin let in, and where else the machine is reachable, a CA's address flagged", async () => {
+    const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
+    const endpoints: PairingEndpoint[] = [
+      { url: "https://studio.tail0000.ts.net/", kind: "magicdns", trustedCertificate: true },
+      { url: "https://100.64.0.9:7788/", kind: "tailscale" },
+    ];
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0",
+      methods: { bootstrap: async () => ({ threadIndex: index([]) }) },
+      pushLog: new HostPushLog(), hostVersion: "9.9.9", capabilities: [], token: "host-secret", tls,
+      host: { id: "host-studio", name: "studio", endpoints: () => endpoints },
+    });
+    const url = `wss://127.0.0.1:${transport.port}`;
+    const reached: Array<{ reply: HostHelloReply; certificate: ReachedCertificate | undefined }> = [];
+    watch({
+      urls: () => [url], token: "host-secret", onChange: () => undefined,
+      trust: () => ({ pin: { fingerprint: certificateFingerprint(tls.cert) } }),
+      onReached: (_at, reply, certificate) => reached.push({ reply, certificate }),
+    });
+    await expect.poll(() => reached.length).toBe(1);
+    expect(reached[0]!.reply.host?.endpoints).toEqual(endpoints);
+    expect(reached[0]!.certificate).toEqual({ presented: { fingerprint: certificateFingerprint(tls.cert), publicKey: publicKeyPin(tls.cert) }, via: "pin" });
+  });
+
+  it("is refused for good when a pinned key is not the one the machine presents", async () => {
+    const tls = createSelfSignedCertificate({ commonName: "Tau host", dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"], days: 30 });
+    const started = await startSocketHostTransport({ listen: "127.0.0.1:0", methods: {}, pushLog: new HostPushLog(), hostVersion: "9", capabilities: [], token: "host-secret", tls });
+    transport = started;
+    const other = publicKeyPin(createSelfSignedCertificate({ commonName: "x", dnsNames: [], ipAddresses: [], days: 1 }).cert);
+    const { last } = watch({ urls: () => [`wss://127.0.0.1:${started.port}`], token: "host-secret", onChange: () => undefined, trust: () => ({ pin: { publicKey: other } }) });
+    await expect.poll(() => last().status).toBe("refused");
+    expect(last().detail).toMatch(/presented a key/u);
   });
 
   it("is refused for good when the machine no longer takes its key", async () => {

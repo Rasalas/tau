@@ -53,8 +53,10 @@ export interface AccessAuditEntry {
 
 /** Where a pairing request's outcome goes: the socket that asked. False when it is gone. */
 export interface PairingChannel {
-  /** SHA-256 of the certificate this listener presents; absent on plaintext. The digits are bound to it. */
+  /** SHA-256 of the certificate this listener presents; absent on plaintext. Older devices bind the digits to it. */
   fingerprint?: string;
+  /** SHA-256 of that certificate's public key; a device that asks for `binding: "key"` binds the digits to it. */
+  publicKey?: string;
   settle(reply: HostPairReply): boolean;
 }
 
@@ -93,6 +95,7 @@ interface PendingRequest {
   state: "challenge" | "waiting";
   commitment?: string;
   hostNonce?: string;
+  binding?: "key";
   verification?: string;
   createdAt: number;
   expiresAt: number;
@@ -325,6 +328,7 @@ export class HostAccess {
       ...(link ? { link: { ...(link.label ? { label: link.label } : {}), access: link.access } } : {}),
       state: request.commitment ? "challenge" : "waiting",
       ...(request.commitment ? { commitment: request.commitment, hostNonce: randomBytes(32).toString("base64url") } : {}),
+      ...(request.commitment && request.binding === "key" ? { binding: "key" as const } : {}),
       // Without a commitment the host picks the digits; the device only shows them.
       ...(request.commitment ? {} : { verification: String(randomInt(0, 1_000_000)).padStart(6, "0") }),
       createdAt,
@@ -347,7 +351,9 @@ export class HostAccess {
     }
     // Another await ran; the request may have gone meanwhile.
     const verification = await pairingVerificationCode({
-      ...(pending.channel.fingerprint ? { fingerprint: pending.channel.fingerprint } : {}),
+      ...(pending.binding === "key"
+        ? { publicKey: pending.channel.publicKey ?? "" }
+        : pending.channel.fingerprint ? { fingerprint: pending.channel.fingerprint } : {}),
       deviceNonce: nonce,
       hostNonce: pending.hostNonce,
     });

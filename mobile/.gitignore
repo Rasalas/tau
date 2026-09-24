@@ -1,3 +1,5 @@
 node_modules/
 dist/
 .build/
+# SwiftPM/Xcode state beside the plugin's Package.swift
+plugins/tau-native/.swiftpm/

@@ -51,10 +51,11 @@ export function testHostEnv({ base = process.env, root = ROOT, dir = TEST_HOST_D
 export function parseHostOutput(text, { proxy = false, tls = false } = {}) {
   const url = text.match(/listening on (wss?:\/\/\S+)/u)?.[1];
   const fingerprint = text.match(/tls fingerprint: SHA256 (\S+)/u)?.[1];
+  const publicKey = text.match(/tls public key: SHA256 (\S+)/u)?.[1];
   const proxyUrl = text.match(/proxy listener on (http:\/\/\S+)/u)?.[1];
   const link = text.match(/(?:web client|pairing link): (\S+:\/\/\S+)/u)?.[1];
   if (!url || (tls && !fingerprint) || (proxy && !proxyUrl)) return undefined;
-  return { url, ...(fingerprint ? { fingerprint } : {}), ...(proxyUrl ? { proxyUrl } : {}), ...(link ? { link } : {}) };
+  return { url, ...(fingerprint ? { fingerprint } : {}), ...(publicKey ? { publicKey } : {}), ...(proxyUrl ? { proxyUrl } : {}), ...(link ? { link } : {}) };
 }
 
 function alive(pid) {

@@ -95,6 +95,7 @@ public class TauNativePlugin extends Plugin {
             PinnedSocket socket = new PinnedSocket(
                 id,
                 url,
+                call.getString("publicKey"),
                 call.getString("fingerprint"),
                 Boolean.TRUE.equals(call.getBoolean("allowAuthority", false)),
                 headers,

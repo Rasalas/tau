@@ -30,6 +30,7 @@ export interface HostListenInfo {
   /** The browser client is built and served on the same port. */
   webClient: boolean;
   fingerprint?: string;
+  publicKey?: string;
 }
 
 /** The listeners network access opens beside the host's own (`HostNetworkAccess`). */
@@ -96,10 +97,15 @@ export async function publishedEndpoints(connections: HostConnectionsService): P
 }
 
 function networkOnly(endpoints: readonly UiHostEndpoint[]): PairingEndpoint[] {
-  return endpoints.filter((endpoint) => endpoint.reachability === "network").map(({ url, kind }) => ({ url, ...(kind ? { kind } : {}) }));
+  return endpoints.filter((endpoint) => endpoint.reachability === "network").map(pairingEndpoint);
 }
 
 /** Every endpoint of the host's own listener and of network access, best first. */
+/** What a pairing link or a device keeps of an endpoint: the address, its kind, and whether a CA vouches for it. */
+function pairingEndpoint(endpoint: UiHostEndpoint): PairingEndpoint {
+  return { url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}), ...(endpoint.trustedCertificate ? { trustedCertificate: true } : {}) };
+}
+
 async function allEndpoints(connections: HostConnectionsService, info: HostListenInfo | undefined): Promise<UiHostEndpoint[]> {
   const interfaces = connections.interfaces?.() ?? networkInterfaces();
   const beyondLoopback = (info !== undefined && !isLoopbackHost(info.host)) || (connections.network?.state().listeners.length ?? 0) > 0;
@@ -192,14 +198,17 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
       const endpoints = await allEndpoints(connections, info);
       const { link, code } = connections.access.createLink(input);
       // The network listeners' certificate is the one a phone meets; the host's own listener is loopback in the app.
-      const fingerprint = connections.network?.state().certificate?.fingerprint ?? info?.fingerprint;
+      const certificate = connections.network?.state().certificate;
+      const fingerprint = certificate?.fingerprint ?? info?.fingerprint;
+      const publicKey = certificate ? certificate.publicKey : info?.publicKey;
       // A phone that dialled loopback would reach itself; only a loopback link names loopback.
       const network = networkOnly(endpoints);
       const urls = endpoints.map((endpoint) => ({
         ...endpoint,
-        url: pairingUrl({ url: endpoint.url, ...(endpoint.kind ? { kind: endpoint.kind } : {}) }, {
+        url: pairingUrl(pairingEndpoint(endpoint), {
           code,
           ...(fingerprint ? { fingerprint } : {}),
+          ...(publicKey ? { publicKey } : {}),
           ...(connections.hostId ? { hostId: connections.hostId } : {}),
           ...(connections.hostName ? { hostName: connections.hostName } : {}),
           endpoints: endpoint.reachability === "network" ? network : [],
