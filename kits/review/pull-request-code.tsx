@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen, WrapText, X } from "lucide-react";
-import { DiffView, errorMessage, getClientStorage, type DiffLineSlot, type UiDiffLine, type WorkbenchActions } from "tau";
+import { DiffView, READ_ONLY_REASON, errorMessage, getClientStorage, tooltipProps, type DiffLineSlot, type UiDiffLine, type WorkbenchActions } from "tau";
 import { currentDiffWordWrap } from "./diff-settings.js";
 import { providerInfo, type PendingReviewComment, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestThread, type ReviewCommentChip } from "./protocol.js";
 import type { PullRequestCommentInput } from "./pull-request-client.js";
 import { hideWhitespace } from "./pull-request-diff.js";
 import { anchorThreads, lineKeys, orderFiles, shortNoun, threadChip, threadKey } from "./pull-request-logic.js";
 import { ReplyBox, ThreadCard } from "./pull-request-parts.js";
+import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 
 const TREE_KEY = "tau.review.pr-file-tree-open";
 
@@ -43,7 +44,7 @@ function draftChip(detail: PullRequestDetail, draft: Draft, body: string): Revie
  * threads under their lines, a new comment from a line's gutter button, and
  * a viewed mark per file that moves on to the next file still to read.
  */
-export function PullRequestCode({ detail, files, filesError, threads, focusPath, actions, load, onViewed, onComment, onSend, ignoreWhitespace, onIgnoreWhitespace, reviewComments, onPend, onRemovePending, onResolve, canEdit, onEdit }: {
+export function PullRequestCode({ detail, files, filesError, threads, focusPath, actions, load, onViewed, onComment, onSend, ignoreWhitespace, onIgnoreWhitespace, reviewComments, onPend, onRemovePending, onResolve, canEdit, onEdit, writes = ALL_WRITES }: {
   detail: PullRequestDetail;
   files?: PullRequestFiles;
   filesError?: string;
@@ -64,6 +65,8 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
   onResolve(thread: PullRequestThread, resolved: boolean): Promise<void>;
   canEdit(comment: PullRequestComment): boolean;
   onEdit(comment: PullRequestComment, body: string): Promise<void>;
+  /** What this device may change; a line comment, a reply or a viewed mark is left out or disabled otherwise. */
+  writes?: PullRequestWrites;
 }) {
   const [selected, setSelected] = useState<string>();
   const [layout, setLayout] = useState<"unified" | "split">("unified");
@@ -98,8 +101,8 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
   const viewedCount = ordered.filter(isViewed).length;
 
   const capabilities = providerInfo(detail.ref.service).capabilities;
-  const reply = (thread: PullRequestThread) => capabilities.replies ? (text: string) => onComment({ threadId: thread.id, body: text }) : undefined;
-  const resolver = (thread: PullRequestThread) => capabilities.resolve ? (resolved: boolean) => onResolve(thread, resolved) : undefined;
+  const reply = (thread: PullRequestThread) => capabilities.replies && writes.comment ? (text: string) => onComment({ threadId: thread.id, body: text }) : undefined;
+  const resolver = (thread: PullRequestThread) => capabilities.resolve && writes.resolve ? (resolved: boolean) => onResolve(thread, resolved) : undefined;
 
   const lines = useMemo<DiffLineSlot | undefined>(() => {
     if (!current) return undefined;
@@ -107,11 +110,12 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
     const heldAt = (line: UiDiffLine) => lineKeys(current.path, line).flatMap((key) => held.get(key) ?? []);
     const drafting = (line: UiDiffLine) => draft?.path === current.path && (draft.side === "new" ? line.newLine : line.kind === "removed" ? line.oldLine : undefined) === draft.line;
     return {
-      onAction: ({ path, line }) => {
+      // A line comment only posts or joins a review; a Read-only device reads the threads.
+      ...(writes.comment || writes.review ? { onAction: ({ path, line }: { path: string; line: UiDiffLine }) => {
         const side = line.newLine !== undefined ? "new" : "old";
         const number = side === "new" ? line.newLine : line.oldLine;
         if (number !== undefined) setDraft({ path, line: number, side, code: mark(line) });
-      },
+      } } : {}),
       actionLabel: ({ line }) => line.newLine !== undefined ? `Comment on line ${line.newLine}` : `Comment on removed line ${line.oldLine}`,
       count: ({ line }) => at(line).length + heldAt(line).length,
       selected: ({ line }) => drafting(line),
@@ -156,7 +160,7 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
       },
     };
     // `reply`, `onSend` and the review callbacks close over stable props; the slot follows what it draws.
-  }, [anchored, current, detail, draft, held]);
+  }, [anchored, current, detail, draft, held, writes]);
 
   const toggleViewed = async (file: PullRequestFile) => {
     const next = !isViewed(file);
@@ -241,8 +245,8 @@ export function PullRequestCode({ detail, files, filesError, threads, focusPath,
               <span className="spacer" />
               <span className="stat-add">+{current.added}</span>
               <span className="stat-del">−{current.removed}</span>
-              <label className={`pr-viewed ${current.viewed === "dismissed" && !pending.has(current.path) ? "dismissed" : ""}`} title={current.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : undefined}>
-                <input type="checkbox" checked={isViewed(current)} onChange={() => void toggleViewed(current)} />
+              <label className={`pr-viewed ${current.viewed === "dismissed" && !pending.has(current.path) ? "dismissed" : ""}`} {...tooltipProps(!writes.viewed ? READ_ONLY_REASON : current.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : undefined)}>
+                <input type="checkbox" checked={isViewed(current)} disabled={!writes.viewed} onChange={() => void toggleViewed(current)} />
                 {current.viewed === "dismissed" && !pending.has(current.path) ? "Changed" : "Viewed"}
               </label>
               <button className="icon-button compact" aria-label="Previous file" onClick={() => step(-1)}><ChevronLeft size={14} /></button>

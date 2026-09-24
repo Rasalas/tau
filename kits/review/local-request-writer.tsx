@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { ImagePlus, Sparkles } from "lucide-react";
-import { errorMessage, Markdown, type PreferencesStore, type WorkbenchActions } from "tau";
+import { errorMessage, Markdown, READ_ONLY_REASON, useCommandAllowed, type PreferencesStore, type WorkbenchActions } from "tau";
 import { chosenWritingModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import { EvidenceThumb } from "./local-request-evidence.js";
 import type { LocalRequestClient } from "./local-request-client.js";
 import { evidenceKey, evidenceToken, findEvidenceTokens, insertEvidence, splitBody, type EvidenceMedia, type LocalEvidence, type UploadPlan } from "./local-request.js";
-import { providerInfo, type ReviewRequest, type ReviewRequestStatus } from "./protocol.js";
+import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ReviewRequest, type ReviewRequestStatus } from "./protocol.js";
 import { openPullRequest } from "./pull-request-open.js";
 import type { RequestClient } from "./requests.js";
 
@@ -104,6 +104,10 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
     actions.notify(`${count(result.uploaded)} added to ${short} #${target.number}.`);
   });
 
+  // Writing runs a model, creating and attaching change the service: a Read-only device may draft only.
+  const mayWrite = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-pr-describe");
+  const mayCreate = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "pr-create");
+  const mayAttach = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "pr-attach-evidence");
   const blocked = status?.problem;
   const inBody = findEvidenceTokens(form.body);
 
@@ -148,7 +152,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
     <div className="lpr-writer">
       <input className="lpr-title" aria-label={`${short} title`} placeholder="Title" value={form.title} onChange={(event) => onForm({ title: event.target.value })} />
       <div className="lpr-writer-bar">
-        <button className="mini-button" disabled={Boolean(busy)} onClick={() => void write()} title={`A small model writes the title and description from the commits${media.length ? " and the chosen pictures" : ""}`}>
+        <button className="mini-button" disabled={Boolean(busy) || !mayWrite} onClick={() => void write()} title={mayWrite ? `A small model writes the title and description from the commits${media.length ? " and the chosen pictures" : ""}` : READ_ONLY_REASON}>
           <Sparkles size={12} aria-hidden="true" /> {form.body.trim() ? "Rewrite description" : "Write description"}
         </button>
         <button className="mini-button" disabled={media.length === 0 || Boolean(busy)} onClick={() => onForm({ body: insertEvidence(form.body, media) })} title="Adds the chosen pictures under Screenshots">
@@ -183,10 +187,10 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
         {open ? (
           <>
             <button onClick={() => openPullRequest(actions, open, root)}>Open {short} #{open.number}</button>
-            <button className="primary" disabled={media.length === 0 || Boolean(busy)} onClick={() => confirm("attach")}>Attach {count(media.length)}…</button>
+            <button className="primary" disabled={media.length === 0 || Boolean(busy) || !mayAttach} title={mayAttach ? undefined : READ_ONLY_REASON} onClick={() => confirm("attach")}>Attach {count(media.length)}…</button>
           </>
         ) : capabilities.create ? (
-          <button className="primary" disabled={!form.title.trim() || Boolean(busy) || Boolean(blocked)} title={blocked} onClick={() => confirm("create")}>
+          <button className="primary" disabled={!form.title.trim() || Boolean(busy) || Boolean(blocked) || !mayCreate} title={mayCreate ? blocked : READ_ONLY_REASON} onClick={() => confirm("create")}>
             {form.draft ? `Create draft ${short}…` : `Create ${short}…`}
           </button>
         ) : null}

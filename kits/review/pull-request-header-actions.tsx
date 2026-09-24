@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { GitMerge, Link2, MoreHorizontal, RotateCcw } from "lucide-react";
-import { Menu, errorMessage, type MenuSection, type PreferencesStore, type WorkbenchActions } from "tau";
+import { Menu, READ_ONLY_REASON, errorMessage, tooltipProps, type MenuSection, type PreferencesStore, type WorkbenchActions } from "tau";
 import { providerInfo, type MergeMethod, type PullRequestActionResult, type PullRequestCheck, type PullRequestDetail } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { checksRollup } from "./pull-request-logic.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { METHOD_LABELS, MergeConfirm, outcomeText, useMergeConfirmation } from "./merge-controls.js";
+import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 
 /** Which merge control the header shows in its one slot, after T3 Code's primary control. */
 export type PrimaryControl = "merge" | "auto-merge" | "armed" | undefined;
@@ -25,9 +26,10 @@ export function primaryControl(detail: Pick<PullRequestDetail, "state" | "draft"
  * The request's own steps in its header: one primary control (merge, arm an
  * auto-merge, or the armed merge's badge) and a menu with the rest — merge
  * now, turn auto-merge on or off, the merge method, link to a thread, revert.
- * Each step the provider cannot take is left out rather than refused.
+ * Each step the provider cannot take is left out rather than refused; one
+ * this device may not take is disabled with the reason.
  */
-export function PullRequestHeaderActions({ detail, checks, client, actions, preferences, threadId, onDetail, onPickThread }: {
+export function PullRequestHeaderActions({ detail, checks, client, actions, preferences, threadId, onDetail, onPickThread, writes = ALL_WRITES }: {
   detail: PullRequestDetail;
   checks: readonly PullRequestCheck[];
   client: PullRequestClient;
@@ -36,6 +38,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   threadId: string | undefined;
   onDetail(detail: PullRequestDetail): void;
   onPickThread(): void;
+  writes?: PullRequestWrites;
 }) {
   const info = providerInfo(detail.ref.service);
   const { capabilities } = info;
@@ -83,17 +86,18 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   const open = detail.state === "open";
   const mergeable = open && !detail.draft && methods.length > 0;
   const sections: MenuSection[] = [];
+  const refused = (allowed: boolean) => allowed ? {} : { disabled: true, description: READ_ONLY_REASON };
   const steps = [
     ...(mergeable && (primary === "auto-merge" || primary === "armed") ? [{ id: "merge-now", label: "Merge now", icon: <GitMerge size={13} /> }] : []),
     ...(open && detail.autoMerge && capabilities.autoMerge ? [{ id: "auto-merge-off", label: "Disable auto-merge", icon: <GitMerge size={13} /> }] : []),
     ...(mergeable && !detail.autoMerge && primary === "merge" && capabilities.autoMerge ? [{ id: "auto-merge-on", label: "Enable auto-merge", icon: <GitMerge size={13} /> }] : []),
   ];
-  if (steps.length > 0) sections.push({ items: steps });
-  if (mergeable && methods.length > 1) {
+  if (steps.length > 0) sections.push({ items: steps.map((step) => ({ ...step, ...refused(writes.action) })) });
+  if (mergeable && methods.length > 1 && writes.action) {
     sections.push({ heading: "Merge method", items: methods.map((method) => ({ id: `method:${method}`, label: METHOD_LABELS[method], selected: confirmation.method === method })) });
   }
-  sections.push({ items: [{ id: "link-thread", label: "Link to thread…", icon: <Link2 size={13} /> }] });
-  if (detail.state === "merged" && capabilities.revert) sections.push({ items: [{ id: "revert", label: "Revert changes", icon: <RotateCcw size={13} /> }] });
+  sections.push({ items: [{ id: "link-thread", label: "Link to thread…", icon: <Link2 size={13} />, ...refused(writes.link) }] });
+  if (detail.state === "merged" && capabilities.revert) sections.push({ items: [{ id: "revert", label: "Revert changes", icon: <RotateCcw size={13} />, ...refused(writes.action) }] });
 
   const pick = (id: string) => {
     setMenu(false);
@@ -112,11 +116,11 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
           <GitMerge size={11} aria-hidden="true" /> {armed}
         </span>
       ) : primary === "auto-merge" && confirmation.method ? (
-        <button className="pr-primary" onClick={() => confirmation.open("auto-merge")}>
+        <button className="pr-primary" disabled={!writes.action} {...tooltipProps(writes.action ? undefined : READ_ONLY_REASON)} onClick={() => confirmation.open("auto-merge")}>
           <GitMerge size={12} aria-hidden="true" /> Auto-merge ({METHOD_LABELS[confirmation.method].toLowerCase()})
         </button>
       ) : primary === "merge" && confirmation.method ? (
-        <button className="pr-primary" onClick={() => confirmation.open("merge")}>
+        <button className="pr-primary" disabled={!writes.action} {...tooltipProps(writes.action ? undefined : READ_ONLY_REASON)} onClick={() => confirmation.open("merge")}>
           <GitMerge size={12} aria-hidden="true" /> {METHOD_LABELS[confirmation.method]}
         </button>
       ) : null}

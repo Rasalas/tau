@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CircleCheck, CircleDashed, CircleX, LoaderCircle, Play, Square } from "lucide-react";
-import { errorMessage, type HostExtensionClient } from "tau";
+import { errorMessage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, type HostExtensionClient } from "tau";
 import { relativeTime } from "./pull-request-logic.js";
 
 /** Project Scripts' contract, mirrored rather than imported: the part the local checks read. */
@@ -42,6 +42,8 @@ export function LocalChecks({ scripts, scope }: { scripts: HostExtensionClient; 
   const [state, setState] = useState<ScriptsState>();
   const [runs, setRuns] = useState<ScriptRun[]>([]);
   const [error, setError] = useState<string>();
+  const mayRun = useCommandAllowed(PROJECT_SCRIPTS_EXTENSION_ID, "run");
+  const mayStop = useCommandAllowed(PROJECT_SCRIPTS_EXTENSION_ID, "stop");
 
   const load = useCallback(async () => {
     if (!scope) return;
@@ -90,11 +92,11 @@ export function LocalChecks({ scripts, scope }: { scripts: HostExtensionClient; 
             <code title={script.command}>{script.command}</code>
             <span className="spacer" />
             {run?.status === "running" ? (
-              <button className="mini-button" aria-label={`Stop ${script.name}`} onClick={() => void scripts.invoke("stop", { runId: run.id }).catch((reason: unknown) => setError(errorMessage(reason)))}>
+              <button className="mini-button" aria-label={`Stop ${script.name}`} disabled={!mayStop} {...tooltipProps(mayStop ? undefined : READ_ONLY_REASON)} onClick={() => void scripts.invoke("stop", { runId: run.id }).catch((reason: unknown) => setError(errorMessage(reason)))}>
                 <Square size={11} aria-hidden="true" /> Stop
               </button>
             ) : (
-              <button className="mini-button" aria-label={`Run ${script.name}`} onClick={() => void start(script)}>
+              <button className="mini-button" aria-label={`Run ${script.name}`} disabled={!mayRun} {...tooltipProps(mayRun ? undefined : READ_ONLY_REASON)} onClick={() => void start(script)}>
                 <Play size={11} aria-hidden="true" /> Run
               </button>
             )}
