@@ -78,8 +78,15 @@ export function listenerEndpoints(
   else {
     const families = bare === "0.0.0.0" ? ["IPv4"] : ["IPv4", "IPv6"];
     for (const [name, addresses] of Object.entries(interfaces)) {
+      // Temporary IPv6 addresses rotate and expire; the first global and the first ULA stand for the rest.
+      const ipv6Seen = new Set<string>();
       for (const entry of addresses ?? []) {
         if (entry.internal || !families.includes(entry.family)) continue;
+        if (entry.family === "IPv6" && classifyAddress(entry.address) === "lan") {
+          const scope = /^f[cd]/iu.test(entry.address) ? "ula" : "global";
+          if (ipv6Seen.has(scope)) continue;
+          ipv6Seen.add(scope);
+        }
         add(entry.address, entry.family, name);
       }
     }

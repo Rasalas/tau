@@ -46,6 +46,18 @@ describe("the endpoints of one listener", () => {
     ]);
   });
 
+  it("name one global and one unique-local IPv6 address per interface, not every temporary one", () => {
+    const privacy = { en0: [
+      { address: "2003:e5::4e4", family: "IPv6", internal: false },
+      { address: "fdf5:796::93", family: "IPv6", internal: false },
+      { address: "2003:e5::50b1", family: "IPv6", internal: false },
+      { address: "2003:e5::5b3", family: "IPv6", internal: false },
+      { address: "fdf5:796::842", family: "IPv6", internal: false },
+    ] } as unknown as Interfaces;
+    expect(listenerEndpoints({ scheme: "https", host: "::", port: 1 }, privacy, {}, { loopback: false }).map((endpoint) => endpoint.url))
+      .toEqual(["https://[2003:e5::4e4]:1/", "https://[fdf5:796::93]:1/"]);
+  });
+
   it("keep an IPv4 wildcard to IPv4, with this machine last", () => {
     const urls = listenerEndpoints({ scheme: "http", host: "0.0.0.0", port: 1 }, interfaces).map((endpoint) => endpoint.url);
     expect(urls).toEqual(["http://192.168.1.20:1/", "http://100.96.0.12:1/", "http://127.0.0.1:1/"]);
