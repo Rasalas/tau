@@ -26,16 +26,24 @@ const electron = vi.hoisted(() => ({
     debugger: { isAttached(): boolean; attach: ReturnType<typeof vi.fn>; sendCommand: ReturnType<typeof vi.fn> };
   } & Record<string, unknown>,
   createFromBuffer: vi.fn(),
+  stages: [] as FakeWindow[],
 }));
 vi.mock("electron", async () => {
-  const { fakeView } = await import("./fake-electron-window.js");
+  const { fakeView, fakeWindow: stageWindow } = await import("./fake-electron-window.js");
   return {
     WebContentsView: class {
       constructor() {
         return Object.assign(fakeView(), { webContents: electron.contents });
       }
     },
-    BaseWindow: class {},
+    BaseWindow: class {
+      constructor() {
+        const stage = stageWindow();
+        stage.visible = false;
+        electron.stages.push(stage);
+        return stage;
+      }
+    },
     BrowserWindow: { getFocusedWindow: () => electron.window, getAllWindows: () => [electron.window] },
     nativeImage: { createFromBuffer: electron.createFromBuffer },
     session: {
@@ -55,6 +63,7 @@ const surface = () => createElectronPreviewSurface({ partition: "", onChange: ()
 
 beforeEach(() => {
   let attached = false;
+  electron.stages.length = 0;
   electron.window = fakeWindow();
   electron.contents = {
     on: vi.fn(),
@@ -98,6 +107,28 @@ describe("the preview surface's capture", () => {
   });
 });
 
+describe("a hidden view's screenshot", () => {
+  it("asks again when the first request hangs, as a view hidden in a painting window needs", async () => {
+    vi.useFakeTimers();
+    try {
+      let asked = 0;
+      electron.contents.debugger.sendCommand.mockImplementation(async (method: string) => {
+        if (method !== "Page.captureScreenshot") return {};
+        asked += 1;
+        return asked === 1 ? new Promise(() => undefined) : { data: Buffer.from("shot").toString("base64") };
+      });
+      const view = surface();
+      view.place({ x: 0, y: 0, width: 1_280, height: 800 }, false);
+      const shot = view.capture(640, undefined, true);
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(shot).resolves.toMatchObject({ width: 640 });
+      expect(asked).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("a device's layout", () => {
   const phone = { width: 390, height: 600, dpr: 3, touch: true };
   const commands = () => electron.contents.debugger.sendCommand.mock.calls.map(([method]) => method as string);
@@ -114,6 +145,16 @@ describe("a device's layout", () => {
     expect(electron.contents.debugger.sendCommand).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", expect.objectContaining({ width: 390, height: 600, deviceScaleFactor: 3, mobile: true }));
     expect(electron.contents.capturePage).not.toHaveBeenCalled();
     expect(shot).toMatchObject({ width: 780, height: 1_200 });
+  });
+
+  it("paints the page in the stage while the window does not show it, and back in the window when it does", async () => {
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, false, phone);
+    expect(electron.stages).toHaveLength(1);
+    expect(electron.window.contentView.children).toHaveLength(0);
+    view.place({ x: 0, y: 0, width: 393, height: 700 }, true);
+    await vi.waitFor(() => expect(electron.window.contentView.children[0]?.visible).toBe(true));
+    expect(electron.stages[0]?.destroyed).toBe(true);
   });
 
   it("taps with touches on a touch screen", async () => {

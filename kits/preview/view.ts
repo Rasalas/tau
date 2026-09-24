@@ -17,6 +17,8 @@ const MAX_ERRORS = 50;
 const ISOLATED_WORLD = 1_022;
 /** A page that never answers a screenshot is a skipped frame, not a stuck device. */
 const HIDDEN_CAPTURE_TIMEOUT_MS = 5_000;
+/** A view hidden in a window that paints answers only every other screenshot; the next request frees it. */
+const HIDDEN_CAPTURE_NUDGE_MS = 400;
 
 /** The part of a full-view image under `rect`, which is in the view's coordinates like `capturePage`'s. */
 export function cropToView(image: NativeImage, viewWidth: number, rect?: PreviewRect): NativeImage {
@@ -203,8 +205,16 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => reject(new Error("The hidden page did not paint.")), HIDDEN_CAPTURE_TIMEOUT_MS);
     });
-    const shot = devTools().sendCommand("Page.captureScreenshot", jpeg ? { format: "jpeg", quality: 90 } : { format: "png" }) as Promise<{ data: string }>;
-    const { data } = await Promise.race([shot, timeout]).finally(() => clearTimeout(timer));
+    const params = jpeg ? { format: "jpeg", quality: 90 } : { format: "png" };
+    const request = () => devTools().sendCommand("Page.captureScreenshot", params) as Promise<{ data: string }>;
+    let nudge: ReturnType<typeof setTimeout> | undefined;
+    const nudged = new Promise<{ data: string }>((resolve, reject) => {
+      nudge = setTimeout(() => { request().then(resolve, reject); }, HIDDEN_CAPTURE_NUDGE_MS);
+    });
+    const { data } = await Promise.race([request(), nudged, timeout]).finally(() => {
+      clearTimeout(timer);
+      clearTimeout(nudge);
+    });
     return cropToView(nativeImage.createFromBuffer(Buffer.from(data, "base64")), device?.width ?? view.getBounds().width, rect);
   };
   const closeWithWindow = () => surface.destroy();
@@ -216,7 +226,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       if (destroyed) return;
       const key = next ? `${JSON.stringify(next)}@${String(rect.width)}x${String(rect.height)}` : "";
       if (key === deviceKey) {
-        placement.place(rect, visible);
+        placement.place(rect, visible, device !== undefined);
         return;
       }
       deviceKey = key;
@@ -224,8 +234,8 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions): Pr
       const token = ++placing;
       emulation = emulation.then(() => emulate(next, rect)).catch((error: unknown) => note(`device layout: ${error instanceof Error ? error.message : String(error)}`));
       // Shown only once the page has the layout for it, so the window never draws the other one.
-      void emulation.then(() => { if (!destroyed && token === placing) placement.place(rect, visible); });
-      if (!visible) placement.place(rect, visible);
+      void emulation.then(() => { if (!destroyed && token === placing) placement.place(rect, visible, next !== undefined); });
+      if (!visible) placement.place(rect, visible, next !== undefined);
     },
     async load(url: string, timeoutMs: number) {
       const settled = new Promise<void>((resolve) => {
