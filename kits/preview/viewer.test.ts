@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryStorage } from "../../src/workbench/client-storage.js";
 import { DEFAULT_MINI_PREFS } from "./protocol.js";
 import { DEVICE_MINI_PREFS_KEY, loadDeviceMiniPrefs, saveDeviceMiniPrefs } from "./mini-prefs.js";
 import { describeViewer, viewerId } from "./viewer.js";
+
+function createMemoryStorage() {
+  const store = new Map<string, string>();
+  return { get: (key: string) => store.get(key) ?? null, set: (key: string, value: string) => { store.set(key, value); } };
+}
 
 describe("this device, as the page is laid out for it", () => {
   it("keeps one id across reloads", () => {
