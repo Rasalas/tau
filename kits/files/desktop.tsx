@@ -85,6 +85,7 @@ export const filesExtension: DesktopExtension = {
       id: "files.edit",
       label: "Edit file",
       group: "Project",
+      access: "write",
       surfaces: ["file-tab"],
       run: (actions) => {
         const shown = actions.activeStageTab?.();
@@ -99,6 +100,7 @@ export const filesExtension: DesktopExtension = {
       id: "files.save",
       label: "Save file",
       group: "Project",
+      access: "write",
       run: async (actions) => {
         const shown = actions.activeStageTab?.();
         const path = shown?.kind === "extension" && shown.tabKind === FILE_EDITOR_TAB ? fileEditorParams(shown.params).path : undefined;
@@ -114,6 +116,7 @@ export const filesExtension: DesktopExtension = {
       id: "files.save-all",
       label: "Save all edited files",
       group: "Project",
+      access: "write",
       run: async (actions) => {
         const open = actions.stageTabs().filter((tab) => tab.kind === "extension" && tab.tabKind === FILE_EDITOR_TAB && tab.dirty);
         for (const tab of open) {

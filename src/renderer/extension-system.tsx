@@ -650,6 +650,8 @@ export interface PaletteItem {
   submenu?: PaletteMenu;
   /** What the row does; a row with a `submenu` needs none. */
   run?(actions: WorkbenchActions): void | Promise<void>;
+  /** As on a command: without `"read"`, a Read-only device shows the row disabled with the reason (API 1.13.0). */
+  access?: "read" | "write";
 }
 
 /**
@@ -729,11 +731,12 @@ export interface CommandContribution {
    */
   Icon?: PanelIconComponent;
   /**
-   * Running it changes nothing on the host. On a device paired Read only, the
-   * thread surfaces (title menu, touch list) disable a command without it and
-   * say why (API 1.13.0).
+   * `"read"`: safe on a device paired Read only; it only looks, or acts in this
+   * window alone (a panel, focus, the device's clipboard or preferences).
+   * `"write"`, or nothing: it changes something on the host, so on such a device
+   * every surface, the palette and chords included, disables it and says why (API 1.13.0).
    */
-  access?: "read";
+  access?: "read" | "write";
   run(actions: WorkbenchActions, context?: CommandContext): void | Promise<void>;
 }
 

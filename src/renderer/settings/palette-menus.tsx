@@ -25,6 +25,8 @@ export function themeItems(preferences: PreferencesStore, apply: (app: Workbench
   const current = preferences.getSnapshot().theme;
   const row = (id: string, label: string, icon: ReactNode, detail?: string): PaletteItem => ({
     id, label, icon, current: current === id, keywords: ["theme", "appearance"], ...(detail ? { detail } : {}),
+    // A Read-only device keeps its theme to itself.
+    access: "read",
     run: (app) => apply(app, id),
   });
   return [
@@ -69,6 +71,7 @@ export async function runtimeItems(actions: WorkbenchActions): Promise<PaletteIt
       icon: <ProviderIconStack runtimeProvider={backend.kind} />,
       keywords: [backend.label, backend.kind, "runtime"],
       current: draft && backend.kind === home,
+      access: "write",
       run: (app) => {
         if (!app.startThreadOn) throw new Error("This window cannot start a thread on another runtime.");
         app.startThreadOn(backend.kind);
@@ -105,6 +108,7 @@ export async function modelItems(preferences: PreferencesStore, actions: Workben
           icon: <ProviderIconStack modelProvider={model.provider} runtimeProvider={backend.kind} />,
           keywords: [model.id, model.provider, providerLabel(model.provider), backend.label, backend.kind],
           current: current(model),
+          access: "write",
           run: async (app) => {
             if (backend.kind === home) {
               if (!app.setModel) throw new Error("This window cannot set a model.");

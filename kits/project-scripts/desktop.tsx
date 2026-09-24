@@ -148,7 +148,7 @@ export const projectScriptsExtension: DesktopExtension = {
         const disposers: Array<() => void> = [];
         for (const script of scripts) {
           const commandId = scriptCommandId(script.id);
-          disposers.push(plugin.registerCommand({ id: commandId, label: `Run ${script.name}`, group: "Project", run: (app) => controller.run(script.id, app) }));
+          disposers.push(plugin.registerCommand({ id: commandId, label: `Run ${script.name}`, group: "Project", access: "write", run: (app) => controller.run(script.id, app) }));
           if (!script.keybinding) continue;
           try {
             disposers.push(plugin.registerKeybinding({ keys: script.keybinding, commandId }));
@@ -169,7 +169,7 @@ export const projectScriptsExtension: DesktopExtension = {
     });
 
     const region = plugin.registerRegion({ id: "project-scripts.bar", placement: "composer-above", order: 40, profiles: ["desktop", "web"], Component: createQuickActions(controller) });
-    const reload = plugin.registerCommand({ id: "project-scripts.reload", label: "Read .tau/project.json again", group: "Project", run: () => store.refresh() });
+    const reload = plugin.registerCommand({ id: "project-scripts.reload", label: "Read .tau/project.json again", group: "Project", access: "read", run: () => store.refresh() });
     void store.loadRuns();
 
     return () => {

@@ -65,6 +65,7 @@ export const titleGeneratorExtension: DesktopExtension = {
       id: "thread-titles.regenerate",
       label: "Regenerate title",
       group: "Thread",
+      access: "write",
       surfaces: ["thread-title"],
       run: async (actions) => {
         await generate(context.host, actions, context.preferences, actions.activeThread(), true);

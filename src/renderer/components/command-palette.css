@@ -62,3 +62,7 @@
 .palette-results button > .palette-current { font: 10.5px var(--sans); color: var(--muted); }
 .palette-results .palette-chevron { flex: none; color: var(--faint); }
 .palette-loading { display: flex; align-items: center; gap: 8px; }
+/* A row a Read-only device may not run: it stays in its group, dimmed, and says why. */
+.palette-results button[aria-disabled="true"] { cursor: default; }
+.palette-results button[aria-disabled="true"] > span { color: var(--faint); }
+.palette-results button > .palette-locked { font: 10.5px var(--sans); color: var(--muted); }

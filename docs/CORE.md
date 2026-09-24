@@ -177,8 +177,10 @@ send button sends. Settings on a phone is stacked: the section list, then a page
 The hello tells a device paired Read only (ADR 0024) so, and `useHostCapabilities().readOnly`
 carries it to kits, which disable a write with that reason instead of offering one the host refuses.
 Core's own writes follow it: the composer is a note, setting rows are inert with the reason, the
-title menu and the compact list disable what changes the host (a command stays enabled with
-`access: "read"`), thread commands refuse with the reason, and preferences stay on the device.
+palette, the title menu, the compact list and a file tab disable what changes the host (a command
+or palette row stays enabled with `access: "read"`; the palette leaves out a group or a source
+with no such row), a chord for such a command says why instead of running it, thread commands
+refuse with the reason, and preferences stay on the device.
 
 `mobile/` is a third entry point, the native app (Capacitor), which puts the compact
 client in a shell of its own: saved hosts, pairing by QR code or Bonjour, and a choice

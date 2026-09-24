@@ -88,3 +88,30 @@ export function menuRows(items: readonly PaletteItem[], needle: string, searches
       .map((entry) => entry.item);
   return kept.map((item) => ({ kind: "item", key: `menu:${item.id}`, item, source: "" }));
 }
+
+/**
+ * What a Read-only device lists: a group whose every command writes is left
+ * out, as is a source whose every row does; the other writes stay, disabled.
+ */
+export function readOnlyCommands(commands: readonly PaletteCommand[]): PaletteCommand[] {
+  const looking = new Set(commands.filter((command) => command.access === "read").map((command) => command.group));
+  return commands.filter((command) => looking.has(command.group));
+}
+
+export function readOnlySources(sources: readonly PaletteSourceResult[]): PaletteSourceResult[] {
+  return sources.filter((source) => source.items.some((item) => item.access === "read"));
+}
+
+/** The row's command or item, which carries its `access`. */
+export function rowEntry(row: PaletteRow): PaletteCommand | PaletteItem {
+  return row.kind === "command" ? row.command : row.item;
+}
+
+/** The next row from `from` in `step` direction that `usable` allows, wrapping; `from` itself when none is. */
+export function stepRow(count: number, from: number, step: 1 | -1, usable: (index: number) => boolean): number {
+  for (let offset = 1; offset <= count; offset += 1) {
+    const index = (((from + step * offset) % count) + count) % count;
+    if (usable(index)) return index;
+  }
+  return from;
+}

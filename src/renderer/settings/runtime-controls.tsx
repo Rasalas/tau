@@ -55,7 +55,7 @@ export const runtimeControls: DesktopExtension = {
   id: "tau.runtime-settings",
   name: "Runtime Controls",
   activate(plugin) {
-    plugin.registerCommand({ id: "runtime.settings", label: "Open Settings", group: "Runtime", run: (app) => app.openSettings() });
+    plugin.registerCommand({ id: "runtime.settings", label: "Open Settings", group: "Runtime", access: "read", run: (app) => app.openSettings() });
     // The way back from another machine must not depend on the kits that machine serves (ADR 0025).
     const environments = plugin.environments;
     if (environments?.shownElsewhere) {
@@ -63,16 +63,18 @@ export const runtimeControls: DesktopExtension = {
         id: "runtime.show-this-computer",
         label: "Back to this computer",
         group: "Workbench",
+        access: "read",
         run: (app) => environments.showLocal().catch((error: unknown) => app.notify(error instanceof Error ? error.message : String(error))),
       });
     }
     // In the palette it lists the models; from a chord it opens the picker.
-    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", submenu: lazyLevel("Set model", (loaded, app) => loaded.modelItems(plugin.preferences, app)), run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
-    plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", run: (app) => app.openSettings("defaults") });
+    plugin.registerCommand({ id: "runtime.model", label: "Set model…", group: "Runtime", access: "write", submenu: lazyLevel("Set model", (loaded, app) => loaded.modelItems(plugin.preferences, app)), run: (app) => (app.openModelPicker ? app.openModelPicker() : app.openSettings("defaults")) });
+    plugin.registerCommand({ id: "runtime.thinking", label: "Set thinking level…", group: "Thread", access: "write", run: (app) => app.openSettings("defaults") });
     plugin.registerCommand({
       id: "runtime.compact",
       label: "Compact context",
       group: "Thread",
+      access: "write",
       run: async (app) => {
         if (app.compactContext) {
           await app.compactContext();
@@ -80,13 +82,14 @@ export const runtimeControls: DesktopExtension = {
         }
       },
     });
-    plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", run: (app) => app.newSession() });
-    plugin.registerCommand({ id: "runtime.new-thread-on", label: "New thread on…", group: "Thread", submenu: lazyLevel("New thread on", (loaded, app) => loaded.runtimeItems(app)), run: (app) => app.openCommandPalette({ menu: "runtime.new-thread-on" }) });
+    plugin.registerCommand({ id: "runtime.new-session", label: "Create new thread", group: "Thread", access: "write", run: (app) => app.newSession() });
+    plugin.registerCommand({ id: "runtime.new-thread-on", label: "New thread on…", group: "Thread", access: "write", submenu: lazyLevel("New thread on", (loaded, app) => loaded.runtimeItems(app)), run: (app) => app.openCommandPalette({ menu: "runtime.new-thread-on" }) });
     for (const level of TRANSCRIPT_DETAIL_LEVELS) {
       plugin.registerCommand({
         id: `runtime.transcript-${level}`,
         label: `Transcript: ${DETAIL_LABELS[level]}`,
         group: "Thread",
+        access: "read",
         run: (app) => applyTranscriptDetail(plugin.preferences, app, level),
       });
     }
@@ -94,6 +97,7 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.transcript-detail",
       label: "Cycle transcript detail",
       group: "Thread",
+      access: "read",
       run: (app) => applyTranscriptDetail(
         plugin.preferences,
         app,
@@ -105,6 +109,7 @@ export const runtimeControls: DesktopExtension = {
         id: `runtime.theme-${theme}`,
         label: `Theme: ${THEME_LABELS[theme]}`,
         group: "Runtime",
+        access: "read",
         run: (app) => applyTheme(plugin.preferences, app, theme),
       });
     }
@@ -112,6 +117,7 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.theme-menu",
       label: "Change theme…",
       group: "Runtime",
+      access: "read",
       submenu: lazyLevel("Change theme", (loaded) => loaded.themeItems(plugin.preferences, (app, theme) => applyTheme(plugin.preferences, app, theme))),
       run: (app) => app.openCommandPalette({ menu: "runtime.theme-menu" }),
     });
@@ -119,31 +125,32 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.theme",
       label: "Cycle the theme",
       group: "Runtime",
+      access: "read",
       run: (app) => applyTheme(plugin.preferences, app, nextTheme(plugin.preferences.getSnapshot().theme)),
     });
-    plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", run: (app) => app.abort() });
-    plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", run: (app) => {
+    plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", access: "write", run: (app) => app.abort() });
+    plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", access: "write", run: (app) => {
       const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut~="composer.effort"]');
       if (control && !control.disabled) control.click();
       else app.notify("This thread's runtime sets its reasoning itself.");
     } });
-    plugin.registerCommand({ id: "thread.steerQueuedMessage", label: "Send the oldest queued message now", group: "Thread", run: (app) => { app.steerQueuedMessage?.(); } });
-    plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", run: (app) => app.openCommandPalette() });
-    plugin.registerCommand({ id: "runtime.thread-tree", label: "Thread tree…", group: "Thread", run: (app) => app.openThreadTree("navigate") });
-    plugin.registerCommand({ id: "runtime.fork-thread", label: "Fork thread…", group: "Thread", run: (app) => app.openThreadTree("fork") });
-    plugin.registerCommand({ id: "runtime.duplicate-thread", label: "Duplicate thread", group: "Thread", run: async (app) => { await app.duplicateThread(); } });
-    plugin.registerCommand({ id: "runtime.reload", label: "Apply changes and reload Tau", group: "Runtime", run: async (app) => { await app.reloadWorkbench(); } });
-    plugin.registerCommand({ id: "runtime.open-source", label: "Open Tau source", group: "Runtime", run: async (app) => { await app.openWorkbenchSource(); } });
-    plugin.registerCommand({ id: "workbench.focus-composer", label: "Focus composer", group: "Workbench", run: (app) => app.focusComposer() });
-    plugin.registerCommand({ id: "workbench.focus-transcript", label: "Focus transcript", group: "Workbench", run: (app) => app.focusTranscript() });
-    plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", run: (app) => app.focusStage() });
-    plugin.registerCommand({ id: "workbench.toggle-sidebar", label: "Toggle sidebar", group: "Workbench", run: (app) => app.toggleSidebar?.() });
-    plugin.registerCommand({ id: "workbench.toggle-dock", label: "Toggle dock", group: "Workbench", run: (app) => app.toggleDock() });
+    plugin.registerCommand({ id: "thread.steerQueuedMessage", label: "Send the oldest queued message now", group: "Thread", access: "write", run: (app) => { app.steerQueuedMessage?.(); } });
+    plugin.registerCommand({ id: "runtime.command-palette", label: "Open command palette", group: "Runtime", access: "read", run: (app) => app.openCommandPalette() });
+    plugin.registerCommand({ id: "runtime.thread-tree", label: "Thread tree…", group: "Thread", access: "read", run: (app) => app.openThreadTree("navigate") });
+    plugin.registerCommand({ id: "runtime.fork-thread", label: "Fork thread…", group: "Thread", access: "write", run: (app) => app.openThreadTree("fork") });
+    plugin.registerCommand({ id: "runtime.duplicate-thread", label: "Duplicate thread", group: "Thread", access: "write", run: async (app) => { await app.duplicateThread(); } });
+    plugin.registerCommand({ id: "runtime.reload", label: "Apply changes and reload Tau", group: "Runtime", access: "write", run: async (app) => { await app.reloadWorkbench(); } });
+    plugin.registerCommand({ id: "runtime.open-source", label: "Open Tau source", group: "Runtime", access: "write", run: async (app) => { await app.openWorkbenchSource(); } });
+    plugin.registerCommand({ id: "workbench.focus-composer", label: "Focus composer", group: "Workbench", access: "read", run: (app) => app.focusComposer() });
+    plugin.registerCommand({ id: "workbench.focus-transcript", label: "Focus transcript", group: "Workbench", access: "read", run: (app) => app.focusTranscript() });
+    plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", access: "read", run: (app) => app.focusStage() });
+    plugin.registerCommand({ id: "workbench.toggle-sidebar", label: "Toggle sidebar", group: "Workbench", access: "read", run: (app) => app.toggleSidebar?.() });
+    plugin.registerCommand({ id: "workbench.toggle-dock", label: "Toggle dock", group: "Workbench", access: "read", run: (app) => app.toggleDock() });
     // T3 Code's command id, so a keybindings.json written for it works here too.
-    plugin.registerCommand({ id: "rightPanel.toggleMaximized", label: "Maximize or restore panel", group: "Workbench", run: (app) => app.togglePanelMaximized?.() });
-    plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", run: (app) => app.closeActiveStageTab?.() });
-    plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", run: (app) => app.cycleStageTab?.(1) });
-    plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", run: (app) => app.cycleStageTab?.(-1) });
+    plugin.registerCommand({ id: "rightPanel.toggleMaximized", label: "Maximize or restore panel", group: "Workbench", access: "read", run: (app) => app.togglePanelMaximized?.() });
+    plugin.registerCommand({ id: "workbench.close-stage-tab", label: "Close active stage tab", group: "Workbench", access: "read", run: (app) => app.closeActiveStageTab?.() });
+    plugin.registerCommand({ id: "workbench.next-stage-tab", label: "Next stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(1) });
+    plugin.registerCommand({ id: "workbench.prev-stage-tab", label: "Previous stage tab", group: "Workbench", access: "read", run: (app) => app.cycleStageTab?.(-1) });
     plugin.registerSlashCommand({ name: "reload", description: "Apply source and extension changes, then reload Tau", run: async (_args, app) => (await app.reloadWorkbench()) ? undefined : "Tau reload failed." });
     plugin.registerSlashCommand({ name: "source", description: "Open Tau's editable source", run: async (_args, app) => (await app.openWorkbenchSource()) ? undefined : "Tau source could not be opened." });
     plugin.registerSlashCommand({ name: "tree", description: "Move this thread to another point of its session tree", run: (_args, app) => app.openThreadTree("navigate") });
@@ -280,12 +287,14 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.instructions",
       label: "Inspect active system prompt & instructions",
       group: "Thread",
+      access: "read",
       run: (app) => app.openInstructions?.(),
     });
     plugin.registerCommand({
       id: "runtime.copy-chat",
       label: "Copy chat as Markdown",
       group: "Thread",
+      access: "read",
       run: async (app) => {
         if (app.copyChat) {
           await app.copyChat();
@@ -297,6 +306,7 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.rename-thread",
       label: "Rename thread",
       group: "Thread",
+      access: "write",
       run: async (app) => {
         const currentTitle = app.activeThread()?.sessionId ?? "";
         const next = window.prompt("New thread title:", currentTitle);
@@ -310,6 +320,7 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.cycle-model",
       label: "Cycle model forward",
       group: "Runtime",
+      access: "write",
       run: async (app) => {
         if (app.cycleModel) {
           await app.cycleModel(1);
@@ -320,6 +331,7 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.cycle-model-backward",
       label: "Cycle model backward",
       group: "Runtime",
+      access: "write",
       run: async (app) => {
         if (app.cycleModel) {
           await app.cycleModel(-1);
@@ -330,6 +342,7 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.cycle-thinking",
       label: "Cycle thinking level",
       group: "Thread",
+      access: "write",
       run: async (app) => {
         if (app.cycleThinking) {
           await app.cycleThinking();
@@ -340,6 +353,7 @@ export const runtimeControls: DesktopExtension = {
       id: "runtime.open-prompt-editor",
       label: "Open prompt in external editor",
       group: "Composer",
+      access: "write",
       run: async (app) => {
         if (app.openPromptEditor) {
           await app.openPromptEditor();
