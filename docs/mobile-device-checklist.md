@@ -110,10 +110,25 @@ Bonjour type, a fake `tailscale` and the iOS Simulator (`docs/agents/testing-the
 
 ## 9. Push notifications
 
-Once push notifications ship (F08): start a turn from the phone, lock it, and check that a
-notification arrives when the turn finishes, when it fails, and when the agent asks a
-question; that tapping it opens that thread; and that "Title only" hides the snippet. Until
-then, skip this section.
+First set up your APNs key (and for Android your Firebase project) as in
+`docs/mobile-testflight.md`, section 8.
+
+1. [ ] Open the Mac in the app; the phone asks whether Tau may send notifications: **Allow**.
+       Settings → Push on the Mac lists the phone under Devices.
+2. [ ] The paper-plane button in that row: a notification "Push notifications reach this
+       device." arrives within seconds. If not, the row says why.
+3. [ ] Start a turn from the phone ("Run sleep 240, then reply with one word"), lock the
+       phone and do not touch the Mac for those four minutes. When the turn ends: a notification with the thread's
+       title and the first line of the answer.
+4. [ ] Tap it: the app opens that thread.
+5. [ ] Ask for something the agent must ask back about (or a permission): the notification
+       shows the question.
+6. [ ] With the Mac's Tau window in front and in use, let a turn end: no notification on
+       the phone.
+7. [ ] Settings → Push → Content **Title only**, one more turn: the notification shows the
+       title and "Finished", no text of the answer.
+8. [ ] Revoke the phone in Connections: Settings → Push no longer lists it, and no further
+       notifications arrive.
 
 ## Afterwards
 

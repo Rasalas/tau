@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { HostClientInfo, HostClientObserver, HostClientTransport } from "./host-extensions.js";
+import type { HostClientInfo, HostClientObserver, HostClientTransport, HostPairedDevice } from "./host-extensions.js";
 
 /** What a transport tells the registry about the client that just said hello. */
 export interface HostClientAttachment {
@@ -18,6 +18,8 @@ export class HostClientRegistry {
   private readonly clients = new Map<string, HostClientInfo>();
   private readonly byKey = new Map<string, string>();
   private readonly observers = new Set<HostClientObserver>();
+  private deviceSource: () => readonly HostPairedDevice[] = () => [];
+  private deviceKey = "";
 
   constructor(private readonly onChange?: (count: number) => void) {}
 
@@ -32,6 +34,24 @@ export class HostClientRegistry {
 
   list(): readonly HostClientInfo[] {
     return [...this.clients.values()];
+  }
+
+  /** The paired devices, from the host's access store once it is open. */
+  devices(): readonly HostPairedDevice[] {
+    return this.deviceSource();
+  }
+
+  setDeviceSource(source: () => readonly HostPairedDevice[]): void {
+    this.deviceSource = source;
+    this.devicesChanged();
+  }
+
+  /** The access store changed; observers hear of it only when the device list did. */
+  devicesChanged(): void {
+    const key = JSON.stringify(this.deviceSource().map((device) => [device.id, device.name, device.access]));
+    if (key === this.deviceKey) return;
+    this.deviceKey = key;
+    for (const observer of [...this.observers]) observer.devicesChanged?.();
   }
 
   /** Records a client and answers with the id the host will know it by. */

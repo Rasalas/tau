@@ -1,6 +1,7 @@
 import { HostCommandError, type HostExtension } from "tau/host-extension";
 import { AttentionBook, type AttentionChange } from "./attention.js";
 import {
+  ATTENDED_COMMAND,
   ATTENTION_EVENT,
   NOTIFICATIONS_EXTENSION_ID,
   NOTIFY_EVENT,
@@ -23,7 +24,12 @@ function decodePresence(input: unknown): PresenceInput {
   if (!value || typeof value.clientKey !== "string" || !value.clientKey || typeof value.focused !== "boolean") {
     throw new HostCommandError("presence takes { clientKey, focused, threadId? }.");
   }
-  return { clientKey: value.clientKey, focused: value.focused, ...(typeof value.threadId === "string" && value.threadId ? { threadId: value.threadId } : {}) };
+  return {
+    clientKey: value.clientKey,
+    focused: value.focused,
+    ...(typeof value.threadId === "string" && value.threadId ? { threadId: value.threadId } : {}),
+    ...(value.idle === true ? { idle: true } : {}),
+  };
 }
 
 /**
@@ -77,6 +83,7 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
         if (change.changed) context.emit(ATTENTION_EVENT, { items: book.list() });
         return { items: book.list(), ...(change.delivery ? { delivery: change.delivery } : {}) };
       }, { access: "read" });
+      context.registerCommand(ATTENDED_COMMAND, () => ({ attended: book.attended() }), { access: "read", callers: ["tau.push"] });
       context.registerCommand("leave", (input) => {
         const clientKey = (input as { clientKey?: unknown } | null)?.clientKey;
         if (typeof clientKey === "string") book.leave(clientKey);

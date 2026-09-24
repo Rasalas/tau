@@ -414,6 +414,16 @@ export interface HostClientInfo {
 export interface HostClientObserver {
   attached?(clientId: string, client: HostClientInfo): void;
   detached?(clientId: string): void;
+  /** A device was paired, renamed, changed its preset, was revoked or expired. New in API 1.13.0. */
+  devicesChanged?(): void;
+}
+
+/** A device paired with this host (ADR 0024), as Settings → Connections lists it. New in API 1.13.0. */
+export interface HostPairedDevice {
+  /** The same id `HostCommandCall.device` names. */
+  readonly id: string;
+  readonly name: string;
+  readonly access: "full" | "read-only";
 }
 
 /**
@@ -450,6 +460,11 @@ export interface HostNetworkServices {
 export interface HostClientServices {
   observe(observer: HostClientObserver): () => void;
   count(): number;
+  /**
+   * The devices paired with this host, connected or not; empty on a host that
+   * pairs none (a window's own in-process host). Absent before API 1.13.0.
+   */
+  devices?(): readonly HostPairedDevice[];
 }
 
 /**
@@ -878,7 +893,24 @@ export interface HostExtensionServices {
   presentUi(presenter: HostUiPresenter): () => void;
 }
 
-export type HostExtensionCommandHandler = (input: unknown) => unknown;
+/** Who called a host command. New in API 1.13.0; an older host passes nothing. */
+export interface HostCommandCall {
+  /** The paired device that called (`HostPairedDevice.id`); absent for the host token, a window, the host and another kit. */
+  readonly device?: string;
+  /** The caller may manage this host (ADR 0024): the host itself, its own window, or the host token from this machine. */
+  readonly owner: boolean;
+  /** The kit whose host half called, through `invokeHostExtension`; absent for a client and the host. */
+  readonly extension?: string;
+}
+
+export type HostExtensionCommandHandler = (input: unknown, call: HostCommandCall) => unknown;
+
+/** What a command learns of the principal behind it; `extension` is the calling kit, resolved by the registry. */
+export function commandCall(principal: HostInvocationPrincipal, extension?: string): HostCommandCall {
+  if (principal.kind === "host-core") return { owner: true };
+  if (principal.kind !== "workbench-client") return { owner: false, ...(extension ? { extension } : {}) };
+  return { ...(principal.pairedClient ? { device: principal.pairedClient } : {}), owner: isHostOwner(principal) };
+}
 
 /** A topic narrows an event to the clients that watch it; 1 to 256 characters. */
 export interface HostExtensionEmitOptions {
@@ -1232,9 +1264,10 @@ export class HostExtensionRegistry {
     // the extension, not three of any command.
     const commandKey = `${extensionId}/${command}`;
     try {
+      const call = commandCall(principal, principal.kind === "host-extension" ? this.invocationContexts.get(principal.contextId)?.extensionId : undefined);
       const result = await runAsCaller(principal, async () => record.longCommands.has(command)
-        ? await handler(input)
-        : await this.runWithTimeout(() => handler(input), timeoutMs, command));
+        ? await handler(input, call)
+        : await this.runWithTimeout(() => handler(input, call), timeoutMs, command));
       this.consecutiveFailures.delete(commandKey);
       return result;
     } catch (error) {

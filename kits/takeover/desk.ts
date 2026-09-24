@@ -10,6 +10,8 @@ export interface TakeoverDeskPorts {
   resumeEvidence(threadId: string): Promise<unknown>;
   describe(threadId: string): { title?: string; sessionFile?: string };
   log(label: string, detail?: string): void;
+  /** A request began waiting for the user: reach them where they are. */
+  started?(takeover: Takeover): void;
   now(): number;
   timeoutMs?: number;
 }
@@ -54,6 +56,7 @@ export class TakeoverDesk {
       signal?.addEventListener("abort", onAbort, { once: true });
       this.pending.set(takeover.id, { takeover, settle });
       this.ports.log("takeover.started", `${threadId}: ${target.kind}`);
+      this.ports.started?.(takeover);
       // Paused before any client can draw the button that leads to a password.
       this.ports.pauseEvidence(threadId, reason).catch((error: unknown) => this.ports.log("takeover.pause-failed", String(error)))
         .finally(() => { if (this.pending.has(takeover.id)) this.publish(); });

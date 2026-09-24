@@ -128,13 +128,10 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       onCertificateMismatch: () => leaveTo("?view=hosts", `${host.name} answered with another certificate than the one this phone pinned, so the phone sent it nothing. If the host renewed its certificate, remove it here and scan a new pairing code.`),
     });
     setHostClient(client);
-    let registered = false;
-    connection.onState((state) => {
-      if (state !== "connected" || registered) return;
-      registered = true;
-      void pushRegistrar()?.register({ host, client }).catch(() => undefined);
-    });
-    void connection.start("compact").catch(() => undefined);
+    // The connection starts out "connected", so its first hello is the moment to hand over the push token.
+    void connection.start("compact").then((reply) => {
+      if (reply) void pushRegistrar()?.register({ host, client }).catch(() => undefined);
+    }).catch(() => undefined);
     void book.update(host.id, { lastUsedAt: now().toISOString() });
     setView({ name: "workbench", host, client, storage: scoped, services: createRendererServices() });
   }, [book, context, device, leaveTo, storage]);

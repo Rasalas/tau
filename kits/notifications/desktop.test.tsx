@@ -5,7 +5,7 @@ import type { PlatformAttention, SettingsPageProps, UiSession, WorkbenchActions 
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import notifications from "./desktop.js";
-import { ATTENTION_EVENT, NOTIFICATIONS_EXTENSION_ID, NOTIFY_EVENT, PRESENCE_REQUEST_EVENT, type AttentionItem } from "./protocol.js";
+import { ATTENTION_EVENT, IDLE_AFTER_MS, NOTIFICATIONS_EXTENSION_ID, NOTIFY_EVENT, PRESENCE_REQUEST_EVENT, type AttentionItem } from "./protocol.js";
 
 const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 const item = (threadId: string, reason: AttentionItem["reason"] = "completed"): AttentionItem => ({ threadId, reason, at: 1, title: `Host ${threadId}` });
@@ -38,7 +38,7 @@ function setup(options: { presence?: unknown; mode?: string } = {}) {
   const Region = registry.getRegions("composer-above")[0]!.Component;
   render(<Region actions={actions} />);
   const push = (name: string, payload?: unknown) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: NOTIFICATIONS_EXTENSION_ID, name, payload }));
-  const presences = () => invoke.mock.calls.filter((call) => call[1] === "presence").map((call) => call[2] as { clientKey: string; focused: boolean; threadId?: string });
+  const presences = () => invoke.mock.calls.filter((call) => call[1] === "presence").map((call) => call[2] as { clientKey: string; focused: boolean; threadId?: string; idle?: boolean });
   const clientKey = () => presences()[0]!.clientKey;
   registry.dispatchWorkbenchEvent({ type: "thread-index", threadIndex: { projects: [], sessions: [session("t1")] } });
   return { registry, preferences, invoke, attention, outcomes, actions, push, presences, clientKey };
@@ -52,6 +52,23 @@ describe("Notifications on the desktop", () => {
     focused = true;
     act(() => { window.dispatchEvent(new Event("focus")); });
     expect(presences().at(-1)).toMatchObject({ focused: true, threadId: "on-screen" });
+  });
+
+  it("reports a focused window nobody used for a while as idle, and busy again on the next key", async () => {
+    vi.useFakeTimers();
+    try {
+      focused = true;
+      const { presences } = setup();
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(presences().at(-1)).toMatchObject({ focused: true });
+      expect(presences().at(-1)?.idle).toBeUndefined();
+      await act(async () => { await vi.advanceTimersByTimeAsync(IDLE_AFTER_MS); });
+      expect(presences().at(-1)).toMatchObject({ focused: true, idle: true });
+      act(() => { fireEvent.keyDown(document, { key: "a" }); });
+      expect(presences().at(-1)?.idle).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("raises a system notification for news addressed to it, and opens the thread on a click", async () => {

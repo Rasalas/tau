@@ -32,6 +32,21 @@ describe("HostClientRegistry", () => {
     expect(registry.list()[0]?.id).toBe(second);
   });
 
+  it("lists the paired devices and says when the list changed, not when anything else did", () => {
+    const registry = new HostClientRegistry();
+    expect(registry.devices()).toEqual([]);
+    let devices = [{ id: "p1", name: "iPhone", access: "full" as const }];
+    let changes = 0;
+    registry.observe({ devicesChanged: () => { changes += 1; } });
+    registry.setDeviceSource(() => devices);
+    expect(registry.devices()).toEqual(devices);
+    registry.devicesChanged();
+    expect(changes).toBe(1);
+    devices = [];
+    registry.devicesChanged();
+    expect(changes).toBe(2);
+  });
+
   it("stops telling an observer that withdrew", () => {
     const registry = new HostClientRegistry();
     const seen: string[] = [];

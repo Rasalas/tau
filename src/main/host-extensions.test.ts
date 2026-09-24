@@ -336,6 +336,35 @@ describe("HostExtensionRegistry", () => {
     expect(audit).toEqual([["tau.terminal/open", false], ["tau.terminal/open", true]]);
   });
 
+  it("tells a command which paired device called it and whether the caller may manage the host", async () => {
+    const { registry: r } = registry();
+    const calls: unknown[] = [];
+    await r.activate({
+      id: "tau.push",
+      name: "Push",
+      permissions: [],
+      activate: (ctx) => {
+        ctx.registerCommand("who", (_input, call) => { calls.push(call); });
+        ctx.registerCommand("ask", async () => { await ctx.invokeHostExtension("tau.push", "who"); });
+      },
+    });
+    await r.invoke("tau.push", "who", undefined, { kind: "workbench-client", connection: "c1", pairedClient: "p1" });
+    await r.invoke("tau.push", "who", undefined, { kind: "workbench-client", connection: "c2", local: true });
+    await r.invoke("tau.push", "who", undefined, { kind: "workbench-client", connection: "c3" });
+    await r.invoke("tau.push", "who", undefined, { kind: "workbench-client" });
+    await r.invoke("tau.push", "who");
+    await r.invoke("tau.push", "ask");
+    expect(calls).toEqual([
+      { device: "p1", owner: false },
+      { owner: true },
+      // The host token through a network listener uses the host but manages nothing.
+      { owner: false },
+      { owner: true },
+      { owner: true },
+      { owner: false, extension: "tau.push" },
+    ]);
+  });
+
   it("authorizes host-issued callers per declared command and rejects forged contexts", async () => {
     const { registry: r, services: s } = registry();
     let reviewContextId = "";

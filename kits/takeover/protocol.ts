@@ -44,6 +44,9 @@ export interface TakeoverHostCommands {
   "cancel": { input: { id: string }; output: boolean };
 }
 
+/** Push Kit's `notify`, which this kit calls for "your turn"; copied rather than imported. */
+export const PUSH_EXTENSION_ID = "tau.push";
+
 /** The Evidence Kit's commands this kit calls, copied rather than imported (a kit never imports another kit). */
 export const EVIDENCE_EXTENSION_ID = "tau.evidence";
 

@@ -24,6 +24,7 @@ interface TauNativePlugin {
   discoveryStart(options: { type: string }): Promise<void>;
   discoveryStop(): Promise<void>;
   deviceInfo(): Promise<DeviceInfo>;
+  pushAvailable(): Promise<{ available: boolean }>;
   addListener(event: "socket", listener: (event: NativeSocketEvent) => void): Promise<PluginListenerHandle>;
   addListener(event: "discovery", listener: (event: { services: NativeService[]; error?: string }) => void): Promise<PluginListenerHandle>;
 }
@@ -81,4 +82,9 @@ export function browseHosts(type: string, listener: (services: NativeService[], 
 
 export function deviceInfo(): Promise<DeviceInfo> {
   return TauNative.deviceInfo();
+}
+
+/** Whether this build can receive pushes: always on iOS, on Android only with a Firebase project built in. */
+export async function pushAvailable(): Promise<boolean> {
+  return (await TauNative.pushAvailable().catch(() => ({ available: false }))).available;
 }

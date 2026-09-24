@@ -1,0 +1,13 @@
+/* Push: Settings → Push, its key forms and the device rows. */
+.push-form { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5) var(--space-6); border-top: 1px solid var(--line-card); }
+.push-form-row { display: flex; gap: var(--space-5); flex-wrap: wrap; }
+.push-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.push-field > .settings-input { width: 200px; }
+.push-field > textarea.push-key { width: 100%; height: auto; min-height: 76px; padding: 6px 10px; font: 11.5px/1.4 var(--mono); resize: vertical; }
+.push-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.push-form-actions > .chrome-button { display: inline-flex; align-items: center; gap: 6px; }
+.push-error { margin: 0; font-size: 12px; color: var(--danger); }
+.push-warning { display: flex; align-items: flex-start; gap: 6px; line-height: 1.45; }
+.push-warning > svg { flex: none; margin-top: 3px; color: var(--warn); }
+.push-settings .connection-row + .connection-row { border-top: 1px solid var(--line-card); }
+.push-device-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; color: var(--muted); }

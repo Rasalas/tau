@@ -1894,6 +1894,31 @@ without asking the host what changed. `context.events.on("host-connection", …)
 `resyncing` or `refused` — whenever the window's link to the host changes;
 `connected` after any other state means it is back.
 
+The same member lists the devices paired with this host (new in API 1.13.0):
+`clients.devices()` answers `HostPairedDevice[]` — `{ id, name, access }`, connected
+or not — and an observer's `devicesChanged()` runs when a device is paired,
+renamed, changes its preset, is revoked or expires. A window's own in-process
+host pairs none and answers `[]`; a host older than 1.13.0 has no `devices`, so
+call it as `clients.devices?.()`. Anything a package keeps per device — Push Kit
+keeps each phone's push token — goes when its device leaves this list; drop it
+from `devicesChanged`, not on a list read before the host opened its access
+store.
+
+### Who called a command: `HostCommandCall` (new in API 1.13.0)
+
+A command handler gets a second argument, `(input, call)`:
+
+| Member | What it is |
+|---|---|
+| `call.device` | The paired device that called (`HostPairedDevice.id`); absent for the host token, a window, the host and another kit. |
+| `call.owner` | The caller may manage this host ([ADR 0024](adr/0024-pairing-allowed-on-the-host.md)): the host itself, its own window, or the host token from this machine through the loopback listener. The host token over a LAN or proxy listener and every paired device are not. |
+| `call.extension` | The kit whose host half called through `invokeHostExtension`; absent for a client and the host. |
+
+Use `device` for state that belongs to the device asking (a push token), and
+`owner` for settings only this machine's user should change (a key). A worker
+package gets the same object. An older host passes nothing, so a package that
+relies on it treats a missing `call` as "not the owner, no device" and refuses.
+
 ### Commands a Read-only device may call: `access: "read"` (new in API 1.13.0)
 
 A paired device is Full or Read only ([ADR 0024](adr/0024-pairing-allowed-on-the-host.md)).
@@ -1996,6 +2021,19 @@ core's to say: a host half that raises news knows who is attached from
 `services.clients`, and Notifications (`kits/notifications/`) lets each client
 report whether its window has focus and which thread it shows, so exactly one
 of them hears of a thread nobody is looking at. That kit is the shipped caller.
+
+### A phone outside the app: Push Kit
+
+The host sends push notifications itself (`kits/push/`), with the user's own
+APNs key and Firebase service account, entered in Settings → Push and kept in
+`<userData>/kit-state/tau.push/keys.json` (mode 0600, not encrypted — the host
+has no keychain). The native app registers its token with the `register`
+command after connecting. A package that wants a phone to hear of something
+calls `invokeHostExtension("tau.push", "notify", { threadId, kind, text? })`
+from its host half — `kind` is `completed`, `failed`, `turn`, `question` or
+`approval` — once Push Kit grants it as a caller; Takeover does for "your turn".
+Push stays quiet while Notifications Kit's `attended` command says someone is at
+a focused client that was used in the last three minutes.
 
 ### Other machines: `context.environments`
 

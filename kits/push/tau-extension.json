@@ -1,0 +1,17 @@
+{
+  "id": "tau.push",
+  "name": "Push",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.12.0"
+  },
+  "permissions": [
+    "sessions",
+    "runtime:extend",
+    "network"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}

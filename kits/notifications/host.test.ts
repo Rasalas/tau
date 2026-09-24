@@ -106,6 +106,16 @@ describe("the notifications host half", () => {
     expect(named(ATTENTION_EVENT).at(-1)).toEqual({ items: [] });
   });
 
+  it("tells Push whether someone is at a focused client that was used lately", async () => {
+    const { presence, registry } = await harness();
+    const attended = () => registry.invoke(NOTIFICATIONS_EXTENSION_ID, "attended");
+    await expect(attended()).resolves.toEqual({ attended: false });
+    await presence({ clientKey: "window", focused: true, threadId: "t2" });
+    await expect(attended()).resolves.toEqual({ attended: true });
+    await presence({ clientKey: "window", focused: true, threadId: "t2", idle: true });
+    await expect(attended()).resolves.toEqual({ attended: false });
+  });
+
   it("refuses a presence report it cannot read", async () => {
     const { presence } = await harness();
     await expect(presence({ focused: true })).rejects.toThrow(/clientKey/u);

@@ -12,6 +12,8 @@ import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
 import { browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, type DeviceInfo } from "./native";
 import { linkRoute, readRoute } from "./routes";
+import { createPushRegistrar, setPushRegistrar, tapRoute } from "./push";
+import { nativePushPort } from "./push-native";
 import { nativeWakeSource } from "./wakes";
 
 /** Outside a native shell (a browser during development) the plugin is missing. */
@@ -19,6 +21,8 @@ const BROWSER_DEVICE: DeviceInfo = { name: "Browser", model: "browser", platform
 
 async function boot(): Promise<void> {
   const [bridge, device] = await Promise.all([createSocketBridge(), deviceInfo().catch(() => BROWSER_DEVICE)]);
+  const push = nativePushPort(device.platform);
+  setPushRegistrar(createPushRegistrar(push));
   const context: AppContext = {
     storage: createLocalStorageAdapter(),
     book: new HostBook(secureStore),
@@ -31,7 +35,9 @@ async function boot(): Promise<void> {
     navigate: (search) => window.location.replace(`${window.location.pathname}${search}`),
     subscribeToLinks: (listener) => {
       const handle = App.addListener("appUrlOpen", ({ url }) => { const route = linkRoute(url); if (route) listener(route); });
-      return () => { void handle.then((entry) => entry.remove()); };
+      // A tapped notification carries the same link.
+      const stopTaps = push.onTap((data) => { const route = tapRoute(data); if (route) listener(route); });
+      return () => { stopTaps(); void handle.then((entry) => entry.remove()); };
     },
   };
   const launch = await App.getLaunchUrl().catch(() => undefined);

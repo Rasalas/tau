@@ -237,6 +237,7 @@ const services: WorkerHostServices = {
   clients: {
     observe: (observer) => registerHooks("clients.observe", observer as Record<string, unknown>, CLIENT_HOOKS),
     count: () => rpc("clients.count") as Promise<number>,
+    devices: () => rpc("clients.devices") as ReturnType<WorkerHostServices["clients"]["devices"]>,
   },
   network: {
     state: () => rpc("network.state") as ReturnType<WorkerHostServices["network"]["state"]>,
@@ -303,7 +304,7 @@ port.on("message", (message: HostToWorkerMessage) => {
       const handler = commands.get(message.command);
       answer(message.id, () => {
         if (!handler) throw new Error(`Host extension ${boot.id} has no command "${message.command}".`);
-        return handler(message.input);
+        return handler(message.input, message.call ?? { owner: false });
       });
       return;
     }

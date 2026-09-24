@@ -184,6 +184,15 @@ public class TauNativePlugin extends Plugin {
         call.resolve(result);
     }
 
+    /** FCM needs the Firebase project's google-services.json at build time; without it registering would crash. */
+    @PluginMethod
+    public void pushAvailable(PluginCall call) {
+        int id = getContext().getResources().getIdentifier("google_app_id", "string", getContext().getPackageName());
+        JSObject result = new JSObject();
+        result.put("available", id != 0);
+        call.resolve(result);
+    }
+
     @Override
     protected void handleOnDestroy() {
         for (PinnedSocket socket : sockets.values()) socket.close(1001, null);
