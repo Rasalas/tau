@@ -136,6 +136,15 @@ function assertUnderDevDir(path) {
 }
 
 /**
+ * What `--fresh` wipes. The runtime kits keep their threads beside the Pi
+ * session store (`<sessions>/../tau/*-runtime-sessions.json`); left behind, a
+ * fresh instance would still list the conversations an earlier run imported.
+ */
+export function freshPaths({ userData, sessionsDir }) {
+  return [userData, ...(sessionsDir ? [sessionsDir, join(dirname(sessionsDir), "tau")] : [])];
+}
+
+/**
  * The host runs in its own process now (ADR 0021); `<userData>/host.json` is
  * where it says so. Reading it back into `instance.json` is what lets a driver
  * stop this instance's host without ever guessing at a pid.
@@ -217,11 +226,9 @@ async function main() {
   const importRoots = process.env.TAU_IMPORT_ROOTS ?? join(DEV_DIR, "import-roots");
 
   if (options.fresh) {
-    assertUnderDevDir(userData);
-    rmSync(userData, { recursive: true, force: true });
-    if (sessionsDir) {
-      assertUnderDevDir(sessionsDir);
-      rmSync(sessionsDir, { recursive: true, force: true });
+    for (const path of freshPaths({ userData, sessionsDir })) {
+      assertUnderDevDir(path);
+      rmSync(path, { recursive: true, force: true });
     }
   }
 

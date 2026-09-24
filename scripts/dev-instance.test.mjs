@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { derivePort, findFreePort, parseArgs, prepareCodexHome, preparePiAgentDir, seedConfigFile } from "./dev-instance.mjs";
+import { derivePort, findFreePort, freshPaths, parseArgs, prepareCodexHome, preparePiAgentDir, seedConfigFile } from "./dev-instance.mjs";
 
 describe("derivePort", () => {
   it("is deterministic for the same seed", () => {
@@ -190,5 +190,16 @@ describe("preparePiAgentDir", () => {
     expect(lstatSync(join(older, "keybindings.json")).isSymbolicLink()).toBe(false);
     writeFileSync(join(older, "keybindings.json"), "{}");
     expect(readFileSync(join(real, "keybindings.json"), "utf8")).toBe('{"app.exit":"ctrl+d"}');
+  });
+});
+
+describe("freshPaths", () => {
+  it("wipes the runtime kits' thread stores beside the session store, so imported conversations go too", () => {
+    expect(freshPaths({ userData: "/w/.tau-dev/userdata", sessionsDir: "/w/.tau-dev/pi-sessions" }))
+      .toEqual(["/w/.tau-dev/userdata", "/w/.tau-dev/pi-sessions", "/w/.tau-dev/tau"]);
+  });
+
+  it("leaves a shared session store and its neighbours alone", () => {
+    expect(freshPaths({ userData: "/w/.tau-dev/userdata", sessionsDir: undefined })).toEqual(["/w/.tau-dev/userdata"]);
   });
 });
