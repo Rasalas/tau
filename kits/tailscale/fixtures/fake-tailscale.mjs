@@ -3,7 +3,8 @@
 // never talks to tailscaled or a tailnet. It answers `status --json`,
 // `serve status --json`, `serve --bg --https=<port> <target>`,
 // `serve --https=<port> [--set-path=<path>] off` and `serve reset`, keeping
-// Serve's config in FAKE_TAILSCALE_STATE/state.json in `ipn.ServeConfig`'s
+// Serve's config in FAKE_TAILSCALE_STATE/state.json (else
+// <TAU_USER_DATA>/../fake-tailscale) in `ipn.ServeConfig`'s
 // shape. Every call is appended to FAKE_TAILSCALE_STATE/calls.log; anything
 // else (`funnel`, `cert`, `set`, `up`) is refused with exit code 2.
 //
@@ -22,9 +23,10 @@ import { connect } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const dir = process.env.FAKE_TAILSCALE_STATE;
+// A service host started from an instance keeps TAU_USER_DATA but not this fake's own variable.
+const dir = process.env.FAKE_TAILSCALE_STATE || (process.env.TAU_USER_DATA ? join(process.env.TAU_USER_DATA, "..", "fake-tailscale") : undefined);
 if (!dir) {
-  process.stderr.write("fake-tailscale: FAKE_TAILSCALE_STATE names the folder the fake keeps its state in\n");
+  process.stderr.write("fake-tailscale: FAKE_TAILSCALE_STATE (or TAU_USER_DATA) names the folder the fake keeps its state in\n");
   process.exit(2);
 }
 mkdirSync(dir, { recursive: true });
