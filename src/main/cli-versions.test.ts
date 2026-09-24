@@ -13,14 +13,14 @@ describe("npmLatestVersion", () => {
     const cacheFile = join(await mkdtemp(join(tmpdir(), "tau-npm-")), "versions.json");
     let now = 1_000;
     const fetch = registry("0.155.1");
-    expect(await npmLatestVersion("@openai/codex", { cacheFile, fetch, now: () => now })).toBe("0.155.1");
+    expect(await npmLatestVersion("@openai/codex", { cacheFile, fetch, now: () => now, env: {} })).toBe("0.155.1");
     expect(fetch).toHaveBeenCalledWith("https://registry.npmjs.org/@openai/codex/latest", expect.objectContaining({ headers: { accept: "application/json" } }));
     now += 60_000;
-    expect(await npmLatestVersion("@openai/codex", { cacheFile, fetch, now: () => now })).toBe("0.155.1");
+    expect(await npmLatestVersion("@openai/codex", { cacheFile, fetch, now: () => now, env: {} })).toBe("0.155.1");
     expect(fetch).toHaveBeenCalledTimes(1);
     now += 24 * 60 * 60 * 1000;
     const next = registry("0.156.0");
-    expect(await npmLatestVersion("@openai/codex", { cacheFile, fetch: next, now: () => now })).toBe("0.156.0");
+    expect(await npmLatestVersion("@openai/codex", { cacheFile, fetch: next, now: () => now, env: {} })).toBe("0.156.0");
     expect(JSON.parse(await readFile(cacheFile, "utf8")).packages["@openai/codex"].version).toBe("0.156.0");
   });
 
@@ -29,6 +29,14 @@ describe("npmLatestVersion", () => {
     expect(await npmLatestVersion("pkg", { cacheFile, fetch: vi.fn(async () => { throw new Error("offline"); }) })).toBeUndefined();
     await npmLatestVersion("pkg", { cacheFile, fetch: registry("1.0.0"), now: () => 0 });
     expect(await npmLatestVersion("pkg", { cacheFile, fetch: registry(undefined, false), now: () => 10 * 24 * 60 * 60 * 1000 })).toBe("1.0.0");
+  });
+
+  it("asks nothing and answers nothing while TAU_NO_RUNTIME_UPDATES=1", async () => {
+    const cacheFile = join(await mkdtemp(join(tmpdir(), "tau-npm-")), "versions.json");
+    await npmLatestVersion("pkg", { cacheFile, fetch: registry("1.0.0"), env: {} });
+    const fetch = registry("1.0.1");
+    expect(await npmLatestVersion("pkg", { cacheFile, fetch, env: { TAU_NO_RUNTIME_UPDATES: "1" } })).toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

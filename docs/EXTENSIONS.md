@@ -1489,7 +1489,10 @@ out, with `updateCommand`, whenever `installed` is older than `latest`
 or where in Tau to click. For a CLI that npm publishes, `tau/host-extension`
 has the pieces: `npmLatestVersion(packageName, { cacheFile })` reads the
 registry's `latest` tag with one GET a day, cached in a file of the caller's
-(under `services.stateDir`), and never throws; `packageUpdateCommand(realPath,
+(under `services.stateDir`), and never throws; with `TAU_NO_RUNTIME_UPDATES=1`
+(test instances, smokes, benchmarks) it asks nothing and answers `undefined`,
+and core drops `latest` from every version it publishes, so no client offers
+an update; `packageUpdateCommand(realPath,
 packageName)` names the Homebrew, npm, pnpm or bun command that owns an
 executable's resolved path, or `undefined` for the program's own updater. The
 registry request needs the `network` permission. Claude Code and Codex use
